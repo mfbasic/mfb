@@ -37,11 +37,11 @@
         "line": 13,
         "expression": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] },
         "handler": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "worker timeout" }] }, "line": 14 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected worker error" }] }, "line": 14 },
         { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
         ]
       }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected full result" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker timeout " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 17 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
       ]
     }
@@ -85,11 +85,11 @@
         "line": 35,
         "expression": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] },
         "handler": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "cancelled" }] }, "line": 36 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected cancel error" }] }, "line": 36 },
         { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
         ]
       }, "line": 35 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected cancel result" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cancelled " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 39 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 40 }
       ]
     }

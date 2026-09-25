@@ -1,13 +1,13 @@
 IMPORT thread
 IMPORT thread_workers
 
-FUNC doubleWaitCloses(t AS Thread OF Nothing TO Integer) AS Integer
+FUNC doubleWaitRepeats(t AS Thread OF Nothing TO Integer) AS Integer
   LET first AS Integer = thread::waitFor(t)
   LET second AS Integer = thread::waitFor(t)
-  RETURN 10
+  RETURN second - first
   TRAP(err)
     IF err.code = 77030004 THEN
-      RETURN 0
+      RETURN 10
     ELSE
       RETURN 11
     END IF
@@ -21,5 +21,5 @@ FUNC main AS Integer
   IF noneValue <> 1 THEN
     RETURN 12
   END IF
-  RETURN doubleWaitCloses(closeThread)
+  RETURN doubleWaitRepeats(closeThread)
 END FUNC

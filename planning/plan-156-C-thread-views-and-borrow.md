@@ -179,7 +179,7 @@ Acceptance: all three fail for the documented reason.
   → 3 failures (est. 1 min).
   Result: "acceptance tests failed: 3 mismatch(es) (3 test(s) ran)", each
   `+Error: 7-703-0004`.
-Commit: —
+Commit: 18922642e
 
 ### Phase 2 — the verifier sees a resource
 
@@ -214,20 +214,64 @@ Acceptance: the new unit tests pass; existing verifier tests pass.
   Check: `cargo test --bin mfb verify` → pass (est. 3 min).
   Result: 487 passed. The thread syntax fixtures are unchanged by it
   (`test-accept.sh target/debug/mfb … 'syntax/threads/**'` → 39 passed).
-Commit: —
+Commit: 5d1b00379
 
 ### Phase 3 — view records, drop op, borrow, repeatable `waitFor`
 
-- [ ] Register `thread.__drop` (a `RegistryResource`-equivalent structural
+- [x] Register `thread.__drop` (a `RegistryResource`-equivalent structural
       entry), lower it, and add it to the per-target runtime lists beside
       `process.__drop`.
-- [ ] `thread::start` and the trampoline build the view records (§3). Add
+      (Correction 1: it is the existing `thread.drop`, already in the per-target
+      lists and planned by `module_has_thread_owner`. Registered structurally in
+      `resource::builtin_resource_close_function` — a `ThreadHandle` arm, `DROP`
+      for a parent view, `None` for a worker — which every resource path asks
+      (`resource_cleanup_symbol`, the `RETURN` deactivation, the verifier's
+      `close_op_for`, whose Phase 2 arm now defers to it).
+      `builtins::is_resource_type` stays registry-only on purpose: the layout,
+      copy and transfer paths that ask it keep their own thread arms. Lowered by
+      `simple_thread_handle_helper`'s `Drop` arm, now one argument (the view):
+      close the view, mark the block `CLOSED` and cancelled, close every queue,
+      join a `COMPLETED` / detach a `RUNNING` worker unless the OS handle is
+      already zero, release the handle side's reference.)
+- [x] `thread::start` and the trampoline build the view records (§3). Add
       `emit_control_block_of` and re-point every builtin.
-- [ ] Delete the owner count, move-on-pass, `ThreadCleanup` and
+      (`RESOURCE_TAG_THREAD` 13 / `RESOURCE_TAG_THREAD_WORKER` 14. The parent
+      view is allocated in the caller's arena as `thread::start`'s first act and
+      freed on every failure path; the worker view is embedded in the control
+      block at `CONTROL_OFFSET_WORKER_VIEW` (960; `CONTROL_BLOCK_SIZE` 1056),
+      Correction 2, and the trampoline passes its address. `emit_control_block_of`
+      opens `simple_thread_handle_helper` (isRunning/waitFor/cancel/poll/drop),
+      `thread_queue_write_helper` (send/emit/transfer), `thread_queue_read_helper`
+      (receive/read/accept) and the worker form of the stdin subscription;
+      `isCancelled` and `os::sleep` read the pinned block register and take no
+      view. A null or closed view answers `ErrResourceClosed` through
+      `emit_view_closed_exit`. The inline-`TRAP` closed default is
+      `emit_closed_resource_record` with the thread tag;
+      `emit_closed_thread_handle` is deleted. The parent view's record is freed
+      by its drop (`resource_record_freed_at_drop`): `rt_scope_drop_leaks`'s
+      thread loops grow 0 B.)
+- [x] Delete the owner count, move-on-pass, `ThreadCleanup` and
       `ActiveCleanup::Thread` (§3). Threads go through the resource cleanup.
-- [ ] `waitFor` per §3. Update `func_wait_for.rs` DESC ("closes the handle" →
+      (Deleted: `CONTROL_OFFSET_OWNERS`, `THREAD_DROP_CLOSE`/`RELEASE`,
+      `ThreadCleanup`, `ActiveCleanup::Thread` and its arms in `emit_cleanups`,
+      `emit_cleanup_branch_to_depth`, the scope pop and `trap_route_cleanups`;
+      `emit_thread_cleanup_call`/`_for_name`, `emit_thread_owner_increment`,
+      `thread_value_is_fresh_handle`, `deactivate_thread_cleanup`,
+      `maybe_deactivate_moved_thread_local`, `deactivate_moved_thread_arguments`
+      (all six call sites), `thread_drop_symbol`, `CodeBuilder::is_thread_type`,
+      the parameter cleanup in `lower_function`, and the thread arms of the
+      `Bind` and `Assign` lowering. `cargo build` → no warnings.)
+- [x] `waitFor` per §3. Update `func_wait_for.rs` DESC ("closes the handle" →
       repeatable).
-- [ ] Re-baseline only the disproved expectations. Proof for each is spec §15
+      (The helper waits for `COMPLETED` and answers the stored result without
+      touching the state or the outbound queue; the first call joins, later
+      calls see the zero OS handle. Prose updated in `func_wait_for.rs` (DESC and
+      the `t` parameter), `func_is_running.rs`, `func_start.rs`, `func_cancel.rs`
+      (scope-end drop) and the package `MODULE_DESC`, all of which said
+      `waitFor` closes. `mfb man thread waitFor` renders it;
+      `scripts/man-census.sh --memory-scope` → "unclassified memory-vocabulary
+      hits: 0".)
+- [x] Re-baseline only the disproved expectations. Proof for each is spec §15
       plus the settled design:
   - `B622_MOVED_REUSE`, `B622_MOVED_TO_CALLEE`: the caller now reads the
     handle after the call.
@@ -235,13 +279,44 @@ Commit: —
     the result.
   - Commit each change with that proof (AGENTS.md "never edit a test to
     pass").
+  (Done, and the list was short — Correction 3. Each was a disproved line,
+  corrected in place: `B622_MOVED_REUSE` now counts `NOT isRunning` after the
+  lent call (`done=50`); `B622_MOVED_TO_CALLEE`'s program stands, its doc now
+  says the caller's drop frees; `doubleWaitCloses` → `doubleWaitRepeats`
+  (returns `second - first`); `closedAnswers`' golden now reads
+  `inline-cancel=NOTRAISED` / `plain-cancel=NOTRAISED`, the two spellings
+  still agreeing line for line, and its comments no longer claim a closed
+  handle. Also disproved: `B622_ALIAS` (a second `waitFor` through the other
+  name returns 3: `repeated=50`), `B622_TRAPPED_QUERY` (the trapped
+  `isRunning` after `waitFor` succeeds: `done=50`, the trapped wrapper still
+  built), `B622_TRAP_ROUTED` (its handler read of `t` is now
+  `TYPE_USE_AFTER_MOVE` — measured with `mfb build` on the program — so the
+  handler answers -1 itself), `thread-queue-timeout-cancel` (the callee's
+  trap route no longer closes a lent thread, so the handler's `waitFor`
+  answers the worker's own 7: `worker timeout 7`, `cancelled 7`), and
+  `func_thread_result_valid` (the second retrieval now must equal 41).
+  Separately `codegen_thread_c_return_x86_64` failed on a false positive,
+  Correction 6.)
 
 Acceptance: Phase 1's three fixtures pass; `thread-drop-cleanup` passes
 unchanged; the re-baselined tests assert the new behavior.
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**' 'syntax/threads/**'`
   → 0 failures (est. 5 min); `cargo test --test rt_scope_drop_leaks` → pass
   (est. 3 min).
-Commit: —
+  Result: the check glob plus `byte-identity/{thread,resource-xfer-slots}` and
+  `rt-error/threads/**` → "acceptance tests passed (97 test(s) ran)";
+  `thread-drop-cleanup` passes with its goldens untouched.
+  `cargo test --release --test rt_scope_drop_leaks` → 151 passed, 2 failed
+  before the re-baseline (the two named in Correction 3), then
+  `… rt_scope_drop_leaks thread` → "5 passed; 0 failed", main-arena growth 0 B.
+  Cross-run of the three Phase 1 fixtures, `thread-drop-cleanup`,
+  `thread-queue-timeout-cancel` and `thread-start-inline-trap-rt` (built
+  `-target`, run remotely, output compared with the golden run section):
+  linux-aarch64 box 2226 → 6/6, windows-x86_64 box 2230 → 6/6.
+  `scripts/artifact-gate.sh target/release/mfb all` → "2142 golden(s) checked,
+  0 diff(s)" after the two thread fixtures' `.ncodesum` (expected, §3) and
+  Correction 8's stale golden were regenerated.
+Commit: a9253dbb5 (code); re-baselines in the next commit
 
 ## Validation Plan
 
@@ -250,6 +325,12 @@ Commit: —
 - Runtime proof: `examples/wind` with its queue drain moved back into a
   helper `withNews(worker, p)` in a scratch copy under `/tmp`: it runs to
   autoplay.
+  **Done**: the scratch copy's frame loop calls `drainNews(worker, playback)`
+  (the poll/receive/`withNews` loop, lent the handle), then reads
+  `thread::isRunning(worker)` itself; built `--app`, run headless with an open
+  stdin. The helper ran 170 times, the last with `loaded=120.00 running=FALSE`,
+  then `p156 collected sent=40 again=40 playing=TRUE status=` — the forecast
+  complete, a second `waitFor` answering 40 again, autoplay on.
 - Doc sync: `func_wait_for.rs` DESC (`mfb man thread waitFor`) and
   `func_cancel.rs` prose about drop. The spec prose waits for F; C's
   behavior is documented in F in one pass.
@@ -264,6 +345,72 @@ Commit: —
    underscore is that package's spelling of the same idea. Reusing it avoids
    a rename across the per-target lists with no change in meaning. Named
    `crate::codegen::builtins::thread::DROP`.
+
+2. **The worker view lives in the control block, not the worker arena.** A
+   96-byte record embedded at `CONTROL_OFFSET_WORKER_VIEW` needs no allocation
+   in the machine-floor trampoline, has no failure path, and lives exactly as
+   long as the worker's reference — which is as long as anything can name it.
+   The block grows from 960 to 1056 bytes, inside rv64's 2047 immediate range.
+
+3. **The re-baseline list was incomplete.** Five more expectations pinned the
+   old semantics and were disproved by it: `B622_ALIAS`, `B622_TRAPPED_QUERY`
+   and `B622_TRAP_ROUTED` in `rt_scope_drop_leaks`, and the fixtures
+   `thread-queue-timeout-cancel` and `func_thread_result_valid` (details on the
+   Phase 3 task). None is weakened: each now asserts the new outcome.
+
+4. **The spec is updated in C, not deferred to F.** C deleted
+   `emit_thread_owner_increment` and `emit_closed_thread_handle`, which the spec
+   cited, and made its "`waitFor` retrieves once and closes" sentences false at
+   HEAD; `.ai/specifications.md` keeps the spec current with every compiler
+   change. So C rewrote exactly what it falsified: `threading/07` (Views,
+   Lifetime, layout, states), `06`, `08`, `12`, `spec.md`, and `language/04`,
+   `16`. `scripts/spec-census.sh --citations` → 0 misses. F still owns the
+   `RES`-only wording.
+
+5. **No closed view is reachable from MFBASIC in C**, so no fixture pins the
+   closed-view answers. A handler naming a thread its route dropped is
+   `TYPE_USE_AFTER_MOVE`, and an inline `TRAP` must `RECOVER` a live value or
+   diverge, so the closed default is never observed. The runtime still answers
+   `ErrResourceClosed` for a null or closed view (`emit_control_block_of`),
+   which D's moved views will reach.
+
+6. **`codegen_thread_c_return_x86_64` had a false positive.** Its scan of the
+   four instructions after each libc call treated `add_imm` as write-only; the
+   queue init reloads `rdi` from the frame and then adds to it in place
+   (`ldr_u64 rdi,[rsp+56]; add_imm rdi,rdi,256` after `pthread_cond_init`,
+   dumped from the linux-x86_64 `.ncode`), which the scan reported as reading
+   the call's result from `rdi`. The scan now ends at the first rewrite of
+   `rdi`; a read before it still fails.
+
+7. **`LET b = t` of a thread is an alias in C, not a move.** The verifier's
+   move of a resource bind applies to `RES`; a `LET`/`MUT` thread binding from
+   another is an alias (the `B622_ALIAS` program compiles and both names read
+   the one open view, which only `t`'s drop closes). F's `RES`-only rule
+   makes it a move.
+
+8. **A stale golden from plan-156-A.** `artifact-gate all` diffed
+   `syntax/app/app-mouse-surface` on four targets, at HEAD before C as well.
+   Bisected: the branch base's compiler reproduces the golden, and the one
+   changed function is `_mfb_rt_os_os_sleep`, whose worker branch is the
+   cancellable wait A moved onto the block lock (its operands now address the
+   control block's inbound queue). This app is the only fixture whose goldens
+   cover `os::sleep`'s code, and A's checks did not include it. Regenerated
+   with `scripts/regen-native-goldens.sh`; not a behavior change.
+
+9. **Two thread programs did not build natively** (found by the corpus unit
+   test `no_corpus_function_lowers_to_an_empty_body`; the fixtures' own
+   acceptance runs dump only AST and IR). `func_thread_emit_valid`, a
+   worker-only program, failed with "internal relocation target
+   '_mfb_rt_drop_owned_string' is not defined": the per-type value functions
+   were emitted after the relocation-gated shared helpers they call.
+   `thread-message-plane-constructors-valid`, which takes `Thread` parameters
+   and starts nothing, failed on `_mfb_rt_thread_block_release`: the drop
+   helper was planned but the block-release group was gated on `thread::start`.
+   Fixed: the thread group and the value functions are emitted before those
+   helpers, the table/release group is gated on the release being referenced,
+   and a `Thread` parameter no longer plans `thread.drop` (it borrows). Both
+   now build (`mfb build` → "Wrote executable"). By the code, both failed since
+   plan-156-A as well — not measured at that commit.
 
 ## Summary
 

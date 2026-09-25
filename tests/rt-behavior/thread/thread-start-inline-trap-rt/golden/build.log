@@ -8,15 +8,9 @@ Wrote executable to tests/rt-behavior/thread/thread-start-inline-trap-rt/build/t
 $ tests/rt-behavior/thread/thread-start-inline-trap-rt/build/thread_start_inline_trap_rt.out
 fnLevel=7
 inline-result=7
-inline-cancel=77030004
-inline-isRunning=77030004
-inline-poll=77030004
-inline-waitFor=77030004
+inline-cancel=NOTRAISED
 plain-result=7
-plain-cancel=77030004
-plain-isRunning=77030004
-plain-poll=77030004
-plain-waitFor=77030004
+plain-cancel=NOTRAISED
 res=1
 msgres=2
 [exit 0]

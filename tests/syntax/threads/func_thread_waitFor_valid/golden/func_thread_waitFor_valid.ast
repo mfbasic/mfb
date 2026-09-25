@@ -12,7 +12,7 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "doubleWaitCloses",
+      "name": "doubleWaitRepeats",
       "line": 4,
       "params": [
       { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null, "line": 4 }
@@ -21,7 +21,7 @@
       "body": [
       { "kind": "binding", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 5 },
       { "kind": "binding", "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 6 },
-      { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 7 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "second" }, "right": { "kind": "identifier", "value": "first" } }, "line": 7 }
       ],
       "trap": {
       "name": "err",
@@ -32,7 +32,7 @@
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77030004" } },
         "line": 9,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+        { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 10 }
         ],
         "else": [
         { "kind": "return", "value": { "kind": "number", "value": "11" }, "line": 12 }
@@ -64,7 +64,7 @@
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "call", "callee": "doubleWaitCloses", "arguments": [{ "kind": "identifier", "value": "closeThread" }] }, "line": 24 }
+      { "kind": "return", "value": { "kind": "call", "callee": "doubleWaitRepeats", "arguments": [{ "kind": "identifier", "value": "closeThread" }] }, "line": 24 }
       ]
     }
     ]

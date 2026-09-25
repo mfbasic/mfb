@@ -11,10 +11,10 @@ FUNC fullQueueScenario(t AS Thread OF String TO Integer) AS Integer
   TRAP(err)
     io::print("timeout")
     LET value AS Integer = thread::waitFor(t) TRAP(workerErr)
-      io::print("worker timeout")
+      io::print("unexpected worker error")
       RETURN 0
     END TRAP
-    io::print("unexpected full result")
+    io::print("worker timeout " & toString(value))
     RETURN 0
   END TRAP
 END FUNC
@@ -33,10 +33,10 @@ FUNC cancelScenario(t AS Thread OF String TO Integer) AS Integer
   TRAP(err)
     io::print("interrupted")
     LET value AS Integer = thread::waitFor(t) TRAP(cancelResultErr)
-      io::print("cancelled")
+      io::print("unexpected cancel error")
       RETURN 0
     END TRAP
-    io::print("unexpected cancel result")
+    io::print("cancelled " & toString(value))
     RETURN 0
   END TRAP
 END FUNC

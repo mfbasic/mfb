@@ -22,7 +22,7 @@ IMPORT thread
 '
 ' So this fixture's job is NOT to show the build works. It is to show that
 ' hoisting a check into every thread op did not change any op's ANSWER. It
-' prints the code each op gives for a normally-closed handle, and it runs the
+' prints the code each op gives after `waitFor` (which closes nothing), and runs the
 ' same sequence twice: once through the inline TRAP that could not compile
 ' before, and once through the plain spelling that always worked. The two must
 ' agree line for line -- a verdict that moved shows up as a differing code
@@ -39,7 +39,7 @@ ISOLATED FUNC msgResWorker(t AS ThreadWorker OF String RES fs::File TO Integer, 
   RETURN n
 END FUNC
 
-' Every op on a CLOSED handle, printed by code. 77030004 is ErrResourceClosed.
+' Each op after `waitFor`, printed by code; NOTRAISED once one succeeds.
 FUNC closedAnswers(tag AS String, t AS Thread OF String TO Integer) AS Integer
   thread::cancel(t) TRAP(e)
     io::print(tag & "-cancel=" & toString(e.code))

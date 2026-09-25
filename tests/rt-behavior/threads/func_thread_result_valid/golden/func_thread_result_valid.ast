@@ -47,7 +47,7 @@
         "handler": [
         {
           "kind": "if",
-          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77030004" } },
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77030004" } },
           "line": 19,
           "then": [
           { "kind": "return", "value": { "kind": "number", "value": "5" }, "line": 19 }
@@ -78,27 +78,37 @@
         "else": [
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/rt-behavior/threads/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 26 },
-      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": {
-        "kind": "trapped",
-        "binding": "err",
-        "line": 27,
-        "expression": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "textThread" }] },
-        "handler": [
-        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 28 }
-        ]
-      }, "line": 27 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "text" }, "right": { "kind": "string", "value": "thread result copied from worker arena\n" } },
-        "line": 30,
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "repeated" }, "right": { "kind": "number", "value": "41" } },
+        "line": 25,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 30 }
+        { "kind": "return", "value": { "kind": "number", "value": "5" }, "line": 25 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/rt-behavior/threads/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 28,
+        "expression": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "textThread" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 29 }
+        ]
+      }, "line": 28 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "text" }, "right": { "kind": "string", "value": "thread result copied from worker arena\n" } },
+        "line": 31,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 31 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
       ]
     }
     ]
