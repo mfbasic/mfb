@@ -87,6 +87,8 @@ layout(std430, set = 0, binding = 0) readonly buffer Edges {
 layout(constant_id = 0) const int GLYPH_BASE = 0;
 layout(constant_id = 1) const int GRADIENT_BASE = 0;
 layout(constant_id = 2) const int BAND_BASE = 0;
+// bug-687: each polygon edge's four residual words, parallel to its 16.16 words.
+layout(constant_id = 3) const int EDGE_RESIDUAL_BASE = 0;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -160,6 +162,97 @@ bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
     return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);
 }
 
+// bug-687: double-float arithmetic — a value as an unevaluated sum `hi + lo` of two
+// floats, about 48 bits. A polygon's distance is evaluated in it because fp32 is not the
+// oracle's f64: where the exact distance lies within ~1e-5 px of a coverage quantisation
+// boundary the two round to neighbouring steps, and near black one step is 3-4 sRGB
+// levels, past GPU_DEFAULT. Metal's shader has the same helpers.
+//
+// The error terms only exist if the compiler keeps every operation, in the order
+// written, rounded once. `precise` is what says so: without it a driver may contract a
+// multiply and an add, or treat `(a - (s - v)) + (b - v)` as the 0 it is algebraically.
+// TwoProd is Dekker's split rather than `fma`, which GLSL does not promise to fuse.
+vec2 dfTwoSum(float a, float b) {
+    precise float s = a + b;
+    precise float v = s - a;
+    precise float e = (a - (s - v)) + (b - v);
+    return vec2(s, e);
+}
+vec2 dfQuickSum(float a, float b) {
+    precise float s = a + b;
+    precise float e = b - (s - a);
+    return vec2(s, e);
+}
+vec2 dfSplit(float a) {
+    precise float t = 4097.0 * a;
+    precise float hi = t - (t - a);
+    precise float lo = a - hi;
+    return vec2(hi, lo);
+}
+vec2 dfTwoProd(float a, float b) {
+    precise float p = a * b;
+    vec2 x = dfSplit(a);
+    vec2 y = dfSplit(b);
+    precise float e = ((x.x * y.x - p) + x.x * y.y + x.y * y.x) + x.y * y.y;
+    return vec2(p, e);
+}
+vec2 dfAdd(vec2 a, vec2 b) {
+    vec2 s = dfTwoSum(a.x, b.x);
+    vec2 t = dfTwoSum(a.y, b.y);
+    precise float lo = s.y + t.x;
+    s = dfQuickSum(s.x, lo);
+    precise float lo2 = s.y + t.y;
+    return dfQuickSum(s.x, lo2);
+}
+vec2 dfSub(vec2 a, vec2 b) { return dfAdd(a, -b); }
+vec2 dfMul(vec2 a, vec2 b) {
+    vec2 p = dfTwoProd(a.x, b.x);
+    precise float lo = p.y + (a.x * b.y + a.y * b.x);
+    return dfQuickSum(p.x, lo);
+}
+vec2 dfMulF(vec2 a, float b) {
+    vec2 p = dfTwoProd(a.x, b);
+    precise float lo = p.y + a.y * b;
+    return dfQuickSum(p.x, lo);
+}
+vec2 dfDiv(vec2 a, vec2 b) {
+    precise float q1 = a.x / b.x;
+    vec2 r = dfSub(a, dfMulF(b, q1));
+    precise float q2 = r.x / b.x;
+    r = dfSub(r, dfMulF(b, q2));
+    precise float q3 = r.x / b.x;
+    return dfAdd(dfQuickSum(q1, q2), vec2(q3, 0.0));
+}
+vec2 dfSqrt(vec2 a) {
+    if (a.x <= 0.0) { return vec2(0.0); }
+    precise float x = inversesqrt(a.x);
+    precise float y = a.x * x;
+    vec2 d = dfSub(a, dfTwoProd(y, y));
+    precise float c = d.x * (x * 0.5);
+    return dfTwoSum(y, c);
+}
+bool dfLess(vec2 a, vec2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); }
+// A 16.16 word as a double-float, exactly: the two halves are exact floats (at most 23
+// and 8 significant bits) and the scale is a power of two.
+vec2 dfWord(int v) { return dfTwoSum(float(v & ~255) / FIXED, float(v & 255) / FIXED); }
+// A residual word (bug-687, `EDGE_RESIDUAL_SCALE`) in px: units of 2^-47.
+float residualPx(int r) { return float(r) * (1.0 / 140737488355328.0); }
+// One vertex coordinate as the CPU had it: the 16.16 word plus its residual.
+vec2 edgeCoord(int i, int r) {
+    return dfAdd(dfWord(edges.values[i]), vec2(residualPx(edges.values[r]), 0.0));
+}
+// `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` — the quantisation every shape uses — for a
+// double-float `d`, rounded exactly.
+int dfCoverage(vec2 d) {
+    vec2 c = dfSub(vec2(0.5, 0.0), d);
+    if (!dfLess(vec2(0.0), c)) { return 0; }
+    if (!dfLess(c, vec2(1.0, 0.0))) { return 255; }
+    vec2 x = dfAdd(dfMulF(c, 255.0), vec2(0.5, 0.0));
+    float k = floor(x.x);
+    if (x.x == k && x.y < 0.0) { k -= 1.0; }
+    return int(k);
+}
+
 // Nearest edge for the magnitude, a crossing count for the sign — the same shape
 // `__canvas_edgeDistance` has, so the polygon shares the fill, the stroke and the
 // antialiasing rather than needing its own coverage rule. A scanline filler and an
@@ -168,24 +261,47 @@ bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
 //
 // bug-688 (Metal's bug-686 band index): `list` is where this pixel's band's edge
 // numbers start in `edges`, and `count` how many there are -- or `list` is -1 and
-// `count` the polygon's edge count, the loop over every edge this function always was
-// (`polygonBand`). The loop BODY is untouched, and that is what makes the band index
-// exact: an edge left out of a band is one whose y-span misses the pixel's row (so it
-// cannot toggle `inside`) and that is further than the band's reach from it (so it
-// cannot change the clamped coverage `best` feeds). Order does not matter: `min` and a
-// parity toggle are both order-independent.
-float edgeDistance(int base, int count, int list, vec2 p) {
-    float best = 1.0e6;
+// `count` the polygon's edge count, the loop over every edge (`polygonBand`). An edge
+// left out of a band is one whose y-span misses the pixel's row (so it cannot toggle
+// `inside`) and that is further than the band's reach from it (so it cannot change the
+// clamped coverage `best` feeds). Order does not matter: `min` and a parity toggle are
+// both order-independent.
+//
+// bug-687: in double-float, at the shape-space point (`x`, `y`). Each endpoint is its
+// 16.16 word plus its residual, so the polygon is the oracle's to ~2^-41 px; the edge
+// vector is the integer difference of the words plus the residuals' difference. The
+// crossing test is the oracle's `px < ax + (py - ay) / dy * dx`, multiplied out by
+// `dy` so it needs no division. Metal's `edgeDistance`, line for line.
+vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y) {
+    vec2 best = vec2(1.0e6, 0.0);
     bool inside = false;
     for (int j = 0; j < count; ++j) {
         int e = list < 0 ? j : edges.values[list + j];
         int i = (base + e) * 4;
-        vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
-        vec2 b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
-        best = min(best, segmentDistance(p, a, b));
-        if ((a.y > p.y) != (b.y > p.y)) {
-            float u = (p.y - a.y) / (b.y - a.y);
-            if (p.x < a.x + u * (b.x - a.x)) { inside = !inside; }
+        int r = (base + e) * 4 + EDGE_RESIDUAL_BASE;
+        vec2 ax = edgeCoord(i, r);
+        vec2 ay = edgeCoord(i + 1, r + 1);
+        vec2 vx = dfAdd(dfWord(edges.values[i + 2] - edges.values[i]),
+                        dfTwoSum(residualPx(edges.values[r + 2]), -residualPx(edges.values[r])));
+        vec2 vy = dfAdd(dfWord(edges.values[i + 3] - edges.values[i + 1]),
+                        dfTwoSum(residualPx(edges.values[r + 3]), -residualPx(edges.values[r + 1])));
+        vec2 wx = dfSub(x, ax);
+        vec2 wy = dfSub(y, ay);
+        vec2 len2 = dfAdd(dfMul(vx, vx), dfMul(vy, vy));
+        vec2 t = vec2(0.0);
+        if (len2.x > 0.0) {
+            t = dfDiv(dfAdd(dfMul(wx, vx), dfMul(wy, vy)), len2);
+            if (dfLess(t, vec2(0.0))) { t = vec2(0.0); }
+            if (dfLess(vec2(1.0, 0.0), t)) { t = vec2(1.0, 0.0); }
+        }
+        vec2 qx = dfSub(wx, dfMul(vx, t));
+        vec2 qy = dfSub(wy, dfMul(vy, t));
+        vec2 d = dfSqrt(dfAdd(dfMul(qx, qx), dfMul(qy, qy)));
+        if (dfLess(d, best)) { best = d; }
+        if (dfLess(y, ay) != dfLess(y, dfAdd(ay, vy))) {
+            vec2 lhs = dfMul(wx, vy);
+            vec2 rhs = dfMul(wy, vx);
+            if (vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs)) { inside = !inside; }
         }
     }
     return inside ? -best : best;
@@ -303,13 +419,11 @@ float geoDistance(ivec2 band, vec2 p) {
         return ellipseDistance(p, c, fx(item.shape.z), fx(item.shape.w),
                                fx(item.ellipse.x), fx(item.ellipse.y)) - radius;
     }
-    if (item.misc.x == 4) {
-        return edgeDistance(item.arc.z, band.y, band.x, p);
-    }
     if (item.misc.x == 10) {
         return polylineScan(band, p).x;
     }
-    // The empty kind (5) and anything unknown. (`Picture` was once kind 5 and drew
+    // A polygon (4) never reaches here: `polygonCoverage` evaluates it in double-float
+    // (bug-687). The empty kind (5) and anything unknown. (`Picture` was once kind 5 and drew
     // nothing; since bug-484 it is kind 9 and takes the rectangle arm above.) A glyph (6) never reaches here: it has coverage, not a
     // distance, and `main` handles it before asking for one.
     return 1.0e6;
@@ -542,6 +656,51 @@ vec2 shapeDistanceAndScale(vec2 p) {
     return vec2(d, g > 0.000001 ? g : 1.0);
 }
 
+// bug-687: a polygon's fill and stroke coverage, 0..255 each, from its distance in
+// double-float at the double-float shape-space point (`x`, `y`). `shapeDistanceAndScale`
+// and `main`'s two quantisations, operation for operation: the inverse map with the
+// float32 terms, the central differences at 0.5 (all five on the centre's band),
+// `d / ||grad d||`, and the stroke's half-width taken off in shape space before the
+// scale. Metal's `polygonCoverage`, line for line.
+vec2 dfMapX(vec2 x, vec2 y) {
+    return dfAdd(dfAdd(dfMulF(x, intBitsToFloat(item.xform0.x)), dfMulF(y, intBitsToFloat(item.xform0.z))),
+                 vec2(intBitsToFloat(item.xform1.x), 0.0));
+}
+vec2 dfMapY(vec2 x, vec2 y) {
+    return dfAdd(dfAdd(dfMulF(x, intBitsToFloat(item.xform0.y)), dfMulF(y, intBitsToFloat(item.xform0.w))),
+                 vec2(intBitsToFloat(item.xform1.y), 0.0));
+}
+vec2 mappedEdgeDistance(ivec2 band, vec2 x, vec2 y) {
+    return edgeDistance(item.arc.z, band.y, band.x, dfMapX(x, y), dfMapY(x, y));
+}
+ivec2 polygonCoverage(vec2 x, vec2 y) {
+    vec2 dRaw;
+    vec2 g = vec2(1.0, 0.0);
+    bool mapped = hasTransform();
+    if (!mapped) {
+        ivec2 band = polygonBand(y.x);
+        dRaw = edgeDistance(item.arc.z, band.y, band.x, x, y);
+    } else {
+        vec2 h = vec2(0.5, 0.0);
+        ivec2 band = polygonBand(dfMapY(x, y).x);
+        dRaw = mappedEdgeDistance(band, x, y);
+        vec2 gx = dfSub(mappedEdgeDistance(band, dfAdd(x, h), y),
+                        mappedEdgeDistance(band, dfSub(x, h), y));
+        vec2 gy = dfSub(mappedEdgeDistance(band, x, dfAdd(y, h)),
+                        mappedEdgeDistance(band, x, dfSub(y, h)));
+        g = dfSqrt(dfAdd(dfMul(gx, gx), dfMul(gy, gy)));
+        if (!(g.x > 0.000001)) { g = vec2(1.0, 0.0); }
+    }
+    int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);
+    int stroke = 0;
+    float halfWidth = fx(item.misc.z);
+    if (halfWidth > 0.0) {
+        vec2 band = dfSub(dRaw.x < 0.0 ? -dRaw : dRaw, vec2(halfWidth, 0.0));
+        stroke = dfCoverage(mapped ? dfDiv(band, g) : band);
+    }
+    return ivec2(fill, stroke);
+}
+
 void main() {
     // First, before anything reads it: everything below, and both helpers above, work
     // off this one record.
@@ -576,10 +735,24 @@ void main() {
     // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
     // with the shape (§4.3). Untransformed, `dScale` is 1.0 and both collapse to the
     // expressions this shader had.
-    vec2 ds = shapeDistanceAndScale(p);
-    float dRaw = ds.x;
-    float dScale = ds.y;
-    float d = dRaw / dScale;
+    //
+    // bug-687: a polygon's two coverages come from `polygonCoverage` in double-float, at
+    // the double-float twin of `p` — the surface point with the group offset taken off,
+    // exactly. Every other kind keeps its fp32 distance and the same quantisation.
+    int fillCov;
+    int strokeCov;
+    if (item.misc.x == 4) {
+        ivec2 cov = polygonCoverage(dfSub(vec2(gl_FragCoord.x, 0.0), dfWord(draw.offset.x)),
+                                    dfSub(vec2(gl_FragCoord.y, 0.0), dfWord(draw.offset.y)));
+        fillCov = cov.x;
+        strokeCov = cov.y;
+    } else {
+        vec2 ds = shapeDistanceAndScale(p);
+        float dRaw = ds.x;
+        float dScale = ds.y;
+        fillCov = int(clamp(0.5 - dRaw / dScale, 0.0, 1.0) * 255.0 + 0.5);
+        strokeCov = int(clamp(0.5 - (abs(dRaw) - fx(item.misc.z)) / dScale, 0.0, 1.0) * 255.0 + 0.5);
+    }
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
     ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;
@@ -595,8 +768,7 @@ void main() {
     if (item.misc.x == 9) {
         fillRgba = pictureColour(hasTransform() ? inverseMap(p) : p);
     }
-    vec4 colour = covered(fillRgba,
-        (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
+    vec4 colour = covered(fillRgba, (fillCov * clipCov) / 255);
     float halfWidth = fx(item.misc.z);
     if (halfWidth > 0.0) {
         // Stroke over fill, then the hardware puts that over the destination — which
@@ -607,8 +779,7 @@ void main() {
         // stroked-and-filled item is emitted as two adjacent instances instead (§4.3).
         // By the time such an item reaches here it is either fill-only or stroke-only,
         // so this branch composes two sources only under `Normal`, where it is exact.
-        vec4 s = covered(item.stroke,
-            (int(clamp(0.5 - (abs(dRaw) - halfWidth) / dScale, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
+        vec4 s = covered(item.stroke, (strokeCov * clipCov) / 255);
         colour = s + colour * (1.0 - s.w);
     }
     fragColor = colour;
