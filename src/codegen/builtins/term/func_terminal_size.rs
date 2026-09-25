@@ -44,7 +44,8 @@ producing its result.
 
 In app mode (`mfb build --app`) the size comes from the application's terminal
 view rather than from the console, and the same `ErrUnsupported` is raised when TUI mode
-is off or no view is attached. **A Windows `--app` build is the exception to the
+is off or no view is attached. In a macOS `--app` build a failure to produce the
+result also raises `ErrUnsupported`, never `ErrOutOfMemory`. **A Windows `--app` build is the exception to the
 size, not to the raise**: its surface is a fixed **80 columns by 25 rows** that
 does not follow the window, so this call reports that size however large the user
 makes the window and `term::didResize` always reads `FALSE`. It raises

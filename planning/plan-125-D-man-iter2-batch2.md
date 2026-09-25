@@ -59,7 +59,7 @@ session from ending and the probe never returns.
 
 ## 1. Goal
 
-- **All 142 pages** through my per-page pass, one Fable 5.1 review each, and apply.
+- **All 144 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **Every example compiled and run** — and for `fs`, **every example rewritten
   to touch only temp paths** (plan-108-D's standing rule); a `fs` example that
   writes a real user path is a defect regardless of what it documents.
@@ -92,11 +92,11 @@ and there is an **in-flight `term` change in the working tree at plan-writing**
 | What | Count | Command |
 |---|---|---|
 | `fs` units | 43 | 41 pages + overview + types — `./scripts/man-census.sh --fill` |
-| `strings` units | 40 | 39 + overview (no types page) |
+| `strings` units | 42 | 41 + overview (no types page) — corrected 2026-09-25 from 40: `./scripts/man-census.sh --fill strings` → `PAGES 41` |
 | `term` units | 26 | 24 + overview + types |
 | `astrings` units | 17 | 15 + overview + types |
 | `io` units | 16 | 15 + overview (no types page) |
-| **batch total** | **142** | sum |
+| **batch total** | **144** | sum (was 142 before the `strings` correction) |
 | parameter descriptions in batch | 174 | census: fs 54, strings 64, term 30, astrings 19, io 7 |
 | type descriptions in batch | 33 | census: astrings 17, term 15, fs 1 |
 | `term` file-touches since plan-108 | 26 | `git log --since=2026-08-31 --name-only --format='' -- src/codegen/builtins/term \| wc -l` |
@@ -156,7 +156,7 @@ whose examples need the most care, with pace known).
       contract is the standard streams, and every page still states it:
       - buffering: off by default, drained on `io::flush`, before a read, when an
         append would exceed 4 KiB, and at exit (`/tmp/p125-ex/iobuf`); a failed
-        drain on `setBuffered(FALSE)` is now stated as lost (bug-660);
+        drain on `setBuffered(FALSE)` is now stated as lost (bug-723);
       - standard input: the main thread reads without subscribing; a worker must
         call `thread::openStdIn` or raises `ErrInvalidContext`; at most 128
         subscribers;
@@ -176,7 +176,7 @@ Probes, all in `/tmp/p125-ex/`: `iobuf`, `ioeof`, `ioinbad`, `ioreads`, `ioreadl
 `ioattr`, `iopipe`, `ioterm`, `iopollA`–`iopollG`, `iopollex1`, `iopollex2`,
 `iobufclosed`, `iowriteclosed`, `ioflushclosed`.
 Registry-data findings (a member raises an error its descriptor does not declare)
-go to **bug-659** rather than prose. Scope cuts have rows 72–79 in
+go to **bug-722** rather than prose. Scope cuts have rows 72–79 in
 `planning/plan-125-belongs-in-spec.md`.
 
 | Page | # | Verdict | Evidence | Applied |
@@ -184,10 +184,10 @@ go to **bug-659** rather than prose. Scope cuts have rows 72–79 in
 | overview | 1 | CONFIRMED | `ioeof`: `éZtail` → `readLine` returns `tail`, the next read raises `77020003` | end-of-input sentence |
 | overview | 2, 3 | CONFIRMED (scope cut) | runtime log and compiler-subscription wording | observable subscription rule (rows 72, 73) |
 | overview | 4 | CONFIRMED | `stdin_broadcast.rs`: `STDIN_LOG_MAX_SUBSCRIBERS` is 128 | cap sentence |
-| flush | 1 | CONFIRMED → **bug-659** | `lower_flush` raises `ErrWriteFailed`; `errors: vec![]` | — |
+| flush | 1 | CONFIRMED → **bug-722** | `lower_flush` raises `ErrWriteFailed`; `errors: vec![]` | — |
 | flush | 2, 3 | CONFIRMED (scope cut) | write loop, `fsync`, buffer slide-back | observable failure rule (rows 77, 78) |
 | flush | 4 | CONFIRMED | `app_io.rs`: in TUI mode `io::flush` drives a present | app-mode sentence |
-| input | 1 | CONFIRMED → **bug-659** | `ioinbad`: `0xFF` → `77020004`; `errors: vec![]` | — |
+| input | 1 | CONFIRMED → **bug-722** | `ioinbad`: `0xFF` → `77020004`; `errors: vec![]` | — |
 | input | 2 | CONFIRMED | `gen_read_line_family.rs` calls `emit_console_raw_line_mode` in single-key mode | terminal-mode sentence |
 | input | 3, 4 | CONFIRMED (scope cut) | broadcast log; window input pipe | rows 74, 79 |
 | isBuffered | — | NO FINDINGS | `iobuf`: `FALSE`, `TRUE`, `FALSE` | — |
@@ -196,37 +196,37 @@ go to **bug-659** rather than prose. Scope cuts have rows 72–79 in
 | isInputTerminal | 2 | CONFIRMED | `ioterm`: `FALSE` with standard input redirected | example intro "standard input is a terminal" |
 | isOutputTerminal | 1 | CONFIRMED | `gen_is_terminal.rs` calls only `isatty(fd)`; `TERM` is never read | usage sentence |
 | isOutputTerminal | 2 | CONFIRMED (scope cut) | "without probing a descriptor" | app-mode sentence (row 79) |
-| pollInput | 1 | CONFIRMED → **bug-659** | `iopollE`: `pollInput(-1)` → `77050002`; `errors: vec![]` | — |
+| pollInput | 1 | CONFIRMED → **bug-722** | `iopollE`: `pollInput(-1)` → `77050002`; `errors: vec![]` | — |
 | pollInput | 2 | CONFIRMED | `func_poll_input.rs`: `os_poll` reloads the full timeout on each EINTR retry | timeout and signal sentences |
 | pollInput | 3, 4 | CONFIRMED (example broken) | end of input counts as ready, so both examples raised `ErrEndOfFile` | rewritten; `iopollex1`/`iopollex2`: empty → `(end of input)`, data → `hello`/`h`, open pipe → nothing / `timeout` after 1.0 s |
 | print | 1 | CONFIRMED | the `AttributedString` overload was missing from the intro | intro |
 | print | 2 | CONFIRMED | `ioattr`: a bold `AttributedString` prints `48 69 0a` | parameter |
 | print | 3, 7 | CONFIRMED | `app_io.rs`: the app-mode `fd_path` and TUI routing | console guarantee; app-mode destinations |
 | print | 4 | CONFIRMED | `iopipe`: piped into `head -n 1`, producer status `141` (`SIGPIPE`) | `SIGPIPE` sentence |
-| print | 5 | CONFIRMED → **bug-659** | `lower_write_family` raises `ErrWriteFailed`; `errors: vec![]` | — |
+| print | 5 | CONFIRMED → **bug-722** | `lower_write_family` raises `ErrWriteFailed`; `errors: vec![]` | — |
 | print | 6 | CONFIRMED | `emit_append_to_buffer` keeps an exact 4096-byte fill | drain wording |
 | printError | 1, 3 | CONFIRMED | `app_io.rs`: `[stderr] ` prefix; GTK appends via `g_idle_add` | app-mode sentences |
 | printError | 2 | CONFIRMED | `gen_write_family.rs` keeps stderr out of the console grid; the macOS app writer routes TUI output without that exclusion | console and app TUI sentences |
 | printError | 4 | CONFIRMED (scope cut) | cursor mechanics | console guarantee (row 78) |
-| printError | 5 | CONFIRMED → **bug-659** | `ErrWriteFailed` undeclared | — |
-| readByte | 1 | CONFIRMED → **bug-659** | `ioreads`: end of input → `77020003` | — |
+| printError | 5 | CONFIRMED → **bug-722** | `ErrWriteFailed` undeclared | — |
+| readByte | 1 | CONFIRMED → **bug-722** | `ioreads`: end of input → `77020003` | — |
 | readByte | 2, 4 | CONFIRMED (scope cut) | termios flags; broadcast log | rows 75, 74 |
 | readByte | 3 | CONFIRMED | `io_terminal.rs:emit_restore_stdin_terminal` has a `restore_failed` branch | restore sentence |
 | readChar | 1, 2, 5 | CONFIRMED (scope cut) | lead-byte decoding; termios flags; broadcast log | rows 76, 75, 74 |
 | readChar | 3 | CONFIRMED | `pollInput(0)` only reports one ready byte | `pollInput` caveat |
-| readChar | 4 | CONFIRMED → **bug-659** | `ioreads`: `0xFF` and truncated `E2 82` → `77020004` | — |
+| readChar | 4 | CONFIRMED → **bug-722** | `ioreads`: `0xFF` and truncated `E2 82` → `77020004` | — |
 | readLine | 1 | CONFIRMED | `ioreadline`: `tail\r` at end of input → `tail` (length 4), then `77020003` | trailing-CR sentence |
-| readLine | 2 | CONFIRMED → **bug-659** | `ioreadline`: `0xFF` → `77020004` | — |
+| readLine | 2 | CONFIRMED → **bug-722** | `ioreadline`: `0xFF` → `77020004` | — |
 | readLine | 3 | CONFIRMED (scope cut) | broadcast log | row 74; termios and "leaves the terminal untouched" aligned with `readChar` and `input` |
-| setBuffered | 1, 2 | CONFIRMED → **bug-660** | `iobufclosed`: stdout closed, exit `23`, nothing reported; controls `iowriteclosed` (`77020002`) and `ioflushclosed` (`77020002`) | drain-failure sentence |
+| setBuffered | 1, 2 | CONFIRMED → **bug-723** | `iobufclosed`: stdout closed, exit `23`, nothing reported; controls `iowriteclosed` (`77020002`) and `ioflushclosed` (`77020002`) | drain-failure sentence |
 | write | 1, 2 | CONFIRMED | same writer as `print` (`ioattr`) | intro sentence, parameter |
 | write | 3 | CONFIRMED | `term_grid.rs`: TUI output positions text by `\n`/`\r` | TUI sentence |
-| write | 4 | CONFIRMED → **bug-659** | `ErrWriteFailed` undeclared | — |
+| write | 4 | CONFIRMED → **bug-722** | `ErrWriteFailed` undeclared | — |
 | writeError | 1–3 | CONFIRMED | as `printError` | console and app-mode sentences |
-| writeError | 4 | CONFIRMED → **bug-659**; app-mode unchecked writes added to **bug-660**'s audit | `app_io.rs` fallback writes ignore the result | console guarantee |
+| writeError | 4 | CONFIRMED → **bug-722**; app-mode unchecked writes added to **bug-723**'s audit | `app_io.rs` fallback writes ignore the result | console guarantee |
 
 Found while probing, not raised by a reviewer:
-- **bug-658**: a recovered `pollInput(-1)` failure followed by a successful `pollInput`
+- **bug-721**: a recovered `pollInput(-1)` failure followed by a successful `pollInput`
   crashes the program with SIGBUS at exit (`iopollB`, `iopollE`; `iopollA`, `D`, `F`,
   `G` controls exit 0).
 
@@ -240,7 +240,7 @@ Measured at the closing commit:
 - `io` examples 22/22 with real standard input;
 - all 16 units render with none of the retired phrasings.
 
-Bugs filed from this phase: bug-658, bug-659, bug-660. Belongs-in-spec rows: 72–79.
+Bugs filed from this phase: bug-721, bug-722, bug-723. Belongs-in-spec rows: 72–79.
 Commit: 6f6c05547
 
 ### Phase 2 — astrings (17 units)
@@ -266,7 +266,7 @@ Commit: 6f6c05547
 
 Probes, all in `/tmp/p125-ex/`: `astrbound`, `astrtie`, `astrov`, `astrget`,
 `astrrem`, `astrmd`. Registry-data findings (a member raises an error its
-descriptor does not declare) go to **bug-661** rather than prose; every affected
+descriptor does not declare) go to **bug-724** rather than prose; every affected
 page already names both errors in its text.
 
 The run was split by the Codex usage limit: 8 units first, then the 9 left in
@@ -279,13 +279,13 @@ The run was split by the Codex usage limit: 8 units first, then the 9 left in
 | overview | 2 | CONFIRMED | no example rendered | example added; `astrov` printed `**hello** world`, `**hel**`, `**he**LL**o** worLd`, `hello world` |
 | types | 1 | CONFIRMED | `AttrTypeNumber` registers `FontSize`, `Foreground`, `Background` | `AttrNumber` description |
 | types | 2 | CONFIRMED | `astrtie`: `fontSize(-7)` → `::;-7::h` | `FontSize` description |
-| addAttribute | 1 | CONFIRMED → **bug-661** | `astrtie`: `-1, 2` and `3, 2` → `77050002`; `0, 5` and empty `0, 0` → `77050001`; `errors: vec![]` | — (prose already names both errors) |
+| addAttribute | 1 | CONFIRMED → **bug-724** | `astrtie`: `-1, 2` and `3, 2` → `77050002`; `0, 5` and empty `0, 0` → `77050001`; `errors: vec![]` | — (prose already names both errors) |
 | addAttribute | 2 | CONFIRMED | `astrtie`: equal starts, size 10 then 20 → 20; 20 then 10 → 10 | tie-break sentence |
 | addAttribute | 3, 4 | CONFIRMED | `__astrings_validateRange` | `start`, `endIndex` parameters |
 | background | 1 | CONFIRMED | `astrtie`: `AttrNumber(n)` → `2014458966`; `toPacked(fromPacked(n.value)) = n.value` → `TRUE` | round-trip sentence |
 | background | 2 | CONFIRMED | `mfb man term drawText`: `drawText(row AS Integer, column AS Integer, …)` | `drawText(row, column, value)` |
 | bold | — | NO FINDINGS | — | — |
-| clearAttributes | 1 | CONFIRMED → **bug-661** | derived Errors rows; prose already names both errors | — |
+| clearAttributes | 1 | CONFIRMED → **bug-724** | derived Errors rows; prose already names both errors | — |
 | font | 1 | CONFIRMED | `__astrings_font` stores `name` unchanged; reviewer probe `empty=font=` | `name` parameter |
 | font | 2 | CONFIRMED | `astrtie` tie-break (shared `__astrings_isWinner`) | tie-break sentence; same wording on `background`, `fontSize` |
 | fontSize | 1 | CONFIRMED | `astrtie`: `fontSize(-7)` kept | `size` parameter |
@@ -298,7 +298,7 @@ The run was split by the Codex usage limit: 8 units first, then the 9 left in
 | getAttributes | 1 | CONFIRMED | `astrget`: empty text raises `77050001` | `index` parameter |
 | getAttributes | 2 | CONFIRMED | `astrget`: `empty=[]` | empty-result sentence |
 | getAttributes | 3 | CONFIRMED | `astrget`: spans font/bold/font/fontSize → `flag text:Winner num:12`, the winners in insertion order | ordering sentence |
-| getAttributes | 4 | CONFIRMED → **bug-661** | `errors: vec![]` with `FAIL error(77050001, …)` in the body | — |
+| getAttributes | 4 | CONFIRMED → **bug-724** | `errors: vec![]` with `FAIL error(77050001, …)` in the body | — |
 | removeAttribute | 1 | CONFIRMED | `astrrem`: removing a different foreground keeps `num:4294901760`; the same one removes it; same for `fontSize(11)` vs `fontSize(10)` | structural-match sentence names foreground and background |
 | removeAttribute | 2, 3 | CONFIRMED | `__astrings_validateRange` | `start`, `endIndex` parameters |
 | underline, strike | 1 | CONFIRMED | `astrtie`: empty text `0, 0` → `77050001` | shared range sentence |
@@ -312,7 +312,7 @@ Measured at the closing commit:
 - all 17 units render with none of the retired phrasings (`higher-start-wins`,
   `x, y, value`, `canvas surface`, `enum-declaration`, `mutation members`).
 
-Bugs filed from this phase: bug-661. Belongs-in-spec rows: none.
+Bugs filed from this phase: bug-724. Belongs-in-spec rows: none.
 
 Acceptance: 17 units `exit 0`; sweeps clean; the `astrings`↔`strings` boundary
 sentence is identical in wording on both packages' overviews.
@@ -320,14 +320,24 @@ Commit: 48f8f2c4e (8 of 17), 1f0edf0f5 (closed)
 
 ### Phase 3 — term (26 units)
 
-- [ ] 24 pages + overview + the 15-description types page.
-- [ ] No backend or threading detail on any page; anything cut goes to the
+- [x] 24 pages + overview + the 15-description types page.
+      `--reconcile --letter D-phase3 --units planning/plan-125-units/D-phase3.txt`
+      → `units=26 unaccounted=0 orphans=0` (14 Codex rows, 12 Fable rows).
+- [x] No backend or threading detail on any page; anything cut goes to the
       "belongs in spec" ledger against `src/docs/spec/app/04_term-backend.md`.
-- [ ] Every example compiled and run — a `term` example that leaves the
+      Cuts: rows 80-82 (Codex) and 83-84 (Fable: the active-flag sentence, the
+      four setters' current-attribute-state sentence). `--scope term` →
+      `internals-vocabulary hits: 0`; `--memory-scope term` → `unclassified … 0`.
+- [x] Every example compiled and run — a `term` example that leaves the
       terminal in a modified state is a defect; verify each restores it.
-- [ ] Ledger recorded.
+      `/tmp/p125-tools/build-examples.py term` → 44 built (43 function-page
+      examples + the overview's); `/tmp/p125-tools/pty-run-all.sh` → 44 `exit=0`,
+      43 `entered=True restored=True`, and `off#2` `entered=False` (it never enters
+      TUI mode — that is the example). `isOn#1` never calls `term::off` and is
+      restored by the runtime at exit, as the rewritten `off` page now says.
+- [x] Ledger recorded (below; the Fable rows are marked "(Fable)").
 
-#### Phase 3 progress — paused on the Codex usage limit (boxes stay open)
+#### Phase 3 progress — the Codex half (first 14 units)
 
 14 of 26 units reviewed (`exit 0`) and applied below; the other 12 came back
 `FAILED` in 3 s with the usage limit in their logs. A retry on 2026-09-20 failed the
@@ -346,9 +356,12 @@ Codex (`OpenAI Codex v…` banners in `D-phase3/manifest.tsv`), the resumed ones
 reports 10 of 43 as failures: with stdout on a pipe `term::on` has no terminal and the
 calls raise `ErrUnsupported` (`7-705-0007`, probe `/tmp/p125-ex/termsize`). That is a
 harness condition, not a page defect — and the undeclared error behind it is
-**bug-664**. Every example is therefore run on a real pty by
+**bug-727**. Every example is therefore run on a real pty by
 `/tmp/p125-ex/term-pty-run.py`, which opens an 80x24 pty, feeds a keystroke to
-anything that waits for input, and checks the terminal was left restored:
+anything that waits for input, and checks the terminal was left restored. (The
+macOS `/tmp` sweep deleted that runner and the probes before the resume; it was
+rebuilt as `/tmp/p125-tools/term-pty-run.py`, and the closing example run above
+uses it. The measurements below are the 2026-09-19 Codex-half run.)
 
 - 43 of 43 examples: `exit=0`, no error, terminal restored — except `term::isOn#2`
   and `term::off#2`, which never enter TUI mode, so there is nothing to restore
@@ -361,7 +374,7 @@ runner `term-pty-run.py` and `verify-d3-examples.py` (which resizes the pty mid-
 
 | Page | # | Verdict | Evidence | Applied |
 |---|---|---|---|---|
-| overview | 1 | CONFIRMED → **bug-662** | `termglyph` on a pty: `drawGlyph(0, 0, 1114112)` emits `f4 90 80 80`; `drawGlyph(2, 0, 55296)` emits `ed a0 80` | `drawGlyph` sentence: an Integer code point, values below `U+0020` skipped |
+| overview | 1 | CONFIRMED → **bug-725** | `termglyph` on a pty: `drawGlyph(0, 0, 1114112)` emits `f4 90 80 80`; `drawGlyph(2, 0, 55296)` emits `ed a0 80` | `drawGlyph` sentence: an Integer code point, values below `U+0020` skipped |
 | overview | 2 | CONFIRMED | no example rendered | example added; `termov` on a pty drew the box and printed `drew on 80x24` |
 | clear | 1 | CONFIRMED | `src/target/linux_gtk/app_io.rs:emit_app_term_clear` calls `g_idle_add(TERM_REDRAW_IDLE_SYMBOL)` | per-target present sentence |
 | didResize | 1 | CONFIRMED | the GTK and macOS paths set the flag only when the cell extent changes | cell-dimensions wording |
@@ -370,46 +383,93 @@ runner `term-pty-run.py` and `verify-d3-examples.py` (which resizes the pty mid-
 | types | 2, 3 | CONFIRMED | the fields are extents; `0 .. n-1` describes positions | `columns`, `rows` descriptions |
 | drawHLine | — | NO FINDINGS | — | — |
 | drawVLine | — | NO FINDINGS | — | — |
-| drawGlyph | 1, 2 | CONFIRMED → **bug-662** | `termglyph` (above); `emit_draw_glyph` guards only `< 32` | description and `codepoint` parameter |
+| drawGlyph | 1, 2 | CONFIRMED → **bug-725** | `termglyph` (above); `emit_draw_glyph` guards only `< 32` | description and `codepoint` parameter |
 | drawGlyph | 3 | CONFIRMED | `emit_draw_glyph` stamps a `WIDE_TRAIL` at `column + 1` | double-width sentence (row 82) |
 | drawText | 1 | CONFIRMED | the control-character branch tests the first byte `< 32` | `text` parameter |
-| drawText | 2 | CONFIRMED → **bug-663** | `termattr` on a pty: bold on scalar 1 of decomposed `é` emits `e`, an attribute switch, then the mark in the next cell (`b"e\xcc\x81"` never appears); `toMarkdown` reports `e**́**` | overload paragraph states the split |
+| drawText | 2 | CONFIRMED → **bug-726** | `termattr` on a pty: bold on scalar 1 of decomposed `é` emits `e`, an attribute switch, then the mark in the next cell (`b"e\xcc\x81"` never appears); `toMarkdown` reports `e**́**` | overload paragraph states the split |
 | drawBox | 1, 2 | CONFIRMED | `termgeom`: reversed corners drew; off-surface values clamp | `rowB`, `columnB` parameters |
 | drawBox | 3 | CONFIRMED | `termgeom`: `drawBox(Double, 5, 5, 5, 5)` → one `╝`; the one-cell-wide box → `┐`, `│`, `┘` | degenerate-box sentence |
 | fillRect | 1 | CONFIRMED | `termgeom`: `fillRect(Dark, 18, 2, 19, 4)` → 6 cells, so both corners are filled | inclusive-corners sentence |
 | fillRect | 2, 3 | CONFIRMED | `termgeom`: `(-5, -5, -1, -1)` → 0 cells, `(-1, -1, 0, 0)` → 1 cell | `rowB`, `columnB` parameters |
 | getForeground | 1 | CONFIRMED | `termnocolor`: reading `.alpha` without `IMPORT color` → `TYPE_UNKNOWN_VALUE` | import sentence |
-| getForeground | 2 | CONFIRMED → **bug-664** | `emit_get_color` raises `ErrOutOfMemory`; `errors: vec![]` | — |
+| getForeground | 2 | CONFIRMED → **bug-727** | `emit_get_color` raises `ErrOutOfMemory`; `errors: vec![]` | — |
 | getForeground | 3 | CONFIRMED (scope cut) | 24-bit packed storage | row 80 |
 | getBackground | 1 | CONFIRMED | same as `getForeground` (`termnocolor`) | import sentence |
 | getBackground | 2 | CONFIRMED | `termcolor`: `setForeground(rgba(0, 128, 255, 9))` reads back `0,128,255,255` | "red, green and blue match; alpha is always 255" |
-| getBackground | 3 | CONFIRMED → **bug-664** | `errors: vec![]` with an `ErrOutOfMemory` raise site | — |
+| getBackground | 3 | CONFIRMED → **bug-727** | `errors: vec![]` with an `ErrOutOfMemory` raise site | — |
 | getBackground | 4 | CONFIRMED (scope cut) | packed state | row 80 |
 | getBold | — | NO FINDINGS | — | — |
 | hideCursor | 1 | CONFIRMED (scope cut) | "retained surface", escape-sequence mechanics | row 81; `showCursor` aligned with it |
 | hideCursor | 2, 3 | CONFIRMED | `src/target/linux_gtk/app_io.rs:emit_app_term_set_cursor` schedules a redraw itself | per-target present sentences on both cursor pages |
+| getUnderline | — | NO FINDINGS (Fable) | reviewer probe: nine reads, off-gate returns `FALSE` with the slot still set; `term::on` resets it | — |
+| isOn | 1 | CONFIRMED (Fable) | `term.rs:emit_set_cursor_visible` opens with the inactive gate; `mfb man term hideCursor` says gated | `hideCursor`/`showCursor` named in the gated list |
+| isOn | 2 | CONFIRMED (Fable, scope cut) | "the module's active flag read directly" | observable half kept (row 83) |
+| isOn | 3 | CONFIRMED (Fable, example weak) | the second example never calls `term::on`, so it printed nothing | rewritten as a `drawStatus` SUB called before and after `term::on` |
+| moveTo | 1 | CONFIRMED (Fable) | `termwide` on a pty: `moveTo(1, 0)` then `漢C` leaves the cursor at `ESC[2;4H` — two cells for `漢` | advance-by-cell-width sentence |
+| moveTo | 2 | CONFIRMED (Fable) | `termlag` on a pty resized 24x80 → 30x100 before the next `sync`: `terminalSize` → `30x100`, `moveTo(999, 999)` + `B` lands at the old last cell (`ESC[24;81H` after it) | clamp uses the surface size, refreshed at `on` and each `sync` |
+| moveTo | 3 | CONFIRMED (Fable) → **bug-727** | `gen_shared.rs:lower_term_helper` wraps every member in `prepend_wrong_mode_gate(…, ModeRequirement::Console)`; `errors: vec![]` | `ErrWrongMode` sentence on `moveTo` and the overview; bug-727 gains the row |
+| off | 1 | CONFIRMED (Fable) | `termofferr` on a pty: `term::on`, then an unhandled division by zero → `exit=255 entered=True restored=True`; reviewer `p_sig`: `SIGTERM` → exit 143 with the same restore sequence | "every exit path" paragraph replaced: the runtime calls `term::off` at exit |
+| off | 2 | CONFIRMED (Fable) | `src/target/macos_aarch64/app/app_io.rs:emit_app_term_off_helper`: final `display`, content view swapped back to the transcript, first responder restored, line input (bug-150) | app-window paragraph after step 4 |
+| setBold | 1 | CONFIRMED (Fable, scope cut) | "stored in the module's current-attribute state … no escape sequence" | "Nothing is written to the terminal by this call" (row 84); same on all four setters |
+| setBold | 2 | CONFIRMED (Fable) | reviewer pty capture: `io::print` cells carry `ESC[1m` | which calls take the setting, named on all four setters |
+| setBold | 3 | CONFIRMED (Fable) | `helper_astrings_bridge.rs`: `drawText` of an `AttributedString` sets each run's bold/underline and restores the saved values; colours only where a run sets one | exception sentence on all four setters (flag vs colour wording) |
+| setBold | 4 | CONFIRMED (Fable) | `termgetoff`: set before `on` → `getBold` `FALSE`, `getForeground` `#ffffffff`, `getBackground` `#000000ff` | gate sentence says what the getter reports; same on all four setters |
+| setUnderline | — | NO FINDINGS (Fable) | reviewer probe: nine reads | setBold's class fixes applied (identical sentences) |
+| setBackground | 1 | CONFIRMED (Fable) | reviewer probe: `rgba(10, 20, 30, 128)` reads back `#0a141eff` | red/green/blue round-trip, alpha reads back 255; same on `setForeground` |
+| setBackground | 2 | CONFIRMED (Fable, scope cut) | "packed into the module's current-attribute state" | as setBold 1 (row 84) |
+| setBackground | — | main-thread pass | first sentence and `base` said "the colour … text will be written in" — that is the foreground | "background colour of the cells"; parameter reworded |
+| setForeground | 1 | CONFIRMED (Fable) → **bug-729** | `termappfg`, `--app` on macOS: `setForeground(rgb(10, 20, 30))` reads back `#50d8df`, `setBackground(rgb(40, 50, 60))` `#70f8ff`; `app_io.rs:emit_app_set_color` packs `mfb_arg(0..2)` | — (true once fixed) |
+| setForeground | 2 | CONFIRMED (Fable) | `termgetoff` and reviewer probe: white after `term::off` | "lasts for the current TUI session" on both colour setters |
+| setForeground | 3 | CONFIRMED (Fable) → **bug-727** | `lower_term_helper` wrong-mode gate | `ErrWrongMode` sentence on all four setters |
+| setForeground | 4 | CONFIRMED (Fable, scope cut) | as setBold 1 | row 84 |
+| setForeground | 5 | CONFIRMED (Fable, example weak) | the save/restore example drew nothing | both colour setters' second example draws before and after the restore |
+| on | 1 | CONFIRMED (Fable) → **bug-728** | pty + `stty -a`: `termononce` → `icanon`, `termontwice` → `-icanon` | "always guard a second `term::on`" warning (interim, until bug-728) |
+| on | 2 | CONFIRMED (Fable) | reviewer `nosync`: the frame is presented by the exit-time `term::off`; `mfb man term` overview says `off` presents | "only `term::sync` presents a frame while TUI mode is on" paragraph |
+| on | 3 | CONFIRMED (Fable) | `io_terminal.rs:emit_console_raw_line_mode` re-applies the raw buffer after the read | one-read sentence |
+| on | 4 | CONFIRMED (Fable) → **bug-727** | `emit_on` raises `ErrOutOfMemory`; `errors: vec![]` | — (prose already names it) |
+| on | 5 | CONFIRMED (Fable) → **bug-727** | as moveTo 3 | `ErrWrongMode` sentence |
+| on | 6 | CONFIRMED (Fable) | reviewer `sizeon`: stdout piped → `terminalSize` raises `7-705-0007` though the surface fell back to 24x80 | fallback sentence |
+| showCursor | 1, 2 | CONFIRMED (Fable) → **bug-730** | `grep -rn TV_CURSOR_VISIBLE_OFFSET src/target/macos_aarch64/` → constant, `on` store, setter store, no read; Windows the same | per-backend sentence on both cursor pages |
+| sync | 1 | CONFIRMED (Fable) | reviewer pty capture: after `moveTo(0, 0)` + `io::print("hello")` the frame ends `ESC[2;1H` | cursor sentence names the last `print`/`write` |
+| sync | 2 | CONFIRMED (Fable) | reviewer pty resized 24x80 → 10x40 between two syncs: the second sync emitted the full 10-row repaint | "presents this frame in full" |
+| sync | 3 | CONFIRMED (Fable) | the six draw calls are buffered too (`emit_draw_line` and siblings emit no ANSI) | the buffered-call list names them |
+| sync | 4 | CONFIRMED (Fable) | See also is derived from the description's references (`src/cli/man.rs:render_see_also`) | resize sentence names `term::didResize` and `term::terminalSize`, so both now appear under See also |
+| terminalSize | 1 | CONFIRMED (Fable) → **bug-727** | reviewer `p_before`: `ErrUnsupported` before `term::on`; `errors: vec![]` | — (prose already names both) |
+| terminalSize | 2 | CONFIRMED (Fable) → **bug-727** | `app_io.rs:emit_app_terminal_size`: the arena-alloc failure branch raises `ErrUnsupported` | macOS app sentence; bug-727 gains the row |
 
-Bugs filed from this phase: **bug-662** (`drawGlyph` emits invalid UTF-8),
-**bug-663** (`drawText` splits a grapheme when styling changes inside it),
-**bug-664** (`term` members declare no errors). Belongs-in-spec rows: 80-82.
+Fable-half probes, all in `/tmp/p125-ex/`: `termofferr`, `termwide`, `termlag`,
+`termgetoff`, `termononce`, `termontwice`, `termappfg` (an `--app` build run from
+its bundle); runner `/tmp/p125-tools/term-pty-run.py`.
 
-Note: the plan-125 bugs were renumbered this session — main had taken 654-657 for
-unrelated bugs, so ours moved to 658-662 (`io::pollInput` crash, `io` declared
-errors, `io::setBuffered` drain, `astrings` declared errors, `term::drawGlyph`).
+Bugs filed from this phase (Fable half): **bug-728** (`term::on` twice leaves the
+terminal in single-key mode), **bug-729** (app-mode colour setters read the wrong
+arguments), **bug-730** (macOS and Windows `--app` draw no cursor); bug-727 gained
+the `ErrWrongMode` and macOS `terminalSize` rows.
+
+Bugs filed from this phase (Codex half): **bug-725** (`drawGlyph` emits invalid UTF-8),
+**bug-726** (`drawText` splits a grapheme when styling changes inside it),
+**bug-727** (`term` members declare no errors). Belongs-in-spec rows: 80-84.
+
+Note: the plan-125 bugs were renumbered twice. Main took 654-657 first, so ours
+moved to 658-664; by 2026-09-25 main had also taken 658, 659 and 665-720, so they
+moved again to **721-727** (`git log --all --oneline | grep -oE 'bug-7[0-9][0-9]'`
+→ highest 720): 721 `io::pollInput` crash, 722 `io` declared errors, 723
+`io::setBuffered` drain, 724 `astrings` declared errors, 725 `term::drawGlyph`, 726
+`term::drawText` grapheme split, 727 `term` declared errors.
 
 Acceptance: 26 units `exit 0`; sweeps clean; every `term` example leaves the
 terminal restored (verified by running it).
 Commit: —
 
-### Phase 4 — strings (40 units)
+### Phase 4 — strings (42 units)
 
-- [ ] 39 pages + overview.
+- [ ] 41 pages + overview.
 - [ ] Every Unicode claim probe-verified; every performance hint checked
       against memory `string-concat-beats-list-join-in-mfb` before it is left
       standing.
 - [ ] Every example compiled and run; ledger recorded.
 
-Acceptance: 40 units `exit 0`; sweeps clean; no page advises an accumulation
+Acceptance: 42 units `exit 0`; sweeps clean; no page advises an accumulation
 pattern the measurement contradicts.
 Commit: —
 
@@ -422,8 +482,8 @@ Commit: —
       (`--memory-scope fs` is necessary and not sufficient).
 - [ ] Ledger recorded.
 
-Acceptance: 43 units `exit 0`; `--reconcile` exits 0 over the whole 142-unit
-batch; the example ledger accounts for all 142 examples, 0 unaccounted; no
+Acceptance: 43 units `exit 0`; `--reconcile` exits 0 over the whole 144-unit
+batch; the example ledger accounts for every example, 0 unaccounted; no
 `fs` example references a path outside a temp directory
 (`./scripts/man-run-examples.sh fs --run` clean, and a read-through of the 41
 examples confirming it).
@@ -433,7 +493,7 @@ Commit: —
 
 - Tests: none (man prose); pinned-text tests updated in the same commit if
   touched.
-- Coverage check: `--reconcile` over the 142-unit list; example ledger
+- Coverage check: `--reconcile` over the 144-unit list; example ledger
   reconciled against the census function list, 0 unaccounted.
 - Runtime proof: `scripts/man-run-examples.sh <pkg> --run` for all five;
   `mfb man <pkg> --all` renders.
@@ -463,6 +523,22 @@ Commit: —
   different vendor. The Fable reviewer also has no OS sandbox (Codex's
   `workspace-write` did); its `git commit`/`git push` are denied and the harness's
   DIRTY check still guards the tree. The prompts are unchanged.
+- **2026-09-25: `strings` is 42 units, not 40, so the batch is 144.**
+  `./scripts/man-census.sh --fill strings` → `PAGES 41` (`D-phase4.txt` already
+  listed 42 lines). No other letter's scope was derived from the 40.
+- **2026-09-25: the harness reviewed in a gutted worktree.** The first Phase 3
+  resume ran in `/tmp/plan-125-worktrees/D-phase3-1`, which macOS's periodic `/tmp`
+  sweep had stripped of its `.git` file and most of `src/`; the other three were
+  intact but still sat at the 2026-09-19 base, so a resume would have reviewed
+  stale prose. `doc-review-fanout.sh` reused any existing worktree unchecked. Fixed
+  in the harness: a reused worktree must be a sound worktree (else it is recreated)
+  and is forced to the run's base. The one row produced in the gutted worktree
+  (`term/isOn`, first Fable row) was re-run; `--reconcile` reads the last row. The
+  same sweep deleted the Phase 3 pty runner and probes under `/tmp/p125-ex`; the
+  runner was rebuilt under `/tmp/p125-tools/`.
+- **2026-09-25: bugs 658-664 renumbered to 721-727** — main had taken 658, 659 and
+  665-720 meanwhile (`git log --all --oneline | grep -oE 'bug-7[0-9][0-9]'` →
+  highest 720). New bugs from here continue at 728.
 
 ## Summary
 

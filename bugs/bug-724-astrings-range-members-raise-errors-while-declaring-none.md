@@ -1,4 +1,4 @@
-# bug-661: `astrings` range and index members declare no errors, yet raise `ErrInvalidArgument` and `ErrIndexOutOfRange`
+# bug-724: `astrings` range and index members declare no errors, yet raise `ErrInvalidArgument` and `ErrIndexOutOfRange`
 
 Last updated: 2026-09-16
 Effort: small
@@ -21,7 +21,7 @@ pages say so only in prose:
 
 This is the `astrings` instance of the class already filed for `encoding` (bug-606),
 `udp` (bug-608), `math` per-overload (bug-617), `collections` (bug-641) and `io`
-(bug-659).
+(bug-722).
 
 **The single correct behavior a fix produces:** each `astrings` member declares
 exactly the errors it can raise, so the pages for `addAttribute`, `removeAttribute`,

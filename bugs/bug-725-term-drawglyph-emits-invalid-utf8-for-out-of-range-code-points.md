@@ -1,4 +1,4 @@
-# bug-662: `term::drawGlyph` accepts out-of-range code points and surrogates, emitting invalid UTF-8
+# bug-725: `term::drawGlyph` accepts out-of-range code points and surrogates, emitting invalid UTF-8
 
 Last updated: 2026-09-19
 Effort: small

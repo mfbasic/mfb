@@ -354,6 +354,24 @@ mode_run() {
 	local i wts=()
 	for i in $(seq 1 "$JOBS"); do
 		local wt="$WT_ROOT/$LETTER-$i"
+		# A worktree left by an earlier run is NOT trusted as-is. It sits at that
+		# run's base, so a resume would review stale prose; and macOS's periodic
+		# /tmp sweep deletes files not accessed for three days, which can take
+		# the worktree's `.git` file and most of `src/` with it (measured
+		# 2026-09-25: D-phase3-1 had no `.git` and no `src/`, and a reviewer ran
+		# in it). A broken one is recreated; a sound one is forced to this run's
+		# base, which also restores any file the sweep deleted.
+		if [ -d "$wt" ] && [ "$DRYRUN" != 1 ]; then
+			if [ "$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$wt" && pwd -P)" ]; then
+				git -C "$wt" checkout --detach --force --quiet "$base" \
+					&& git -C "$wt" clean -fdq \
+					|| die "cannot reset worktree $wt to $base"
+			else
+				printf 'doc-review-fanout: %s is not a sound worktree; recreating\n' "$wt" >&2
+				rm -rf "$wt"
+				git worktree prune
+			fi
+		fi
 		if [ ! -d "$wt" ]; then
 			if [ "$DRYRUN" = 1 ]; then
 				printf 'DRY-RUN would create worktree %s at %s\n' "$wt" "$base"

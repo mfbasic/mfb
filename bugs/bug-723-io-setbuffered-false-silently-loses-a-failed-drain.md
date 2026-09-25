@@ -1,4 +1,4 @@
-# bug-660: `io::setBuffered(FALSE)` silently loses pending output when its drain fails
+# bug-723: `io::setBuffered(FALSE)` silently loses pending output when its drain fails
 
 Last updated: 2026-09-16
 Effort: small

@@ -1,4 +1,4 @@
-# bug-664: every `term` member declares no errors, yet several raise (`ErrUnsupported`, `ErrOutOfMemory`)
+# bug-727: every `term` member declares no errors, yet several raise (`ErrUnsupported`, `ErrOutOfMemory`)
 
 Last updated: 2026-09-19
 Effort: small
@@ -17,6 +17,8 @@ no `term` man page renders an Errors table. Several of them demonstrably raise:
 | `terminalSize` (and the other calls that need a real terminal) | `ErrUnsupported` (`7-705-0007`) when standard output is not a terminal | probe `/tmp/p125-ex/termsize` run on a pipe prints `Error: 7-705-0007`; `src/codegen/term/core/term.rs:emit_unsupported` raises it |
 | `getForeground`, `getBackground` | `ErrOutOfMemory` when the returned `color::Color` cannot be created | `src/codegen/term/core/term.rs:emit_get_color` → `raise_error_into(..., "ErrOutOfMemory", ...)` (`term.rs:2167`, `2274`) |
 | the `term.rs:445` raise site | `ErrOutOfMemory` | confirm which member it belongs to in Phase 1 |
+| **every** `term` member, in an `mfb build --app` program | `ErrWrongMode` when the program is in `app::Mode.None` or `Mode.Canvas` | `src/codegen/builtins/term/gen_shared.rs:lower_term_helper` wraps each helper in `prepend_wrong_mode_gate(…, ModeRequirement::Console)`; `canvas`, gated the same way, declares it (`func_present.rs`: `errors: vec!["ErrWrongMode", …]`). Added 2026-09-25 from the plan-125-D `term/moveTo` review |
+| `terminalSize`, macOS `--app` | `ErrUnsupported` where the console raises `ErrOutOfMemory` | `src/target/macos_aarch64/app/app_io.rs:emit_app_terminal_size`: the `ARENA_ALLOC_SYMBOL` failure branch jumps to the `unsupported` label; the console `emit_terminal_size` raises `ErrOutOfMemory` there. The fix should make the two agree. Added 2026-09-25 from the plan-125-D `term/terminalSize` review |
 
 The same programs run on a pty exit 0, so the `ErrUnsupported` path is not
 theoretical — it is what every one of these calls does whenever output is
@@ -25,7 +27,7 @@ redirected, which is how they behave under `scripts/man-run-examples.sh --run`
 
 This is the `term` instance of the class already filed for `encoding` (bug-606),
 `udp` (bug-608), `math` per-overload (bug-617), `collections` (bug-641), `io`
-(bug-659) and `astrings` (bug-661).
+(bug-722) and `astrings` (bug-724).
 
 **The single correct behavior a fix produces:** every `term` member declares exactly
 the errors its lowering can raise, so each page renders an Errors table. Members

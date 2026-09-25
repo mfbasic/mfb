@@ -125,7 +125,9 @@ shows or hides the cursor, reports the surface size, and reports whether the
 surface was resized (`term::didResize`). The same surface is
 rendered on the console backend (using the terminal's alternate screen and ANSI
 sequences) and in windowed app mode (`mfb build --app`), so the same program
-source drives both.
+source drives both. In an `--app` program the character grid exists only in
+`app::Mode.Console`: every `term::` call made while the program is in
+`app::Mode.None` or `app::Mode.Canvas` raises `ErrWrongMode`.
 
 **One app-mode gap is worth knowing before you rely on it**, and it is about
 `mfb build --app` on Windows only — a program run in a terminal, or built

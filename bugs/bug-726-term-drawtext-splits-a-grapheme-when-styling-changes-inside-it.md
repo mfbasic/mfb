@@ -1,4 +1,4 @@
-# bug-663: `term::drawText`'s `AttributedString` overload splits a grapheme when styling changes inside it
+# bug-726: `term::drawText`'s `AttributedString` overload splits a grapheme when styling changes inside it
 
 Last updated: 2026-09-19
 Effort: medium
@@ -78,7 +78,7 @@ grapheme boundaries, so a style boundary inside a cluster becomes a cell boundar
 - Changing the `String` overload, which already renders clusters correctly.
 - Changing how `astrings` records or resolves attributes (the overlay is right; see
   the `toMarkdown` output above).
-- Wide-glyph (`WIDE_TRAIL`) handling in `term::drawGlyph`, which is bug-662's area.
+- Wide-glyph (`WIDE_TRAIL`) handling in `term::drawGlyph`, which is bug-725's area.
 
 ## Blast-radius audit
 

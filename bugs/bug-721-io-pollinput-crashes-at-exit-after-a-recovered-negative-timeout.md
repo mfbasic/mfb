@@ -1,4 +1,4 @@
-# bug-658: after a recovered `io::pollInput(-1)` failure, a later successful `pollInput` crashes the program at exit (SIGBUS)
+# bug-721: after a recovered `io::pollInput(-1)` failure, a later successful `pollInput` crashes the program at exit (SIGBUS)
 
 Last updated: 2026-09-16
 Effort: medium

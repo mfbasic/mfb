@@ -13,11 +13,12 @@ const INTRO: &str = r#"Make the terminal cursor visible in presented frames"#;
 
 const DESC: &str = r#"`term::showCursor` marks the cursor as visible. It takes no arguments.
 
-The change is not shown straight away. In a terminal program, and in a macOS
-`--app` build, the cursor's visibility changes when `term::sync` presents the next
-frame; a Linux `--app` build repaints from this call itself. Each present leaves
-the terminal cursor at the position the next drawing would use, so a visible
-cursor always tracks that position.
+The change is not shown straight away. In a terminal program the cursor's
+visibility changes when `term::sync` presents the next frame; a Linux `--app`
+build repaints from this call itself. A macOS or Windows `--app` build accepts the
+call and remembers the setting, but draws no cursor at all, so it has no visible
+effect there. Each present leaves the terminal cursor at the position the next
+drawing would use, so a visible cursor always tracks that position.
 
 Visibility is independent of the colours and text attributes and of the cursor's
 position: showing the cursor changes none of them, and `term::moveTo` does not

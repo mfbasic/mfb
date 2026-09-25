@@ -116,6 +116,8 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 80 | `term::getForeground`, `getBackground` | `The value is the module's current foreground attribute, unpacked from the 24-bit value that `term::setForeground` stored.` | `internals` | term-backend | OPEN | — |
 | 81 | `term::hideCursor`, `showCursor` | `Like everything else on this retained surface, the call emits no escape sequence. ... Every present ends with a trailing sequence that parks the terminal cursor at its current position.` | `internals` | term-backend | OPEN | — |
 | 82 | `term::drawGlyph` | `for width 2 it stamps a WIDE_TRAIL sentinel at column + 1` | `internals` | term-backend | OPEN | — |
+| 83 | `term::isOn` | `The result is the module's active flag read directly` | `internals` | term-backend | OPEN | — |
+| 84 | `term::setBold`, `setUnderline`, `setForeground`, `setBackground` | `The flag is stored in the module's current-attribute state and no escape sequence is emitted. / The colour is packed into the module's current-attribute state` | `internals` | term-backend | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused

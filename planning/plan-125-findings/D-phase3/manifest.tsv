@@ -33,3 +33,16 @@ man-page:term/on	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/setBackground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/setForeground	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
 man-page:term/setUnderline	FAILED	3	0	clean	OpenAI Codex v0.155.0/gpt-5.6-terra
+man-page:term/isOn	0	136	42	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/getUnderline	0	129	3	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/isOn	0	162	24	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/moveTo	0	175	22	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/off	0	225	18	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/setBold	0	117	29	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/setBackground	0	156	15	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/setUnderline	0	118	5	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/on	0	306	57	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/setForeground	0	230	44	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/showCursor	0	142	15	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/sync	0	209	29	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/terminalSize	0	242	15	clean	Claude Code v2.1.281/claude-fable-5-1
