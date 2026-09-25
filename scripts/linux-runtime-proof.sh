@@ -157,6 +157,22 @@ run_fixture() {
     echo "SCP-FAIL|$rel" > "$part"
     return 0
   fi
+  # Ship everything else the build wrote beside the executable, too: a project's
+  # manifest `resources` are copied into `build/`, and `os::appResourcePath`
+  # resolves them next to the running executable. Shipping the executable alone
+  # made every resource-reading fixture fail with ErrPathNotFound on the box —
+  # harness error that looks like a product regression (plan-156-B Correction
+  # B-2). The per-flavor executables are skipped; the one under test is already
+  # in place under its unflavored name.
+  resources=$(cd "$scratch/build" && find . -mindepth 1 -maxdepth 1 ! -name '*.out' | sed 's|^\./||')
+  if [ -n "$resources" ]; then
+    # shellcheck disable=SC2086 # one name per line, none with spaces (build/ output)
+    if ! tar -C "$scratch/build" --no-xattrs -cf - $resources 2>/dev/null | \
+        $SSH "tar -C '$remote_dir' -xf -" 2>/dev/null; then
+      echo "SCP-FAIL|$rel" > "$part"
+      return 0
+    fi
+  fi
 
   # A fixture's `run.env` (`NAME=value` lines, see test-accept.sh) applies to the
   # run here too; without it a `TZ`-pinned fixture would run in the box's zone.
