@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.printReceived" }, { "kind": "string", "value": "start" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.printReceived" }, { "kind": "string", "value": "start" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "alpha" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "hasAck1", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 8 },
       { "kind": "binding", "mutable": false, "name": "ack1", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 9 },

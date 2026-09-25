@@ -23,7 +23,7 @@ FUNC drain(t AS Thread OF Integer TO Integer) AS Integer
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF Integer TO Integer = thread::start(work, 5)
+  RES t AS Thread OF Integer TO Integer = thread::start(work, 5)
   MUT total AS Integer = 0
   DO WHILE thread::isRunning(t)
     total = total + drain(t)

@@ -17,7 +17,7 @@ REM got the same answer the main thread did (`same=TRUE`).
 
 FUNC main AS Integer
   LET onMain AS String = thread_link_workers::version()
-  LET t AS Thread OF Nothing TO String = thread::start(thread_link_workers::workerVersion, "seed")
+  RES t AS Thread OF Nothing TO String = thread::start(thread_link_workers::workerVersion, "seed")
   LET onWorker AS String = thread::waitFor(t)
   io::print("resolved=" & toString(len(onWorker) > 0))
   io::print("same=" & toString(onMain = onWorker))

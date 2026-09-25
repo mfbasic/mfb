@@ -19,7 +19,7 @@ REM diagnostic when it does fail.
 
 FUNC main AS Integer
   LET onMain AS String = thread_global_workers::render()
-  LET t AS Thread OF Nothing TO String = thread::start(thread_global_workers::readGlobals, "seed")
+  RES t AS Thread OF Nothing TO String = thread::start(thread_global_workers::readGlobals, "seed")
   LET onWorker AS String = thread::waitFor(t)
   io::print("main  =" & onMain)
   io::print("worker=" & onWorker)
@@ -27,7 +27,7 @@ FUNC main AS Integer
 
   REM ISOLATED: the worker's `COUNTER = COUNTER + 100` lands in the worker's own
   REM arena, so the worker sees 107 and the parent still sees 7.
-  LET m AS Thread OF Nothing TO Integer = thread::start(thread_global_workers::mutateCounter, "seed")
+  RES m AS Thread OF Nothing TO Integer = thread::start(thread_global_workers::mutateCounter, "seed")
   io::print("worker_mutated=" & toString(thread::waitFor(m)))
   io::print("main_unchanged=" & toString(thread_global_workers::counter()))
   RETURN 0

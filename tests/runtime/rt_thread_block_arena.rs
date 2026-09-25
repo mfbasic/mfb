@@ -122,14 +122,14 @@ FUNC main AS Integer
   MUT total AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 10000
-    LET a AS Thread OF String TO String = thread::start(echo, "n" & toString(i))
+    RES a AS Thread OF String TO String = thread::start(echo, "n" & toString(i))
     LET s AS String = thread::waitFor(a)
     total = total + len(s)
-    LET b AS Thread OF String TO Bag = thread::start(grow, Bag["x", ["p", "q"]])
+    RES b AS Thread OF String TO Bag = thread::start(grow, Bag["x", ["p", "q"]])
     LET bag AS Bag = thread::waitFor(b)
     total = total + len(bag.items) + len(bag.label)
     LET seedHit AS Outcome = Hit["abc"]
-    LET c AS Thread OF String TO Outcome = thread::start(pick, seedHit)
+    RES c AS Thread OF String TO Outcome = thread::start(pick, seedHit)
     LET o AS Outcome = thread::waitFor(c)
     MATCH o
       CASE Miss(m)
@@ -190,7 +190,7 @@ ISOLATED FUNC relay(w AS ThreadWorker OF String TO Integer, seed AS String) AS I
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(relay, "?", 4, 4)
+  RES t AS Thread OF String TO Integer = thread::start(relay, "?", 4, 4)
   MUT back AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 20000
@@ -241,7 +241,7 @@ FUNC main AS Integer
   MUT i AS Integer = 0
   MUT n AS Integer = 0
   WHILE i < 200
-    LET t AS Thread OF RES fs::File TO Integer = thread::start(ignore, "seed")
+    RES t AS Thread OF RES fs::File TO Integer = thread::start(ignore, "seed")
     RES f AS fs::File = fs::openFile("{PATH}")
     thread::transfer(t, f)
     n = n + thread::waitFor(t)
@@ -293,7 +293,7 @@ ISOLATED FUNC sink(w AS ThreadWorker OF RES fs::File TO Integer, seed AS String)
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF RES fs::File TO Integer = thread::start(sink, "s")
+  RES t AS Thread OF RES fs::File TO Integer = thread::start(sink, "s")
   MUT i AS Integer = 0
   WHILE i < {N}
     RES f AS fs::File = fs::openFile("{PATH}") TRAP(e)

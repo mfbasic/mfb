@@ -207,13 +207,9 @@ impl TypeEnv {
                     let base_type = resource_base_type(type_);
                     let base = base_type.name();
                     let is_resource = self.is_resource_or_resource_union(&base_type);
-                    // plan-156-C: a thread binding is a resource binding, and `LET`/`MUT`
-                    // still spell one — lowered exactly like `RES` — until plan-156-F
-                    // makes `RES` the only spelling.
-                    let lenient_thread = matches!(base_type, ParameterType::ThreadHandle { .. });
                     if !synthesized_bind && !name.starts_with('$') {
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
-                        if is_resource && !is_res_declared && !lenient_thread {
+                        if is_resource && !is_res_declared {
                             self.emit(
                                 "TYPE_RESOURCE_REQUIRES_RES",
                                 format!(

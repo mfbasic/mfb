@@ -3,7 +3,7 @@ IMPORT thread
 IMPORT thread_runtime_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF List OF String TO List OF String = thread::start(thread_runtime_workers::returnListOfString, "seed")
+  RES t AS Thread OF List OF String TO List OF String = thread::start(thread_runtime_workers::returnListOfString, "seed")
   thread::send(t, ["send-list-a", "send-list-b"], 10)
   LET result AS List OF String = thread::waitFor(t)
   FOR EACH item IN result

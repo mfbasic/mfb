@@ -13,7 +13,7 @@ FUNC main() AS Integer
   ' thread::start overload 1 (default limits). Handle carries a data plane
   ' (String) and a resource plane (File), covering send/receive AND
   ' transfer/accept on the parent side.
-  LET t1 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed")
+  RES t1 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed")
 
   ' openStdIn / closeStdIn worker form (parent Thread handle argument)
   thread::openStdIn(t1)
@@ -59,11 +59,11 @@ FUNC main() AS Integer
   total = total + res1
 
   ' thread::start overload 2 (inboundLimit)
-  LET t2 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1)
+  RES t2 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1)
   total = total + thread::waitFor(t2)
 
   ' thread::start overload 3 (inboundLimit + outboundLimit)
-  LET t3 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1, 1)
+  RES t3 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1, 1)
   total = total + thread::waitFor(t3)
 
   ' openStdIn / closeStdIn no-argument forms (calling thread)

@@ -59,7 +59,7 @@
         { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 29 }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF List OF Integer TO List OF Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.doubleIntegers" }, { "kind": "string", "value": "seed" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF List OF Integer TO List OF Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.doubleIntegers" }, { "kind": "string", "value": "seed" }] }, "line": 32 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "10" }] }, "line": 33 },
       { "kind": "binding", "mutable": false, "name": "doubled", "type": "List OF Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 34 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "len" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "doubled" }] }] }, { "kind": "string", "value": "100" }] }, "line": 36 },
@@ -97,7 +97,7 @@
         { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 53 }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "tb", "type": "Thread OF List OF Byte TO List OF Byte", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.echoBytes" }, { "kind": "string", "value": "seed" }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "tb", "type": "Thread OF List OF Byte TO List OF Byte", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.echoBytes" }, { "kind": "string", "value": "seed" }] }, "line": 56 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "tb" }, { "kind": "identifier", "value": "bs" }, { "kind": "number", "value": "10" }] }, "line": 57 },
       { "kind": "binding", "mutable": false, "name": "echoed", "type": "List OF Byte", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "tb" }] }, "line": 58 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "byte len" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "echoed" }] }] }, { "kind": "string", "value": "200" }] }, "line": 60 },

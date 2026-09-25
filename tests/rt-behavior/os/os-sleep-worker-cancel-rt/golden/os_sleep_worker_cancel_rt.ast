@@ -20,7 +20,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "os_sleep_workers.sleepUntilCancel" }, { "kind": "string", "value": "seed" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "os_sleep_workers.sleepUntilCancel" }, { "kind": "string", "value": "seed" }] }, "line": 15 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "os.sleep", "arguments": [{ "kind": "number", "value": "50" }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 17 },
       { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 18 },

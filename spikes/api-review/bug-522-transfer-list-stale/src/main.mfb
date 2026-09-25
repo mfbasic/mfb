@@ -26,7 +26,7 @@ ISOLATED FUNC listenerWorker(w AS ThreadWorker OF RES tcp::Listener TO Integer, 
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF RES tcp::Listener TO Integer = thread::start(listenerWorker, 0)
+  RES t AS Thread OF RES tcp::Listener TO Integer = thread::start(listenerWorker, 0)
   RES server = tcp::listen("127.0.0.1", 0)
   thread::transfer(t, server, 2000)
   LET done AS Integer = thread::waitFor(t)

@@ -135,7 +135,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 RES server = tls::listen(\"127.0.0.1\", 0, \"{cert}\", \"{key}\")\n\
         \x20 LET bound = tls::localAddress(server)\n\
         \x20 io::print(\"bound \" & bound.host & \" \" & toString(bound.port))\n\
-        \x20 LET t AS Thread OF RES tls::Listener TO Integer = \
+        \x20 RES t AS Thread OF RES tls::Listener TO Integer = \
              thread::start(xfer_tls_listener_worker::serveOnTransferredTlsListener, \"{PAYLOAD}\")\n\
         \x20 thread::transfer(t, server)\n\
         \x20 io::print(\"served \" & toString(thread::waitFor(t)))\n\

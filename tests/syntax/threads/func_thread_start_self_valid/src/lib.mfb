@@ -5,6 +5,6 @@ EXPORT ISOLATED FUNC echoText(worker AS ThreadWorker OF String TO Integer, seed 
 END FUNC
 
 EXPORT FUNC spawn AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(echoText, "hi")
+  RES t AS Thread OF String TO Integer = thread::start(echoText, "hi")
   RETURN thread::waitFor(t)
 END FUNC

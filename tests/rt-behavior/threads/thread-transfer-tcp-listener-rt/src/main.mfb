@@ -18,7 +18,7 @@ IMPORT xfer_listener_worker
 FUNC main AS Integer
   RES server = tcp::listen("127.0.0.1", 0)
   LET bound AS net::Address = tcp::localAddress(server)
-  LET t AS Thread OF RES tcp::Listener TO Integer = thread::start(xfer_listener_worker::serveOnTransferredListener, "seed")
+  RES t AS Thread OF RES tcp::Listener TO Integer = thread::start(xfer_listener_worker::serveOnTransferredListener, "seed")
   thread::transfer(t, server)
   RES client = tcp::connect("127.0.0.1", bound.port, 10000)
   tcp::write(client, "ping")

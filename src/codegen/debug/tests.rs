@@ -70,7 +70,7 @@ fn a_normal_module_gets_no_debug_code_or_data() {
 fn a_threaded_debug_module_gets_the_thread_section() {
     const THREADED: &str = "IMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
-FUNC main() AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(work, 1)\n  RETURN thread::waitFor(t)\nEND FUNC\n";
+FUNC main() AS Integer\n  RES t AS Thread OF Integer TO Integer = thread::start(work, 1)\n  RETURN thread::waitFor(t)\nEND FUNC\n";
     let mut module =
         crate::testutil::nir_for_src(THREADED, CodeTarget::MacosAarch64, NativeBuildMode::Console)
             .unwrap();

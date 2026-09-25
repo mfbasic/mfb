@@ -11,8 +11,8 @@ IMPORT thread
 IMPORT allocator_churn_worker
 
 FUNC main AS Integer
-  LET a AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 2000, 1, 1)
-  LET b AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 1500, 1, 1)
+  RES a AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 2000, 1, 1)
+  RES b AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 1500, 1, 1)
   LET ra AS Integer = thread::waitFor(a)
   LET rb AS Integer = thread::waitFor(b)
   io::print("worker a " & toString(ra))

@@ -73,7 +73,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Nothing TO String = thread::start(workers::tick, 0)
+  RES t AS Thread OF Nothing TO String = thread::start(workers::tick, 0)
   os::sleep(50)
   thread::cancel(t)
   io::print(thread::waitFor(t))

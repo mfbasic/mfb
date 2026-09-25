@@ -39,7 +39,7 @@ ISOLATED FUNC shift(w AS ThreadWorker OF Colour TO Integer, seed AS Integer) AS 
 END FUNC
 
 FUNC roundTrip(sent AS Colour) AS Integer
-  LET t AS Thread OF Colour TO Integer = thread::start(shift, 0, 4, 4)
+  RES t AS Thread OF Colour TO Integer = thread::start(shift, 0, 4, 4)
   thread::send(t, sent)
   LET back AS Colour = thread::receive(t, 20000)
   LET code AS Integer = thread::waitFor(t)

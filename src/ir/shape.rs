@@ -4325,7 +4325,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
-                "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
+                "IMPORT thread\nFUNC main AS Integer\n  RES t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
             ),
             &[],
             &[],
@@ -4360,7 +4360,7 @@ mod tests {
                  RETURN seed\n\
                  END FUNC\n\
                  FUNC main AS Integer\n  \
-                 LET t = thread::start(w, 1)\n  \
+                 RES t = thread::start(w, 1)\n  \
                  RETURN 0\n\
                  END FUNC\n",
             ),
@@ -4389,7 +4389,7 @@ mod tests {
                  RETURN seed\n\
                  END FUNC\n\
                  FUNC main AS Integer\n  \
-                 LET t = thread::start(w, 1)\n  \
+                 RES t = thread::start(w, 1)\n  \
                  RETURN 0\n\
                  END FUNC\n",
             ),

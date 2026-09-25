@@ -963,10 +963,10 @@ FUNC test_thread_sum(run AS Integer, tests AS List OF BenchResult) AS List OF Be
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
     LET t0 AS Integer = datetime::monotonicNanos()
-    LET t0w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, 0)
-    LET t1w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk)
-    LET t2w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 2)
-    LET t3w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 3)
+    RES t0w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, 0)
+    RES t1w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk)
+    RES t2w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 2)
+    RES t3w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 3)
     LET s0 AS Integer = thread::waitFor(t0w)
     LET s1 AS Integer = thread::waitFor(t1w)
     LET s2 AS Integer = thread::waitFor(t2w)

@@ -43,7 +43,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "work" }, { "kind": "number", "value": "5" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "work" }, { "kind": "number", "value": "5" }] }, "line": 18 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] }] }, "line": 19 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
       ]

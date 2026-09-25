@@ -75,7 +75,7 @@ fn source(port: u16) -> String {
         \x20 RETURN {WORKER_RESULT}\n\
          END FUNC\n\n\
          FUNC main AS Integer\n\
-        \x20 LET a AS Thread OF RES tcp::Socket TO Integer = thread::start(worker, 0)\n\
+        \x20 RES a AS Thread OF RES tcp::Socket TO Integer = thread::start(worker, 0)\n\
         \x20 RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port}, 20000)\n\
         \x20 thread::transfer(a, c)\n\
         \x20 LET r AS Integer = thread::waitFor(a)\n\

@@ -26,8 +26,8 @@ REM Fan out two workers from WITHIN this package via the bare name `bump`, join
 REM both, and report each worker's result plus this (parent) instance's untouched
 REM COUNTER.
 EXPORT FUNC runFanout AS String
-  LET a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
-  LET b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
+  RES a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
+  RES b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
   LET ra AS Integer = thread::waitFor(a)
   LET rb AS Integer = thread::waitFor(b)
   RETURN "a=" & toString(ra) & " b=" & toString(rb) & " parent=" & toString(COUNTER)

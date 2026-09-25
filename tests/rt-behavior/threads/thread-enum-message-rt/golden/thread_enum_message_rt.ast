@@ -69,7 +69,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Colour TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "shift" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "4" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF Colour TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "shift" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "4" }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "sent" }] }, "line": 43 },
       { "kind": "binding", "mutable": false, "name": "back", "type": "Colour", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "20000" }] }, "line": 44 },
       { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 45 },

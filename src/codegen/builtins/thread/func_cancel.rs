@@ -43,7 +43,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(workers::patient, "go")
+  RES t AS Thread OF String TO Integer = thread::start(workers::patient, "go")
   thread::cancel(t)
   LET outcome AS Integer = thread::waitFor(t)
   io::print("the worker returned " & toString(outcome))

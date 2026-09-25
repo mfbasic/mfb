@@ -35,7 +35,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(workers::chatter, "hello")
+  RES t AS Thread OF String TO Integer = thread::start(workers::chatter, "hello")
   IF thread::poll(t, 1000) THEN
     LET greeting AS String = thread::receive(t, 1000)
     io::print(greeting)

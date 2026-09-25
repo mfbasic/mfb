@@ -9,7 +9,7 @@ IMPORT datetime
 IMPORT os_sleep_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepThenReturn, "seed")
+  RES t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepThenReturn, "seed")
   LET t0 AS Integer = datetime::monotonicNanos()
   LET r AS Integer = thread::waitFor(t)
   LET t1 AS Integer = datetime::monotonicNanos()

@@ -84,7 +84,7 @@ fn worker_program(package: &str, type_: &str, bind_type: &str) -> String {
         \x20 RETURN 1\n\
          END FUNC\n\n\
          FUNC main AS Integer\n\
-        \x20 LET a AS Thread OF RES {type_} TO Integer = thread::start(worker, 0)\n\
+        \x20 RES a AS Thread OF RES {type_} TO Integer = thread::start(worker, 0)\n\
         \x20 io::print(\"started\")\n\
         \x20 RETURN 0\n\
          END FUNC\n"

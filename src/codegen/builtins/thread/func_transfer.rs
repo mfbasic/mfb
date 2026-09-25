@@ -64,7 +64,7 @@ IMPORT fs
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF RES fs::File TO Integer = thread::start(workers::fileWriter, 0)
+  RES t AS Thread OF RES fs::File TO Integer = thread::start(workers::fileWriter, 0)
   RES f AS fs::File = fs::open("/tmp/handover.txt", "write")
   thread::transfer(t, f, 2000)
   LET done AS Integer = thread::waitFor(t)

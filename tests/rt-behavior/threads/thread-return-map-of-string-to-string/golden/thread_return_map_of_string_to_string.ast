@@ -20,7 +20,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF (Map OF String TO String) TO (Map OF String TO String)", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnMapOfStringToString" }, { "kind": "string", "value": "seed" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF (Map OF String TO String) TO (Map OF String TO String)", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnMapOfStringToString" }, { "kind": "string", "value": "seed" }] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "send-map-key" }, "value": { "kind": "string", "value": "send-map-value" } }] }, { "kind": "number", "value": "10" }] }, "line": 8 },
       { "kind": "binding", "mutable": false, "name": "result", "type": "Map OF String TO String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "result" }, { "kind": "string", "value": "send-map-key" }] }] }, "line": 10 },

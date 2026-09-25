@@ -208,7 +208,7 @@ fn thread_project(name: &str, in_limit: &str, out_limit: &str) -> PathBuf {
              IMPORT thread_runtime_workers\n\
              \n\
              FUNC main AS Integer\n\
-             \x20 LET outbound AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", {in_limit}, {out_limit})\n\
+             \x20 RES outbound AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", {in_limit}, {out_limit})\n\
              \x20 LET first AS String = thread::receive(outbound, 1000)\n\
              \x20 io::print(first)\n\
              \x20 RETURN 0\n\

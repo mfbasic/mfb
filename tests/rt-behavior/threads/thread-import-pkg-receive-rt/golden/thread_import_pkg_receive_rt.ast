@@ -20,7 +20,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cancel_worker.echoWorker" }, { "kind": "string", "value": "seed" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cancel_worker.echoWorker" }, { "kind": "string", "value": "seed" }] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "ping" }] }, "line": 8 },
       { "kind": "binding", "mutable": false, "name": "ack", "type": "String", "value": { "kind": "call", "callee": "thread_recv_pkg.drain", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "ack" }] }, "line": 10 },

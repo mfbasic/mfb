@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 12 },
       { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 13 }
       ],
       "trap": {
@@ -50,7 +50,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }, "line": 21 },
       { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 22 }
       ],
       "trap": {
@@ -95,7 +95,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "before", "type": "Integer", "value": { "kind": "call", "callee": "failBeforeBind", "arguments": [] }, "line": 36 },
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 37 },
       { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 38 }
       ],
       "trap": {
@@ -116,8 +116,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "live", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 46 },
-      { "kind": "binding", "mutable": false, "name": "bad", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "live", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "line": 47 },
       { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 48 }
       ],
       "trap": {

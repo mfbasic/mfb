@@ -71,7 +71,7 @@ FUNC main AS Integer
   fs::close(a)
 
   ' ---- PART 3: across threads there is no second holder. ----
-  LET t AS Thread OF RES fs::File STATE state_reach_worker::Accum TO Integer = thread::start(state_reach_worker::growAccepted, 300)
+  RES t AS Thread OF RES fs::File STATE state_reach_worker::Accum TO Integer = thread::start(state_reach_worker::growAccepted, 300)
   RES b AS fs::File STATE state_reach_worker::Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
   b.state.n = 0
   ' Seed a few elements BEFORE the transfer, so the worker grows a block this

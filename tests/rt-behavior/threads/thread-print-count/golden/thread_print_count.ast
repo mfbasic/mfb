@@ -18,7 +18,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.printNumbers" }, { "kind": "string", "value": "start" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.printNumbers" }, { "kind": "string", "value": "start" }] }, "line": 5 },
       { "kind": "binding", "mutable": false, "name": "result", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 6 },
       { "kind": "return", "value": { "kind": "identifier", "value": "result" }, "line": 7 }
       ]

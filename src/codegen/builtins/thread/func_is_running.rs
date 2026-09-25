@@ -31,7 +31,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(workers::double, 5)
+  RES t AS Thread OF Nothing TO Integer = thread::start(workers::double, 5)
   IF thread::isRunning(t) THEN
     io::print("still working")
   END IF

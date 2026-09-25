@@ -404,7 +404,7 @@ SUB serveTcpThreaded(host AS String, port AS Integer)
   ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
   ' start instead — the only error that can reach it, since every other call here
   ' traps at its own site.
-  LET worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp")
+  RES worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp")
 
   DO
     RES sock AS tcp::Socket = tcp::accept(server) TRAP(e)
@@ -436,7 +436,7 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
   ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
   ' start instead — the only error that can reach it, since every other call here
   ' traps at its own site.
-  LET worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls")
+  RES worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls")
 
   ' The handshake still completes here, on the main thread: tls::accept is the
   ' handshake. Only the finished session crosses to the worker. Unlike the

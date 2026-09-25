@@ -2,7 +2,7 @@ IMPORT thread
 IMPORT thread_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  RES t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
   LET missing AS Nothing = thread::emit()
   LET wrongMessage AS Nothing = thread::emit(t, 1)
   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")

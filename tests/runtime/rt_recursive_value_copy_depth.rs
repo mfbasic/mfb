@@ -91,7 +91,7 @@ ISOLATED FUNC buildChain(w AS ThreadWorker OF Integer TO List OF Node, n AS Inte
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF Integer TO List OF Node = thread::start(buildChain, {N})
+  RES t AS Thread OF Integer TO List OF Node = thread::start(buildChain, {N})
   LET xs AS List OF Node = thread::waitFor(t)
   FOR EACH top IN xs
     io::print(\"top=\" & toString(top.tag) & \" len=\" & toString(len(xs)))

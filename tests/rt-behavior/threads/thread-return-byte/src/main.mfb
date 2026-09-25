@@ -3,7 +3,7 @@ IMPORT thread
 IMPORT thread_runtime_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Byte TO Byte = thread::start(thread_runtime_workers::returnByte, "seed")
+  RES t AS Thread OF Byte TO Byte = thread::start(thread_runtime_workers::returnByte, "seed")
   thread::send(t, toByte(7), 10)
   LET result AS Byte = thread::waitFor(t)
   io::print(toString(result))

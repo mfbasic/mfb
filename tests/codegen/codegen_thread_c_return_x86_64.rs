@@ -55,7 +55,7 @@ IMPORT thread\n\
 IMPORT thread_runtime_workers\n\
 \n\
 FUNC main AS Integer\n\
-\x20 LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", 1, 3)\n\
+\x20 RES t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", 1, 3)\n\
 \x20 LET first AS String = thread::receive(t, 1000)\n\
 \x20 io::print(first)\n\
 \x20 os::sleep(1)\n\

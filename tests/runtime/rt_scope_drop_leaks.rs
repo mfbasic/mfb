@@ -3767,7 +3767,7 @@ SUB main()\n\
     RECOVER \"x\"\n\
   END TRAP\n\
   io::print(env)\n\
-  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  RES t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
   LET out AS String = thread::waitFor(t) TRAP(e)\n\
     RECOVER \"thread-failed\"\n\
   END TRAP\n\
@@ -4882,7 +4882,7 @@ SUB main()\n\
   io::print(\"host=\" & toString(len(os::hostName()) > 0))\n\
   io::print(\"tmp=\" & toString(len(fs::tempDirectory()) > 0))\n\
   io::print(\"cwd=\" & toString(len(fs::currentDirectory()) > 0))\n\
-  LET t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
+  RES t AS Thread OF String TO String = thread::start(worker, \"worker\")\n\
   LET out AS String = thread::waitFor(t) TRAP(e)\n\
     RECOVER \"thread-failed\"\n\
   END TRAP\n\
@@ -6742,7 +6742,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6755,7 +6755,7 @@ ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS In
 SUB main()\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     WHILE thread::isRunning(t)\n      os::sleep(1)\n    END WHILE\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6768,7 +6768,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     LET r AS String = thread::waitFor(t)\n\
     total = total + len(r)\n\
     i = i + 1\n\
@@ -6782,7 +6782,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     total = total + len(thread::waitFor(t))\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6795,7 +6795,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO String = thread::start(work, \"abc\")\n\
     LET r AS String = thread::waitFor(t) TRAP(e)\n      RECOVER \"\"\n    END TRAP\n\
     total = total + len(r)\n\
     i = i + 1\n\
@@ -6816,7 +6816,7 @@ SUB main()\n\
   MUT count AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO TwNode = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO TwNode = thread::start(work, \"abc\")\n\
     LET r AS TwNode = thread::waitFor(t)\n\
     MATCH r\n      CASE TwEl(e)\n        count = count + len(e.kids)\n      CASE ELSE\n    END MATCH\n\
     i = i + 1\n\
@@ -6838,7 +6838,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO TwResult = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO TwResult = thread::start(work, \"abc\")\n\
     LET r AS TwResult = thread::waitFor(t)\n\
     total = total + len(r.title)\n\
     i = i + 1\n\
@@ -6857,7 +6857,7 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     LET m AS String = thread::receive(t)\n\
     total = total + len(m) + thread::waitFor(t)\n\
     i = i + 1\n\
@@ -6875,7 +6875,7 @@ SUB main()\n\
   MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
     LET running AS Boolean = thread::isRunning(t) TRAP(e)\n      RECOVER TRUE\n    END TRAP\n\
     IF NOT running THEN done = done + 1\n\
@@ -6911,31 +6911,33 @@ SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + finish(t)\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
-/// A `MUT Thread` reassigned every pass: each reassignment drops the waited-for old handle.
+/// A `RES Thread` bound afresh every pass, plus one outside the loop: each pass's handle
+/// is dropped at the end of its pass. (plan-156-F: a `RES` binding is not reassigned, so
+/// this is what the former `MUT` reassignment is spelled as now.)
 const B622_REASSIGNED: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 SUB main()\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
-  MUT t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  RES first AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  total = total + thread::waitFor(first)\n\
   WHILE i < {N}\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + thread::waitFor(t)\n\
-    t = thread::start(work, \"abc\")\n\
     i = i + 1\n\
   END WHILE\n\
-  total = total + thread::waitFor(t)\n\
   io::print(\"total=\" & toString(total))\n\
 END SUB\n";
 
 /// bug-622 Part B positive pins: the free happens exactly once whichever binding holds the
-/// handle last — a caller that lent it to a callee, or a `MUT` binding reassigned over it.
+/// handle last — a caller that lent it to a callee, or a binding per pass of a loop.
 /// A second drop of a freed block would show as a skipped double free or a wrong value.
 #[cfg(unix)]
 #[test]
@@ -6958,8 +6960,9 @@ fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
     );
 }
 
-/// One handle under two names: `t2` retrieves the result, then `t` asks again and gets the
-/// same result (`waitFor` is repeatable, plan-156-C).
+/// One handle under two names: `RES t2 = t` moves it to `t2` (plan-156-F: a `RES` binding
+/// from another is a move), which retrieves the result and asks again for the same result
+/// (`waitFor` is repeatable, plan-156-C). Freed once, by `t2`'s drop.
 const B622_ALIAS: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 SUB main()\n\
@@ -6967,10 +6970,10 @@ SUB main()\n\
   MUT repeated AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
-    LET t2 AS Thread OF String TO Integer = t\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t2 AS Thread OF String TO Integer = t\n\
     total = total + thread::waitFor(t2)\n\
-    LET again AS Integer = thread::waitFor(t) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
+    LET again AS Integer = thread::waitFor(t2) TRAP(e)\n      RECOVER e.code\n    END TRAP\n\
     IF again = 3 THEN repeated = repeated + 1\n\
     i = i + 1\n\
   END WHILE\n\
@@ -6987,7 +6990,7 @@ SUB main()\n\
   MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
-    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
     total = total + finish(t)\n\
     IF NOT thread::isRunning(t) THEN done = done + 1\n\
     i = i + 1\n\
@@ -7000,7 +7003,7 @@ END SUB\n";
 const B622_INLINE_TRAP_START: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC once() AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
+  RES t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
   RETURN thread::waitFor(t)\n\
 END FUNC\n\
 SUB main()\n\
@@ -7018,7 +7021,7 @@ END SUB\n";
 const B622_TRAP_ROUTED: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC routed() AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
+  RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
   WHILE thread::isRunning(t)\n    os::sleep(1)\n  END WHILE\n\
   FAIL error(77050002, \"forced\")\n\
   RETURN 0\n\

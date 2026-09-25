@@ -371,7 +371,7 @@ FUNC main AS Integer
   ' it. Dropping the handle on the way out - quitting before the fetch is done -
   ' cancels the worker.
   forecastFrames = [analysis.winds]
-  LET worker AS Thread OF ForecastNews TO Integer = thread::start(fetchForecast, run)
+  RES worker AS Thread OF ForecastNews TO Integer = thread::start(fetchForecast, run)
   MUT fetching AS Boolean = TRUE
   MUT playback AS Playback = Playback[startSeconds := run.seconds, totalHours := toFloat(FORECAST_HOURS), loadedHours := 0.0, hours := 0.0, playing := FALSE, status := fetchedStatus()]
   LET days AS List OF DayMark = dayMarks(playback)

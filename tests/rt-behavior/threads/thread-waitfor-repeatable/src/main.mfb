@@ -9,7 +9,7 @@ ISOLATED FUNC five(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) A
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF Integer TO Integer = thread::start(five, 5)
+  RES t AS Thread OF Integer TO Integer = thread::start(five, 5)
   io::print(toString(thread::waitFor(t)))
   io::print(toString(thread::waitFor(t)))
   RETURN 0

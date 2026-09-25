@@ -17,7 +17,7 @@ IMPORT tls
 IMPORT xfer_tls_worker
 
 FUNC main AS Integer
-  LET t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
+  RES t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
   RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
   thread::transfer(t, conn)
   io::print("moved=" & toString(thread::waitFor(t)))

@@ -20,11 +20,11 @@ EXPORT FUNC plainWorker(worker AS ThreadWorker OF String TO Integer, seed AS Str
 END FUNC
 
 EXPORT FUNC spawnHidden AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(hiddenWorker, "hi")
+  RES t AS Thread OF String TO Integer = thread::start(hiddenWorker, "hi")
   RETURN thread::waitFor(t)
 END FUNC
 
 EXPORT FUNC spawnPlain AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(plainWorker, "hi")
+  RES t AS Thread OF String TO Integer = thread::start(plainWorker, "hi")
   RETURN thread::waitFor(t)
 END FUNC

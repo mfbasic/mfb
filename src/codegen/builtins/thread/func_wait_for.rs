@@ -33,7 +33,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(workers::double, 21)
+  RES t AS Thread OF Nothing TO Integer = thread::start(workers::double, 21)
   LET answer AS Integer = thread::waitFor(t)
   io::print(toString(answer))
   RETURN 0
@@ -49,7 +49,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF Nothing TO Integer = thread::start(workers::failing, 3)
+  RES t AS Thread OF Nothing TO Integer = thread::start(workers::failing, 3)
   LET v AS Integer = thread::waitFor(t)
   io::print("the worker succeeded with " & toString(v))
   RETURN 0

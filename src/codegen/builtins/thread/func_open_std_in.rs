@@ -41,7 +41,7 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET w AS Thread OF Nothing TO Integer = thread::start(workers::double, 4)
+  RES w AS Thread OF Nothing TO Integer = thread::start(workers::double, 4)
   thread::openStdIn(w)
   thread::closeStdIn(w)
   LET v AS Integer = thread::waitFor(w)

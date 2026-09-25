@@ -121,10 +121,10 @@ EXPORT ISOLATED FUNC buildWrap(w AS ThreadWorker OF String TO Wrap, seed AS Stri
 
 const APP_SRC: &str = "IMPORT io\nIMPORT dom391\nIMPORT worker391\nIMPORT thread\n\
 FUNC main AS Integer\n\
-  LET t1 AS Thread OF String TO dom391::Node = thread::start(worker391::buildNode, \"seed\")\n\
+  RES t1 AS Thread OF String TO dom391::Node = thread::start(worker391::buildNode, \"seed\")\n\
   LET n AS dom391::Node = thread::waitFor(t1)\n\
   io::print(\"bare=\" & dom391::render(n))\n\
-  LET t2 AS Thread OF String TO worker391::Wrap = thread::start(worker391::buildWrap, \"seed\")\n\
+  RES t2 AS Thread OF String TO worker391::Wrap = thread::start(worker391::buildWrap, \"seed\")\n\
   LET wr AS worker391::Wrap = thread::waitFor(t2)\n\
   io::print(\"wrap=\" & dom391::render(wr.root) & \"|\" & wr.label & \"|\" & toString(wr.ok))\n\
   RETURN 0\nEND FUNC\n";

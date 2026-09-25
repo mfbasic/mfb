@@ -2831,7 +2831,7 @@ END FUNC
                RETURN seed\n\
              END FUNC\n\
              FUNC run() AS Integer\n\
-               LET t AS thread::Thread OF Integer TO Integer = thread::start(worker, 5)\n\
+               RES t AS thread::Thread OF Integer TO Integer = thread::start(worker, 5)\n\
                RETURN 0\n\
              END FUNC\n\
              SUB main\nEND SUB\n";

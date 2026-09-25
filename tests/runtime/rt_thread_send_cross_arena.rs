@@ -49,7 +49,7 @@ ISOLATED FUNC churn(w AS ThreadWorker OF String TO Integer, seed AS String) AS I
 END FUNC\n\
 \n\
 FUNC main AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(churn, \"abc\")\n\
+  RES t AS Thread OF String TO Integer = thread::start(churn, \"abc\")\n\
   FOR i = 1 TO 200000\n\
     thread::send(t, \"message-\" & toString(i) & \"-padding-padding-padding\")\n\
   NEXT\n\
@@ -75,7 +75,7 @@ ISOLATED FUNC producer(w AS ThreadWorker OF String TO Integer, seed AS String) A
 END FUNC\n\
 \n\
 FUNC main AS Integer\n\
-  LET t AS Thread OF String TO Integer = thread::start(producer, \"abc\")\n\
+  RES t AS Thread OF String TO Integer = thread::start(producer, \"abc\")\n\
   MUT total AS Integer = 0\n\
   FOR i = 1 TO 200000\n\
     LET m AS String = thread::receive(t)\n\

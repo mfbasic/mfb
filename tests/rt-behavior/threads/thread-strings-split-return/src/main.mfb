@@ -5,7 +5,7 @@ IMPORT thread_runtime_workers
 
 FUNC main AS Integer
   LET content AS String = fs::readText("tests/rt-behavior/threads/thread-strings-split-return/data/input.txt")
-  LET t AS Thread OF String TO List OF String = thread::start(thread_runtime_workers::splitLines, content)
+  RES t AS Thread OF String TO List OF String = thread::start(thread_runtime_workers::splitLines, content)
   LET lines AS List OF String = thread::waitFor(t)
   FOR EACH line IN lines
     io::print(line)

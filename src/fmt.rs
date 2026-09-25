@@ -988,10 +988,10 @@ mod tests {
 
     #[test]
     fn nothing_is_a_type_after_of_and_to() {
-        let input = "let t AS Thread OF Nothing TO Integer = start()\n";
+        let input = "res t AS Thread OF Nothing TO Integer = start()\n";
         assert_eq!(
             fmt(input),
-            "LET t AS Thread OF Nothing TO Integer = start()\n"
+            "RES t AS Thread OF Nothing TO Integer = start()\n"
         );
     }
 

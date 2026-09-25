@@ -20,7 +20,7 @@ PRIVATE ISOLATED FUNC privWorker(t AS ThreadWorker OF Nothing TO Integer, seed A
 END FUNC
 
 FUNC main AS Integer
-  LET a AS Thread OF Nothing TO Integer = thread::start(pubWorker, 10)
-  LET b AS Thread OF Nothing TO Integer = thread::start(privWorker, 20)
+  RES a AS Thread OF Nothing TO Integer = thread::start(pubWorker, 10)
+  RES b AS Thread OF Nothing TO Integer = thread::start(privWorker, 20)
   RETURN thread::waitFor(a) + thread::waitFor(b)
 END FUNC

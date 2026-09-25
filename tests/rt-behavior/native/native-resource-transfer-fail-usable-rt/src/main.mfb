@@ -59,7 +59,7 @@ ISOLATED FUNC blockNeverAccept(t AS ThreadWorker OF String RES Db TO Integer, se
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF String RES Db TO Integer = thread::start(blockNeverAccept, "seed", 1, 1)
+  RES t AS Thread OF String RES Db TO Integer = thread::start(blockNeverAccept, "seed", 1, 1)
   RES fill AS Db = sql::open(":memory:")
   thread::transfer(t, fill, 1000)
 

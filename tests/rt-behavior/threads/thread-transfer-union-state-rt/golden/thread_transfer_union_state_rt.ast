@@ -41,7 +41,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 21 },
       { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 22 },
       { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 23 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }, "line": 24 },

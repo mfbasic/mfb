@@ -1188,7 +1188,7 @@ END FUNC
 
 FUNC main AS Integer
   term::enableMouse(TRUE)
-  LET t AS Thread OF String TO Integer = thread::start(worker, "x")
+  RES t AS Thread OF String TO Integer = thread::start(worker, "x")
   LET rc AS Integer = thread::waitFor(t)
   MUT events AS Integer = 0
   MUT going AS Boolean = TRUE

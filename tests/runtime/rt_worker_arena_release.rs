@@ -29,7 +29,7 @@ FUNC main AS Integer
   MUT total AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 1000
-    LET t AS Thread OF String TO Integer = thread::start(churn, 1)
+    RES t AS Thread OF String TO Integer = thread::start(churn, 1)
     total = total + thread::waitFor(t)
     i = i + 1
   END WHILE
@@ -75,7 +75,7 @@ ISOLATED FUNC chatty(w AS ThreadWorker OF String TO Integer, seed AS Integer) AS
 END FUNC
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(chatty, 7)
+  RES t AS Thread OF String TO Integer = thread::start(chatty, 7)
   io::print("result " & toString(thread::waitFor(t)))
   RETURN 0
 END FUNC

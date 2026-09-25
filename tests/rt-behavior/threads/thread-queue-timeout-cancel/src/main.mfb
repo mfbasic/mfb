@@ -93,16 +93,16 @@ FUNC outboundCancelScenario(t AS Thread OF String TO Integer) AS Integer
 END FUNC
 
 FUNC main AS Integer
-  LET full AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutbound, "seed", 1, 1)
+  RES full AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutbound, "seed", 1, 1)
   LET fullResult AS Integer = fullQueueScenario(full)
 
-  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "seed", 1, 1)
+  RES t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "seed", 1, 1)
   LET cancelResult AS Integer = cancelScenario(t)
 
-  LET receiveThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
+  RES receiveThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
   LET receiveResult AS Integer = receiveCancelScenario(receiveThread)
 
-  LET outboundThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutboundUntilCancel, "seed", 1, 1)
+  RES outboundThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutboundUntilCancel, "seed", 1, 1)
   LET outboundResult AS Integer = outboundCancelScenario(outboundThread)
 
   RETURN fullResult + cancelResult + receiveResult + outboundResult

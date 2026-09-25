@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "rawThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "rawThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "matched", "type": "Integer", "value": {
         "kind": "trapped",
         "binding": "err",
@@ -29,7 +29,7 @@
         { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 8 }
         ]
       }, "line": 7 },
-      { "kind": "binding", "mutable": false, "name": "directThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "directThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 11 },
       { "kind": "binding", "mutable": false, "name": "direct", "type": "Integer", "value": {
         "kind": "trapped",
         "binding": "err",
@@ -88,7 +88,7 @@
         "else": [
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/rt-behavior/threads/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/rt-behavior/threads/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 27 },
       { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": {
         "kind": "trapped",
         "binding": "err",

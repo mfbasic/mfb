@@ -7130,13 +7130,13 @@ fn res_on_a_thread_binding_is_accepted() {
     expect_no_rule(&project(vec![f], vec![]), "TYPE_RES_REQUIRES_RESOURCE");
 }
 
-/// Until plan-156-F, `LET`/`MUT` still spell a thread binding (lowered exactly like
-/// `RES`), so a thread held by a non-`RES` binding is not yet rejected.
+/// plan-156-F: a thread is bound with `RES` only — a `LET`/`MUT` thread binding is the
+/// rule every other resource gets.
 #[test]
-fn a_let_thread_binding_is_accepted_until_the_clean_break() {
+fn a_let_thread_binding_requires_res() {
     let body = vec![bind("t", THREAD_VIEW, None, true, false)];
     let f = func_returns("run", "Nothing", vec![], body);
-    expect_no_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
 }
 
 // --- thread.result member --------------------------------------------------

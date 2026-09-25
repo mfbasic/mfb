@@ -28,7 +28,7 @@ FUNC main AS Integer
   applyTwice(LAMBDA(x AS Integer) -> total = total + x)
 
   ' Sent to a thread (not a non-escaping position). Rejected.
-  LET worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
+  RES worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
 
   ' A resource is never capturable, even though `forEach` is non-escaping and
   ' the `MUT lastLine` capture alone would be allowed (§12.4).

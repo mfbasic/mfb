@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Byte TO Byte", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnByte" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF Byte TO Byte", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnByte" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "7" }] }, { "kind": "number", "value": "10" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "result", "type": "Byte", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "result" }] }] }, "line": 9 },

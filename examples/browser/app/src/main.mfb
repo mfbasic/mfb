@@ -1048,7 +1048,7 @@ FUNC main AS Integer
       drawContent(size, loadingLines, 0, 0, noRects, noPatches)
       term::sync()
 
-      LET worker AS Thread OF String TO fetch::LoadResult = thread::start(fetch::fetch, target)
+      RES worker AS Thread OF String TO fetch::LoadResult = thread::start(fetch::fetch, target)
       DO WHILE thread::isRunning(worker)
         spinner = spinner + 1
         drawChrome(size, FALSE, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)

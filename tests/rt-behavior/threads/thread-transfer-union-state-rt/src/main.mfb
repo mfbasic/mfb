@@ -18,7 +18,7 @@ END UNION
 ' off the accepted `RES Stream STATE Cursor` and returns it — the variant record
 ' (with its STATE) is deep-copied into the receiver arena, never aliased.
 FUNC main AS Integer
-  LET t AS Thread OF RES Stream STATE Cursor TO Integer = thread::start(union_xfer_workers::takeUnionCursor, "seed")
+  RES t AS Thread OF RES Stream STATE Cursor TO Integer = thread::start(union_xfer_workers::takeUnionCursor, "seed")
   RES s AS Stream STATE Cursor = fs::createTempFile()
   s.state.pos = 99
   thread::transfer(t, s)

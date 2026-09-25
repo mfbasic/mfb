@@ -3,7 +3,7 @@ IMPORT thread
 IMPORT thread_runtime_workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitToMain, "start")
+  RES t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitToMain, "start")
   LET hasReady AS Boolean = thread::poll(t, 10)
   LET ready AS String = thread::receive(t)
   io::print(ready)

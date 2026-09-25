@@ -39,7 +39,7 @@ SUB main()
   MUT bound AS Integer = 0
   MUT j AS Integer = 0
   WHILE j < 100
-    LET t AS Thread OF String TO Integer = thread::start(sizer, "abc")
+    RES t AS Thread OF String TO Integer = thread::start(sizer, "abc")
     bound = bound + thread::waitFor(t)
     j = j + 1
   END WHILE

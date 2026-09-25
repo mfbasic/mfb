@@ -317,7 +317,7 @@ fn a_paint_loop_keeps_live_bytes_constant() {
 fn a_thread_copy_back_loop_keeps_live_bytes_constant() {
     let source = |n: u64| {
         format!(
-            "IMPORT io\nIMPORT thread\n\nTYPE SoakEl\n  tag AS String\n  kids AS List OF SoakNode\nEND TYPE\n\nTYPE SoakText\n  text AS String\nEND TYPE\n\nUNION SoakNode\n  SoakEl\n  SoakText\nEND UNION\n\nTYPE SoakResult\n  ok AS Boolean\n  document AS SoakNode\n  title AS String\nEND TYPE\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO SoakResult, seed AS String) AS SoakResult\n  LET leaf AS SoakNode = SoakText[seed & \"!\"]\n  LET root AS SoakNode = SoakEl[\"div\", [leaf, leaf]]\n  RETURN SoakResult[TRUE, root, seed & \"?\"]\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET t AS Thread OF String TO SoakResult = thread::start(work, \"abc\")\n    LET r AS SoakResult = thread::waitFor(t)\n    total = total + len(r.title)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+            "IMPORT io\nIMPORT thread\n\nTYPE SoakEl\n  tag AS String\n  kids AS List OF SoakNode\nEND TYPE\n\nTYPE SoakText\n  text AS String\nEND TYPE\n\nUNION SoakNode\n  SoakEl\n  SoakText\nEND UNION\n\nTYPE SoakResult\n  ok AS Boolean\n  document AS SoakNode\n  title AS String\nEND TYPE\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO SoakResult, seed AS String) AS SoakResult\n  LET leaf AS SoakNode = SoakText[seed & \"!\"]\n  LET root AS SoakNode = SoakEl[\"div\", [leaf, leaf]]\n  RETURN SoakResult[TRUE, root, seed & \"?\"]\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES t AS Thread OF String TO SoakResult = thread::start(work, \"abc\")\n    LET r AS SoakResult = thread::waitFor(t)\n    total = total + len(r.title)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
         )
     };
     // 7,424 B per thread measured, so 400 extra threads grow ~3 MB, past FLAT_BOUND.
@@ -915,7 +915,7 @@ fn a_tls_socket_closed_on_another_thread_keeps_live_bytes_constant() {
         let project = common::temp_project(
             "soak_tls_xfer_close",
             &format!(
-                "IMPORT io\nIMPORT tls\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  tls::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    LET a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+                "IMPORT io\nIMPORT tls\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  tls::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    RES a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
             ),
         );
         main_live_bytes(&format!("soak_tls_xfer_close_{n}"), &project)
@@ -1237,7 +1237,7 @@ fn an_owned_list_of_concrete_resources_keeps_live_bytes_constant() {
 /// test written to the doc's counts cannot fail. 100/200 grows 9600 B (measured).
 #[test]
 fn a_thread_resource_transfer_loop_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    LET a AS Thread OF RES udp::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES a AS Thread OF RES udp::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b646_transfer",
         SOURCE,
@@ -1255,7 +1255,7 @@ fn a_thread_resource_transfer_loop_keeps_live_bytes_constant() {
 /// queued copy — the bug doc's 64 B was an unverified estimate.
 #[test]
 fn a_thread_string_send_loop_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"hello-world\")\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"hello-world\")\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b646_send",
         SOURCE,
@@ -1276,7 +1276,7 @@ fn a_thread_string_send_loop_keeps_live_bytes_constant() {
 /// isolates this from bug-646's queued copy.
 #[test]
 fn a_thread_send_of_a_computed_message_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    LET a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"message-\" & toString(i MOD 10))\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"message-\" & toString(i MOD 10))\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b629_send_computed",
         SOURCE,
@@ -1294,7 +1294,7 @@ fn a_thread_send_of_a_computed_message_keeps_live_bytes_constant() {
 /// 400/800 so the 6400 B growth clears [`BLOCK_BOUND`].
 #[test]
 fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  LET t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  RES t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     let at = |n: u64| -> (String, u64, u64) {
         let name = format!("b629_emit_computed_{n}");
         let project =
@@ -1406,7 +1406,7 @@ fn an_unfloated_list_of_res_frees_its_collection_block() {
 /// uses.
 #[test]
 fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  MUT n AS Integer = 0\n  WHILE n < 100\n    thread::send(w, \"ack\")\n    n = n + 1\n  END WHILE\n  RETURN n\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC drain(t AS Thread OF String TO Integer) AS Integer\n  LET v AS Integer = thread::waitFor(t)\n  RETURN v\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 1)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    thread::cancel(t)\n    total = total + drain(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  MUT n AS Integer = 0\n  WHILE n < 100\n    thread::send(w, \"ack\")\n    n = n + 1\n  END WHILE\n  RETURN n\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC drain(t AS Thread OF String TO Integer) AS Integer\n  LET v AS Integer = thread::waitFor(t)\n  RETURN v\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 1)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    thread::cancel(t)\n    total = total + drain(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b650_unread",
         SOURCE,
@@ -1426,7 +1426,7 @@ fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
 /// `Cursor`).
 #[test]
 fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nTYPE Cursor\n  pos AS Integer\nEND TYPE\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket STATE Cursor TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket STATE Cursor = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cursor = udp::bind(\"127.0.0.1\", 0)\n    c.state.pos = i\n    LET a AS Thread OF RES udp::Socket STATE Cursor TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nTYPE Cursor\n  pos AS Integer\nEND TYPE\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket STATE Cursor TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket STATE Cursor = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cursor = udp::bind(\"127.0.0.1\", 0)\n    c.state.pos = i\n    RES a AS Thread OF RES udp::Socket STATE Cursor TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b650_state_transfer",
         SOURCE,
@@ -1447,7 +1447,7 @@ fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
 /// `alloc_calls` at N=100. Runs at 400/800 so the growth clears [`BLOCK_BOUND`].
 #[test]
 fn a_thread_start_seed_is_freed_when_the_thread_is_released() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b655_seed",
         SOURCE,
@@ -1464,7 +1464,7 @@ fn a_thread_start_seed_is_freed_when_the_thread_is_released() {
 /// asserts the program RUNS as much as that it stays flat.
 #[test]
 fn a_thread_start_with_a_literal_seed_frees_nothing() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET t AS Thread OF String TO Integer = thread::start(work, \"abc\", 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b655_literal_seed",
         SOURCE,
@@ -1482,7 +1482,7 @@ fn a_thread_start_with_a_literal_seed_frees_nothing() {
 /// case is the half where the caller keeps it.
 #[test]
 fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET s AS String = \"seed-\" & toString(i MOD 10)\n    LET t AS Thread OF String TO Integer = thread::start(work, s, 4, 4)\n    total = total + thread::waitFor(t)\n    total = total + len(s)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET s AS String = \"seed-\" & toString(i MOD 10)\n    RES t AS Thread OF String TO Integer = thread::start(work, s, 4, 4)\n    total = total + thread::waitFor(t)\n    total = total + len(s)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b655_local_seed",
         SOURCE,
@@ -1508,7 +1508,7 @@ fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
 /// measured as SIGSEGV.
 #[test]
 fn a_failed_thread_start_frees_its_seed() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC once(i AS Integer) AS Integer\n  LET t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 0, 4) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN thread::waitFor(t)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    total = total + once(i)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC once(i AS Integer) AS Integer\n  RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 0, 4) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN thread::waitFor(t)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    total = total + once(i)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
     assert_block_flat(
         "b658_failed_start",
         SOURCE,

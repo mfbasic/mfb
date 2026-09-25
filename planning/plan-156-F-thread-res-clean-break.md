@@ -116,20 +116,59 @@ See plan-156-A. Additionally:
 One phase: the rejection and the migration land together, or the tree does
 not build.
 
-- [ ] The `ops.rs` rejection (§3).
-- [ ] Regex migration of the `.mfb` bindings, then the manual list (§2),
+- [x] The `ops.rs` rejection (§3).
+      (C's `lenient_thread` removed; C's unit test
+      `a_let_thread_binding_is_accepted_until_the_clean_break` — whose name
+      promised this — became `a_let_thread_binding_requires_res`.)
+- [x] Regex migration of the `.mfb` bindings, then the manual list (§2),
       including `examples/{browser/app,network-server,wind}`, `benchmark/mfb`,
       `spikes/*` and `tools/thread-package-sources`.
-- [ ] Rust test strings and `src/` strings (§2 lists).
-- [ ] Goldens per §3.
-- [ ] A new syntax fixture, `tests/syntax/threads/let_thread_binding_invalid/`,
+      (`/tmp/thrcensus/migrate.py`: tests 148 in 88 files, examples 4 in 3,
+      benchmark 4 in 1, spikes 3 in 3, tools 2 in 1 — 161, the plan's 153 plus
+      the thread fixtures A–E added. Residuals, as predicted: only
+      `thread-drop-cleanup`. Its `MUT` reassignment could not become `RES` — a
+      `RES` binding is not reassignable for any resource
+      (`TYPE_ASSIGN_REQUIRES_MUT`, measured with `fs::File`) — so the old thread
+      lives in an inner `IF TRUE` scope and drops at its end before the new one
+      is bound; `makeThread()`'s result is `RES`; the run output is unchanged.
+      A compile sweep over every thread-using fixture then found no other
+      `TYPE_RESOURCE_REQUIRES_RES` and no build-status change. Built:
+      `examples/{network-server,wind,browser/app}`, `benchmark/mfb` (with its
+      worker package), the three spikes.)
+- [x] Rust test strings and `src/` strings (§2 lists).
+      (`tests/**/*.rs`: 58 in 19 files. Manual: `B622_REASSIGNED` binds a `RES`
+      thread per pass plus one before the loop (same totals); `B622_ALIAS`'s
+      second name is a `RES` move, `t2` waited on twice. `src/**/*.rs`: 28 in
+      the plan's files — the man examples, the builtin unit tests, `ir/shape.rs`,
+      `ir/tests.rs`, `audit`, my `debug/tests.rs` — plus `fmt.rs`'s casing test,
+      whose input became `res t AS Thread …`. `rg` over both → 0. Unit tests
+      touching them → 1059 passed.)
+- [x] Goldens per §3.
+      (Before regenerating, every golden diff of the 88 migrated fixtures was
+      classified by `/tmp/p156_goldiff.py`: outside `thread-drop-cleanup` (hand
+      edited; run output identical) each diff line is the `LET`/`MUT`→`RES`
+      keyword or a binding gaining `"resource": true, "state": null` → 0
+      unexpected. Then `sync-goldens.sh … 'rt-behavior/**' 'rt-error/**'
+      'byte-identity/**'` (every changed golden belongs to a migrated fixture),
+      the 24 syntax fixtures by hand from the classified actuals, and
+      `sync-package-mfp.sh` → 5 copies updated — Correction 2. The
+      `resource-xfer-slots` `.ncodesum` moved on all five targets only because its
+      package copy did (with the old copy the sum matches the golden), and was
+      regenerated.)
+- [x] A new syntax fixture, `tests/syntax/threads/let_thread_binding_invalid/`,
       expects `TYPE_RESOURCE_REQUIRES_RES`.
+      (Three: a typed `LET`, an inferred `LET`, a `MUT`; its `RES` line is clean.)
 
 Acceptance: the binding `rg` over `.mfb` and `tests/**/*.rs` returns 0; the
 new fixture passes.
   Check: `rg -n --glob '*.mfb' -e '^\s*(LET|MUT)\s+\w+(\s+AS\s+Thread OF[^=]*)?\s*=\s*thread::start' .`
   → no output (est. 5 s); `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/thread*/**' 'rt-error/threads/**' 'byte-identity/thread' 'byte-identity/resource-xfer-slots'`
   → 0 failures (est. 6 min).
+  Result: the `.mfb` `rg` prints only the three deliberate lines of
+  `let_thread_binding_invalid`; the Rust `rg` → none. The check glob plus
+  `syntax/threads/**` → "acceptance tests passed (106 test(s) ran)";
+  `artifact-gate all` → 0 diffs after the package regeneration; the Rust thread
+  suites pass (`no_type_strings` failed on a bug-695 ratchet — Correction 3).
 Commit: —
 
 ### Phase 2 — spec and man
@@ -178,6 +217,31 @@ Commit: —
     binary makes subprocess tests lie (`.ai/testing-gates.md`).
 
 ## Corrections
+
+1. **The final gate is the thread tests, not the full suite** — by the user's
+   instruction during this plan's execution: "Do not run the full suite as a
+   final gate, only run the thread tests." The Validation Plan's full `cargo
+   test`, full `test-accept.sh` and `artifact-gate all` as a gate are replaced
+   by the thread fixtures (`rt-behavior/thread*/**`, `syntax/threads/**`,
+   `rt-error/threads/**`, the two thread byte-identity sets), the Rust test
+   targets that exercise threads (including the four the Validation Plan names),
+   and the in-binary unit tests.
+
+2. **Four package copies were stale on main.** `sync-package-mfp.sh` updated
+   `self_fanout_workers` (migrated here) and also `regex_thread_workers`,
+   `xfer_listener_worker` and two `xfer_tls_worker` copies, whose sources did
+   not change. main's own compiler
+   (`/Users/justinzaun/Development/mfb/target/release/mfb`) builds
+   `regex_thread_workers` to the new bytes, not the committed ones — they were
+   last synced in `0b067d0a7` (2026-08-31). The stale `self_fanout_workers`
+   copy is what made `thread-package-fanout-rt` fail after the rejection (its
+   package IR still bound a thread with `LET`).
+
+3. **A ratchet the bug-695 fix broke.** `tests/guards/no_type_strings.rs`
+   counted 53 `ParameterType::declared` sites in `ir` against a budget of 52:
+   bug-695's `TypeIndex` resource set added one. Fixed in `b6208d7c9` by one
+   shared `lower_link::native_resource_types`, which the shape pass (which built
+   the same set) now uses too.
 
 ## Summary
 

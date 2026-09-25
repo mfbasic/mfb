@@ -50,12 +50,12 @@ FUNC show(t AS Tree) AS String\n\
   END MATCH\n\
 END FUNC\n\
 FUNC main AS Integer\n\
-  LET t AS Thread OF String TO Tree = thread::start(build, \"s\")\n\
+  RES t AS Thread OF String TO Tree = thread::start(build, \"s\")\n\
   LET v AS Tree = thread::waitFor(t)\n\
   io::print(\"v=\" & show(v))\n\
   ' A second, INDEPENDENT transfer of the same shape: the first copy must not\n\
   ' have written over anything the second one needs.\n\
-  LET t2 AS Thread OF String TO Tree = thread::start(build, \"z\")\n\
+  RES t2 AS Thread OF String TO Tree = thread::start(build, \"z\")\n\
   LET v2 AS Tree = thread::waitFor(t2)\n\
   io::print(\"v2=\" & show(v2))\n\
   io::print(\"v-again=\" & show(v))\n\

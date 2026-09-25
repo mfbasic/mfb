@@ -29,7 +29,7 @@ FUNC main AS Integer
     i = i + 1
   END WHILE
 
-  LET t AS Thread OF List OF Integer TO List OF Integer = thread::start(fixed_list_xfer_worker::doubleIntegers, "seed")
+  RES t AS Thread OF List OF Integer TO List OF Integer = thread::start(fixed_list_xfer_worker::doubleIntegers, "seed")
   thread::send(t, xs, 10)
   LET doubled AS List OF Integer = thread::waitFor(t)
 
@@ -53,7 +53,7 @@ FUNC main AS Integer
     k = k + 1
   END WHILE
 
-  LET tb AS Thread OF List OF Byte TO List OF Byte = thread::start(fixed_list_xfer_worker::echoBytes, "seed")
+  RES tb AS Thread OF List OF Byte TO List OF Byte = thread::start(fixed_list_xfer_worker::echoBytes, "seed")
   thread::send(tb, bs, 10)
   LET echoed AS List OF Byte = thread::waitFor(tb)
 

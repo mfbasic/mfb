@@ -1339,7 +1339,7 @@ mod tests {
             "  io::print(\"a\")\n",
             "  io::print(\"b\")\n",
             "  LET h = fs::open(\"p\")\n",
-            "  LET t = thread::start(worker)\n",
+            "  RES t = thread::start(worker)\n",
             "END FUNC\n",
         );
         let (_, permissions, _, ..) = collect_source(&project(source));
@@ -1365,7 +1365,7 @@ mod tests {
             "    LET d = tcp::listen(addr)\n",
             "  NEXT\n",
             "  WHILE n > 0\n",
-            "    LET e = thread::start(worker)\n",
+            "    RES e = thread::start(worker)\n",
             "  END WHILE\n",
             "  DO\n",
             "    LET g = tcp::accept(listener)\n",

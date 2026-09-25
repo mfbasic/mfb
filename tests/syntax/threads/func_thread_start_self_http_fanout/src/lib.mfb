@@ -15,8 +15,8 @@ EXPORT ISOLATED FUNC fetchStatus(w AS ThreadWorker OF Nothing TO Integer, url AS
 END FUNC
 
 EXPORT FUNC fanout AS Integer
-  LET a AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://a.example/")
-  LET b AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://b.example/")
-  LET c AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://c.example/")
+  RES a AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://a.example/")
+  RES b AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://b.example/")
+  RES c AS Thread OF Nothing TO Integer = thread::start(fetchStatus, "http://c.example/")
   RETURN thread::waitFor(a) + thread::waitFor(b) + thread::waitFor(c)
 END FUNC

@@ -39,7 +39,7 @@ FUNC hold(n AS Integer) AS Integer
   IF n = 0 THEN
     RETURN 0
   END IF
-  LET t AS Thread OF String TO Integer = thread::start(square, n)
+  RES t AS Thread OF String TO Integer = thread::start(square, n)
   LET below AS Integer = hold(n - 1)
   RETURN below + thread::waitFor(t)
 END FUNC
@@ -48,7 +48,7 @@ FUNC main AS Integer
   MUT total AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {SEQ}
-    LET t AS Thread OF String TO Integer = thread::start(square, i MOD 100)
+    RES t AS Thread OF String TO Integer = thread::start(square, i MOD 100)
     total = total + thread::waitFor(t)
     i = i + 1
   END WHILE

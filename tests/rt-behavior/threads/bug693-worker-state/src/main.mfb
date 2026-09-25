@@ -15,7 +15,7 @@ ISOLATED FUNC work(RES worker AS ThreadWorker OF Integer TO Integer STATE W, n A
 END FUNC
 
 FUNC main AS Integer
-  LET t = thread::start(work, 5)
+  RES t = thread::start(work, 5)
   io::print(toString(thread::waitFor(t)))
   RETURN 0
 END FUNC

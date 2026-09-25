@@ -12,7 +12,7 @@ IMPORT thread_res_sink
 ' (pushing f2's copy to pending-free), then signal the worker to accept, returning
 ' the queued f1 — 22 bytes. A double free or corrupted free misbehaves here.
 FUNC main AS Integer
-  LET t AS Thread OF String RES fs::File TO Integer = thread::start(thread_res_sink::acceptAfterSignal, "seed", 1, 1)
+  RES t AS Thread OF String RES fs::File TO Integer = thread::start(thread_res_sink::acceptAfterSignal, "seed", 1, 1)
   RES f1 AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")
   thread::transfer(t, f1, 1000)
   RES f2 AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")

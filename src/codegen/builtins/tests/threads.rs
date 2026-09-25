@@ -45,9 +45,9 @@ ISOLATED FUNC listing(t AS ThreadWorker OF Nothing TO List OF String, seed AS In
 END FUNC
 
 FUNC main() AS Integer
-  LET a AS Thread OF Nothing TO Integer = thread::start(counts, 10)
-  LET b AS Thread OF Nothing TO String = thread::start(names, 2)
-  LET c AS Thread OF Nothing TO List OF String = thread::start(listing, 3)
+  RES a AS Thread OF Nothing TO Integer = thread::start(counts, 10)
+  RES b AS Thread OF Nothing TO String = thread::start(names, 2)
+  RES c AS Thread OF Nothing TO List OF String = thread::start(listing, 3)
   LET n AS Integer = thread::waitFor(a)
   LET s AS String = thread::waitFor(b)
   LET l AS List OF String = thread::waitFor(c)
