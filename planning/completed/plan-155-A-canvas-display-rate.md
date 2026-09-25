@@ -384,7 +384,7 @@ their session allows. Verified: 2226 `displayHz=74.99`, 2230 `displayHz=60.00`.
   canvas app → `displayHz=` line present (est. 8 min: box 2223 has no GTK, so
   the GTK box is the smallest one that exercises the realize hook);
   on box 2230, the Windows build of the same app → `displayHz=` line present (est. 10 min).
-Commit: —
+Commit: `535b6bdd5`
 
 ## Validation Plan
 
