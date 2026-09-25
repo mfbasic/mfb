@@ -937,8 +937,10 @@ pub(crate) fn thread_queue_write_helper(
     const TIMEOUT_OFFSET: usize = 24;
     // The 16-byte absolute deadline, [32, 48).
     const TIMESPEC_OFFSET: usize = 32;
-    // plan-156-A: arg 3, the message type's copy function (0 = the word is the value).
+    // plan-156-A: arg 3, the message type's copy function (0 = the word is the value),
+    // and arg 4, its drop function (recorded on the queue for the final release).
     const COPY_OFFSET: usize = 48;
+    const DROP_OFFSET: usize = 72;
     // The block arena, and the caller's arena parked across the copy into it.
     const ARENA_OFFSET: usize = 56;
     const SAVED_ARENA_OFFSET: usize = 64;
@@ -970,6 +972,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), COPY_OFFSET),
+        abi::store_u64(abi::c_arg(4), abi::stack_pointer(), DROP_OFFSET),
         // plan-73-A: a non-negative `timeoutMs` is a real timeout (0 = one immediate
         // attempt, N = wait N ms). The unbounded sentinel (i64::MIN) is the omit=block
         // form and is accepted; any OTHER negative value is `ErrInvalidArgument`.
@@ -1072,6 +1075,8 @@ pub(crate) fn thread_queue_write_helper(
         abi::label(&store),
         abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
         abi::add_immediate("%v9", "%v8", queue_offset),
+        abi::load_u64("%v10", abi::stack_pointer(), DROP_OFFSET),
+        abi::store_u64("%v10", "%v9", THREAD_QUEUE_DROP_OFFSET),
         abi::load_u64("%v10", "%v9", THREAD_QUEUE_TAIL_OFFSET),
         abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
         abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),

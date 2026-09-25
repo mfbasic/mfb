@@ -40,7 +40,12 @@ pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 168;
 /// drops it (each queue has exactly one reader, so that read is strictly later on the
 /// same thread). One left over when the thread is freed goes with the block arena.
 pub(crate) const THREAD_QUEUE_LAST_READ_OFFSET: usize = 176;
-pub(crate) const THREAD_QUEUE_SIZE: usize = 184;
+/// The message type's drop function (0 = the values are words), recorded by every
+/// write — one queue carries one message type. The block's final release runs it on
+/// every message still queued and on the last read's, so an undelivered message is
+/// dropped — and an undelivered resource CLOSED — exactly once.
+pub(crate) const THREAD_QUEUE_DROP_OFFSET: usize = 184;
+pub(crate) const THREAD_QUEUE_SIZE: usize = 192;
 /// One ring entry: the queued value.
 pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 8;
 /// `log2(THREAD_QUEUE_ENTRY_SIZE)` — the shift that turns a ring index into a byte

@@ -711,7 +711,18 @@ impl CodeBuilder<'_> {
                 false
             };
             if consumed && moved_to_thread {
-                self.retire_moved_resource_cleanup(name);
+                // The cleanup to retire is the OWNER's. A non-owning alias (bug-375:
+                // `RES f = …` over a live resource — which is exactly how an inline
+                // `TRAP` bind lands, `f` aliasing the desugar's `$trap_val`) has no
+                // cleanup of its own, so retiring by the alias's name found nothing and
+                // the owner's full drop later skipped the moved record: 96 B leaked per
+                // trapped-bind transfer.
+                let owner = self
+                    .live_resource_aliases
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                self.retire_moved_resource_cleanup(&owner);
             } else if consumed {
                 self.deactivate_resource_cleanup(name);
             }

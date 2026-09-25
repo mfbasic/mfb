@@ -222,3 +222,113 @@ fn a_long_message_exchange_keeps_the_block_arena_small() {
         "the block arena's peak was {peak} bytes: messages are not dropped:\n{stderr}"
     );
 }
+
+/// A resource transferred to a worker that never accepts it is still closed: the
+/// block's final release drops every message its queues still own, and a resource's
+/// drop closes a handle that is still open. 200 such transfers under a 64-descriptor
+/// limit fail to open their file once the handles leak.
+const UNACCEPTED: &str = r#"IMPORT io
+IMPORT os
+IMPORT thread
+IMPORT fs
+
+ISOLATED FUNC ignore(w AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  os::sleep(20)
+  RETURN len(seed)
+END FUNC
+
+FUNC main AS Integer
+  MUT i AS Integer = 0
+  MUT n AS Integer = 0
+  WHILE i < 200
+    LET t AS Thread OF RES fs::File TO Integer = thread::start(ignore, "seed")
+    RES f AS fs::File = fs::openFile("{PATH}")
+    thread::transfer(t, f)
+    n = n + thread::waitFor(t)
+    i = i + 1
+  END WHILE
+  io::print(toString(n))
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn an_unaccepted_transfer_is_closed_when_the_thread_is_freed() {
+    let project = common::temp_project("thread_block_arena_unaccepted", "");
+    let path = project.join("project.json");
+    let source = UNACCEPTED.replace("{PATH}", &path.to_string_lossy());
+    std::fs::write(project.join("src").join("main.mfb"), source).expect("write source");
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("ulimit -n 64 && exec '{}'", exe.display()))
+        .output()
+        .expect("run under a descriptor limit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout == "800\n",
+        "unaccepted transfers leaked their handles: {}\n{stdout}{}",
+        common::exit_description(&output.status),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The sender's record of a transferred resource is freed at its binding's scope exit
+/// even when the binding came from an inline `TRAP` — which binds the name as an alias
+/// of the desugar's owning temporary, so the transfer must retire the OWNER's cleanup.
+const TRAPPED_TRANSFER: &str = r#"IMPORT io
+IMPORT thread
+IMPORT fs
+
+ISOLATED FUNC sink(w AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  MUT n AS Integer = 0
+  DO
+    RES f AS fs::File = thread::accept(w) TRAP(e)
+      EXIT DO
+    END TRAP
+    n = n + 1
+    fs::close(f)
+  LOOP UNTIL n = {N}
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(sink, "s")
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    RES f AS fs::File = fs::openFile("{PATH}") TRAP(e)
+      CONTINUE WHILE
+    END TRAP
+    thread::transfer(t, f) TRAP(e)
+      RECOVER
+    END TRAP
+    i = i + 1
+  END WHILE
+  io::print(toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC
+"#;
+
+fn trapped_transfer_live_bytes(count: u64) -> u64 {
+    let name = format!("thread_block_arena_trapped_transfer_{count}");
+    let project = common::temp_project(&name, "");
+    let path = project.join("project.json");
+    let source = TRAPPED_TRANSFER
+        .replace("{N}", &count.to_string())
+        .replace("{PATH}", &path.to_string_lossy());
+    std::fs::write(project.join("src").join("main.mfb"), source).expect("write source");
+    let exe = common::debug_report::build_debug_project(&name, &project);
+    let (stdout, stderr) = run_ok(&name, &exe);
+    assert_eq!(stdout, format!("{count}\n"), "{name}: every transfer arrived");
+    counter(&name, &arena_lines(&name, &stderr), 0, "live_bytes")
+}
+
+#[test]
+fn a_trapped_bind_transfer_frees_the_senders_record() {
+    let small = trapped_transfer_live_bytes(100);
+    let large = trapped_transfer_live_bytes(1000);
+    assert_eq!(
+        small, large,
+        "the sender's arena grew with the number of transfers ({small} -> {large})"
+    );
+}

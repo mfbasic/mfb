@@ -188,6 +188,14 @@ impl CodeBuilder<'_> {
             &msg_type,
             abi::argument_register(3)?,
         );
+        // Arg 4: the message type's drop function, which the helper records on the
+        // queue so the thread's final release drops (and, for a resource, closes) a
+        // message that is never received.
+        self.emit_thread_value_fn_address(
+            crate::codegen::runtime::thread::ThreadValueFn::Drop,
+            &msg_type,
+            abi::argument_register(4)?,
+        );
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value

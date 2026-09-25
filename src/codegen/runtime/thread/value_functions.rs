@@ -144,7 +144,8 @@ impl CodeBuilder<'_> {
 /// own), a drop always succeeds.
 ///
 /// The drop frees what the value's owner would: a flat block or a graph through the
-/// ordinary owned-value drop, a resource record (and its `STATE` block) by size. A
+/// ordinary owned-value drop, a resource record (and its `STATE` block) by size after
+/// closing its handle if it is still open. A
 /// value of any other shape — a resource-carrying union or collection — is left to
 /// the block arena's destruction, which returns every chunk to the OS when the
 /// control block is freed.
@@ -186,6 +187,22 @@ pub(crate) fn lower_thread_value_function<'a>(
             let slot = builder.allocate_stack_object("thread_drop_value", 8);
             builder.emit(abi::store_u64(abi::c_arg(0), abi::stack_pointer(), slot));
             if builder.is_resource_nominal(type_) {
+                // A record still open is a transfer nobody accepted: close its handle
+                // first (a read's record was flagged `moved|closed` by the reader's
+                // copy, so its close is skipped). A close error has no one to report
+                // to at a thread's teardown and is dropped.
+                if let Some(close) = builder.resource_cleanup_symbol(type_) {
+                    let closed = builder.label("thread_drop_value_closed");
+                    let record = builder.allocate_register();
+                    let flags = builder.allocate_register();
+                    builder.emit(abi::load_u64(&record, abi::stack_pointer(), slot));
+                    builder.emit(abi::load_u64(&flags, &record, RESOURCE_OFFSET_CLOSED));
+                    builder.emit(abi::compare_immediate(&flags, "0"));
+                    builder.emit(abi::branch_ne(&closed));
+                    builder.emit(abi::move_register(abi::c_arg(0), &record));
+                    builder.emit_symbol_call(&close);
+                    builder.emit(abi::label(&closed));
+                }
                 if let Some(state_type) = type_.state() {
                     builder.emit_free_resource_state_block(slot, &state_type)?;
                 }

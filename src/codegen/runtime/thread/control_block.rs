@@ -659,9 +659,11 @@ pub(crate) fn lower_thread_block_arena_destroy(
 /// Reached from the handle side's last release (`thread.drop`) or from the worker's
 /// own exit (`_mfb_rt_thread_finish`), whichever took the count to zero, so nothing
 /// else touches the block by now: a handle-side caller joined the worker first, and a
-/// worker caller is the worker. Frees, in order: the table slot; the block arena
-/// (every result, message and resource record still in it goes with it); the
-/// worker's arena-state block (retired from the `--debug` registry first); the block.
+/// worker caller is the worker. Frees, in order: the table slot; every message still
+/// owned by a queue, through the queue's drop function (which closes a resource);
+/// the block arena (the seed, the result and everything else still in it go with
+/// it); the worker's arena-state block (retired from the `--debug` registry first);
+/// the block.
 ///
 /// A worker releasing its OWN block frees its arena-state block while the pinned
 /// arena register still points at it. That is sound because nothing after it reads
@@ -673,8 +675,16 @@ pub(crate) fn lower_thread_block_release(
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
     let symbol = THREAD_BLOCK_RELEASE_SYMBOL;
-    const LOCALS: usize = 16;
+    const LOCALS: usize = 64;
     const BLOCK: usize = 8;
+    // The queue drop pass: the block arena, the caller's arena parked across a drop,
+    // the ring cursor and remaining count, the value being dropped, the drop function.
+    const ARENA: usize = 16;
+    const SAVED_ARENA: usize = 24;
+    const INDEX: usize = 32;
+    const LEFT: usize = 40;
+    const VALUE: usize = 48;
+    const DROP: usize = 56;
     let no_arena = format!("{symbol}_no_arena");
     let no_worker_arena = format!("{symbol}_no_worker_arena");
     let mut instructions = vec![
@@ -684,6 +694,71 @@ pub(crate) fn lower_thread_block_release(
         abi::branch_link(THREAD_TABLE_RELEASE_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(symbol, THREAD_TABLE_RELEASE_SYMBOL)];
+    // Drop every message still owned by a queue — each one never received, and the
+    // last one read — with the queue's recorded drop function, before the block arena
+    // they live in is destroyed. For a resource that closes the handle (the drop
+    // function closes a record that is still open), so a transfer nobody accepted
+    // does not leak its OS handle. A queue nothing was ever written to has no drop
+    // function and is skipped; so is everything when the block has no arena (a start
+    // that failed before creating it).
+    for queue in [
+        CONTROL_OFFSET_INBOUND_QUEUE,
+        CONTROL_OFFSET_OUTBOUND_QUEUE,
+        CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE,
+        CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE,
+    ] {
+        let next = format!("{symbol}_queue_{queue}_done");
+        let last_done = format!("{symbol}_queue_{queue}_last_done");
+        let ring = format!("{symbol}_queue_{queue}_ring");
+        let wrapped = format!("{symbol}_queue_{queue}_wrapped");
+        instructions.extend([
+            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
+            abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&next),
+            abi::store_u64("%v9", abi::stack_pointer(), ARENA),
+            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_DROP_OFFSET),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&next),
+            abi::store_u64("%v9", abi::stack_pointer(), DROP),
+            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_LAST_READ_OFFSET),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&last_done),
+            abi::store_u64("%v9", abi::stack_pointer(), VALUE),
+        ]);
+        emit_call_in_block_arena(&mut instructions, ARENA, SAVED_ARENA, DROP, VALUE);
+        instructions.extend([
+            abi::label(&last_done),
+            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
+            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_HEAD_OFFSET),
+            abi::store_u64("%v9", abi::stack_pointer(), INDEX),
+            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_COUNT_OFFSET),
+            abi::store_u64("%v9", abi::stack_pointer(), LEFT),
+            abi::label(&ring),
+            abi::load_u64("%v9", abi::stack_pointer(), LEFT),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_eq(&next),
+            abi::subtract_immediate("%v9", "%v9", 1),
+            abi::store_u64("%v9", abi::stack_pointer(), LEFT),
+            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
+            abi::load_u64("%v10", abi::stack_pointer(), INDEX),
+            abi::load_u64("%v11", "%v8", queue + THREAD_QUEUE_VALUES_OFFSET),
+            abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
+            abi::add_registers("%v11", "%v11", "%v12"),
+            abi::load_u64("%v12", "%v11", 0),
+            abi::store_u64("%v12", abi::stack_pointer(), VALUE),
+            // Advance the cursor, wrapping at capacity, before the drop call.
+            abi::add_immediate("%v10", "%v10", 1),
+            abi::load_u64("%v11", "%v8", queue + THREAD_QUEUE_CAPACITY_OFFSET),
+            abi::compare_registers("%v10", "%v11"),
+            abi::branch_lt(&wrapped),
+            abi::move_immediate("%v10", "Integer", "0"),
+            abi::label(&wrapped),
+            abi::store_u64("%v10", abi::stack_pointer(), INDEX),
+        ]);
+        emit_call_in_block_arena(&mut instructions, ARENA, SAVED_ARENA, DROP, VALUE);
+        instructions.extend([abi::branch(&ring), abi::label(&next)]);
+    }
     instructions.extend([
         abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
         abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_ARENA),
