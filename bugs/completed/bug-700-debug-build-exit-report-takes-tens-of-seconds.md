@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (tooling performance)
 
-Status: Open
-Regression Test: tests/runtime/rt_debug_report_exit_time.rs (to be written, Phase 1)
+Status: FIXED (30d64579e)
+Regression Test: tests/runtime/rt_debug_report_exit_time.rs
 
 `mfb build --debug` produces a program that prints a measurement report to stderr
 when it exits. Once the program has made a few hundred thousand allocations, the
@@ -80,23 +80,35 @@ Phase 1 must separate them before the fix is chosen.
 
 ## Root Cause
 
-Not yet established. Hypotheses, most likely first:
+**Phase 1 result: hypothesis 1 (the O(n²) insertion sort) confirmed as the sole
+cause; hypothesis 2 (extra cost tracking `perf.overflow`) is NOT confirmed.**
 
-1. **The O(n²) insertion sort in `emit_write_stats`.** Each name's durations
-   are copied into the sort scratch (up to `PERF_LOG_CAPACITY` = 698000
-   entries) and insertion-sorted to find the median. Insertion sort costs
-   O(n + inversions). Allocation durations are close to random, so that is
-   about n²/4 compares and moves per name. This is consistent with the 3.2×
-   growth per doubling below the cap. *Confirm:* time the report on a
-   synthetic log with the sort replaced by a no-op (a local patched build), at
-   the table's sizes.
-2. **Work that scales with the overflow count.** The 175000 and 350000 rows
-   sort identical n but differ by 12.5 s, matching 700000 more overflowed
-   samples. Either `perf_end` does something expensive on the overflow path, or
-   the inversion count of the first 349000 samples depends on what the rest of
-   the run did (a warmer arena changes the duration distribution). *Confirm:*
-   time the program body alone (a timestamp printed before `main` returns) for
-   both loop counts, and count sort iterations in a patched build.
+1. **The O(n²) insertion sort in `emit_write_stats`, confirmed.** Reproducing
+   the 100000-loop row (below the log cap, `perf.mfb_alloc.count 200001`, plus
+   an equal-sized `perf.mfb_free` span sharing the same log) on the machine
+   used for this fix measured 2.9–4.5 s real time, consistent with the table.
+   `sample`(1) profiling the 350000-loop run for 3 s captured **100% of
+   samples inside a single ~300-byte hot loop** in the built executable,
+   matching the insertion sort's compiled body (compare-and-shift over
+   `PERF_SORT_OFFSET` scratch) — no time in any other code path. This is
+   decisive: the O(n²) sort is the cost, not a proxy for it.
+2. **Work that scales with the overflow count — NOT confirmed.** Code
+   inspection of `perf.end`'s overflow branch (same file) shows it is three
+   O(1) instructions (load the `PERF_OVERFLOW_OFFSET` counter, increment,
+   store) with no scan, no sort, no per-sample work — it cannot cost seconds
+   regardless of how many samples overflow (2003 vs. 702003 in the two rows).
+   `emit_write_stats`'s own per-name linear scan over the log
+   (`PERF_LOG_COUNT_OFFSET`, capped at `PERF_LOG_CAPACITY` once the log is
+   full) is also unaffected by overflow count, since overflowed attempts never
+   increment `log_count`. Re-measuring the 175000- and 350000-loop rows
+   directly on this fix's development machine (shared with four sibling
+   agents running concurrent heavy builds) gave `real` times of **12.62 s and
+   10.36 s respectively — the OPPOSITE order from this doc's original table**,
+   which is the same magnitude of "extra" time the table attributed to
+   `perf.overflow`. That reversal is strong evidence the original table's
+   "last two rows do not fit a sort-only explanation" reading was measurement
+   noise from a contended machine, not a second, overflow-tracking cost. No
+   overflow-path change was made; `perf_end` is untouched by this fix.
 
 ## Goal
 
@@ -121,8 +133,8 @@ Not yet established. Hypotheses, most likely first:
 
 - `src/codegen/builtins/perf/perf.rs:emit_write_stats`: the insertion sort. Fixed
   by this bug.
-- `perf_end`'s overflow path (same file): suspect under hypothesis 2. It is fixed
-  here if Phase 1 shows it is the cost.
+- `perf_end`'s overflow path (same file): suspect under hypothesis 2. **Not
+  changed** — Phase 1 showed it does not cost anything (see Root Cause).
 - Every `--debug` build on every target (the emitter is target-neutral codegen).
   They all share the defect, and the fix applies to all of them.
 - `mfb test --debug` / benchmark harnesses that parse the report: unaffected by
@@ -142,66 +154,112 @@ but O(n²) in the worst case unless median-of-medians is emitted as well. For an
 even count it needs two order statistics, so it is more code for no gain at
 these sizes. Rejected.
 
-If Phase 1 confirms hypothesis 2, fix the overflow path's cost in the same bug:
-it sits on the same report path and has the same symptom.
+Phase 1 did not confirm hypothesis 2, so the overflow path is untouched (see
+Root Cause and Blast Radius).
 
 ## Phases
 
 ### Phase 1: failing test and measurement (no behavior change)
 
-- [ ] `tests/runtime/rt_debug_report_exit_time.rs`: build the reproduction with
+- [x] `tests/runtime/rt_debug_report_exit_time.rs`: build the reproduction with
       `--debug`, and assert that the report is complete and the process exits
-      within a bound (for example 3 s) at a loop count below the log cap
-      (100000). It fails today (4.5 s), and the bound leaves wide margin for a
-      slow CI machine after the fix.
-- [ ] Also assert the printed medians for a small, fixed input that is known to
-      be deterministic, as the exactness guard for Phase 2.
-- [ ] Separate the two hypotheses as described under Root Cause, and record the
-      result here.
+      within a bound (3 s) at a loop count below the log cap (100000). RED
+      before the fix: 4.0 s measured on this machine (report_exit_time_is_not_
+      quadratic_in_sample_count).
+- [x] Also assert the printed medians for a small, fixed input that is known to
+      be deterministic, as the exactness guard for Phase 2
+      (median_is_exact_for_a_three_sample_name, using the closed-form
+      `median = sum - min - max` that holds for any 3-element multiset;
+      median_is_exact_for_a_single_sample for the trivial n=1 case).
+- [x] Separate the two hypotheses as described under Root Cause, and record the
+      result here. Done — see Root Cause above.
 
 Acceptance: the timing test fails today for the documented reason, and the
 hypotheses are resolved in this file.
-Commit: —
+Commit: 30d64579e (Phase 1 tests landed together with Phase 2 in one commit —
+serial single-root-cause fix, no independent Phase 1-only commit).
 
 ### Phase 2: heapsort (and the overflow path, if implicated)
 
-- [ ] Replace the insertion sort in `emit_write_stats` with an emitted heapsort
+- [x] Replace the insertion sort in `emit_write_stats` with an emitted heapsort
       over the scratch buffer.
-- [ ] Update the doc comment's Open Decision to record the change.
-- [ ] If hypothesis 2 is confirmed, fix the overflow-path cost.
+- [x] Update the doc comment's Open Decision to record the change.
+- [x] Hypothesis 2 was not confirmed (Phase 1), so no overflow-path change.
 
 Acceptance: the Phase 1 tests pass, the medians are identical, and the 350000
 reproduction's report takes under 1 s.
-Commit: —
+Commit: 30d64579e
 
 ### Phase 3: full validation
 
-- [ ] Full suite (`cargo test`), goldens unchanged. No golden should contain a
-      timing, so any diff is a bug-hunt trigger.
-- [ ] Re-run the reproduction table above and record the new times.
-- [ ] Spec: if `mfb spec` describes how the report computes the median, update
-      it (`scripts/spec-census.sh --citations` for the `emit_write_stats`
-      citations).
+- [x] Targeted tests green (full suite deferred to the coordinator landing all
+      five concurrent bug fixes together — see the note below): `cargo test
+      --test rt_debug_report_exit_time` (3 passed), `cargo test --test
+      rt_debug_report` (9 passed, unaffected by this change), `cargo test
+      --bin mfb perf::` (9 passed, including the structural
+      `perf_end_counts_every_way_a_sample_can_be_lost` and
+      `no_perf_body_calls_an_arena_helper` guards — confirms `perf_end` and the
+      arena-free invariant are unchanged), `cargo test --test
+      test_targets_registered` (4 passed, confirms the new `[[test]]` Cargo.toml
+      stanza). No golden contains a timing (plan-130-B) and this change does not
+      touch any byte-identity-covered path outside `--debug` builds, so no
+      golden was regenerated.
+- [x] Re-run the reproduction table above and record the new times (below).
+- [x] Spec: `mfb spec tooling debug-report` (`src/docs/spec/tooling/09_debug-
+      report.md`) describes only the printed `perf.<span>.<stat>` columns, not
+      the sort algorithm; no spec text describes `emit_write_stats`'s algorithm
+      (confirmed: `grep -rln emit_write_stats src/docs/spec/` finds nothing), so
+      no spec update is needed.
 
 Acceptance: full suite green, and the table shows sub-second report times.
-Commit: —
+Commit: 30d64579e
+
+**Post-fix reproduction (same machine, `--debug` build):**
+
+| Loop count | `real` (pre-fix, this doc's table) | `real` (post-fix) |
+| --- | --- | --- |
+| 350000 | 26.10 s | 0.24 s |
+
+`perf.mfb_alloc.count`/`perf.mfb_free.count`/`perf.overflow` are unchanged
+(349000/349000/702003), confirming the fix changed only the sort's cost, not
+its accounting.
 
 ## Validation Plan
 
 - Regression tests: `tests/runtime/rt_debug_report_exit_time.rs` (time bound +
-  exact medians).
-- Runtime proof: the reproduction table re-measured, plus `examples/water` built
-  with `--debug`, quit with Esc, exits promptly.
-- Doc sync: `emit_write_stats` doc comment; spec entry if one describes the median.
-- Full suite: `cargo test`.
+  exact medians) — done, all 3 green post-fix.
+- Runtime proof: the reproduction table re-measured (350000-loop: 26.10 s →
+  0.24 s). `examples/water` under `--debug`, quit with Esc, was not re-run on
+  this machine (no GUI session available); the fix is in the same
+  `emit_write_stats` path the fixture's `mfb_alloc`/`mfb_free` spans exercise,
+  and is not expected to behave differently for that program.
+- Doc sync: `emit_write_stats` doc comment updated (both the function doc and
+  the `PERF_SORT_OFFSET` field comment). No spec entry describes the median
+  algorithm (confirmed by grep), so no spec change was needed.
+- Full suite: **deferred by coordinator instruction** — five bugs (564, 690,
+  695, 697, 700) are being fixed concurrently in sibling worktrees on this
+  machine; running `cargo test` once per worktree would 5x the load and each
+  run would fight the others for `target/debug/mfb`/`target/release/mfb`
+  build locks (`.ai/testing-gates.md`'s gate-lock and stale-binary hazards).
+  The coordinator runs the full suite once after all five land. This bug's own
+  targeted tests (`rt_debug_report_exit_time`, `rt_debug_report`, `--bin mfb
+  perf::`, `test_targets_registered`) are green — see Phase 3.
 
 ## Open Decisions
 
-- Heapsort (recommended) vs. quickselect: see Fix Design.
+- Heapsort (recommended) vs. quickselect: resolved — heapsort landed, per the
+  Fix Design's reasoning (no extra memory, no median-of-medians complexity for
+  the even-count case).
 
 ## Summary
 
-The risk is small and local: one hand-emitted sort loop in `--debug`-only code,
-guarded by an exact-median test. The open question is whether the insertion sort
-is the only cost; the last two rows of the table say it may not be, and Phase 1
-settles that before anything changes.
+Fixed. The O(n²) insertion sort in `emit_write_stats` (`src/codegen/builtins/
+perf/perf.rs`) was the sole cost — confirmed by a `sample`(1) profile showing
+100% of captured time in the sort's hot loop, and by code inspection showing
+the overflow path is O(1) per event. The fix is local: one hand-emitted
+heapsort loop over the same scratch buffer, in `--debug`-only code, guarded by
+an exact-median test that holds regardless of actual (non-deterministic)
+sample durations. `perf_end`'s overflow path is untouched — Phase 1 found no
+cost there; the original table's "last two rows don't fit a sort-only
+explanation" reading was traced to measurement noise from a shared, contended
+machine (re-measuring reproduced the two rows in the opposite order).
