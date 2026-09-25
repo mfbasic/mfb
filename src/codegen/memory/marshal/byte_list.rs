@@ -301,8 +301,16 @@ pub(crate) enum ScratchSize {
 
 /// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with
 /// `size` bytes, which is the size `_mfb_arena_free` must receive (bug-560) — when the
-/// slot is non-null, then null the slot so a second call frees nothing. The same register
-/// contract as [`emit_free_byte_list_guarded`] (bug-625).
+/// slot is non-null, then null the slot so a second call frees nothing. The free is a
+/// PCS call that clobbers every caller-saved register, so the caller keeps anything
+/// live (the result value) in a frame slot across it (bug-625).
+///
+/// It works in the free's own argument registers and names NO vreg. It used to stage
+/// the pointer in a hard-coded `%v9`, and a body that mints its vregs from `%v0` owns a
+/// `%v9` of its own: Schannel `tls::connect`'s host-string `HelperScratch` pointer was
+/// exactly that vreg, so this free overwrote it, the release at `done` freed the wrong
+/// block with the wrong size, and the next `tls::connect` crashed in `_mfb_arena_alloc`
+/// (bug-564). The call clobbers these registers anyway, so staging there costs nothing.
 pub(crate) fn emit_free_buffer_guarded(
     symbol: &str,
     tag: &str,
@@ -313,16 +321,18 @@ pub(crate) fn emit_free_buffer_guarded(
 ) {
     let skip = format!("{symbol}_{tag}_buf_free_skip");
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ptr_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ptr_off),
+        abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(&skip),
         match size {
-            ScratchSize::Slot(len_off) => abi::load_u64("%v12", abi::stack_pointer(), len_off),
-            ScratchSize::Bytes(bytes) => abi::move_immediate("%v12", "Integer", &bytes.to_string()),
+            ScratchSize::Slot(len_off) => {
+                abi::load_u64(abi::c_arg(1), abi::stack_pointer(), len_off)
+            }
+            ScratchSize::Bytes(bytes) => {
+                abi::move_immediate(abi::c_arg(1), "Integer", &bytes.to_string())
+            }
         },
         abi::store_u64(abi::ZERO, abi::stack_pointer(), ptr_off),
-        abi::move_register(abi::c_arg(0), "%v9"),
-        abi::move_register(abi::c_arg(1), "%v12"),
     ]);
     emit_arena_free(symbol, instructions, relocations);
     instructions.push(abi::label(&skip));

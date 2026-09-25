@@ -229,3 +229,80 @@ fn a_close_notify_ends_the_read_and_stays_ended() {
         "tls::poll must report a socket whose close_notify was consumed as readable"
     );
 }
+
+// bug-564 (found on box 2230 while measuring its OPEN finding): a second
+// `tls::connect` in one Windows process crashed with 0xC0000005 inside
+// `_mfb_arena_alloc` (`rt-behavior/tls/tls-poll-rt` never printed `loop=`,
+// `tls-poll-list-rt` printed nothing). The connect body mints its vregs from
+// `%v0`, so its host-C-string `HelperScratch` pointer was `%v9` — the very name
+// `emit_free_buffer_guarded` hard-coded for the pointer it frees. The success
+// path's free of the 64 KiB wide server name therefore overwrote the scratch
+// pointer, and `done` freed that 64 KiB block AGAIN as an 8-byte one: it went
+// onto the 16-byte quick bin while still linked in large bin 0, the next
+// connect's host string was carved from it, and "8.8.8.8" became a bin link
+// (captured at the fault: r10 = 0x382E382E382E38).
+//
+// Pinned on the connect body itself: across every path, the only writes to the
+// vreg the scratch release frees are its null-init and the allocation capture.
+#[test]
+fn connect_keeps_its_host_scratch_pointer_intact_to_the_release() {
+    mir::set_backend(&crate::arch::x86_64::backend::X86_64_BACKEND);
+    // The real Windows platform, because the generic test platform cannot lower
+    // this body. It refuses an import the plan did not declare, so declare each
+    // one it names (the library is irrelevant to the vreg flow under test).
+    let windows = crate::target::win_x86_64::code::Platform;
+    let lower = |address: bool| {
+        let mut imports: HashMap<String, String> = HashMap::new();
+        loop {
+            match lower_tls_connect("t_c", &imports, &windows, address) {
+                Ok(parts) => return parts,
+                Err(e) => {
+                    let name = e
+                        .strip_prefix("runtime helper requires ")
+                        .and_then(|r| r.strip_suffix(" import"))
+                        .unwrap_or_else(|| panic!("lower schannel tls::connect: {e}"));
+                    assert!(
+                        imports
+                            .insert(name.to_string(), "ws2_32.dll".to_string())
+                            .is_none(),
+                        "{name} was already declared: {e}"
+                    );
+                }
+            }
+        }
+    };
+    for address in [false, true] {
+        let (ins, _rel, _s) = lower(address);
+        let kept = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_c_scratch_kept_0")
+            })
+            .expect("connect releases its host scratch at `done`");
+        // `emit_helper_scratch_release` ends `mov arg0, pointer; mov arg1, size;
+        // <free>` before the `kept` label: the pointer is the second-to-last
+        // vreg-to-argument move.
+        let arg_moves: Vec<String> = ins[..kept]
+            .iter()
+            .filter(|i| {
+                i.op == CodeOp::Mov
+                    && i.get("src").is_some_and(|s| s.starts_with("%v"))
+                    && i.get("dst").is_some_and(|d| !d.starts_with("%v"))
+            })
+            .filter_map(|i| i.get("src").map(|s| s.to_string()))
+            .collect();
+        let freed = arg_moves[arg_moves.len() - 2].clone();
+        let writers: Vec<String> = ins
+            .iter()
+            .filter(|i| i.get("dst").as_deref() == Some(freed.as_str()))
+            .map(|i| format!("{:?} {:?}", i.op, i.get("src").or(i.get("base"))))
+            .collect();
+        assert_eq!(
+            writers.len(),
+            2,
+            "(address={address}) the host scratch pointer {freed} may be written only by its \
+             null-init and its allocation capture, or the release frees whatever overwrote \
+             it; writers: {writers:?}"
+        );
+    }
+}
