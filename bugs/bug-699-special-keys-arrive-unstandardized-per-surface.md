@@ -1,19 +1,24 @@
-# bug-699: special keys (arrows, Delete, Home/End, …) arrive in a different encoding on every input surface, or not at all
+# bug-699: keyboard input differs on every input surface — special keys arrive in a different encoding or not at all, and `io`'s key readers cannot be uniform
 
-Last updated: 2026-09-24
-Effort: large (3h–1d)
+Last updated: 2026-09-25
+Effort: huge (>3d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/app_special_keys.rs (to be written, Phase 1)
+Status: Open — **redesigned 2026-09-25 (owner).** Originally "special keys arrive
+unstandardised per surface"; the owner widened it into one uniform `io` keyboard-input
+surface, and folded in plan-69 (`term::` key down/up, deleted — see "plan-69").
+Regression Test: `tests/app_special_keys.rs` plus the `io` function tests (to be
+written, Phase 1)
 
-A program reads keys with `io::readChar` / `io::readByte`. What an arrow key or
-Delete produces depends on the input surface the program runs on:
+A program reads keys with `io::readChar` / `io::readByte`, gated by `io::pollInput`.
+What an arrow key or Delete produces depends on the input surface the program runs on:
 
 - **Console on a terminal:** the terminal emulator sends VT/xterm sequences (Left =
-  `ESC [ D`). The six examples that handle arrows (`snake`, `dungeon`, `wind`,
-  `browser`, `bugs/canvas`, `bugs/tui`) decode that shape by hand.
+  `ESC [ D`), and emulators disagree on details (`ESC O A` vs `ESC [ A` by cursor-key
+  mode; Home as `ESC [ H`, `ESC [ 1 ~` or `ESC O H`; Backspace `0x7F` or `0x08`). The
+  six examples that handle arrows (`snake`, `dungeon`, `wind`, `browser`,
+  `bugs/canvas`, `bugs/tui`) decode that shape by hand.
 - **`--app` build on macOS** (canvas, TermView raw, transcript): the runtime
   writes the raw `NSEvent characters` to the input pipe. Arrows arrive as AppKit
   private-use code points (U+F700–F703), forward-delete as U+F728, and Backspace
@@ -25,26 +30,108 @@ Delete produces depends on the input surface the program runs on:
   Delete, Home/End and F-keys produce `WM_KEYDOWN` but no `WM_CHAR`, so they
   never arrive either.
 
+Three API defects sit on top of the encoding one:
+
+- `io::readChar() AS String` names a "char", which has no meaning in MFBASIC: it
+  returns one Unicode scalar as a `String`, while `Scalar` is a primitive type. A
+  grapheme needs several calls.
+- No reader returns a *key*. Every program that wants arrows carries its own escape
+  decoder with its own Esc timeout.
+- No key release is observable anywhere, so a program cannot track a held key.
+
 The result: a program that says "arrow keys work" (`examples/wind` does, in its
 header and in `commandFor`) is wrong in every `--app` build. Nothing reports an
 error. The keys do nothing (Linux, Windows), or a stray three-byte character goes
 to a decoder that throws it away (macOS).
 
-**The single correct behavior a fix produces:** one special key produces the
-same bytes on every surface and platform, whether console or `--app`, and whether
-Console, TUI or Canvas mode, so one decoder handles all of them. Ideally there is
-also one `io` call that returns the key already named, so no program has to
-parse escape sequences.
+**The single correct behavior a fix produces:** every keyboard reader in `io`
+returns the same value for the same keystroke on every target and surface — console,
+`--app` Console/TUI/Canvas, macOS, Linux, Windows — with the one exception the owner
+chose to expose: `io::readRaw` returns the platform's actual bytes, and says so.
 
 References:
 
 - `src/docs/spec/app/03_console-io.md` §"Input modes (line vs raw)": raw mode
   promises "each key's bytes immediately" but does not define what the bytes of a
   non-character key are. This is the missing contract.
+- `mfb spec language builtin-functions` §18.4 "Timeout convention" — the timeout
+  rules every reader adopts.
+- plan-94-B (`planning/completed/`): terminal mouse reports share stdin, are
+  stripped by a decoder before the reads see them, and `pollInput` runs pending bytes
+  through that decoder. The unified input buffer extends this precedent.
 - Found while designing `examples/water`: its left/right/up/down rotate/scale
   controls and Delete-to-remove need these keys in a canvas app.
 
+## Decisions (owner, 2026-09-25)
+
+1. **The API.** Every reader takes the standard trailing `[timeoutMs AS Integer]`
+   (§18.4: omitted blocks, `0` is one immediate attempt, positive waits that long,
+   negative is `ErrInvalidArgument`, an expired wait raises `ErrTimeout`):
+
+   | Function | Returns | Contract |
+   | --- | --- | --- |
+   | `io::readRaw([timeoutMs]) AS Byte` | one byte | The actual bytes the platform delivered. **May differ by target and terminal; the man page says so.** Byte-exact on a pipe or file. |
+   | `io::readScalar([timeoutMs]) AS Scalar` | one scalar | Text only (below). |
+   | `io::readGrapheme([timeoutMs]) AS String` | one extended grapheme cluster | Text only (below). |
+   | `io::readKey([timeoutMs]) AS io::Key` | one key event | Uniform on every target. |
+   | `io::readLine([timeoutMs]) AS String` | a line | Gains the timeout. A half-typed line stays in the buffer when the timeout fires; nothing is lost or returned early. |
+   | `io::input([prompt], [timeoutMs]) AS String` | a line | Same. |
+
+2. **Text-only readers.** `readScalar` / `readGrapheme` return Unicode text. Keys that
+   have an ASCII control code arrive as that scalar, unchanged (Unicode adopted
+   ASCII's control codes): Enter U+000A, Tab U+0009, Backspace U+007F, Esc U+001B,
+   Ctrl+A…Ctrl+Z U+0001…U+001A. Keys with **no** Unicode value (arrows, Home/End,
+   Page Up/Down, Insert, Delete, F-keys) are consumed as a whole sequence and **not
+   returned**. Invalid bytes (e.g. `0xFF`, a truncated sequence) are **dropped, not
+   reported** — no `ErrEncoding`.
+3. **One fixed 25 ms delay**, shared by the lone-Esc decision (Esc vs the start of a
+   sequence) and `readGrapheme`'s "is more of this cluster coming" decision, on
+   keyboard input. On a pipe or file there is no timer: read ahead until the
+   sequence or cluster is complete or input ends, so the same file always splits the
+   same way.
+4. **The key record** (in `io`):
+
+   ```basic
+   TYPE Key
+     key AS KeyName        ' Unicode | Up | Down | Left | Right | Home | End | PageUp | PageDown
+                           '   | Insert | Delete | Backspace | Enter | Tab | Escape | F1 … F12
+     grapheme AS String
+     event AS KeyEvent     ' Press | Repeat | Release | NotSupported
+     shift AS Boolean
+     ctrl AS Boolean
+     alt AS Boolean        ' Option on macOS
+     meta AS Boolean       ' Cmd on macOS, the Windows/Super key elsewhere
+   END TYPE
+   ```
+
+   - `grapheme` is what `readGrapheme` would return for that keystroke: `"a"`,
+     `"\n"` for Enter, `"\t"` for Tab, `"\u{7F}"` for Backspace, `"\u{1B}"` for Esc.
+     It is `""` only for keys with no Unicode value. Enter/Tab/Backspace/Escape are
+     returned **by name and** with their grapheme.
+   - Ctrl+A is `key = Unicode`, `grapheme = "a"`, `ctrl = TRUE`.
+   - `event = NotSupported` when the surface cannot tell press, repeat and release
+     apart (a terminal without the kitty keyboard protocol, a pipe, a file). There
+     `Release` never arrives, and the modifiers are best-effort; the man page carries
+     one table of which modifiers a plain terminal can report (Ctrl+letter, Alt as an
+     Esc prefix, Shift/Ctrl on arrows — not Shift on a letter, never Meta). No
+     separate capability function.
+5. **Kitty keyboard protocol is enabled by `term::on()` and disabled by `term::off()`**
+   (and by every path that already restores the terminal — the exit path that resets
+   mouse modes). Outside `term::on`, a console reports `NotSupported`.
+6. **`--app` builds inject into the same buffer.** Every surface feeds one input
+   buffer. The window key handlers inject escape codes instead of platform
+   characters, so one decoder serves every surface.
+7. **Removed, in one break:** `io::readChar`, `io::readByte`, `io::pollInput`. Every
+   caller migrates in the same change (Blast Radius). No deprecated aliases.
+   `pollInput`'s job is `timeoutMs = 0` on the reader the program actually uses.
+8. **plan-69 is deleted** and rolled into this bug: its `term::Key` /
+   `term::getKeyDown` / `term::getKeyUp` design is replaced by `io::readKey` and
+   `KeyEvent`.
+
 ## Failing Reproduction
+
+(Measured with the readers that exist today; Phase 6 removes `pollInput`/`readByte`,
+and the Phase 7 probe is this program rewritten on `io::readKey`.)
 
 A canvas app that records every byte it reads (`/tmp/keyprobe`, reproduced here in
 full):
@@ -135,205 +222,279 @@ two of them give nothing for special keys:
   subclass (`editproc`, same file) handles only `WM_CHAR`. Windows gives
   special keys only as `WM_KEYDOWN` with a `VK_*` code, which neither arm reads.
 
-A console build is immune because the *terminal emulator* does the encoding
+A console build gets *an* encoding because the terminal emulator does the encoding
 before the bytes reach fd 0. Every `--app` surface replaces the terminal emulator
 with our own key handler, and none of those handlers took over that job.
 
+The console path is not uniform either: it depends on the emulator (the variants
+listed at the top), so a console build needs the same normaliser the `--app` surfaces
+get. The Windows console target reads stdin through the console API
+(`SetConsoleMode`, `src/target/win_x86_64/plan.rs`); whether raw reads there see VT
+sequences at all depends on `ENABLE_VIRTUAL_TERMINAL_INPUT` — Phase 1 measures it.
+
+And no layer owns *decoding* either: the only structured reader is the plan-94-B mouse
+decoder. Keys are left to every program.
+
 ## Goal
 
-- On every `--app` surface (Canvas, TUI/TermView raw, and the transcript in raw
-  read) on macOS, Linux GTK and Windows, these keys write the xterm sequence a
-  console build receives:
+- One **input buffer** per stdin subscriber, holding raw bytes in arrival order.
+  Every reader (`readRaw`, `readScalar`, `readGrapheme`, `readKey`, `readLine`,
+  `input`) consumes from it; decoding happens on read, so mixing readers never loses
+  or reorders input. It sits under the existing per-thread broadcast log
+  (`thread::openStdIn`) and beside the plan-94-B mouse decoder, which keeps stripping
+  mouse reports first.
+- **Canonical encodings the decoder accepts** (and `--app` builds inject):
+  - legacy xterm, normalised from every emulator variant:
 
-  | Key | Bytes |
-  | --- | --- |
-  | Up / Down / Right / Left | `ESC [ A` / `B` / `C` / `D` |
-  | Home / End | `ESC [ H` / `ESC [ F` |
-  | Insert / Delete (forward) | `ESC [ 2 ~` / `ESC [ 3 ~` |
-  | Page Up / Page Down | `ESC [ 5 ~` / `ESC [ 6 ~` |
-  | F1–F4 | `ESC O P` / `Q` / `R` / `S` |
-  | F5–F12 | `ESC [ 15~ 17~ 18~ 19~ 20~ 21~ 23~ 24~` |
-  | Backspace | `0x7F` on every platform |
+    | Key | Canonical bytes |
+    | --- | --- |
+    | Up / Down / Right / Left | `ESC [ A` / `B` / `C` / `D` (also accepts `ESC O A–D`) |
+    | Home / End | `ESC [ H` / `ESC [ F` (also `ESC [ 1 ~` / `4 ~`, `ESC O H` / `F`) |
+    | Insert / Delete (forward) | `ESC [ 2 ~` / `ESC [ 3 ~` |
+    | Page Up / Page Down | `ESC [ 5 ~` / `ESC [ 6 ~` |
+    | F1–F4 | `ESC O P` / `Q` / `R` / `S` |
+    | F5–F12 | `ESC [ 15~ 17~ 18~ 19~ 20~ 21~ 23~ 24~` |
+    | Modified arrows etc. | `ESC [ 1 ; m X` (xterm modifier parameter) |
+    | Backspace | `0x7F` (`0x08` normalised to it) |
+    | Enter | `LF` (`CR` normalised to it) |
 
-- The macOS probe above prints the Expected line. The same probe on Linux and
-  Windows prints the same bytes.
-- `examples/wind`'s arrow keys work in its `--app` build (manual check on
-  macOS).
-- `src/docs/spec/app/03_console-io.md` states this table as the raw-mode key
-  contract, with citations to each platform's translator.
+  - kitty `CSI … u` with the press/repeat/release event field and modifiers — what a
+    kitty terminal sends under `term::on`, and the form `--app` builds inject, since
+    only it can carry a release and all four modifiers.
+- **`--app` builds** (macOS canvas / TermView / transcript, GTK, Windows canvas and
+  transcript) inject every key press, repeat and release in the kitty form, with
+  modifiers, including the keys the OS reports no character for. They always report
+  real events (`Press`/`Repeat`/`Release`): the window knows. A console reports real
+  events only while `term::on` has enabled kitty on a terminal that supports it.
+- **Kitty lifecycle.** `term::on` detects support without hanging (the kitty query
+  `CSI ? u` followed by Primary Device Attributes `CSI c`, which every terminal
+  answers; only a DA reply means unsupported), pushes the progressive-enhancement
+  flags (disambiguate, report event types, report all keys as escape codes), and
+  `term::off` and the terminal-restore exit path pop them.
+- **The six readers** behave per the Decisions on every surface, with the timeout
+  convention.
+- **`readChar` / `readByte` / `pollInput` do not exist**; `mfb man io` lists the new
+  readers; the spec states the input buffer, the canonical encodings, the 25 ms delay
+  and the `NotSupported` rule, with `[[path:Symbol]]` citations.
+- The macOS probe below, rewritten on `io::readKey`, prints the same key sequence on
+  macOS, Linux and Windows `--app` builds and in a console build.
 
 ### Non-goals (must NOT change)
 
-- Printable characters, Enter→LF, Esc, Tab: unchanged bytes on every surface.
-- Line-mode (`io::readLine`, `io::input`) editing: Backspace still erases one code
-  point. Arrows in line mode stay ignored. This bug does not add line editing.
-- Console builds: nothing in the non-app `io::readChar`/`readByte` path changes.
-  The terminal already sends the target encoding.
-- Mouse reporting (`term::pollMouse`, `canvas::pollMouse`) is a separate channel
-  and stays untouched.
-- **Tempting wrong fix:** teaching each example's `readKey` to also recognise
-  U+F700 and friends. That fixes one program on one platform, leaves Linux and
-  Windows dropping the keys, and makes every future program repeat the work.
-  Forbidden.
+- Line-mode editing: Backspace still erases one code point; arrows in line mode stay
+  ignored. This bug does not add line editing.
+- Mouse reporting (`term::pollMouse`, `canvas::pollMouse`) keeps its own channel and
+  decoder; the input buffer only has to leave it working.
+- `readRaw` on a pipe or file is byte-exact: no normalisation of piped input.
+- **Tempting wrong fixes, forbidden:** teaching each example's decoder to recognise
+  U+F700 and friends; a per-platform `KeyName` table; a `keyReleaseSupported()`
+  function (the owner chose `KeyEvent.NotSupported`); widening `readScalar` to return
+  arrow sequences as text.
+
+### Open detail (implementer decides and records here, Phase 1)
+
+- Whether `io::readLine` / `io::input` also drop invalid bytes instead of raising
+  `ErrEncoding` (Decision 2 was made for `readScalar`/`readGrapheme`). Consistency
+  argues yes; raise it with the owner before changing it.
+- `io::input([prompt], [timeoutMs])`: two positional optionals, so a timeout with no
+  prompt is `io::input("", 5000)`. Confirm against §6 overload/default rules.
 
 ## Blast Radius
 
-Found with `grep -rlE 'u\{1B\}|"UP"' examples` and a search for key handlers
-under `src/target`:
+Found with `grep -rlE 'u\{1B\}|"UP"' examples`, a search for key handlers under
+`src/target`, and `grep -rlE "io::(readChar|readByte|pollInput)\b"`:
 
-- `src/target/macos_aarch64/app/bootstrap.rs:emit_canvas_key_down_helper`: fixed by this bug.
-- `src/target/macos_aarch64/app/term_view.rs` (`macapp.term.keyDown`, raw arm): fixed by this bug.
-- `src/target/macos_aarch64/app` transcript `MFBTextView keyDown:` (raw read in
-  Console mode): fixed by this bug, same translation. Phase 1 confirms whether it
-  forwards `chars` verbatim like the other two.
-- `src/target/linux_gtk/bootstrap.rs` key-press `raw` arm: fixed by this bug. The
-  line-mode arm stays as it is (Non-goals).
-- `src/target/win_x86_64/app/mod.rs:emit_wndproc` `wnd_check_char` (canvas) and
-  `editproc` (transcript): fixed by this bug, by adding a `WM_KEYDOWN` arm that
-  writes the sequence for the listed `VK_*` codes.
-- **Sibling defect on the same Windows arms, fixed here too:** both write
-  `wParam & 255`, the *low byte of a UTF-16 unit*. So any non-ASCII key (`é` =
-  U+00E9) goes into the pipe as the lone byte `0xE9`, which is invalid UTF-8
-  and makes `io::readChar` raise `ErrEncoding`. Found by reading the code
-  (`and_registers … 255`, "low byte"), not measured. Phase 1 adds a test.
-  The fix encodes the UTF-16 unit (and surrogate pairs) as UTF-8.
-- `examples/snake`, `dungeon`, `wind`, `browser`, `bugs/canvas`, `bugs/tui`: each
-  hand-rolls an `ESC [ A–D` decoder. They are unaffected by the byte-level fix,
-  which is what makes them start working in `--app`. If the Phase 3 `io::readKey`
-  lands, they migrate to it (see Open Decisions).
-- `linux_x86_64` / `linux_aarch64` / `linux_riscv64` console targets: unaffected.
-  They read fd 0 from a real terminal.
+- **Key handlers to inject from** (all fixed here):
+  - `src/target/macos_aarch64/app/bootstrap.rs:emit_canvas_key_down_helper`;
+    `src/target/macos_aarch64/app/term_view.rs` (`macapp.term.keyDown`, raw arm); the
+    transcript `MFBTextView keyDown:` raw path. Each gains a `keyUp:` sibling and
+    `flagsChanged:` for modifiers.
+  - `src/target/linux_gtk/bootstrap.rs` key-press `raw` arm, plus a key-release
+    handler. The line-mode arm stays (Non-goals).
+  - `src/target/win_x86_64/app/mod.rs:emit_wndproc` `wnd_check_char` (canvas) and
+    `editproc` (transcript): `WM_KEYDOWN` / `WM_KEYUP` / `WM_SYSKEYDOWN` arms.
+- **Sibling defect on the Windows arms, fixed here:** both write `wParam & 255`, the
+  *low byte of a UTF-16 unit*, so `é` (U+00E9) enters the pipe as the lone byte
+  `0xE9` — invalid UTF-8 (code read, `and_registers … 255`; Phase 1 adds a test).
+  The fix encodes UTF-16 units and surrogate pairs as UTF-8.
+- **Console targets:** the normaliser runs on every console read from a terminal
+  (macOS, linux x86_64/aarch64/riscv64, Windows console).
+- **`term::on` / `term::off`** (`src/codegen/term/core/term.rs`, `ESC_ON`/`ESC_OFF`
+  and the exit-path restore that already resets `ESC_MOUSE_OFF`): kitty push/pop.
+- **The `io` registry** (`src/codegen/builtins/io/`): new `func_read_raw`,
+  `func_read_scalar`, `func_read_grapheme`, `func_read_key`, the `Key` record and
+  the `KeyName`/`KeyEvent` enums; timeouts on `func_read_line`/`func_input`; delete
+  `func_read_char.rs`, `func_read_byte.rs`, `func_poll_input.rs`.
+- **Callers to migrate** (measured 2026-09-25):
+  `grep -rlE "io::NAME\b" examples tests packages src --include='*.mfb'` —
+  `readChar` 18 files, `readByte` 5, `pollInput` 15; `grep -rlE
+  "io::(readChar|readByte|pollInput)\b" src --include='*.rs'` — 21 Rust files (man
+  examples, descriptors, tests). The six hand-rolled decoders (`snake`, `dungeon`,
+  `wind`, `browser`, `bugs/canvas`, `bugs/tui`) move to `readKey`.
+- **Docs:** `src/docs/spec/app/03_console-io.md`, the io/term spec sections, `mfb man
+  io` and `mfb man term` (`on`/`off` mention kitty in developer terms), the narrative
+  guides that mention the removed readers (`grep -rn "readChar\|readByte\|pollInput"
+  src/docs`).
+- **plan-69:** deleted by this bug. Historical mentions stay in
+  `planning/completed/plan-98-A-canvas-mode-plumbing.md` (a completed record, not a
+  live caller).
 
 ## Fix Design
 
-**Layer 1: normalise at the source (required).** Each platform's key handler
-translates special keys into the xterm sequences in the Goal table before writing
-to the input pipe. This matches what a terminal does, so no `io` code and no
-existing program changes. The console and `--app` builds become byte-identical
-for the same keystroke.
+Four layers, bottom up:
 
-- macOS: in the raw arms, look at `characterAtIndex:0` (the code is already loaded
-  as `LOCAL[4]`/`LOCAL[5]`). If it is in the `NS*FunctionKey` range, look it up
-  in a small shared table (`U+F700→ESC[A`, …) and write the sequence instead
-  of `chars`. Put the table and the writer in one shared helper, called from all
-  three macOS handlers, so they cannot drift apart.
-- Linux: before the `gdk_keyval_to_unicode` call in the `raw` arm, compare
-  `keyval` against the `GDK_KEY_*` constants and write the sequence. Map
-  `GDK_KEY_Delete` explicitly to `ESC[3~`, because `gdk_keyval_to_unicode`
-  would otherwise return `0x7F` and it would look like Backspace.
-- Windows: add `WM_KEYDOWN` arms (canvas `WndProc` and `editproc`) that map
-  `VK_UP…VK_F12` and `VK_DELETE` to the sequence and return 0. Map `VK_BACK`'s
-  `WM_CHAR` (`0x08`) to `0x7F` so Backspace matches the other platforms.
-
-**Layer 2: `io::readKey` (recommended, see Open Decisions).** A new
-`io::readKey() AS io::Key` that reads one keystroke and decodes the sequences
-above into a named value, for example a `Key` record `{ name AS io::KeyName, text AS String }`
-with `KeyName.Char | Up | Down | Left | Right | Home | End | PageUp | PageDown |
-Insert | Delete | Backspace | Enter | Tab | Escape | F1…F12 | EndOfInput`. It
-needs a short timeout to tell a lone Esc from the start of a sequence. Every
-example currently does that with `pollInput(20)`, and that logic moves into
-one runtime helper. Layer 2 is only correct because Layer 1 exists: it decodes
-one encoding, not four.
+1. **Input buffer.** Per-subscriber raw byte ring under the broadcast log; readers
+   consume through a cursor so decoding is lazy and mixing readers is lossless. The
+   mouse decoder keeps its place in front.
+2. **Decoder.** One state machine over the buffer: UTF-8 (dropping invalid bytes),
+   legacy xterm/SS3 sequences (normalised per the Goal table), xterm modifier
+   parameters, kitty `CSI … u` with event type and modifiers. Emits
+   `{key, grapheme, event, modifiers}`; `readScalar`/`readGrapheme` take only the
+   text part; `readKey` takes all of it; `readRaw` bypasses it. The 25 ms timer
+   applies only when stdin is a terminal or an `--app` pipe
+   (`io::isInputTerminal`-style test); pipes and files read ahead.
+3. **Sources.** Console: terminal bytes, plus kitty under `term::on`. `--app`: each
+   handler injects kitty-form sequences for press/repeat/release with modifiers,
+   and UTF-8 text.
+4. **API.** The six readers over the decoder, each with the §18.4 timeout: the wait
+   is a `poll`/event wait on the buffer's source, and a timeout leaves the buffer
+   untouched (a half line or half sequence stays).
 
 Rejected alternatives:
 
-- *Decode the platform codes in `io::readChar`.* Rejected because `readByte`
-  would still see the raw platform bytes, and Linux/Windows would still drop
-  the keys before `io` sees anything.
-- *Introduce a private encoding (e.g. U+E000+n per key).* Rejected because it
-  breaks byte identity with console builds, so every program would need two
-  decoders.
+- *Decode platform codes inside the old `io::readChar`.* `readByte` would still see
+  raw platform bytes and Linux/Windows would still drop the keys.
+- *A private encoding (e.g. U+E000+n per key).* Breaks every terminal's native form
+  and needs a second decoder.
+- *plan-69's separate `term::getKeyDown`/`getKeyUp` event channel beside the `io`
+  pipe.* Two channels for one keyboard, and its "legacy re-encoder" to keep `io::`
+  byte-identical under kitty is unnecessary once every reader decodes one buffer.
+- *Xterm-only injection in `--app` builds.* Cannot carry a release or Meta.
 
-Expected output shift: none in existing goldens. No test currently feeds a
-special key to an `--app` build. Any golden that shifts is a bug-hunt trigger.
+Expected output shift: every golden that exercises `readChar`/`readByte`/`pollInput`
+changes with the migration (expected, on the removal commit). Any other golden that
+shifts is a bug-hunt trigger.
 
 ## Phases
 
-### Phase 1: failing tests and audit (no behavior change)
+Each phase lands on its own; the removal (Phase 6) is last so every phase before it
+keeps the old readers working.
 
-- [ ] Add `tests/app_special_keys.rs`. Follow the pattern of the existing
-      emitted-helper tests (`src/target/linux_gtk/bootstrap.rs` has
-      `bug-421` label/sequence tests). For each platform handler, assert that the
-      emitted code contains the translation for Left, Delete and F5. They fail
-      today.
-- [ ] Add a Windows test that a non-ASCII `WM_CHAR` is written as UTF-8, not
-      as a low byte. It fails today.
-- [ ] Confirm the macOS transcript `keyDown:` raw path's behavior and record it in
-      Blast Radius.
-- [ ] Record the Linux and Windows rows of the matrix by running `/tmp/keyprobe` on
-      the remote machines (`.ai/remote_systems.md`), using `xdotool key Left` or
-      `SendInput` scripts, in place of the "code read" entries.
+### Phase 1: failing tests, measurement, audit (no behavior change)
 
-Acceptance: the new tests fail for the documented reason, and the matrix is
-measured on all three platforms.
+- [ ] `tests/app_special_keys.rs`: for each `--app` handler, assert the emitted
+      injection for Left, Delete, F5, a release, and Shift+Left (fails today). Follow
+      the emitted-helper tests in `src/target/linux_gtk/bootstrap.rs` (bug-421).
+- [ ] Windows: a non-ASCII `WM_CHAR` is written as UTF-8 (fails today).
+- [ ] Record the Linux and Windows rows of the matrix by running the probe on the
+      remote machines (`.ai/remote_systems.md`; `xdotool`, `SendInput`), replacing
+      the "code read" entries. Confirm the macOS transcript raw path.
+- [ ] Windows console: measure what a raw read sees for an arrow with and without
+      `ENABLE_VIRTUAL_TERMINAL_INPUT`.
+- [ ] Decoder test corpus: byte streams for every Goal-table row, every emulator
+      variant, kitty `CSI u` press/repeat/release with modifiers, invalid UTF-8,
+      lone Esc, Esc+letter, split sequences, ZWJ and combining clusters, CR LF.
+- [ ] Settle the Open details with the owner.
+
+Acceptance: the new tests fail for the documented reason; the matrix is measured on
+three platforms.
 Commit: —
 
-### Phase 2: Layer 1 translation
+### Phase 2: input buffer + decoder (runtime; readers unchanged)
 
-- [ ] Shared macOS translator helper, called from the canvas, TermView and transcript `keyDown:` raw arms.
-- [ ] Linux GTK `raw` arm: keyval → sequence before `gdk_keyval_to_unicode`.
-- [ ] Windows: `WM_KEYDOWN` arms in `emit_wndproc` and `editproc`, Backspace → `0x7F`, UTF-16 → UTF-8.
-- [ ] Spec: add the key-encoding table to `src/docs/spec/app/03_console-io.md`
-      with `[[path:Symbol]]` citations for all three translators.
-- [ ] Man: `io readChar` / `io readByte` say that special keys arrive as the
-      standard terminal sequences in every build, in developer terms (no internals).
+- [ ] The buffer under the broadcast log; existing readers consume through it with
+      today's behavior (golden-identical).
+- [ ] The decoder and the 25 ms delay constant; unit-tested on the Phase 1 corpus.
 
-Acceptance: the Phase 1 tests pass, the macOS probe prints the Expected line, and
-the Linux and Windows probes match it.
+Acceptance: full suite golden-identical; the corpus passes.
 Commit: —
 
-### Phase 3: `io::readKey` (only if the Open Decision says yes)
+### Phase 3: `--app` injection and key release
 
-- [ ] `io::readKey` + `io::Key`/`io::KeyName` registry descriptors and lowering,
-      with the Esc-vs-sequence timeout in the runtime helper.
-- [ ] Function tests under the project's validation/function-test conventions
-      (`.ai/compiler.md`), fed by piped stdin sequences.
-- [ ] Man page (`mfb man io readKey`, examples run by
-      `scripts/man-run-examples.sh io --run`). Spec entry in `03_console-io.md`.
-- [ ] Migrate `snake`, `dungeon`, `wind`, `browser`, `bugs/canvas` and
-      `bugs/tui` from hand-rolled decoders to `io::readKey`.
+- [ ] macOS: one shared translator helper for the three `keyDown:` paths; `keyUp:`
+      and `flagsChanged:` IMPs; kitty-form injection.
+- [ ] GTK: key-press and key-release handlers inject before `gdk_keyval_to_unicode`
+      (`GDK_KEY_Delete` explicitly, not `0x7F`).
+- [ ] Windows: `WM_KEYDOWN`/`WM_KEYUP`/`WM_SYSKEY*` arms in `emit_wndproc` and
+      `editproc`; UTF-16 → UTF-8; Backspace `0x7F`. Mind the `WndProc` frame
+      alignment (`≡ 8 mod 16`, `.ai/arch-abi.md`).
 
-Acceptance: every migrated example builds, and its arrow keys work in a console
-build and in a macOS `--app` build.
+Acceptance: Phase 1 handler tests pass; the probe matches on all three platforms.
 Commit: —
 
-### Phase 4: full validation
+### Phase 4: the new readers and timeouts
 
-- [ ] Full suite (`cargo test`), goldens unchanged.
-- [ ] `scripts/man-census.sh --memory-scope` reports 0 unclassified hits.
-      `cargo test --bin mfb spec` passes.
-- [ ] Re-run the probe on macOS, Linux and Windows. Manually check the arrow keys
-      in `wind`'s `--app` build.
+- [ ] `io::readRaw`, `readScalar`, `readGrapheme`, `readKey`; `io::Key`,
+      `io::KeyName`, `io::KeyEvent` registry descriptors and lowering.
+- [ ] `[timeoutMs]` on `readLine` and `input` (a timeout leaves a partial line
+      buffered).
+- [ ] Function tests (`.ai/compiler.md` conventions), fed by piped stdin and the
+      corpus; `readRaw` byte-exact on a pipe.
+- [ ] Man pages per `.ai/man-content.md` (developer terms; `readRaw` states it
+      differs by platform and terminal; `readKey` carries the `NotSupported`
+      modifier table); `scripts/man-run-examples.sh io --run`.
 
-Acceptance: full suite green, and the probe prints the Expected line on all three
-platforms.
+Acceptance: function tests pass on macOS and Linux; man examples run.
+Commit: —
+
+### Phase 5: kitty in `term::on` / `term::off`
+
+- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on`, pop in `term::off`
+      and the exit-path restore.
+- [ ] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
+      `NotSupported` elsewhere; `readScalar`/`readGrapheme`/`readLine` see plain text
+      either way.
+- [ ] Windows console: VT input per the Phase 1 measurement.
+
+Acceptance: a kitty-capable terminal (manual, named in the commit) shows releases;
+Terminal.app shows `NotSupported`; the terminal is clean after exit, including after
+a crash.
+Commit: —
+
+### Phase 6: remove `readChar` / `readByte` / `pollInput`
+
+- [ ] Delete the three members and their descriptors; migrate every caller in the
+      Blast Radius (the six decoders to `readKey`, `pollInput` loops to
+      `timeoutMs = 0` with `TRAP … ErrTimeout`).
+- [ ] Spec and man updated; `grep -rn "readChar\|readByte\|pollInput" src examples
+      tests packages` returns nothing live.
+
+Acceptance: the grep is empty; every migrated example builds and its keys work in a
+console build and a macOS `--app` build.
+Commit: —
+
+### Phase 7: full validation
+
+- [ ] Full suite (`cargo test`), `cargo test --bin mfb spec`,
+      `scripts/man-census.sh --memory-scope` (0 unclassified).
+- [ ] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
+      keys by hand in `--app`.
+
+Acceptance: full suite green; the probe prints the same key sequence everywhere.
 Commit: —
 
 ## Validation Plan
 
-- Regression tests: `tests/app_special_keys.rs` (emitted translation per
-  platform and Windows UTF-8), plus `io::readKey` function tests if Phase 3 lands.
-- Runtime proof: the `/tmp/keyprobe` program above, driven by `osascript`
-  (macOS), `xdotool` (Linux) and a `SendInput` script (Windows), prints the
-  Expected byte line.
-- Doc sync: `src/docs/spec/app/03_console-io.md` (key contract table),
-  `mfb man io readChar`/`readByte` (and `readKey`).
+- Regression tests: `tests/app_special_keys.rs`, the decoder corpus, the `io` reader
+  function tests.
+- Runtime proof: the probe driven by `osascript` (macOS), `xdotool` (Linux) and
+  `SendInput` (Windows) prints one key sequence on every surface; a kitty terminal
+  shows releases, a plain one `NotSupported`.
+- Doc sync: `03_console-io.md` (buffer, encodings, delay, `NotSupported`), `mfb man
+  io`, `mfb man term on/off`.
 - Full suite: `cargo test`, `cargo test --bin mfb spec`.
 
 ## Open Decisions
 
-- **Add `io::readKey` (Layer 2)?** Recommended: yes. Layer 1 alone standardises
-  the bytes, but every program still needs a hand-written decoder with an
-  Esc timeout, and six examples already carry copies of one. The alternative is
-  Layer 1 only, leaving decoding to programs.
-- **Modifier-qualified keys** (Shift+Arrow = `ESC[1;2A`, Ctrl+Arrow, …).
-  Recommended: out of scope for this bug. Emit the unmodified sequence, and
-  file a follow-up if a program needs modifiers.
+All design decisions were taken by the owner on 2026-09-25 (see "Decisions"). The two
+Open details under Goal remain for Phase 1.
 
 ## Summary
 
-The engineering risk is in the Windows arms. They need a new `WM_KEYDOWN`
-path in hand-emitted x86-64, a UTF-16→UTF-8 encoder in a `WndProc` frame whose
-alignment is load-bearing (`≡ 8 mod 16`), and the Backspace byte change. The
-macOS and Linux changes are table lookups placed in front of an existing write.
-Console builds, line-mode editing and mouse input are untouched.
+The keyboard reaches a program through five different encodings today, and `io`
+offers only byte and scalar readers over them. The fix is one input buffer and one
+decoder under six readers with the standard timeout, `--app` handlers that inject
+kitty-form events (so key release works in every app), kitty in `term::on` for
+consoles, and a clean removal of `readChar`/`readByte`/`pollInput`. The engineering
+risk is the Windows `WndProc` arms (hand-emitted x86-64, frame alignment) and keeping
+every existing reader golden-identical while the buffer goes in underneath (Phase 2).
