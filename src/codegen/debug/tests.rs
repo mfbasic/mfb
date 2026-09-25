@@ -100,7 +100,11 @@ fn a_debug_module_gets_the_report_helper_and_each_section() {
     let debug_module = module(true);
     for feature in DEBUG_FEATURES {
         if !feature.applies(&debug_module) {
-            assert_eq!(feature.name(), thread::THREAD_SECTION, "only the thread section is conditional");
+            assert_eq!(
+                feature.name(),
+                thread::THREAD_SECTION,
+                "only the thread section is conditional"
+            );
             continue;
         }
         let report = feature.report_symbol().expect("every section reports");

@@ -66,7 +66,11 @@ fn run(seq: u64) -> u64 {
     let (stdout, stderr) = run_ok(&case, &exe);
     let sequential: u64 = (0..seq).map(|i| (i % 100) * (i % 100)).sum();
     let held: u64 = (1..=200u64).map(|n| n * n).sum();
-    assert_eq!(stdout, format!("{sequential} {held}\n"), "{case}: wrong totals");
+    assert_eq!(
+        stdout,
+        format!("{sequential} {held}\n"),
+        "{case}: wrong totals"
+    );
     let capacity = thread_value(&case, &stderr, "thread.table_capacity");
     assert!(
         capacity > 64,

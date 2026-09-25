@@ -134,7 +134,13 @@ impl CodeBuilder<'_> {
         }
         let symbol = request(kind, type_);
         let from = self.current_symbol.clone();
-        push_symbol_address(&from, &symbol, dst, &mut self.instructions, &mut self.relocations);
+        push_symbol_address(
+            &from,
+            &symbol,
+            dst,
+            &mut self.instructions,
+            &mut self.relocations,
+        );
     }
 }
 

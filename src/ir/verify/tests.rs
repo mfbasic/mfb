@@ -8129,7 +8129,10 @@ fn skips_the_testing_desugared_trap_guard() {
 /// (plan-156-D: a parent `Thread` is a sendable resource now, so it no longer
 /// makes a record unsendable — a `ThreadWorker` still does.)
 fn unsendable_record() -> IrType {
-    record_typed("BadMessage", &[("handle", "ThreadWorker OF String TO Integer")])
+    record_typed(
+        "BadMessage",
+        &[("handle", "ThreadWorker OF String TO Integer")],
+    )
 }
 
 #[test]
@@ -8431,7 +8434,10 @@ TYPE W\n  label AS String\nEND TYPE\n\
 ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer\n  worker.state.label = \"w\"\n  RETURN n\nEND FUNC\n\
 FUNC main AS Integer\n  RES t AS Thread OF Integer TO Integer STATE P = thread::start(work, 5)\n  t.state.n = 1\n  RETURN thread::waitFor(t)\nEND FUNC\n";
     let got = crate::testutil::check_src(src);
-    assert!(got.is_empty(), "the two views' STATE types need not agree: {got:?}");
+    assert!(
+        got.is_empty(),
+        "the two views' STATE types need not agree: {got:?}"
+    );
 }
 
 /// plan-156-D: a parent `Thread` is a sendable resource, so a thread may declare a
@@ -8471,10 +8477,14 @@ fn a_thread_worker_on_a_resource_plane_is_not_transferable() {
     );
     let got = rules(&project(vec![f], vec![]));
     assert!(
-        got.iter().any(|r| r == "TYPE_THREAD_WORKER_NOT_TRANSFERABLE"),
+        got.iter()
+            .any(|r| r == "TYPE_THREAD_WORKER_NOT_TRANSFERABLE"),
         "{got:?}"
     );
-    assert!(!got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"), "{got:?}");
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
 }
 
 #[test]
@@ -8719,7 +8729,11 @@ fn accepts_res_thread_elements_values_and_fields() {
         "run",
         vec![
             param("xs", "List OF RES Thread OF Integer TO Integer", None),
-            param("m", "Map OF String TO RES Thread OF Integer TO Integer", None),
+            param(
+                "m",
+                "Map OF String TO RES Thread OF Integer TO Integer",
+                None,
+            ),
         ],
         vec![ret(int_const("0"))],
     );
@@ -8751,7 +8765,11 @@ fn rejects_a_bare_thread_record_field() {
 fn rejects_a_thread_worker_as_a_list_element() {
     let f = func(
         "run",
-        vec![param("xs", "List OF ThreadWorker OF Integer TO Integer", None)],
+        vec![param(
+            "xs",
+            "List OF ThreadWorker OF Integer TO Integer",
+            None,
+        )],
         vec![ret(int_const("0"))],
     );
     expect_rule(

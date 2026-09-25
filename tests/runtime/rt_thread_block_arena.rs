@@ -55,11 +55,17 @@ fn block_arenas(lines: &[String]) -> Vec<usize> {
 /// Every registered block arena gave every chunk it mapped back to the OS.
 fn assert_block_arenas_unmapped(case: &str, lines: &[String], stderr: &str) -> usize {
     let blocks = block_arenas(lines);
-    assert!(!blocks.is_empty(), "{case}: no thread_block arena registered:\n{stderr}");
+    assert!(
+        !blocks.is_empty(),
+        "{case}: no thread_block arena registered:\n{stderr}"
+    );
     for index in &blocks {
         let maps = counter(case, lines, *index, "maps");
         let mapped = counter(case, lines, *index, "mapped_bytes");
-        assert!(maps >= 1, "{case}: block arena {index} never mapped a chunk");
+        assert!(
+            maps >= 1,
+            "{case}: block arena {index} never mapped a chunk"
+        );
         assert_eq!(
             counter(case, lines, *index, "unmaps"),
             maps,
@@ -155,7 +161,10 @@ fn seeds_and_results_round_trip_through_the_block_arena() {
     assert_eq!(stdout, format!("{expected}\n"), "the values crossed intact");
     let lines = arena_lines("shapes", &stderr);
     let blocks = assert_block_arenas_unmapped("shapes", &lines, &stderr);
-    assert!(blocks >= 100, "only {blocks} block arenas were registered:\n{stderr}");
+    assert!(
+        blocks >= 100,
+        "only {blocks} block arenas were registered:\n{stderr}"
+    );
     let table = thread_lines("shapes", &stderr);
     assert_eq!(
         thread_value("shapes", &table, "thread.table_live"),
@@ -319,7 +328,11 @@ fn trapped_transfer_live_bytes(count: u64) -> u64 {
     std::fs::write(project.join("src").join("main.mfb"), source).expect("write source");
     let exe = common::debug_report::build_debug_project(&name, &project);
     let (stdout, stderr) = run_ok(&name, &exe);
-    assert_eq!(stdout, format!("{count}\n"), "{name}: every transfer arrived");
+    assert_eq!(
+        stdout,
+        format!("{count}\n"),
+        "{name}: every transfer arrived"
+    );
     counter(&name, &arena_lines(&name, &stderr), 0, "live_bytes")
 }
 

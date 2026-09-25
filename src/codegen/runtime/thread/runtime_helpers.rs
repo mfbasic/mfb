@@ -405,7 +405,11 @@ pub(crate) fn emit_thread_queue_init(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(oom),
         abi::load_u64("%v9", abi::stack_pointer(), block),
-        abi::store_u64(abi::mfb_return(1), "%v9", queue + THREAD_QUEUE_VALUES_OFFSET),
+        abi::store_u64(
+            abi::mfb_return(1),
+            "%v9",
+            queue + THREAD_QUEUE_VALUES_OFFSET,
+        ),
     ]);
     Ok(())
 }
@@ -600,7 +604,12 @@ pub(crate) fn lower_thread_start_helper(
         // thread, so whichever side lets go of it last can free it.
         abi::move_immediate(abi::c_arg(0), "Integer", &CONTROL_BLOCK_SIZE.to_string()),
     ]);
-    platform.emit_heap_alloc(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_alloc(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&oom_unslotted),
@@ -767,18 +776,21 @@ pub(crate) fn lower_thread_start_helper(
         // spawning thread's generator (runs in the parent, so `x19` is the parent
         // arena and the draw is race-free).
         ctx.instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
-        ctx.relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
+        ctx.relocations
+            .push(internal_branch(symbol, RNG_NEXT_SYMBOL));
         ctx.instructions.extend([
             abi::move_register(abi::c_arg(1), abi::return_register()),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), WORKER_OFFSET),
         ]);
         ctx.instructions.push(abi::branch_link(RNG_SEED_SYMBOL));
-        ctx.relocations.push(internal_branch(symbol, RNG_SEED_SYMBOL));
+        ctx.relocations
+            .push(internal_branch(symbol, RNG_SEED_SYMBOL));
     }
     // Seed the worker's dedicated memory-fill RNG (always on, plan-01 §6): a value from
     // the parent's fill stream XOR the worker arena address, so each worker poisons
     // with a distinct stream, separate from its `math::rand` stream.
-    ctx.instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
+    ctx.instructions
+        .push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
     ctx.relocations
         .push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
     ctx.instructions.extend([
@@ -786,7 +798,8 @@ pub(crate) fn lower_thread_start_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), WORKER_OFFSET),
         abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::return_register()),
     ]);
-    ctx.instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
+    ctx.instructions
+        .push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
     ctx.relocations
         .push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
 
@@ -874,7 +887,8 @@ pub(crate) fn lower_thread_start_helper(
             abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ATTR_OFFSET),
             abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
         ]);
-        ctx.instructions.push(abi::branch_link(attr_setstacksize_symbol));
+        ctx.instructions
+            .push(abi::branch_link(attr_setstacksize_symbol));
         ctx.relocations.push(external_branch(
             symbol,
             attr_setstacksize_symbol,
@@ -934,7 +948,8 @@ pub(crate) fn lower_thread_start_helper(
         abi::load_u64("%v10", abi::stack_pointer(), VIEW_OFFSET),
     ]);
     for offset in (0..RESOURCE_RECORD_SIZE_BYTES).step_by(8) {
-        ctx.instructions.push(abi::store_u64(abi::ZERO, "%v10", offset));
+        ctx.instructions
+            .push(abi::store_u64(abi::ZERO, "%v10", offset));
     }
     ctx.instructions.extend([
         abi::move_immediate("%v11", "Integer", RESOURCE_TAG_THREAD),
@@ -955,7 +970,8 @@ pub(crate) fn lower_thread_start_helper(
             abi::move_immediate(abi::c_arg(1), "Integer", RESOURCE_RECORD_SIZE),
             abi::branch_link(ARENA_FREE_SYMBOL),
         ]);
-        ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        ctx.relocations
+            .push(internal_branch(symbol, ARENA_FREE_SYMBOL));
     };
     let release_and_fail = |ctx: &mut EmitCtx, error: &str| -> Result<(), String> {
         ctx.instructions.extend([
@@ -978,8 +994,11 @@ pub(crate) fn lower_thread_start_helper(
     );
     ctx.instructions
         .extend([abi::branch(&parent_done), abi::label(&oom_unslotted)]);
-    ctx.instructions
-        .push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CB_OFFSET));
+    ctx.instructions.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        CB_OFFSET,
+    ));
     let skip_free = format!("{symbol}_oom_no_block");
     ctx.instructions.extend([
         abi::compare_immediate(abi::c_arg(0), "0"),
@@ -1183,7 +1202,10 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), SOURCE_OFFSET),
         abi::branch_link(THREAD_FINISH_SYMBOL),
     ]);
-    relocations.push(internal_branch(THREAD_TRAMPOLINE_SYMBOL, THREAD_FINISH_SYMBOL));
+    relocations.push(internal_branch(
+        THREAD_TRAMPOLINE_SYMBOL,
+        THREAD_FINISH_SYMBOL,
+    ));
     instructions.extend([
         abi::move_immediate(abi::c_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),

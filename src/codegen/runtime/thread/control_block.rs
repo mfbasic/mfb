@@ -80,7 +80,8 @@ pub(crate) const CONTROL_OFFSET_WORKER_ARENA: usize = 168;
 /// `{value, …}` entries in the block arena plus its two condvars; all four share the
 /// block lock.
 pub(crate) const CONTROL_OFFSET_INBOUND_QUEUE: usize = 192;
-pub(crate) const CONTROL_OFFSET_OUTBOUND_QUEUE: usize = CONTROL_OFFSET_INBOUND_QUEUE + THREAD_QUEUE_SIZE;
+pub(crate) const CONTROL_OFFSET_OUTBOUND_QUEUE: usize =
+    CONTROL_OFFSET_INBOUND_QUEUE + THREAD_QUEUE_SIZE;
 /// Resource plane (§7): the inbound queue carries parent→worker transfers (parent
 /// `transfer`, worker `accept`); the outbound queue carries worker→parent ones.
 pub(crate) const CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE: usize =
@@ -93,7 +94,8 @@ pub(crate) const CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize =
 /// name it, and the worker cannot outlive its own reference.
 pub(crate) const CONTROL_OFFSET_WORKER_VIEW: usize =
     CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE + THREAD_QUEUE_SIZE;
-pub(crate) const CONTROL_BLOCK_SIZE: usize = CONTROL_OFFSET_WORKER_VIEW + RESOURCE_RECORD_SIZE_BYTES;
+pub(crate) const CONTROL_BLOCK_SIZE: usize =
+    CONTROL_OFFSET_WORKER_VIEW + RESOURCE_RECORD_SIZE_BYTES;
 
 // Every field is addressed with an immediate displacement off the block pointer;
 // rv64's load/store immediate is a signed 12-bit field.
@@ -147,8 +149,14 @@ pub(crate) const THREAD_FINISH_SYMBOL: &str = "_mfb_rt_thread_finish";
 /// bookkeeping words (no slot array until the first `thread::start`).
 pub(crate) fn thread_table_data_object(family: PlatformFamily) -> CodeDataObject {
     let mut value = crate::codegen::builtins::os::os_env_lock_init_hex(family);
-    debug_assert_eq!(value.len(), crate::codegen::builtins::os::OS_ENV_LOCK_SIZE * 2);
-    debug_assert_eq!(crate::codegen::builtins::os::OS_ENV_LOCK_SIZE, THREAD_TABLE_SLOTS);
+    debug_assert_eq!(
+        value.len(),
+        crate::codegen::builtins::os::OS_ENV_LOCK_SIZE * 2
+    );
+    debug_assert_eq!(
+        crate::codegen::builtins::os::OS_ENV_LOCK_SIZE,
+        THREAD_TABLE_SLOTS
+    );
     for _ in THREAD_TABLE_SLOTS..THREAD_TABLE_SIZE {
         value.push_str("00");
     }
@@ -204,7 +212,14 @@ fn table_lock(
         abi::c_arg(0),
         THREAD_TABLE_LOCK,
     ));
-    thread_call(symbol, call, platform_imports, platform, instructions, relocations)
+    thread_call(
+        symbol,
+        call,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )
 }
 
 fn finish_helper(
@@ -313,7 +328,12 @@ pub(crate) fn lower_thread_table_acquire(
         abi::store_u64("%v10", abi::stack_pointer(), NEW_CAPACITY),
         abi::shift_left_immediate(abi::c_arg(0), "%v10", 3),
     ]);
-    platform.emit_heap_alloc(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_alloc(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&oom),
@@ -348,7 +368,12 @@ pub(crate) fn lower_thread_table_acquire(
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(&grow_no_old),
     ]);
-    platform.emit_heap_free(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_free(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&grow_no_old));
     push_symbol_address(
         symbol,
@@ -400,7 +425,12 @@ pub(crate) fn lower_thread_table_acquire(
         &mut instructions,
         &mut relocations,
     )?;
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok(finish_helper(
         "runtime.thread_table_acquire",
@@ -503,7 +533,12 @@ pub(crate) fn lower_thread_block_arena_create(
         abi::move_immediate(abi::c_arg(0), "Integer", &ARENA_STATE_SIZE.to_string()),
     ];
     let mut relocations = Vec::new();
-    platform.emit_heap_alloc(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_alloc(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&oom),
@@ -548,7 +583,12 @@ pub(crate) fn lower_thread_block_arena_create(
         abi::branch(&done),
         abi::label(&oom),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", &mut instructions, &mut relocations);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok(finish_helper(
         "runtime.thread_block_arena_create",
@@ -675,7 +715,12 @@ pub(crate) fn lower_thread_block_arena_destroy(
         );
     }
     instructions.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), STATE));
-    platform.emit_heap_free(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_free(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
@@ -821,12 +866,22 @@ pub(crate) fn lower_thread_block_release(
         );
     }
     instructions.push(abi::move_register(abi::c_arg(0), "%v9"));
-    platform.emit_heap_free(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_free(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&no_worker_arena),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
     ]);
-    platform.emit_heap_free(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_heap_free(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),

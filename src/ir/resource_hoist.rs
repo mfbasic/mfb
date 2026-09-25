@@ -62,7 +62,9 @@ fn hoist_block(
         let mut hoisted = Vec::new();
         let line = statement_line(&statement);
         match &mut statement {
-            HirStatement::Let { value: Some(value), .. }
+            HirStatement::Let {
+                value: Some(value), ..
+            }
             | HirStatement::Assign { value, .. }
             | HirStatement::Return {
                 value: Some(value), ..
@@ -80,7 +82,8 @@ fn hoist_block(
             }
             HirStatement::Match { cases, .. } => {
                 for case in cases {
-                    case.body = hoist_block(std::mem::take(&mut case.body), &mut locals.clone(), context);
+                    case.body =
+                        hoist_block(std::mem::take(&mut case.body), &mut locals.clone(), context);
                 }
             }
             HirStatement::For { body, .. }
@@ -215,7 +218,10 @@ fn hoist_element(
 /// The type a synthesized `RES` binding of a value of `type_` declares, when
 /// `type_` is a resource: a built-in (a parent `Thread` included), a project
 /// `RESOURCE`, or a `RES`-returning function's result.
-fn resource_binding_type(type_: &ParameterType, context: &LowerContext<'_>) -> Option<ParameterType> {
+fn resource_binding_type(
+    type_: &ParameterType,
+    context: &LowerContext<'_>,
+) -> Option<ParameterType> {
     let bare = match type_ {
         ParameterType::Res(inner) => (**inner).clone(),
         other => other.clone(),

@@ -101,12 +101,7 @@ pub(crate) fn lower_cancel(
     } else {
         ThreadSimpleOp::Cancel
     };
-    let parts = simple_thread_handle_helper(
-        &symbol,
-        op,
-        ctx.platform_imports,
-        ctx.platform,
-    )?;
+    let parts = simple_thread_handle_helper(&symbol, op, ctx.platform_imports, ctx.platform)?;
     Ok(finish(builder, parts, ctx.call))
 }
 

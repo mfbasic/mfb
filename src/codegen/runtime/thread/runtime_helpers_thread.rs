@@ -952,12 +952,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::branch(&unlock),
         abi::label(&interrupted),
     ]);
-    raise_error_into(
-        symbol,
-        "ErrInterrupted",
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrInterrupted", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&closed)]);
     raise_error_into(
@@ -974,12 +969,7 @@ pub(crate) fn thread_queue_write_helper(
     // with the arena register on the block arena) and a plain one raised here.
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&copy_failed)]);
-    raise_error_into(
-        symbol,
-        "ErrOutOfMemory",
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&invalid)]);
     raise_error_into(
@@ -1241,12 +1231,7 @@ pub(crate) fn thread_queue_read_helper(
     raise_error_into(symbol, "ErrNotFound", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&interrupted)]);
-    raise_error_into(
-        symbol,
-        "ErrInterrupted",
-        ctx.instructions,
-        ctx.relocations,
-    );
+    raise_error_into(symbol, "ErrInterrupted", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&unlock), abi::label(&closed)]);
     raise_error_into(
@@ -1381,7 +1366,8 @@ pub(crate) fn lower_thread_finish(
     // left to report to.
     if drain_stdout {
         ctx.instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
-        ctx.relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+        ctx.relocations
+            .push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
     }
     emit_block_lock(&mut ctx, BLOCK)?;
     // A handle side that already closed the thread reads no result: skip the copies.
@@ -1491,7 +1477,8 @@ pub(crate) fn lower_thread_finish(
     // which here is the worker's). Its arena-state block is not freed here; it goes
     // with the control block, after a handle side that frees the block has joined
     // this thread.
-    ctx.instructions.push(abi::branch_link(ARENA_DESTROY_SYMBOL));
+    ctx.instructions
+        .push(abi::branch_link(ARENA_DESTROY_SYMBOL));
     ctx.relocations
         .push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
     let kept = format!("{symbol}_kept");
@@ -1507,8 +1494,11 @@ pub(crate) fn lower_thread_finish(
     ]);
     ctx.relocations
         .push(internal_branch(symbol, THREAD_BLOCK_RELEASE_SYMBOL));
-    let (frame, stack_slots) =
-        crate::codegen::engine::util::finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS);
+    let (frame, stack_slots) = crate::codegen::engine::util::finalize_vreg_body_with_locals(
+        &mut instructions,
+        &[],
+        LOCALS,
+    );
     Ok(CodeFunction {
         name: "runtime.thread_finish".to_string(),
         symbol: symbol.to_string(),

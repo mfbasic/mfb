@@ -20,13 +20,14 @@ mod clock;
 mod perf;
 pub(crate) mod process;
 mod shutdown;
-mod thread;
 #[cfg(test)]
 mod tests;
+mod thread;
 mod write;
 
 pub(crate) use arena::{
-    ARENA_KIND_GRAPHICS, ARENA_KIND_THREAD_BLOCK, ARENA_KIND_WORKER, ARENA_SECTION, DEBUG_ARENA_REGISTER_SYMBOL,
+    ARENA_KIND_GRAPHICS, ARENA_KIND_THREAD_BLOCK, ARENA_KIND_WORKER, ARENA_SECTION,
+    DEBUG_ARENA_REGISTER_SYMBOL,
 };
 pub(crate) use perf::PERF_SECTION;
 pub(crate) use shutdown::DEBUG_SHUTDOWN_SYMBOL;

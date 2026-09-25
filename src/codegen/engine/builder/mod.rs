@@ -2660,8 +2660,8 @@ pub(crate) fn lower_module_for_platform(
     if uses_block_release {
         use crate::codegen::runtime::thread::{
             lower_thread_block_arena_create, lower_thread_block_arena_destroy,
-            lower_thread_block_release, lower_thread_table_acquire,
-            lower_thread_table_release, thread_table_data_object,
+            lower_thread_block_release, lower_thread_table_acquire, lower_thread_table_release,
+            thread_table_data_object,
         };
         code_functions.push(lower_thread_table_acquire(&platform_imports, platform)?);
         code_functions.push(lower_thread_table_release(&platform_imports, platform)?);
@@ -2689,20 +2689,22 @@ pub(crate) fn lower_module_for_platform(
     // message's drop is `_mfb_rt_drop_owned_string`).
     for (symbol, kind, type_) in crate::codegen::runtime::thread::value_functions::take_requested()
     {
-        code_functions.push(crate::codegen::runtime::thread::lower_thread_value_function(
-            kind,
-            &type_,
-            &symbol,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            type_model.clone(),
-        )?);
+        code_functions.push(
+            crate::codegen::runtime::thread::lower_thread_value_function(
+                kind,
+                &type_,
+                &symbol,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
     }
     // Map hash index (plan-02 Phase 6): the probe lazily builds the buckets and is
     // the only caller of the build helper; the put helper backs the in-place `set`
