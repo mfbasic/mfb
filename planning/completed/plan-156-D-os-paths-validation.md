@@ -120,7 +120,8 @@ Acceptance: every reachable box shows identical fixture output, and the app-mode
 paths match the table.
   Check: the commands above (est. 30 min; ship+run per box. Nothing smaller
   executes the per-OS lookups).
-Commit: —
+  Result: see the task lines; every reachable box is green.
+Commit: bb6899bca
 
 ### Phase D3: `.ai` notes, examples, archive
 
@@ -137,12 +138,13 @@ Commit: —
       `scripts/man-run-examples.sh os --run` and
       `scripts/man-census.sh --memory-scope`. That gives 0 unclassified hits,
       and all five pages render. — `man-census.sh --fill os` → `TOTAL 24 24 24 24 13/13`, `pages with neither Description nor Examples: 0`; `--memory-scope os fs` → `unclassified memory-vocabulary hits: 0`; `man-run-examples.sh os --run` → `27 … failed: 0`; `fs --run` → `98 … failed: 0` (after each run, the example-created `~/Library/{Application Support,Caches}/man_examples` was removed, per plan-156-B B-6).
-- [ ] Move `plan-156-{A,B,C,D}-*.md` to `planning/completed/`.
+- [x] Move `plan-156-{A,B,C,D}-*.md` to `planning/completed/`. — done in the commit that moves them.
 
 Acceptance: the man gates are green and the plans are archived.
   Check: the man commands above (est. 5 min), and `ls planning/plan-156-*` → no
   matches.
-Commit: —
+  Result: see the task lines.
+Commit: bb6899bca, and the archive commit
 
 ## Validation Plan
 
