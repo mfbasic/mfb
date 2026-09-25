@@ -302,7 +302,8 @@ Acceptance: the compiler accepts `os::appResourcePath(...)`, and
   `printf 'IMPORT os\nIMPORT io\nSUB main()\n  io::print(os::resourcePath("x"))\nEND SUB\n'`
   as a scratch project in `/tmp` → the build fails naming `resourcePath`
   (est. 1 min).
-Commit: —
+  Result: `cargo test --bin mfb os` → `test result: ok. 586 passed; 0 failed; 1 ignored`. The scratch `os::resourcePath` build → `SYMBOL_UNKNOWN_IDENTIFIER … Built-in package `os` does not export `os.resourcePath``.
+Commit: 10c43e3bc
 
 ### Phase A2: empty `relative` means the base
 
@@ -339,7 +340,8 @@ lines are unchanged, and the invalid fixture reports both diagnostics.
   → only the renamed/new fixtures report new goldens, and every other `os`
   fixture passes (est. 4 min). Use a private actual dir, per `.ai/testing-gates.md`
   ("Concurrent test-accept clobbers actuals").
-Commit: —
+  Result: `scripts/test-accept.sh target/debug/mfb target/accept-actual-156a 'func_os_*' 'os-*' 'self-update-grow-valid' 'libsnd-playback-rt'` → 50 ran, 10 mismatches, all on the expected list (the renamed fixtures' `.ast`/`.ir`/`build.log`, `self-update-grow-valid`'s, and the new invalid fixture's missing golden, since written). No other `os` fixture changed.
+Commit: 10c43e3bc
 
 ### Phase A3: docs, spec, and `.ai` notes
 
@@ -363,7 +365,8 @@ Acceptance: no live doc names the old call, and the spec citations resolve.
   → only identifiers that contain `app_resource_path`/`AppResourcePath`, and no
   bare `resourcePath`. Then `scripts/spec-census.sh --citations` → 0 dangling
   in `14_os.md`, and `cargo test --bin mfb spec` → pass (est. 5 min).
-Commit: —
+  Result: `rg` leftover sweep → 0 bare `resourcePath` outside history. `scripts/spec-census.sh --citations` → `MISS-PATH 0 MISS-LINE 0 MISS-SYMBOL 0`. `cargo test --bin mfb spec` → `43 passed; 0 failed`.
+Commit: 10c43e3bc
 
 ### Phase A4: examples, man page render, and golden refresh
 
@@ -379,7 +382,8 @@ Commit: —
 
 Acceptance: the examples build and the page renders and runs.
   Check: the three commands above (est. 4 min).
-Commit: —
+  Result: `examples/{audio,dungeon,wind}` → `Wrote executable` for each (audio after Correction A-1). Man and example results are on the task lines.
+Commit: 10c43e3bc, 93be6f452
 
 (The byte-identity `.ncodesum` and AST/IR golden regeneration for the `os`
 fixture waits for plan-156-D's full-suite run. Until then those goldens are
