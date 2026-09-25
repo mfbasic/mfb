@@ -1681,10 +1681,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
 /// `add_sp; ret`, so one pass is the only spelling a new arm cannot forget. Only an
 /// `add_sp` immediately followed by `ret` is an exit — a frame pop that is not a
 /// return does not occur, and restoring there would be wrong if it ever did.
-fn preserve_win64_nonvolatile(
-    ins: Vec<CodeInstruction>,
-    save_base: usize,
-) -> Vec<CodeInstruction> {
+fn preserve_win64_nonvolatile(ins: Vec<CodeInstruction>, save_base: usize) -> Vec<CodeInstruction> {
     let exits: Vec<bool> = (0..ins.len())
         .map(|at| {
             ins[at].op == CodeOp::AddSp
@@ -4543,7 +4540,13 @@ fn emit_display_rate() -> CodeFunction {
     ));
     call_external(from, "MonitorFromWindow", USER32, &mut ins, &mut rel);
     // Unless forced, a move within the same monitor changes nothing.
-    load_addr(abi::mfb_arg(1), DISPLAY_MONITOR_SYM, from, &mut ins, &mut rel);
+    load_addr(
+        abi::mfb_arg(1),
+        DISPLAY_MONITOR_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), FORCE));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
     ins.push(abi::branch_ne("display_changed"));
@@ -4576,7 +4579,11 @@ fn emit_display_rate() -> CodeFunction {
 
     // EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode), with
     // mode.dmSize = sizeof(DEVMODEW) and mode.dmDriverExtra = 0 (one 32-bit store).
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", DEVMODE_SIZE));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        DEVMODE_SIZE,
+    ));
     ins.push(abi::store_u32(
         abi::mfb_arg(2),
         abi::stack_pointer(),
@@ -5598,7 +5605,11 @@ mod canvas_reconcile_tests {
             .and_then(|i| i.get("imm"))
             .and_then(|v| v.parse::<usize>().ok())
             .expect("a frame");
-        assert_eq!(frame % 16, 8, "entered at rsp % 16 == 8, so every call aligns");
+        assert_eq!(
+            frame % 16,
+            8,
+            "entered at rsp % 16 == 8, so every call aligns"
+        );
     }
 
     /// bug-698: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled

@@ -25,7 +25,11 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
 
 /// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
-    let gpu: &[(&str, &str)] = if metal { &[("MFB_CANVAS_GPU", "1")] } else { &[] };
+    let gpu: &[(&str, &str)] = if metal {
+        &[("MFB_CANVAS_GPU", "1")]
+    } else {
+        &[]
+    };
     run_env(name, source, sync, gpu)
 }
 

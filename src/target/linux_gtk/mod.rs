@@ -1932,8 +1932,16 @@ mod canvas_reconcile_tests {
     #[test]
     fn the_display_rate_follows_the_surface_across_monitors() {
         let helper = bootstrap::emit_display_rate_helper().expect("helper");
-        assert_eq!(externals(&helper, STR_ENTER_MONITOR.0), 2, "one adrp/add pair");
-        assert_eq!(externals(&helper, ENTER_MONITOR_SYMBOL), 2, "the handler address");
+        assert_eq!(
+            externals(&helper, STR_ENTER_MONITOR.0),
+            2,
+            "one adrp/add pair"
+        );
+        assert_eq!(
+            externals(&helper, ENTER_MONITOR_SYMBOL),
+            2,
+            "the handler address"
+        );
         assert_eq!(externals(&helper, "g_signal_connect_data"), 1);
         assert_eq!(externals(&helper, "gdk_display_get_monitor_at_surface"), 1);
         assert_eq!(externals(&helper, "gdk_monitor_get_refresh_rate"), 1);

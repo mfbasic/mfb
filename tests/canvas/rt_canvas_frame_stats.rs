@@ -130,7 +130,10 @@ fn dt_is_the_gap_between_the_last_two_presents() {
     assert_eq!(number(&out, "one", "dt"), 0.0, "{out}");
     let dt = number(&out, "two", "dt");
     assert!(dt >= 0.05, "dt={dt} for presents 50 ms apart:\n{out}");
-    assert!(dt < 1.0, "dt={dt} is not the gap between two presents:\n{out}");
+    assert!(
+        dt < 1.0,
+        "dt={dt} is not the gap between two presents:\n{out}"
+    );
 }
 
 /// Both rates cover the trailing second only, so they fall to zero a second after the
@@ -162,7 +165,10 @@ fn pps_above_the_ring_is_measured_not_capped() {
                 stats(\"fast\")\n";
     let out = run("canvas_stats_fast", &program(body), &[]);
     let pps = number(&out, "fast", "pps");
-    assert!(pps > 64.0, "500 back-to-back presents reported pps={pps}:\n{out}");
+    assert!(
+        pps > 64.0,
+        "500 back-to-back presents reported pps={pps}:\n{out}"
+    );
     assert_eq!(number(&out, "fast", "presents"), 500.0, "{out}");
 }
 
@@ -186,7 +192,11 @@ fn frame_seconds_and_renderer_after_a_drawn_frame() {
             &program(body),
             &[("MFB_CANVAS_SYNC", "1"), ("MFB_CANVAS_GPU", "1")],
         );
-        if stats.lines().last().is_some_and(|l| l.contains("metalReady=TRUE")) {
+        if stats
+            .lines()
+            .last()
+            .is_some_and(|l| l.contains("metalReady=TRUE"))
+        {
             assert_eq!(field(&out, "drawn", "renderer"), "metal", "{out}\n{stats}");
             assert!(number(&out, "drawn", "frameSeconds") > 0.0, "{out}");
         }
@@ -236,7 +246,10 @@ fn wait_frame_paces_an_unchanged_scene() {
         &[("MFB_CANVAS_DISPLAY_HZ", "50")],
     );
     let ms = loop_ms(&out);
-    assert!(ms >= 480, "25 unchanged presents at 50 Hz took {ms} ms — a spin:\n{out}");
+    assert!(
+        ms >= 480,
+        "25 unchanged presents at 50 Hz took {ms} ms — a spin:\n{out}"
+    );
 }
 
 /// R23: `waitFrame` before any present returns (nothing is owed, so only the floor
@@ -270,7 +283,10 @@ fn wait_frame_waits_for_pickup() {
         ],
     );
     let ms = loop_ms(&out);
-    assert!(ms >= 400, "six held frames with a 1 ms floor took {ms} ms:\n{out}");
+    assert!(
+        ms >= 400,
+        "six held frames with a 1 ms floor took {ms} ms:\n{out}"
+    );
 }
 
 /// R25: a resize landing while the loop waits neither hangs it nor is lost. The scripted

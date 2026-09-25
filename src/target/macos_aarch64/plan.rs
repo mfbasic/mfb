@@ -1,8 +1,8 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::macos_aarch64::app::{
     CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
-    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, CLASS_NS_NOTIFICATION_CENTER,
-    CLASS_NS_SCREEN, LIB_QUARTZCORE, NS_WINDOW_DID_CHANGE_SCREEN,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_NS_NOTIFICATION_CENTER, CLASS_NS_SCREEN, LIB_QUARTZCORE, NS_WINDOW_DID_CHANGE_SCREEN,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
@@ -288,11 +288,13 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             }],
             // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
-            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_clock_gettime".to_string(),
-                required_by: required_by.clone(),
-            }],
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => {
+                vec![PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_clock_gettime".to_string(),
+                    required_by: required_by.clone(),
+                }]
+            }
             // plan-67-C: perf_start/perf_end read the monotonic clock inline
             // (arena-free) via the same libc entry the datetime helper uses.
             "perf.start" | "perf.end" => vec![PlatformImport {

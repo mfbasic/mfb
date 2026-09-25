@@ -357,6 +357,18 @@ Commit: `1367cfa57`
   - `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`;
   - the canvas runtime set on box 2223 and box 2230.
 
+### Final gate (run once, here — narrowed by the user to the canvas tests)
+
+- Before merging main: `cargo test --test 'rt_canvas_*' --test 'cli_canvas_*'` → 19
+  suites, 229 passed, 0 failed, 4 ignored.
+- Main had advanced 77 files (bug-680/689/697, wind's swarm). Overlap with this plan:
+  `Cargo.toml` (both added `[[test]]` entries — merged cleanly) and the four canvas
+  sentinel `.app.ncodesum` (conflicted; regenerated from the merged compiler — every
+  other app golden already matched it). No source file overlapped, so per the user the
+  gate after the merge is the canvas set again: 19 suites, 229 passed, 0 failed,
+  4 ignored. App acceptance passed; merged wind builds.
+- `cargo fmt --all` over both workspaces: whitespace only, in this plan's files.
+
 ## Open Decisions
 
 - **Floor when the rate is unknown: 60 Hz** (recommended; the most common

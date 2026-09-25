@@ -603,7 +603,9 @@ impl LinuxPlan<'_> {
                 required_by: required_by.to_string(),
             })
             // ... on a deadline read from `CLOCK_REALTIME`.
-            .chain(std::iter::once(self.libc_import("clock_gettime", required_by)))
+            .chain(std::iter::once(
+                self.libc_import("clock_gettime", required_by),
+            ))
             .chain(
                 // plan-98-F: the Vulkan loader arrives through `dlopen`/`dlsym`, never
                 // a DT_NEEDED on libvulkan — a canvas program must still exec on a

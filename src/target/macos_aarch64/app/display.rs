@@ -33,16 +33,12 @@ pub(crate) const CLASS_NS_SCREEN: &str = "_OBJC_CLASS_$_NSScreen";
 /// The `NSString * const` AppKit posts when a window changes screen.
 pub(crate) const NS_WINDOW_DID_CHANGE_SCREEN: &str = "_NSWindowDidChangeScreenNotification";
 
-pub(super) const SEL_MFB_SCREEN_CHANGED: (&str, &str) = (
-    "_mfb_macapp_sel_mfbScreenChanged",
-    "mfbScreenChanged:",
-);
+pub(super) const SEL_MFB_SCREEN_CHANGED: (&str, &str) =
+    ("_mfb_macapp_sel_mfbScreenChanged", "mfbScreenChanged:");
 const SEL_OBJECT: (&str, &str) = ("_mfb_macapp_sel_display_object", "object");
 const SEL_MAIN_SCREEN: (&str, &str) = ("_mfb_macapp_sel_mainScreen", "mainScreen");
-const SEL_RESPONDS_TO_SELECTOR: (&str, &str) = (
-    "_mfb_macapp_sel_respondsToSelector",
-    "respondsToSelector:",
-);
+const SEL_RESPONDS_TO_SELECTOR: (&str, &str) =
+    ("_mfb_macapp_sel_respondsToSelector", "respondsToSelector:");
 const SEL_MAXIMUM_FRAMES_PER_SECOND: (&str, &str) = (
     "_mfb_macapp_sel_maximumFramesPerSecond",
     "maximumFramesPerSecond",
@@ -107,8 +103,8 @@ pub(super) fn emit_observe_screen_changes(
     asm.load_selector(SEL_ADD_OBSERVER.0);
     asm.push(abi::move_register(abi::c_arg(2), view_reg)); // observer
     asm.push(abi::move_register(abi::c_arg(3), sel_reg)); // selector
-    // The name is an `NSString * const` global: external_data yields the variable's
-    // address, so dereference once more for the string.
+                                                          // The name is an `NSString * const` global: external_data yields the variable's
+                                                          // address, so dereference once more for the string.
     asm.external_data("x4", NS_WINDOW_DID_CHANGE_SCREEN, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(4), abi::c_arg(4), 0));
     asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0")); // object: nil
@@ -280,11 +276,11 @@ mod tests {
             .iter()
             .position(|n| *n == SEL_RESPONDS_TO_SELECTOR.0)
             .expect("the respondsToSelector: guard");
-        let sends = names
-            .iter()
-            .filter(|n| **n == "_objc_msgSend")
-            .count();
-        assert_eq!(sends, 4, "screen, mainScreen, respondsToSelector:, the rate");
+        let sends = names.iter().filter(|n| **n == "_objc_msgSend").count();
+        assert_eq!(
+            sends, 4,
+            "screen, mainScreen, respondsToSelector:, the rate"
+        );
         assert!(names[responds..].contains(&"_objc_msgSend"));
         assert!(names.contains(&crate::codegen::runtime::canvas::GRAPHICS_STATE_SYMBOL));
     }

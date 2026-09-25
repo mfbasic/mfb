@@ -1660,7 +1660,11 @@ pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
 /// return register unspecified. A refresh rate is never negative, so zero-extension
 /// is the right widening.
 fn emit_int_return_to_u64(asm: &mut Asm, dst: &str) {
-    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "4294967295"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        "4294967295",
+    ));
     asm.push(abi::and_registers(dst, abi::c_return(0), abi::SCRATCH[1]));
 }
 

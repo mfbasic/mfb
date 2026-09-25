@@ -7,7 +7,8 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Wait until the next frame is due, so an animation loop runs at the display's pace."#;
+const INTRO: &str =
+    r#"Wait until the next frame is due, so an animation loop runs at the display's pace."#;
 
 const DESC: &str = r#"`waitFrame` is the last call in an animation loop's body. It returns once **both**
 of these hold:

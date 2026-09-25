@@ -349,8 +349,7 @@ pub(crate) const GRAPHICS_OFFSET_DISPLAY_OVERRIDE: usize = 816;
 pub(crate) const GRAPHICS_OFFSET_PRESENTS: usize = 824;
 pub(crate) const GRAPHICS_OFFSET_PRESENT_HEAD: usize = 832;
 pub(crate) const GRAPHICS_OFFSET_PRESENT_RING: usize = 840;
-pub(crate) const GRAPHICS_OFFSET_DRAWN: usize =
-    GRAPHICS_OFFSET_PRESENT_RING + FRAME_RING_SLOTS * 8;
+pub(crate) const GRAPHICS_OFFSET_DRAWN: usize = GRAPHICS_OFFSET_PRESENT_RING + FRAME_RING_SLOTS * 8;
 pub(crate) const GRAPHICS_OFFSET_DRAWN_HEAD: usize = GRAPHICS_OFFSET_DRAWN + 8;
 pub(crate) const GRAPHICS_OFFSET_DRAWN_RING: usize = GRAPHICS_OFFSET_DRAWN_HEAD + 8;
 pub(crate) const GRAPHICS_OFFSET_LAST_RENDER_NANOS: usize =
@@ -1503,7 +1502,14 @@ pub(crate) fn emit_wait_for_redraw(
     // plan-155-C: the redraw has been picked up — the moment `canvas::waitFrame`
     // waits for. Broadcast while the mutex is still held, so the waiter reads the
     // cleared flag when it reacquires it.
-    emit_frame_cond_broadcast(symbol, scratch, platform_imports, platform, instructions, relocations)?;
+    emit_frame_cond_broadcast(
+        symbol,
+        scratch,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::move_immediate(&scratch.verdict, "Integer", "1"));
     instructions.push(abi::branch(&done));
 
@@ -1593,7 +1599,14 @@ pub(crate) fn emit_stop_graphics(
     };
     emit_thread_external_call(&mut ctx, "pthread_cond_signal")?;
     // plan-155-C: a `canvas::waitFrame` in progress must see `STOPPING` too.
-    emit_frame_cond_broadcast(symbol, scratch, platform_imports, platform, instructions, relocations)?;
+    emit_frame_cond_broadcast(
+        symbol,
+        scratch,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
 
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::add_immediate(
@@ -1915,7 +1928,11 @@ fn emit_ring_push(
 ) {
     instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
     instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
-    instructions.push(abi::add_registers(&scratch.end, &scratch.end, &scratch.base));
+    instructions.push(abi::add_registers(
+        &scratch.end,
+        &scratch.end,
+        &scratch.base,
+    ));
     instructions.push(abi::store_u64(value, &scratch.end, ring));
     instructions.push(abi::add_immediate(&scratch.cursor, &scratch.cursor, 1));
     instructions.push(abi::move_immediate(
@@ -1963,7 +1980,15 @@ pub(crate) fn emit_note_present(
     ));
     instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
     instructions.push(abi::branch_eq(&skip));
-    emit_graphics_lock(symbol, scratch, "pthread_mutex_lock", platform_imports, platform, instructions, relocations)?;
+    emit_graphics_lock(
+        symbol,
+        scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     state_base(symbol, &scratch.base, instructions, relocations);
     emit_bump(scratch, GRAPHICS_OFFSET_PRESENTS, instructions);
     emit_ring_push(
@@ -1973,7 +1998,15 @@ pub(crate) fn emit_note_present(
         now,
         instructions,
     );
-    emit_graphics_lock(symbol, scratch, "pthread_mutex_unlock", platform_imports, platform, instructions, relocations)?;
+    emit_graphics_lock(
+        symbol,
+        scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&skip));
     Ok(())
 }
@@ -2068,8 +2101,17 @@ pub(crate) fn emit_frame_counters(
     let started = builder.temporary_vreg();
     // Whether the thread exists cannot change under us: only this thread (the worker)
     // starts it, and nothing stops it before the program ends.
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
-    builder.emit(abi::load_u64(&started, &scratch.base, GRAPHICS_OFFSET_STARTED));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &started,
+        &scratch.base,
+        GRAPHICS_OFFSET_STARTED,
+    ));
     builder.emit(abi::compare_immediate(&started, "0"));
     builder.emit(abi::branch_eq(&unlocked));
     emit_graphics_lock(
@@ -2084,11 +2126,20 @@ pub(crate) fn emit_frame_counters(
     builder.emit(abi::label(&unlocked));
 
     // The copy: loads and stores only.
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     let data = builder.temporary_vreg();
     builder.emit(abi::load_u64(&data, abi::stack_pointer(), block_slot));
     builder.emit(abi::add_immediate(&data, &data, COLLECTION_HEADER_SIZE));
-    builder.emit(abi::load_u64(&scratch.scratch, abi::stack_pointer(), now_slot));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        abi::stack_pointer(),
+        now_slot,
+    ));
     builder.emit(abi::store_u64(&scratch.scratch, &data, 0));
     for (word, offset) in [
         (1, GRAPHICS_OFFSET_PRESENTS),
@@ -2301,7 +2352,11 @@ fn emit_realtime_nanos(
     platform: &dyn CodegenPlatform,
 ) -> Result<(), String> {
     let symbol = builder.current_symbol.clone();
-    builder.emit(abi::move_immediate(abi::c_arg(0), "Integer", CLOCK_REALTIME));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        CLOCK_REALTIME,
+    ));
     builder.emit(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ts));
     let mut ctx = EmitCtx {
         symbol: &symbol,
@@ -2370,8 +2425,17 @@ pub(crate) fn emit_await_pickup(
     )?;
     // deadline = min(LAST_WAIT + interval, now + interval)
     emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
-    builder.emit(abi::load_u64(&deadline, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &deadline,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
     builder.emit(abi::add_registers(&deadline, &deadline, &interval_value));
     builder.emit(abi::add_registers(&cap, &now, &interval_value));
     builder.emit(abi::compare_registers(&deadline, &cap));
@@ -2380,11 +2444,24 @@ pub(crate) fn emit_await_pickup(
     builder.emit(abi::label(&capped));
 
     builder.emit(abi::label(&again));
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
-    builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, GRAPHICS_OFFSET_STOPPING));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_STOPPING,
+    ));
     builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
     builder.emit(abi::branch_ne(&done));
-    builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, GRAPHICS_OFFSET_PENDING));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_PENDING,
+    ));
     builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
     builder.emit(abi::branch_ne(&owed));
     emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
@@ -2396,12 +2473,27 @@ pub(crate) fn emit_await_pickup(
     let rest = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
     builder.emit(abi::unsigned_divide_registers(&seconds, &deadline, &scale));
-    builder.emit(abi::multiply_subtract_registers(&rest, &seconds, &scale, &deadline));
+    builder.emit(abi::multiply_subtract_registers(
+        &rest, &seconds, &scale, &deadline,
+    ));
     builder.emit(abi::store_u64(&seconds, abi::stack_pointer(), ts));
     builder.emit(abi::store_u64(&rest, abi::stack_pointer(), ts + 8));
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
-    builder.emit(abi::add_immediate(abi::c_arg(0), &scratch.base, GRAPHICS_OFFSET_FRAME_COND));
-    builder.emit(abi::add_immediate(abi::c_arg(1), &scratch.base, GRAPHICS_OFFSET_MUTEX));
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
     builder.emit(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), ts));
     {
         let mut ctx = EmitCtx {
@@ -2417,8 +2509,16 @@ pub(crate) fn emit_await_pickup(
 
     // A redraw is owed: wait, untimed, for the render loop to take it (or stop).
     builder.emit(abi::label(&owed));
-    builder.emit(abi::add_immediate(abi::c_arg(0), &scratch.base, GRAPHICS_OFFSET_FRAME_COND));
-    builder.emit(abi::add_immediate(abi::c_arg(1), &scratch.base, GRAPHICS_OFFSET_MUTEX));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
     {
         let mut ctx = EmitCtx {
             symbol: &symbol,
@@ -2440,14 +2540,27 @@ pub(crate) fn emit_await_pickup(
     let on_time = builder.label("canvas_await_on_time");
     let stamped = builder.label("canvas_await_stamped");
     emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
-    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    state_base(
+        &symbol,
+        &scratch.base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
     builder.emit(abi::subtract_registers(&cap, &now, &deadline));
     builder.emit(abi::compare_registers(&cap, &interval_value));
     builder.emit(abi::branch_lt(&on_time));
-    builder.emit(abi::store_u64(&now, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    builder.emit(abi::store_u64(
+        &now,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
     builder.emit(abi::branch(&stamped));
     builder.emit(abi::label(&on_time));
-    builder.emit(abi::store_u64(&deadline, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    builder.emit(abi::store_u64(
+        &deadline,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_WAIT,
+    ));
     builder.emit(abi::label(&stamped));
     emit_graphics_lock(
         &symbol,
@@ -2668,7 +2781,13 @@ pub(crate) fn emit_publish_display_rate(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let base = base.into();
-    push_symbol_address(symbol, GRAPHICS_STATE_SYMBOL, &base, instructions, relocations);
+    push_symbol_address(
+        symbol,
+        GRAPHICS_STATE_SYMBOL,
+        &base,
+        instructions,
+        relocations,
+    );
     instructions.push(abi::store_u64(mhz, &base, GRAPHICS_OFFSET_DISPLAY_MHZ));
 }
 

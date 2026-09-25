@@ -6,6 +6,7 @@
 //! implement.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
@@ -14,13 +15,12 @@ use crate::codegen::registry::{
 };
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
 use crate::codegen::runtime::canvas::vulkan::emit_vulkan_ready;
-use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::runtime::canvas::{
-    emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done, emit_note_present,
-    emit_set_display_override, emit_set_gpu_mode, FrameRecord, emit_set_sync_mode, emit_signal_redraw,
-    emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
-    emit_wait_for_redraw, GraphicsScratch, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
-    GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
+    emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done,
+    emit_note_present, emit_set_display_override, emit_set_gpu_mode, emit_set_sync_mode,
+    emit_signal_redraw, emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
+    emit_wait_for_redraw, FrameRecord, GraphicsScratch, DEFAULT_SURFACE_HEIGHT,
+    DEFAULT_SURFACE_WIDTH, GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
