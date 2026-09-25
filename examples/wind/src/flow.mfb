@@ -149,30 +149,33 @@ END FUNC
 ' The swarm
 ' ---------------------------------------------------------------------------
 '
-' Parallel lists rather than a List OF Particle. Each particle's trail is a slice
-' of four ring buffers shared by the whole swarm (below), which the drawing walks
-' point by point, and the particle itself is written a field at a time from
-' several places (placeParticle, placeFollower, stepSwarm), so plain lists of
-' numbers are the simplest shape here - eleven lists, all sized once. A List OF
-' Particle would not cost a copy per particle either: reading a field with
-' collections::get(swarm, i).lon copies nothing, and a get, WITH and set of the
-' same element in consecutive statements changes it where it stands.
+' One record per particle, all of them in one list. Nothing here copies a
+' particle to look at it or to move it: reading a field straight off the list,
+' as in collections::get(swarm, i).age, reads it where it stands, and stepSwarm
+' moves a particle by getting it, updating it WITH the new values and setting it
+' straight back - three statements that change the particle in place, since
+' nothing between them can touch the swarm.
 '
 ' Particles are stored in pairs: an even index is a leader, the odd index after
 ' it is that leader's follower.
 
-MUT swarmLon AS List OF Float = []
-MUT swarmLat AS List OF Float = []
-MUT swarmAge AS List OF Integer = []      ' frames lived, counting from 0; below 0, still waiting to start
-MUT swarmLife AS List OF Integer = []     ' frames this particle gets
-MUT swarmSpeed AS List OF Float = []      ' the wind it last sat in, m/s
-MUT swarmStartLon AS List OF Float = []   ' where this particle was last dropped
-MUT swarmStartLat AS List OF Float = []
+TYPE Particle
+  lon AS Float
+  lat AS Float
+  age AS Integer        ' frames lived, counting from 0; below 0, still waiting to start
+  life AS Integer       ' frames this particle gets
+  speed AS Float        ' the wind it last sat in, m/s
+  startLon AS Float     ' where this particle was last dropped
+  startLat AS Float
+END TYPE
 
-' Trails, TRAIL_LENGTH points per particle, used as a ring buffer. Every
-' particle advances on the same frame, so one shared write position serves the
-' whole swarm - particle i's newest point is always at i * TRAIL_LENGTH +
-' trailHead.
+MUT swarm AS List OF Particle = []
+
+' Trails, TRAIL_LENGTH points per particle, used as a ring buffer. They stay out
+' of the Particle record: every particle advances on the same frame, so one
+' shared write position serves the whole swarm - particle i's newest point is
+' always at i * TRAIL_LENGTH + trailHead - and the drawing walks the points one
+' after another.
 '
 ' Each point is kept twice: as a place (trailLon/trailLat), and projected onto
 ' the plane of a map centred on trailLon0 (trailX/trailY), which is what a frame
@@ -206,7 +209,7 @@ SUB setTrailPoint(k AS Integer, g AS Geo)
 END SUB
 
 FUNC particleCount AS Integer
-  RETURN len(swarmLon)
+  RETURN len(swarm)
 END FUNC
 
 ' How many particles a window of this size should carry: two per streamline.
@@ -236,13 +239,7 @@ END FUNC
 ' so it has nothing to draw until it has moved. A negative age holds it there,
 ' unmoved and undrawn, for that many frames.
 SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
-  swarmLon = collections::set(swarmLon, i, g.lon)
-  swarmLat = collections::set(swarmLat, i, g.lat)
-  swarmAge = collections::set(swarmAge, i, age)
-  swarmLife = collections::set(swarmLife, i, life)
-  swarmSpeed = collections::set(swarmSpeed, i, 0.0)
-  swarmStartLon = collections::set(swarmStartLon, i, g.lon)
-  swarmStartLat = collections::set(swarmStartLat, i, g.lat)
+  swarm = collections::set(swarm, i, WITH collections::get(swarm, i) { lon := g.lon, lat := g.lat, age := age, life := life, speed := 0.0, startLon := g.lon, startLat := g.lat })
 
   LET base AS Integer = i * TRAIL_LENGTH
   FOR slot = 0 TO TRAIL_LENGTH - 1
@@ -269,9 +266,9 @@ END FUNC
 ' drop finds the pair half a life apart again.
 SUB placeFollower(i AS Integer)
   LET leader AS Integer = i - 1
-  LET life AS Integer = collections::get(swarmLife, leader)
-  LET late AS Integer = collections::get(swarmAge, leader) - life / 2
-  LET start AS Geo = Geo[lon := collections::get(swarmStartLon, leader), lat := collections::get(swarmStartLat, leader)]
+  LET life AS Integer = collections::get(swarm, leader).life
+  LET late AS Integer = collections::get(swarm, leader).age - life / 2
+  LET start AS Geo = Geo[lon := collections::get(swarm, leader).startLon, lat := collections::get(swarm, leader).startLat]
   IF late > 0 THEN
     placeParticle(i, start, life - late, 0)
   ELSE
@@ -285,7 +282,7 @@ SUB respawnParticle(i AS Integer, v AS View)
   IF i MOD 2 = 1 THEN
     placeFollower(i)
   ELSE
-    placeParticle(i, birthplace(v), collections::get(swarmLife, i), 0)
+    placeParticle(i, birthplace(v), collections::get(swarm, i).life, 0)
   END IF
 END SUB
 
@@ -293,13 +290,7 @@ END SUB
 ' scattered over the view. Called at startup and again whenever the window
 ' changes size enough to want a different number.
 SUB seedSwarm(count AS Integer, v AS View)
-  swarmLon = []
-  swarmLat = []
-  swarmAge = []
-  swarmLife = []
-  swarmSpeed = []
-  swarmStartLon = []
-  swarmStartLat = []
+  swarm = []
   trailLon = []
   trailLat = []
   trailX = []
@@ -307,14 +298,9 @@ SUB seedSwarm(count AS Integer, v AS View)
   trailLon0 = v.lon0
   trailHead = 0
 
+  LET unplaced AS Particle = Particle[lon := 0.0, lat := 0.0, age := 0, life := 0, speed := 0.0, startLon := 0.0, startLat := 0.0]
   FOR i = 1 TO count
-    swarmLon = collections::append(swarmLon, 0.0)
-    swarmLat = collections::append(swarmLat, 0.0)
-    swarmAge = collections::append(swarmAge, 0)
-    swarmLife = collections::append(swarmLife, 0)
-    swarmSpeed = collections::append(swarmSpeed, 0.0)
-    swarmStartLon = collections::append(swarmStartLon, 0.0)
-    swarmStartLat = collections::append(swarmStartLat, 0.0)
+    swarm = collections::append(swarm, unplaced)
     FOR slot = 1 TO TRAIL_LENGTH
       trailLon = collections::append(trailLon, 0.0)
       trailLat = collections::append(trailLat, 0.0)
@@ -348,30 +334,27 @@ SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, dt AS F
   LET drift AS Float = DRIFT_RATE * dt
 
   FOR i = 0 TO count - 1
-    LET age AS Integer = collections::get(swarmAge, i) + 1
+    LET age AS Integer = collections::get(swarm, i).age + 1
     IF age <= 0 THEN
       ' A follower still waiting for its leader to get half a life ahead.
-      swarmAge = collections::set(swarmAge, i, age)
+      swarm = collections::set(swarm, i, WITH collections::get(swarm, i) { age := age })
       CONTINUE FOR
     END IF
-    MUT lat AS Float = collections::get(swarmLat, i)
 
-    IF age > collections::get(swarmLife, i) OR math::abs(lat) > 87.0 THEN
+    IF age > collections::get(swarm, i).life OR math::abs(collections::get(swarm, i).lat) > 87.0 THEN
       respawnParticle(i, v)
       CONTINUE FOR
     END IF
 
-    MUT lon AS Float = collections::get(swarmLon, i)
-    LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := lon, lat := lat])
-    LET shrink AS Float = math::max(math::cos(radians(lat)), 0.12)
-
-    lon = wrapLon(lon + wind.east * drift / shrink)
-    lat = math::clamp(lat + wind.north * drift, -89.5, 89.5)
-
-    swarmLon = collections::set(swarmLon, i, lon)
-    swarmLat = collections::set(swarmLat, i, lat)
-    swarmAge = collections::set(swarmAge, i, age)
-    swarmSpeed = collections::set(swarmSpeed, i, speedOf(wind))
+    ' Get, update, set back: nothing in between writes the swarm, so the
+    ' particle is changed where it stands rather than copied out and back.
+    MUT p AS Particle = collections::get(swarm, i)
+    LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := p.lon, lat := p.lat])
+    LET shrink AS Float = math::max(math::cos(radians(p.lat)), 0.12)
+    LET lon AS Float = wrapLon(p.lon + wind.east * drift / shrink)
+    LET lat AS Float = math::clamp(p.lat + wind.north * drift, -89.5, 89.5)
+    p = WITH p { lon := lon, lat := lat, age := age, speed := speedOf(wind) }
+    swarm = collections::set(swarm, i, p)
 
     setTrailPoint(i * TRAIL_LENGTH + trailHead, Geo[lon := lon, lat := lat])
   NEXT
@@ -409,11 +392,11 @@ FUNC trailItems(v AS View) AS List OF canvas::DrawItem
   LET wrapLimit AS Float = PLANE_HALF_WIDTH
 
   FOR i = 0 TO count - 1
-    LET age AS Integer = collections::get(swarmAge, i)
+    LET age AS Integer = collections::get(swarm, i).age
     IF age < 1 THEN CONTINUE FOR
     LET base AS Integer = i * trail
     LET drawable AS Integer = math::min(segments, age)
-    LET tint AS color::Color = speedColor(collections::get(swarmSpeed, i))
+    LET tint AS color::Color = speedColor(collections::get(swarm, i).speed)
 
     FOR k = 0 TO drawable - 1
       ' Slot (trailHead - k) is the k-th most recent point; the + trail keeps
