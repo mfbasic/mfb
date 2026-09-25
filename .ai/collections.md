@@ -76,7 +76,7 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
     scratch. Every store through the reference — including a plain reassign — must
     size its free by that shadow and reset it. The word is read into a frame slot
     at first use: `%closure_env` is a call-boundary token, not a pinned register,
-    so an arm that calls a helper (`os::resourcePath`) cannot re-read it
+    so an arm that calls a helper (`os::appResourcePath`) cannot re-read it
     afterwards. `closure_env_free_types` must count every extra word, or the env
     free is short.
   - **A `String` arm serves no field site** (`FieldReach::None`): a `String` record

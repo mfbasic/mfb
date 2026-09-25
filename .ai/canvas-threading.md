@@ -228,10 +228,10 @@ now describe:
 2. **Graphics**, while building a frame: a picture's geometry header captures the
    block address current at that moment (`__canvas_pictureHeader`). The software
    renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
-   copy its texels, one packed word each, into the frame buffer's glyph region. Metal copies each
-   distinct block ONCE per frame and points every later picture of it at those texels
-   (`emit_picture_lookup`, bug-686), and its predicate counts each distinct block once;
-   Vulkan still copies and counts per item.
+   copy its texels, one packed word each, into the frame buffer's glyph region. Each
+   emitter copies a distinct block ONCE per frame and points every later picture of it
+   at those texels (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since
+   bug-688, the same table layout), and each predicate counts each distinct block once.
 
 Why this holds up where the texture design needed care:
 
@@ -427,9 +427,11 @@ The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
 `canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
 two probes of overlapping facts can disagree and one of them did. It has the same offscreen
 shape: it renders into an image and reads it back so the frame leaves through
-`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain, which
-is what lets it be tested on a box with no display server — and no reachable Linux box has
-one.
+`canvas::blitSurface` like every other — always, in a window too: there is no Vulkan twin
+of Metal's direct present (bug-688 left it to be measured on real GPU hardware, which no
+reachable box has). It needs no `VkSurfaceKHR` and no swapchain, which is what lets it be
+tested headless; box 2226 now has a GNOME Wayland session, but its Vulkan driver, like
+every reachable one, is Mesa's CPU lavapipe.
 
 ### A group is one instanced draw per node, with an offset bound to BOTH stages
 
@@ -529,32 +531,27 @@ must therefore be a region of a frame buffer reached by an index carried in the 
 not a payload. That is what forced Metal's polygon edges to move (below), and it is the
 shape any future per-item payload has to take.
 
-**The two predicates are still not the same predicate, but they differ less than they
-did.** Both now decline a *frame* whose polygons sum past their edge cap
-(`VULKAN_MAX_FRAME_EDGES` / `METAL_MAX_FRAME_EDGES`, both 16384) and a frame with more
-drawn *quads* than `CANVAS_MAX_FRAME_ITEMS`. What still differs:
+**The two predicates are two functions with the same caps.** Each backend has its own
+constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into its own
+predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
+262,144 polygon edges, 131,072 gradient stops and 8M glyph/picture texels a frame, each a
+frame SUM, with each distinct picture block counted once. Neither has a per-polygon edge
+cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
+Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
+Metal's instructions did not change), and the shader's `edgeDistance` walks only the
+edges within reach of the pixel's band, which is bit-identical to walking them all.
+bug-688 measured that on Vulkan too: the same scenes rendered with and without the index
+gave byte-identical GPU frames on lavapipe, stars and spikes included.
 
-* Metal has **no per-polygon edge cap** since bug-686. The old one (256, kept "by
-  policy" after plan-116-A removed the `setFragmentBytes:` payload that justified it) had
-  a twin in `emit_edge_buffer` that drew an oversized polygon as NOTHING; both are gone.
-  A large polygon is indexed by horizontal band instead (`emit_band_index`): the shader's
-  `edgeDistance` walks only the edges within reach of the pixel's band, which is
-  bit-identical to walking them all and 36-108× faster on realistic outlines.
-* Metal's frame caps are its own and larger — 65,536 quads, 262,144 edges, 131,072
-  gradient stops, 8M glyph/picture texels — while Vulkan keeps `CANVAS_MAX_FRAME_ITEMS`
-  (4,096), `MAX_FRAME_GRADIENT_STOPS` (4,096) and its 1M texels.
-* The glyph caps differ in *shape*: Metal's is per glyph (`METAL_MAX_GLYPH_SAMPLES`,
-  its bitmap still rides `setFragmentBytes:`), Vulkan's is a frame total
-  (`VULKAN_MAX_FRAME_GLYPH_SAMPLES`, its bitmaps ride the shared buffer).
-
-A scene can therefore still be GPU-renderable on one backend and not the other, and that
-is correct. The reason a frame buffer needs a per-item *index* at all is unchanged and
-worth restating: a command buffer is recorded once and executed once, so rewriting — or
-re-binding — one buffer per item would give every item the *last* one's data.
-
-Metal scenes whose polygons sum past 16384 edges are the one class that plan-116-A newly
-declines to software. Software is the oracle, so the picture is at least as correct;
+Before bug-688 Vulkan kept plan-116-A's 4,096 quads and stops, 16,384 edges and 1M
+texels, so `examples/wind`, a 5,000-quad scene, a tilemap and a 1080p background all
+fell back to software there. A cap past which a frame is declined is still a real
+limit: software is the oracle, so a declined frame is at least as correct, and
 truncating instead would draw a *different shape*.
+
+The reason a frame buffer needs a per-item *index* at all is unchanged and worth
+restating: a command buffer is recorded once and executed once, so rewriting — or
+re-binding — one buffer per item would give every item the *last* one's data.
 
 ## 11. Test affordances
 
@@ -562,9 +559,10 @@ Three environment variables, all off by default and none on the production path:
 
 * `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
   first completed frame and then resize the surface to these dimensions, by calling
-  the same handler the platform's resize signal calls. A resize is a *window* event
-  and no reachable Linux box has a display server, so without this the handshake
-  could be implemented and never executed. Waiting for a frame first is the whole
+  the same handler the platform's resize signal calls. A resize is a *window* event,
+  and until box 2226's GNOME Wayland session no reachable Linux box had a display
+  server, so without this the handshake could be implemented and never executed; it is
+  still the only scripted resize a test can drive. Waiting for a frame first is the whole
   point: resizing before one exists builds the render target once at the new size and
   proves nothing, where resizing after one forces the tear-down-and-rebuild.
 
@@ -949,17 +947,23 @@ It was five until plan-116-F added a **third** buffer region; the sixth is item 
    built at first use with the bases formatted in from the `METAL_*_BASE_WORDS`
    constants, so they move with `ITEM_BLOCK_SIZE` by construction. The region-chain
    test still pins that each region starts where the previous one ends.
-5. **Vulkan's `GRADIENT_BASE`** (plan-116-F) IS still a literal, in the checked-in GLSL,
-   mirroring `VULKAN_GRADIENT_BASE_WORDS`; fixing Metal's bases and not this one leaves
-   one item's stops read as another's on Linux — a plausible wrong ramp, not a failure.
+5. **Vulkan's region bases** (glyph, gradient, band). Since bug-688 these are not
+   literals either: the GLSL declares them `layout(constant_id = N) const int`, and the
+   pipeline feeds `VULKAN_SPEC_CONSTANTS` through `VkSpecializationInfo`, so they move
+   with every cap by construction and the checked-in SPIR-V never spells a layout number.
+   Vulkan's item buffer is its own binding, so `ITEM_BLOCK_SIZE` does not move them; a
+   cap does.
 6. The `.spv` blobs, via `scripts/regen-spirv.sh`.
 
 Items 3, 4 and 5 are caught by `the_draw_frame_slots_do_not_overlap`,
 `the_metal_shader_region_bases_match_the_buffer_layout` (Metal — it guards **both**
 bases and the region chain, despite plan-116-F having found it named for the edge one
-alone) and `the_shaders_gradient_base_matches_the_buffer_layout` (Vulkan), which fired
-on **every** one of those letters and were the only thing that noticed. Item 2 has no guard beyond the
-reflection — plan-116-D shipped the fragment half alone and found it that way.
+alone), and on Vulkan `the_pipeline_specializes_every_region_base` (the GLSL's
+name-to-id pairing, and that the blob was regenerated) with
+`the_shared_buffer_holds_every_region` (the chain). Their literal-comparing
+predecessors fired on **every** plan-116 letter and were the only thing that noticed.
+Item 2 has no guard beyond the reflection — plan-116-D shipped the fragment half alone
+and found it that way.
 
 ### A layout constant shared by MFBASIC source and the emitter has no compiler between them
 

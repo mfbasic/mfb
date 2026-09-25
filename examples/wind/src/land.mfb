@@ -296,7 +296,7 @@ END FUNC
 
 ' Read the shipped coastline into the flat lists, and index it.
 SUB loadCoastline()
-  coastBytes = fs::readBytes(os::resourcePath("wind/coastline.bin"))
+  coastBytes = fs::readBytes(os::appResourcePath("wind/coastline.bin"))
   IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 2 MFBC coastline file")
   coastAt = 5
   LET ringCount AS Integer = nextVarint()

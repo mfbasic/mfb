@@ -799,7 +799,7 @@ pub(super) const CORPUS: &[&str] = &[
     "func_os_hostName_valid",
     "func_os_name_valid",
     "func_os_pid_valid",
-    "func_os_resourcePath_valid",
+    "func_os_appResourcePath_valid",
     "func_os_setEnv_valid",
     "func_os_system_status_valid",
     "func_os_unsetEnv_valid",

@@ -401,9 +401,26 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            // plan-55-B: `os.resourcePath` reuses the same exe-path acquisition as
+            // plan-157-B/C: `HOME` through `getenv`, then the `passwd` fallback; each
+            // call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase"
+            | "os.userDocumentsPath"
+            | "os.userDocumentsPathBase" => ["_getenv", "_getuid", "_getpwuid"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                })
+                .collect(),
+            // plan-55-B: `os.appResourcePath` reuses the same exe-path acquisition as
             // `os.executablePath`, so it needs the identical libc import.
-            "os.executablePath" | "os.resourcePath" => vec![PlatformImport {
+            "os.executablePath" | "os.appResourcePath" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetExecutablePath".to_string(),
                 required_by: required_by.clone(),

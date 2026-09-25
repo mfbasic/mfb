@@ -50,7 +50,12 @@ pub(crate) const STRING_SHADOW_ARMS: &[&str] = &[
     "padLeftToWidth",
     "padRightToWidth",
     "repeat",
-    "resourcePath",
+    "appResourcePath",
+    // plan-157-B, the grow arm's host-path rows.
+    "appDataPath",
+    "appCachePath",
+    "userHomePath",
+    "userDocumentsPath",
     // plan-146-E, the rewrite arm.
     "upper",
     "lower",
@@ -142,6 +147,16 @@ pub(crate) const STRING_WINDOW_FNS: &[(&str, RangeInclusive<usize>, WindowKind)]
     ("pathExtension", 1..=1, WindowKind::PathExtension),
 ];
 
+/// plan-157-B: the host-path members served by [`GrowKind::HostPath`] — each has
+/// an internal `<member>Base` helper the arm calls, which the object plan must
+/// emit even though no NIR op names it (`plan/symbols.rs:runtime_symbols`).
+pub(crate) const HOST_PATH_ARM_MEMBERS: &[&str] = &[
+    "os.appDataPath",
+    "os.appCachePath",
+    "os.userHomePath",
+    "os.userDocumentsPath",
+];
+
 /// plan-146-D: how a grow row measures its result and where the new bytes go.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GrowKind {
@@ -151,9 +166,14 @@ pub(crate) enum GrowKind {
     PadToWidth { right: bool },
     /// `strings::repeat`.
     Repeat,
-    /// `os::resourcePath`: the result is `<base>/` + `relative`, so it is prefix
+    /// `os::appResourcePath`: the result is `<base>/` + `relative`, so it is prefix
     /// growth whose prefix comes from the host.
-    ResourcePath,
+    AppResourcePath,
+    /// plan-157-B: a host-path member whose base can change while the process
+    /// runs (`os::appDataPath` reads `HOME`) — the named qualified member. The
+    /// base is re-read on every statement from the member's non-allocating
+    /// internal `<member>Base` helper into the self-update scratch, never cached.
+    HostPath(&'static str),
 }
 
 /// plan-146-D: the `String` builtins whose result is their first argument with
@@ -173,7 +193,15 @@ pub(crate) const STRING_GROW_FNS: &[(&str, RangeInclusive<usize>, GrowKind)] = &
         GrowKind::PadToWidth { right: true },
     ),
     ("repeat", 2..=2, GrowKind::Repeat),
-    ("resourcePath", 1..=1, GrowKind::ResourcePath),
+    ("appDataPath", 1..=1, GrowKind::HostPath("os.appDataPath")),
+    ("appCachePath", 1..=1, GrowKind::HostPath("os.appCachePath")),
+    ("userHomePath", 1..=1, GrowKind::HostPath("os.userHomePath")),
+    (
+        "userDocumentsPath",
+        1..=1,
+        GrowKind::HostPath("os.userDocumentsPath"),
+    ),
+    ("appResourcePath", 1..=1, GrowKind::AppResourcePath),
 ];
 
 /// plan-146-D: what a grow row's measure step hands its write step.
@@ -188,6 +216,10 @@ enum GrowWrite {
     Repeat { times_slot: usize },
     /// A buffer holding the prefix bytes, and their count.
     Prefix { ptr_slot: usize, len_slot: usize },
+    /// plan-157-B: the host base the `*Base` helper wrote into the self-update
+    /// scratch (pointer and length slots); its bytes go first, then — only when
+    /// the value was non-empty — the joining `/`.
+    HostBase { ptr_slot: usize, len_slot: usize },
 }
 
 /// plan-146-E: where a `String`-producing lowering puts its result.
@@ -246,7 +278,7 @@ pub(crate) const STRING_REWRITE_FNS: &[(&str, RangeInclusive<usize>, RewriteKind
 
 /// plan-146-E: whether a call target is a `String` self-update whose arm builds
 /// its result in the function's self-update scratch — the six rewrites and
-/// `os::resourcePath`'s prefix.
+/// `os::appResourcePath`'s prefix.
 ///
 /// Keyed on the QUALIFIED target, not the bare name: `replace` is a `collections`
 /// arm too, and that one keeps per-element state in the collection itself. Giving
@@ -261,7 +293,11 @@ pub(crate) fn target_needs_string_scratch(target: &str) -> bool {
             | "strings.normalizeNfc"
             | "strings.replace"
             | "fs.pathNormalize"
-            | "os.resourcePath"
+            | "os.appResourcePath"
+            | "os.appDataPath"
+            | "os.appCachePath"
+            | "os.userHomePath"
+            | "os.userDocumentsPath"
     )
 }
 
@@ -318,7 +354,7 @@ pub(crate) fn string_shadow_captures(
     out
 }
 
-/// plan-146-G: whether `lambda` self-updates a binding with `os::resourcePath`,
+/// plan-146-G: whether `lambda` self-updates a binding with `os::appResourcePath`,
 /// and so wants its creator's cached base path — one further environment word,
 /// after the shadow words. A lambda runs once per element, so a cache of its own
 /// would re-ask the host on every call (one allocation per statement, which the
@@ -404,7 +440,7 @@ pub(crate) struct StringShadow {
     /// plan-146-G: a frame slot holding the ADDRESS of the owner's shadow slot,
     /// for a by-ref capture. Read out of the closure environment once, before any
     /// call: `%closure_env` is a call-boundary token, not a pinned register, so a
-    /// helper call inside an arm can clobber it (`os::resourcePath`'s arm calls
+    /// helper call inside an arm can clobber it (`os::appResourcePath`'s arm calls
     /// one, and re-reading it afterwards stored through a wild pointer).
     pub(crate) publish_holder: Option<usize>,
 }
@@ -965,19 +1001,19 @@ impl CodeBuilder<'_> {
                     pad_count_slot,
                 })
             }
-            GrowKind::ResourcePath => {
+            GrowKind::AppResourcePath => {
                 // The prefix is built in the function's self-update scratch, which
                 // the prescan gives every function holding this self-update.
                 if self.self_update_scratch.is_none() {
                     return Err(
-                        "native os.resourcePath self-update in a function without a scratch"
+                        "native os.appResourcePath self-update in a function without a scratch"
                             .to_string(),
                     );
                 }
-                // The relative path is checked first: `os::resourcePath` rejects a
+                // The relative path is checked first: `os::appResourcePath` rejects a
                 // `.` or `..` component before it builds anything.
-                self.emit_reject_dot_components(value_slot)?;
-                let (prefix_ptr_slot, prefix_len_slot) = self.emit_resource_prefix()?;
+                self.emit_reject_dot_components(value_slot, "os.appResourcePath")?;
+                let (prefix_ptr_slot, prefix_len_slot) = self.emit_app_resource_prefix()?;
                 let prefix_len = self.temporary_vreg();
                 let value_ptr = self.temporary_vreg();
                 let value_len = self.temporary_vreg();
@@ -991,6 +1027,21 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
                 self.emit(abi::load_u64(&value_len, &value_ptr, 0));
+                // plan-157-A §4.3: the prefix ends in the joining `/`, which exists
+                // only for a non-empty value — `appResourcePath("")` is the bare
+                // base. For an empty value copy one byte less. The adjusted length
+                // goes to its own slot: `prefix_len_slot` is the prefix builder's.
+                let used_len_slot = self.allocate_stack_object("str_respath_used_len", 8);
+                let used_ready = self.label("inplace_str_respath_used_ready");
+                self.emit(abi::compare_immediate(&value_len, "0"));
+                self.emit(abi::branch_ne(&used_ready));
+                self.emit(abi::subtract_immediate(&prefix_len, &prefix_len, 1));
+                self.emit(abi::label(&used_ready));
+                self.emit(abi::store_u64(
+                    &prefix_len,
+                    abi::stack_pointer(),
+                    used_len_slot,
+                ));
                 self.emit_checked_size_add(&total, &prefix_len, &value_len, &overflow);
                 self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
                 self.emit(abi::branch(&ok));
@@ -999,8 +1050,105 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&ok));
                 Ok(GrowWrite::Prefix {
                     ptr_slot: prefix_ptr_slot,
-                    len_slot: prefix_len_slot,
+                    len_slot: used_len_slot,
                 })
+            }
+            GrowKind::HostPath(member) => {
+                // The same check the copying helper makes, before anything else.
+                self.emit_reject_dot_components(value_slot, member)?;
+                // The base comes from the member's internal `*Base` helper, which
+                // writes it into a caller buffer and returns its length (-1 when the
+                // host cannot answer) WITHOUT allocating: the function's
+                // self-update scratch, reused and grown geometrically across
+                // statements, is that buffer. So the arm allocates only when the
+                // scratch grows, and — since the base is re-read on every statement,
+                // never cached — follows an `os::setEnv("HOME", …)` between two
+                // statements exactly as the copying call does. The first call asks
+                // with no buffer (`cap` 0) for the size; if the base grows between
+                // the size and the fill (another thread's `setEnv`), the fill
+                // reports the larger size and the loop reserves again.
+                let base_call = format!("{member}Base");
+                let spec = crate::target::shared::runtime::catalog::spec_for_call(&base_call)
+                    .ok_or_else(|| format!("{base_call} has no runtime helper spec"))?;
+                let symbol =
+                    crate::target::shared::runtime::symbol_for_call(spec.helper, spec.call);
+                let need_slot = self.allocate_stack_object("inplace_str_hostpath_need", 8);
+                let len_slot = self.allocate_stack_object("inplace_str_hostpath_len", 8);
+                let ptr_slot = self.allocate_stack_object("inplace_str_hostpath_ptr", 8);
+                let fail = self.label("inplace_str_hostpath_fail");
+                let measured = self.label("inplace_str_hostpath_measured");
+                let fill = self.label("inplace_str_hostpath_fill");
+                let filled = self.label("inplace_str_hostpath_filled");
+                let got = self.temporary_vreg();
+                self.emit(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+                self.emit_symbol_call(&symbol);
+                self.emit(abi::move_register(&got, RESULT_VALUE_REGISTER));
+                self.emit(abi::compare_immediate(&got, "0"));
+                self.emit(abi::branch_ge(&measured));
+                self.emit(abi::label(&fail));
+                self.raise_error(member, "ErrUnsupported")?;
+                self.emit(abi::label(&measured));
+                self.emit(abi::store_u64(&got, abi::stack_pointer(), need_slot));
+                self.emit(abi::label(&fill));
+                let dest = self.emit_reserve_self_update_scratch(need_slot)?;
+                let dst = self.temporary_vreg();
+                let cap = self.temporary_vreg();
+                self.emit(abi::load_u64(&dst, abi::stack_pointer(), dest));
+                self.emit(abi::store_u64(&dst, abi::stack_pointer(), ptr_slot));
+                self.emit(abi::load_u64(&cap, abi::stack_pointer(), need_slot));
+                self.emit(abi::move_register(abi::c_arg(0), &dst));
+                self.emit(abi::move_register(abi::c_arg(1), &cap));
+                self.emit_symbol_call(&symbol);
+                let got = self.temporary_vreg();
+                let cap = self.temporary_vreg();
+                self.emit(abi::move_register(&got, RESULT_VALUE_REGISTER));
+                self.emit(abi::compare_immediate(&got, "0"));
+                self.emit(abi::branch_lt(&fail));
+                self.emit(abi::load_u64(&cap, abi::stack_pointer(), need_slot));
+                self.emit(abi::compare_registers(&got, &cap));
+                self.emit(abi::branch_le(&filled));
+                self.emit(abi::store_u64(&got, abi::stack_pointer(), need_slot));
+                self.emit(abi::branch(&fill));
+                self.emit(abi::label(&filled));
+                self.emit(abi::store_u64(&got, abi::stack_pointer(), len_slot));
+
+                let base_len = self.temporary_vreg();
+                let value_ptr = self.temporary_vreg();
+                let value_len = self.temporary_vreg();
+                let total = self.temporary_vreg();
+                let overflow = self.label("inplace_str_hostpath_overflow");
+                let ok = self.label("inplace_str_hostpath_total_ok");
+                let counted = self.label("inplace_str_hostpath_counted");
+                let counted_slash = self.label("inplace_str_hostpath_counted_slash");
+                self.emit(abi::load_u64(&base_len, abi::stack_pointer(), len_slot));
+                self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
+                self.emit(abi::load_u64(&value_len, &value_ptr, 0));
+                // The joining `/` exists only for a non-empty value, and not after
+                // a base that already ends in `/` (the root, `/`: `/k`, not
+                // `//k` — `gen_host_paths.rs:emit_root_elided_len`).
+                let last = self.temporary_vreg();
+                let base_ptr = self.temporary_vreg();
+                self.emit(abi::compare_immediate(&value_len, "0"));
+                self.emit(abi::branch_eq(&counted));
+                self.emit(abi::compare_immediate(&base_len, "0"));
+                self.emit(abi::branch_eq(&counted_slash));
+                self.emit(abi::load_u64(&base_ptr, abi::stack_pointer(), ptr_slot));
+                self.emit(abi::add_registers(&last, &base_ptr, &base_len));
+                self.emit(abi::subtract_immediate(&last, &last, 1));
+                self.emit(abi::load_u8(&last, &last, 0));
+                self.emit(abi::compare_immediate(&last, "47"));
+                self.emit(abi::branch_eq(&counted));
+                self.emit(abi::label(&counted_slash));
+                self.emit(abi::add_immediate(&base_len, &base_len, 1));
+                self.emit(abi::label(&counted));
+                self.emit_checked_size_add(&total, &base_len, &value_len, &overflow);
+                self.emit(abi::store_u64(&total, abi::stack_pointer(), newlen_slot));
+                self.emit(abi::branch(&ok));
+                self.emit(abi::label(&overflow));
+                self.raise_error_bare("ErrOutOfMemory")?;
+                self.emit(abi::label(&ok));
+                Ok(GrowWrite::HostBase { ptr_slot, len_slot })
             }
             GrowKind::Repeat => {
                 use crate::codegen::builtins::strings::func_repeat::repeat_measure;
@@ -1247,7 +1395,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&outer_done));
             }
             (
-                GrowKind::ResourcePath,
+                GrowKind::AppResourcePath,
                 GrowWrite::Prefix {
                     ptr_slot,
                     len_slot: prefix_len_slot,
@@ -1272,6 +1420,43 @@ impl CodeBuilder<'_> {
                     *prefix_len_slot,
                 ));
                 self.emit_copy_bytes(&dst, &src, &count, "inplace_str_respath_prefix");
+            }
+            (GrowKind::HostPath(_), GrowWrite::HostBase { ptr_slot, len_slot }) => {
+                let block = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                let newlen = self.temporary_vreg();
+                let dst = self.temporary_vreg();
+                let src = self.temporary_vreg();
+                let count = self.temporary_vreg();
+                let slash = self.temporary_vreg();
+                let joined = self.label("inplace_str_hostpath_joined");
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::load_u64(&len, &block, 0));
+                self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+                self.emit_string_move_right(&block, &len, &newlen);
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::add_immediate(&dst, &block, 8));
+                self.emit(abi::load_u64(&src, abi::stack_pointer(), *ptr_slot));
+                self.emit(abi::load_u64(&count, abi::stack_pointer(), *len_slot));
+                self.emit_copy_bytes(&dst, &src, &count, "inplace_str_hostpath_base");
+                // The value's bytes were moved to end at `newlen`; for a non-empty
+                // value the `/` fills the one byte between them and the base. The
+                // block's length field still holds the value's own length here
+                // (`emit_string_set_len` runs after this step).
+                // The `/` is there exactly when the measure step counted it: the
+                // result is one byte longer than base + value.
+                self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+                self.emit(abi::load_u64(&len, &block, 0));
+                self.emit(abi::load_u64(&count, abi::stack_pointer(), *len_slot));
+                self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+                self.emit(abi::add_registers(&slash, &count, &len));
+                self.emit(abi::compare_registers(&slash, &newlen));
+                self.emit(abi::branch_eq(&joined));
+                self.emit(abi::add_immediate(&dst, &block, 8));
+                self.emit(abi::add_registers(&dst, &dst, &count));
+                self.emit(abi::move_immediate(&slash, "Byte", "47"));
+                self.emit(abi::store_u8(&slash, &dst, 0));
+                self.emit(abi::label(&joined));
             }
             _ => unreachable!("a grow row's write step matches its measure step"),
         }
@@ -1351,28 +1536,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&outer_done));
     }
 
-    /// plan-146-D: the `os::resourcePath` prefix — `<executable dir>[/<suffix>]/` —
+    /// plan-146-D: the `os::appResourcePath` prefix — `<executable dir>[/<suffix>]/` —
     /// written into a frame buffer once per call of the function holding the
     /// self-update, and its byte length returned in a slot.
     ///
     /// The copying lowering acquires the executable path from the host on every
-    /// call (`os/func_resource_path.rs:lower_resource_path`); an arm may not (that
+    /// call (`os/func_app_resource_path.rs:lower_app_resource_path`); an arm may not (that
     /// is an allocation per statement), and a running process's own executable path
     /// cannot change, so the arm asks `os::executablePath()` once and caches the
-    /// block it returns in `string_resource_base` (freed by the function's scope
-    /// drop, `prescan_string_resource_base`). The prefix is then the same
+    /// block it returns in `string_app_resource_base` (freed by the function's scope
+    /// drop, `prescan_string_app_resource_base`). The prefix is then the same
     /// computation the helper does: strip `strip` components off the end of that
     /// path, append `/`, and — in an app build — the mode's resource suffix and a
     /// second `/` (`os/gen_paths.rs:resource_base_offset`). Those suffix bytes are
     /// compile-time constants, written as immediates rather than a data object.
     ///
     /// Returns `(prefix_ptr_slot, prefix_len_slot)`.
-    fn emit_resource_prefix(&mut self) -> Result<(usize, usize), String> {
+    fn emit_app_resource_prefix(&mut self) -> Result<(usize, usize), String> {
         // In a lambda the cache is the CREATOR's, reached through the closure
         // environment (a lambda's own would be re-acquired on every element). The
         // holder address is spilled once, before any call: `%closure_env` is a
         // call-boundary token, not a pinned register.
-        let holder_slot = match self.string_resource_base_env {
+        let holder_slot = match self.string_app_resource_base_env {
             Some(index) => {
                 let slot = self.allocate_stack_object("str_resource_base_owner", 8);
                 let holder = self.allocate_register();
@@ -1394,8 +1579,8 @@ impl CodeBuilder<'_> {
                 slot
             }
             None => self
-                .string_resource_base
-                .ok_or("native os.resourcePath self-update in a function with no base slot")?,
+                .string_app_resource_base
+                .ok_or("native os.appResourcePath self-update in a function with no base slot")?,
         };
         let have = self.label("inplace_str_respath_have");
         let block = self.temporary_vreg();
@@ -1408,7 +1593,7 @@ impl CodeBuilder<'_> {
         let base = self.lower_runtime_helper_call(helper, "os.executablePath", &[], false)?;
         // The helper's result is a fresh block the statement scope would free at the
         // end of this statement; the cache slot takes it over instead, and the
-        // function's scope drop frees it (`prescan_string_resource_base`). Without
+        // function's scope drop frees it (`prescan_string_app_resource_base`). Without
         // this claim the cached pointer dangled from the next statement on — the
         // third lambda call read freed memory and died.
         self.claim_pending_temp(&base);
@@ -1476,7 +1661,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&prefix_ready));
         self.emit(abi::branch(&scan_loop));
         self.emit(abi::label(&fail));
-        self.raise_error("os.resourcePath", "ErrUnsupported")?;
+        self.raise_error("os.appResourcePath", "ErrUnsupported")?;
         self.emit(abi::label(&prefix_ready));
         // The prefix is `scan` directory bytes plus `extra` joined bytes; build it
         // in the function's self-update scratch, which is reused across statements.
@@ -1509,11 +1694,15 @@ impl CodeBuilder<'_> {
         Ok((ptr_slot, len_slot))
     }
 
-    /// plan-146-D: `os::resourcePath` rejects a relative path with a `.` or `..`
+    /// plan-146-D: `os::appResourcePath` rejects a relative path with a `.` or `..`
     /// component (`os/gen_paths.rs:emit_reject_dot_component`, raised as
     /// `ErrInvalidPath` before anything is built). The arm checks the binding's own
     /// bytes the same way, before it writes one.
-    fn emit_reject_dot_components(&mut self, value_slot: usize) -> Result<(), String> {
+    fn emit_reject_dot_components(
+        &mut self,
+        value_slot: usize,
+        member: &str,
+    ) -> Result<(), String> {
         let ptr = self.temporary_vreg();
         let len = self.temporary_vreg();
         let bytes = self.temporary_vreg();
@@ -1542,13 +1731,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&end));
         self.emit(abi::add_registers(&byte, &bytes, &index));
         self.emit(abi::load_u8(&byte, &byte, 0));
-        // `/` is a component boundary on every target; `\` is one on Windows too,
-        // and rejecting it everywhere only ever rejects MORE, never less, so the
-        // arm's check is never weaker than the helper's.
+        // `/` is a component boundary on every target and `\` on Windows too —
+        // exactly the helper's set (`gen_host_paths.rs:emit_validate_relative`).
+        // Treating `\` as a boundary on POSIX as well made the arm raise
+        // `ErrInvalidPath` for `a\..\b`, which the copying call accepts there
+        // (plan-157-B Correction B-1): the arm must agree with the helper exactly.
         self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_eq(&boundary));
-        self.emit(abi::compare_immediate(&byte, "92"));
-        self.emit(abi::branch_eq(&boundary));
+        if self.platform.target().starts_with("windows") {
+            self.emit(abi::compare_immediate(&byte, "92"));
+            self.emit(abi::branch_eq(&boundary));
+        }
         self.emit(abi::branch(&not_boundary));
         self.emit(abi::label(&boundary));
         self.emit_reject_dot_component_check(&comp_len, &all_dots, &bad, &component_ok);
@@ -1569,7 +1762,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&end));
         self.emit_reject_dot_component_check(&comp_len, &all_dots, &bad, &done);
         self.emit(abi::label(&bad));
-        self.raise_error("os.resourcePath", "ErrInvalidPath")?;
+        self.raise_error(member, "ErrInvalidPath")?;
         self.emit(abi::label(&done));
         Ok(())
     }

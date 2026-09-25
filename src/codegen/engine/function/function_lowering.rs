@@ -991,9 +991,9 @@ pub(crate) fn lower_function(
         current_call_key: None,
         args_updated_in_place: Vec::new(),
         current_op_key: None,
-        string_resource_base: None,
+        string_app_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
-        string_resource_base_env: None,
+        string_app_resource_base_env: None,
         module_name: module_name.to_string(),
     };
     let mut thread_param_slots = Vec::new();
@@ -1095,11 +1095,11 @@ pub(crate) fn lower_function(
     // plan-146-G: which by-ref captures share their owner's capacity shadow —
     // before the self-append prescan, which skips those (they need no slot here).
     builder.prescan_string_shadow_env(&function.name);
-    builder.prescan_string_resource_base_env(&function.name);
+    builder.prescan_string_app_resource_base_env(&function.name);
     builder.prescan_string_self_appends(&function.body);
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
     builder.prescan_self_update_scratch(&function.name, &function.body);
-    builder.prescan_string_resource_base(&function.body);
+    builder.prescan_string_app_resource_base(&function.body);
     collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.
@@ -1558,9 +1558,9 @@ pub(crate) fn lower_abi_function_helper(
         current_call_key: None,
         args_updated_in_place: Vec::new(),
         current_op_key: None,
-        string_resource_base: None,
+        string_app_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
-        string_resource_base_env: None,
+        string_app_resource_base_env: None,
         module_name: String::new(),
     };
 
@@ -1740,9 +1740,9 @@ pub(crate) fn lower_thread_copy_function(
         current_call_key: None,
         args_updated_in_place: Vec::new(),
         current_op_key: None,
-        string_resource_base: None,
+        string_app_resource_base: None,
         string_shadow_env: std::collections::HashMap::new(),
-        string_resource_base_env: None,
+        string_app_resource_base_env: None,
         module_name: String::new(),
     };
 

@@ -566,7 +566,7 @@ into `s`'s own block:
   `pathDirName`, `pathExtension`: the result is a run of `s`'s own bytes, moved
   down to the start of the block;
 - **grow** — `strings::padLeft`, `padRight`, `padLeftToWidth`, `padRightToWidth`,
-  `repeat`, `os::resourcePath`: the added bytes are written into the block's spare
+  `repeat`, `os::appResourcePath`: the added bytes are written into the block's spare
   capacity, which grows geometrically, so a loop that grows `s` allocates
   `O(log n)` times;
 - **rewrite** — `strings::upper`, `lower`, `caseFold`, `normalizeNfc`,

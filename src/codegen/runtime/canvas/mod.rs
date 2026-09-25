@@ -242,7 +242,7 @@ pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
 /// under Vulkan's guaranteed 128-byte range. The buffer has neither property: the
 /// whole frame's items are written once, a run of them is drawn with a single
 /// instanced `vkCmdDraw`, and the block's size is bounded by
-/// `CANVAS_ITEM_BUFFER_BYTES` rather than by a device limit.
+/// `VULKAN_ITEM_BUFFER_BYTES` rather than by a device limit.
 ///
 /// Host-visible and mapped for its lifetime, created with the *device* and not with
 /// the target, exactly like `…_VULKAN_EDGE_*` above — its size does not depend on the
@@ -338,8 +338,8 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 808;
 /// one, so widening the block past it would have made the feature set depend on the
 /// device. It now travels in `…_VULKAN_ITEM_BUFFER` (Metal:
 /// `…_MTL_ITEM_BUFFER`), one record per drawn quad indexed by instance, so the only
-/// limit left is capacity: `CANVAS_MAX_FRAME_ITEMS` records must fit
-/// `CANVAS_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
+/// limit left is capacity: `VULKAN_MAX_FRAME_ITEMS` records must fit
+/// `VULKAN_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
 /// cannot fall out of step.
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
@@ -438,14 +438,15 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
-/// A **polygon**'s band-index header in the same `ivec4` (bug-686, Metal only):
-/// `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over every
-/// edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`).
+/// A **polygon**'s band-index header in the same `ivec4` (bug-686 on Metal, bug-688 on
+/// Vulkan): `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over
+/// every edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`,
+/// `VULKAN_BAND_BASE_WORDS`).
 ///
 /// The per-kind sharing `ITEM_OFFSET_ARC` already does: only an arc reads its caps and
-/// only a polygon reads its bands, and no item is both. The Metal emitter writes these
-/// after `emit_item_block`'s generic arc-caps store, for polygons only; the shader reads
-/// them only when `misc.x` is the polygon kind.
+/// only a polygon reads its bands, and no item is both. Each backend's `emit_band_index`
+/// writes these after `emit_item_block`'s generic arc-caps store, for polygons only; the
+/// shaders read them only when `misc.x` is the polygon kind.
 pub(crate) const ITEM_BAND_TOP: usize = 0;
 pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
 pub(crate) const ITEM_BAND_COUNT: usize = 8;
@@ -686,36 +687,35 @@ pub(crate) const EDGE_SLOTS: usize = 5;
 /// the scene's polygon edges against this and declines the frame to software if the
 /// total does not fit, so the emitter's own bound check is unreachable.
 ///
-/// 16384 edges is 256 KiB. It is generous rather than tuned: the fragment shader
-/// walks every edge of a polygon per covered pixel, so a scene anywhere near this
-/// bound is already too slow to want, on either backend.
-pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
+/// 262,144 since bug-688 (it was 16,384, which `examples/wind`'s coastline alone
+/// exceeds): Metal's number since bug-686, and 4 MiB of region. A large polygon no
+/// longer costs every edge per covered pixel — the band index (`VULKAN_BAND_BASE_WORDS`)
+/// has the shader walk only its own band's edges.
+pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 262_144;
 /// Four 16.16 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 
-/// The most **item blocks** one frame may carry — the capacity of the item buffer.
+/// The most **item blocks** one Vulkan frame may carry — the capacity of the item
+/// buffer.
 ///
 /// A *drawn quad*, not a scene item: every non-text item takes one block, and a glyph
 /// run takes one per glyph, because each glyph is its own quad with its own block
 /// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
 /// number this bounds.
 ///
-/// 4096 blocks is 448 KiB at the current `ITEM_BLOCK_SIZE`, and it grows with the
-/// block — which is the point: later letters widen the block, and the buffer absorbs
-/// that where the 128-byte push-constant range could not.
-///
 /// `__canvas_vulkanRenderable` sums a frame's quads against this and declines the
 /// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
 /// already has and for the same reason: a truncated scene is a *different scene*, and
 /// software is the oracle, so declining is never worse than drawing.
 ///
-/// **Vulkan's only since bug-686.** Metal's item buffer has its own, much larger cap,
-/// `METAL_MAX_FRAME_ITEMS`; this one stays at 4096 because the Vulkan backend is not
-/// measured by that bug and a shared raise would change it untested.
-pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+/// 65,536 since bug-688, Metal's `METAL_MAX_FRAME_ITEMS`: 4,096 (the old shared
+/// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/wind` (about 5,700 blocks), a 5,000-quad
+/// scene and a terminal screen of text to software. 13 MiB of item buffer at the
+/// current `ITEM_BLOCK_SIZE`, host-visible and mapped for the renderer's life.
+pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
 
-/// The most **item blocks** one Metal frame may carry — `CANVAS_MAX_FRAME_ITEMS`'s
-/// Metal twin (bug-686).
+/// The most **item blocks** one Metal frame may carry — `VULKAN_MAX_FRAME_ITEMS`'s
+/// Metal twin (bug-686; the Vulkan cap was the shared `CANVAS_MAX_FRAME_ITEMS` until bug-688).
 ///
 /// 4096 quads sent ordinary scenes to software: a terminal screen of text is one quad
 /// per glyph, `examples/wind` publishes about 5,700 blocks a frame, and the 1,000-item
@@ -751,8 +751,10 @@ pub(crate) const CANVAS_DRAW_ENTRY_COUNT_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.tr
 
 /// Byte offset of the blend mode within an entry (word 4).
 pub(crate) const CANVAS_DRAW_ENTRY_MODE: usize = 32;
-/// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
-pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+/// Vulkan's item buffer in bytes — one `ITEM_BLOCK_SIZE` record per quad, for
+/// `VULKAN_MAX_FRAME_ITEMS` quads. A buffer of its own (binding 1), unlike Metal's item
+/// region, which heads its one frame buffer.
+pub(crate) const VULKAN_ITEM_BUFFER_BYTES: usize = VULKAN_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 /// Metal's item region in bytes — one `ITEM_BLOCK_SIZE` record per quad, for
 /// `METAL_MAX_FRAME_ITEMS` quads. The first region of the Metal frame buffer.
 pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
@@ -806,38 +808,36 @@ pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
 /// The polygon's block carries `bandTop`, `bandHeight` (16.16, shape space), the band
 /// count and that offset in its `arcCaps` `ivec4`, which only an arc reads
 /// (`ITEM_BAND_*`). A band count
-/// of 0 means "loop over every edge": what a polygon under `METAL_BAND_MIN_EDGES` gets,
+/// of 0 means "loop over every edge": what a polygon under `BAND_MIN_EDGES` gets,
 /// and what any polygon gets whose index would not fit — correct, only slower. The
 /// index is never truncated and a frame is never declined for it.
 ///
 /// Budget: bands are at most the polygon's edge count, and the list at most
-/// `METAL_BAND_LIST_PER_EDGE` entries per edge (a polygon over it gets taller bands), so
-/// one polygon needs at most `METAL_BAND_WORDS_PER_EDGE` words per edge — and the frame's
-/// edges are capped at `METAL_MAX_FRAME_EDGES`, so the region below always has room.
-pub(crate) const METAL_BAND_LIST_PER_EDGE: usize = 6;
+/// `BAND_LIST_PER_EDGE` entries per edge (a polygon over it gets taller bands), so
+/// one polygon needs at most `BAND_WORDS_PER_EDGE` words per edge — and the frame's
+/// edges are capped at `METAL_MAX_FRAME_EDGES` (`VULKAN_MAX_FRAME_EDGES`), so each
+/// backend's band region (`METAL_MAX_FRAME_BAND_WORDS`, `VULKAN_MAX_FRAME_BAND_WORDS`)
+/// always has room. Both backends build the same index (bug-688 ported it to Vulkan).
+pub(crate) const BAND_LIST_PER_EDGE: usize = 6;
 /// Table (two words per band, at most one band per edge) plus list, per edge.
-pub(crate) const METAL_BAND_WORDS_PER_EDGE: usize = 2 + METAL_BAND_LIST_PER_EDGE;
+pub(crate) const BAND_WORDS_PER_EDGE: usize = 2 + BAND_LIST_PER_EDGE;
 /// The band region's size in 32-bit words.
-pub(crate) const METAL_MAX_FRAME_BAND_WORDS: usize =
-    METAL_BAND_WORDS_PER_EDGE * METAL_MAX_FRAME_EDGES;
+pub(crate) const METAL_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * METAL_MAX_FRAME_EDGES;
 /// The most bands one polygon is split into. Past ~1,000 the table costs more to build
 /// than a thinner list saves; a 600 px polygon gets 2-px bands up to here.
-pub(crate) const METAL_BAND_MAX: usize = 1024;
+pub(crate) const BAND_MAX: usize = 1024;
 /// Polygons with fewer edges than this loop over all of them (band count 0): the full
 /// loop over a handful of edges costs less than finding the band.
-pub(crate) const METAL_BAND_MIN_EDGES: usize = 32;
+pub(crate) const BAND_MIN_EDGES: usize = 32;
 /// Where Metal's band region starts, in 32-bit words — right after the edges it indexes.
 pub(crate) const METAL_BAND_BASE_WORDS: usize = METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
-/// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
+/// The most gradient stops one **Vulkan** frame may carry (plan-116-F; bug-688).
 ///
-/// A starting value, as the plan says: raise it only against a measured scene. Five
-/// words a stop, so 4096 stops is 80 KiB — noise beside the edge and glyph regions.
-///
-/// It was the same number on both backends until bug-686, which found a scene of
-/// 2,100 two-stop gradient rectangles — an ordinary chart — declined on Metal by this
-/// cap alone. Metal's cap is now `METAL_MAX_FRAME_GRADIENT_STOPS`; this one is
-/// Vulkan's, left where it was because that backend is not measured by that bug.
-pub(crate) const MAX_FRAME_GRADIENT_STOPS: usize = 4096;
+/// Two stops per quad of `VULKAN_MAX_FRAME_ITEMS`, as Metal's is per quad of its own:
+/// a gradient has at least two, so a frame of nothing but simple gradient-filled shapes
+/// is declined by the item cap before this one. It was 4,096 on both backends until
+/// bug-686 found 2,100 two-stop gradient rectangles — an ordinary chart — declined by it.
+pub(crate) const VULKAN_MAX_FRAME_GRADIENT_STOPS: usize = 2 * VULKAN_MAX_FRAME_ITEMS;
 /// The most gradient stops one **Metal** frame may carry (bug-686).
 ///
 /// Two stops per quad of `METAL_MAX_FRAME_ITEMS`: a gradient has at least two, so this
@@ -894,7 +894,7 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
 ///
 /// Two parts, a record array and an open-addressed index over it:
 ///
-/// * `METAL_PICTURE_RECORDS` records of `METAL_PICTURE_RECORD_BYTES`:
+/// * `METAL_PICTURE_RECORDS` records of `PICTURE_RECORD_BYTES`:
 ///   `block` (u64, the pixel block's address), `base` (u32, its first texel in the
 ///   glyph region), `slot` (u32, the index slot that names this record);
 /// * `METAL_PICTURE_INDEX_SLOTS` u32 slots, each a record number, probed linearly from
@@ -912,7 +912,7 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
 /// the index has twice as many slots, so a probe always reaches an empty one.
 pub(crate) const METAL_PICTURE_RECORDS: usize = METAL_MAX_FRAME_ITEMS;
 /// Bytes per picture record: block (8), base (4), index slot (4).
-pub(crate) const METAL_PICTURE_RECORD_BYTES: usize = 16;
+pub(crate) const PICTURE_RECORD_BYTES: usize = 16;
 /// Slots in the picture index — a power of two, twice the records.
 pub(crate) const METAL_PICTURE_INDEX_SLOTS: usize = 2 * METAL_PICTURE_RECORDS;
 const _: () = assert!(
@@ -924,10 +924,10 @@ pub(crate) const METAL_PICTURE_RECORDS_OFFSET: usize =
     METAL_GLYPH_BASE_WORDS * 4 + METAL_MAX_FRAME_GLYPH_SAMPLES * 4;
 /// Where the picture index starts, in bytes — after the records.
 pub(crate) const METAL_PICTURE_INDEX_OFFSET: usize =
-    METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES;
+    METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES;
 /// The picture table's whole size: records, then index slots.
 pub(crate) const METAL_PICTURE_TABLE_BYTES: usize =
-    METAL_PICTURE_RECORDS * METAL_PICTURE_RECORD_BYTES + METAL_PICTURE_INDEX_SLOTS * 4;
+    METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES + METAL_PICTURE_INDEX_SLOTS * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///
@@ -935,26 +935,81 @@ pub(crate) const METAL_PICTURE_TABLE_BYTES: usize =
 /// reason a second buffer would have to be justified rather than assumed: it would need
 /// its own allocation, its own memory-type search, its own descriptor binding and its
 /// own upload, to hold data with exactly the edges' lifetime and exactly their access
-/// pattern. One buffer, two regions, one binding.
+/// pattern. One buffer, several regions, one binding.
 ///
 /// One sample per 32-bit word rather than four packed per word. That wastes three
 /// quarters of the region and buys a shader arm with no shifting and no masking, in the
 /// only place where a packing mistake would be invisible — a wrongly unpacked coverage
-/// byte still produces a glyph, just a wrong one. A megabyte of samples is 4 MiB of
-/// buffer, which is nothing on any device that has a Vulkan driver at all.
-pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
-/// Where the glyph region starts, in 32-bit words — i.e. immediately after the edges.
-pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
-/// Where the gradient region starts, in 32-bit words — after the edges and glyphs
-/// (plan-116-F). A third region of the one buffer, for the reason the second one gave:
-/// a separate buffer would need its own allocation, memory-type search, descriptor
-/// binding and upload, for data with exactly the same lifetime and access pattern.
+/// byte still produces a glyph, just a wrong one.
+///
+/// `1 << 23` since bug-688 (it was `1 << 20`): a picture's texels ride this region
+/// too, and a 1024×1024 background plus anything else overflowed a million words.
+/// Metal's `METAL_MAX_FRAME_GLYPH_SAMPLES`, and 32 MiB of region.
+pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
+
+// --- the Vulkan shared buffer (binding 0) ------------------------------------------
+//
+// Edges from word 0, then the band index, the gradient stops, the glyph/picture
+// texels and the picture table. The shader reaches the band, gradient and glyph
+// regions through BASES THAT ARE SPECIALIZATION CONSTANTS (bug-688): the fragment
+// shader declares them `layout(constant_id = N) const int`, and the pipeline feeds the
+// values below through `VkSpecializationInfo` (`VULKAN_SPEC_CONSTANTS`). Until then
+// `GRADIENT_BASE` and `GLYPH_BASE` were literals in the checked-in GLSL, kept equal to
+// these by a unit test — so every cap before them was frozen, because moving one meant
+// a hand edit of the shader and a SPIR-V rebuild or a plausible wrong picture.
+
+/// The band region's size in 32-bit words — `BAND_WORDS_PER_EDGE` per edge of
+/// `VULKAN_MAX_FRAME_EDGES`, the budget `emit_band_index` holds every polygon to.
+pub(crate) const VULKAN_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * VULKAN_MAX_FRAME_EDGES;
+/// Where the band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const VULKAN_BAND_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// Where the gradient region starts, in 32-bit words — after the band index.
 pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
-    VULKAN_GLYPH_BASE_WORDS + VULKAN_MAX_FRAME_GLYPH_SAMPLES;
-/// The whole shared buffer: edges, then glyph coverage, then gradient stops.
+    VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
+/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
+/// gradient stops.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+    VULKAN_GRADIENT_BASE_WORDS + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Vulkan's per-frame picture table (bug-688) — Metal's (`METAL_PICTURE_TABLE_BYTES`)
+/// with the same record and index layout, one record per quad of
+/// `VULKAN_MAX_FRAME_ITEMS`. The last region of the shared buffer, read only by the
+/// emitter: the shader never sees it, so it has no specialization constant.
+pub(crate) const VULKAN_PICTURE_RECORDS: usize = VULKAN_MAX_FRAME_ITEMS;
+/// Slots in the picture index — a power of two, twice the records.
+pub(crate) const VULKAN_PICTURE_INDEX_SLOTS: usize = 2 * VULKAN_PICTURE_RECORDS;
+const _: () = assert!(
+    VULKAN_PICTURE_INDEX_SLOTS.is_power_of_two(),
+    "the picture index is masked, not divided"
+);
+/// Where the picture records start, in bytes — after the glyph region.
+pub(crate) const VULKAN_PICTURE_RECORDS_OFFSET: usize =
+    VULKAN_GLYPH_BASE_WORDS * 4 + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+/// Where the picture index starts, in bytes — after the records.
+pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
+    VULKAN_PICTURE_RECORDS_OFFSET + VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES;
+/// The picture table's whole size: records, then index slots.
+pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
+    VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
+/// The whole shared buffer: edges, band index, gradient stops, glyph/picture texels,
+/// picture table.
+///
+/// A sum of the regions' sizes rather than "the last base plus the last size", so
+/// `the_shared_buffer_holds_every_region` compares two independent computations and a
+/// region left out of the chain shows up there.
 pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
+    + VULKAN_MAX_FRAME_BAND_WORDS * 4
+    + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
-    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
+    + VULKAN_PICTURE_TABLE_BYTES;
+/// The fragment shader's specialization constants, as `(constant_id, value)`: the
+/// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
+/// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
+/// the two lists to each other.
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 3] = [
+    (0, VULKAN_GLYPH_BASE_WORDS),
+    (1, VULKAN_GRADIENT_BASE_WORDS),
+    (2, VULKAN_BAND_BASE_WORDS),
+];
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
 /// elsewhere. It sits at the BOTTOM of the frame, so the saves above it are out of reach

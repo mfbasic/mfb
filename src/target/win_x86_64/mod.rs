@@ -54,10 +54,15 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.hostName",
     "os.userName",
     "os.executablePath",
-    // bug-454: `os.resourcePath` shares `os.executablePath`'s acquisition
+    // bug-454: `os.appResourcePath` shares `os.executablePath`'s acquisition
     // (`GetModuleFileNameW` via `emit_os_wide_string`) and was the ONE call
     // macos-aarch64 and linux-* both advertise that this list omitted.
-    "os.resourcePath",
+    "os.appResourcePath",
+    // plan-157-B: `SHGetKnownFolderPath` via `emit_os_wide_string`.
+    "os.appDataPath",
+    "os.appCachePath",
+    "os.userHomePath",
+    "os.userDocumentsPath",
     "os.version",
     "os.uptime",
     "os.isAdmin",

@@ -163,7 +163,7 @@ SUB growThenUse()
   show("growLoop", t, "x")
 END SUB
 
-' --- os::resourcePath: prefix growth whose prefix comes from the host --------
+' --- os::appResourcePath: prefix growth whose prefix comes from the host --------
 ' The path itself is machine-specific, so only the verdict is printed.
 
 SUB same(tag AS String, got AS String, want AS String)
@@ -176,24 +176,24 @@ END SUB
 
 SUB resourcePaths()
   MUT s AS String = "data/x.txt"
-  LET a AS String = os::resourcePath(s)
-  s = os::resourcePath(s)
+  LET a AS String = os::appResourcePath(s)
+  s = os::appResourcePath(s)
   same("resourcePath", s, a)
 
   s = ""
-  LET b AS String = os::resourcePath(s)
-  s = os::resourcePath(s)
+  LET b AS String = os::appResourcePath(s)
+  s = os::appResourcePath(s)
   same("resourcePathEmpty", s, b)
 
   g = "a/b.txt"
-  LET c AS String = os::resourcePath(g)
-  g = os::resourcePath(g)
+  LET c AS String = os::appResourcePath(g)
+  g = os::appResourcePath(g)
   same("g.resourcePath", g, c)
 
   ' Repeated in a loop: the host is asked once, the rest is in place.
   MUT t AS String = "x"
   FOR i = 1 TO 3
-    t = os::resourcePath(t)
+    t = os::appResourcePath(t)
     t = strings::right(t, 1)
   NEXT
   show("resourcePathLoop", t, "x")
@@ -201,7 +201,7 @@ END SUB
 
 SUB trapResourceDots()
   MUT s AS String = "../etc/passwd"
-  s = os::resourcePath(s)
+  s = os::appResourcePath(s)
   io::print("trap.resourceDots NOT RAISED [" & s & "]")
   EXIT SUB
   TRAP(err)

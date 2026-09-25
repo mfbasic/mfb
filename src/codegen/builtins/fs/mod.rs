@@ -12,7 +12,7 @@
 //! on `platform.family()` internally) and finalizes. The five `path*` string members are
 //! `Body::abi_inline` (the self-lowering successor to the former `common` slot),
 //! lowering at the call site through the relocated `impl CodeBuilder` path emitters.
-//! Unlike `os.resourcePath`, `fs` needs no build context.
+//! Unlike `os.appResourcePath`, `fs` needs no build context.
 //!
 //! The opaque `File` handle is the one owned resource (`add_resource`); its close
 //! op is the public `fs.close`. Runtime specs and the resource close op are

@@ -262,7 +262,7 @@ pub(super) fn vendor_output_dirs(
 /// The directory declared resources are copied into for a given build shape
 /// (plan-55-A §4.3). Each entry's `<dst>` is joined *under* this directory.
 ///
-/// Kept in lockstep with plan-55-B's `os::resourcePath` base offset
+/// Kept in lockstep with plan-55-B's `os::appResourcePath` base offset
 /// (`resource_base_offset`): the runtime locator resolves to exactly this
 /// directory, so a change here without the matching change there makes resources
 /// unfindable at runtime.

@@ -117,7 +117,7 @@ FUNC loadTiles(names AS List OF String) AS Map OF String TO RES canvas::Image
   FOR EACH name IN names
     FOR EACH f IN compass()
       LET key AS String = name & "_" & facingSuffix(f)
-      RES img AS canvas::Image = canvas::loadImage(os::resourcePath("dungeon/" & key & ".png"))
+      RES img AS canvas::Image = canvas::loadImage(os::appResourcePath("dungeon/" & key & ".png"))
       tiles = collections::set(tiles, key, img)
     NEXT
   NEXT

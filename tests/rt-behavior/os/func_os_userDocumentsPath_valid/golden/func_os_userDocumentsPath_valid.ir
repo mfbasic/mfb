@@ -1,0 +1,162 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_os_userDocumentsPath_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "code",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 16, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "local", "name": "p" }] } },
+    {
+      "op": "if",
+      "line": 18,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 18, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 19, "name": "c", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 20, "value": { "kind": "const", "type": "String", "value": "" } }
+      ]
+    },
+    { "op": "return", "line": 22, "value": { "kind": "local", "name": "c" } }
+    ]
+  },
+  {
+    "name": "expected",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "home", "line": 26, "type": "String", "default": null },
+    { "name": "linux", "line": 26, "type": "String", "default": null },
+    { "name": "winBase", "line": 26, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 27,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "return", "line": 28, "value": { "kind": "local", "name": "winBase" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 30,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "macos" } },
+      "then": [
+      { "op": "return", "line": 31, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 33, "value": { "kind": "local", "name": "linux" } }
+    ]
+  },
+  {
+    "name": "setFile",
+    "line": 36,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "path", "line": 36, "type": "String", "default": null },
+    { "name": "text", "line": 36, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "path" }, { "kind": "local", "name": "text" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 40,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 41, "mutable": false, "name": "winBase", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "root", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }, "right": { "kind": "const", "type": "String", "value": "/mfb156docs" } } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "home", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "root" }, "right": { "kind": "const", "type": "String", "value": "/home" } } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "cfg", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "root" }, "right": { "kind": "const", "type": "String", "value": "/cfg" } } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "cfg" }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/.config" } }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "HOME" }, { "kind": "local", "name": "home" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "XDG_CONFIG_HOME" }, { "kind": "local", "name": "cfg" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "file", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "cfg" }, "right": { "kind": "const", "type": "String", "value": "/user-dirs.dirs" } } },
+    {
+      "op": "if",
+      "line": 50,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "file" }] },
+      "then": [
+      { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "file" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "# comment\nXDG_DESKTOP_DIR=\"$HOME/Desktop\"\nXDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n" }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "dok", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "dok" }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Dokumente" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"/srv/docs/\"\n" }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "const", "type": "String", "value": "/srv/docs" }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "   XDG_DOCUMENTS_DIR =  \"$HOME/x\"\n" }] } },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/x" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=$HOME/x\n" }] } },
+    { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"relative/x\"\n" }] } },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME/a\"\nXDG_DOCUMENTS_DIR=\"$HOME/b\"\n" }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/b" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "# XDG_DOCUMENTS_DIR=\"/c\"\n" }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME\"\n" }] } },
+    { "op": "eval", "line": 79, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "local", "name": "home" }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "# padding padding padding padding padding padding\n" }, { "kind": "const", "type": "Integer", "value": "100" }] }, "right": { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME/late\"" } }] } },
+    { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/late" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"/" }, "right": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "5000" }] } }, "right": { "kind": "const", "type": "String", "value": "\"\n" } }] } },
+    { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/Documents" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME/a\"b\"\n" }] } },
+    { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/a\"b" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/.config/user-dirs.dirs" } }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME/fromhome\"\n" }] } },
+    { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "os.unsetEnv", "args": [{ "kind": "const", "type": "String", "value": "XDG_CONFIG_HOME" }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/fromhome" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "XDG_CONFIG_HOME" }, { "kind": "const", "type": "String", "value": "rel/cfg" }] } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, "right": { "kind": "call", "type": "String", "target": "expected", "args": [{ "kind": "local", "name": "home" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "home" }, "right": { "kind": "const", "type": "String", "value": "/fromhome" } }, { "kind": "local", "name": "winBase" }] } }] }] } },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "XDG_CONFIG_HOME" }, { "kind": "local", "name": "cfg" }] } },
+    { "op": "eval", "line": 98, "value": { "kind": "call", "type": "Nothing", "target": "setFile", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "XDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n" }] } },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "r.txt" }] }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "dok" }, "right": { "kind": "const", "type": "String", "value": "/r.txt" } } }] }] } },
+    { "op": "eval", "line": 101, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWith", "args": [{ "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "const", "type": "String", "value": "" }] }, { "kind": "const", "type": "String", "value": "/" }] }] }] } },
+    { "op": "eval", "line": 103, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "../x" }] }] }] } },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "a/./b" }] }] }] } },
+    { "op": "bind", "line": 106, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "k" } },
+    { "op": "assign", "line": 107, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "eval", "line": 108, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "s" }, "right": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "dok" }, "right": { "kind": "const", "type": "String", "value": "/k" } } }] }] } },
+    { "op": "bind", "line": 109, "mutable": true, "name": "e", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "assign", "line": 110, "name": "e", "value": { "kind": "call", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "eval", "line": 111, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "e" }, "right": { "kind": "local", "name": "dok" } }] }] } },
+    { "op": "return", "line": 112, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
