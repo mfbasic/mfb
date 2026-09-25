@@ -114,13 +114,15 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
     // window's GdkSurface while canvas mode is presented) from plan-98-A, plus
     // `ST_CANVAS_PIXELS` from plan-98-C Phase 3 — the committed frame, one malloc
     // block carrying its own width and height ahead of the pixels.
+    // Then one more u64, `ST_DISPLAY_HOOKED` (plan-155-A Phase 3): the `GdkSurface*`
+    // the display-rate `enter-monitor` handler was last connected to.
     //
     // The list is enumerated rather than read from the compiler so that ADDING a
     // member is a deliberate edit here — which is the whole point, and why the
     // per-cell terms must be re-checked whenever it changes. The char grid is still
     // 4 bytes/cell (bug-203); didResize, held and the three canvas slots are separate
     // scalars, and the pools separate per-cell arrays.
-    let expected = 11 * 8 + 1024 + 14 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8 + 3 * 8;
+    let expected = 11 * 8 + 1024 + 14 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8 + 3 * 8 + 8;
     assert_eq!(
         size, expected,
         "the char grid should be 4 bytes/cell like fg/bg (bug-203); \
