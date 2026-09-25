@@ -683,7 +683,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_mkdir".to_string(),
@@ -692,6 +692,24 @@ impl plan::NativePlanPlatform for Platform {
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
+                    required_by: required_by.clone(),
+                },
+            ],
+            // bug-694 C5: `stat` tells an existing final directory from a file.
+            "fs.createDirectories" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_mkdir".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "___error".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_stat".to_string(),
                     required_by: required_by.clone(),
                 },
             ],

@@ -209,6 +209,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,

@@ -28,7 +28,9 @@ example `"//"` or `"///"`), `"/"` is returned. An empty `path` returns an empty
 The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
 names are preserved unchanged and any embedded bytes are treated literally. A new
 `String` holding the final-component bytes is built for the result. The
-function reads no external state and has no side effects."#;
+function reads no external state and has no side effects.
+
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A directory and a file name yield the file name:
 
 ```
@@ -102,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_fs_path_base_name_nl),
         }],
     });

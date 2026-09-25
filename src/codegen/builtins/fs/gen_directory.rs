@@ -399,7 +399,11 @@ pub(crate) fn lower_fs_create_directories_helper(
     // Vreg-allocated (plan-00-G Phase 2). The C-string and the scan `cursor` are
     // loop-carried across the per-prefix `mkdir` calls, so the allocator spills
     // them. `errno` stays in the physical register `emit_errno` writes (`x9`) — it
-    // is read immediately after, with no call in between.
+    // is read immediately after, with no call in between. The `stat` buffer that
+    // classifies an existing final component is an explicit on-stack local at
+    // `sp + 0`, as in `lower_fs_kind_exists_helper`.
+    const STAT_OFFSET: usize = 0;
+    const STAT_BUF_SIZE: usize = 256;
     let alloc_ok = format!("{symbol}_alloc_ok");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
@@ -412,6 +416,7 @@ pub(crate) fn lower_fs_create_directories_helper(
     let call_error = format!("{symbol}_call_error");
     let err_not_found = format!("{symbol}_err_not_found");
     let err_access_denied = format!("{symbol}_err_access_denied");
+    let err_already_exists = format!("{symbol}_err_already_exists");
     let err_output = format!("{symbol}_err_output");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -572,10 +577,38 @@ pub(crate) fn lower_fs_create_directories_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-694 C5: an existing final component is only a success when it is a
+    // directory. Anything else already at `path` — a regular file — is refused
+    // with ErrAlreadyExists, as `fs::createDirectory` refuses it, instead of
+    // reporting a directory that is not there.
+    let mode = vregs.next();
+    let mask = vregs.next();
+    let expected = vregs.next();
     instructions.extend([
         abi::compare_immediate(&errno_reg, eexist),
-        abi::branch_eq(&final_ok),
-        abi::branch(&call_error),
+        abi::branch_ne(&call_error),
+        abi::move_register(abi::return_register(), &cstring),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STAT_OFFSET),
+    ]);
+    platform.emit_path_stat(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    platform.emit_stat_is_kind(
+        STAT_OFFSET,
+        FS_MODE_DIRECTORY,
+        &mode,
+        &mask,
+        &expected,
+        &final_ok,
+        &err_already_exists,
+        &mut instructions,
+    );
+    instructions.extend([
+        // `emit_stat_is_kind` falls through when the entry is some other kind.
+        abi::branch(&err_already_exists),
         abi::label(&final_ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -612,6 +645,13 @@ pub(crate) fn lower_fs_create_directories_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&err_already_exists)]);
+    raise_error_into(
+        symbol,
+        "ErrAlreadyExists",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&err_output)]);
     raise_error_into(
         symbol,
@@ -636,7 +676,7 @@ pub(crate) fn lower_fs_create_directories_helper(
     );
     instructions.push(abi::return_());
 
-    Ok((instructions, relocations, 0))
+    Ok((instructions, relocations, STAT_BUF_SIZE))
 }
 
 /// plan-157-C: where a Windows `createDirectories` walk starts — past a drive
@@ -1078,6 +1118,7 @@ pub(crate) fn lower_fs_list_directory_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,

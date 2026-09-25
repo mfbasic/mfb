@@ -311,18 +311,14 @@ const FS_HELPERS: &[(&str, Counts)] = &[
 /// `executablePath`, `name`, `arch`, `appResourcePath`. `os::arch()` being flat is
 /// the report's own contrast row.
 ///
-/// plan-156-B/C's four host directories borrow `relative` and allocate only the
-/// joined result — one allocation per base source, of which exactly one runs:
-/// `appDataPath`/`appCachePath` join onto `$XDG_*_HOME` or the home fallback, and
-/// on Linux `userDocumentsPath` onto the `user-dirs.dirs` folder or
-/// `<home>/Documents` (its parser's buffers are frame locals). `userHomePath` has
-/// the one source. None frees: every block is the result. (They landed without
-/// rows here; bug-696 found the file red at `e4e8b0a85` and classified them.)
+/// The plan-157 user-path family reads its `relative` argument in place (no
+/// copy) and allocates only the `String` it returns, once per join site in
+/// `gen_host_paths.rs`. On this POSIX target `appDataPath`/`appCachePath` join
+/// either `$XDG_*_HOME` or `$HOME/<dir>` and `userDocumentsPath` either the
+/// documents directory or its `$HOME` fallback — two exclusive sites each, one
+/// result — while `userHomePath` has the one `$HOME` site. None frees anything:
+/// the block is the result.
 const OS_HELPERS: &[(&str, Counts)] = &[
-    ("_mfb_rt_os_os_appCachePath", (2, 0, 0)),
-    ("_mfb_rt_os_os_appDataPath", (2, 0, 0)),
-    ("_mfb_rt_os_os_userDocumentsPath", (2, 0, 0)),
-    ("_mfb_rt_os_os_userHomePath", (1, 0, 0)),
     ("_mfb_rt_os_os_arch", (1, 0, 0)),
     ("_mfb_rt_os_os_args", (1, 0, 0)),
     ("_mfb_rt_os_os_cpuCount", (0, 0, 0)),
@@ -335,6 +331,10 @@ const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_name", (1, 0, 0)),
     ("_mfb_rt_os_os_pid", (0, 0, 0)),
     ("_mfb_rt_os_os_appResourcePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_appDataPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_appCachePath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userHomePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_userDocumentsPath", (2, 0, 0)),
     ("_mfb_rt_os_os_setEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_unsetEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_userName", (1, 0, 0)),

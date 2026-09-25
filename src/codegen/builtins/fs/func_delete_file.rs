@@ -44,11 +44,18 @@ directory.
 absolute or relative to the current working directory, and may contain Unicode
 characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
-When the host refuses the removal, it raises the matching error below and
-`path` is left unchanged. Attempting to remove a directory is
-reported as a host failure (for example `ErrInvalidPath` or `ErrDirectoryNotEmpty`)
-rather than as a directory-specific error — use `fs::deleteDirectory` for a
-directory. The same error is raised on every platform."#;
+When the host refuses the removal `path` is left unchanged and the error says
+why: `ErrPathNotFound` if nothing exists at `path`, `ErrAccessDenied` if
+permission is refused, and `ErrInvalidPath` if the path cannot name an entry —
+a name that is too long, a file used as a directory, or a loop of symbolic
+links (Windows reports most of these as `ErrPathNotFound`). Any other refusal
+raises `ErrWriteFailed`. A directory is refused rather than removed —
+`ErrWriteFailed` on macOS and Linux, `ErrAccessDenied` on Windows — so use
+`fs::deleteDirectory` for a directory. An empty `path`, or one containing a
+NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory. The table also lists
+`ErrAlreadyExists` and `ErrResourceBusy` because every `fs` function that
+takes a path reports host refusals through one shared set of errors; removing
+a file never produces either."#;
 const EX: &str = r#"Remove a generated output file:
 
 ```
@@ -91,7 +98,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_delete_file),
         }],
     });

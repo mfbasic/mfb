@@ -39,6 +39,7 @@ mod data_layout;
 mod diagnostics;
 mod entry;
 mod fixture_projects;
+mod fs_declared_errors;
 mod harness;
 mod imported_types;
 mod inplace;

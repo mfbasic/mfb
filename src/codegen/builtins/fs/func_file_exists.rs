@@ -42,9 +42,10 @@ reports `TRUE`, and a symlink whose target is missing or non-regular reports
 `FALSE`.
 
 A failed `stat` — for example a missing path or an unreadable parent directory —
-is reported as `FALSE` rather than raised as an error. The only failure the call
-itself raises is running out of memory while preparing the path of
-`path`.
+is reported as `FALSE` rather than raised as an error. The call itself
+raises only `ErrInvalidArgument`, when `path` contains a NUL byte, and
+`ErrOutOfMemory`, when the program runs out of memory. An empty `path` is not an
+error: nothing exists there, so the result is `FALSE`.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
 absolute or relative to the current working directory, and may contain Unicode
@@ -91,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrInvalidArgument"],
             body: Body::abi_function(lower_fs_file_exists),
         }],
     });

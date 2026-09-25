@@ -50,12 +50,13 @@ once. Closing a `File` and then letting its binding go out of scope is safe: the
 second close does nothing.
 
 Beyond the pre-close flush, `fs::close` reads and writes no file contents of its own.
-It is an error to close a `File` that is already closed, including one closed by a
-previous `fs::close` on the same value, or by its binding having gone out of
-scope. It is likewise an
-error to close a handle that `thread::transfer` has moved to another thread: such a
-handle is not closed but no longer belongs to this thread, so the call reports that
-distinctly."#;
+Closing a `File` that is already closed — by a previous `fs::close` on the same
+value, or by its binding having gone out of scope — raises `ErrResourceClosed`.
+Closing a handle that `thread::transfer` has moved to another thread raises
+`ErrResourceMoved` instead: such a handle is not closed but no longer belongs to
+this thread. A failed host close raises `ErrCloseFailed`, and a failed drain of
+the buffer raises `ErrWriteFailed`; when both fail only `ErrCloseFailed` is
+reported, although the buffered bytes were not written either."#;
 const EX: &str = r#"Open a file and release its handle explicitly:
 
 ```
