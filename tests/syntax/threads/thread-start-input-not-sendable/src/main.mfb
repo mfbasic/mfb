@@ -24,7 +24,7 @@ FUNC main AS Integer
   ' A bare function value.
   LET c AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, helper)
 
-  ' A thread handle: meaningful only on the thread that owns it.
+  ' A thread handle: a resource, which crosses only on the RES plane.
   LET d AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesHandle, a)
 
   ' The control case. An Integer IS sendable, so this line must NOT be

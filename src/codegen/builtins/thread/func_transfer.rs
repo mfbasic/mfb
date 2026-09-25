@@ -26,9 +26,15 @@ The thread's type has to declare the resource channel — `Thread OF Msg RES Res
 TO Out`, or `Thread OF RES Res TO Out` for a thread that carries only resources.
 A thread declared without one has nothing to transfer over.
 
-Only some resource types may cross at all. These six may — `fs::File`,
-`tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket` and `tls::Listener`
-— so a server may accept on one thread and hand each connection to a worker.
+Only some resource types may cross at all. These may — `fs::File`,
+`tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket`, `tls::Listener`
+and a `Thread` itself — so a server may accept on one thread and hand each
+connection to a worker, and a coordinator thread may be handed the threads it
+waits for. A `Thread` handed over keeps running; the thread that accepts it now
+holds it, waits for it and closes it.
+
+A `ThreadWorker` never crosses: a worker's own handle belongs to that worker for
+as long as it runs.
 
 These five may not, each for a reason of its own:
 

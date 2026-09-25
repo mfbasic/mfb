@@ -183,20 +183,50 @@ Acceptance: `thread-pool-list` and `bug692-*` pass.
   `bug692-record-thread-copy` (`5`, `5`) pass, their `.ast`/`.ir` recorded;
   the thread set (`rt-behavior/thread*/**`, `syntax/threads/**`,
   `rt-error/threads/**`) fails only on Phase 3's three fixtures.
-Commit: —
+Commit: f1e2ba176
 
 ### Phase 3 — transfer and the three errors
 
-- [ ] Parent-view sendability; the transfer and accept lowering for
+- [x] Parent-view sendability; the transfer and accept lowering for
       `ThreadHandle`.
-- [ ] The two rule codes: `src/rules/table.rs` and
+      (`is_builtin_sendable_resource_type` answers `true` for a parent view —
+      the one structural point the verifier's `is_resource_sendable` and
+      codegen's `is_sendable_resource_nominal` both reach — so the verifier's
+      cause walk returns a sendable-resource answer for it and a `Worker` cause
+      for a `ThreadWorker`. Codegen: a transferred view takes the ordinary
+      resource record copy (`copy_resource_to_current_arena`: the 96 bytes into
+      the receiver's arena, the source flagged `moved|closed`) and the sender's
+      cleanup retires as for any sendable resource; `thread::start`'s own view is
+      carried, not copied, when an inline `TRAP` wraps it
+      (`runtime_result_is_owned_resource_record`). `thread-transfer-parent-view`
+      → `coordinator answered 50`; its `--debug` report: main and worker arenas
+      `live_bytes 0`, `double_free_skips 0`, `thread.table_live 0`. Also closed
+      a data-plane hole — Correction 6.)
+- [x] The two rule codes: `src/rules/table.rs` and
       `src/docs/spec/diagnostics/01_rule-codes.md`.
-- [ ] The runtime code in `02_error-codes.md`, and the check in
-      `transferResource`.
+      (One rule, Correction 2: `TYPE_THREAD_WORKER_NOT_TRANSFERABLE`, numbered
+      `2-203-0140` — Correction 5 — for a `ThreadWorker` on a resource plane or
+      transferred; on a data plane a worker stays `TYPE_THREAD_NOT_SENDABLE`, as
+      §3 asks of "the unsendable ones". `thread_worker_transfer_invalid` →
+      three `2-203-0140` (lines 11, 16, 17); `thread_transfer_self_invalid` →
+      one `TYPE_CALL_ARGUMENT_MISMATCH`. Unit tests
+      `a_thread_may_carry_parent_threads_on_its_resource_plane`,
+      `a_thread_worker_on_a_resource_plane_is_not_transferable`; the four
+      unsendability tests re-baselined (Correction 7).)
+- [x] ~~The runtime code in `02_error-codes.md`, and the check in
+      `transferResource`.~~ — moot: no program can transfer a thread to itself
+      (Correction 2); the runtime check would never fire.
 
 Acceptance: all Phase 1 tests pass.
   Check: the Phase 1 `test-accept.sh` command → 0 failures (est. 2 min);
   `cargo test errorcode` → pass (the error table changed) (est. 2 min).
+  Result: the thread set (`rt-behavior/thread*/**`, `syntax/threads/**`,
+  `rt-error/threads/**`, `byte-identity/{thread,resource-xfer-slots}`) →
+  "acceptance tests passed (103 test(s) ran)"; the other eleven fixtures that
+  use threads plus the `acceptance` app → 12 passed; `examples/{network-server,
+  wind,browser/app}` build. `cargo test errorcode` not run: the error table did
+  not change (the runtime error is moot). `cargo test --bin mfb verify` → 492
+  passed, `… diagnostics` → 6 passed.
 Commit: —
 
 ## Validation Plan
@@ -204,8 +234,19 @@ Commit: —
 - Tests: the Phase 1 fixtures and the verifier unit tests.
 - Runtime proof: the pool fixture under a `--debug` build shows parent-arena
   live bytes back at baseline after the pool's scope ends.
+  **Corrected (Correction 3)** — measured instead: a 16-worker pool dropped
+  without a read-back → `arena.0.live_bytes 0`, `thread.table_live 0`; read
+  back through `FOR EACH` → `thread.table_live 0`, `double_free_skips 0`, and
+  `live_bytes 2352`, identical to the same pool of `fs::File` (bug-645's
+  residual); the transferred view → main and worker arenas at 0.
 - Doc sync: `01_rule-codes.md` and `02_error-codes.md` (build input). The
   §15.6 and §16 prose is written in F.
+  **Done, and more** (as C's Correction 4): the rule row; the sentences D made
+  false in `language/16` (sendability, the resource plane), `language/14`
+  (what containers may hold), `language/08` (a thread in the trap route);
+  `mfb man thread transfer` and the package page list a `Thread` among what
+  may cross. `scripts/spec-census.sh --citations` → 0 misses;
+  `scripts/man-census.sh --memory-scope` → 0 unclassified.
 - Final gate: at the end of F.
 
 ## Corrections
@@ -256,6 +297,36 @@ Commit: —
    the same shapes over `fs::File` exhaust the descriptors. Pre-existing and not
    thread-specific; filed with its reproduction and fixed separately. The pool
    fixture binds each thread `RES` first, the spelling that floats correctly.
+
+5. **The worker rule is `2-203-0140`, not `0141`.** With the self-transfer rule
+   moot (Correction 2), `0140` would otherwise be skipped; codes are assigned in
+   order.
+
+6. **A resource named directly as `thread::start`'s input crossed a data
+   plane unchecked.** Spec §16 applies `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` to
+   "the message, output and input slots … whether the resource is named
+   directly or is reached through" a container, but only the declared message
+   plane pre-checked a direct resource; `require_thread_sendable`'s cause walk
+   answers `None` for a sendable one. Measured: `thread::start(takesFile, f)`
+   with an `fs::File` compiled clean — and with a parent `Thread` sendable, so
+   did `thread::start(takesHandle, a)` in `thread-start-input-not-sendable`.
+   `require_thread_sendable` now reports a direct resource on a data plane.
+   That fixture's line now reads `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` instead
+   of `TYPE_THREAD_NOT_SENDABLE`, its comment updated.
+
+7. **Re-baselined with proof.** `func_thread_start_valid` passed an
+   `fs::File` as a start input (`thread_file_workers::acceptFile`, whose
+   comment describes sharing one handle across two threads) — disproved by §16
+   line 60 above; its `t7` now starts `receiveFile` and `thread::transfer`s the
+   file on the resource plane, keeping the fixture's coverage of that package.
+   `func_thread_{send,start}_invalid`'s unsendable `BadMessage` records held a
+   bare `Thread`, which is now a sendable resource, so they stopped reaching
+   `TYPE_THREAD_NOT_SENDABLE` (the syntax corpus fell from 77 to 76 rules,
+   `the_syntax_corpus_still_reaches_every_rule_it_used_to`); the field is now a
+   `ThreadWorker`, and both logs are byte-identical to their pre-D goldens. The
+   verifier's `unsendable_record()` helper made the same switch, and
+   `cause_walk_reports_func_and_thread_handle_as_other_not_resource` now pins a
+   `Worker` cause for a `ThreadWorker` and none for a parent `Thread`.
 
 ## Summary
 

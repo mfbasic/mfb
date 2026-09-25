@@ -8125,9 +8125,11 @@ fn skips_the_testing_desugared_trap_guard() {
     );
 }
 
-/// A record that is NOT thread-sendable because it holds a thread handle.
+/// A record that is NOT thread-sendable because it holds a worker's own view.
+/// (plan-156-D: a parent `Thread` is a sendable resource now, so it no longer
+/// makes a record unsendable — a `ThreadWorker` still does.)
 fn unsendable_record() -> IrType {
-    record_typed("BadMessage", &[("handle", "Thread OF String TO Integer")])
+    record_typed("BadMessage", &[("handle", "ThreadWorker OF String TO Integer")])
 }
 
 #[test]
@@ -8407,12 +8409,58 @@ fn cause_walk_reports_func_and_thread_handle_as_other_not_resource() {
             "FUNC(Integer) AS String"
         )))
     );
+    // plan-156-D: a worker's own view never crosses, and says so by its own cause.
     assert_eq!(
-        cause_for(vec![], "Thread OF String TO Integer"),
-        Some(super::resources::Unsendable::Other(ParameterType::parse(
-            "Thread OF String TO Integer"
+        cause_for(vec![], "ThreadWorker OF String TO Integer"),
+        Some(super::resources::Unsendable::Worker(ParameterType::parse(
+            "ThreadWorker OF String TO Integer"
         )))
     );
+    // A parent `Thread` is a sendable resource: it crosses on a resource plane.
+    assert_eq!(cause_for(vec![], "Thread OF String TO Integer"), None);
+}
+
+/// plan-156-D: a parent `Thread` is a sendable resource, so a thread may declare a
+/// resource plane of them — no sendability rule fires.
+#[test]
+fn a_thread_may_carry_parent_threads_on_its_resource_plane() {
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES (Thread OF Integer TO Integer) TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    for rule in [
+        "TYPE_THREAD_NOT_SENDABLE",
+        "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+        "TYPE_THREAD_WORKER_NOT_TRANSFERABLE",
+    ] {
+        assert!(!got.iter().any(|r| r == rule), "{rule}: {got:?}");
+    }
+}
+
+/// A `ThreadWorker` on a resource plane gets its own rule, not the generic one.
+#[test]
+fn a_thread_worker_on_a_resource_plane_is_not_transferable() {
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES (ThreadWorker OF Integer TO Integer) TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_THREAD_WORKER_NOT_TRANSFERABLE"),
+        "{got:?}"
+    );
+    assert!(!got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"), "{got:?}");
 }
 
 #[test]

@@ -801,18 +801,11 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            // bug-479: a thread handle is carried by POINTER, exactly like the
-            // non-sendable resource arm below and for the same reasons. It is the
-            // control block the worker shares (plan-156-A), so a deep copy would
-            // duplicate the block while the worker kept using the original — every
-            // send into the copy would be lost.
-            //
-            // Carrying the pointer is sound here because the only materialization
-            // that reaches this arm is a SAME-ARENA one: an inline `TRAP` wrapping
-            // `thread::start`'s result in `Result OF Thread OF …`. A thread handle
-            // can never cross a thread boundary — `ir::verify`'s `is_copyable`
-            // answers `false` for `ThreadHandle`, and the frontend rejects sending
-            // one — so there is no cross-arena caller to strand a pointer for.
+            // bug-479: a `ThreadWorker` view is carried by POINTER. A parent `Thread`
+            // view is a sendable resource (plan-156-D) and took the deep record copy
+            // above — the control block it names is shared, not copied. The worker's
+            // view never crosses a thread (`TYPE_THREAD_WORKER_NOT_TRANSFERABLE`), so
+            // the only materialization that could reach this arm is a same-arena one.
             other if matches!(other, ParameterType::ThreadHandle { .. }) => {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));

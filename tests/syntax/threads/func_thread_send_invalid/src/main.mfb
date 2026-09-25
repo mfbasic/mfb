@@ -4,7 +4,7 @@ IMPORT thread_file_workers
 IMPORT fs
 
 TYPE BadMessage
-  handle AS Thread OF String TO Integer
+  handle AS ThreadWorker OF String TO Integer
 END TYPE
 
 SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)

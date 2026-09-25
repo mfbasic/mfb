@@ -22,9 +22,12 @@ pub(super) enum Unsendable {
     /// A resource reached the boundary: `Res(_)`, or a bare resource nominal
     /// whose type is not registered thread-sendable.
     Resource(ParameterType),
-    /// `Func` / `ThreadHandle` — genuinely unsendable, not a plane mix-up, so no
-    /// resource-plane remedy exists to point at.
+    /// `Func` — genuinely unsendable, not a plane mix-up, so no resource-plane
+    /// remedy exists to point at.
     Other(ParameterType),
+    /// A `ThreadWorker`: it belongs to its worker for the worker's whole run
+    /// (`TYPE_THREAD_WORKER_NOT_TRANSFERABLE`).
+    Worker(ParameterType),
 }
 
 impl Unsendable {
@@ -33,7 +36,9 @@ impl Unsendable {
     /// the whole point of walking for a cause.
     pub(super) fn leaf(&self) -> &ParameterType {
         match self {
-            Unsendable::Resource(type_) | Unsendable::Other(type_) => type_,
+            Unsendable::Resource(type_) | Unsendable::Other(type_) | Unsendable::Worker(type_) => {
+                type_
+            }
         }
     }
 }
@@ -623,8 +628,14 @@ impl TypeEnv {
             ParameterType::ResultOf(success) => self.thread_unsendable_cause(success, seen),
             // Sharing a resource collection across threads is out of scope (§15.6).
             ParameterType::Res(_) => Some(Unsendable::Resource(type_.clone())),
-            ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => {
-                Some(Unsendable::Other(type_.clone()))
+            ParameterType::Func(..) => Some(Unsendable::Other(type_.clone())),
+            // plan-156-D: a parent view is a sendable resource (its planes are
+            // checked where the type is declared); a worker's own view never crosses.
+            ParameterType::ThreadHandle { worker: true, .. } => {
+                Some(Unsendable::Worker(type_.clone()))
+            }
+            ParameterType::ThreadHandle { worker: false, .. } => {
+                self.resource_sendability_cause(type_)
             }
             other => {
                 // The built-in nominals are plain values.
@@ -689,8 +700,21 @@ impl TypeEnv {
     /// resource type itself may not cross and the data-plane remedy would be
     /// nonsense (it would name the plane the resource is already on).
     fn require_thread_sendable(&self, context: &str, type_: &ParameterType, plane: Plane) {
+        // A resource named directly on a data plane is a plane mix-up even when the
+        // resource itself may cross (the cause walk answers `None` for a sendable
+        // one): `thread::start`'s input and a thread's output are data planes. The
+        // declared message plane checks this itself before calling here.
+        if plane == Plane::Data && self.is_resource_type(type_) {
+            self.emit_thread_resource_plane_required(context, type_);
+            return;
+        }
         match self.thread_unsendable_cause(type_, &mut HashSet::new()) {
             None => {}
+            // A worker's view on a RESOURCE plane is the one mistake with a rule of
+            // its own; on a data plane it is simply not sendable (2-203-0063).
+            Some(Unsendable::Worker(worker)) if plane == Plane::Resource => {
+                self.emit_thread_worker_not_transferable(context, &worker)
+            }
             Some(cause @ Unsendable::Resource(_)) if plane == Plane::Data => {
                 self.emit_thread_resource_plane_required(context, cause.leaf());
             }
@@ -702,6 +726,17 @@ impl TypeEnv {
                 ),
             ),
         }
+    }
+
+    /// The one place `2-203-0140` is worded.
+    fn emit_thread_worker_not_transferable(&self, context: &str, worker: &ParameterType) {
+        self.emit(
+            "TYPE_THREAD_WORKER_NOT_TRANSFERABLE",
+            format!(
+                "{context} carries `{}`; a ThreadWorker belongs to its own worker for that worker's whole run and never crosses to another thread.",
+                worker.name()
+            ),
+        );
     }
 
     /// The one place `2-203-0138` is worded. `resource` is the offending leaf,
@@ -918,6 +953,13 @@ impl TypeEnv {
                         format!(
                             "Call to `{display}` requires a thread with a resource plane (`Thread OF … RES Res TO …`); this thread has no resource channel."
                         ),
+                    );
+                } else if let Some(cause @ Unsendable::Worker(_)) =
+                    self.thread_unsendable_cause(&resource, &mut HashSet::new())
+                {
+                    self.emit_thread_worker_not_transferable(
+                        &format!("Call to `{display}` resource type"),
+                        cause.leaf(),
                     );
                 } else if self.is_resource_type(&resource) {
                     // The resource plane carries only thread-sendable resources.

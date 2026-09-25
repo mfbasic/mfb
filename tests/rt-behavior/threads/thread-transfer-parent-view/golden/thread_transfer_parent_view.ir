@@ -1,0 +1,59 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_transfer_parent_view",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "square",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "worker", "line": 8, "type": "ThreadWorker OF Integer TO Integer", "default": null },
+    { "name": "n", "line": 8, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 9, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "local", "name": "n" } } }
+    ]
+  },
+  {
+    "name": "coordinator",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "worker", "line": 12, "type": "ThreadWorker OF RES Thread OF Integer TO Integer TO Integer", "default": null },
+    { "name": "extra", "line": 12, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 13, "mutable": false, "name": "job", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "worker" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "job" }] }, "right": { "kind": "local", "name": "extra" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "job", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "square", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "boss", "type": "Thread OF RES Thread OF Integer TO Integer TO Integer", "value": { "kind": "call", "type": "Thread OF RES Thread OF Integer TO Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "coordinator", "type": "ISOLATED FUNC(ThreadWorker OF RES Thread OF Integer TO Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "boss" }, { "kind": "local", "name": "job" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "coordinator answered " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "boss" }] }] } }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

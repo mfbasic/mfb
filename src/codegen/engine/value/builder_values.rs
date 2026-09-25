@@ -1220,7 +1220,9 @@ impl CodeBuilder<'_> {
         target: &str,
         result_type: &ParameterType,
     ) -> bool {
-        !Self::runtime_call_result_is_foreign_arena(target)
+        // plan-156-C: `thread::start` allocates the parent view in the CALLER's arena,
+        // like any opener, even though its package's other results are foreign.
+        (target == "thread.start" || !Self::runtime_call_result_is_foreign_arena(target))
             && !Self::target_returns_borrowed_resource(target)
             && self.is_sendable_resource_nominal(result_type)
     }

@@ -146,7 +146,14 @@ pub(crate) fn builtin_consuming_parameter_index(target: &str) -> Option<usize> {
 }
 
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
+///
+/// plan-156-D: a parent `Thread` view is sendable — its record moves to the
+/// receiver, and the control block it names belongs to no thread. A `ThreadWorker`
+/// is not a resource the program holds at all.
 pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
+    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+        return !worker;
+    }
     match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => r.sendable,
         _ => false,

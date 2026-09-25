@@ -2,7 +2,7 @@ IMPORT thread
 IMPORT thread_workers
 
 TYPE BadStartMessage
-  handle AS Thread OF String TO Integer
+  handle AS ThreadWorker OF String TO Integer
 END TYPE
 
 ISOLATED FUNC localWorker(t AS Thread OF String TO Integer, seed AS String) AS Integer
