@@ -108,4 +108,10 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:12 error[2-203-0063 
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:18 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
                Thread message type requires a thread-sendable type, got `BadStartMessage`.
+   3 | 
+   4 | TYPE BadStartMessage
+   5 |   handle AS Thread OF String TO Integer
+     | ^
+tests/syntax/threads/func_thread_start_invalid/src/main.mfb:5 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               Record `BadStartMessage` field `handle` type `Thread OF String TO Integer` is a resource; mark it `RES` (e.g. `handle AS RES fs::File`), not a bare resource type.
 [exit 1]

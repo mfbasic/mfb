@@ -2892,8 +2892,17 @@ fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
 /// block. It is not: a `LINK` function returning `AS RES T` arena-allocates the
 /// canonical plan-80 resource record (`link_thunk.rs`, `if function.return_resource`)
 /// with its own lifetime and its own close op, exactly as a built-in does.
+///
+/// plan-156-D: a parent `Thread` view is one too — a resource record in the arena
+/// of whoever holds it, closed by `thread.drop`. It has no nominal, so it is matched
+/// structurally; a `ThreadWorker` is not (the runtime owns it, and it is never
+/// stored or sent).
 pub(crate) fn is_resource_nominal(model: &TypeModel, type_: &ParameterType) -> bool {
     crate::codegen::builtins::is_resource_type(type_)
+        || matches!(
+            base_resource_type(type_),
+            ParameterType::ThreadHandle { worker: false, .. }
+        )
         || model.resource_names.contains(&base_resource_type(type_))
 }
 

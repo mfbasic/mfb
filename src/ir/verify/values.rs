@@ -217,9 +217,9 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 // The literal's element type is checked like a declared one
-                // (the former source checker's `infer_list_literal`): no thread handles.
+                // (the former source checker's `infer_list_literal`): no `ThreadWorker`.
                 if let ParameterType::ListOf(element) = type_ {
-                    self.check_collection_element_thread_free(element, "element");
+                    self.check_collection_element_worker_free(element, "element");
                 }
                 // plan-59-E: storing a non-`RES`-binding in a resource collection
                 // used to be rejected here (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`,
@@ -1070,10 +1070,10 @@ impl TypeEnv {
         match &t {
             ParameterType::ListOf(inner) => {
                 self.check_map_key_comparable(inner);
-                // A `List` element may be a resource pointer (§15.6); only a
-                // thread handle is forbidden — the former source checker's
+                // A `List` element may be a resource pointer (§15.6), a parent
+                // `Thread` included; only a `ThreadWorker` is forbidden — the
                 // TYPE_COLLECTION_OWNERSHIP_VIOLATION element arm.
-                self.check_collection_element_thread_free(inner, "element");
+                self.check_collection_element_worker_free(inner, "element");
             }
             // A `Set OF T` element must be comparable — it is the Set's hash/equality
             // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
@@ -1090,8 +1090,8 @@ impl TypeEnv {
                 self.check_map_key_comparable(key);
                 self.check_map_key_comparable(value);
                 // A `Map` value may be a resource pointer (§15.6) but never a
-                // thread handle — the rule's value arm.
-                self.check_collection_element_thread_free(value, "value");
+                // `ThreadWorker` — the rule's value arm.
+                self.check_collection_element_worker_free(value, "value");
             }
             _ => {}
         }
@@ -1100,16 +1100,16 @@ impl TypeEnv {
     /// The thread-only half of the collection ownership rule, for the positions
     /// that MAY hold a resource pointer (a `List` element, a `Map` value): a
     /// thread handle may never live in a collection. `role` selects the wording.
-    pub(super) fn check_collection_element_thread_free(&self, type_: &ParameterType, role: &str) {
+    pub(super) fn check_collection_element_worker_free(&self, type_: &ParameterType, role: &str) {
         let element = match type_ {
             ParameterType::Res(inner) => inner.as_ref(),
             other => other,
         };
-        if self.contains_thread(element, &mut HashSet::new()) {
+        if self.contains_thread_worker(element, &mut HashSet::new()) {
             self.emit(
                 "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
                 format!(
-                    "Ordinary collections cannot store {role} values of type `{}` because they contain a resource or thread handle.",
+                    "Ordinary collections cannot store {role} values of type `{}` because they contain a `ThreadWorker`, which belongs to its worker's own run.",
                     element.name()
                 ),
             );

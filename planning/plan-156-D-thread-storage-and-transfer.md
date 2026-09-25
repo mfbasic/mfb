@@ -138,23 +138,51 @@ successes).
   `syntax/**`) (est. 2 min).
   Result: "acceptance tests failed: 5 mismatch(es) (3 test(s) ran)" — the three
   runtime fixtures (the rt-error one is moot), each for the reason above.
-Commit: —
+Commit: 008c91e1e
 
 ### Phase 2 — storage and bug-692
 
-- [ ] The verifier storage rules (§3); the verifier unit tests for field,
+- [x] The verifier storage rules (§3); the verifier unit tests for field,
       element and value, and record-copy rejection.
-- [ ] Re-baseline the 8 verifier tests. The list-element and map-value
+      (`contains_thread` → `contains_thread_worker` and
+      `check_collection_element_thread_free` → `…_worker_free`: only a
+      `ThreadWorker` is still refused as an element or map value; a parent
+      `Thread` now takes `res_axis_slot`'s marker rules — C's exemption there is
+      removed — so a bare one is `TYPE_RESOURCE_REQUIRES_RES` and a `RES` one is
+      legal, in a record field too. Record copy is NOT rejected (Correction 1).
+      New tests: `accepts_res_thread_elements_values_and_fields`,
+      `rejects_a_bare_thread_record_field`, `rejects_a_thread_worker_as_a_list_element`.
+      `cargo test --release --bin mfb verify` → 490 passed.)
+- [x] Re-baseline the 8 verifier tests. The list-element and map-value
       rejections change to "requires `RES`"; the unsendable ones keep their
       rule for `ThreadWorker`. Proof: §15.6, plus the design settled in
       plan-156-A.
-- [ ] Update the two `func_thread_{start,send}_invalid` fixtures' expected
+      (Two changed — `rejects_a_thread_handle_as_a_list_element` and
+      `…_as_a_map_value` now expect `TYPE_RESOURCE_REQUIRES_RES`. The other six
+      still pass unchanged: a thread-carrying union as a map key and map-key
+      ownership are still refused (a resource is no key), and the four
+      unsendability tests are Phase 3's.)
+- [x] Update the two `func_thread_{start,send}_invalid` fixtures' expected
       diagnostics.
-- [ ] Collection and record drop of thread elements through `thread.__drop`.
+      (Each gains one line: `TYPE_RESOURCE_REQUIRES_RES` on its bare `Thread`
+      record field; nothing else in either log moved.)
+- [x] Collection and record drop of thread elements through `thread.__drop`.
+      (`is_resource_nominal` answers for a parent view, so a list lays it out as
+      a pointer payload and the owned-list drain and record drop close it with
+      `thread.drop`; `thread_runtime_return_type` strips the `RES` marker a view
+      read out of a field or element carries. `--debug` measurements: 16 pooled
+      workers dropped without a read → `thread.table_live 0`,
+      `arena.0.live_bytes 0`; a record holding a `RES` thread bound first →
+      `table_live 0`, `live_bytes 0`, `double_free_skips 0`. Two leaks found on
+      the way, neither thread-specific — Corrections 3 and 4.)
 
 Acceptance: `thread-pool-list` and `bug692-*` pass.
   Check: `cargo test --bin mfb verify` → pass (est. 3 min), and the two
   fixtures via `test-accept.sh` → pass (est. 1 min).
+  Result: verify → 490 passed; `thread-pool-list` (`workers 8 total 204`) and
+  `bug692-record-thread-copy` (`5`, `5`) pass, their `.ast`/`.ir` recorded;
+  the thread set (`rt-behavior/thread*/**`, `syntax/threads/**`,
+  `rt-error/threads/**`) fails only on Phase 3's three fixtures.
 Commit: —
 
 ### Phase 3 — transfer and the three errors
@@ -208,6 +236,26 @@ Commit: —
    `thread_transfer_self_invalid` pins the existing rejection.
    `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` stays: a `ThreadWorker` channel type is
    spellable.
+
+3. **A pool read back through `FOR EACH` or `get` keeps its elements' records
+   until exit — for every resource, not just threads.** The Validation Plan's
+   "parent-arena live bytes back at baseline after the pool's scope ends" does
+   not hold for the pool fixture, and cannot for any resource: the same shape
+   over `fs::File` reports the identical `arena.0.live_bytes 2352` at 16
+   elements. `record_ownership::owning_collections` refuses to free the records
+   of a collection named as a `FOR EACH` iterable or read through `get`
+   (bug-645's recorded residual decline, fail-safe against a double free). The
+   threads are still dropped exactly once — every block is released — so the
+   validation is strengthened to what does hold and is checkable: a pool
+   dropped without a read-back is flat (`live_bytes 0`), and every pool ends
+   with `thread.table_live 0` and `double_free_skips 0`.
+
+4. **A resource placed into a container without a `RES` binding is never
+   closed — bug-695**, found here: `append(pool, thread::start(…))` and
+   `H[t := thread::start(…)]` leave the worker running and its block live, and
+   the same shapes over `fs::File` exhaust the descriptors. Pre-existing and not
+   thread-specific; filed with its reproduction and fixed separately. The pool
+   fixture binds each thread `RES` first, the spelling that floats correctly.
 
 ## Summary
 

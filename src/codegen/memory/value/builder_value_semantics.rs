@@ -1615,25 +1615,35 @@ impl CodeBuilder<'_> {
             // plan-111-E: the three thread planes are `ThreadHandle` fields, so
             // each is read off the variant rather than re-split from a spelling
             // by `parent_thread_output` / `thread_message` / `thread_resource`.
-            "thread.waitFor" => match self.static_type_name(args.first()?)? {
+            "thread.waitFor" => match self.thread_handle_arg_type(args)? {
                 ParameterType::ThreadHandle {
                     worker: false, out, ..
                 } => Some((*out).clone()),
                 _ => None,
             },
-            "thread.receive" => match self.static_type_name(args.first()?)? {
+            "thread.receive" => match self.thread_handle_arg_type(args)? {
                 ParameterType::ThreadHandle { msg, .. } => Some((*msg).clone()),
                 _ => None,
             },
             // The resource plane: accept yields the thread's resource type
             // (worker reads the inbound queue, parent reads the outbound queue).
             "thread.acceptResource" | "thread.readResource" => {
-                match self.static_type_name(args.first()?)? {
+                match self.thread_handle_arg_type(args)? {
                     ParameterType::ThreadHandle { res, .. } => Some((*res).clone()),
                     _ => None,
                 }
             }
             _ => None,
+        }
+    }
+
+    /// The static type of a thread op's handle argument, `RES` marker stripped: a view
+    /// read out of a `RES` record field or collection element is typed `RES Thread OF
+    /// …` (plan-156-D), and every thread op answers by the `ThreadHandle` inside.
+    fn thread_handle_arg_type(&self, args: &[NirValue]) -> Option<ParameterType> {
+        match self.static_type_name(args.first()?)? {
+            ParameterType::Res(inner) => Some(*inner),
+            other => Some(other),
         }
     }
 

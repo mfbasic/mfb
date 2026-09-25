@@ -1247,11 +1247,7 @@ impl TypeEnv {
         let is_res_marked = matches!(slot, ParameterType::Res(_));
         let inner = strip_res(slot);
         let inner_name = inner.name();
-        // plan-156-C: a thread view is a resource, but storing one in a field, element
-        // or map value stays governed by the thread rules until plan-156-D opens
-        // storage — so it takes neither `RES` rule here yet.
-        let is_resource = self.is_resource_or_resource_union(inner)
-            && !matches!(inner, ParameterType::ThreadHandle { .. });
+        let is_resource = self.is_resource_or_resource_union(inner);
         if is_resource && !is_res_marked {
             self.emit(
                 "TYPE_RESOURCE_REQUIRES_RES",

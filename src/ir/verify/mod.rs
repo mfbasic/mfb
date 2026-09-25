@@ -1498,6 +1498,16 @@ fn resource_base_type(type_: &ParameterType) -> ParameterType {
 /// (verified by the full `*-invalid` diagnostic corpus + `artifact-gate all`).
 ///
 /// Pinned by `truncated_thread_spelling_still_counts_as_a_thread`.
+/// Whether `type_` is a worker's own view (`ThreadWorker OF …`).
+fn is_thread_worker_type(type_: &ParameterType) -> bool {
+    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+        return *worker;
+    }
+    let name = type_.name();
+    let keyword = crate::types::THREAD_WORKER_TYPE;
+    name == keyword || name.starts_with(&format!("{keyword} OF "))
+}
+
 fn is_thread_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::ThreadHandle { .. }) {
         return true;

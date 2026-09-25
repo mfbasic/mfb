@@ -8621,6 +8621,8 @@ fn a_stray_recover_counts_as_diverging() {
     assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }
 
+/// plan-156-D: a parent `Thread` is a resource, so a collection holds it as a `RES`
+/// element — a bare one is told to add the marker, exactly like `List OF fs::File`.
 #[test]
 fn rejects_a_thread_handle_as_a_list_element() {
     let f = func(
@@ -8628,10 +8630,7 @@ fn rejects_a_thread_handle_as_a_list_element() {
         vec![param("xs", "List OF Thread OF Integer TO Integer", None)],
         vec![ret(int_const("0"))],
     );
-    expect_rule(
-        &project(vec![f], vec![]),
-        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
 }
 
 #[test]
@@ -8643,6 +8642,54 @@ fn rejects_a_thread_handle_as_a_map_value() {
             "Map OF String TO Thread OF Integer TO Integer",
             None,
         )],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
+/// The accept path: a `RES` thread element, map value and record field are legal
+/// (plan-156-D) — none of the collection or marker rules fires.
+#[test]
+fn accepts_res_thread_elements_values_and_fields() {
+    let mut ty = record_typed("Holder", &[("t", "RES Thread OF Integer TO Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func(
+        "run",
+        vec![
+            param("xs", "List OF RES Thread OF Integer TO Integer", None),
+            param("m", "Map OF String TO RES Thread OF Integer TO Integer", None),
+        ],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![ty]));
+    for rule in [
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+        "TYPE_RESOURCE_REQUIRES_RES",
+        "TYPE_RES_REQUIRES_RESOURCE",
+    ] {
+        assert!(
+            !got.iter().any(|r| r == rule),
+            "a RES thread slot is legal; {rule} must not fire: {got:?}"
+        );
+    }
+}
+
+/// bug-692: a bare `Thread` record field needs the `RES` marker, like any resource.
+#[test]
+fn rejects_a_bare_thread_record_field() {
+    let mut ty = record_typed("Holder", &[("t", "Thread OF Integer TO Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    expect_rule(&project(vec![f], vec![ty]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
+/// A worker's own view never lives in a collection: it is not a resource the program
+/// owns, and the collection rule still refuses it.
+#[test]
+fn rejects_a_thread_worker_as_a_list_element() {
+    let f = func(
+        "run",
+        vec![param("xs", "List OF ThreadWorker OF Integer TO Integer", None)],
         vec![ret(int_const("0"))],
     );
     expect_rule(
