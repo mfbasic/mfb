@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT thread
+
+' bug-691: a RES Thread parameter borrows the caller's handle; the caller's
+' waitFor after the call still gets the result.
+
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC peek(RES t AS Thread OF Integer TO Integer) AS Boolean
+  RETURN thread::isRunning(t)
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF Integer TO Integer = thread::start(work, 5)
+  io::print(toString(peek(t)))
+  io::print(toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

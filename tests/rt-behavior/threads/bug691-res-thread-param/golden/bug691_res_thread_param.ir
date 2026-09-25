@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug691_res_thread_param",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "work",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "worker", "line": 7, "type": "ThreadWorker OF Integer TO Integer", "default": null },
+    { "name": "n", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "peek",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 11, "type": "Thread OF Integer TO Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "call", "type": "Boolean", "target": "thread.isRunning", "args": [{ "kind": "local", "name": "t" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": false, "name": "t", "type": "Thread OF Integer TO Integer", "value": { "kind": "call", "type": "Thread OF Integer TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "work", "type": "ISOLATED FUNC(ThreadWorker OF Integer TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "peek", "args": [{ "kind": "local", "name": "t" }] }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

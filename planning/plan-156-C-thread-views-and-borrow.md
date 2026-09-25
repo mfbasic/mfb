@@ -33,7 +33,7 @@ See plan-156-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-156-B complete | `ls planning/plan-156-B-*` → no match | NOT MET |
+| plan-156-B complete | `ls planning/plan-156-B-*` → no match | MET (2026-09-24: "no matches found"; archived in `09b0e5017`) |
 
 ## 1. Goal
 
@@ -161,16 +161,24 @@ are expected to diff. `.ast` must not diff in C, since C changes no syntax.
 
 ### Phase 1 — failing tests for the new semantics
 
-- [ ] `tests/rt-behavior/threads/thread-borrow-on-pass/`: `/tmp/thrrepro`'s
+- [x] `tests/rt-behavior/threads/thread-borrow-on-pass/`: `/tmp/thrrepro`'s
       helper-in-a-loop shape, expected to print its total and result, exit 0.
       Fails today with `7-703-0004`.
-- [ ] `tests/rt-behavior/threads/thread-waitfor-repeatable/`: two
+      (Expected `total 15 result 5`; today `Error: 7-703-0004`, exit 255.)
+- [x] `tests/rt-behavior/threads/thread-waitfor-repeatable/`: two
       `waitFor(t)` calls both print 5. Fails today.
-- [ ] bug-691's reproduction as `tests/rt-behavior/threads/bug691-res-thread-param/`.
+      (Today prints `5`, then `Error: 7-703-0004`, exit 255.)
+- [x] bug-691's reproduction as `tests/rt-behavior/threads/bug691-res-thread-param/`.
+      (Expected `TRUE`, `5`; today `TRUE`, then `Error: 7-703-0004`, exit 255.
+      Goldens: `.ast`/`.ir` recorded from today's compiler with
+      `scripts/sync-goldens.sh`, the `build.log` run section hand-set to the
+      expected output; Phase 3 re-syncs them.)
 
 Acceptance: all three fail for the documented reason.
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/threads/thread-borrow-on-pass' 'rt-behavior/threads/thread-waitfor-repeatable' 'rt-behavior/threads/bug691-*'`
   → 3 failures (est. 1 min).
+  Result: "acceptance tests failed: 3 mismatch(es) (3 test(s) ran)", each
+  `+Error: 7-703-0004`.
 Commit: —
 
 ### Phase 2 — the verifier sees a resource
