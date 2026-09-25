@@ -15,14 +15,15 @@ way in your code, carrying that same error with its original code and message.
 So a failure inside a thread reaches you exactly like a failure from any other
 call: it routes to your `TRAP`, or propagates to your caller.
 
-**`waitFor` also closes the handle.** It is how a thread is collected, and each
-thread is collected once. Calling `waitFor` — or anything else — on the same
-handle again raises `ErrResourceClosed`. Read the result into a variable if you
-need it more than once.
+**`waitFor` can be called again.** The handle stays open, and every later
+`waitFor` on it returns straight away with the same outcome: a fresh copy of
+the same result, or the same error. Passing `t` to a function lends it, so a
+helper may wait for the thread and the caller can still ask afterwards.
 
 `waitFor` does not cancel anything. On a thread you no longer want, call
-`thread::cancel` first and then `waitFor` to collect it; cancelling alone does
-not close the handle."#;
+`thread::cancel` first and then `waitFor` to collect it. The handle closes when
+the variable holding it goes out of scope; see `thread::cancel` for what that
+does to a thread still running."#;
 
 const EX: &str = r#"Collect a worker's return value:
 
@@ -79,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ParameterType::Unknown,
                     out(),
                 ),
-                "The thread to wait for. This call closes the handle, so it cannot be used again afterwards.",
+                "The thread to wait for. The handle stays open: asking again gives the same outcome.",
             )],
             out(),
             Body::abi_function(lowering::lower_wait_for),

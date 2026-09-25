@@ -782,19 +782,6 @@ pub(crate) struct LoopLabels {
 }
 
 #[derive(Clone)]
-pub(crate) struct ThreadCleanup {
-    pub(crate) name: String,
-    pub(crate) symbol: String,
-    /// Close the handle (`THREAD_DROP_CLOSE`). False for a handle moved into a callee:
-    /// the callee's parameter closes it, and the caller may still read it.
-    pub(crate) close: bool,
-    /// Give up this binding's owner count (`THREAD_DROP_RELEASE`, bug-622). False on a
-    /// trap route for a handle the `TRAP` handler can still name: the handler's own exit
-    /// releases it.
-    pub(crate) release: bool,
-}
-
-#[derive(Clone)]
 pub(crate) struct ResourceCleanup {
     pub(crate) name: String,
     pub(crate) symbol: String,
@@ -1016,7 +1003,6 @@ pub(crate) struct PendingClosure {
 
 #[derive(Clone)]
 pub(crate) enum ActiveCleanup {
-    Thread(ThreadCleanup),
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
     OwnedList(OwnedListCleanup),
@@ -2620,6 +2606,82 @@ pub(crate) fn lower_module_for_platform(
     {
         code_functions.push(lower_sort_string_list_helper());
     }
+    let uses_thread_start = runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_start");
+    if uses_thread_start {
+        code_functions.push(platform.emit_thread_trampoline(
+            &platform_imports,
+            uses_stdin,
+            ArenaInitSymbols {
+                link_init: link_init_symbol,
+                global_init: global_initializer_symbol.as_deref(),
+            },
+        )?);
+        code_functions.push(crate::codegen::runtime::thread::lower_thread_finish(
+            uses_stdout_buffer,
+            &platform_imports,
+            platform,
+        )?);
+    }
+    // plan-156-A: the thread table, the control block's block arena and its release —
+    // shared by every `thread` helper that starts or lets go of a thread. Gated on the
+    // release being referenced, not on `thread::start` alone: the parent view's drop
+    // (`thread.drop`) releases a block too, and a module can hold a `Thread` it did not
+    // start (a helper binding one it was lent).
+    let uses_block_release = uses_thread_start
+        || code_functions.iter().any(|function| {
+            function.relocations.iter().any(|relocation| {
+                relocation.to == crate::codegen::runtime::thread::THREAD_BLOCK_RELEASE_SYMBOL
+            })
+        });
+    if uses_block_release {
+        use crate::codegen::runtime::thread::{
+            lower_thread_block_arena_create, lower_thread_block_arena_destroy,
+            lower_thread_block_release, lower_thread_table_acquire,
+            lower_thread_table_release, thread_table_data_object,
+        };
+        code_functions.push(lower_thread_table_acquire(&platform_imports, platform)?);
+        code_functions.push(lower_thread_table_release(&platform_imports, platform)?);
+        code_functions.push(lower_thread_block_arena_create(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_arena_destroy(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_release(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        data_objects.push(thread_table_data_object(platform.family()));
+    }
+    // plan-156-A: every per-type copy/drop function a thread call site (or the
+    // worker exit above) asked for. Unconditional: a module can send or receive
+    // without starting a thread (a package's worker entry). Emitted before the
+    // relocation-gated shared helpers below, which these functions call (a `String`
+    // message's drop is `_mfb_rt_drop_owned_string`).
+    for (symbol, kind, type_) in crate::codegen::runtime::thread::value_functions::take_requested()
+    {
+        code_functions.push(crate::codegen::runtime::thread::lower_thread_value_function(
+            kind,
+            &type_,
+            &symbol,
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
     // Map hash index (plan-02 Phase 6): the probe lazily builds the buckets and is
     // the only caller of the build helper; the put helper backs the in-place `set`
     // insert. The probe/put are internal `bl` targets emitted during code lowering
@@ -2833,70 +2895,6 @@ pub(crate) fn lower_module_for_platform(
     if module_uses_call(module, "fs.pathJoin") {
         code_functions
             .push(crate::codegen::builtins::fs::gen_path_builder::lower_fs_path_join_helper());
-    }
-    if runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
-    {
-        code_functions.push(platform.emit_thread_trampoline(
-            &platform_imports,
-            uses_stdin,
-            ArenaInitSymbols {
-                link_init: link_init_symbol,
-                global_init: global_initializer_symbol.as_deref(),
-            },
-        )?);
-        // plan-156-A: the thread table, the control block's block arena, its release,
-        // and the worker's exit — shared by every `thread` helper that starts, reads or
-        // lets go of a thread.
-        use crate::codegen::runtime::thread::{
-            lower_thread_block_arena_create, lower_thread_block_arena_destroy,
-            lower_thread_block_release, lower_thread_finish, lower_thread_table_acquire,
-            lower_thread_table_release, thread_table_data_object,
-        };
-        code_functions.push(lower_thread_table_acquire(&platform_imports, platform)?);
-        code_functions.push(lower_thread_table_release(&platform_imports, platform)?);
-        code_functions.push(lower_thread_block_arena_create(
-            debug_arena,
-            &platform_imports,
-            platform,
-        )?);
-        code_functions.push(lower_thread_block_arena_destroy(
-            debug_arena,
-            &platform_imports,
-            platform,
-        )?);
-        code_functions.push(lower_thread_block_release(
-            debug_arena,
-            &platform_imports,
-            platform,
-        )?);
-        code_functions.push(lower_thread_finish(
-            uses_stdout_buffer,
-            &platform_imports,
-            platform,
-        )?);
-        data_objects.push(thread_table_data_object(platform.family()));
-    }
-    // plan-156-A: every per-type copy/drop function a thread call site (or the
-    // worker exit above) asked for. Unconditional: a module can send or receive
-    // without starting a thread (a package's worker entry).
-    for (symbol, kind, type_) in crate::codegen::runtime::thread::value_functions::take_requested()
-    {
-        code_functions.push(crate::codegen::runtime::thread::lower_thread_value_function(
-            kind,
-            &type_,
-            &symbol,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            type_model.clone(),
-        )?);
     }
     // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
     // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.

@@ -96,7 +96,17 @@ pub(crate) fn is_builtin_backed_resource(type_: &ParameterType) -> bool {
 }
 
 /// The built-in close op for `type_name`, if it is a built-in resource.
+///
+/// plan-156-C: a parent `Thread` view is a resource whose close op is the hidden
+/// `thread.drop`; a `ThreadWorker` view has none (the runtime owns it). A thread type
+/// has no single nominal, so it is matched structurally rather than through the
+/// registry — which is also why [`is_builtin_resource_type`] still answers `false`
+/// for it: the codegen paths that ask that question (layouts, copies, transfers) keep
+/// their own thread arms.
 pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&'static str> {
+    if let ParameterType::ThreadHandle { worker, .. } = type_ {
+        return (!worker).then_some(crate::codegen::builtins::thread::DROP);
+    }
     match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => Some(r.close_function),
         _ => None,

@@ -1146,7 +1146,6 @@ pub(crate) fn lower_function(
         string_app_resource_base_env: None,
         module_name: module_name.to_string(),
     };
-    let mut thread_param_slots = Vec::new();
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
         builder.locals.insert(
@@ -1195,25 +1194,6 @@ pub(crate) fn lower_function(
                     result_wrapper: None,
                 }));
         }
-        // The TYPED NIR param, not the rendered `CodeParam` string beside it.
-        if CodeBuilder::is_thread_type(&function.params[index].type_) {
-            builder
-                .active_cleanups
-                .push(ActiveCleanup::Thread(ThreadCleanup {
-                    name: param.name.clone(),
-                    symbol: CodeBuilder::thread_drop_symbol(),
-                    close: true,
-                    release: true,
-                }));
-            thread_param_slots.push(stack_offset);
-        }
-    }
-    // bug-622: a thread parameter is one more binding of the caller's handle — the caller
-    // keeps releasing its own (a moved argument stays readable) — so it takes an owner.
-    // Emitted after every parameter is spilled: the increment's scratch registers must not
-    // overwrite a parameter still waiting in its argument register.
-    for slot in thread_param_slots {
-        builder.emit_thread_owner_increment(slot);
     }
     if let Some(name) = function.body.iter().find_map(|op| match op {
         NirOp::Trap { name, .. } => Some(name.clone()),

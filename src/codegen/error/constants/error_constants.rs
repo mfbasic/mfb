@@ -1253,6 +1253,11 @@ pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 // lifetime.
 pub(crate) const RESOURCE_TAG_IMAGE: &str = "11";
 pub(crate) const RESOURCE_TAG_FONT: &str = "12";
+// plan-156-C: the two thread views. `handle@8` is the thread's control block, which
+// both views of one thread share; the parent's record is in the starting thread's
+// arena, the worker's is embedded in the control block itself.
+pub(crate) const RESOURCE_TAG_THREAD: &str = "13";
+pub(crate) const RESOURCE_TAG_THREAD_WORKER: &str = "14";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0

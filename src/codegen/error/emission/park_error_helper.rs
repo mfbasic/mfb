@@ -195,7 +195,7 @@ impl CodeBuilder<'_> {
 /// Why this and not §3's per-function chained cleanup epilogue: see the plan's
 /// Corrections. In short, Phase 1 found that a function's live cleanup set is
 /// NOT a function of scope depth — `plan_returned_move`,
-/// `deactivate_thread_cleanup`, `deactivate_resource_cleanup` and
+/// `deactivate_resource_cleanup` and
 /// `deactivate_owned_list` each remove cleanups per RETURN depending on which
 /// local escapes — so "one block per depth" cannot be shared soundly. Sharing
 /// the individual drop instead needs no scope reasoning at all.

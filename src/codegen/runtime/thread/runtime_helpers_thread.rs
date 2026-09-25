@@ -240,6 +240,14 @@ fn emit_release_reference(
     Ok(())
 }
 
+/// The five parent-view ops that need no queue of their own: `isRunning`, `waitFor`,
+/// `cancel`, `poll`, and the hidden `thread.drop` a parent view's scope end runs.
+///
+/// plan-156-C: each takes the parent VIEW and reaches the control block through it
+/// ([`emit_control_block_of`]); a closed view answers `ErrResourceClosed` before any of
+/// them touches the block. A view is closed only by its own drop, so while it is open
+/// the block's state is `RUNNING` or `COMPLETED` — never `CLOSED`, which only that drop
+/// writes.
 pub(crate) fn simple_thread_handle_helper(
     symbol: &str,
     op: ThreadSimpleOp,
@@ -247,6 +255,7 @@ pub(crate) fn simple_thread_handle_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
     const FRAME_SIZE: usize = 64;
+    // The control block, once the view has been checked.
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
     const TAG_OFFSET: usize = 24;
@@ -255,11 +264,10 @@ pub(crate) fn simple_thread_handle_helper(
     const SOURCE_OFFSET: usize = 40;
     // Drop only: the release count left after this side's release.
     const REFS_OFFSET: usize = 48;
-    // Drop only: the drop mode (`THREAD_DROP_CLOSE` | `THREAD_DROP_RELEASE`), rewritten
-    // to `DROP_MODE_FREE` when this drop's release takes the owner count to 0.
-    const MODE_OFFSET: usize = 56;
-    const DROP_MODE_FREE: &str = "7";
+    // Drop only: the view itself, which the drop closes.
+    const VIEW_OFFSET: usize = 56;
 
+    let view_closed = format!("{symbol}_view_closed");
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     let mut ctx = EmitCtx {
@@ -269,58 +277,22 @@ pub(crate) fn simple_thread_handle_helper(
         instructions: &mut instructions,
         relocations: &mut relocations,
     };
+    if matches!(op, ThreadSimpleOp::Drop) {
+        ctx.instructions.push(abi::store_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            VIEW_OFFSET,
+        ));
+    }
+    emit_control_block_of(ctx.instructions, &view_closed);
     ctx.instructions.push(abi::store_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
         HANDLE_OFFSET,
     ));
-    // bug-622: a drop settles its owner count before anything else. A close-only drop (a
-    // trap route) is not counted. Otherwise the release takes one owner away; reaching 0
-    // turns the drop into close-and-free, and a release-only drop that leaves other owners
-    // (a moved-from caller) is done — it neither closes nor frees. Every handle is
-    // counted, including the zeroed CLOSED stub an inline `TRAP` on `thread::start`
-    // binds (it starts at 1, and its last release frees just its block).
-    if matches!(op, ThreadSimpleOp::Drop) {
-        let counted = format!("{symbol}_owners_counted");
-        let keep = format!("{symbol}_precheck_keep");
-        ctx.instructions.extend([
-            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MODE_OFFSET),
-            abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
-            abi::compare_immediate("%v9", &THREAD_DROP_CLOSE.to_string()),
-            abi::branch_eq(&counted),
-            abi::load_u64("%v10", abi::c_arg(0), CONTROL_OFFSET_OWNERS),
-            abi::subtract_immediate("%v10", "%v10", 1),
-            abi::store_u64("%v10", abi::c_arg(0), CONTROL_OFFSET_OWNERS),
-            abi::compare_immediate("%v10", "0"),
-            abi::branch_ne(&counted),
-            abi::move_immediate("%v9", "Integer", DROP_MODE_FREE),
-            abi::store_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
-            abi::label(&counted),
-            abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
-            abi::compare_immediate("%v9", &THREAD_DROP_RELEASE.to_string()),
-            abi::branch_eq(&keep),
-        ]);
-    }
-    // bug-479: answer for a CLOSED handle BEFORE touching its lock. The closed stub an
-    // inline `TRAP` on a failed `thread::start` binds has no lock at all.
-    //
-    // **The unlocked read is sound because `CLOSED` is terminal.** The only writers of
-    // `CONTROL_OFFSET_STATE` are the zero-init at start (`RUNNING`), the worker storing
-    // `COMPLETED` as it exits, and the sites here that store `CLOSED` — nothing moves a
-    // handle OUT of `CLOSED`. So a racing read that sees `CLOSED` is right forever, and
-    // one that sees anything else falls through to the locked path, which re-reads the
-    // state under the lock and decides there.
-    let precheck_closed = format!("{symbol}_precheck_closed");
-    let precheck_done = format!("{symbol}_precheck_done");
-    ctx.instructions.extend([
-        abi::load_u64("%v9", abi::c_arg(0), CONTROL_OFFSET_STATE),
-        abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-        abi::branch_eq(&precheck_closed),
-    ]);
     match op {
         ThreadSimpleOp::IsRunning => {
             let running = format!("{symbol}_running");
-            let closed = format!("{symbol}_closed");
             let done = format!("{symbol}_done");
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
@@ -331,8 +303,6 @@ pub(crate) fn simple_thread_handle_helper(
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-                abi::branch_eq(&closed),
                 abi::compare_immediate("%v9", THREAD_STATE_RUNNING),
                 abi::branch_eq(&running),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
@@ -341,29 +311,22 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::label(&running),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::branch(&done),
-                abi::label(&closed),
+                abi::label(&done),
             ]);
-            raise_error_into(
-                symbol,
-                "ErrResourceClosed",
-                ctx.instructions,
-                ctx.relocations,
-            );
-            ctx.instructions.push(abi::label(&done));
         }
+        // plan-156-C: repeatable. Every call waits for `COMPLETED` and answers the stored
+        // result — the call site copies it out of the block arena each time — and none
+        // closes anything. The first to see the worker done joins it; the zeroed OS
+        // handle tells every later call (and the drop) it is joined.
         ThreadSimpleOp::WaitFor => {
             let loop_label = format!("{symbol}_wait_loop");
-            let closed = format!("{symbol}_closed");
             let result_ready = format!("{symbol}_result_ready");
-            let done = format!("{symbol}_done");
+            let joined = format!("{symbol}_joined");
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::label(&loop_label),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-                abi::branch_eq(&closed),
                 abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
                 abi::branch_eq(&result_ready),
             ]);
@@ -388,26 +351,25 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::store_u64("%v9", abi::stack_pointer(), TAG_OFFSET),
                 abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_SOURCE),
                 abi::store_u64("%v9", abi::stack_pointer(), SOURCE_OFFSET),
-                abi::move_immediate("%v9", "Integer", THREAD_STATE_CLOSED),
-                abi::store_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::add_immediate("%v10", "%v8", CONTROL_OFFSET_OUTBOUND_QUEUE),
-                abi::store_u64("%v9", "%v10", THREAD_QUEUE_CLOSED_OFFSET),
-                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
             ]);
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             // bug-622: join, not detach. `COMPLETED` is published under the block lock
             // but the worker still unlocks it and returns after that, so the join is the
             // one point this side knows the worker is gone. It is prompt: nothing is left
-            // for the worker to do but return. The zeroed OS handle records the join.
+            // for the worker to do but return. Only this parent thread reads or writes
+            // the OS handle while the view is open, so the unlocked test is sound.
             ctx.instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::compare_immediate(abi::c_arg(0), "0"),
+                abi::branch_eq(&joined),
                 abi::move_immediate(abi::c_arg(1), "Integer", "0"),
             ]);
             emit_thread_external_call(&mut ctx, "pthread_join")?;
             ctx.instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::store_u64(abi::ZERO, "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::label(&joined),
                 abi::load_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
                     abi::stack_pointer(),
@@ -415,36 +377,6 @@ pub(crate) fn simple_thread_handle_helper(
                 ),
                 abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
-                abi::branch(&done),
-                abi::label(&closed),
-            ]);
-            raise_error_into(
-                symbol,
-                "ErrResourceClosed",
-                ctx.instructions,
-                ctx.relocations,
-            );
-            ctx.instructions.extend([
-                abi::store_u64(
-                    RESULT_ERROR_MESSAGE_REGISTER,
-                    abi::stack_pointer(),
-                    ERROR_OFFSET,
-                ),
-                abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
-                abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
-                // waitFor's own error (resource closed): no worker origin.
-                abi::store_u64(abi::ZERO, abi::stack_pointer(), SOURCE_OFFSET),
-            ]);
-            emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
-            ctx.instructions.extend([
-                abi::load_u64(
-                    RESULT_ERROR_MESSAGE_REGISTER,
-                    abi::stack_pointer(),
-                    ERROR_OFFSET,
-                ),
-                abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
-                abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
-                abi::label(&done),
                 abi::load_u64(
                     RESULT_ERROR_SOURCE_REGISTER,
                     abi::stack_pointer(),
@@ -456,14 +388,9 @@ pub(crate) fn simple_thread_handle_helper(
         // both data queues and both resource queues (bug-205) — waking every waiter so
         // it re-checks CANCELLED/CLOSED.
         ThreadSimpleOp::Cancel => {
-            let closed = format!("{symbol}_closed");
-            let done = format!("{symbol}_done");
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-                abi::branch_eq(&closed),
                 abi::move_immediate("%v9", "Integer", "1"),
                 abi::store_u64("%v9", "%v8", CONTROL_OFFSET_CANCELLED),
             ]);
@@ -471,36 +398,34 @@ pub(crate) fn simple_thread_handle_helper(
             emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
             emit_close_resource_queues_locked(&mut ctx, HANDLE_OFFSET)?;
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
-            ctx.instructions.extend([
-                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::branch(&done),
-                abi::label(&closed),
-            ]);
-            emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
-            raise_error_into(
-                symbol,
-                "ErrResourceClosed",
-                ctx.instructions,
-                ctx.relocations,
-            );
-            ctx.instructions.push(abi::label(&done));
+            ctx.instructions.push(abi::move_immediate(
+                RESULT_TAG_REGISTER,
+                "Integer",
+                RESULT_OK_TAG,
+            ));
         }
+        // plan-156-C: the parent view's drop — its scope end, or its owner's. It closes
+        // the view first, so every later op through it (a `TRAP` handler's, a second
+        // drop's) answers `ErrResourceClosed`. Then the thread is done from this side: a
+        // worker still running is cancelled, and every queue is closed with its
+        // undelivered entries dropped, so any wait on either side wakes and re-checks.
+        // A worker this drop saw `COMPLETED` has nothing left to do but unlock and
+        // return, so it is joined (unless a `waitFor` already did); a RUNNING worker is
+        // detached and finishes on its own, its own release freeing the block if this
+        // side's already has. Last, this side gives up its reference.
         ThreadSimpleOp::Drop => {
-            let already_closed = format!("{symbol}_already_closed");
-            let unlocked = format!("{symbol}_unlocked");
             let detach = format!("{symbol}_detach");
             let settled = format!("{symbol}_settled");
-            let done = format!("{symbol}_done");
+            ctx.instructions.extend([
+                abi::load_u64("%v10", abi::stack_pointer(), VIEW_OFFSET),
+                abi::move_immediate("%v9", "Integer", "1"),
+                abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_CLOSED),
+            ]);
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
                 abi::store_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-                abi::branch_eq(&already_closed),
-                // Close: the handle is done. A worker still running is cancelled, and
-                // every queue is closed with its undelivered entries dropped, so any
-                // wait on either side wakes and re-checks.
                 abi::move_immediate("%v9", "Integer", THREAD_STATE_CLOSED),
                 abi::store_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
                 abi::move_immediate("%v9", "Integer", "1"),
@@ -513,21 +438,15 @@ pub(crate) fn simple_thread_handle_helper(
             emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
             emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE)?;
             emit_close_resource_queues_locked(&mut ctx, HANDLE_OFFSET)?;
-            ctx.instructions.push(abi::label(&already_closed));
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
-                abi::branch_eq(&unlocked),
-                // bug-622: a worker this drop saw `COMPLETED` has nothing left to do but
-                // unlock and return, so join it. A RUNNING worker was cancelled above and
-                // is detached: it finishes on its own, and its own release frees the
-                // block if this side's already has. Either way the OS handle is zeroed so
-                // nothing joins or detaches it again.
-                abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
-                abi::branch_ne(&detach),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::compare_immediate(abi::c_arg(0), "0"),
+                abi::branch_eq(&settled),
+                abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
+                abi::branch_ne(&detach),
                 abi::move_immediate(abi::c_arg(1), "Integer", "0"),
             ]);
             emit_thread_external_call(&mut ctx, "pthread_join")?;
@@ -542,22 +461,16 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::label(&settled),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::store_u64(abi::ZERO, "%v8", CONTROL_OFFSET_OS_HANDLE),
-                abi::label(&unlocked),
-                // Only the drop that released the LAST owner gives up this side's
-                // reference; any other still has a binding reading the block.
-                abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
-                abi::compare_immediate("%v9", DROP_MODE_FREE),
-                abi::branch_ne(&done),
             ]);
             emit_release_reference(&mut ctx, HANDLE_OFFSET, REFS_OFFSET, true)?;
-            ctx.instructions.extend([
-                abi::label(&done),
-                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            ]);
+            ctx.instructions.push(abi::move_immediate(
+                RESULT_TAG_REGISTER,
+                "Integer",
+                RESULT_OK_TAG,
+            ));
         }
         ThreadSimpleOp::Poll => {
             let ready = format!("{symbol}_ready");
-            let closed = format!("{symbol}_closed");
             let invalid = format!("{symbol}_invalid_timeout");
             let wait_loop = format!("{symbol}_wait_loop");
             let wait_timed = format!("{symbol}_wait_timed");
@@ -574,9 +487,6 @@ pub(crate) fn simple_thread_handle_helper(
             ctx.instructions.extend([
                 abi::label(&wait_loop),
                 abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v10", "%v8", CONTROL_OFFSET_STATE),
-                abi::compare_immediate("%v10", THREAD_STATE_CLOSED),
-                abi::branch_eq(&closed),
                 abi::load_u64(
                     "%v10",
                     "%v8",
@@ -612,16 +522,8 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
                 abi::branch(&locked_done),
-                abi::label(&closed),
+                abi::label(&invalid),
             ]);
-            raise_error_into(
-                symbol,
-                "ErrResourceClosed",
-                ctx.instructions,
-                ctx.relocations,
-            );
-            ctx.instructions
-                .extend([abi::branch(&locked_done), abi::label(&invalid)]);
             raise_error_into(
                 symbol,
                 "ErrInvalidArgument",
@@ -652,68 +554,8 @@ pub(crate) fn simple_thread_handle_helper(
             ]);
         }
     }
-    ctx.instructions.push(abi::branch(&precheck_done));
-    ctx.instructions.push(abi::label(&precheck_closed));
-    match op {
-        // `thread.drop` on an already-closed handle succeeds — the same answer its own
-        // `already_closed` path gives.
-        //
-        // bug-622: a closed handle is also where the LAST release lets go. Only a drop
-        // whose release took the owner count to 0 (`DROP_MODE_FREE`) may: another binding
-        // (an alias, a moved-from caller, a trap handler) may still read it. The closed
-        // stub a failed `thread::start` binds under an inline `TRAP` (bug-479) has no
-        // block arena and never had a worker: free just its arena block. A real block
-        // gives up this side's reference, freeing the block if the worker already has.
-        ThreadSimpleOp::Drop => {
-            let keep = format!("{symbol}_precheck_keep");
-            let stub = format!("{symbol}_precheck_stub");
-            ctx.instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), MODE_OFFSET),
-                abi::compare_immediate("%v9", DROP_MODE_FREE),
-                abi::branch_ne(&keep),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
-                abi::compare_immediate("%v9", "0"),
-                abi::branch_eq(&stub),
-            ]);
-            emit_release_reference(&mut ctx, HANDLE_OFFSET, REFS_OFFSET, true)?;
-            ctx.instructions.extend([
-                abi::branch(&keep),
-                abi::label(&stub),
-                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
-                abi::move_immediate(
-                    abi::c_arg(1),
-                    "Integer",
-                    &CONTROL_BLOCK_SIZE.to_string(),
-                ),
-                abi::branch_link(ARENA_FREE_SYMBOL),
-            ]);
-            ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-            ctx.instructions.extend([
-                abi::label(&keep),
-                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            ]);
-        }
-        _ => {
-            raise_error_into(
-                symbol,
-                "ErrResourceClosed",
-                ctx.instructions,
-                ctx.relocations,
-            );
-            // `raise_error_into` sets VALUE/TAG/MESSAGE and nothing else, so the ORIGIN
-            // register has to be zeroed here. `WaitFor` is the only op that returns a
-            // meaningful one — it propagates the worker's `ErrorLoc` — and a garbage one
-            // was dereferenced by the `TRAP` handler of a SECOND `waitFor`.
-            ctx.instructions.push(abi::move_immediate(
-                RESULT_ERROR_SOURCE_REGISTER,
-                "Integer",
-                "0",
-            ));
-        }
-    }
-    ctx.instructions.push(abi::label(&precheck_done));
     ctx.instructions.push(abi::return_());
+    emit_view_closed_exit(symbol, &view_closed, ctx.instructions, ctx.relocations);
     Ok((instructions, relocations, FRAME_SIZE))
 }
 
@@ -967,6 +809,9 @@ pub(crate) fn thread_queue_write_helper(
         instructions: &mut instructions,
         relocations: &mut relocations,
     };
+    // plan-156-C: the handle argument is a view; work on the block it names.
+    let view_closed = format!("{symbol}_view_closed");
+    emit_control_block_of(ctx.instructions, &view_closed);
     ctx.instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
@@ -985,7 +830,8 @@ pub(crate) fn thread_queue_write_helper(
     ]);
     if !parent_send {
         // Re-establish the current-thread register `x20` from the worker's own control
-        // block (`x0`) rather than asserting equality; see `thread_queue_read_helper`.
+        // block (`x0`, read through its view) rather than asserting equality; see
+        // `thread_queue_read_helper`.
         ctx.instructions
             .push(abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)));
     }
@@ -1165,6 +1011,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::label(&done),
         abi::return_(),
     ]);
+    emit_view_closed_exit(symbol, &view_closed, ctx.instructions, ctx.relocations);
     Ok((instructions, relocations, FRAME_SIZE))
 }
 
@@ -1237,14 +1084,17 @@ pub(crate) fn thread_queue_read_helper(
         instructions: &mut instructions,
         relocations: &mut relocations,
     };
+    // plan-156-C: the handle argument is a view; work on the block it names.
+    let view_closed = format!("{symbol}_view_closed");
+    emit_control_block_of(ctx.instructions, &view_closed);
     ctx.instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), DROP_OFFSET),
     ]);
     if worker_self {
-        // The caller's `x0` is this worker's own control block (the handle is
-        // unforgeable in type-correct code). Re-establish the current-thread register
+        // The caller's view is this worker's own (the handle is unforgeable in
+        // type-correct code), so `x0` is now its control block. Re-establish the current-thread register
         // `x20` from it rather than asserting equality: generated code between worker
         // ops may clobber `x20`.
         ctx.instructions
@@ -1439,6 +1289,7 @@ pub(crate) fn thread_queue_read_helper(
         abi::label(&done),
         abi::return_(),
     ]);
+    emit_view_closed_exit(symbol, &view_closed, ctx.instructions, ctx.relocations);
     Ok((instructions, relocations, FRAME_SIZE))
 }
 

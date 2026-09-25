@@ -465,7 +465,6 @@ impl CodeBuilder<'_> {
                 self.emit_call_error_exit()?;
                 self.emit(abi::label(&ok_label));
             }
-            self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 origin: None,
@@ -481,7 +480,6 @@ impl CodeBuilder<'_> {
             self.emit_call_error_exit()?;
             self.emit(abi::label(&ok_label));
         }
-        self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
         let register = self.allocate_register();
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
@@ -592,9 +590,6 @@ impl CodeBuilder<'_> {
         };
         if result_type == ParameterType::Nothing {
             emit_tag_check(self)?;
-            for arg in args {
-                self.maybe_deactivate_moved_thread_local(arg);
-            }
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 origin: None,
@@ -604,9 +599,6 @@ impl CodeBuilder<'_> {
             });
         }
         emit_tag_check(self)?;
-        for arg in args {
-            self.maybe_deactivate_moved_thread_local(arg);
-        }
         self.deactivate_moved_resource_arguments(target, args);
         let register = self.allocate_register();
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
@@ -696,7 +688,6 @@ impl CodeBuilder<'_> {
         // current arena) for the trap to inspect. Owned handles/resources passed
         // to a consuming helper are consumed regardless of success or failure.
         if raw {
-            self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
             // bug-566: THE leak site. The helper allocated its result in this
@@ -741,7 +732,6 @@ impl CodeBuilder<'_> {
         }
         self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));
-        self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
 
         if *result_type == ParameterType::Nothing {

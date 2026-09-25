@@ -6,92 +6,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
-use crate::target::shared::runtime;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    /// Whether a type is a PARENT-side thread handle (`Thread OF …`).
-    ///
-    /// plan-106-E: the handle and its side are a variant and its `worker` flag,
-    /// not a prefix on a spelling.
-    pub(crate) fn is_thread_type(type_: &ParameterType) -> bool {
-        matches!(type_, ParameterType::ThreadHandle { worker: false, .. })
-    }
-
-    pub(crate) fn thread_drop_symbol() -> String {
-        runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.drop")
-    }
-
-    pub(crate) fn deactivate_thread_cleanup(&mut self, name: &str) {
-        if let Some(index) = self.active_cleanups.iter().rposition(
-            |cleanup| matches!(cleanup, ActiveCleanup::Thread(thread) if thread.name == name),
-        ) {
-            self.active_cleanups.remove(index);
-        }
-    }
-
-    /// A thread handle passed to a callee: the callee's parameter now closes it, so this
-    /// binding no longer closes it at scope exit.
-    ///
-    /// bug-622: it still RELEASES it. The language lets the caller read the handle after
-    /// the call (the op answers `ErrResourceClosed` once the callee closed it), so this
-    /// binding keeps its owner count and the control block outlives it too; the callee's
-    /// parameter took an owner count of its own on entry. (A `RETURN` is different — the
-    /// callee frame is gone, so `deactivate_thread_cleanup` hands its count to the caller.)
-    pub(crate) fn maybe_deactivate_moved_thread_local(&mut self, value: &NirValue) {
-        let NirValue::Local(name) = value else {
-            return;
-        };
-        if !self
-            .locals
-            .get(name)
-            .is_some_and(|local| Self::is_thread_type(&local.type_))
-        {
-            return;
-        }
-        if let Some(ActiveCleanup::Thread(thread)) = self.active_cleanups.iter_mut().rev().find(
-            |cleanup| matches!(cleanup, ActiveCleanup::Thread(thread) if thread.name == *name),
-        ) {
-            thread.close = false;
-        }
-    }
-
-    /// bug-622: whether a thread-typed store takes a handle no other binding holds — a
-    /// `thread::start` (or any call) result, a trapped `Result`'s payload, or the
-    /// not-yet-assigned null of an inline `TRAP`'s value binding. Such a store inherits
-    /// the handle's existing owner count. Anything else reads a handle another binding
-    /// still holds and must add an owner; an unrecognized shape is treated that way, so a
-    /// misclassification leaks a control block instead of freeing one that is still read.
-    pub(crate) fn thread_value_is_fresh_handle(value: Option<&NirValue>) -> bool {
-        matches!(
-            value,
-            None | Some(
-                NirValue::Call { .. }
-                    | NirValue::CallResult { .. }
-                    | NirValue::RuntimeCall { .. }
-                    | NirValue::ResultValue { .. }
-            )
-        )
-    }
-
-    /// bug-622: add one owner to the thread handle stored in the stack slot at `slot`
-    /// (`CONTROL_OFFSET_OWNERS`). A null slot is left alone. Every handle is counted —
-    /// including the zeroed CLOSED handle an inline `TRAP` on `thread::start` binds,
-    /// whose last release frees its block — so an alias of it cannot free it twice.
-    /// Call-free.
-    pub(crate) fn emit_thread_owner_increment(&mut self, slot: usize) {
-        use crate::codegen::runtime::thread::CONTROL_OFFSET_OWNERS;
-        let skip = self.label("thread_owner_increment_skip");
-        let handle = self.temporary_vreg();
-        let count = self.temporary_vreg();
-        self.emit(abi::load_u64(&handle, abi::stack_pointer(), slot));
-        self.emit(abi::compare_immediate(&handle, "0"));
-        self.emit(abi::branch_eq(&skip));
-        self.emit(abi::load_u64(&count, &handle, CONTROL_OFFSET_OWNERS));
-        self.emit(abi::add_immediate(&count, &count, 1));
-        self.emit(abi::store_u64(&count, &handle, CONTROL_OFFSET_OWNERS));
-        self.emit(abi::label(&skip));
-    }
-
     /// A thread `transferResource`/`emitResource` moves its resource argument
     /// (`args[1]`) across the thread boundary. If that argument was a fresh heap
     /// temporary, claim it so the statement-scope free never reclaims a record whose
@@ -108,26 +24,6 @@ impl CodeBuilder<'_> {
             if let Some(arg) = arg_values.get(1) {
                 self.claim_pending_temp(arg);
             }
-        }
-    }
-
-    pub(crate) fn deactivate_moved_thread_arguments(&mut self, target: &str, args: &[NirValue]) {
-        match target {
-            "thread.start"
-            | "thread.send"
-            | "thread.emit"
-            | "thread.transferResource"
-            | "thread.emitResource" => {
-                if let Some(arg) = args.get(1) {
-                    self.maybe_deactivate_moved_thread_local(arg);
-                }
-            }
-            target if !target.starts_with("thread.") => {
-                for arg in args {
-                    self.maybe_deactivate_moved_thread_local(arg);
-                }
-            }
-            _ => {}
         }
     }
 
@@ -202,7 +98,6 @@ impl CodeBuilder<'_> {
         // remains owned by the caller (the former source checker restores the binding
         // into the handler scope); the success continuation treats it as moved.
         if raw {
-            self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             // thread.send/emit errors originate at this call site, not a worker.
             // bug-566: `thread.send`/`emit`/`transferResource`/`emitResource` all
@@ -222,7 +117,6 @@ impl CodeBuilder<'_> {
         self.emit_stamp_current_error_source()?;
         self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));
-        self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
 
         if *result_type != ParameterType::Nothing {

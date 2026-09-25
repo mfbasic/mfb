@@ -372,14 +372,14 @@ pub(super) fn is_thread_type(type_: &ParameterType) -> bool {
     crate::codegen::engine::types::is_parent_thread_type(type_)
 }
 
+/// Whether some binding in `module` may drop a parent `Thread` view — the bindings
+/// that plan `thread.drop`. A `Thread` parameter is not one: passing a view lends it,
+/// so the callee drops nothing (plan-156-C).
 pub(super) fn module_has_thread_owner(module: &NirModule) -> bool {
-    module.functions.iter().any(|function| {
-        function
-            .params
-            .iter()
-            .any(|param| is_thread_type(&param.type_))
-            || ops_have_thread_owner(&function.body)
-    })
+    module
+        .functions
+        .iter()
+        .any(|function| ops_have_thread_owner(&function.body))
 }
 
 pub(super) fn ops_have_thread_owner(ops: &[NirOp]) -> bool {

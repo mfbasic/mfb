@@ -1203,8 +1203,7 @@ impl CodeBuilder<'_> {
                         let aliases_live_resource = value
                             .as_ref()
                             .is_some_and(Self::value_aliases_live_resource);
-                        let owns_resource_slot = !Self::is_thread_type(&type_)
-                            && !aliases_union_variant
+                        let owns_resource_slot = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
                             && !aliases_live_resource
@@ -1223,15 +1222,6 @@ impl CodeBuilder<'_> {
                             && value
                                 .as_ref()
                                 .is_some_and(|v| matches!(v, NirValue::Closure { .. }));
-                        // A `Thread` binding registers a `thread.drop` cleanup below
-                        // (the first branch of the chain, taken unconditionally on the
-                        // type), so its slot carries the identical hazard: a
-                        // `thread::start` that raises on a bad queue limit -- or any
-                        // error routed to the function `TRAP` handler past a bind that
-                        // never ran -- leaves the slot unwritten, and `thread.drop`
-                        // dereferences the handle's outbound-queue pointer (bug-469).
-                        // Mirrors the cleanup-registration condition exactly.
-                        let owns_thread_slot = Self::is_thread_type(&type_);
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
@@ -1239,7 +1229,6 @@ impl CodeBuilder<'_> {
                         if owns_freeable_value
                             || result_wrapper.is_some()
                             || owns_resource_slot
-                            || owns_thread_slot
                             || is_non_escaping_closure
                         {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
@@ -1253,9 +1242,10 @@ impl CodeBuilder<'_> {
                         // error can jump to the function `TRAP` handler past a bind
                         // that never ran, and the handler's null-guarded close must
                         // see 0 rather than stack garbage (bug-246). `owned_value_slots`
-                        // is consumed only as the entry-zeroing list. A `Thread` slot
-                        // rides the same list for the same reason (bug-469).
-                        if owns_resource_slot || owns_thread_slot {
+                        // is consumed only as the entry-zeroing list. A `Thread` view's
+                        // slot is one of them: a `thread::start` that raises on a bad
+                        // queue limit leaves it unwritten too (bug-469).
+                        if owns_resource_slot {
                             self.owned_value_slots.push(stack_offset);
                         }
                         // bug-648: an inline-`TRAP` temp has no initializer to classify,
@@ -1422,20 +1412,7 @@ impl CodeBuilder<'_> {
                             .get(name)
                             .cloned()
                             .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
-                        if Self::is_thread_type(&type_) {
-                            self.active_cleanups
-                                .push(ActiveCleanup::Thread(ThreadCleanup {
-                                    name: name.clone(),
-                                    symbol: Self::thread_drop_symbol(),
-                                    close: true,
-                                    release: true,
-                                }));
-                            // bug-622: a handle read from another binding is SHARED, not
-                            // moved — both bindings release it — so it takes an owner.
-                            if !Self::thread_value_is_fresh_handle(value.as_ref()) {
-                                self.emit_thread_owner_increment(stack_offset);
-                            }
-                        } else if aliases_union_variant || aliases_capture {
+                        if aliases_union_variant || aliases_capture {
                             // Non-owning — no cleanup (the parent binding or the
                             // closure env frees it).
                         } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
@@ -1887,22 +1864,8 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            let assign_slot = if Self::is_thread_type(&result.type_) {
-                                let slot = self.allocate_stack_object("thread_assign_value", 8);
-                                self.emit(abi::store_u64(
-                                    &result.location,
-                                    abi::stack_pointer(),
-                                    slot,
-                                ));
-                                // bug-622: a handle read from another binding is shared,
-                                // so it takes an owner — BEFORE the old handle's drop, or
-                                // `t = t` would free the block it is about to store.
-                                if !Self::thread_value_is_fresh_handle(Some(value)) {
-                                    self.emit_thread_owner_increment(slot);
-                                }
-                                self.emit_thread_cleanup_for_name(name)?;
-                                Some(slot)
-                            } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)
+                            let assign_slot = if let Some(symbol) =
+                                self.resource_cleanup_symbol(&result.type_)
                             {
                                 let slot = self.allocate_stack_object("resource_assign_value", 8);
                                 self.emit(abi::store_u64(
@@ -2641,7 +2604,6 @@ impl CodeBuilder<'_> {
                 .expect("cleanup scope length already checked");
             if !scope_returns {
                 match cleanup {
-                    ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(&cleanup)?,
                     ActiveCleanup::Resource(cleanup) => {
                         self.emit_resource_cleanup_call(&cleanup)?
                     }

@@ -100,8 +100,9 @@ consumer.
 
 `thread::waitFor` waits for the thread to finish and gives you its return value
 — or, if the function failed, fails the same way in your own code, carrying the
-same error. It is also the end of the handle: `waitFor` closes it, and using
-that handle again raises `ErrResourceClosed`.
+same error. Asking again gives the same outcome again. A `Thread` handle is
+closed when the variable holding it goes out of scope, like an open file;
+passing it to a function lends it, so the caller still holds it afterwards.
 
 `thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
 notices by calling `thread::isCancelled` and decides what to do about it. A

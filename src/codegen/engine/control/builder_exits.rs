@@ -41,12 +41,8 @@ impl CodeBuilder<'_> {
     /// exactly once on the handler's own exit — dropping it here would
     /// double-free it. Trap-shared resources *are* still dropped here: their drop
     /// is idempotent (the handler's later drop is a harmless no-op) and
-    /// propagating an error past them closes them as before.
-    ///
-    /// A trap-shared thread is CLOSED here (cancelled, joined or detached, as before)
-    /// but not RELEASED: the handler can still name it and must read a live, closed
-    /// control block (`ErrResourceClosed`), so its owner count is given up by the
-    /// handler's own exit cleanup (bug-622).
+    /// propagating an error past them closes them as before. A thread view is one
+    /// of them (plan-156-C): a handler that names it reads a closed view.
     pub(crate) fn trap_route_cleanups(&self) -> Vec<ActiveCleanup> {
         let floor = self.trap_cleanup_floor();
         self.active_cleanups
@@ -55,15 +51,7 @@ impl CodeBuilder<'_> {
             .filter(|(index, cleanup)| {
                 !(*index < floor && matches!(cleanup, ActiveCleanup::OwnedValue(_)))
             })
-            .map(|(index, cleanup)| match cleanup {
-                ActiveCleanup::Thread(thread) if index < floor => {
-                    ActiveCleanup::Thread(ThreadCleanup {
-                        release: false,
-                        ..thread.clone()
-                    })
-                }
-                other => other.clone(),
-            })
+            .map(|(_, cleanup)| cleanup.clone())
             .collect()
     }
 
@@ -71,9 +59,6 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_cleanups(&mut self, cleanups: &[ActiveCleanup]) -> Result<(), String> {
         for cleanup in cleanups.iter().rev() {
             match cleanup {
-                ActiveCleanup::Thread(cleanup) => {
-                    self.emit_thread_cleanup_call(cleanup)?;
-                }
                 ActiveCleanup::Resource(cleanup) => {
                     self.emit_resource_cleanup_call(cleanup)?;
                 }
@@ -103,7 +88,6 @@ impl CodeBuilder<'_> {
         let cleanups = self.active_cleanups[cleanup_depth..].to_vec();
         for cleanup in cleanups.iter().rev() {
             match cleanup {
-                ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(cleanup)?,
                 ActiveCleanup::Resource(cleanup) => self.emit_resource_cleanup_call(cleanup)?,
                 ActiveCleanup::ResourceUnion(cleanup) => {
                     self.emit_resource_union_cleanup_call(cleanup)?
@@ -774,12 +758,6 @@ impl CodeBuilder<'_> {
         self.drop_interior_temps_before_branch(interior_temp_watermark, escaping_slot)?;
         if let Some(value) = value {
             if let NirValue::Local(name) = value {
-                if result
-                    .as_ref()
-                    .is_some_and(|result| Self::is_thread_type(&result.type_))
-                {
-                    self.deactivate_thread_cleanup(name);
-                }
                 if result.as_ref().is_some_and(|result| {
                     crate::codegen::builtins::resource_close_function(&result.type_).is_some()
                 }) {

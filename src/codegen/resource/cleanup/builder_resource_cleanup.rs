@@ -62,7 +62,15 @@ impl CodeBuilder<'_> {
     /// only when it also OWNS it (`record_owning_locals`, computed by
     /// `resource::cleanup::record_ownership`): a union wrapping a live binding, or a
     /// call that hands back a parameter's record, holds a record another binding frees.
+    ///
+    /// plan-156-C: a parent `Thread` view too. `thread::start` allocates it in the
+    /// caller's arena, and the drop's close (`thread.drop`) is done with it — the
+    /// control block it names lives on its own reference — so a thread started per loop
+    /// iteration does not leak a record per iteration.
     pub(crate) fn resource_record_freed_at_drop(type_: &ParameterType) -> bool {
+        if matches!(type_, ParameterType::ThreadHandle { worker: false, .. }) {
+            return true;
+        }
         let base = type_.without_state();
         [
             "tcp.Socket",
@@ -1016,85 +1024,6 @@ impl CodeBuilder<'_> {
             ARENA_STATE_REGISTER,
             ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
         ));
-    }
-
-    pub(crate) fn emit_thread_cleanup_call(
-        &mut self,
-        cleanup: &ThreadCleanup,
-    ) -> Result<(), String> {
-        // Skip the drop entirely when the slot is null: a `LET t AS Thread =
-        // thread::start(...)` whose initializer raised (an `inboundLimit` /
-        // `outboundLimit` below 1 raises `ErrInvalidArgument` before any thread
-        // exists), or a bind an error path jumped past on its way to the function
-        // `TRAP` handler, leaves the slot at its zero-init 0. `thread.drop` opens
-        // with an unconditional read of the handle's owner count and state, so a
-        // null handle SIGSEGVs *after* the
-        // handler has already run and returned (bug-469). The same guard the
-        // resource path carries for the identical hazard (bug-246); the bind site
-        // zeroes the slot and lists it for prologue zero-init so it reads 0 rather
-        // than stack garbage.
-        if !cleanup.close && !cleanup.release {
-            return Ok(());
-        }
-        let slot = self
-            .locals
-            .get(&cleanup.name)
-            .map(|local| local.stack_offset);
-        let done = match slot {
-            Some(offset) => {
-                let done = self.label("thread_cleanup_done");
-                let handle = self.allocate_register();
-                self.emit(abi::load_u64(&handle, abi::stack_pointer(), offset));
-                self.emit(abi::compare_immediate(&handle, "0"));
-                self.emit(abi::branch_eq(&done));
-                Some(done)
-            }
-            None => None,
-        };
-        // bug-622: the drop's second argument says what this edge does to the handle —
-        // close it, give up this binding's owner count, or both (`THREAD_DROP_CLOSE` /
-        // `THREAD_DROP_RELEASE`).
-        let mode = (if cleanup.close {
-            crate::codegen::runtime::thread::THREAD_DROP_CLOSE
-        } else {
-            0
-        }) | (if cleanup.release {
-            crate::codegen::runtime::thread::THREAD_DROP_RELEASE
-        } else {
-            0
-        });
-        let args = [
-            NirValue::Local(cleanup.name.clone()),
-            NirValue::Const {
-                type_: ParameterType::Integer,
-                value: mode.to_string(),
-            },
-        ];
-        self.emit_raw_call(&cleanup.symbol, &args, "thread_drop_arg")?;
-        // bug-622: a release is this binding's last word on the handle, and the drop that
-        // takes the owner count to 0 frees the control block. Null the slot so the guard
-        // above makes any later drop of the same binding — an exit edge after the one
-        // that already ran — a no-op instead of a second release. A close-only trap-route
-        // drop leaves the slot alone: the handler still reads the handle.
-        if cleanup.release {
-            if let Some(offset) = slot {
-                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
-            }
-        }
-        if let Some(done) = done {
-            self.emit(abi::label(&done));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn emit_thread_cleanup_for_name(&mut self, name: &str) -> Result<(), String> {
-        let cleanup = ThreadCleanup {
-            name: name.to_string(),
-            symbol: Self::thread_drop_symbol(),
-            close: true,
-            release: true,
-        };
-        self.emit_thread_cleanup_call(&cleanup)
     }
 
     /// The drop descriptor for an owned-list owner's payload type: a single

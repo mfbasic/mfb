@@ -433,7 +433,7 @@ Thread OF Msg RES Res TO Out         ' with a resource plane (thread::transfer/a
 Thread OF RES Res TO Out             ' resource plane only (message slot is Nothing)
 ```
 
-`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`; retrieving the outcome consumes and closes the parent `Thread` handle.
+`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`, and may be called again for the same outcome. Both handles are resources: the parent `Thread` closes when it is dropped, and the `ThreadWorker` belongs to the runtime.
 
 ## 4.9 Type Inference
 

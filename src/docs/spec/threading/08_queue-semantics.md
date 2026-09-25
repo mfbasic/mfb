@@ -192,8 +192,8 @@ When the worker completes:
 - The result is copied into the block arena and stored (a worker error's message
   and `ErrorLoc` are copied the same way), so it outlives the worker.
 - `thread::isRunning` returns `FALSE`.
-- `thread::waitFor` returns or propagates the stored result and closes the
-  parent `Thread` handle.
+- `thread::waitFor` returns or propagates the stored result, every time it is
+  called; it closes nothing.
 - Remaining outbound messages stay readable until drained.
 
 If a queued value is never received, it is dropped exactly once when the control

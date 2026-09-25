@@ -73,8 +73,9 @@ copy functions (the seed type's and the entry's result type's, 0 for a word-size
 value). It allocates the control block from the heap, zeroes it, and builds it
 (see `control-block`):
 
-- An owner count of 1 — the binding the handle is returned to — and a release
-  count of 2 (`control-block` § Lifetime).
+- The parent view, first — a resource record in the caller's arena, which the
+  call returns — and a release count of 2 (`control-block` § Views, § Lifetime).
+- The worker view embedded in the block, pointing back at it.
 - The worker function pointer (a closure: code + env), and the result type's copy
   function, which the worker's exit runs.
 - A slot in the thread table, then the block arena.

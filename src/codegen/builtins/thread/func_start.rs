@@ -37,8 +37,9 @@ letting a queue grow without limit. **Each must be at least 1** — `0` or a
 negative value raises `ErrInvalidArgument`, so a limit computed at run time is
 worth checking before it gets here.
 
-Collect the thread with `thread::waitFor`, which waits for it to finish, gives
-you its result, and closes the handle."#;
+Collect the thread with `thread::waitFor`, which waits for it to finish and
+gives you its result. The handle closes when the variable holding it goes out of
+scope, and a thread still running then is cancelled (see `thread::cancel`)."#;
 
 const EX: &str = r#"Start a worker and wait for its answer:
 

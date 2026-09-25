@@ -18,7 +18,7 @@
 //! **Lifetime.** A block carries two references ([`CONTROL_OFFSET_REFS`]): the
 //! handle side's and the worker's. The worker drops its reference as the last act
 //! of its run (`_mfb_rt_thread_finish`); the handle side drops its reference when
-//! its last owner lets go (`thread.drop`). Whichever takes the count to zero frees
+//! its parent view is dropped (`thread.drop`). Whichever takes the count to zero frees
 //! the block ([`lower_thread_block_release`]): the table slot, the block arena,
 //! the worker's arena-state block and the block itself. The count is internal
 //! bookkeeping; the language has no reference counting.
@@ -61,7 +61,6 @@ pub(crate) const CONTROL_OFFSET_REFS: usize = 112;
 /// This block's index in the thread table's slot array.
 pub(crate) const CONTROL_OFFSET_SLOT: usize = 120;
 /// The block arena's arena state (a heap block of [`ARENA_STATE_SIZE`] bytes).
-/// 0 for the closed stub an inline `TRAP` on a failed `thread::start` binds.
 pub(crate) const CONTROL_OFFSET_ARENA: usize = 128;
 /// The per-type function that deep-copies the worker's success value into the
 /// current arena (0 = a scalar, stored as is). Called by `_mfb_rt_thread_finish`
@@ -77,9 +76,6 @@ pub(crate) const CONTROL_OFFSET_DATA: usize = 160;
 /// The worker's arena-state block (a heap block: arena state, seed scratch word and
 /// the writable globals region, [`worker_arena_state_size`]).
 pub(crate) const CONTROL_OFFSET_WORKER_ARENA: usize = 168;
-/// bug-622: how many parent-side bindings still hold this handle (see
-/// `simple_thread_handle_helper`'s `Drop` arm). Parent-thread only.
-pub(crate) const CONTROL_OFFSET_OWNERS: usize = 176;
 /// The four queues, embedded ([`THREAD_QUEUE_SIZE`] bytes each). Each is a ring of
 /// `{value, …}` entries in the block arena plus its two condvars; all four share the
 /// block lock.
@@ -91,8 +87,13 @@ pub(crate) const CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE: usize =
     CONTROL_OFFSET_OUTBOUND_QUEUE + THREAD_QUEUE_SIZE;
 pub(crate) const CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize =
     CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE + THREAD_QUEUE_SIZE;
-pub(crate) const CONTROL_BLOCK_SIZE: usize =
+/// plan-156-C: the worker's view — the `ThreadWorker` value the trampoline hands the
+/// entry — is a resource record embedded here, `HANDLE` pointing back at this block.
+/// It lives exactly as long as the worker's reference: nothing outside the worker can
+/// name it, and the worker cannot outlive its own reference.
+pub(crate) const CONTROL_OFFSET_WORKER_VIEW: usize =
     CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE + THREAD_QUEUE_SIZE;
+pub(crate) const CONTROL_BLOCK_SIZE: usize = CONTROL_OFFSET_WORKER_VIEW + RESOURCE_RECORD_SIZE_BYTES;
 
 // Every field is addressed with an immediate displacement off the block pointer;
 // rv64's load/store immediate is a signed 12-bit field.
@@ -603,6 +604,42 @@ pub(crate) fn emit_call_in_block_arena(
             abi::branch_link_register("%v15"),
         ]);
     });
+}
+
+/// plan-156-C: a `thread::*` op receives a thread VIEW in `c_arg(0)` — the parent's
+/// `Thread` or the worker's `ThreadWorker` resource record — not the control block.
+/// Branch to `closed` when the view's `RESOURCE_OFFSET_CLOSED` word is set (a dropped
+/// view, or the closed default an inline `TRAP` binds); otherwise replace `c_arg(0)`
+/// with the control block the view names (`RESOURCE_OFFSET_HANDLE`), so the op's body
+/// works on the block. Emitted first, before the op reads any argument. `closed` is
+/// emitted by [`emit_view_closed_exit`].
+pub(crate) fn emit_control_block_of(instructions: &mut Vec<CodeInstruction>, closed: &str) {
+    instructions.extend([
+        // A null view is a binding whose drop already freed its record (a `TRAP`
+        // handler reading a thread the error route dropped): closed, too.
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_eq(closed),
+        abi::load_u64("%v9", abi::c_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(closed),
+        abi::load_u64(abi::c_arg(0), abi::c_arg(0), RESOURCE_OFFSET_HANDLE),
+    ]);
+}
+
+/// The `closed` exit of [`emit_control_block_of`]: return `ErrResourceClosed` with no
+/// origin (the one op that returns an origin, `waitFor`, returns a worker's).
+pub(crate) fn emit_view_closed_exit(
+    symbol: &str,
+    closed: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::label(closed));
+    raise_error_into(symbol, "ErrResourceClosed", instructions, relocations);
+    instructions.extend([
+        abi::move_immediate(RESULT_ERROR_SOURCE_REGISTER, "Integer", "0"),
+        abi::return_(),
+    ]);
 }
 
 /// `_mfb_rt_thread_block_arena_destroy(state)`: unmap the block arena's chunks

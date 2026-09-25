@@ -1,7 +1,8 @@
 # Control Block
 
-The native thread handle is a pointer to the thread's **control block**: a
-`CONTROL_BLOCK_SIZE` (960-byte) block allocated from the process heap
+A thread value is a **view**: a 96-byte resource record whose `HANDLE` word points
+at the thread's **control block** (see § Views). The control block is a
+`CONTROL_BLOCK_SIZE` (1056-byte) block allocated from the process heap
 (`malloc`; `HeapAlloc` on Windows), not from any thread's arena, so either side
 can free it. Everything the parent side and the worker share lives in it: one
 lock, the run state and cancel flag, the stored result, the four queues, and the
@@ -26,26 +27,57 @@ offset  field
 152     entry function pointer        (closure)
 160     seed                          (block-arena copy, or the word itself)
 168     worker arena state            (heap block)
-176     owners                        (parent bindings holding the handle)
-184     (unused)
+176     (unused)
 192     inbound queue                 (data plane, parent -> worker)
 384     outbound queue                (data plane, worker -> parent)
 576     resource inbound queue        (resource plane, parent -> worker)
 768     resource outbound queue       (resource plane, worker -> parent)
+960     worker view                   (the ThreadWorker resource record, 96 bytes)
 ```
 [[src/codegen/runtime/thread/control_block.rs:CONTROL_OFFSET_LOCK]]
 [[src/codegen/runtime/thread/control_block.rs:CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE]]
+[[src/codegen/runtime/thread/control_block.rs:CONTROL_OFFSET_WORKER_VIEW]]
 
 Every field is addressed with an immediate displacement off the block pointer, so
 the block stays within rv64's signed 12-bit load/store range (a compile-time
 assertion in `control_block.rs`).
 
-`state = 0` means running (`THREAD_STATE_RUNNING`). `state = 1` means complete
-with an unretrieved result (`THREAD_STATE_COMPLETED`). `state = 2` means the
-parent `Thread` handle is closed because the result was retrieved or the handle
-was dropped (`THREAD_STATE_CLOSED`). `CLOSED` is terminal: nothing moves a block out
-of it, which is what lets every handle op test it once without the lock before
-taking the lock. [[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_STATE_RUNNING]]
+`state = 0` means running (`THREAD_STATE_RUNNING`). `state = 1` means complete,
+with the result stored (`THREAD_STATE_COMPLETED`); it stays there however many
+times `thread::waitFor` reads the result. `state = 2` means the parent view was
+dropped (`THREAD_STATE_CLOSED`); only that drop writes it, and the worker's exit
+then stores no result, since nothing can read it.
+[[src/codegen/runtime/thread/runtime_helpers.rs:THREAD_STATE_RUNNING]]
+
+## Views
+
+Both thread types are resource records (`RESOURCE_RECORD_SIZE`, the layout every
+built-in resource shares): `TAG` at 0, `HANDLE` at 8 — the control block —
+`CLOSED` at 16, `STATE` at 24 (unused; 0).
+
+- The **parent view** (`Thread`, tag `RESOURCE_TAG_THREAD`) is allocated by
+  `thread::start` in the calling thread's arena, before anything else, and
+  returned; a failed start frees it. Its close op is the hidden `thread.drop`
+  (`builtin_resource_close_function` answers it structurally, since a thread type
+  has no single nominal), so a parent view binding is an ordinary resource
+  binding: its scope drop runs the close op and then frees the record
+  (`resource_record_freed_at_drop`), `RETURN` moves it, and passing it to a
+  function lends it.
+- The **worker view** (`ThreadWorker`, tag `RESOURCE_TAG_THREAD_WORKER`) is
+  embedded in the control block at `CONTROL_OFFSET_WORKER_VIEW`, filled in by
+  `thread::start`; the trampoline passes its address as the entry's first
+  argument. It has no close op: it lives exactly as long as the worker's
+  reference.
+
+Every thread op receives a view and reaches the block through
+`emit_control_block_of`, which answers `ErrResourceClosed` for a null or closed
+view before touching the block. The closed default an inline `TRAP` binds on the
+error path of `thread::start` is a closed resource record with the thread tag and
+a zero `HANDLE`, so no op ever reaches a block through it.
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_THREAD]]
+[[src/codegen/runtime/thread/control_block.rs:emit_control_block_of]]
+[[src/codegen/resource/mod.rs:builtin_resource_close_function]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
 
 ## The lock
 
@@ -101,17 +133,12 @@ worker's. Each is given up exactly once, under the block lock:
 
 - **The worker's**, by `_mfb_rt_thread_finish` at the end of its run, after it has
   published its result.
-- **The handle side's**, by the `thread.drop` that takes the owner count to 0.
-  `owners` counts the parent bindings holding the handle — the language lets a
-  handle be read after it was dropped or passed to a function (the op answers
-  `ErrResourceClosed`), and lets one handle be bound under two names, so no single
-  drop knows it is the last reader. `thread::start` sets 1. A binding or `MUT`
-  assignment from another handle binding adds 1, and a function parameter adds 1 on
-  entry. Each binding's final drop gives one back (`THREAD_DROP_RELEASE`); a
-  `RETURN` hands the callee's count to the caller's binding instead. A trap route to
-  the function's `TRAP` handler only closes (`THREAD_DROP_CLOSE`) a handle the
-  handler can name; the handler's own exit releases it.
-  [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_owner_increment]]
+- **The handle side's**, by the parent view's `thread.drop`. There is one parent
+  view per thread and one drop of it — the resource rules give the record a single
+  owner — so the drop is the handle side's one release. It closes the view first,
+  then marks the block `CLOSED` and cancelled, closes every queue and wakes every
+  waiter, joins a `COMPLETED` worker or detaches a `RUNNING` one (unless a
+  `waitFor` already joined it), and gives up the reference.
 
 Whichever side takes the count to zero frees the block
 (`_mfb_rt_thread_block_release`): the table slot; every message a queue still owns,
@@ -123,17 +150,12 @@ registry first); and the block.
 
 A handle-side release that reaches zero first joins a worker it has not joined or
 detached — the worker has already given up its reference, so it has nothing left
-to do but unlock and return. `thread::waitFor` joins the worker and zeroes the OS
-handle; a closing drop joins a `COMPLETED` worker and detaches a `RUNNING` one
-(after cancelling it), zeroing the OS handle either way. A worker whose handle
+to do but unlock and return. The first `thread::waitFor` to see `COMPLETED` joins
+the worker and zeroes the OS handle; the drop joins a `COMPLETED` worker and
+detaches a `RUNNING` one (after cancelling it), zeroing the OS handle either way,
+and skips both when the handle is already zero. A worker whose handle
 side let go while it was running is detached, so it frees the block itself when it
 finishes. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
-
-The `TRAP`-path closed handle (the value an inline `TRAP` on a failed
-`thread::start` binds) is a `CONTROL_BLOCK_SIZE` stub from the parent's arena with
-`state` `CLOSED`, `owners` 1 and a zero block-arena word; it has no lock and no
-worker. The release that takes its owner count to 0 frees just the stub.
-[[src/codegen/memory/value/builder_value_semantics.rs:emit_closed_thread_handle]]
 
 The worker's arena chunks are unmapped by the worker at the end of its run (see
 `queue-semantics`); its arena-state block goes with the control block.

@@ -7,14 +7,8 @@ use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-// bug-622: the `thread.drop` mode (its second argument). CLOSE marks the handle CLOSED,
-// cancels, and joins a completed worker or detaches a running one — the drop's original
-// meaning. RELEASE gives up the dropping binding's owner count, and the release that
-// takes it to 0 gives up the handle side's reference on the control block. A trap
-// route closes a handler-visible handle without releasing it; a handle moved into a
-// callee releases without closing.
-pub(crate) const THREAD_DROP_CLOSE: u64 = 1;
-pub(crate) const THREAD_DROP_RELEASE: u64 = 2;
+/// The control block's run state. `CLOSED` is written only by the parent view's drop:
+/// the worker's exit then publishes no result, since nothing can read it.
 pub(crate) const THREAD_STATE_RUNNING: &str = "0";
 pub(crate) const THREAD_STATE_COMPLETED: &str = "1";
 pub(crate) const THREAD_STATE_CLOSED: &str = "2";
@@ -432,26 +426,31 @@ pub(crate) fn lower_thread_stdin_subscription_helper(
     };
     let worker = format!("{symbol}_worker");
     let do_call = format!("{symbol}_call");
+    let view_closed = format!("{symbol}_view_closed");
     let mut instructions = vec![
-        abi::move_register("%v9", abi::c_arg(0)),
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_ne(&worker),
         // Self form: subscribe the calling thread's own arena.
         abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
         abi::branch(&do_call),
         abi::label(&worker),
-        // Worker form: the parent `Thread` handle carries the worker's arena state.
-        abi::load_u64(abi::c_arg(0), "%v9", CONTROL_OFFSET_WORKER_ARENA),
+    ];
+    // Worker form: the parent `Thread` view names the control block, which carries the
+    // worker's arena state (plan-156-C).
+    emit_control_block_of(&mut instructions, &view_closed);
+    instructions.extend([
+        abi::load_u64(abi::c_arg(0), abi::c_arg(0), CONTROL_OFFSET_WORKER_ARENA),
         abi::label(&do_call),
         abi::branch_link(target),
-    ];
-    let relocations = vec![internal_branch(symbol, target)];
+    ]);
+    let mut relocations = vec![internal_branch(symbol, target)];
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
     instructions.push(abi::return_());
+    emit_view_closed_exit(symbol, &view_closed, &mut instructions, &mut relocations);
     Ok((instructions, relocations, 0))
 }
 
@@ -539,6 +538,8 @@ pub(crate) fn lower_thread_start_helper(
     // The worker's arena-state block, until it is stored in the control block.
     const WORKER_OFFSET: usize = 136;
     const RESULT_COPY_OFFSET: usize = 144;
+    // plan-156-C: the parent view this call returns, in the caller's arena.
+    const VIEW_OFFSET: usize = 152;
     // Largest queue limit whose ring size (`capacity * THREAD_QUEUE_ENTRY_SIZE`) still
     // fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
@@ -558,6 +559,8 @@ pub(crate) fn lower_thread_start_helper(
     let init_error = format!("{symbol}_init_error");
     let spawn_error = format!("{symbol}_spawn_error");
     let parent_done = format!("{symbol}_parent_done");
+    let view_oom = format!("{symbol}_view_oom");
+    let spawned = format!("{symbol}_spawned");
     let block_zero = format!("{symbol}_block_zero");
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
@@ -580,6 +583,19 @@ pub(crate) fn lower_thread_start_helper(
         abi::branch_hi(&invalid_limit),
         abi::compare_registers(abi::c_arg(3), "%v12"),
         abi::branch_hi(&invalid_limit),
+        // plan-156-C: the parent view — the `Thread` value this call returns — is a
+        // resource record in the CALLER's arena, like any other resource the caller
+        // opens, so the caller's scope drop frees it. Allocated before anything else so
+        // every later failure only has to free it.
+        abi::move_immediate(abi::c_arg(0), "Integer", RESOURCE_RECORD_SIZE),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&view_oom),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), VIEW_OFFSET),
         // plan-156-A: the control block comes from the process heap — it belongs to no
         // thread, so whichever side lets go of it last can free it.
         abi::move_immediate(abi::c_arg(0), "Integer", &CONTROL_BLOCK_SIZE.to_string()),
@@ -599,9 +615,6 @@ pub(crate) fn lower_thread_start_helper(
         abi::compare_registers("%v9", "%v10"),
         abi::branch_lo(&block_zero),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        // bug-622: the binding this handle is returned to is its first owner.
-        abi::move_immediate("%v10", "Integer", "1"),
-        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_OWNERS),
         // plan-156-A §4.4: one reference for the handle side, one for the worker.
         abi::move_immediate("%v10", "Integer", "2"),
         abi::store_u64("%v10", "%v9", CONTROL_OFFSET_REFS),
@@ -611,6 +624,18 @@ pub(crate) fn lower_thread_start_helper(
         abi::store_u64("%v10", "%v9", CONTROL_OFFSET_DATA),
         abi::load_u64("%v10", abi::stack_pointer(), RESULT_COPY_OFFSET),
         abi::store_u64("%v10", "%v9", CONTROL_OFFSET_RESULT_COPY),
+        // plan-156-C: the worker's view, embedded in the (zeroed) block: open, no STATE.
+        abi::move_immediate("%v10", "Integer", RESOURCE_TAG_THREAD_WORKER),
+        abi::store_u64(
+            "%v10",
+            "%v9",
+            CONTROL_OFFSET_WORKER_VIEW + RESOURCE_OFFSET_TAG,
+        ),
+        abi::store_u64(
+            "%v9",
+            "%v9",
+            CONTROL_OFFSET_WORKER_VIEW + RESOURCE_OFFSET_HANDLE,
+        ),
         // The table slot. From here on every failure releases the block through
         // `_mfb_rt_thread_block_release`, which frees whatever the block holds so far.
         abi::move_register(abi::c_arg(0), "%v9"),
@@ -816,9 +841,7 @@ pub(crate) fn lower_thread_start_helper(
             abi::store_u64(abi::c_return(0), "%v9", CONTROL_OFFSET_OS_HANDLE),
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&spawn_error), // NULL = failure
-            abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&parent_done),
+            abi::branch(&spawned),
         ]);
     } else {
         let (pthread_create_symbol, attr_init_symbol, attr_setstacksize_symbol) =
@@ -898,16 +921,42 @@ pub(crate) fn lower_thread_start_helper(
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&parent_done),
+            abi::branch(&spawned),
         ]);
     }
+
+    // plan-156-C: the thread runs; fill in the parent view and return it. Every word is
+    // written — the record came from the fill-poisoned arena — and it is open, with no
+    // STATE (plan-156-E gives it one).
+    ctx.instructions.extend([
+        abi::label(&spawned),
+        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), VIEW_OFFSET),
+    ]);
+    for offset in (0..RESOURCE_RECORD_SIZE_BYTES).step_by(8) {
+        ctx.instructions.push(abi::store_u64(abi::ZERO, "%v10", offset));
+    }
+    ctx.instructions.extend([
+        abi::move_immediate("%v11", "Integer", RESOURCE_TAG_THREAD),
+        abi::store_u64("%v11", "%v10", RESOURCE_OFFSET_TAG),
+        abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_HANDLE),
+        abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&parent_done),
+    ]);
 
     // Failure paths. A failed start frees everything it built: before the table slot
     // there is only the heap block (freed directly); after it the block release frees
     // the slot, the block arena and the worker arena block, whichever exist (zero words
     // are skipped). The error registers are parked across the release.
+    let free_view = |ctx: &mut EmitCtx| {
+        ctx.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), VIEW_OFFSET),
+            abi::move_immediate(abi::c_arg(1), "Integer", RESOURCE_RECORD_SIZE),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        ctx.relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+    };
     let release_and_fail = |ctx: &mut EmitCtx, error: &str| -> Result<(), String> {
         ctx.instructions.extend([
             abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CB_OFFSET),
@@ -915,6 +964,7 @@ pub(crate) fn lower_thread_start_helper(
         ]);
         ctx.relocations
             .push(internal_branch(symbol, THREAD_BLOCK_RELEASE_SYMBOL));
+        free_view(ctx);
         raise_error_into(symbol, error, ctx.instructions, ctx.relocations);
         ctx.instructions.push(abi::branch(&parent_done));
         Ok(())
@@ -937,6 +987,8 @@ pub(crate) fn lower_thread_start_helper(
     ]);
     platform.emit_heap_free(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     ctx.instructions.push(abi::label(&skip_free));
+    free_view(&mut ctx);
+    ctx.instructions.push(abi::label(&view_oom));
     raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&parent_done), abi::label(&oom)]);
@@ -1085,7 +1137,12 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::SCRATCH[4], CLOSURE_OFFSET_ENV),
         abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[4], CLOSURE_OFFSET_CODE),
         abi::load_u64(abi::c_arg(1), abi::CURRENT_THREAD, CONTROL_OFFSET_DATA),
-        abi::move_register(abi::c_arg(0), abi::CURRENT_THREAD),
+        // plan-156-C: the entry's `ThreadWorker` is the view embedded in the block.
+        abi::add_immediate(
+            abi::c_arg(0),
+            abi::CURRENT_THREAD,
+            CONTROL_OFFSET_WORKER_VIEW,
+        ),
         abi::branch_link_register(abi::SCRATCH[4]),
         abi::label(&worker_result),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
