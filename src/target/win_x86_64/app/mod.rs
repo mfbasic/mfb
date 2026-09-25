@@ -28,6 +28,7 @@ pub(crate) use window::{emit_window_sync_seam, window_data_objects};
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
+use crate::arch::ops::CodeOp;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
@@ -206,6 +207,13 @@ const RESIZE_BUF_CHARS: usize = 16;
 /// simulates would have asked for. Spelled here as the GTK backend spells it; the
 /// registry owns the name.
 const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
+/// The Win64 nonvolatile integer bank (bug-695), in save-slot order. A window
+/// procedure is a callback, so it owes `DispatchMessageW` every one of these — and
+/// the machine-floor scratch pool its arms stage values in realizes to six of them
+/// (`map_scratch_register`). Physical names on purpose: this list is Win64's
+/// contract, not a role the selector should remap. No arm uses an `xmm` register,
+/// so the nonvolatile `xmm6`–`xmm15` need no save.
+const WIN64_NONVOLATILE: [&str; 8] = ["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"];
 const WM_CHAR: &str = "258"; // 0x0102
 const VK_RETURN: &str = "13"; // '\r' (WM_CHAR wParam on Enter)
 const GWLP_WNDPROC: usize = 4; // -(-4) the SetWindowLongPtrW index for the wndproc
@@ -1081,11 +1089,14 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     // decimal scratch, a POINT for `ScreenToClient` and a handful of values. They
     // are APPENDED past the base frame, so every offset above is unchanged and a
     // `WndProc` without mouse keeps its exact frame and goldens.
-    let frame = if uses_mouse {
+    let arms_frame = if uses_mouse {
         FRAME + mouse::MOUSE_FRAME_EXTRA
     } else {
         FRAME
     };
+    // bug-695: the nonvolatile save area sits at the TOP of the frame, past every arm's
+    // slots, so no existing offset moves. 64 bytes keeps the frame ≡ 8 (mod 16).
+    let frame = arms_frame + WIN64_NONVOLATILE.len() * 8;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
@@ -1341,6 +1352,13 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
             &mut ins,
             &mut rel,
         );
+        // bug-695: and ask for the frame at that size. A resize is redraw trigger 2
+        // (`.ai/canvas-threading.md` §4), signalled by the main thread — macOS and GTK
+        // do it after publishing, and this arm stopped at the publish, so a static
+        // scene kept its old-size frame until something else presented. A no-op before
+        // the graphics thread exists. Safe to call from here: the frame preserves the
+        // nonvolatile bank, and `wnd_default` reloads the four arguments.
+        call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::branch("wnd_default"));
     }
 
@@ -1603,7 +1621,54 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     call_external(from, "DefWindowProcW", USER32, &mut ins, &mut rel);
     ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
+    let ins = preserve_win64_nonvolatile(ins, arms_frame);
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
+}
+
+/// bug-695: save [`WIN64_NONVOLATILE`] right after the frame is allocated and reload
+/// it before every return, at `[sp + save_base ..]`.
+///
+/// A rewrite over the finished body rather than a save written into each arm: the arms
+/// live in three files (`window.rs`, `mouse.rs`, here) and each ends in its own
+/// `add_sp; ret`, so one pass is the only spelling a new arm cannot forget. Only an
+/// `add_sp` immediately followed by `ret` is an exit — a frame pop that is not a
+/// return does not occur, and restoring there would be wrong if it ever did.
+fn preserve_win64_nonvolatile(
+    ins: Vec<CodeInstruction>,
+    save_base: usize,
+) -> Vec<CodeInstruction> {
+    let exits: Vec<bool> = (0..ins.len())
+        .map(|at| {
+            ins[at].op == CodeOp::AddSp
+                && ins.get(at + 1).is_some_and(|next| next.op == CodeOp::Ret)
+        })
+        .collect();
+    let mut out = Vec::with_capacity(ins.len() + 64);
+    let mut saved = false;
+    for (instruction, exits) in ins.into_iter().zip(exits) {
+        if exits {
+            for (slot, register) in WIN64_NONVOLATILE.iter().enumerate() {
+                out.push(abi::load_u64(
+                    *register,
+                    abi::stack_pointer(),
+                    save_base + slot * 8,
+                ));
+            }
+        }
+        let allocates = instruction.op == CodeOp::SubSp;
+        out.push(instruction);
+        if !saved && allocates {
+            saved = true;
+            for (slot, register) in WIN64_NONVOLATILE.iter().enumerate() {
+                out.push(abi::store_u64(
+                    *register,
+                    abi::stack_pointer(),
+                    save_base + slot * 8,
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// `editproc(hwnd, msg, wParam, lParam)`: the transcript EDIT's subclass (plan-66-
@@ -5225,5 +5290,89 @@ mod canvas_reconcile_tests {
                 "{symbol} must be emitted as a writable global"
             );
         }
+    }
+
+    /// Every WndProc configuration: the arms are gated on these three flags.
+    fn every_wndproc() -> Vec<CodeFunction> {
+        let mut out = Vec::new();
+        for uses_canvas in [false, true] {
+            for uses_mouse in [false, true] {
+                for uses_window in [false, true] {
+                    let spec = AppEntrySpec {
+                        language_entry_accepts_args: false,
+                        uses_term: false,
+                        initial_mode: PresentationMode::Console,
+                        uses_canvas,
+                        uses_mouse,
+                        uses_window,
+                        debug_hooks: false,
+                    };
+                    out.push(
+                        emit_app_program_entry(&spec, &HashMap::new())
+                            .expect("app entry")
+                            .into_iter()
+                            .find(|f| f.symbol == WNDPROC_SYMBOL)
+                            .expect("WndProc must be emitted"),
+                    );
+                }
+            }
+        }
+        out
+    }
+
+    /// bug-695: WndProc is a Win64 callback, so it owes user32 the nonvolatile bank.
+    ///
+    /// Its arms stage values in the machine-floor scratch pool, whose x86 realizations
+    /// are `rbx`/`rsi`/`rdi`/`rbp`/`r12`/`r13` — all nonvolatile under Win64 — and the
+    /// frame saved none of them (`"calleeSaved": []` in every Windows app `.ncode`).
+    /// The whole bank is saved at entry and reloaded before every `ret`, so no arm,
+    /// present or future, can hand `DispatchMessageW` a clobbered register.
+    #[test]
+    fn wndproc_saves_and_restores_the_win64_nonvolatile_bank() {
+        for wndproc in every_wndproc() {
+            let ins = &wndproc.instructions;
+            let sub = ins
+                .iter()
+                .position(|i| i.op == CodeOp::SubSp)
+                .expect("WndProc allocates a frame");
+            let saved: Vec<String> = ins[sub + 1..sub + 1 + WIN64_NONVOLATILE.len()]
+                .iter()
+                .filter(|i| i.op == CodeOp::StrU64)
+                .filter_map(|i| i.get("src"))
+                .collect();
+            assert_eq!(
+                saved, WIN64_NONVOLATILE,
+                "the prologue must save the whole nonvolatile bank"
+            );
+            let returns = ins.iter().filter(|i| i.op == CodeOp::Ret).count();
+            assert!(returns > 0);
+            for (at, _) in ins.iter().enumerate().filter(|(_, i)| i.op == CodeOp::Ret) {
+                assert_eq!(ins[at - 1].op, CodeOp::AddSp, "ret follows the frame pop");
+                let reloaded: Vec<String> = ins[at - 1 - WIN64_NONVOLATILE.len()..at - 1]
+                    .iter()
+                    .filter(|i| i.op == CodeOp::LdrU64)
+                    .filter_map(|i| i.get("dst"))
+                    .collect();
+                assert_eq!(
+                    reloaded, WIN64_NONVOLATILE,
+                    "every return must reload the nonvolatile bank"
+                );
+            }
+        }
+    }
+
+    /// bug-695: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled
+    /// by the main thread on every platform. macOS (`setFrameSize:`) and GTK (the
+    /// resize signal) signal after publishing; Windows' WM_SIZE published the size and
+    /// stopped, so a static scene was never re-rendered at the new size — WM_PAINT kept
+    /// blitting the old-size frame.
+    #[test]
+    fn wm_size_signals_a_redraw() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        assert_eq!(
+            externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL),
+            1,
+            "the WM_SIZE arm must call canvas::signalRedraw after publishing the size"
+        );
     }
 }
