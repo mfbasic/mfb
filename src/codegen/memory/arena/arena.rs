@@ -495,7 +495,11 @@ pub(crate) fn lower_arena_alloc(
         abi::add_immediate(&lg_link, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET),
         abi::load_u64(&lg_cur, &lg_link, 0),
         abi::move_immediate(&lg_best, "Integer", "0"),
-        abi::move_immediate(&lg_budget, "Integer", &ARENA_LARGE_BIN_SCAN_LIMIT.to_string()),
+        abi::move_immediate(
+            &lg_budget,
+            "Integer",
+            &ARENA_LARGE_BIN_SCAN_LIMIT.to_string(),
+        ),
         abi::label("arena_alloc_large_scan"),
         abi::compare_immediate(&lg_cur, "0"),
         abi::branch_eq("arena_alloc_large_scan_done"),
@@ -560,9 +564,7 @@ pub(crate) fn lower_arena_alloc(
         "arena_alloc_large_rem",
         &mut instructions,
     );
-    instructions.extend([
-        abi::label("arena_alloc_large_hit"),
-    ]);
+    instructions.extend([abi::label("arena_alloc_large_hit")]);
     emit_debug_alloc_hit(
         &dbg_slot,
         COUNTER_HIT_LARGE_BIN,
@@ -816,7 +818,11 @@ pub(crate) fn lower_arena_alloc(
         abi::branch_ne("arena_alloc_grow_map"),
         abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
         abi::branch_hi("arena_alloc_grow_map"),
-        abi::move_immediate(&map_size, "Integer", &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string()),
+        abi::move_immediate(
+            &map_size,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
         abi::add_registers(&map_size, ARENA_STATE_REGISTER, &map_size),
         abi::load_u64(&map_size, &map_size, 0),
         abi::compare_immediate(&map_size, "0"),
@@ -1578,7 +1584,11 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
         // `total` chunks it sorted, at ARENA_LARGE_FLUSH_BYTES_PER_CHUNK each — so
         // the next big-request flush waits until that many large bytes were freed.
         abi::label("fc_ret"),
-        abi::move_immediate(&cbin, "Integer", &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string()),
+        abi::move_immediate(
+            &cbin,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
         abi::add_registers(&cbin, ARENA_STATE_REGISTER, &cbin),
         abi::shift_left_immediate(
             &total,
@@ -1760,7 +1770,11 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
         // bug-690: credit the large-bin flush with the bytes just parked.
-        abi::move_immediate(&bin_slot, "Integer", &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string()),
+        abi::move_immediate(
+            &bin_slot,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
         abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_slot),
         abi::load_u64(&bin_head, &bin_slot, 0),
         abi::add_registers(&bin_head, &bin_head, &size),

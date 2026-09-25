@@ -202,7 +202,11 @@ END FUNC
     let mut grown = Vec::new();
     for kind in ["main", "graphics"] {
         let index = (0..)
-            .take_while(|index| lines.iter().any(|l| l.starts_with(&format!("arena.{index}."))))
+            .take_while(|index| {
+                lines
+                    .iter()
+                    .any(|l| l.starts_with(&format!("arena.{index}.")))
+            })
             .find(|index| lines.contains(&format!("arena.{index}.kind {kind}")))
             .unwrap_or_else(|| panic!("{name}: no `{kind}` arena in {lines:?}"));
         let mapped = common::debug_report::counter(name, &lines, index, "mapped_bytes");
