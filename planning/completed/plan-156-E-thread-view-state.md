@@ -158,7 +158,7 @@ Acceptance: both Phase 1 fixtures pass; existing STATE tests pass.
   fixtures' `.ast`/`.ir` (220 ran); `cargo test --release --bin mfb -- verify
   state` → 562 passed; full `cargo test --bin mfb` → 4327 passed; IR sweep over
   960 fixtures → 0 differ; `artifact-gate all` → 2152 checked, 0 diffs.
-Commit: —
+Commit: 30f7668a6
 
 ## Validation Plan
 

@@ -29,7 +29,7 @@ See plan-156-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-156-E complete | `ls planning/plan-156-E-*` → no match | NOT MET |
+| plan-156-E complete | `ls planning/plan-156-E-*` → no match | MET (2026-09-25: "no matches found"; archived) |
 
 ## 1. Goal
 
