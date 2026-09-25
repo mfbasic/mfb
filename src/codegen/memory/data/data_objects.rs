@@ -365,16 +365,30 @@ pub(crate) fn string_symbols(
             "os.executablePath",
             "os.version",
             "os.uptime",
-            // plan-55-B: `os.resourcePath` raises ErrUnsupported when the exe path
+            // plan-55-B: `os.appResourcePath` raises ErrUnsupported when the exe path
             // cannot be acquired (the same failure `executablePath` handles).
-            "os.resourcePath",
+            "os.appResourcePath",
+            // plan-157-B: no home / no passwd entry / the known-folder query failed.
+            "os.appDataPath",
+            "os.appCachePath",
+            "os.userHomePath",
+            "os.userDocumentsPath",
         ],
     ) {
         push_string_value(&mut values, err_msg("ErrUnsupported"));
     }
-    // plan-55-B: `os.resourcePath` additionally raises ErrInvalidPath when the
+    // plan-55-B: `os.appResourcePath` additionally raises ErrInvalidPath when the
     // `relative` argument contains a `.`/`..` path component.
-    if module_uses_call(module, "os.resourcePath") {
+    if module_uses_any_call(
+        module,
+        &[
+            "os.appResourcePath",
+            "os.appDataPath",
+            "os.appCachePath",
+            "os.userHomePath",
+            "os.userDocumentsPath",
+        ],
+    ) {
         push_string_value(&mut values, err_msg("ErrInvalidPath"));
     }
     if module_uses_any_call(

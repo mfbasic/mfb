@@ -1,0 +1,96 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT io
+
+FUNC paints() AS List OF canvas::Paint
+  MUT out AS List OF canvas::Paint = []
+  LET fills AS List OF color::Color = [color::rgba(10, 20, 30, 200), color::rgba(0, 0, 0, 0)]
+  LET strokes AS List OF color::Color = [color::rgba(200, 100, 50, 255), color::rgba(1, 2, 3, 0)]
+  LET widths AS List OF Float = [0.0, 1.0, 2.75, 0.0 - 1.5]
+  LET modes AS List OF canvas::BlendMode = [canvas::BlendMode.Normal, canvas::BlendMode.Multiply, canvas::BlendMode.Screen, canvas::BlendMode.Add]
+  LET clips AS List OF canvas::Bounds = [canvas::Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0], canvas::Bounds[x := 5.5, y := 0.0 - 3.25, w := 100.125, h := 50.0], canvas::Bounds[x := 10.0, y := 10.0, w := 0.0 - 5.0, h := 3.0]]
+  FOR EACH f IN fills
+    FOR EACH s IN strokes
+      FOR EACH w IN widths
+        FOR EACH m IN modes
+          FOR EACH c IN clips
+            out = collections::append(out, WITH canvas::fill(f) { stroke := s, strokeWidth := w, blend := m, clip := c })
+          NEXT
+        NEXT
+      NEXT
+    NEXT
+  NEXT
+  LET nz AS Float = 0.0 * (0.0 - 1.0)
+  LET one AS canvas::GradientStop = canvas::GradientStop[offset := 0.25, color := color::rgb(9, 8, 7)]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 1.5, y := 2.5], endPoint := canvas::Point[x := 0.0 - 3.5, y := 4.25], stops := [one]]
+  LET flat AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 7.0, y := 8.0], endPoint := canvas::Point[x := 9.0, y := 10.0], stops := []]
+  LET negZero AS canvas::Transform = canvas::Transform[a := nz, b := nz, c := nz, d := nz, tx := nz, ty := nz]
+  out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { stroke := color::rgb(4, 5, 6), strokeWidth := 2.0, fillGradient := ramp })
+  out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { fillGradient := flat, blend := canvas::BlendMode.Add })
+  out = collections::append(out, WITH canvas::stroke(color::rgb(4, 5, 6), 3.0) { transform := negZero })
+  RETURN out
+END FUNC
+
+FUNC pt(x AS Float, y AS Float) AS canvas::Point
+  RETURN canvas::Point[x := x, y := y]
+END FUNC
+
+FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  LET nz AS Float = 0.0 * (0.0 - 1.0)
+  LET r1 AS canvas::DrawItem = canvas::Rectangle[x := 10.5, y := 20.25, w := 30.0, h := 40.0, paint := p]
+  LET r2 AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 15.75, y := 0.0 - 3.5, w := 7.25, h := 9.125, paint := p]
+  LET r3 AS canvas::DrawItem = canvas::Rectangle[x := 1000000.3, y := 0.0 - 2000000.0, w := 1234.5, h := 0.001, paint := p]
+  LET r4 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 0.0, h := 10.0, paint := p]
+  LET r5 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 0.0 - 3.0, h := 10.0, paint := p]
+  LET r6 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 10.0, h := 0.0, paint := p]
+  LET r7 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 10.0, h := 0.0 - 0.5, paint := p]
+  LET r8 AS canvas::DrawItem = canvas::Rectangle[x := nz, y := nz, w := 0.000000001, h := 0.3, paint := p]
+  LET q1 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 5.0, paint := p]
+  LET q2 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 100.0, paint := p]
+  LET q3 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 0.0 - 3.0, paint := p]
+  LET q4 AS canvas::DrawItem = canvas::RoundedRect[x := 0.0 - 3.3, y := 7.7, w := 0.5, h := 8.25, cornerRadius := 0.2, paint := p]
+  LET q5 AS canvas::DrawItem = canvas::RoundedRect[x := 1.0, y := 1.0, w := 0.0, h := 8.0, cornerRadius := 2.0, paint := p]
+  LET c1 AS canvas::DrawItem = canvas::Circle[x := 100.5, y := 50.25, radius := 20.0, paint := p]
+  LET c2 AS canvas::DrawItem = canvas::Circle[x := 0.0 - 7.0, y := 0.0 - 8.0, radius := 0.5, paint := p]
+  LET c3 AS canvas::DrawItem = canvas::Circle[x := 300000.0, y := 1.5, radius := 12345.678, paint := p]
+  LET c4 AS canvas::DrawItem = canvas::Circle[x := 3.0, y := 3.0, radius := 0.0, paint := p]
+  LET c5 AS canvas::DrawItem = canvas::Circle[x := 3.0, y := 3.0, radius := 0.0 - 1.0, paint := p]
+  LET l1 AS canvas::DrawItem = canvas::Line[x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, cap := canvas::CapStyle.Round, paint := p]
+  LET l2 AS canvas::DrawItem = canvas::Line[x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, cap := canvas::CapStyle.Butt, paint := p]
+  LET l3 AS canvas::DrawItem = canvas::Line[x1 := 5.0, y1 := 5.0, x2 := 5.0, y2 := 5.0, cap := canvas::CapStyle.Round, paint := p]
+  LET l4 AS canvas::DrawItem = canvas::Line[x1 := 0.0 - 10.5, y1 := 3.25, x2 := 7.75, y2 := 0.0 - 2.0, cap := canvas::CapStyle.Butt, paint := p]
+  LET l5 AS canvas::DrawItem = canvas::Line[x1 := 1000000.0, y1 := 1000000.0, x2 := 1000001.0, y2 := 999999.0, cap := canvas::CapStyle.Round, paint := p]
+  LET l6 AS canvas::DrawItem = canvas::Line[x1 := nz, y1 := 0.0, x2 := 0.0, y2 := nz, cap := canvas::CapStyle.Butt, paint := p]
+  LET none AS List OF canvas::Point = []
+  LET g1 AS canvas::DrawItem = canvas::Polygon[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], paint := p]
+  LET g2 AS canvas::DrawItem = canvas::Polygon[points := [pt(1.0, 2.0), pt(3.0, 4.0)], paint := p]
+  LET g3 AS canvas::DrawItem = canvas::Polygon[points := [pt(1.0, 2.0)], paint := p]
+  LET g4 AS canvas::DrawItem = canvas::Polygon[points := none, paint := p]
+  LET g5 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0, 0.0), pt(5.0, 5.0), pt(10.0, 10.0)], paint := p]
+  LET g6 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0, 0.0), pt(8.0, 0.0), pt(8.0, 0.0), pt(8.0, 8.0), pt(0.0, 8.0)], paint := p]
+  LET g7 AS canvas::DrawItem = canvas::Polygon[points := [pt(0.0 - 4.125, 0.0 - 9.5), pt(2000000.5, 3.0), pt(nz, 0.1), pt(0.3, 0.7), pt(0.0 - 0.001, 5.0)], paint := p]
+  out = [r1, r2, r3, r4, r5, r6, r7, r8, q1, q2, q3, q4, q5, c1, c2, c3, c4, c5, l1, l2, l3, l4, l5, l6, g1, g2, g3, g4, g5, g6, g7]
+  RETURN out
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT items AS List OF canvas::DrawItem = []
+  FOR EACH p IN paints()
+    items = collections::append(items, shapes(p))
+  NEXT
+  canvas::present(items)
+  LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 3.5, ty := 0.0]
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]
+  LET moved AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 2.0, w := 3.0, h := 4.0, paint := WITH canvas::fill(color::rgb(1, 2, 3)) { transform := t }]
+  LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 10.0, y := 0.0], stops := stops]
+  LET gradPaint AS canvas::Paint = WITH canvas::fill(color::rgb(1, 2, 3)) { fillGradient := grad }
+  LET ramp AS canvas::DrawItem = canvas::Circle[x := 50.0, y := 50.0, radius := 9.0, paint := gradPaint]
+  LET oval AS canvas::DrawItem = canvas::Ellipse[x := 40.0, y := 40.0, radiusX := 10.0, radiusY := 5.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 9))]
+  LET bow AS canvas::DrawItem = canvas::Arc[x := 40.0, y := 40.0, radius := 10.0, startAngle := 0.0, endAngle := 2.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(9, 9, 9), 2.0)]
+  canvas::present([moved, ramp, oval, bow])
+  io::print("rendered")
+END SUB

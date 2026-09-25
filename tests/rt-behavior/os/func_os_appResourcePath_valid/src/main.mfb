@@ -1,0 +1,64 @@
+' os::appResourcePath — absolute resource path derived from the executable's own
+' location (plan-55-B). Console base = the executable's directory, so the result
+' is <exe-dir>/<relative>. A `.`/`..` path component raises ErrInvalidPath
+' (77030002); a dot inside a filename is fine.
+IMPORT os
+IMPORT io
+IMPORT strings
+
+FUNC resolve(p AS String) AS String
+  RETURN os::appResourcePath(p)
+END FUNC
+
+FUNC main AS Integer
+  LET p AS String = os::appResourcePath("music/x.ogg")
+  ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows (plan-157-B
+  ' Correction B-3: this line asserted `/` everywhere).
+  IF os::name() = "windows" THEN
+    io::print(toString(strings::mid(p, 1, 2) = ":\\"))
+  ELSE
+    io::print(toString(strings::startsWith(p, "/")))
+  END IF
+  io::print(toString(strings::endsWith(p, "/music/x.ogg")))
+  ' A dot inside a component (not a whole `.`/`..` component) is accepted.
+  LET q AS String = os::appResourcePath("..foo/bar")
+  io::print(toString(strings::endsWith(q, "/..foo/bar")))
+  ' Each `.`/`..` path component is rejected with ErrInvalidPath (77030002).
+  MUT a AS Integer = 0
+  resolve("a/../b") TRAP(e)
+    a = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(a))
+  MUT b AS Integer = 0
+  resolve("../secret") TRAP(e)
+    b = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(b))
+  MUT c AS Integer = 0
+  resolve("music/..") TRAP(e)
+    c = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(c))
+  MUT d AS Integer = 0
+  resolve("./x") TRAP(e)
+    d = e.code
+    RECOVER ""
+  END TRAP
+  io::print(toString(d))
+  ' plan-157-A: an omitted or empty `relative` is the bare base, no trailing `/`.
+  LET base AS String = os::appResourcePath()
+  io::print(toString(strings::endsWith(base, "/")))
+  io::print(toString(base = os::appResourcePath("")))
+  io::print(toString(os::appResourcePath("x") = base & "/x"))
+  ' The in-place self-update agrees with the copying call, empty value included.
+  MUT s AS String = ""
+  s = os::appResourcePath(s)
+  io::print(toString(s = base))
+  MUT t AS String = "a/b"
+  t = os::appResourcePath(t)
+  io::print(toString(t = os::appResourcePath("a/b")))
+  RETURN 0
+END FUNC

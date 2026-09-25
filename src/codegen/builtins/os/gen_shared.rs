@@ -13,7 +13,7 @@
 //! - `os.hostName` — `gethostname`.
 //! - `os.userName` — `getpwuid`/`getuid`.
 //! - `os.executablePath` — the platform's own executable-path primitive.
-//! - `os.resourcePath` — **build-mode dependent** (plan-55-B): resolves against
+//! - `os.appResourcePath` — **build-mode dependent** (plan-55-B): resolves against
 //!   the app bundle/AppDir layout or the build output directory, not a libc call.
 //! - `os.args` — reads the `os::args` globals captured at entry (plan-31-B).
 //!
@@ -64,6 +64,17 @@ pub(crate) const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.userName",
     "os.setEnv",
     "os.unsetEnv",
+    // plan-157-B: the app-directory lookups read `HOME`/`XDG_*` and `getpwuid`.
+    "os.appDataPath",
+    "os.appCachePath",
+    // ...and their internal non-allocating `*Base` twins the in-place arm calls.
+    "os.appDataPathBase",
+    "os.appCachePathBase",
+    // plan-157-C: the user folders read `HOME` (and `XDG_CONFIG_HOME`) too.
+    "os.userHomePath",
+    "os.userDocumentsPath",
+    "os.userHomePathBase",
+    "os.userDocumentsPathBase",
 ];
 
 /// The `(instructions, relocations, stack_size)` an `os` OS-seam body emits before

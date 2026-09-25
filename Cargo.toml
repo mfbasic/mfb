@@ -446,8 +446,12 @@ name = "codegen_win64_entry_seed_scratch"
 path = "tests/codegen/codegen_win64_entry_seed_scratch.rs"
 
 [[test]]
-name = "codegen_win64_resource_path"
-path = "tests/codegen/codegen_win64_resource_path.rs"
+name = "codegen_win64_app_resource_path"
+path = "tests/codegen/codegen_win64_app_resource_path.rs"
+
+[[test]]
+name = "codegen_win64_host_paths"
+path = "tests/codegen/codegen_win64_host_paths.rs"
 
 # --- tests/gate/ ------------------------------------------------------
 [[test]]
@@ -530,6 +534,10 @@ path = "tests/runtime/rt_inplace_global_record.rs"
 [[test]]
 name = "rt_inplace_field_loop"
 path = "tests/runtime/rt_inplace_field_loop.rs"
+
+[[test]]
+name = "rt_list_element_record_borrow"
+path = "tests/runtime/rt_list_element_record_borrow.rs"
 
 [[test]]
 name = "rt_transform_block_result_frees"

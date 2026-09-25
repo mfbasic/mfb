@@ -1,0 +1,38 @@
+' fs::createDirectories with the host's own separators and an absolute path
+' (plan-157-C). On Windows a path may use `\` and start with a drive or `\\`
+' share; every missing level must be created and existing ones accepted. Before
+' plan-157-C the Windows walk split on `/` only and read "already exists" as the
+' POSIX 17 instead of ERROR_ALREADY_EXISTS (183), so any nested create failed with
+' ErrWriteFailed. POSIX spells the same trees with `/`, so output is identical.
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC sep() AS String
+  IF os::name() = "windows" THEN
+    RETURN "\\"
+  END IF
+  RETURN "/"
+END FUNC
+
+SUB tree(root AS String)
+  LET s AS String = sep()
+  LET leaf AS String = root & s & "a" & s & "b" & s & "c"
+  fs::createDirectories(leaf)
+  ' Every level already exists now: accepted, not an error.
+  fs::createDirectories(leaf)
+  io::print(toString(fs::directoryExists(leaf)))
+  fs::deleteDirectory(leaf)
+  fs::deleteDirectory(root & s & "a" & s & "b")
+  fs::deleteDirectory(root & s & "a")
+  fs::deleteDirectory(root)
+  io::print(toString(fs::directoryExists(root)))
+END SUB
+
+FUNC main AS Integer
+  ' Relative, with the native separator.
+  tree("target" & sep() & "fs_native_sep_rel")
+  ' Absolute: the temp directory (a drive path on Windows) plus a mixed join.
+  tree(fs::tempDirectory() & "/fs_native_sep_abs")
+  RETURN 0
+END FUNC

@@ -39,7 +39,7 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
     pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
     pub(crate) build_mode: crate::target::NativeBuildMode,
-    /// The module (project) name — the build identity `os.resourcePath` bakes into
+    /// The module (project) name — the build identity `os.appResourcePath` bakes into
     /// its bundle/AppDir resource-base path. Threaded from the dispatch; empty (`""`)
     /// on the inline (`abi_inline`) path, which no resource-path member takes. Most
     /// abi bodies ignore it.
@@ -6837,6 +6837,9 @@ mod raw_result_block_ownership {
         "net.lookup",               // List OF net.Address
         "net.ping",                 // net.PingResult
         "net.pingAddr",             // net.PingResult
+        "os.appCachePath",          // String
+        "os.appDataPath",           // String
+        "os.appResourcePath",       // String
         "os.arch",                  // String
         "os.args",                  // List OF String
         "os.environ",               // Map OF String TO String
@@ -6846,7 +6849,8 @@ mod raw_result_block_ownership {
         "os.hostName",              // String
         "os.name",                  // String
         "os.prog",                  // String
-        "os.resourcePath",          // String
+        "os.userDocumentsPath",     // String
+        "os.userHomePath",          // String
         "os.userName",              // String
         "os.version",               // String
         "process.didSignal",        // process.Signal
@@ -7062,6 +7066,9 @@ mod raw_result_block_ownership {
         "io.input",
         "io.readChar",
         "io.readLine",
+        "os.appCachePath",
+        "os.appDataPath",
+        "os.appResourcePath",
         "os.arch",
         "os.executablePath",
         "os.getEnv",
@@ -7069,7 +7076,8 @@ mod raw_result_block_ownership {
         "os.hostName",
         "os.name",
         "os.prog",
-        "os.resourcePath",
+        "os.userDocumentsPath",
+        "os.userHomePath",
         "os.userName",
         "os.version",
         "process.receive",

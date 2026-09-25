@@ -1,0 +1,24 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
+  MUT ring AS Integer = 0
+  WHILE ring < 200
+    MUT points AS List OF canvas::Point = []
+    MUT i AS Integer = 0
+    WHILE i < 200
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 200.0
+      points = collections::append(points, canvas::Point[x := 450.0 + toFloat(ring) + 100.0 * math::cos(a), y := 320.0 + 100.0 * math::sin(a)])
+      i = i + 1
+    END WHILE
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
+    scene = collections::append(scene, poly)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
+END SUB

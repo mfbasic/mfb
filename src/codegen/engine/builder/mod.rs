@@ -167,13 +167,15 @@ pub(crate) struct CodeBuilder<'a> {
     /// here is only ever a direct invoke target and never escapes, so it is freed
     /// at scope end.
     pub(crate) value_used_locals: HashSet<String>,
-    /// plan-86 E: LET bindings `e = collections::get(L, i)` whose result is consumed
-    /// READ-ONLY (only a `MATCH` scrutinee) over an immutable container `L`. Such a
-    /// `get` returns an aliasing borrow into `L`'s inline element instead of a fresh
+    /// plan-86 E, bug-689: bindings `e = collections::get(L, i)` (or `getOr`) that
+    /// hold an ALIAS into `L`'s element instead of an owned copy
+    /// (`analysis::borrow_get`). Such a `get` returns a borrow instead of a fresh
     /// `copy_flat_block`, and the binding registers no scope-drop free (the container
     /// owns the element). The copy-skip AND the free-skip are BOTH gated on this set
     /// (a freed borrow is a double-free into the container).
     pub(crate) borrow_get_locals: HashSet<String>,
+    /// bug-689: the element-bound `get → WITH → set` updates of this function.
+    pub(crate) element_updates: ElementUpdates,
     /// plan-86 E: true inside the `lower_value` frame of the ONE borrowed `get`
     /// node (a `borrow_get_locals` binding's initializer), so
     /// `materialize_owned_element` returns the aliasing borrow instead of copying
@@ -584,19 +586,19 @@ pub(crate) struct CodeBuilder<'a> {
     /// claiming a temporary that was never built. Written by
     /// `emit_prepared_call_args_with_site` and taken immediately after.
     pub(crate) args_updated_in_place: Vec<usize>,
-    /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
-    /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
-    /// no `s = os::resourcePath(s)`.
-    pub(crate) string_resource_base: Option<usize>,
-    /// plan-146-G: in a lambda that self-updates with `os::resourcePath`, the
+    /// plan-146-D: the frame slot caching `os::appResourcePath`'s base block for the
+    /// in-place arm (`prescan_string_app_resource_base`), or `None` in a function with
+    /// no `s = os::appResourcePath(s)`.
+    pub(crate) string_app_resource_base: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates with `os::appResourcePath`, the
     /// closure-environment word holding the address of the CREATOR's base-path
     /// cache slot.
-    pub(crate) string_resource_base_env: Option<usize>,
+    pub(crate) string_app_resource_base_env: Option<usize>,
     /// plan-146-G: in a lambda that self-updates a by-ref-captured `String`, the
     /// closure-environment word holding the address of the OWNER's capacity shadow,
     /// per captured local (`string_shadow_captures`). Empty everywhere else.
     pub(crate) string_shadow_env: std::collections::HashMap<String, usize>,
-    /// plan-146-D: the module (project) name, which `os::resourcePath`'s app-mode
+    /// plan-146-D: the module (project) name, which `os::appResourcePath`'s app-mode
     /// resource suffix embeds (`share/<module>`). Empty in a synthesized function,
     /// which lowers no NIR statement and so no self-update.
     pub(crate) module_name: String,
@@ -650,6 +652,7 @@ impl<'a> CodeBuilder<'a> {
             address_taken_locals: HashSet::new(),
             value_used_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),
+            element_updates: ElementUpdates::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
             current_returns_param_borrow: false,
@@ -714,12 +717,31 @@ impl<'a> CodeBuilder<'a> {
             current_call_key: None,
             args_updated_in_place: Vec::new(),
             current_op_key: None,
-            string_resource_base: None,
+            string_app_resource_base: None,
             string_shadow_env: std::collections::HashMap::new(),
-            string_resource_base_env: None,
+            string_app_resource_base_env: None,
             module_name: String::new(),
         }
     }
+}
+
+/// bug-689: the element-bound bindings of the function being lowered
+/// (`analysis::borrow_get::ElementBinding`), keyed for the lowering.
+#[derive(Default)]
+pub(crate) struct ElementUpdates {
+    /// By binding name. A single-expression update adds its hidden binding here.
+    pub(crate) bindings:
+        HashMap<String, crate::codegen::engine::analysis::borrow_get::ElementBinding>,
+    /// The `p = WITH p { … }` statements (`op_key`) → `p`.
+    pub(crate) updates: HashMap<usize, String>,
+    /// The write-backs `xs = set(xs, i, p)` (`op_key`) — each lowered as nothing.
+    pub(crate) write_backs: HashSet<usize>,
+    /// While an element update tries its in-place routes: the owner whose block is
+    /// an element inside a list's data region. No route may grow it
+    /// (`field_is_last_inlined`).
+    pub(crate) field_owner: Option<String>,
+    /// Counter for the hidden bindings of single-expression updates.
+    pub(crate) hidden: usize,
 }
 
 #[derive(Clone)]

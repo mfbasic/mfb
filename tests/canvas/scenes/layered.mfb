@@ -1,0 +1,11 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET b AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 80.0, paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET c AS canvas::DrawItem = canvas::Rectangle[x := 360.0, y := 280.0, w := 120.0, h := 40.0, paint := canvas::fill(color::rgba(255, 255, 0, 160))]
+  canvas::presentLayers([canvas::DrawLayer[items := [a]], canvas::DrawLayer[items := [b, c]]])
+END SUB

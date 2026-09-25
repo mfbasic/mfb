@@ -1,10 +1,14 @@
 #!/bin/bash
-# gen/text.sh DIR LINES COLS SIZE SECONDS ONESHOT(0|1)
+# gen/text.sh DIR LINES COLS SIZE SECONDS ONESHOT(0|1) [FONT]
 #
 # LINES text rows of COLS characters at SIZE px, plus a moving cursor rect.
-# bug-686 section H's text/quad/texel-cap probe.
+# bug-686 section H's text/quad/texel-cap probe. FONT (optional) overrides
+# the font path baked into the generated scene -- bug-688's Linux runner
+# passes a font path that exists on the box, since the macOS default below
+# does not.
 set -euo pipefail
 DIR=$1; L=$2; C=$3; SZ=$4; SECS=$5; ONE=$6
+FONT=${7:-/System/Library/Fonts/Supplemental/Arial.ttf}
 mkdir -p "$DIR/src"
 cat > "$DIR/project.json" <<J
 {"name":"txt","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","targets":["native"]}
@@ -20,7 +24,7 @@ IMPORT strings
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
+  RES face AS canvas::Font = canvas::loadFont("$FONT")
   LET alphabet AS String = "The quick brown fox jumps over the lazy dog 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz "
   MUT line AS String = ""
   WHILE strings::byteLen(line) < $C

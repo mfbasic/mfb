@@ -553,12 +553,116 @@ impl CodeBuilder<'_> {
             .all(|(_, field_type)| self.default_value_materializable(field_type, visited))
     }
 
+    /// bug-689: `get(xs, i).f` — a field read straight off a `get`, through any
+    /// chain of record fields — reads the element where it lies when the field it
+    /// finally yields is a scalar. The scalar is loaded before anything else runs,
+    /// so the alias is dead at the end of the chain; the copy it replaces read the
+    /// same bytes at the same moment.
     pub(crate) fn lower_field_access(
         &mut self,
         target: &NirValue,
         member: &str,
     ) -> Result<ValueResult, String> {
-        let target_value = self.lower_value(target)?;
+        let borrow = self.scalar_field_of_borrowable_get(target, member);
+        self.lower_field_access_of(target, member, borrow)
+    }
+
+    /// Whether `target.member` is a scalar read off `get`/`getOr` of a record
+    /// element the `get` may alias (the `Bind` arm's own `is_borrow_get` type
+    /// rule: freeable-flat, not a `String`).
+    fn scalar_field_of_borrowable_get(&self, target: &NirValue, member: &str) -> bool {
+        let mut base = target;
+        while let NirValue::MemberAccess { target, .. } = base {
+            base = target;
+        }
+        let Some(element) = self.get_element_type(base) else {
+            return false;
+        };
+        if !self.is_freeable_flat_value(&element)
+            || element == ParameterType::String
+            || !self.type_model.record_fields.contains_key(&element)
+        {
+            return false;
+        }
+        self.member_chain_type(target, member)
+            .is_some_and(|field| self.is_inline_scalar(&field))
+    }
+
+    /// The element type a `get`/`getOr` call reads: a `List`'s element, or a
+    /// `Map`'s value. `None` for any other value. (`static_type_name` answers only
+    /// for lists, and deliberately so — it also drives numeric typing.)
+    fn get_element_type(&self, value: &NirValue) -> Option<ParameterType> {
+        let NirValue::Call { target, args, .. } = value else {
+            return None;
+        };
+        if !matches!(
+            crate::codegen::builtins::native_builtin_target(target),
+            Some("get" | "getOr")
+        ) {
+            return None;
+        }
+        let container = self.static_type_name(args.first()?)?;
+        typed_list_element_type(&container)
+            .or_else(|| typed_map_type_parts(&container).map(|(_, value)| value))
+            .cloned()
+    }
+
+    /// The type of `target.member` for a chain of record field reads over a
+    /// `get`, from the record declarations.
+    fn member_chain_type(&self, target: &NirValue, member: &str) -> Option<ParameterType> {
+        let base = match target {
+            NirValue::MemberAccess {
+                target: inner,
+                member: inner_member,
+            } => self.member_chain_type(inner, inner_member)?,
+            _ => self.get_element_type(target)?,
+        };
+        let fields = self.type_model.record_fields.get(&base)?;
+        let (_, field) = fields.iter().find(|(name, _)| name == member)?;
+        Some(typed_strip_res_marker(field).clone())
+    }
+
+    /// A value held in its slot by value: a numeric, `Boolean` or `Byte`, or an
+    /// enum ordinal — reading one copies it out, leaving no alias behind.
+    fn is_inline_scalar(&self, type_: &ParameterType) -> bool {
+        if self.type_model.record_fields.contains_key(type_) {
+            return false;
+        }
+        matches!(
+            type_.name().as_ref(),
+            "Integer" | "Float" | "Fixed" | "Money" | "Boolean" | "Byte"
+        ) || self.type_model.enum_names.contains_key(type_)
+    }
+
+    /// The base of a borrowed field chain: each inner field read of the chain, and
+    /// at the bottom the `get` itself, lowered with its own frame armed so it
+    /// returns the element's address (no owning copy, no statement-scope free).
+    fn lower_borrowed_chain_base(&mut self, target: &NirValue) -> Result<ValueResult, String> {
+        if let NirValue::MemberAccess {
+            target: inner,
+            member,
+        } = target
+        {
+            return self.lower_field_access_of(inner, member, true);
+        }
+        self.borrow_get_armed = true;
+        let result = self.lower_value(target);
+        self.borrow_get_armed = false;
+        self.borrow_get_result = false;
+        result
+    }
+
+    fn lower_field_access_of(
+        &mut self,
+        target: &NirValue,
+        member: &str,
+        borrow: bool,
+    ) -> Result<ValueResult, String> {
+        let target_value = if borrow {
+            self.lower_borrowed_chain_base(target)?
+        } else {
+            self.lower_value(target)?
+        };
         // plan-01-vector: a field read of a register-native vector is a direct lane
         // read — no block load, no materialization.
         if let Some(lane) = self.vector_native_field(&target_value, member) {

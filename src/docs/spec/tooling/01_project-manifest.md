@@ -329,7 +329,7 @@ project (bug-298); the containment check is the fix, and it is textual here —
 the project pointing outside it is caught there rather than passing both checks.
 [[src/manifest/mod.rs:validate_resources]] [[src/cli/build/resources.rs:copy_resources]]
 
-At runtime a program locates a copied resource with `os::resourcePath` — see
+At runtime a program locates a copied resource with `os::appResourcePath` — see
 `./mfb spec stdlib os`.
 
 ## Entry Point Validation

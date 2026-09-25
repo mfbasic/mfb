@@ -15,7 +15,7 @@
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
 
-/// `os::resourcePath` in APP mode, where the base has a suffix to append.
+/// `os::appResourcePath` in APP mode, where the base has a suffix to append.
 ///
 /// `resource_base_offset` gives every build shape a `(strip, suffix)` pair, and
 /// the suffix is empty for exactly two of the four: console and Windows-app,
@@ -40,7 +40,7 @@ IMPORT os
 
 FUNC main() AS Integer
   app::setMode(app::Mode.Canvas)
-  io::print(os::resourcePath(\"music/song.ogg\"))
+  io::print(os::appResourcePath(\"music/song.ogg\"))
   RETURN 0
 END FUNC
 ";
@@ -56,7 +56,7 @@ END FUNC
 /// Windows-app is the fourth app shape and is not here for a different reason:
 /// its suffix is EMPTY (the `.exe` sits beside its resources), so it takes the
 /// arm this test is not about. It does lower — bug-454 landed on main
-/// (94b2ec1e1) and `os.resourcePath` is now in `win_x86_64`'s supported calls;
+/// (94b2ec1e1) and `os.appResourcePath` is now in `win_x86_64`'s supported calls;
 /// `os::resource_path_lowers_on_every_backend` is what holds that.
 #[test]
 fn the_resource_path_base_suffix_lowers_where_the_base_has_one() {
@@ -73,7 +73,7 @@ fn the_resource_path_base_suffix_lowers_where_the_base_has_one() {
             plan.functions
                 .iter()
                 .any(|function| function.name.contains("main")),
-            "{}: an -app program calling os::resourcePath must lower",
+            "{}: an -app program calling os::appResourcePath must lower",
             target.name()
         );
     }

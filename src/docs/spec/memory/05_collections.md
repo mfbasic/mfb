@@ -489,6 +489,41 @@ missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 types); any other key type falls back to a generic linear scan over the live
 lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
+The result is an owned value (`mfb spec language memory-semantics` §14.6): an
+element held inline — a record, a data union, a nested collection — is copied
+into a fresh arena block, and an element whose type reaches a type cycle is
+deep-copied. [[src/codegen/memory/owned.rs:materialize_owned_element]]
+
+The copy is skipped — the result is the address of the element inside the
+container — when no program can tell the two apart. For a record or data-union
+element (freeable-flat, not a `String`) that is:
+
+- **A scalar field read straight off the call.** `get(xs, i).f`, through any
+  chain of record fields, when the field it finally yields is a numeric,
+  `Boolean`, `Byte` or enum value. The field is loaded before anything else
+  runs, so the address is dead when the chain ends. Any container, `get` or
+  `getOr`. [[src/codegen/memory/value/builder_value_semantics.rs:scalar_field_of_borrowable_get]]
+- **A binding read only as a borrow.** `LET e = get(xs, i)` whose every read is
+  a field access or a `MATCH` over it (with that match's variant extracts), and
+  which is never stored, returned, passed, captured or reassigned whole — and
+  whose container cannot change while it is live:
+  - *pinned*: the container is a local bound once, never reassigned and not
+    address-taken, and for `getOr` the default is such a local too. The
+    function's move and hand-over analyses then leave everything the
+    initializer reads alone;
+  - *windowed* (`get` only): every read of `e` lies in the statements from its
+    bind to the last statement of the same block that reads it, and none of
+    those statements rebinds or reassigns a local container or reads it other
+    than as the first argument of `get`/`getOr`/`len` or a `FOR EACH`
+    iterable, and none can reach a store to a module-level container.
+  [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+- **An element-bound update** (see *Self-updates*).
+
+The binding registers no scope-drop free: the container owns the element.
+A `String` element is always copied — its `get` builds the `String` block, so
+there is no element block to point at — and so is a `getOr` over a default
+the statement built (on a miss the result would be that temporary).
+
 ### Self-updates
 
 A self-update — `x = f(x, …)` of a `List`, `Map` or `Set` for a builtin `f`, and
@@ -531,7 +566,7 @@ into `s`'s own block:
   `pathDirName`, `pathExtension`: the result is a run of `s`'s own bytes, moved
   down to the start of the block;
 - **grow** — `strings::padLeft`, `padRight`, `padLeftToWidth`, `padRightToWidth`,
-  `repeat`, `os::resourcePath`: the added bytes are written into the block's spare
+  `repeat`, `os::appResourcePath`: the added bytes are written into the block's spare
   capacity, which grows geometrically, so a loop that grows `s` allocates
   `O(log n)` times;
 - **rewrite** — `strings::upper`, `lower`, `caseFold`, `normalizeNfc`,
@@ -602,6 +637,36 @@ lies in its owner's block; the owner is not rebuilt.
   `String`, a collection or a data union — is rebuilt: its new value's size is
   known only after it is built.
   [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
+
+A **list element** is a field site too. Both spellings update element `i` where
+it lies in `xs`'s data region:
+
+```text
+MUT p = collections::get(xs, i)       ' xs = collections::set(xs, i,
+…reads of p's fields…                 '   WITH collections::get(xs, i) { … })
+p = WITH p { … }
+xs = collections::set(xs, i, p)
+```
+
+`p` holds the element's address, the `WITH` is lowered by the field routes above
+with the element as the owner, and the `set` writes nothing. This is exact
+because the `WITH` and the `set` are adjacent statements (nothing can observe
+`xs` between them), `i` is built from constants and locals none of which is
+written before the `set` (so the `set` names the slot the `get` read), `p` is
+read only through its fields before the `WITH` and never after the `set`, and
+`xs` is a local that is neither rebound nor read other than by a lookup, or a
+global nothing in between can store to. The `get` raises a bad index before
+anything is written, and the field routes are failure-atomic, so a failed
+update leaves `xs` unchanged. [[src/codegen/engine/analysis/borrow_get.rs:ElementBinding]]
+
+No route may grow the element: its block is a span of the list's data region,
+not an allocation. Every growing field route asks
+`field_is_last_inlined`, which answers no for an element owner. An update no
+route serves — a growing field, a `String` field, a second collection field —
+is lowered as `xs = collections::set(xs, i, WITH p { … })`: the `WITH` builds a
+new record from the element and `set` replaces it, resizing the payload when it
+must. [[src/codegen/engine/control/builder_control.rs:lower_element_update]]
+[[src/codegen/collection/assign/inplace_dest.rs:field_is_last_inlined]]
 
 ### `append`
 

@@ -13,8 +13,10 @@
 # two backends agree".
 #
 # Usage: scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--libc glibc|musl]
+#                                      [--target linux-x86_64|linux-aarch64]
 #
 #   --box <port>   ssh port of the target box (default 2228, Ubuntu x86_64 glibc).
+#   --target <t>   what to build for (default linux-x86_64). Box 2226 is linux-aarch64.
 #   --libc <l>     which AppImage to ship (default glibc). It must match the box:
 #                  musl's loader absorbs the glibc compat sonames, so shipping the
 #                  wrong one does not fail cleanly — box 2227 is musl.
@@ -36,6 +38,7 @@ MFB_EXE="${1:?usage: test-canvas-vulkan.sh <mfb-exe> [--box <port>]}"
 shift || true
 PORT=2228
 LIBC=glibc
+TARGET=linux-x86_64
 # Smaller than the default 900x640 in both axes, so a renderer that ignored the resize
 # and kept its old target would be caught by the frame length rather than only by the
 # pixels.
@@ -53,6 +56,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --box) PORT="$2"; shift 2 ;;
     --libc) LIBC="$2"; shift 2 ;;
+    --target) TARGET="$2"; shift 2 ;;
     --icd) ICD="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -265,8 +269,8 @@ SUB main()
 END SUB
 MFB
 
-echo "--- building for linux-x86_64 ---"
-"$MFB_EXE" build --app --debug --target linux-x86_64 "$proj" >/dev/null
+echo "--- building for $TARGET ---"
+"$MFB_EXE" build --app --debug --target "$TARGET" "$proj" >/dev/null
 
 host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
@@ -522,7 +526,7 @@ fi
 #                                               is a surface rectangle, so the band is
 #                                               visible in the panel at the origin and
 #                                               clipped away in both translated copies
-echo "--- groups: building for linux-x86_64 ---"
+echo "--- groups: building for $TARGET ---"
 projg="$work/groups"
 mkdir -p "$projg/src"
 cp "$proj/fixture.ttf" "$projg/fixture.ttf"
@@ -535,7 +539,7 @@ if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
   exit 1
 fi
 
-"$MFB_EXE" build --app --debug --target linux-x86_64 "$projg" >/dev/null
+"$MFB_EXE" build --app --debug --target "$TARGET" "$projg" >/dev/null
 
 # The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
 # `Frame::load_png` would hand the Rust comparators.

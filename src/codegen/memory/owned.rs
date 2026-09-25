@@ -1,7 +1,8 @@
 //! The get-result owning copy. Moved out of
-//! `the retired flat collection-query helpers`. Shared beyond the
-//! collections package (`builder_control` materializes bound elements too), so it
-//! lives in the `codegen/memory` data tier. Reads the `borrow_get_result` flag
+//! `the retired flat collection-query helpers`. Its callers are
+//! `collections::get`/`getOr` (`func_get`, `func_get_or`); it lives in the
+//! `codegen/memory` data tier because it is the ownership rule, not a
+//! collections one. Reads the `borrow_get_result` flag
 //! through its accessor and copies via the shared `copy_flat_block` — both stay
 //! in `src/target` (the accepted `codegen -> target` edge).
 // --- codegen tier imports (migration) ---
@@ -19,12 +20,14 @@ impl CodeBuilder<'_> {
         &mut self,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
-        // plan-86 E: the enclosing `LET e = get(L, i)` binding is consumed read-only
-        // (only a MATCH scrutinee) over an immutable container, so `e` may alias the
-        // container's inline element — skip the owning copy. The Bind arm gates this
-        // to the freeable-flat-non-String element type and suppresses the scope-drop
-        // free on the SAME condition, so the alias is never freed (a freed borrow is
-        // a double-free into the container).
+        // plan-86 E, bug-689: this `get` is a borrow (`analysis::borrow_get`: a
+        // binding read only through fields or a MATCH while nothing writes the
+        // container, an element-bound update, or a scalar field read straight off
+        // the call), so it may alias the container's inline element — skip the
+        // owning copy. The Bind arm gates this to the freeable-flat-non-String
+        // element type and suppresses the scope-drop free on the SAME condition, so
+        // the alias is never freed (a freed borrow is a double-free into the
+        // container).
         if self.borrow_get_result() {
             return Ok(result);
         }

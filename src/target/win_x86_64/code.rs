@@ -40,6 +40,7 @@ use crate::target::win_x86_64::app;
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll";
+const OLE32: &str = "ole32.dll"; // plan-157-B: CoTaskMemFree of a known-folder path
 const SHLWAPI: &str = "shlwapi.dll"; // bug-431: PathRemoveFileSpecA for the vendored-DLL path
 const WS2_32: &str = "ws2_32.dll";
 /// bug-431: `LoadLibraryExA` flag — resolve the library (and its own
@@ -161,6 +162,278 @@ fn emit_wide_slot_to_utf8(
         instructions,
         relocations,
     );
+}
+
+/// plan-157-B: the `KNOWNFOLDERID` a host-path `emit_os_wide_string` query names,
+/// as `(Data1, Data2, Data3, Data4)` — the in-memory `GUID` layout.
+fn known_folder_guid(which: &str) -> Option<(u32, u16, u16, [u8; 8])> {
+    match which {
+        // FOLDERID_RoamingAppData {3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}
+        "appData" => Some((
+            0x3EB6_85DB,
+            0x65F9,
+            0x4CF6,
+            [0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D],
+        )),
+        // FOLDERID_LocalAppData {F1B32785-6FBA-4FCF-9D55-7B8E7F157091}
+        "appCache" => Some((
+            0xF1B3_2785,
+            0x6FBA,
+            0x4FCF,
+            [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+        )),
+        // FOLDERID_Profile {5E6C858F-0E22-4760-9AFE-EA3317B67173}
+        "userHome" => Some((
+            0x5E6C_858F,
+            0x0E22,
+            0x4760,
+            [0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73],
+        )),
+        // FOLDERID_Documents {FDD39AD0-238F-46AF-ADB4-6C85480369C7}
+        "userDocuments" => Some((
+            0xFDD3_9AD0,
+            0x238F,
+            0x46AF,
+            [0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7],
+        )),
+        _ => None,
+    }
+}
+
+/// plan-157-B: `SHGetKnownFolderPath(&guid, KF_FLAG_DEFAULT, NULL, &wide)`,
+/// marshalled to a NUL-terminated UTF-8 arena buffer whose pointer is left in the
+/// return register, 0 on failure — the `emit_os_wide_string` contract.
+///
+/// Frame (after `subtract_stack(0x60)`, the same window as the other queries):
+/// shadow `[0x00..0x20)`; the `GUID` at `[0x20..0x30)` — the stack-argument area
+/// `WideCharToMultiByte` reuses only AFTER the query no longer needs it; the
+/// `WideCharToMultiByte` result at `[0x40]`; the `CoTaskMem` wide pointer at
+/// `[0x48]` (the out-param, pre-zeroed so a failing call leaves NULL); the 8 KiB
+/// UTF-8 buffer at `[0x50]`. The wide pointer is `CoTaskMemFree`d on every path
+/// — Microsoft requires it "whether SHGetKnownFolderPath succeeds or not", and
+/// `CoTaskMemFree(NULL)` is a no-op. A path whose UTF-8 does not fit 8 KiB makes
+/// `WideCharToMultiByte` return 0, which fails the query rather than returning a
+/// truncated path. Names only physical ABI registers and its own window slots,
+/// like every `emit_os_wide_string` arm (`.ai/arch-abi.md`, "A platform hook that
+/// moves `sp` mid-body").
+fn emit_known_folder_query(
+    from: &str,
+    guid: (u32, u16, u16, [u8; 8]),
+    n: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const GUID_SLOT: usize = 0x20;
+    const RESULT_SLOT: usize = 0x40;
+    const WIDE_SLOT: usize = 0x48;
+    const U8_SLOT: usize = 0x50;
+    let (data1, data2, data3, data4) = guid;
+    let words = [
+        data1,
+        u32::from(data2) | (u32::from(data3) << 16),
+        u32::from_le_bytes([data4[0], data4[1], data4[2], data4[3]]),
+        u32::from_le_bytes([data4[4], data4[5], data4[6], data4[7]]),
+    ];
+    let query_fail = format!("{from}_kf_query_fail_{n}");
+    let fail = format!("{from}_kf_fail_{n}");
+    let done = format!("{from}_kf_done_{n}");
+    instructions.push(abi::subtract_stack(0x60));
+    arena_alloc_to_slot(from, "8192", U8_SLOT, instructions, relocations);
+    for (i, word) in words.iter().enumerate() {
+        instructions.extend([
+            abi::move_immediate(abi::mfb_arg(0), "Integer", &word.to_string()),
+            abi::store_u32(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT + 4 * i),
+        ]);
+    }
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), WIDE_SLOT),
+        abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // KF_FLAG_DEFAULT
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // hToken = NULL
+        abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(
+        from,
+        "SHGetKnownFolderPath",
+        SHELL32,
+        instructions,
+        relocations,
+    );
+    // An HRESULT is 32 bits: compare the zero-extended low word, not all of rax.
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"), // S_OK
+        abi::branch_ne(&query_fail),
+    ]);
+    emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, "8192", instructions, relocations);
+    instructions.extend([
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::c_return(0), abi::stack_pointer(), RESULT_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"), // 0 bytes written = failed
+        abi::branch_eq(&fail),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), U8_SLOT),
+        abi::branch(&done),
+        abi::label(&query_fail),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::label(&fail),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::label(&done),
+        abi::add_stack(0x60),
+    ]);
+}
+
+/// plan-157-B: the non-allocating twin of [`emit_known_folder_query`], behind
+/// `CodegenPlatform::emit_known_folder_into`. Entry: `ARG[0]` = destination,
+/// `ARG[1]` = its capacity. Exit: the return register = the UTF-8 length (no
+/// NUL), with the bytes and a NUL written to the destination only when
+/// `length + 1 <= capacity`; -1 when the query or the conversion fails.
+///
+/// Frame (after `subtract_stack(0x60)`): shadow `[0x00..0x20)`; the `GUID` at
+/// `[0x20..0x30)` (the `WideCharToMultiByte` stack arguments reuse it after the
+/// query); the destination at `[0x40]`; the `CoTaskMem` wide pointer at `[0x48]`;
+/// the capacity at `[0x50]`; the measured length at `[0x58]`. The first
+/// `WideCharToMultiByte` passes a NULL buffer and 0 capacity, which returns the
+/// size the conversion needs (with its NUL) and writes nothing; the second
+/// converts into the caller's buffer only when that size fits. The wide pointer is
+/// `CoTaskMemFree`d on every path.
+fn emit_known_folder_into_query(
+    from: &str,
+    guid: (u32, u16, u16, [u8; 8]),
+    n: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const GUID_SLOT: usize = 0x20;
+    const DST_SLOT: usize = 0x40;
+    const WIDE_SLOT: usize = 0x48;
+    const CAP_SLOT: usize = 0x50;
+    const LEN_SLOT: usize = 0x58;
+    let (data1, data2, data3, data4) = guid;
+    let words = [
+        data1,
+        u32::from(data2) | (u32::from(data3) << 16),
+        u32::from_le_bytes([data4[0], data4[1], data4[2], data4[3]]),
+        u32::from_le_bytes([data4[4], data4[5], data4[6], data4[7]]),
+    ];
+    let query_fail = format!("{from}_kfi_query_fail_{n}");
+    let free_fail = format!("{from}_kfi_free_fail_{n}");
+    let fits = format!("{from}_kfi_fits_{n}");
+    let freed = format!("{from}_kfi_freed_{n}");
+    let fail = format!("{from}_kfi_fail_{n}");
+    let done = format!("{from}_kfi_done_{n}");
+    instructions.push(abi::subtract_stack(0x60));
+    instructions.extend([
+        abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), DST_SLOT),
+        abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), CAP_SLOT),
+    ]);
+    for (i, word) in words.iter().enumerate() {
+        instructions.extend([
+            abi::move_immediate(abi::mfb_arg(0), "Integer", &word.to_string()),
+            abi::store_u32(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT + 4 * i),
+        ]);
+    }
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), WIDE_SLOT),
+        abi::add_immediate(abi::mfb_arg(0), abi::stack_pointer(), GUID_SLOT),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // KF_FLAG_DEFAULT
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // hToken = NULL
+        abi::add_immediate(abi::mfb_arg(3), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(
+        from,
+        "SHGetKnownFolderPath",
+        SHELL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"), // S_OK
+        abi::branch_ne(&query_fail),
+        // Measure: WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL).
+        abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpMultiByteStr NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // cbMultiByte 0
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WIDE_SLOT),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1), // cchWideChar = -1
+    ]);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        // `int` result: 0 = failure, else the size needed WITH the NUL.
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&free_fail),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), LEN_SLOT),
+        abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), CAP_SLOT),
+        abi::compare_registers(abi::c_return(0), abi::mfb_arg(1)),
+        abi::branch_le(&fits),
+        abi::branch(&freed),
+        abi::label(&fits),
+        // Convert: WideCharToMultiByte(CP_UTF8, 0, wide, -1, dst, needed, NULL, NULL).
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), DST_SLOT),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), LEN_SLOT),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WIDE_SLOT),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+        abi::subtract_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1),
+    ]);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::store_u32(abi::c_return(0), abi::stack_pointer(), CAP_SLOT),
+        abi::load_u32(abi::c_return(0), abi::stack_pointer(), CAP_SLOT),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&free_fail),
+        abi::label(&freed),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LEN_SLOT),
+        abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::branch(&done),
+        abi::label(&query_fail),
+        abi::label(&free_fail),
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDE_SLOT),
+    ]);
+    call_external(from, "CoTaskMemFree", OLE32, instructions, relocations);
+    instructions.extend([
+        abi::label(&fail),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+        abi::label(&done),
+        abi::add_stack(0x60),
+    ]);
 }
 
 /// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
@@ -1911,6 +2184,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         const WIDE_SLOT: usize = 0x48;
         const U8_SLOT: usize = 0x50;
         let n = instructions.len();
+        // plan-157-B: the host-path folders come from `SHGetKnownFolderPath`, whose
+        // wide buffer the system allocates — a different frame protocol.
+        if let Some(guid) = known_folder_guid(which) {
+            emit_known_folder_query(from, guid, n, instructions, relocations);
+            return Ok(());
+        }
         let fail = format!("{from}_oswq_fail_{n}");
         let done = format!("{from}_oswq_done_{n}");
         instructions.push(abi::subtract_stack(0x60));
@@ -1976,6 +2255,21 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label(&done),
             abi::add_stack(0x60),
         ]);
+        Ok(())
+    }
+
+    fn emit_known_folder_into(
+        &self,
+        which: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let guid =
+            known_folder_guid(which).ok_or_else(|| format!("unknown known folder '{which}'"))?;
+        let n = instructions.len();
+        emit_known_folder_into_query(from, guid, n, instructions, relocations);
         Ok(())
     }
 

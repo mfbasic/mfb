@@ -10,11 +10,11 @@
 //! `abi_function` body in its own `func_*.rs` (`lower_<name>`, branching on
 //! `platform.family()` internally); genuinely-shared emitters live in `gen_env`,
 //! `gen_introspect`, `gen_paths`, and `gen_shared` and are called by those bodies.
-//! `os` owns **no** resource handle — `os::resourcePath` merely *returns* a
+//! `os` owns **no** resource handle — `os::appResourcePath` merely *returns* a
 //! `String`; the substring "resource" names no `RegistryResource`.
 //!
-//! `os::resourcePath` is the one member that consumes per-compilation build
-//! context: [`func_resource_path::lower_resource_path`] reads the real
+//! `os::appResourcePath` is the one member that consumes per-compilation build
+//! context: [`func_app_resource_path::lower_app_resource_path`] reads the real
 //! `build_mode`/`module_name` off the `AbiCtx` (the strip/suffix selection baked
 //! into the resource-base offset). Every other member accepts and ignores them.
 //!
@@ -26,15 +26,21 @@
 use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod gen_env;
+mod gen_host_paths;
 mod gen_introspect;
 mod gen_paths;
+mod gen_user_dirs;
 pub(crate) use gen_paths::resource_base_offset;
 mod gen_shared;
 pub(crate) use gen_env::{module_uses_env_lock, os_env_lock_init_hex};
 pub(crate) use gen_shared::{
-    OS_ARGC_GLOBAL_SYMBOL, OS_ARGV_GLOBAL_SYMBOL, OS_ENV_LOCK_SIZE, OS_ENV_LOCK_SYMBOL,
+    OS_ARGC_GLOBAL_SYMBOL, OS_ARGV_GLOBAL_SYMBOL, OS_ENV_LOCK_CALLS, OS_ENV_LOCK_SIZE,
+    OS_ENV_LOCK_SYMBOL,
 };
 
+mod func_app_cache_path;
+mod func_app_data_path;
+mod func_app_resource_path;
 mod func_arch;
 mod func_args;
 mod func_cpu_count;
@@ -48,11 +54,12 @@ pub(crate) mod func_is_admin;
 mod func_name;
 mod func_pid;
 mod func_prog;
-mod func_resource_path;
 mod func_set_env;
 mod func_sleep;
 mod func_unset_env;
 pub(crate) mod func_uptime;
+mod func_user_documents_path;
+mod func_user_home_path;
 mod func_user_name;
 pub(crate) mod func_version;
 
@@ -71,12 +78,18 @@ the executable). `os::prog` returns the invocation spelling from `argv[0]`,
 while `os::executablePath` returns the resolved executable path.
 `os::pid` and `os::cpuCount` return an `Integer`; `os::hostName`, `os::userName`,
 and `os::executablePath` return a `String` and raise `ErrUnsupported` if the host
-lookup fails. `os::resourcePath(relative)` is the one call taking an argument: it
-maps a build-relative resource path to its absolute on-disk location for the
-running build shape (console → beside the executable; macOS `--app` →
-`Contents/Resources`; Linux `--app` → `usr/share/<name>`), raising
-`ErrInvalidPath` on a `.`/`..` component and `ErrUnsupported` if the executable
-path cannot be found.
+lookup fails.
+
+The path calls return absolute directory paths for the running program, each
+taking an optional `relative` path that is joined on with `/`:
+`os::appResourcePath` (the resources the build shipped: beside the executable in
+a console build, `Contents/Resources` in a macOS `--app`, `usr/share/<name>` in a
+Linux `--app`), `os::appDataPath` (this app's per-user data directory),
+`os::appCachePath` (its per-user cache directory), `os::userHomePath` (the user's
+home folder) and `os::userDocumentsPath` (the user's Documents folder). They only
+work out a path —
+nothing is created — and raise `ErrInvalidPath` for a `.`/`..` component in
+`relative` and `ErrUnsupported` if the host cannot answer.
 
 Variable names and values are UTF-8 `String` values passed to and from the host
 C library (`getenv`, `setenv`, `unsetenv`, and the platform environ accessor).
@@ -117,7 +130,11 @@ pub(crate) fn register(r: &mut Registry) {
     func_prog::register(&mut pkg);
     func_pid::register(&mut pkg);
     func_executable_path::register(&mut pkg);
-    func_resource_path::register(&mut pkg);
+    func_app_resource_path::register(&mut pkg);
+    func_app_data_path::register(&mut pkg);
+    func_app_cache_path::register(&mut pkg);
+    func_user_home_path::register(&mut pkg);
+    func_user_documents_path::register(&mut pkg);
     func_name::register(&mut pkg);
     func_arch::register(&mut pkg);
     func_host_name::register(&mut pkg);
@@ -138,7 +155,7 @@ mod tests {
     #[test]
     fn os_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("os").expect("os package");
-        assert_eq!(pkg.functions().len(), 20);
+        assert_eq!(pkg.functions().len(), 28);
         // os contributes no builtin value type and owns no resource.
         assert!(!registry().is_builtin_type("os"));
     }
@@ -147,7 +164,7 @@ mod tests {
     fn generic_dispatch_reaches_os() {
         assert!(registry().is_member("os.getEnv"));
         assert!(registry().is_member("os.prog"));
-        assert!(registry().is_member("os.resourcePath"));
+        assert!(registry().is_member("os.appResourcePath"));
         assert!(!registry().is_member("os.nope"));
         // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(registry::rewrite_target("os.getEnv", &[]), None);
@@ -219,7 +236,7 @@ mod tests {
             Some("String")
         );
         assert_eq!(
-            registry::call_return_type_typed("os.resourcePath")
+            registry::call_return_type_typed("os.appResourcePath")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
             Some("String")

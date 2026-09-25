@@ -58,10 +58,9 @@
 
 use crate::ast::LoopKind;
 use crate::codegen::collection::layout::type_contains_resource;
+use crate::codegen::engine::analysis::borrow_get::collect_borrow_gets;
 use crate::codegen::engine::builder::TypeModel;
-use crate::codegen::engine::function::function_lowering::{
-    collect_address_taken_locals, collect_borrow_get_locals,
-};
+use crate::codegen::engine::function::function_lowering::collect_address_taken_locals;
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirMatchCase, NirMatchPattern, NirOp, NirValue};
 use crate::types::ParameterType;
@@ -648,7 +647,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
     struct Scan<'a> {
         model: &'a TypeModel,
         shape: &'a ViewShape,
-        borrow_get: &'a HashSet<String>,
+        pinned_borrows: &'a HashSet<String>,
         bound: HashSet<String>,
         read: HashSet<String>,
         excluded: HashSet<String>,
@@ -677,7 +676,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
                     {
                         self.excluded.insert(name.clone());
                     }
-                    if self.borrow_get.contains(name) {
+                    if self.pinned_borrows.contains(name) {
                         if let Some(value) = value {
                             self.exclude_reads(value);
                         }
@@ -726,11 +725,16 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
 
     let mut address_taken = HashSet::new();
     collect_address_taken_locals(&function.body, &mut address_taken);
-    let borrow_get = collect_borrow_get_locals(&function.body, &address_taken);
+    // bug-689: this analysis cannot follow calls, so it answers "no call writes a
+    // global" — which makes its borrow set a SUPERSET of the lowering's, the safe
+    // direction here: every name it returns is only excluded. A windowed borrow's
+    // container needs no exclusion (no read of it inside the window can move or
+    // hand it over); a pinned one's initializer reads are pinned as before.
+    let borrow_get = collect_borrow_gets(&function.body, &address_taken, &|_, _| false);
     let mut scan = Scan {
         model,
         shape,
-        borrow_get: &borrow_get,
+        pinned_borrows: &borrow_get.pinned,
         bound: HashSet::new(),
         read: HashSet::new(),
         excluded: HashSet::new(),
@@ -738,7 +742,7 @@ fn excluded_roots(function: &NirFunction, model: &TypeModel, shape: &ViewShape) 
     scan.visit_ops(&function.body);
     let mut excluded = scan.excluded;
     excluded.extend(address_taken);
-    excluded.extend(borrow_get.iter().cloned());
+    excluded.extend(borrow_get.names.iter().cloned());
     excluded.extend(function.params.iter().map(|param| param.name.clone()));
     // A name this function never binds has an owner this analysis cannot see.
     excluded.extend(scan.read.difference(&scan.bound).cloned());

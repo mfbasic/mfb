@@ -688,7 +688,7 @@ mod tests {
     /// arguments only — never its target. That let the ordinary way of writing
     /// fallible code smuggle an unimplemented call into a binary.
     ///
-    /// This lived as a cross-build of `os::resourcePath` for `windows-x86_64`
+    /// This lived as a cross-build of `os::appResourcePath` for `windows-x86_64`
     /// while that call was the one genuine gap in the target matrix. bug-454
     /// implemented it, and it was the LAST one: `windows-x86_64` now advertises
     /// a superset of `macos-aarch64` and `linux-*`, so no call reachable from
@@ -707,19 +707,19 @@ mod tests {
         let bare = NirOp::Eval {
             value: NirValue::RuntimeCall {
                 helper: RuntimeHelper::Os,
-                target: "os.resourcePath".to_string(),
+                target: "os.appResourcePath".to_string(),
                 args: vec![call("data.txt")],
                 loc: NirSourceLoc::default(),
             },
         };
         let trapped = NirOp::Eval {
             value: NirValue::CallResult {
-                target: "os.resourcePath".to_string(),
+                target: "os.appResourcePath".to_string(),
                 args: vec![call("data.txt")],
                 loc: NirSourceLoc::default(),
             },
         };
-        // `io.print` (from `module()`) is advertised; `os.resourcePath` is not.
+        // `io.print` (from `module()`) is advertised; `os.appResourcePath` is not.
         let capabilities = test_capabilities(&["io.print"]);
         for (shape, op) in [("bare", bare), ("trapped", trapped)] {
             let mut nir = module(vec![RuntimeHelper::Io, RuntimeHelper::Os]);
@@ -728,7 +728,7 @@ mod tests {
                 panic!("the {shape} form must be rejected");
             };
             assert_eq!(
-                err, "native backend does not support runtime call 'os.resourcePath'",
+                err, "native backend does not support runtime call 'os.appResourcePath'",
                 "the {shape} form must fail with the capability diagnostic"
             );
         }

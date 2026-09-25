@@ -32,6 +32,24 @@ surface, rendered on software and on Metal (`MFB_CANVAS_SYNC=1`, `MFB_CANVAS_DUM
 - Observed: isolated dark pixels off by 3-9, and which scenes trip it depends on where
   edges happen to fall, not on anything about the scene's structure.
 
+### The same flip on Vulkan (found by bug-688)
+
+It is not Metal's: Vulkan's GLSL evaluates the same fp32 distance, and Mesa's lavapipe
+(box 2226, aarch64) trips it on `tests/canvas/scenes/large_polygons.mfb` as it stood
+before bug-688 gave that scene a grey ground (`git show 662910824:tests/canvas/rt_canvas_metal.rs`,
+`LARGE_POLYGONS`; that scene drew on Vulkan at the old caps too, 6,401 edges):
+
+| scene | backend | differing px | max channel delta | first pixel |
+| --- | --- | --- | --- | --- |
+| `LARGE_POLYGONS` over black | Vulkan (lavapipe), `main` and bug-688 | 0.19% | **4** | (736, 52): GPU `1d0418`, software `21051c` |
+| the same over a `rgb(128,128,128)` ground | Vulkan (lavapipe), bug-688 | 0.26% | 1 | — |
+
+(736, 52) is on the rim of the rotated ring `d`, `rgb(230, 80, 200)` over black: software
+coverage 5/255 encodes to 33, the GPU's 4/255 to 29 — one coverage step, the mechanism
+below. bug-688 put its oracle scenes on a mid-grey ground (`large_polygons.mfb`,
+`huge_polygon.mfb`, `forty_thousand_opaque_edges.mfb`) so they measure what they are
+about; the near-black rows this bug needs are still its own to add.
+
 ## Root Cause (measured by the bug-686 caps agent with a C model of both paths)
 
 The shader evaluates the signed distance in fp32; the oracle in f64. Coverage is then
