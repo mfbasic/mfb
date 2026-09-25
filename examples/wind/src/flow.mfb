@@ -134,12 +134,14 @@ END FUNC
 ' The swarm
 ' ---------------------------------------------------------------------------
 '
-' Parallel lists rather than a List OF Particle. A particle record holding its
-' own trail would be the natural shape, but reading one particle out of a list
-' with collections::get gives back a copy of the whole particle, trail and all,
-' and writing it back copies it again - every particle, every frame. Lists of
-' plain numbers are read and written where they stand, so here there are eleven
-' lists, all sized once.
+' Parallel lists rather than a List OF Particle. Each particle's trail is a slice
+' of four ring buffers shared by the whole swarm (below), which the drawing walks
+' point by point, and the particle itself is written a field at a time from
+' several places (placeParticle, placeFollower, stepSwarm), so plain lists of
+' numbers are the simplest shape here - eleven lists, all sized once. A List OF
+' Particle would not cost a copy per particle either: reading a field with
+' collections::get(swarm, i).lon copies nothing, and a get, WITH and set of the
+' same element in consecutive statements changes it where it stands.
 '
 ' Particles are stored in pairs: an even index is a leader, the odd index after
 ' it is that leader's follower.
