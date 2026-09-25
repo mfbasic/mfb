@@ -411,7 +411,7 @@ environments.
   Check: `target/debug/mfb build tests/rt-behavior/os/func_os_appDataPath_valid && …/build/*.out`
   prints the fixture's expected lines (written in B3) (est. 2 min).
   Result: macOS smoke run: `HOME=/tmp/h/` → `/tmp/h/Library/Application Support/p156b/a`; `HOME` unset → `/Users/justinzaun/Library/Application Support/p156b`.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase B3: fixtures and the POSIX runtime proof
 
@@ -453,7 +453,7 @@ matches.
   2226 command above → all ok (est. 5 min; box 2226 because it is the only
   reachable glibc Linux box, per the plan-156-A prerequisites).
   Result: `scripts/sync-goldens.sh` wrote the 4 fixtures' goldens; 2226 → both PASS; the `getent` line matched.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase B4: Windows known-folder lowering
 
@@ -490,7 +490,7 @@ PowerShell's folders.
   `TRUE` (est. 8 min: the build is local, and ship+run is about 1 min per
   fixture; nothing smaller exercises `SHGetKnownFolderPath`).
   Result: 2230 → `PASS` ×2, and PowerShell folders equal; `cargo test --test codegen_win64_host_paths` → `1 passed`.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase B5: byte-identity coverage and the package-name probe
 
@@ -509,7 +509,7 @@ Acceptance: the probe result is recorded in Corrections, and it ends with
 `/host` (after a fix if one was needed).
   Check: the probe's stdout (est. 3 min).
   Result: the probe printed `…/Application Support/host`.
-Commit: {BC}
+Commit: ac48b1cad
 
 ## Validation Plan
 

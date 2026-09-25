@@ -316,7 +316,7 @@ Acceptance: the fixture passes locally, on 2226 and on 2230.
   - The 2230 ship-and-run (the plan-156-B B4 recipe), plus a PowerShell
     `GetFolderPath('UserProfile')` comparison (est. 5 min).
   Result: `func_os_userHomePath_valid` PASS on macOS (golden), 2226 (`linux runtime proof … passed`) and 2230 (`PASS`); PowerShell `UserProfile` = ours.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase C2: `userDocumentsPath` on macOS and Windows, and the Linux parser
 
@@ -335,7 +335,7 @@ Acceptance: the function lowers on all five targets, and on macOS it returns
   Check: `cargo test --bin mfb os` → pass (est. 6 min), and a `/tmp` scratch
   program on macOS with `HOME=/tmp/d` prints `/tmp/d/Documents` (est. 1 min).
   Result: `cargo test --bin mfb os` → `586 passed; 0 failed`; macOS `HOME=/tmp/uh/` → `/tmp/uh/Documents`.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase C3: the Linux Documents fixture, and GLib equivalence
 
@@ -380,7 +380,7 @@ case agrees.
   - The GLib probe (est. 5 min). This is the only check that catches a wrong
     parse rule, because our fixture encodes our reading of GLib, not GLib's.
   Result: macOS golden; 2226 all 20 lines as expected; GLib 15/18 AGREE, with the 3 deliberate differences (C-1).
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase C4: the Windows Documents proof
 
@@ -392,7 +392,7 @@ Acceptance: the fixture output matches its golden, and the PowerShell
 comparison is `TRUE`.
   Check: the 2230 run (est. 5 min).
   Result: 2230 → `PASS func_os_userDocumentsPath_valid`; PowerShell `MyDocuments` = ours.
-Commit: {BC}
+Commit: ac48b1cad
 
 ### Phase C5: `Info.plist`, self-update rows, and byte-identity source
 
@@ -419,7 +419,7 @@ builds.
   `plutil -p build/*.app/Contents/Info.plist | grep NSDocumentsFolderUsageDescription`
   → 1 line (est. 2 min).
   Result: `cargo test --bin mfb app_info_plist` → `4 passed`; `self_update` → `11 passed`; `inplace_self_update_census` → `2 passed`; `rt_inplace_self_update` (all 5 `os::` rows) → `3 passed`; `spec` → `43 passed`.
-Commit: {BC}
+Commit: ac48b1cad
 
 ## Validation Plan
 
