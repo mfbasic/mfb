@@ -140,7 +140,7 @@ GPU, and every existing Metal test passes.
   polygon GPU test is unchanged (`forty_thousand_polygon_edges_draw_on_metal`,
   `a_sixty_four_thousand_edge_polygon_draws_on_metal`, the group and primitive
   scenes). `cargo test --bin mfb canvas` → 97 passed.
-Commit: —
+Commit: e2862f3e9
 
 ## Validation Plan
 
