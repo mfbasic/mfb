@@ -214,11 +214,48 @@ vec2 inverseMap(vec2 p) {
 // line for line.
 ivec2 polygonBand(float y) {
     int nb = item.arcCaps.z;
-    if (item.misc.x != 4 || nb <= 0) { return ivec2(-1, item.misc.w); }
+    if ((item.misc.x != 4 && item.misc.x != 10) || nb <= 0) { return ivec2(-1, item.misc.w); }
     float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));
     int band = int(clamp(k, 0.0, float(nb - 1)));
     int t = BAND_BASE + item.arcCaps.w;
     return ivec2(t + nb * 2 + edges.values[t + band * 2], edges.values[t + band * 2 + 1]);
+}
+
+// plan-154-C: a PolyLine's distance and path parameter, as (d, t) -- the twin of
+// `__canvas_polylineScan` in the oracle and of `polylineScan` in Metal's shader. The
+// minimum over the segments' round bands is the union that makes every corner round;
+// only the first and last LIVE segments (`gradient.x`/`.y`, whole numbers) take a butt
+// plane, each on its outer end. A zero-length segment is skipped unless it is the whole
+// path (first == last), where it is the round dot. `t` is (segment + clamped t) /
+// segments, continuous at a corner, and one walk sets both, so the colour's segment is
+// the distance's.
+vec2 polylineScan(ivec2 band, vec2 p) {
+    int first = item.gradient.x;
+    int last = item.gradient.y;
+    float halfW = fx(item.misc.y);
+    bool butt = item.arc.w == 0;
+    float best = 1.0e6;
+    float param = 0.0;
+    for (int j = 0; j < band.y; ++j) {
+        int e = band.x < 0 ? j : edges.values[band.x + j];
+        if (e < first || e > last) { continue; }
+        int i = (item.arc.z + e) * 4;
+        vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+        vec2 v = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3])) - a;
+        float len2 = dot(v, v);
+        if (!(len2 > 0.0) && first != last) { continue; }
+        vec2 w = p - a;
+        float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;
+        float c = clamp(t, 0.0, 1.0);
+        float d = length(w - v * c) - halfW;
+        if (butt) {
+            float len_ = sqrt(len2);
+            if (e == first) { d = max(d, -t * len_); }
+            if (e == last) { d = max(d, (t - 1.0) * len_); }
+        }
+        if (d < best) { best = d; param = (float(e) + c) / float(item.misc.w); }
+    }
+    return vec2(best, param);
 }
 
 float geoDistance(ivec2 band, vec2 p) {
@@ -268,6 +305,9 @@ float geoDistance(ivec2 band, vec2 p) {
     }
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, band.y, band.x, p);
+    }
+    if (item.misc.x == 10) {
+        return polylineScan(band, p).x;
     }
     // The empty kind (5) and anything unknown. (`Picture` was once kind 5 and drew
     // nothing; since bug-484 it is kind 9 and takes the rectangle arm above.) A glyph (6) never reaches here: it has coverage, not a
@@ -385,22 +425,11 @@ int gradientChannel(int loSrgb, int hiSrgb, int num) {
     return c;
 }
 
-ivec4 gradientColour(vec2 p) {
+// plan-154-C: the stop lookup at a ramp parameter `t`, split from the axis that computes
+// `t` so a PolyLine can ask it at its path parameter instead.
+ivec4 gradientAt(float t) {
     int count = item.ellipse.z;
     int base = GRADIENT_BASE + item.ellipse.w * 5;
-    vec2 from = vec2(fx(item.gradient.x), fx(item.gradient.y));
-    vec2 to = vec2(fx(item.gradient.z), fx(item.gradient.w));
-    vec2 axis = to - from;
-    float len2 = dot(axis, axis);
-    float t = 0.0;
-    if (item.surface.w == 1) {
-        // Radial: distance from the centre, over the axis length. A zero-length axis
-        // leaves t at 0, so the first stop fills — defined, not a divide by zero.
-        float len = sqrt(len2);
-        if (len > 0.0) { t = length(p - from) / len; }
-    } else {
-        if (len2 > 0.0) { t = dot(p - from, axis) / len2; }
-    }
     t = clamp(t, 0.0, 1.0);
 
     // The first stop at or past t; before the first and after the last, the end stop's
@@ -433,6 +462,23 @@ ivec4 gradientColour(vec2 p) {
         gradientChannel(edges.values[lo + 2], edges.values[hi + 2], num),
         gradientChannel(edges.values[lo + 3], edges.values[hi + 3], num),
         loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));
+}
+
+ivec4 gradientColour(vec2 p) {
+    vec2 from = vec2(fx(item.gradient.x), fx(item.gradient.y));
+    vec2 to = vec2(fx(item.gradient.z), fx(item.gradient.w));
+    vec2 axis = to - from;
+    float len2 = dot(axis, axis);
+    float t = 0.0;
+    if (item.surface.w == 1) {
+        // Radial: distance from the centre, over the axis length. A zero-length axis
+        // leaves t at 0, so the first stop fills — defined, not a divide by zero.
+        float len = sqrt(len2);
+        if (len > 0.0) { t = length(p - from) / len; }
+    } else {
+        if (len2 > 0.0) { t = dot(p - from, axis) / len2; }
+    }
+    return gradientAt(t);
 }
 
 vec4 covered(ivec4 rgba, int coverage) {
@@ -537,6 +583,13 @@ void main() {
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
     ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;
+    // plan-154-C: a PolyLine's stops are its per-point colours, and its ramp runs along
+    // the path -- the parameter of the nearest point, in shape space, from the same band
+    // the distance used.
+    if (item.misc.x == 10 && item.ellipse.z >= 2) {
+        vec2 q = hasTransform() ? inverseMap(p) : p;
+        fillRgba = gradientAt(polylineScan(polygonBand(q.y), q).y);
+    }
     // bug-484: a picture's image replaces the fill colour the same way — sampled at the
     // shape-space point, the inverse-mapped one under a transform.
     if (item.misc.x == 9) {

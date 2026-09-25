@@ -43,7 +43,8 @@ use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
     push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT,
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
+    GLYPH_META_H, HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST,
     GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
     GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
     GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
@@ -3934,8 +3935,30 @@ fn emit_edge_upload(
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_MISC,
     ));
+    let has_edges = builder.label("vk_edge_has");
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYGON));
+    builder.emit(abi::branch_eq(&has_edges));
+    // plan-154-C: a PolyLine's segments are edges in the polygon layout, one per segment
+    // and without a wrap edge, so they take the same upload and band index -- the twin of
+    // Metal's `emit_edge_buffer` (plan-154-B).
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYLINE));
     builder.emit(abi::branch_ne(&empty));
+    // Its first and last live segments, as whole numbers over the 16.16 gradient axis
+    // `emit_item_block` wrote: 16.16 holds a segment index only up to 32,767.
+    builder.emit(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), off_header));
+    for (index, slot) in [(0usize, HEADER_POLYLINE_FIRST), (1, HEADER_POLYLINE_LAST)] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], abi::SCRATCH[1], slot * 8));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_GRADIENT + index * 4,
+        ));
+    }
+    builder.emit(abi::label(&has_edges));
 
     builder.emit(abi::load_u32(
         count,
@@ -4201,6 +4224,11 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // --- the reach r (f1) and the minimum band height (f4), in shape units --------
     builder.emit(abi::load_u64(s[0], sp(), at.header));
     builder.emit(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-154-C: a PolyLine keeps its half-width in the RADIUS slot (it is
+    // stroke-as-fill, slot 7 is -1); a polygon never writes that slot, so its reach is
+    // unchanged. Metal's `emit_band_index` takes the same maximum.
+    builder.emit(abi::load_double(f[2], s[0], HEADER_RADIUS * 8));
+    builder.emit(abi::float_max_d(f[1], f[1], f[2]));
     builder.emit(abi::move_immediate(s[4], "Integer", "0"));
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.

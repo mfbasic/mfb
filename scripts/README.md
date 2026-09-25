@@ -132,9 +132,11 @@ a `cargo test` target, another script, or a person.
   Run by: by hand (box 2226 for linux-aarch64, 2230 for windows-x86_64).
 - **test-canvas-vulkan.sh** — Runtime acceptance for the canvas Vulkan backend: renders
   the same scenes on a Linux box with and without `MFB_CANVAS_GPU=1` and requires the
-  frames to agree within tolerance, including resize and group scenes. Usage:
-  `bash scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--libc glibc|musl] [--icd auto|<manifest>]`.
-  Run by: by hand (box 2228, or 2227 with `--libc musl --icd auto`).
+  frames to agree within tolerance, including resize, group and polyline scenes (the
+  last two against their checked-in goldens). Usage:
+  `bash scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--target linux-x86_64|linux-aarch64] [--libc glibc|musl] [--icd auto|<manifest>]`.
+  Run by: by hand (box 2228; 2226 with `--target linux-aarch64`; or 2227 with
+  `--libc musl --icd auto`).
 - **test-winapp.sh** — Runtime acceptance for Windows `--app` builds: app-mode startup,
   file writes, environment, canvas software and Vulkan frames, resize and `term`
   gating, run on the Windows box. Usage: `bash scripts/test-winapp.sh <mfb-exe> [--box <port>]`.

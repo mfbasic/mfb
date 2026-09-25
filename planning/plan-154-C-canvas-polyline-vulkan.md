@@ -21,8 +21,8 @@ References: plan-154-A (contract), plan-154-B (the Metal twin this mirrors),
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-154-B complete | `ls planning/plan-154-B-*` → no match (archived) | NOT MET (2026-09-24) |
-| A Vulkan box answers | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228` on HEAD → reports `vulkanReady=TRUE` | UNMEASURED (2026-09-24) |
+| plan-154-B complete | `ls planning/plan-154-B-*` → no match (archived) | MET (2026-09-25: no match; archived in 06b22c3f3) |
+| A Vulkan box answers | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` on HEAD → reports `vulkanReady=TRUE` | MET (2026-09-25 on 2226, HEAD 1bd…: `vulkanReady=TRUE`, "canvas Vulkan runtime tests passed"; 2228 refuses connections — Corrections C2) |
 
 If either row is not met, this plan cannot start, full stop.
 
@@ -85,19 +85,39 @@ script is the only producer, and the test exercises the committed binary.
 
 ### Phase 1 — Vulkan draws PolyLine
 
-- [ ] Measure the `GEO_KIND_POLYGON` sites, and record the count in §2.
-- [ ] `vulkan.rs`: upload PolyLine edges.
-- [ ] `mfb_canvas.frag`: add the PolyLine branch, then run
-      `scripts/regen-spirv.sh` and commit the `.spv`.
-- [ ] `helper_render.rs`: stop declining in `__canvas_vulkanRenderable`.
-- [ ] Add the polyline scene to `scripts/test-canvas-vulkan.sh`'s comparison
-      set.
-- [ ] Spec, `06_canvas.md`: remove the remaining fallback sentence for
-      PolyLine.
+- [x] Measure the `GEO_KIND_POLYGON` sites, and record the count in §2 (2).
+- [x] `vulkan.rs`: upload PolyLine edges. `emit_edge_upload` accepts both
+      kinds and writes the first/last live segments as whole numbers;
+      `emit_band_index` takes its reach from `max(slot 7, slot 6, 0)`.
+- [x] `mfb_canvas.frag`: add the PolyLine branch, then run
+      `scripts/regen-spirv.sh` and commit the `.spv`. Run as
+      `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` (Corrections C2). Only
+      `mfb_canvas.frag.spv` is committed: 2226's glslang (11:12.0.0) rebuilt the
+      UNCHANGED frag byte-identically but not the unchanged vert, so the vert blob
+      is restored from HEAD rather than churned (Corrections C3).
+      `cargo test --bin mfb vulkan` → 5 passed.
+- [x] `helper_render.rs`: stop declining in `__canvas_vulkanRenderable`, and
+      count a polyline's segments against `VULKAN_MAX_FRAME_EDGES`. Each predicate's
+      polyline sum is its own `IF` so that `= __CANVAS_GEO_POLYGON THEN` stays
+      spelled (`the_polygon_kind_is_spelled_once`). The slot-20 read census goes
+      4 → 6 (`the_predicates_read_the_edge_count_slot`, two additions, recorded in
+      its doc).
+- [x] Add the polyline scene to `scripts/test-canvas-vulkan.sh`'s comparison
+      set: extracted from `rt_canvas_golden.rs`'s `POLYLINES` const, as the group
+      scene is, and compared with `polyline.png`. The PNG decoder became
+      `png_to_rgba`, shared by both rows. `scripts/README.md` updated.
+- [x] Spec, `06_canvas.md`: remove the remaining fallback sentence for
+      PolyLine, and cite `emit_edge_upload` and the frag's `polylineScan`.
+      `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`.
 
 Acceptance: the polyline scene matches the oracle on the Vulkan GPU on box
-2228.
+2226 (Corrections C2).
   Check: `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228` → polyline row within `GPU_DEFAULT`, `vulkanReady=TRUE` (est. 10 min; the build and the AppImage ship to the box dominate, and only a real Vulkan ICD can show the shader is right — box 2228 is the script's default glibc x86_64 box with one).
+  Result (box 2226, lavapipe): "the polyline scene reached the GPU (gpuFrames
+  non-zero)"; "the software render reproduces tests/golden/canvas/polyline.png
+  exactly"; "the Vulkan render matches tests/golden/canvas/polyline.png (ok
+  worst=1 differing=0.5366%)"; every earlier row still passes; "canvas Vulkan
+  runtime tests passed".
 Commit: —
 
 ## Validation Plan
@@ -121,6 +141,19 @@ Commit: —
   → line 4139. So wind's 35,200 polyline edges fit, and the upload step is the
   same as Metal's. The design text was corrected; the wind-stays-in-software
   paragraph was false and is gone.
+- **C2 (2026-09-25): box 2228 is down; 2226 is the Vulkan box.** `ssh -p 2228`
+  → "Connection refused" (and so for every port but 2226 and 2230); UTM is
+  running only the aarch64 and Windows guests. `test-canvas-vulkan.sh` supports
+  `--box 2226 --target linux-aarch64`, and 2226 reports `vulkanReady=TRUE` with a
+  Mesa lavapipe ICD, so the prerequisite and the acceptance run there. The
+  predicate is the same one the plan named — a real Vulkan ICD drawing the
+  committed SPIR-V — on the other Linux architecture.
+- **C3 (2026-09-25): regenerating the SPIR-V on 2226 changes the unchanged vert
+  blob.** Before any edit, `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` gave a
+  byte-identical `mfb_canvas.frag.spv` and a different `mfb_canvas.vert.spv`
+  (`git status --short src/codegen/runtime/canvas/shaders/`). So the committed
+  vert came from a different glslang. `mfb_canvas.vert` is not edited by this
+  plan, so its blob is kept as committed.
 
 ## Summary
 

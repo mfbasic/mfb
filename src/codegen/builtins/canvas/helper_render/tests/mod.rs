@@ -273,6 +273,11 @@ fn every_cap_token_in_the_render_source_is_generated() {
 /// max channel delta 1. `the_two_gpu_edge_budgets_match_the_emitters` pins that the cap
 /// stays gone. The frame edge sum still reads slot 20 in both predicates.
 ///
+/// It went 4 → 6 in plan-154-B/C, and that is an ADDITION like bug-484's: a
+/// `canvas::PolyLine` carries its segment count in slot 20 and its segments ride the
+/// polygon edge region, so each predicate adds one more edge-sum read of the same slot.
+/// The polygon's own read is unchanged (`the_polygon_kind_is_spelled_once`).
+///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
 /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
@@ -284,7 +289,7 @@ fn the_predicates_read_the_edge_count_slot() {
     assert_eq!(HEADER_AUX0, 20);
     assert_eq!(
         source().matches(&format!("offset + {HEADER_AUX0}")).count(),
-        4,
+        6,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \
