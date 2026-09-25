@@ -373,14 +373,32 @@ FUNC speedColor(speed AS Float) AS color::Color
   RETURN color::rgb(120 + math::floor(t * 135.0), 170 + math::floor(t * 70.0), 215 - math::floor(t * 55.0))
 END FUNC
 
-' Every particle's trail, as lines in window coordinates.
+' The colour of a trail's k-th newest point: the particle's tint, fading from
+' nearly opaque at the head towards faint at the tail, so a particle reads as
+' having a head and a direction rather than as a worm of even brightness.
+FUNC trailPointColor(tint AS color::Color, k AS Integer, segments AS Integer) AS color::Color
+  LET fade AS Float = 1.0 - toFloat(k) / toFloat(segments)
+  RETURN color::withAlpha(tint, 40 + math::floor(fade * 195.0))
+END FUNC
+
+' One run of a trail, as the PolyLine that draws it.
 '
-' A trail is drawn newest segment first, fading towards the tail, so a particle
-' reads as having a head and a direction rather than as a worm of even
-' brightness. Two segments are skipped rather than drawn: one whose particle is
-' younger than the segment - a freshly dropped particle has no history yet - and
-' one that spans more than half the map, which is what the antimeridian looks
-' like when a particle crosses it and its longitude wraps.
+' It builds the item and nothing else. The caller appends it, because a list
+' passed into a function and handed back is copied whole, every call - with one
+' call per run that turns building the frame's items into a quadratic.
+FUNC trailPath(run AS List OF canvas::Point, colors AS List OF color::Color, tint AS color::Color) AS canvas::DrawItem
+  RETURN canvas::PolyLine[points := run, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.35)]
+END FUNC
+
+' Every particle's trail, in window coordinates, as one PolyLine per unbroken
+' run of it.
+'
+' A trail is walked newest point first, each point coloured by how far back it
+' is, so the stroke fades head to tail. Two segments are skipped rather than
+' drawn, and a skipped segment ends the run it would have joined: one that lies
+' off screen, and one that spans more than half the map, which is what the
+' antimeridian looks like when a particle crosses it and its longitude wraps.
+' A particle younger than its trail has only that much history to draw.
 FUNC trailItems(v AS View) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = []
   LET count AS Integer = particleCount()
@@ -397,6 +415,8 @@ FUNC trailItems(v AS View) AS List OF canvas::DrawItem
     LET base AS Integer = i * trail
     LET drawable AS Integer = math::min(segments, age)
     LET tint AS color::Color = speedColor(collections::get(swarm, i).speed)
+    MUT run AS List OF canvas::Point = []
+    MUT colors AS List OF color::Color = []
 
     FOR k = 0 TO drawable - 1
       ' Slot (trailHead - k) is the k-th most recent point; the + trail keeps
@@ -408,16 +428,23 @@ FUNC trailItems(v AS View) AS List OF canvas::DrawItem
       LET bx AS Float = collections::get(trailX, older)
       LET by AS Float = collections::get(trailY, older)
 
-      IF math::abs(ax - bx) > wrapLimit THEN CONTINUE FOR
-      IF NOT overlaps(Box[minX := math::min(ax, bx), minY := math::min(ay, by), maxX := math::max(ax, bx), maxY := math::max(ay, by)], box) THEN CONTINUE FOR
+      MUT skip AS Boolean = math::abs(ax - bx) > wrapLimit
+      IF NOT skip THEN skip = NOT overlaps(Box[minX := math::min(ax, bx), minY := math::min(ay, by), maxX := math::max(ax, bx), maxY := math::max(ay, by)], box)
+      IF skip THEN
+        IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
+        run = []
+        colors = []
+        CONTINUE FOR
+      END IF
 
-      LET head AS canvas::Point = toScreen(v, Plane[x := ax, y := ay])
-      LET tail AS canvas::Point = toScreen(v, Plane[x := bx, y := by])
-      LET fade AS Float = 1.0 - toFloat(k) / toFloat(segments)
-      LET paint AS canvas::Paint = canvas::stroke(color::withAlpha(tint, 40 + math::floor(fade * 195.0)), 1.35)
-      LET segment AS canvas::DrawItem = canvas::Line[x1 := head.x, y1 := head.y, x2 := tail.x, y2 := tail.y, cap := canvas::CapStyle.Round, paint := paint]
-      items = collections::append(items, segment)
+      IF len(run) = 0 THEN
+        run = collections::append(run, toScreen(v, Plane[x := ax, y := ay]))
+        colors = collections::append(colors, trailPointColor(tint, k, segments))
+      END IF
+      run = collections::append(run, toScreen(v, Plane[x := bx, y := by]))
+      colors = collections::append(colors, trailPointColor(tint, k + 1, segments))
     NEXT
+    IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
   NEXT
 
   RETURN items
