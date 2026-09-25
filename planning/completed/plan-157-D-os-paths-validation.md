@@ -163,6 +163,19 @@ Commit: bb6899bca, and the archive commit
 
 ## Corrections
 
+- **D-2: merging `main` (e92693b40).** `main` had advanced 10+ commits, including
+  an unrelated plan-156; this plan was renumbered to plan-157 (plan-157-A
+  Correction A-0). `git diff --name-only 732eed460 main` (59 files) and
+  `git diff --name-only main...worktree-paths` share no file. Per the user's
+  direction (re-run only the relevant tests, and none when a merge does not
+  touch this plan's code), no re-run was required. The one run made before that
+  direction arrived was green on every os suite (`os` 586, `self_update` 11,
+  `spec` 44, `app_info_plist` 4, the census 2, the in-place harness 3, Win64
+  1+3, artifact-gate `os`/`fs` 0 diffs). The exception: the `acceptance` app now
+  ends in the harness `timeout` (5:17 wall-clock alone). It passed on this branch
+  before the merge (D1), and no file overlaps, so this comes from `main`'s
+  changes or load, not plan-157. Left to `main`.
+
 - **D-1 (user direction, 2026-09-24): the final gate is the `os::` tests only,
   not the full suite.** The user said: "you dont have to run the full test suite
   for this. Only the os:: tests are needed for the final gate". D1's full
