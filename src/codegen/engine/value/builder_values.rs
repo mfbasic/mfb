@@ -2062,12 +2062,12 @@ impl CodeBuilder<'_> {
                         self.emit(abi::store_u64(&holder, &env_register, index * 8));
                     }
                     if shares_resource_base {
-                        // plan-146-G: the address of this frame's `os::resourcePath`
+                        // plan-146-G: the address of this frame's `os::appResourcePath`
                         // base cache, which the lambda fills on its first call and
                         // this frame owns and frees.
-                        let Some(base_slot) = self.string_resource_base else {
+                        let Some(base_slot) = self.string_app_resource_base else {
                             return Err(format!(
-                                "native closure `{name}` shares an os.resourcePath base cache \
+                                "native closure `{name}` shares an os.appResourcePath base cache \
                                  its creator does not have"
                             ));
                         };

@@ -278,9 +278,9 @@ impl NativePlanPlatform for Platform {
                 import("GetUserNameW", ADVAPI32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
-            // bug-454: `os.resourcePath` reuses the same `GetModuleFileNameW`
+            // bug-454: `os.appResourcePath` reuses the same `GetModuleFileNameW`
             // acquisition, so it needs the same two imports.
-            "os.executablePath" | "os.resourcePath" => vec![
+            "os.executablePath" | "os.appResourcePath" => vec![
                 import("GetModuleFileNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],

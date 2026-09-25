@@ -1,4 +1,4 @@
-' os::resourcePath is only useful if the path it returns OPENS. This reads the
+' os::appResourcePath is only useful if the path it returns OPENS. This reads the
 ' resource the build copied beside the executable, which pins the whole chain:
 ' the base derived from the running binary's own path, the `<base>/<relative>`
 ' join, and `fs::` accepting the result. bug-454 made the same source lower for
@@ -11,7 +11,7 @@ IMPORT io
 IMPORT strings
 
 FUNC main AS Integer
-  LET p AS String = os::resourcePath("greeting.txt")
+  LET p AS String = os::appResourcePath("greeting.txt")
   io::print(toString(strings::startsWith(p, "/")))
   io::print(toString(strings::endsWith(p, "/greeting.txt")))
   io::print(strings::trim(fs::readText(p)))
@@ -28,5 +28,5 @@ FUNC main AS Integer
 END FUNC
 
 FUNC resolve(rel AS String) AS String
-  RETURN os::resourcePath(rel)
+  RETURN os::appResourcePath(rel)
 END FUNC

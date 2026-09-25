@@ -900,11 +900,11 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         "os" => match callee {
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
             | "os.environ" => Some("environment"),
-            // `os.resourcePath` reads `/proc/self/exe` exactly as
+            // `os.appResourcePath` reads `/proc/self/exe` exactly as
             // `os.executablePath` does; it was added later and never mapped
             // (bug-278).
             "os.args" | "os.pid" | "os.name" | "os.arch" | "os.hostName" | "os.userName"
-            | "os.cpuCount" | "os.executablePath" | "os.resourcePath" => Some("process"),
+            | "os.cpuCount" | "os.executablePath" | "os.appResourcePath" => Some("process"),
             _ => None,
         },
         "math" => match callee {
@@ -1054,7 +1054,7 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "audio.readTimeout"
             | "audio.render"
             | "audio.write"
-            // os — the host-querying half; `resourcePath` raises ErrInvalidPath /
+            // os — the host-querying half; `appResourcePath` raises ErrInvalidPath /
             // ErrUnsupported like its `executablePath` sibling.
             | "os.args"
             | "os.environ"
@@ -1062,7 +1062,7 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "os.getEnv"
             | "os.getEnvOr"
             | "os.hostName"
-            | "os.resourcePath"
+            | "os.appResourcePath"
             | "os.setEnv"
             | "os.userName"
             // regex — compilation of a caller-supplied pattern can fail

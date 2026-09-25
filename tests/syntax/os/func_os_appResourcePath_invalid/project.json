@@ -1,5 +1,5 @@
 {
-  "name": "func_os_resourcePath_valid",
+  "name": "func_os_appResourcePath_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

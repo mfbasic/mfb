@@ -13,7 +13,7 @@
 //! - `os.hostName` — `gethostname`.
 //! - `os.userName` — `getpwuid`/`getuid`.
 //! - `os.executablePath` — the platform's own executable-path primitive.
-//! - `os.resourcePath` — **build-mode dependent** (plan-55-B): resolves against
+//! - `os.appResourcePath` — **build-mode dependent** (plan-55-B): resolves against
 //!   the app bundle/AppDir layout or the build output directory, not a libc call.
 //! - `os.args` — reads the `os::args` globals captured at entry (plan-31-B).
 //!

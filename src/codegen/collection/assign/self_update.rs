@@ -489,7 +489,7 @@ pub(crate) fn self_update_builtin(target: &str) -> Option<&'static str> {
 pub(crate) const STRING_SELF_UPDATE_SPELLINGS: &[(&str, &str)] = &[
     ("#strings_padLeftToWidth", "padLeftToWidth"),
     ("#strings_padRightToWidth", "padRightToWidth"),
-    ("os.resourcePath", "resourcePath"),
+    ("os.appResourcePath", "appResourcePath"),
     ("toString", "toString"),
 ];
 
@@ -521,7 +521,7 @@ impl CodeBuilder<'_> {
 
 /// plan-146-D: a call's `(target, args)`, whichever node the lowering produced —
 /// a plain `Call`, or the `RuntimeCall` an `abi_function` member's call site
-/// becomes (`os::resourcePath`). Both are `f(args…)` to every gate here.
+/// becomes (`os::appResourcePath`). Both are `f(args…)` to every gate here.
 pub(crate) fn self_update_call_parts(value: &NirValue) -> Option<(&str, &[NirValue])> {
     match value {
         NirValue::Call { target, args, .. } => Some((target.as_str(), args.as_slice())),
@@ -846,7 +846,7 @@ fn ops_create_scratch_closure(builder: &CodeBuilder<'_>, ops: &[NirOp]) -> bool 
 fn target_needs_self_update_scratch(target: &str) -> bool {
     self_update_builtin(target).is_some_and(|bare| SCRATCH_ARMS.contains(&bare))
         // plan-146-D/E: the `String` arms that build their result in the scratch
-        // (`os::resourcePath`'s prefix, the six rewrites), by qualified target.
+        // (`os::appResourcePath`'s prefix, the six rewrites), by qualified target.
         || crate::codegen::collection::assign::string_self_update::target_needs_string_scratch(
             target,
         )
@@ -866,10 +866,10 @@ pub(crate) fn module_self_updates_with(module: &NirModule, bare: &str) -> bool {
     })
 }
 
-/// plan-146-D/G: whether `ops` hold `s = os::resourcePath(s)`.
+/// plan-146-D/G: whether `ops` hold `s = os::appResourcePath(s)`.
 pub(crate) fn ops_hold_resource_path_self_update(ops: &[NirOp]) -> bool {
     ops_hold_self_update(ops, &|target| {
-        self_update_builtin(target) == Some("resourcePath")
+        self_update_builtin(target) == Some("appResourcePath")
     })
 }
 
@@ -963,14 +963,14 @@ impl CodeBuilder<'_> {
             }));
     }
 
-    /// plan-146-D: give this function a slot for `os::resourcePath`'s base block
-    /// when its body holds `s = os::resourcePath(s)` — the in-place arm computes the
+    /// plan-146-D: give this function a slot for `os::appResourcePath`'s base block
+    /// when its body holds `s = os::appResourcePath(s)` — the in-place arm computes the
     /// base at most once per call and reads it from there. Registered as a
     /// function-level owned `String`, so the ordinary scope drop frees it (with the
     /// null guard and prologue zeroing that drop brings), exactly as the self-update
     /// scratch is.
-    pub(crate) fn prescan_string_resource_base(&mut self, ops: &[NirOp]) {
-        if self.string_resource_base.is_some() || self.string_resource_base_env.is_some() {
+    pub(crate) fn prescan_string_app_resource_base(&mut self, ops: &[NirOp]) {
+        if self.string_app_resource_base.is_some() || self.string_app_resource_base_env.is_some() {
             return;
         }
         // plan-146-G: a function that lends the cache to a lambda needs one too.
@@ -984,7 +984,7 @@ impl CodeBuilder<'_> {
             return;
         }
         let slot = self.allocate_stack_object("str_resource_base", 8);
-        self.string_resource_base = Some(slot);
+        self.string_app_resource_base = Some(slot);
         self.active_cleanups
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: ParameterType::String,
@@ -1001,8 +1001,8 @@ impl CodeBuilder<'_> {
     }
 
     /// plan-146-G: in a lambda, the closure-environment word holding the address
-    /// of the creator's `os::resourcePath` base-path cache, after the shadow words.
-    pub(crate) fn prescan_string_resource_base_env(&mut self, function: &str) {
+    /// of the creator's `os::appResourcePath` base-path cache, after the shadow words.
+    pub(crate) fn prescan_string_app_resource_base_env(&mut self, function: &str) {
         if !crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
             self.functions,
             function,
@@ -1019,7 +1019,7 @@ impl CodeBuilder<'_> {
                 function,
             )
             .len();
-        self.string_resource_base_env = Some(total + scratch_words + shadow_words);
+        self.string_app_resource_base_env = Some(total + scratch_words + shadow_words);
     }
 
     /// plan-146-G: in a lambda, record which closure-environment word holds the
@@ -1936,9 +1936,9 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[str_probe(ST, STR, "strings::repeat(x, 2)")],
     },
     SelfUpdateRow {
-        function: "os::resourcePath",
+        function: "os::appResourcePath",
         kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
-        probes: &[str_probe(OS, STR, "os::resourcePath(x)")],
+        probes: &[str_probe(OS, STR, "os::appResourcePath(x)")],
     },
     SelfUpdateRow {
         function: "strings::upper",
@@ -3200,7 +3200,7 @@ mod tests {
             ("#strings_padLeftToWidth", "padLeftToWidth"),
             ("#strings_padRightToWidth", "padRightToWidth"),
             ("strings.repeat", "repeat"),
-            ("os.resourcePath", "resourcePath"),
+            ("os.appResourcePath", "appResourcePath"),
             ("strings.upper", "upper"),
             ("strings.lower", "lower"),
             ("strings.caseFold", "caseFold"),

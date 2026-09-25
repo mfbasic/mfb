@@ -119,9 +119,9 @@ SUB main()
         LET tracks AS List OF String = [voice1, voice2, voice3]
         audio::play(out, tracks)
       CASE 3
-        playSoundFile(seloutDevices, os::resourcePath("music/Mozart1.ogg"))
+        playSoundFile(seloutDevices, os::appResourcePath("music/Mozart1.ogg"))
       CASE 4
-        playSoundFile(seloutDevices, os::resourcePath("music/Mozart2.ogg"))
+        playSoundFile(seloutDevices, os::appResourcePath("music/Mozart2.ogg"))
       CASE ELSE
     END MATCH
 

@@ -154,7 +154,7 @@ impl NativeBackend for Backend {
                 "os.prog",
                 "os.pid",
                 "os.executablePath",
-                "os.resourcePath",
+                "os.appResourcePath",
                 "os.name",
                 "os.arch",
                 "os.hostName",

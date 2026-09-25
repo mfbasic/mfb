@@ -65,9 +65,9 @@ This is the one hard gate for all of plan-156; B, C and D point here.
 | Must be true | Command | Status |
 |---|---|---|
 | Worktree `paths` exists on branch `worktree-paths` | `git -C .claude/worktrees/paths rev-parse --abbrev-ref HEAD` → `worktree-paths` | MET (2026-09-24) |
-| The debug compiler builds at the worktree's HEAD | `cargo build` → exit 0 | MET (checked when A starts) |
+| The debug compiler builds at the worktree's HEAD | `cargo build` → exit 0 | MET (2026-09-24, `cargo build` → Finished) |
 | A glibc Linux box answers ssh (runtime proof, plan-156-D) | `ssh -o ConnectTimeout=5 -p 2226 test@127.0.0.1 true` → exit 0 | MET (2026-09-24; 2222/2223/2227/2228/2229/2232 refused) |
-| The Windows box answers ssh (runtime proof, B/C/D) | `ssh -o ConnectTimeout=5 -p 2230 test@127.0.0.1 true` → exit 0 | MET (2026-09-24) |
+| The Windows box answers ssh (runtime proof, B/C/D) | `ssh -o ConnectTimeout=5 -p 2230 test@127.0.0.1 echo ok` → `ok` (Windows has no `true`) | MET (2026-09-24, re-run at A start) |
 
 Everything below assumes these conditions hold.
 
@@ -265,34 +265,34 @@ because those record why the entry exists.
 This phase makes the compiler accept only the new name, and it lands alone
 because every in-tree caller moves in the same commit.
 
-- [ ] Rename `src/codegen/builtins/os/func_resource_path.rs` →
+- [x] Rename `src/codegen/builtins/os/func_resource_path.rs` →
       `func_app_resource_path.rs`. Update the `mod` line and the `register`
-      call in `os/mod.rs`, and apply §4.1.
-- [ ] Update `os/mod.rs`'s `MODULE_DESC`/module doc sentences (`:13`, `:16`,
-      `:74`) and its unit tests (`:150`, `:222`) to the new name.
-- [ ] Update the 28 quoted-name lines (§4.4). Command:
+      call in `os/mod.rs`, and apply §4.1. — done: `git mv` + `mod func_app_resource_path`; `relative` is `DefaultValue::Fill { String, "" }` (raw value, as `strings::padRightToWidth`'s `" "`: `ir/lower.rs` pushes `expr` verbatim as the `Const`).
+- [x] Update `os/mod.rs`'s `MODULE_DESC`/module doc sentences (`:13`, `:16`,
+      `:74`) and its unit tests (`:150`, `:222`) to the new name. — done (identifier rename across the file).
+- [x] Update the 28 quoted-name lines (§4.4). Command:
       `rg -n '"os\.resourcePath"|"resourcePath"' src --glob '!src/docs/**'`.
-      It must return 0 lines afterwards.
-- [ ] Rename, in `string_self_update.rs`/`self_update.rs`/`builder/mod.rs`/
-      `builder_values.rs`:
+      It must return 0 lines afterwards. — done: `rg -n '"os\.resourcePath"|"resourcePath"' src --glob '!src/docs/**'` → 0 lines.
+- [x] Rename, in `string_self_update.rs`/`self_update.rs`/`builder/mod.rs`/
+      `builder_values.rs`: — done.
   - `GrowKind::ResourcePath` → `AppResourcePath`
   - `emit_resource_prefix` → `emit_app_resource_prefix`
   - `string_resource_base[_env]` → `string_app_resource_base[_env]`
   - `prescan_string_resource_base` → `prescan_string_app_resource_base`
   - the `SELF_UPDATE_TABLE` row's `function`/`probes`.
-- [ ] Update every remaining `src/` comment that names the call. Scope: the
+- [x] Update every remaining `src/` comment that names the call. Scope: the
       `rg -c resourcePath src --glob '!src/docs/**'` rows above. Afterwards,
       `rg resourcePath src --glob '!src/docs/**'` must return only
       `lower_app_resource_path`-style identifiers that contain the substring,
-      and no bare `resourcePath` call spelling.
-- [ ] Update the unit tests: `src/codegen/builtins/tests/{app_surface,os,corpus}.rs`,
+      and no bare `resourcePath` call spelling. — done: `rg resourcePath src tests examples .ai Cargo.toml --glob '!**/golden/**' | rg -v appResourcePath` → 0 lines.
+- [x] Update the unit tests: `src/codegen/builtins/tests/{app_surface,os,corpus}.rs`,
       plus `tests/codegen/codegen_win64_resource_path.rs`,
       `tests/codegen/codegen_helper_scratch_release.rs`,
       `tests/runtime/rt_trapped_call_capability_gate.rs`, and
       `tests/runtime/inplace_self_update/{cases,field_expect}.tsv`.
       Rename `codegen_win64_resource_path.rs` →
       `codegen_win64_app_resource_path.rs`, and grep `Cargo.toml` for its
-      `[[test]]` entry, which `rg -n resource_path Cargo.toml` finds.
+      `[[test]]` entry, which `rg -n resource_path Cargo.toml` finds. — done, incl. `Cargo.toml` `[[test]] codegen_win64_app_resource_path` and `_mfb_rt_os_os_appResourcePath` in `codegen_helper_scratch_release.rs`.
 
 Acceptance: the compiler accepts `os::appResourcePath(...)`, and
 `os::resourcePath` is an unknown member.
@@ -309,11 +309,11 @@ Commit: —
 The copying helper and the in-place arm now both return `<base>` for an empty
 `relative`.
 
-- [ ] Apply §4.2 in `lower_app_resource_path`.
-- [ ] Apply §4.3 in the `AppResourcePath` grow arm.
-- [ ] Rename `tests/rt-behavior/os/func_os_resourcePath_valid` →
+- [x] Apply §4.2 in `lower_app_resource_path`. — done: the `/` before `relative` is branched on `arg_len == 0`; the suffix `/` is unconditional.
+- [x] Apply §4.3 in the `AppResourcePath` grow arm. — done: the effective length goes to a fresh `str_respath_used_len` slot, one byte shorter for an empty value.
+- [x] Rename `tests/rt-behavior/os/func_os_resourcePath_valid` →
       `func_os_appResourcePath_valid`, and update its `project.json` `name` and
-      source. Add lines printing:
+      source. Add lines printing: — done; run prints `FALSE TRUE TRUE TRUE TRUE` after the old 7 lines. `-ncode` shows 7 `bl _mfb_rt_os_os_appResourcePath` = the 7 copying sites, so both in-place sites took the arm.
   - `strings::endsWith(os::appResourcePath(), "/")` → `FALSE`
   - `os::appResourcePath() = os::appResourcePath("")` → `TRUE`
   - `os::appResourcePath("x") = os::appResourcePath() & "/x"` → `TRUE`
@@ -321,17 +321,17 @@ The copying helper and the in-place arm now both return `<base>` for an empty
     `os::appResourcePath()` → `TRUE`
   - a non-empty in-place `s = "a/b"` equal to `os::appResourcePath("a/b")` →
     `TRUE`
-- [ ] Rename `tests/rt-behavior/os/func_os_resourcePath_reads_resource` →
-      `func_os_appResourcePath_reads_resource` (name, source).
-- [ ] Update `tests/rt-behavior/strings/self-update-grow-valid/src/main.mfb`
+- [x] Rename `tests/rt-behavior/os/func_os_resourcePath_reads_resource` →
+      `func_os_appResourcePath_reads_resource` (name, source). — done.
+- [x] Update `tests/rt-behavior/strings/self-update-grow-valid/src/main.mfb`
       and `tests/rt-behavior/native/libsnd-playback-rt/src/main.mfb` to the new
-      name.
-- [ ] Add the missing invalid fixture
+      name. — done. The rename regex also hit the helper `SUB resourcePaths` and two printed tags; reverted so only the call spelling changes.
+- [x] Add the missing invalid fixture
       `tests/syntax/os/func_os_appResourcePath_invalid`. It must reject a wrong
       argument type (`os::appResourcePath(1)`) and a wrong arity
-      (`os::appResourcePath("a", "b")`), with golden `build.log` diagnostics.
-- [ ] Update `tests/acceptance/src/os.mfb` (4 call sites) and
-      `tests/byte-identity/os/src/main.mfb:25`.
+      (`os::appResourcePath("a", "b")`), with golden `build.log` diagnostics. — done: `TYPE_CALL_ARGUMENT_MISMATCH` (Integer vs [String]) and `TYPE_CALL_ARITY_MISMATCH` (2 vs 0 to 1); golden `build.log` written from the run.
+- [x] Update `tests/acceptance/src/os.mfb` (4 call sites) and
+      `tests/byte-identity/os/src/main.mfb:25`. — done.
 
 Acceptance: the renamed valid fixture prints `FALSE` then four `TRUE`s, the old
 lines are unchanged, and the invalid fixture reports both diagnostics.
@@ -343,20 +343,20 @@ Commit: —
 
 ### Phase A3: docs, spec, and `.ai` notes
 
-- [ ] Update `src/docs/spec/stdlib/14_os.md`:
+- [x] Update `src/docs/spec/stdlib/14_os.md`: — done: signature `= ""`, empty-`relative` paragraph citing `lower_app_resource_path` and `emit_app_resource_prefix`; error rows renamed.
   - "Build resources (resourcePath)" → "Build resources (appResourcePath)",
     with the new signature, the empty-`relative` rule, and `[[path:Symbol]]`
     citations re-pointed at `func_app_resource_path.rs:lower_app_resource_path`.
   - The error table rows at `:280`/`:281`.
   - The line at `:267`.
-- [ ] Update the other spec topics: `src/docs/spec/architecture/06_native.md`,
+- [x] Update the other spec topics: `src/docs/spec/architecture/06_native.md`,
       `memory/05_collections.md`, `tooling/01_project-manifest.md` (one hit
-      each).
-- [ ] Update the `.ai/arch-abi.md` (5), `.ai/collections.md` (1) and
+      each). — done.
+- [x] Update the `.ai/arch-abi.md` (5), `.ai/collections.md` (1) and
       `.ai/testing-gates.md` (1) references. In `testing-gates.md` also correct
       the stale Windows fixture count with the measured `27`/`28` and the fact
-      that `os` has a Windows golden (§2 Verified properties).
-- [ ] Update `planning/todo.md` (1 hit).
+      that `os` has a Windows golden (§2 Verified properties). — done; `testing-gates.md` now states the measured 29 Unix / 27 Windows goldens (only `link-const-pins` and `crypto-ec-valid` lack Windows).
+- [x] Update `planning/todo.md` (1 hit). — done: #12 now points at plan-156 and strikes `os::homePath`.
 
 Acceptance: no live doc names the old call, and the spec citations resolve.
   Check: `rg --hidden -c resourcePath --glob '!.git/**' --glob '!planning/completed/**' --glob '!bugs/**' --glob '!planning/old_man/**' --glob '!planning/plan-14[34]-findings/**' --glob '!planning/coverage-baseline.txt' --glob '!.claude/**' --glob '!planning/plan-156-*'`
@@ -367,15 +367,15 @@ Commit: —
 
 ### Phase A4: examples, man page render, and golden refresh
 
-- [ ] Migrate `examples/audio/src/main.mfb` (2), `examples/dungeon/src/render.mfb`
+- [x] Migrate `examples/audio/src/main.mfb` (2), `examples/dungeon/src/render.mfb`
       (1) and `examples/wind/src/land.mfb` (1). Build each with
-      `target/debug/mfb build examples/<x>`, which must exit 0.
-- [ ] Render the page with `target/debug/mfb man os appResourcePath`. The
+      `target/debug/mfb build examples/<x>`, which must exit 0. — done: `dungeon` and `wind` build (exit 0). `audio` needs the gitignored installed `libsnd.mfp`; with it copied from the main tree it fails on `SoundFile`/`SoundInfo` unknown types, which is package type resolution, not this rename. It fails identically at `main` HEAD, so the bug predates this plan; it is fixed here (Correction A-1). After the fix `audio` builds too.
+- [x] Render the page with `target/debug/mfb man os appResourcePath`. The
       output must show the `relative` parameter as optional, the Errors section
       must list both codes, and `scripts/man-census.sh --memory-scope` must
-      report 0 unclassified hits.
-- [ ] Run `scripts/man-run-examples.sh os --run`, and the renamed page's
-      examples must pass.
+      report 0 unclassified hits. — done: `(opt)` parameter, Errors lists `77030002` and `77050007`; `MFB=./target/debug/mfb scripts/man-census.sh --memory-scope os` → `unclassified memory-vocabulary hits: 0`.
+- [x] Run `scripts/man-run-examples.sh os --run`, and the renamed page's
+      examples must pass. — done: `examples: 23 built: 23 ran: 23 not run: 0 failed: 0`.
 
 Acceptance: the examples build and the page renders and runs.
   Check: the three commands above (est. 4 min).
@@ -407,6 +407,22 @@ else goes red.)
 - None. The name, the lack of an alias, and the default were decided by the user.
 
 ## Corrections
+
+- **A-1: `examples/audio` did not build at `main` HEAD.** A `/tmp/mfb156head`
+  detached worktree at `main`, with the installed `libsnd.mfp` copied in, gave
+  the same 3 `SYMBOL_UNKNOWN_TYPE` errors (`SoundFile`, `SoundInfo`) as this
+  branch. The cause: commit `b97744633` added `RES music AS SoundFile STATE
+  SoundInfo` unqualified, but imported package types must be qualified (the
+  bug-480 rule, commit `61aa98f83`). With `libsnd::SoundFile` /
+  `libsnd::SoundInfo` the example builds (`Wrote executable to
+  examples/audio/build/audio.out`). This was fixed in A4 as its own commit. The
+  plan did not predict it, because A4 assumed all three examples built before
+  the rename.
+- **A-2: the rename regex over-matched.** `(?<![A-Za-z_])resourcePath` also
+  renamed the user helper `SUB resourcePaths` and the printed tags
+  `resourcePathEmpty`/`resourcePathLoop`/`"resourcePath"`/`"g.resourcePath"`
+  in `self-update-grow-valid`. These were reverted, so that fixture's run output
+  is unchanged. Its golden diff is only the call spelling in the `.ast`/`.ir`.
 
 ## Summary
 

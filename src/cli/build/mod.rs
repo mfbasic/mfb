@@ -852,7 +852,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             }
             // plan-55-A §4.3: copy manifest-declared `resources` into the build
             // output tree (beside the executable in console mode, into the bundle's
-            // resource directory in `--app` mode), where `os::resourcePath`
+            // resource directory in `--app` mode), where `os::appResourcePath`
             // (plan-55-B) resolves them at runtime.
             for resource_dir in resource_output_dirs(output_dir, &ir.name, build_mode) {
                 if let Err(err) = copy_resources(

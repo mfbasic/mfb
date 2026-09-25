@@ -304,7 +304,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
 /// the caller, and freeing it would be the use-after-free this test guards.
 /// The rest of the package takes no `String` argument and
 /// allocates only its result: `args`, `environ`, `hostName`, `userName`,
-/// `executablePath`, `name`, `arch`, `resourcePath`. `os::arch()` being flat is
+/// `executablePath`, `name`, `arch`, `appResourcePath`. `os::arch()` being flat is
 /// the report's own contrast row.
 const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_arch", (1, 0, 0)),
@@ -318,7 +318,7 @@ const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_hostName", (1, 0, 0)),
     ("_mfb_rt_os_os_name", (1, 0, 0)),
     ("_mfb_rt_os_os_pid", (0, 0, 0)),
-    ("_mfb_rt_os_os_resourcePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_appResourcePath", (1, 0, 0)),
     ("_mfb_rt_os_os_setEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_unsetEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_userName", (1, 0, 0)),

@@ -1,13 +1,13 @@
-//! bug-454: `os::resourcePath` must lower on `windows-x86_64`, with the right
+//! bug-454: `os::appResourcePath` must lower on `windows-x86_64`, with the right
 //! separator arithmetic and without addressing outside the acquisition's frame.
 //!
 //! Three independent things are checked here, because a green cross-build proves
 //! only that codegen emitted *something*:
 //!
-//! 1. **The gap itself.** `os.resourcePath` was the one call `macos-aarch64` and
+//! 1. **The gap itself.** `os.appResourcePath` was the one call `macos-aarch64` and
 //!    `linux-*` both advertise that `win_x86_64`'s `RUNTIME_CALLS` did not, so
 //!    `validate_capabilities` rejected every Windows build of a project using it
-//!    with `native backend does not support runtime call 'os.resourcePath'`.
+//!    with `native backend does not support runtime call 'os.appResourcePath'`.
 //!
 //! 2. **The frame hazard the Windows acquisition brings.** It is
 //!    `CodegenPlatform::emit_os_wide_string`, which brackets its body with
@@ -17,7 +17,7 @@
 //!    a window unshifted, so a spill written before the `sub_sp` and reloaded
 //!    inside it would be read `0x60` bytes away from where it was stored — a
 //!    silent miscompile that no golden and no smoke test would localize.
-//!    `lower_resource_path` keeps its `String` argument live across the
+//!    `lower_app_resource_path` keeps its `String` argument live across the
 //!    acquisition (it is copied into the result afterwards), which is the shape
 //!    that could trip it.
 //!
@@ -41,7 +41,7 @@ IMPORT os\n\
 IMPORT io\n\
 \n\
 FUNC main AS Integer\n\
-  io::print(os::resourcePath(\"data.txt\"))\n\
+  io::print(os::appResourcePath(\"data.txt\"))\n\
   RETURN 0\n\
 END FUNC\n";
 
@@ -86,7 +86,7 @@ fn a_resource_path_project_cross_builds_for_windows() {
     let _ = std::fs::remove_dir_all(&project);
     assert!(
         output.status.success(),
-        "os::resourcePath must lower on windows-x86_64 (bug-454):\n{log}"
+        "os::appResourcePath must lower on windows-x86_64 (bug-454):\n{log}"
     );
     assert!(
         built,
@@ -104,7 +104,7 @@ fn nothing_addresses_outside_the_windows_acquisition_frame() {
     let ncode = build_ncode(&project, "windows-x86_64", "bug454_win_spill_span");
     let _ = std::fs::remove_dir_all(&project);
 
-    let function = function(&ncode, "runtime.os.resourcePath");
+    let function = function(&ncode, "runtime.os.appResourcePath");
     let body = instructions(function);
 
     // Anchor on the Win32 call itself rather than on a `sub_sp` count: the Win64
@@ -116,7 +116,7 @@ fn nothing_addresses_outside_the_windows_acquisition_frame() {
         .position(|i| {
             i["op"].as_str() == Some("bl") && i["target"].as_str() == Some("GetModuleFileNameW")
         })
-        .expect("windows-x86_64 os::resourcePath must acquire via GetModuleFileNameW");
+        .expect("windows-x86_64 os::appResourcePath must acquire via GetModuleFileNameW");
     let open = body[..call]
         .iter()
         .rposition(|i| i["op"].as_str() == Some("sub_sp"))
@@ -170,7 +170,7 @@ fn the_windows_lowering_scans_for_a_backslash_and_posix_does_not() {
     let _ = std::fs::remove_dir_all(&project);
 
     let compares = |ncode: &Value, rhs: &str| -> usize {
-        instructions(function(ncode, "runtime.os.resourcePath"))
+        instructions(function(ncode, "runtime.os.appResourcePath"))
             .iter()
             .filter(|i| i["op"].as_str() == Some("cmp_imm") && i["rhs"].as_str() == Some(rhs))
             .count()
@@ -181,7 +181,7 @@ fn the_windows_lowering_scans_for_a_backslash_and_posix_does_not() {
     assert_eq!(
         compares(&win, "92"),
         2,
-        "windows-x86_64 os::resourcePath compares against `\\` (92) at both the \
+        "windows-x86_64 os::appResourcePath compares against `\\` (92) at both the \
          component-validation and backward-scan sites"
     );
     for (name, posix) in [("macos-aarch64", &mac), ("linux-x86_64", &linux)] {

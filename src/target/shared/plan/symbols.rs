@@ -22,12 +22,12 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     for function in &module.functions {
         collect_runtime_symbols_from_ops(&function.body, &mut symbols);
     }
-    // plan-146-D: `s = os::resourcePath(s)` lowers in place, and the arm asks the
+    // plan-146-D: `s = os::appResourcePath(s)` lowers in place, and the arm asks the
     // host for the executable path once per call through `os.executablePath` —
     // a runtime call no NIR op names, so it would otherwise not be emitted.
     if crate::codegen::collection::assign::self_update::module_self_updates_with(
         module,
-        "resourcePath",
+        "appResourcePath",
     ) {
         if let Some(spec) = runtime::spec_for_call("os.executablePath") {
             push_unique(

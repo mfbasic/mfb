@@ -584,19 +584,19 @@ pub(crate) struct CodeBuilder<'a> {
     /// claiming a temporary that was never built. Written by
     /// `emit_prepared_call_args_with_site` and taken immediately after.
     pub(crate) args_updated_in_place: Vec<usize>,
-    /// plan-146-D: the frame slot caching `os::resourcePath`'s base block for the
-    /// in-place arm (`prescan_string_resource_base`), or `None` in a function with
-    /// no `s = os::resourcePath(s)`.
-    pub(crate) string_resource_base: Option<usize>,
-    /// plan-146-G: in a lambda that self-updates with `os::resourcePath`, the
+    /// plan-146-D: the frame slot caching `os::appResourcePath`'s base block for the
+    /// in-place arm (`prescan_string_app_resource_base`), or `None` in a function with
+    /// no `s = os::appResourcePath(s)`.
+    pub(crate) string_app_resource_base: Option<usize>,
+    /// plan-146-G: in a lambda that self-updates with `os::appResourcePath`, the
     /// closure-environment word holding the address of the CREATOR's base-path
     /// cache slot.
-    pub(crate) string_resource_base_env: Option<usize>,
+    pub(crate) string_app_resource_base_env: Option<usize>,
     /// plan-146-G: in a lambda that self-updates a by-ref-captured `String`, the
     /// closure-environment word holding the address of the OWNER's capacity shadow,
     /// per captured local (`string_shadow_captures`). Empty everywhere else.
     pub(crate) string_shadow_env: std::collections::HashMap<String, usize>,
-    /// plan-146-D: the module (project) name, which `os::resourcePath`'s app-mode
+    /// plan-146-D: the module (project) name, which `os::appResourcePath`'s app-mode
     /// resource suffix embeds (`share/<module>`). Empty in a synthesized function,
     /// which lowers no NIR statement and so no self-update.
     pub(crate) module_name: String,
@@ -714,9 +714,9 @@ impl<'a> CodeBuilder<'a> {
             current_call_key: None,
             args_updated_in_place: Vec::new(),
             current_op_key: None,
-            string_resource_base: None,
+            string_app_resource_base: None,
             string_shadow_env: std::collections::HashMap::new(),
-            string_resource_base_env: None,
+            string_app_resource_base_env: None,
             module_name: String::new(),
         }
     }

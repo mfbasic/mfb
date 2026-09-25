@@ -169,7 +169,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "os.prog",
     "os.pid",
     "os.executablePath",
-    "os.resourcePath",
+    "os.appResourcePath",
     "os.name",
     "os.arch",
     "os.hostName",

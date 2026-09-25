@@ -1,9 +1,9 @@
-//! `os::resourcePath` — descriptor entry + authored docs, and the per-member
-//! `Body::abi_function` lowering ([`lower_resource_path`]). **This is the one `os`
+//! `os::appResourcePath` — descriptor entry + authored docs, and the per-member
+//! `Body::abi_function` lowering ([`lower_app_resource_path`]). **This is the one `os`
 //! member that consumes per-compilation build context**: it reads the real
 //! `build_mode`/`module_name` off the [`AbiCtx`] (the strip/suffix selection baked
 //! into the resource-base offset). Docs migrated from
-//! `src/docs/man/builtins/os/resourcePath.md`.
+//! `src/docs/man/builtins/os/appResourcePath.md`.
 
 use super::gen_paths::{
     emit_executable_path_into, emit_reject_dot_component, resource_base_offset,
@@ -22,12 +22,12 @@ use crate::codegen::registry::{
 };
 use crate::target::shared::abi;
 
-/// `os::resourcePath(relative)` — the absolute on-disk path of a build resource
+/// `os::appResourcePath(relative)` — the absolute on-disk path of a build resource
 /// (plan-55-B §4.4). Rejects a `.`/`..` component (`ErrInvalidPath`), acquires the
 /// executable path, strips `strip` trailing components and appends the mode
 /// `suffix` to form the base, and concatenates `base + "/" + relative` into an owned
 /// arena `String`. Acquisition failure → `ErrUnsupported` (like `os::executablePath`).
-pub(crate) fn lower_resource_path(
+pub(crate) fn lower_app_resource_path(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
@@ -207,16 +207,24 @@ pub(crate) fn lower_resource_path(
         abi::label(&prefix_ready),
         abi::move_register(&prefix_len, &slash_scan),
     ]);
-    // Step 4 (§4.4): total result length.
-    let extra = if suffix_bytes.is_empty() {
-        1
+    // Step 4 (§4.4): total result length. The layout is
+    // `prefix ["/" suffix] ["/" relative]`: the mode suffix is part of the base,
+    // and the joining `/` exists only for a non-empty `relative`, so an empty one
+    // yields the bare base with no trailing `/` (plan-156-A §4.2).
+    let suffix_extra = if suffix_bytes.is_empty() {
+        0
     } else {
-        suffix_bytes.len() + 2
+        suffix_bytes.len() + 1
     };
     let total_len = vregs.next();
+    let join_counted = format!("{symbol}_join_counted");
     instructions.extend([
         abi::add_registers(&total_len, &prefix_len, &arg_len),
-        abi::add_immediate(&total_len, &total_len, extra),
+        abi::add_immediate(&total_len, &total_len, suffix_extra),
+        abi::compare_immediate(&arg_len, "0"),
+        abi::branch_eq(&join_counted),
+        abi::add_immediate(&total_len, &total_len, 1),
+        abi::label(&join_counted),
         abi::add_immediate(abi::return_register(), &total_len, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -246,13 +254,19 @@ pub(crate) fn lower_resource_path(
         &format!("{symbol}_copy_prefix"),
         &mut instructions,
     );
-    emit_store_byte_advance(b'/', &dst, &copy_byte, &mut instructions);
     if !suffix_bytes.is_empty() {
+        emit_store_byte_advance(b'/', &dst, &copy_byte, &mut instructions);
         for &b in &suffix_bytes {
             emit_store_byte_advance(b, &dst, &copy_byte, &mut instructions);
         }
-        emit_store_byte_advance(b'/', &dst, &copy_byte, &mut instructions);
     }
+    let join_written = format!("{symbol}_join_written");
+    instructions.extend([
+        abi::compare_immediate(&arg_len, "0"),
+        abi::branch_eq(&join_written),
+    ]);
+    emit_store_byte_advance(b'/', &dst, &copy_byte, &mut instructions);
+    instructions.push(abi::label(&join_written));
     emit_copy_counted(
         &arg_data,
         &arg_len,
@@ -289,15 +303,17 @@ pub(crate) fn lower_resource_path(
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = EXE_PATH_FRAME_LOCALS;
-    Ok(void_result("os.resourcePath"))
+    Ok(void_result("os.appResourcePath"))
 }
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"The absolute path of a build resource"#;
-const DESC: &str = r#"`os::resourcePath` returns the **absolute** on-disk path of a resource the build
+const DESC: &str = r#"`os::appResourcePath` returns the **absolute** on-disk path of a resource the build
 copied out of the project's manifest `resources` section, as a `String`.
 The `relative` argument is the resource's path below its declared destination
 directory (for example `music/song.ogg`), and the result is `<base>/<relative>`.
+Omit `relative` (or pass `""`) to get the resource directory itself: the result
+is then `<base>`, with no trailing `/`.
 
 The base directory is derived at runtime from the running executable's own path
 and a build-mode offset baked into the binary, so the same call resolves
@@ -331,7 +347,7 @@ A `relative` containing a `.` or `..` **path component** raises `ErrInvalidPath`
 or `..` is rejected. A component ends at `/` on every target, and on Windows also
 at `\`, which separates directories there too — so `..\secret` is refused as
 well. A leading `/` is left as-is (it collapses under the base). If the host
-cannot determine the executable path, `os::resourcePath` raises
+cannot determine the executable path, `os::appResourcePath` raises
 `ErrUnsupported`. It reads host state only and has no side effects."#;
 const EX: &str = r#"Open a resource shipped beside the program:
 
@@ -341,14 +357,28 @@ IMPORT fs
 IMPORT io
 
 SUB main()
-  LET path AS String = os::resourcePath("music/song.ogg")
+  LET path AS String = os::appResourcePath("music/song.ogg")
   io::print(path)
+END SUB
+```
+
+List everything the build shipped, starting from the resource directory:
+
+```
+IMPORT os
+IMPORT fs
+IMPORT io
+
+SUB main()
+  FOR EACH entry IN fs::listDirectory(os::appResourcePath())
+    io::print(entry)
+  NEXT
 END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
-        name: "resourcePath",
+        name: "appResourcePath",
         intro: INTRO,
         desc: DESC,
         example: EX,
@@ -357,13 +387,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "relative",
-                desc: "The resource path below the build output (for example `music/song.ogg`); no `.`/`..` path component.",
+                desc: "The resource path below the build output (for example `music/song.ogg`); no `.`/`..` path component. Omit it (or pass `\"\"`) for the resource directory itself.",
                 aliases: &[],
                 ty: ParameterType::String,
-                default: DefaultValue::None,
+                default: DefaultValue::Fill {
+                    type_name: ParameterType::String,
+                    expr: "",
+                },
             }],
             return_type: ParameterType::String,
-            // bug-454: both are raised by `lower_resource_path` (through
+            // bug-454: both are raised by `lower_app_resource_path` (through
             // `raise_error_into`) and were undeclared, so the rendered page had no
             // Errors section at all. `raise_error_into` runs no declaration check,
             // and the static `every_raise_error_site_is_declared_in_its_descriptor`
@@ -372,7 +405,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // its anchor followed by two quoted strings in prose, or it flags the
             // comment.)
             errors: vec!["ErrUnsupported", "ErrInvalidPath"],
-            body: Body::abi_function(lower_resource_path),
+            body: Body::abi_function(lower_app_resource_path),
         }],
     });
 }

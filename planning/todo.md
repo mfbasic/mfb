@@ -386,11 +386,14 @@ or an exposed DER reader). It changes the scope.
 
 ### #12 — naming, and what `dirs` actually provides
 
-Settled convention: `os::` owns standard locations and spells them `*Path`, matching the
-two that already exist (`os::executablePath`, `os::resourcePath`).
+Settled convention: `os::` owns standard locations and spells them `*Path`, matching
+`os::executablePath` and the plan-156 family: `os::appResourcePath` (renamed from
+`os::resourcePath`), `os::appDataPath`, `os::appCachePath`, `os::userHomePath`,
+`os::userDocumentsPath`. plan-156 covers home, data, cache and documents; what remains
+here is below.
 
 * `fs::tempDirectory` moves to **`os::tempPath`**.
-* Add **`os::homePath`** (or `os::userPath`).
+* ~~Add `os::homePath` (or `os::userPath`).~~ plan-156 adds it as `os::userHomePath`.
 
 The move is a breaking rename with a measured blast radius:
 `grep -rn "fs::tempDirectory"` excluding `.git`/`target`/`node_modules` → **161 call sites**,

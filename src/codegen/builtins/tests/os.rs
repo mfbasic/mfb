@@ -29,7 +29,7 @@ use crate::testutil::{code_for_src_cached, code_function, try_code_for_src, Code
 /// `ctx.platform.family()` into a different syscall, so a member the program
 /// does not call leaves three arms unmeasured rather than one. Calling them all
 /// and lowering for all five backends is what turns "the host's arm" into "every
-/// arm". `os::resourcePath` is the one left out, because it does not lower for
+/// arm". `os::appResourcePath` is the one left out, because it does not lower for
 /// Windows at all -- that refusal is a contract of its own and gets its own case
 /// below.
 const SRC: &str = "\
@@ -408,7 +408,7 @@ fn register_publishes_the_whole_os_surface() {
         "prog",
         "pid",
         "executablePath",
-        "resourcePath",
+        "appResourcePath",
         "name",
         "arch",
         "hostName",
@@ -435,17 +435,17 @@ fn register_publishes_the_whole_os_surface() {
     );
 }
 
-/// `os::resourcePath` lowers on EVERY backend, Windows included.
+/// `os::appResourcePath` lowers on EVERY backend, Windows included.
 ///
 /// This test used to assert the opposite, and it was right when it was written:
 /// the member reads the executable's own directory through a raw-buffer helper
-/// that had no Windows implementation, so `os.resourcePath` was absent from
+/// that had no Windows implementation, so `os.appResourcePath` was absent from
 /// `win_x86_64`'s `SUPPORTED_RUNTIME_CALLS` and a cross-build for Windows was
 /// refused. That was bug-454, and main fixed it (94b2ec1e1) -- Windows now
 /// shares `os.executablePath`'s `GetModuleFileNameW` acquisition.
 ///
 /// Rewritten rather than deleted, because the property is worth more now than
-/// the refusal was. `os::resourcePath` is how a program finds the assets the
+/// the refusal was. `os::appResourcePath` is how a program finds the assets the
 /// build copied beside it, and a project that uses it must be buildable for
 /// every target the compiler claims to support -- a member that lowers on four
 /// of five makes the fifth a build failure discovered at release time.
@@ -456,14 +456,14 @@ IMPORT io
 IMPORT os
 
 FUNC main() AS Integer
-  io::print(os::resourcePath(\"data.txt\"))
+  io::print(os::appResourcePath(\"data.txt\"))
   RETURN 0
 END FUNC
 ";
     for target in CodeTarget::ALL {
         assert!(
             try_code_for_src(SRC, target, Console).is_ok(),
-            "os::resourcePath must lower on {} -- a member that lowers on four \
+            "os::appResourcePath must lower on {} -- a member that lowers on four \
              of the five targets makes the fifth a build failure nobody sees \
              until a release runner reaches it",
             target.name()

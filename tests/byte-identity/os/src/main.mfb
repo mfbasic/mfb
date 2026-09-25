@@ -22,6 +22,6 @@ FUNC main() AS Integer
   io::print(os::getEnvOr("MFB_MISSING", "fallback"))
   io::print(toString(os::hasEnv("MFB_COVER")))
   os::unsetEnv("MFB_COVER")
-  io::print(os::resourcePath("data/asset.txt"))
+  io::print(os::appResourcePath("data/asset.txt"))
   RETURN 0
 END FUNC

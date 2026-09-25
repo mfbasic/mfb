@@ -15,11 +15,11 @@ FUNC osAccReadMissing() AS String
 END FUNC
 
 FUNC osAccResourceDot() AS String
-  RETURN os::resourcePath("assets/./secret.txt")
+  RETURN os::appResourcePath("assets/./secret.txt")
 END FUNC
 
 FUNC osAccResourceDotDot() AS String
-  RETURN os::resourcePath("assets/../secret.txt")
+  RETURN os::appResourcePath("assets/../secret.txt")
 END FUNC
 
 SUB osAccSetEmptyName()
@@ -169,8 +169,8 @@ TESTING
 
     TGROUP "resource paths"
       TCASE "safe relative resource paths resolve and dot-like file names are allowed"
-        LET normal AS String = os::resourcePath("assets/config.txt")
-        LET dotLike AS String = os::resourcePath("assets/..hidden/a..b")
+        LET normal AS String = os::appResourcePath("assets/config.txt")
+        LET dotLike AS String = os::appResourcePath("assets/..hidden/a..b")
 
         expectEqual(len(normal) > len("assets/config.txt"), TRUE)
         expectEqual(len(dotLike) > len("assets/..hidden/a..b"), TRUE)

@@ -1247,21 +1247,21 @@ strings::repeat(value AS String, times AS Integer) AS String	T5	deferred:string
 strings::repeat(value AS String, times AS Integer) AS String	T6	deferred:string
 strings::repeat(value AS String, times AS Integer) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
 strings::repeat(value AS String, times AS Integer) AS String	T8	deferred:string
-os::resourcePath(relative AS String) AS String	S3	deferred:string
-os::resourcePath(relative AS String) AS String	S4	deferred:string
-os::resourcePath(relative AS String) AS String	S5	deferred:string
-os::resourcePath(relative AS String) AS String	S6	deferred:string
-os::resourcePath(relative AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
-os::resourcePath(relative AS String) AS String	S9	deferred:string
-os::resourcePath(relative AS String) AS String	S10	deferred:string
-os::resourcePath(relative AS String) AS String	T1	deferred:string
-os::resourcePath(relative AS String) AS String	T2	deferred:string
-os::resourcePath(relative AS String) AS String	T3	deferred:string
-os::resourcePath(relative AS String) AS String	T4	deferred:string
-os::resourcePath(relative AS String) AS String	T5	deferred:string
-os::resourcePath(relative AS String) AS String	T6	deferred:string
-os::resourcePath(relative AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
-os::resourcePath(relative AS String) AS String	T8	deferred:string
+os::appResourcePath(relative AS String) AS String	S3	deferred:string
+os::appResourcePath(relative AS String) AS String	S4	deferred:string
+os::appResourcePath(relative AS String) AS String	S5	deferred:string
+os::appResourcePath(relative AS String) AS String	S6	deferred:string
+os::appResourcePath(relative AS String) AS String	S7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::appResourcePath(relative AS String) AS String	S9	deferred:string
+os::appResourcePath(relative AS String) AS String	S10	deferred:string
+os::appResourcePath(relative AS String) AS String	T1	deferred:string
+os::appResourcePath(relative AS String) AS String	T2	deferred:string
+os::appResourcePath(relative AS String) AS String	T3	deferred:string
+os::appResourcePath(relative AS String) AS String	T4	deferred:string
+os::appResourcePath(relative AS String) AS String	T5	deferred:string
+os::appResourcePath(relative AS String) AS String	T6	deferred:string
+os::appResourcePath(relative AS String) AS String	T7	na:TYPE_FOR_EACH_REQUIRES_COLLECTION
+os::appResourcePath(relative AS String) AS String	T8	deferred:string
 strings::upper(value AS String) AS String	S3	deferred:string
 strings::upper(value AS String) AS String	S4	deferred:string
 strings::upper(value AS String) AS String	S5	deferred:string

@@ -446,8 +446,8 @@ name = "codegen_win64_entry_seed_scratch"
 path = "tests/codegen/codegen_win64_entry_seed_scratch.rs"
 
 [[test]]
-name = "codegen_win64_resource_path"
-path = "tests/codegen/codegen_win64_resource_path.rs"
+name = "codegen_win64_app_resource_path"
+path = "tests/codegen/codegen_win64_app_resource_path.rs"
 
 # --- tests/gate/ ------------------------------------------------------
 [[test]]

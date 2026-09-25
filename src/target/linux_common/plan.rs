@@ -279,9 +279,9 @@ impl LinuxPlan<'_> {
                 self.libc_import("getuid", required_by),
                 self.libc_import("getpwuid", required_by),
             ],
-            // plan-55-B: `os.resourcePath` reuses the `readlink("/proc/self/exe")`
+            // plan-55-B: `os.appResourcePath` reuses the `readlink("/proc/self/exe")`
             // acquisition, so it needs the same import.
-            "os.executablePath" | "os.resourcePath" => {
+            "os.executablePath" | "os.appResourcePath" => {
                 vec![self.libc_import("readlink", required_by)]
             }
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {

@@ -401,9 +401,9 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 },
             ],
-            // plan-55-B: `os.resourcePath` reuses the same exe-path acquisition as
+            // plan-55-B: `os.appResourcePath` reuses the same exe-path acquisition as
             // `os.executablePath`, so it needs the identical libc import.
-            "os.executablePath" | "os.resourcePath" => vec![PlatformImport {
+            "os.executablePath" | "os.appResourcePath" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetExecutablePath".to_string(),
                 required_by: required_by.clone(),
