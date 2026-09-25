@@ -366,8 +366,21 @@ pub(crate) const FRAME_RING_SLOTS: usize = 64;
 /// present ring and the drawn ring. `__canvas_getFrameStats` indexes by these.
 pub(crate) const FRAME_COUNTER_HEADER_WORDS: usize = 8;
 pub(crate) const FRAME_COUNTER_WORDS: usize = FRAME_COUNTER_HEADER_WORDS + 2 * FRAME_RING_SLOTS;
+/// The condition `canvas::waitFrame` waits on (plan-155-C), 48 bytes like
+/// `GRAPHICS_OFFSET_COND`.
+///
+/// **Its own condition variable, and that is the point.** `signalRedraw` and the stop
+/// path wake `COND` with `pthread_cond_signal`, which wakes ONE waiter. A worker parked
+/// in `waitFrame` on `COND` could take a wake-up meant for the render loop, leaving a
+/// redraw owed and never taken while the worker waits for a pickup that never comes.
+/// So `waitFrame` waits on this one only, and it is broadcast wherever a waiter's answer
+/// can change: when the render loop takes a redraw (`PENDING` cleared) and on stop.
+pub(crate) const GRAPHICS_OFFSET_FRAME_COND: usize = GRAPHICS_OFFSET_LAST_RENDERER + 8;
+/// When `canvas::waitFrame` last returned, in the `CLOCK_REALTIME` nanoseconds its timed
+/// wait is expressed in. Written and read only by `waitFrame`, under the mutex.
+pub(crate) const GRAPHICS_OFFSET_LAST_WAIT: usize = GRAPHICS_OFFSET_FRAME_COND + 48;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_RENDERER + 8;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -1487,6 +1500,10 @@ pub(crate) fn emit_wait_for_redraw(
         &scratch.base,
         GRAPHICS_OFFSET_PENDING,
     ));
+    // plan-155-C: the redraw has been picked up — the moment `canvas::waitFrame`
+    // waits for. Broadcast while the mutex is still held, so the waiter reads the
+    // cleared flag when it reacquires it.
+    emit_frame_cond_broadcast(symbol, scratch, platform_imports, platform, instructions, relocations)?;
     instructions.push(abi::move_immediate(&scratch.verdict, "Integer", "1"));
     instructions.push(abi::branch(&done));
 
@@ -1575,6 +1592,8 @@ pub(crate) fn emit_stop_graphics(
         relocations,
     };
     emit_thread_external_call(&mut ctx, "pthread_cond_signal")?;
+    // plan-155-C: a `canvas::waitFrame` in progress must see `STOPPING` too.
+    emit_frame_cond_broadcast(symbol, scratch, platform_imports, platform, instructions, relocations)?;
 
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::add_immediate(
@@ -1657,6 +1676,7 @@ pub(crate) fn emit_start_graphics(
     for (offset, call) in [
         (GRAPHICS_OFFSET_MUTEX, "pthread_mutex_init"),
         (GRAPHICS_OFFSET_COND, "pthread_cond_init"),
+        (GRAPHICS_OFFSET_FRAME_COND, "pthread_cond_init"),
     ] {
         state_base(symbol, &scratch.base, instructions, relocations);
         instructions.push(abi::add_immediate(abi::c_arg(0), &scratch.base, offset));
@@ -2239,6 +2259,190 @@ pub(crate) fn emit_frame_done(
     };
     emit_thread_external_call(&mut ctx, "pthread_mutex_unlock")?;
     Ok(())
+}
+
+/// Wake every `canvas::waitFrame` waiter (plan-155-C). The caller holds the mutex.
+fn emit_frame_cond_broadcast(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAME_COND,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_cond_broadcast")
+}
+
+/// `CLOCK_REALTIME`, the clock a default condition variable's deadline is in — the
+/// same number on Linux and Darwin, and ignored by the Windows `clock_gettime` shim,
+/// whose single clock is the one its `pthread_cond_timedwait` arm reads.
+const CLOCK_REALTIME: &str = "0";
+const NANOS_PER_SECOND: &str = "1000000000";
+
+/// `now` = `CLOCK_REALTIME` in nanoseconds, through the timespec at `[sp + ts]`.
+fn emit_realtime_nanos(
+    builder: &mut CodeBuilder,
+    ts: usize,
+    now: &crate::codegen::engine::operand::VirtualRegister,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    builder.emit(abi::move_immediate(abi::c_arg(0), "Integer", CLOCK_REALTIME));
+    builder.emit(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ts));
+    let mut ctx = EmitCtx {
+        symbol: &symbol,
+        platform_imports,
+        platform,
+        instructions: &mut builder.instructions,
+        relocations: &mut builder.relocations,
+    };
+    emit_thread_external_call(&mut ctx, "clock_gettime")?;
+    let scale = builder.temporary_vreg();
+    let nanos = builder.temporary_vreg();
+    builder.emit(abi::load_u64(now, abi::stack_pointer(), ts));
+    builder.emit(abi::load_u64(&nanos, abi::stack_pointer(), ts + 8));
+    builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
+    builder.emit(abi::multiply_registers(now, now, &scale));
+    builder.emit(abi::add_registers(now, now, &nanos));
+    Ok(())
+}
+
+/// `canvas::awaitPickup(intervalNanos)` — the wait inside `canvas::waitFrame`
+/// (plan-155-C). The caller has started the graphics thread, so the mutex exists.
+///
+/// Returns once **both** hold: the render loop has picked up every redraw asked for
+/// (`PENDING` clear), and `intervalNanos` have passed since the last return
+/// (`LAST_WAIT`). Or at once, when the thread is stopping. It waits on
+/// `GRAPHICS_OFFSET_FRAME_COND` only — untimed while a redraw is owed, timed until the
+/// deadline otherwise — and never signals anything, so it cannot cause a frame.
+///
+/// **Picked up, not drawn.** Waiting for the frame to finish would serialize the two
+/// threads: the worker idle while the frame renders, the renderer idle while the worker
+/// builds the next scene. Pickup leaves one frame in flight.
+///
+/// Times are `CLOCK_REALTIME`, the clock `pthread_cond_timedwait` takes. So that a
+/// wall-clock step backwards cannot stall the loop, the deadline is never later than
+/// `now + interval`; a step costs at most one interval. `LAST_WAIT` becomes the time of
+/// the return, not the deadline, so a loop that fell behind gets no burst of catch-up
+/// returns.
+pub(crate) fn emit_await_pickup(
+    builder: &mut CodeBuilder,
+    interval: &Operand,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let interval_value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&interval_value, interval));
+    let ts = builder.allocate_stack_object("canvas_await_ts", 16);
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let now = builder.temporary_vreg();
+    let deadline = builder.temporary_vreg();
+    let cap = builder.temporary_vreg();
+    let again = builder.label("canvas_await_again");
+    let owed = builder.label("canvas_await_owed");
+    let done = builder.label("canvas_await_done");
+    let capped = builder.label("canvas_await_capped");
+
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    // deadline = min(LAST_WAIT + interval, now + interval)
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::load_u64(&deadline, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    builder.emit(abi::add_registers(&deadline, &deadline, &interval_value));
+    builder.emit(abi::add_registers(&cap, &now, &interval_value));
+    builder.emit(abi::compare_registers(&deadline, &cap));
+    builder.emit(abi::branch_le(&capped));
+    builder.emit(abi::move_register(&deadline, &cap));
+    builder.emit(abi::label(&capped));
+
+    builder.emit(abi::label(&again));
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, GRAPHICS_OFFSET_STOPPING));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&done));
+    builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, GRAPHICS_OFFSET_PENDING));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&owed));
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    builder.emit(abi::compare_registers(&now, &deadline));
+    builder.emit(abi::branch_ge(&done));
+    // The floor: a timed wait until the deadline, as an absolute timespec.
+    let scale = builder.temporary_vreg();
+    let seconds = builder.temporary_vreg();
+    let rest = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
+    builder.emit(abi::unsigned_divide_registers(&seconds, &deadline, &scale));
+    builder.emit(abi::multiply_subtract_registers(&rest, &seconds, &scale, &deadline));
+    builder.emit(abi::store_u64(&seconds, abi::stack_pointer(), ts));
+    builder.emit(abi::store_u64(&rest, abi::stack_pointer(), ts + 8));
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::add_immediate(abi::c_arg(0), &scratch.base, GRAPHICS_OFFSET_FRAME_COND));
+    builder.emit(abi::add_immediate(abi::c_arg(1), &scratch.base, GRAPHICS_OFFSET_MUTEX));
+    builder.emit(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), ts));
+    {
+        let mut ctx = EmitCtx {
+            symbol: &symbol,
+            platform_imports,
+            platform,
+            instructions: &mut builder.instructions,
+            relocations: &mut builder.relocations,
+        };
+        emit_thread_external_call(&mut ctx, "pthread_cond_timedwait")?;
+    }
+    builder.emit(abi::branch(&again));
+
+    // A redraw is owed: wait, untimed, for the render loop to take it (or stop).
+    builder.emit(abi::label(&owed));
+    builder.emit(abi::add_immediate(abi::c_arg(0), &scratch.base, GRAPHICS_OFFSET_FRAME_COND));
+    builder.emit(abi::add_immediate(abi::c_arg(1), &scratch.base, GRAPHICS_OFFSET_MUTEX));
+    {
+        let mut ctx = EmitCtx {
+            symbol: &symbol,
+            platform_imports,
+            platform,
+            instructions: &mut builder.instructions,
+            relocations: &mut builder.relocations,
+        };
+        emit_thread_external_call(&mut ctx, "pthread_cond_wait")?;
+    }
+    builder.emit(abi::branch(&again));
+
+    builder.emit(abi::label(&done));
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::store_u64(&now, &scratch.base, GRAPHICS_OFFSET_LAST_WAIT));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )
 }
 
 /// `canvas::syncFrame()` — wait for the frame this present asked for.

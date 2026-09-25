@@ -570,6 +570,7 @@ impl LinuxPlan<'_> {
             | "canvas.frameDone"
             | "canvas.notePresent"
             | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -592,6 +593,8 @@ impl LinuxPlan<'_> {
                 "pthread_cond_wait",
                 "pthread_cond_signal",
                 "pthread_cond_broadcast",
+                // plan-155-C: `canvas::awaitPickup`'s display floor is a timed wait.
+                "pthread_cond_timedwait",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {
@@ -599,6 +602,8 @@ impl LinuxPlan<'_> {
                 symbol: symbol.to_string(),
                 required_by: required_by.to_string(),
             })
+            // ... on a deadline read from `CLOCK_REALTIME`.
+            .chain(std::iter::once(self.libc_import("clock_gettime", required_by)))
             .chain(
                 // plan-98-F: the Vulkan loader arrives through `dlopen`/`dlsym`, never
                 // a DT_NEEDED on libvulkan — a canvas program must still exec on a

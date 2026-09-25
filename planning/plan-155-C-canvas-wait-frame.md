@@ -47,8 +47,8 @@ See plan-155-A for the feature-wide prerequisites.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-155-B complete | `ls planning/plan-155-B-*` → no match (archived) | NOT MET |
-| `getFrameStats` is public | `mfb man canvas getFrameStats` → a page | NOT MET |
+| plan-155-B complete | `ls planning/plan-155-B-*` → no match (archived) | MET (2026-09-24: `no matches found`) |
+| `getFrameStats` is public | `mfb man canvas getFrameStats` → a page | MET (2026-09-24: `GETFRAMESTATS` page) |
 
 If plan-155-B is not complete, this plan cannot start, full stop.
 
@@ -217,16 +217,21 @@ green; in particular `a_static_scene_renders_once_and_does_not_spin` proves
 
 ### Phase 1 — `waitFrame`
 
-- [ ] Read how `emit_thread_external_call` maps pthread calls on Windows, and
-      pick the timed wait (§2 UNVERIFIED). Record it in Corrections.
-- [ ] `runtime/canvas/mod.rs`: add `FRAME_COND` and `LAST_WAIT` (size 1952),
+- [x] Read how `emit_thread_external_call` maps pthread calls on Windows, and
+      pick the timed wait (§2 UNVERIFIED). Record it in Corrections. → it maps
+      `pthread_cond_timedwait` (absolute deadline) and `clock_gettime` onto
+      `SleepConditionVariableSRW` / `GetSystemTimePreciseAsFileTime`; the floor uses
+      them unchanged on every family (Corrections 1).
+- [x] `runtime/canvas/mod.rs`: add `FRAME_COND` and `LAST_WAIT` (size 1952),
       initialize `FRAME_COND` in `emit_start_graphics`, broadcast it in
       `emit_wait_for_redraw` after clearing `PENDING` and on the stop path,
-      and add `emit_await_pickup`.
-- [ ] `func_graphics.rs`: register internal `awaitPickup(intervalNanos AS Integer)`.
-- [ ] Add `func_wait_frame.rs`, the public MFBASIC wrapper with the mode gate,
+      and add `emit_await_pickup`. → 1896/1944, size 1952 as planned; imports for
+      the timed wait and the clock added to each platform's canvas arm.
+- [x] `func_graphics.rs`: register internal `awaitPickup(intervalNanos AS Integer)`.
+      Also internal `requireCanvasMode()`, which carries the mode gate (Corrections 2).
+- [x] Add `func_wait_frame.rs`, the public MFBASIC wrapper with the mode gate,
       registered in `mod.rs:register`.
-- [ ] Tests, in `tests/canvas/rt_canvas_frame_stats.rs` (headless, all
+- [x] Tests, in `tests/canvas/rt_canvas_frame_stats.rs` (headless, all
       platforms):
       - `wait_frame_paces_a_changing_scene`: `MFB_CANVAS_DISPLAY_HZ=50`,
         25 × (changing present; waitFrame) takes ≥ 480 ms.
@@ -243,14 +248,31 @@ green; in particular `a_static_scene_renders_once_and_does_not_spin` proves
         stats line shows the resized frame.
       - `a_static_scene_renders_once_and_does_not_spin` (existing) is
         re-run with a waitFrame loop variant added beside it: still 1 frame.
+      → this Mac: `cargo test --test rt_canvas_frame_stats wait_frame` → 5 passed;
+      `cargo test --test rt_canvas_graphics_thread static_scene` → 2 passed (the new
+      `a_static_scene_under_a_wait_frame_loop_renders_once` and the existing one).
+      On macOS R25 proves only that the loop finishes: the scripted resize exists on
+      GTK and Windows only (Corrections 3).
 
 Acceptance: the six cases pass on this Mac, plus the pacing and pickup cases
-on Linux and Windows.
+on Linux and Windows. Verified: Mac 5 + 2 passed; box 2226 (in place of 2223,
+Corrections 4) and box 2230 — every bound held (below).
   Check: `cargo test --test rt_canvas_frame_stats wait_frame` → 5 passed, and
   `cargo test --test rt_canvas_graphics_thread static_scene` → pass (est. 5 min).
   The same filter on box 2223 (native aarch64 Linux, est. 8 min) and box 2230
   (Windows, est. 10 min), because the timed wait is platform-mapped code that
   macOS doesn't exercise.
+  Box results — the five programs cross-built with `--app --debug` and run headless
+  with each test's environment (`/tmp/p155/cbox`):
+  - 2226 linux-aarch64 glibc: changing `loopMs=821` (≥ 480), unchanged `849`, first
+    `returned`, pickup `812` (≥ 400), resize `finished` with 37 frames at
+    `damage=0,0,640,480`. Rerun alone, unchanged gives 1063/555/293/27 ms at
+    25/50/100/1000 Hz — the interval plus ~1 ms; the 849 was the first run of a batch
+    that was also extracting AppImages.
+  - 2230 windows-x86_64: changing `1988`, unchanged `836`, first `returned`, pickup
+    `926`, resize `finished` and a frame at 640x480. The unchanged loop's ~33 ms per
+    20 ms interval is the default ~15.6 ms Windows timer tick rounding
+    `SleepConditionVariableSRW`'s timeout up — a floor, never early.
 Commit: —
 
 ### Phase 2 — docs and wind
@@ -319,7 +341,30 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **The timed wait (§2 UNVERIFIED).** `emit_windows_thread_call` realizes
+   `pthread_cond_timedwait` with an absolute `timespec` against the clock its
+   `clock_gettime` arm reads (`GetSystemTimePreciseAsFileTime`), and POSIX's default
+   condition clock is `CLOCK_REALTIME`. So `awaitPickup` keeps its deadline and
+   `LAST_WAIT` in `CLOCK_REALTIME` nanoseconds on every family — no second, monotonic
+   clock in native code. A wall-clock step is bounded by never letting the deadline
+   exceed `now + interval`.
+2. **The mode gate is its own member.** `waitFrame` must raise `ErrWrongMode` before
+   `__canvas_ensureGraphics` starts a render thread, and an MFBASIC body cannot carry
+   `prepend_wrong_mode_gate`. It cannot go on `displayMilliHz` either: the stats line
+   calls that on the graphics thread, whose presentation-mode word (per-thread arena
+   state) is zero. So an internal `canvas::requireCanvasMode()` is the gate alone, and the
+   wrapper calls it first.
+3. **R25 on macOS.** `MFB_CANVAS_RESIZE_W`/`_H` is implemented by the GTK and Windows
+   backends only (`grep -rln MFB_CANVAS_RESIZE_W src/target` → `linux_gtk`, `win_x86_64`),
+   so on this Mac the test proves the loop finishes and asserts the resized frame only
+   off macOS. The resized frame was observed on 2226 and 2230.
+4. **Box 2223 was unreachable** (`ssh -p 2223` → connection refused), so the Linux row ran
+   on 2226 (aarch64 glibc, the same architecture). Neither 2226 nor 2230 runs the cargo
+   suite, so the rows ran the five test programs cross-built here, under each test's
+   environment and bound — the programs and bounds are the tests', not approximations.
+5. **`DIV` is Float division.** The wrapper first computed `1000000000000 DIV mhz` and
+   failed to compile (`Assignment to interval has type Float`); `/` on two Integers is
+   the integer division (`mfb spec language operators`: "`DIV` always returns `Float`").
 
 ## Summary
 

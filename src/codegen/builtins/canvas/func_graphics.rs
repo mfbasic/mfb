@@ -14,8 +14,9 @@ use crate::codegen::registry::{
 };
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
 use crate::codegen::runtime::canvas::vulkan::emit_vulkan_ready;
+use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::runtime::canvas::{
-    emit_display_milli_hz, emit_frame_counters, emit_frame_done, emit_note_present,
+    emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done, emit_note_present,
     emit_set_display_override, emit_set_gpu_mode, FrameRecord, emit_set_sync_mode, emit_signal_redraw,
     emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
     emit_wait_for_redraw, GraphicsScratch, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
@@ -221,6 +222,48 @@ pub(crate) fn lower_frame_counters(
         location: Operand::from("void"),
         text: symbol,
     })
+}
+
+/// `canvas::awaitPickup(intervalNanos)` — the wait inside `canvas::waitFrame`
+/// (plan-155-C); see `emit_await_pickup`.
+pub(crate) fn lower_await_pickup(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let interval = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the interval argument"))?
+        .location
+        .clone();
+    emit_await_pickup(builder, &interval, ctx.platform_imports, ctx.platform)?;
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::requireCanvasMode()` — raise `ErrWrongMode` outside `Mode.Canvas`, and
+/// nothing else (plan-155-C).
+///
+/// `canvas::waitFrame` calls it first, before `__canvas_ensureGraphics` would start a
+/// render thread for a program that is not drawing. The gate is `publishScene`'s, and it
+/// has to sit on a native member the worker calls: the presentation-mode word is
+/// per-thread arena state, so a member also called on the graphics thread (as
+/// `displayMilliHz` is, by the stats line) would read that thread's zero and raise.
+pub(crate) fn lower_require_canvas_mode(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let result = ok_return(builder, symbol.clone());
+    prepend_wrong_mode_gate(
+        &mut builder.instructions,
+        &mut builder.relocations,
+        &symbol,
+        ctx.presentation_mode_offset,
+        ModeRequirement::Canvas,
+    );
+    Ok(result)
 }
 
 /// One `Integer` parameter of an internal member.
@@ -718,6 +761,34 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::abi_function(lower_frame_done),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "awaitPickup",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![integer_param("intervalNanos")],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_await_pickup),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "requireCanvasMode",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Nothing,
+            errors: vec!["ErrWrongMode"],
+            body: Body::abi_function(lower_require_canvas_mode),
         }],
     });
     pkg.add_function(RegistryFunction {

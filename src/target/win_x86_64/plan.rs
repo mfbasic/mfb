@@ -564,6 +564,7 @@ impl NativePlanPlatform for Platform {
             | "canvas.frameDone"
             | "canvas.notePresent"
             | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -584,6 +585,9 @@ impl NativePlanPlatform for Platform {
                 import("WakeConditionVariable", KERNEL32, required_by),
                 import("WakeAllConditionVariable", KERNEL32, required_by),
                 import("SleepConditionVariableSRW", KERNEL32, required_by),
+                // plan-155-C: `canvas::awaitPickup`'s timed wait reads the clock its
+                // `pthread_cond_timedwait` / `clock_gettime` arms are built on.
+                import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
                 // plan-98-F Phase 3: the Vulkan loader arrives through
                 // `LoadLibraryExA`/`GetProcAddress`, never an import-table entry on
                 // `vulkan-1.dll` — a canvas program must still run on a Windows box

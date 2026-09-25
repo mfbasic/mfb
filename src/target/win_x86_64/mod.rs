@@ -142,6 +142,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.setDisplayOverride",
     "canvas.notePresent",
     "canvas.frameCounters",
+    "canvas.awaitPickup",
+    "canvas.requireCanvasMode",
     "canvas.setGpuMode",
     "canvas.useGpu",
     "canvas.metalAvailable",

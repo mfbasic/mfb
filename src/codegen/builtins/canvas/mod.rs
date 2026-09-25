@@ -73,6 +73,7 @@ mod func_set_bytes;
 mod func_set_group;
 mod func_stroke;
 mod func_system_fonts;
+mod func_wait_frame;
 mod gen_font;
 mod gen_font_table;
 mod gen_group;
@@ -1290,6 +1291,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_metal_present::register(&mut pkg);
     func_graphics::register(&mut pkg);
     func_get_frame_stats::register(&mut pkg);
+    func_wait_frame::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);
     func_scene_hashes::register(&mut pkg);

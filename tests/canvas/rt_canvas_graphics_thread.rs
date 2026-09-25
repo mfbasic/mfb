@@ -152,6 +152,30 @@ fn a_static_scene_renders_once_and_does_not_spin() {
     );
 }
 
+/// plan-155-C: the same guarantee under a `present` + `waitFrame` loop. `waitFrame`
+/// waits and never repaints (`.ai/canvas-threading.md` §9), so fifty paced iterations
+/// over an unchanged scene still cost exactly one frame.
+#[test]
+fn a_static_scene_under_a_wait_frame_loop_renders_once() {
+    let source = program(&format!(
+        "{ONE_BOX}  MUT i AS Integer = 0\n  \
+         WHILE i < 50\n    canvas::present([box])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+         io::print(\"waited\")\n"
+    ));
+    let (stdout, frames) = run_env(
+        "canvas_gfx_static_wait",
+        &source,
+        false,
+        &[("MFB_CANVAS_DISPLAY_HZ", "100")],
+    );
+    assert!(stdout.contains("waited"));
+    assert_eq!(
+        frames.len(),
+        1,
+        "waitFrame must not redraw an unchanged scene: {frames:?}",
+    );
+}
+
 /// plan-155-A: `MFB_CANVAS_DISPLAY_HZ` pins the display rate the runtime reports.
 ///
 /// A headless run has no monitor to ask, so without the override the published rate

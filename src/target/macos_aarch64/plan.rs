@@ -874,6 +874,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.frameDone"
             | "canvas.notePresent"
             | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -897,6 +898,10 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_cond_wait",
                 "_pthread_cond_signal",
                 "_pthread_cond_broadcast",
+                // plan-155-C: `canvas::awaitPickup`'s display floor — a timed wait on
+                // `CLOCK_REALTIME`.
+                "_pthread_cond_timedwait",
+                "_clock_gettime",
                 "_getenv",
             ]
             .into_iter()

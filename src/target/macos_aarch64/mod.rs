@@ -66,6 +66,8 @@ impl NativeBackend for Backend {
                 "canvas.setDisplayOverride",
                 "canvas.notePresent",
                 "canvas.frameCounters",
+                "canvas.awaitPickup",
+                "canvas.requireCanvasMode",
                 "canvas.setGpuMode",
                 "canvas.useGpu",
                 "canvas.metalAvailable",

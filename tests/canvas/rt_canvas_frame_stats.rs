@@ -192,3 +192,117 @@ fn frame_seconds_and_renderer_after_a_drawn_frame() {
         }
     }
 }
+
+/// Seconds a run took, measured around the whole process — the pacing tests assert a
+/// lower bound only, so process start-up and shutdown only ever make them safer.
+fn timed(name: &str, source: &str, env: &[(&str, &str)]) -> (String, String, f64) {
+    let started = std::time::Instant::now();
+    let (out, stats) = run_with_stats(name, source, env);
+    (out, stats, started.elapsed().as_secs_f64())
+}
+
+/// A loop of `present` + `waitFrame` is paced by the display interval: at 50 Hz, 25
+/// iterations cannot finish in under 480 ms (24 full intervals after the first return).
+#[test]
+fn wait_frame_paces_a_changing_scene() {
+    let body = "  canvas::present([box(0.0)])\n  canvas::waitFrame()\n  \
+                LET t0 AS Integer = datetime::monotonicNanos()\n  \
+                MUT i AS Integer = 0\n  \
+                WHILE i < 25\n    canvas::present([box(toFloat(i) * 4.0)])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+                io::print(\"loopMs=\" & toString((datetime::monotonicNanos() - t0) / 1000000))\n";
+    let source = program(body).replace("IMPORT io\n", "IMPORT io\nIMPORT datetime\n");
+    let (out, _, _) = timed(
+        "canvas_wait_changing",
+        &source,
+        &[("MFB_CANVAS_DISPLAY_HZ", "50")],
+    );
+    let ms = loop_ms(&out);
+    assert!(ms >= 480, "25 paced frames at 50 Hz took {ms} ms:\n{out}");
+}
+
+/// The spin guard. An unchanged scene publishes nothing, so no redraw is ever owed — the
+/// floor alone must still hold the loop to the display rate.
+#[test]
+fn wait_frame_paces_an_unchanged_scene() {
+    let body = "  canvas::present([box(0.0)])\n  canvas::waitFrame()\n  \
+                LET t0 AS Integer = datetime::monotonicNanos()\n  \
+                MUT i AS Integer = 0\n  \
+                WHILE i < 25\n    canvas::present([box(0.0)])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+                io::print(\"loopMs=\" & toString((datetime::monotonicNanos() - t0) / 1000000))\n";
+    let source = program(body).replace("IMPORT io\n", "IMPORT io\nIMPORT datetime\n");
+    let (out, _, _) = timed(
+        "canvas_wait_unchanged",
+        &source,
+        &[("MFB_CANVAS_DISPLAY_HZ", "50")],
+    );
+    let ms = loop_ms(&out);
+    assert!(ms >= 480, "25 unchanged presents at 50 Hz took {ms} ms — a spin:\n{out}");
+}
+
+/// R23: `waitFrame` before any present returns (nothing is owed, so only the floor
+/// applies) and the program exits normally — the call starts the graphics thread
+/// itself, so there is a mutex to wait under.
+#[test]
+fn wait_frame_before_any_present_returns() {
+    let body = "  canvas::waitFrame()\n  io::print(\"returned\")\n";
+    let out = run("canvas_wait_first", &program(body), &[]);
+    assert!(out.contains("returned"), "{out}");
+}
+
+/// R24: `waitFrame` waits for the renderer to PICK UP the redraw, not only for the floor.
+/// With the display floor at 1 ms and every frame held 100 ms inside the renderer, each
+/// present after the first finds the previous frame still in the hold, so its pickup —
+/// and the `waitFrame` behind it — waits for that frame to finish: five presents after
+/// the first cannot take under 400 ms.
+#[test]
+fn wait_frame_waits_for_pickup() {
+    let body = "  LET t0 AS Integer = datetime::monotonicNanos()\n  \
+                MUT i AS Integer = 0\n  \
+                WHILE i < 6\n    canvas::present([box(toFloat(i) * 10.0)])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+                io::print(\"loopMs=\" & toString((datetime::monotonicNanos() - t0) / 1000000))\n";
+    let source = program(body).replace("IMPORT io\n", "IMPORT io\nIMPORT datetime\n");
+    let (out, _, _) = timed(
+        "canvas_wait_pickup",
+        &source,
+        &[
+            ("MFB_CANVAS_DISPLAY_HZ", "1000"),
+            ("MFB_CANVAS_FRAME_HOLD_MS", "100"),
+        ],
+    );
+    let ms = loop_ms(&out);
+    assert!(ms >= 400, "six held frames with a 1 ms floor took {ms} ms:\n{out}");
+}
+
+/// R25: a resize landing while the loop waits neither hangs it nor is lost. The scripted
+/// resize (`MFB_CANVAS_RESIZE_W`/`_H`) exists on the GTK and Windows backends only; there
+/// the stats must show a frame drawn at the new size. On macOS, which has no scripted
+/// resize, the loop finishing is the whole claim.
+#[test]
+fn wait_frame_survives_a_resize() {
+    let body = "  MUT i AS Integer = 0\n  \
+                WHILE i < 40\n    canvas::present([box(toFloat(i) * 2.0)])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+                io::print(\"finished\")\n";
+    let (out, stats) = run_with_stats(
+        "canvas_wait_resize",
+        &program(body),
+        &[
+            ("MFB_CANVAS_DISPLAY_HZ", "100"),
+            ("MFB_CANVAS_RESIZE_W", "640"),
+            ("MFB_CANVAS_RESIZE_H", "480"),
+        ],
+    );
+    assert!(out.contains("finished"), "{out}");
+    if !cfg!(target_os = "macos") {
+        assert!(
+            stats.lines().any(|l| l.contains("damage=0,0,640,480")),
+            "no frame was drawn at the resized 640x480:\n{stats}"
+        );
+    }
+}
+
+fn loop_ms(out: &str) -> i64 {
+    out.lines()
+        .find_map(|l| l.strip_prefix("loopMs="))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no loopMs= line in:\n{out}"))
+}
