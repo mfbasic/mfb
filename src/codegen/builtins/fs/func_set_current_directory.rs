@@ -58,8 +58,16 @@ NUL-containing string before making it.
 
 The named entry must exist and must be a directory the process is allowed to
 enter; every component leading to it must itself be a traversable directory.
-When the host refuses the operation for any reason the failure is mapped to the
-matching error below and the working directory is left unchanged."#;
+When the host refuses the change the working directory is left unchanged and
+the error says why: `ErrPathNotFound` if `path` does not exist,
+`ErrAccessDenied` if the directory may not be entered, and `ErrInvalidPath` if
+`path` names a file or cannot name a directory — a name that is too long, or a
+loop of symbolic links. Windows reports a file as `ErrWriteFailed`, and most
+unusable paths as `ErrPathNotFound`. Any other refusal raises `ErrWriteFailed`.
+An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory.
+The table also lists `ErrAlreadyExists` and `ErrResourceBusy` because every
+`fs` function that takes a path reports host refusals through one shared set
+of errors; changing directory never produces either."#;
 const EX: &str = r#"Move into a subdirectory and back up to the parent:
 
 ```
@@ -106,7 +114,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrWriteFailed",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_set_current_directory),
         }],
     });

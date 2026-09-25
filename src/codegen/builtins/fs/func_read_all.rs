@@ -54,7 +54,13 @@ whole file by path in a single call rather than from an open handle, use
 
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt
 a blocking host file read, so a worker that needs prompt cancellation around a
-blocking descriptor should check `thread::isCancelled` between operations."#;
+blocking descriptor should check `thread::isCancelled` between operations.
+
+`ErrEncoding` means the bytes are not valid UTF-8, `ErrReadFailed` that the host
+could not measure or read the file — a pipe or another handle that cannot be
+repositioned, or a file that shrinks while it is read — and `ErrResourceClosed`
+that `file` has been closed. `ErrOutOfMemory` means the program ran out of
+memory."#;
 const EX: &str = r#"Read all remaining text from an open file:
 
 ```
@@ -100,7 +106,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrEncoding",
+                "ErrResourceClosed",
+            ],
             body: Body::abi_function(lower_fs_read_all),
         }],
     });

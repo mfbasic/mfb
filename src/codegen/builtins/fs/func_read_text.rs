@@ -50,7 +50,20 @@ directory, and may contain Unicode characters when the host filesystem accepts
 those names. The string must not be empty and must not contain an embedded NUL
 byte, because the host `open` call requires a NUL-terminated path. Apart from
 opening and closing the file, the call has no side effects. To read
-arbitrary binary data without the UTF-8 requirement, use `fs::readBytes`."#;
+arbitrary binary data without the UTF-8 requirement, use `fs::readBytes`.
+
+An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
+the file cannot be opened the error says why: `ErrPathNotFound` if it does not
+exist, `ErrAccessDenied` if permission is refused, and `ErrInvalidPath` if the
+path cannot name a file — a name that is too long, a file used as a directory,
+or a loop of symbolic links (Windows reports most of these as
+`ErrPathNotFound`). Any other refusal to open raises `ErrWriteFailed`. A failure
+while reading raises `ErrReadFailed`, and contents that are not valid UTF-8
+raise `ErrEncoding`. `path` naming a directory is an error: `ErrReadFailed` on
+macOS, `ErrAccessDenied` on Windows. `ErrOutOfMemory` means the program ran out
+of memory. The table also lists `ErrAlreadyExists` and `ErrResourceBusy` because
+every `fs` function that takes a path reports host refusals through one shared
+set of errors; reading a file never produces either."#;
 const EX: &str = r#"Read a text file into a `String`:
 
 ```
@@ -94,7 +107,18 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrWriteFailed",
+                "ErrEncoding",
+                "ErrPathNotFound",
+                "ErrInvalidPath",
+                "ErrAccessDenied",
+                "ErrResourceBusy",
+                "ErrInvalidArgument",
+                "ErrAlreadyExists",
+            ],
             body: Body::abi_function(lower_fs_read_text),
         }],
     });

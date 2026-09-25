@@ -29,7 +29,9 @@ consisting only of `/` separators, returns an empty `String`.
 The scan is byte-oriented (the separator is the single byte `47` and the dot is
 the single byte `46`), so UTF-8 file names are preserved unchanged and any
 embedded bytes are treated literally. A new `String` holding the extension bytes
-is built for the result. The function reads no external state and has no side effects."#;
+is built for the result. The function reads no external state and has no side effects.
+
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A file name with an extension yields the extension:
 
 ```
@@ -104,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_fs_path_extension_nl),
         }],
     });

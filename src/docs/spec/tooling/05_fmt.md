@@ -81,8 +81,7 @@ used later for structure decisions. The `Sig` variants are: [[src/fmt.rs:Sig]]
 |-------|-------------|
 | `Kw(Keyword)` | A word recognized as a keyword (and casing was not suppressed). |
 | `Underscore` | A lone `_` (line-continuation marker when last on the line). |
-| `DoubleColon` | `::` (used to detect a `FUNC name AS pkg::func` re-export alias). |
-| `LParen` | `(` (used to tell `FUNC(…)` type annotations / parameterized funcs from aliases). |
+| `LParen` | `(` (used to tell a `FUNC(…)` type annotation from a declaration). |
 | `Other` | Strings, numbers, and any other punctuation or identifier. |
 
 ### Casing rules
@@ -137,7 +136,7 @@ re-set true after a single `:`, and cleared by every other token. [[src/fmt.rs:s
   more digits (a decimal point is only consumed when followed by a digit, so a
   trailing `.field` is not absorbed). Contributes one `Sig::Other`.
 - **`:`** alone → `Sig::Other`, opens a new statement (`stmt_start = true`).
-  **`::`** → `Sig::DoubleColon`, suppresses the next word. **`:=`** → `Sig::Other`.
+  **`::`** → `Sig::Other`, suppresses the next word. **`:=`** → `Sig::Other`.
 - **`.`** → `Sig::Other` and suppresses the next word (field access).
 - Any other character is copied as-is; `(` becomes `Sig::LParen`, everything else
   `Sig::Other`. [[src/fmt.rs:scan_line]]
@@ -229,10 +228,17 @@ its ops net to zero and mid-line position is harmless. Likewise a single-line
 
 Two `FUNC`/`SUB` shapes declare no body and open no block: [[src/fmt.rs:classify]]
 
-- **Re-export alias** `[vis] FUNC name AS pkg::func` — detected by a `::` token
-  (`DoubleColon`) and **no** `(` (`LParen`) anywhere on the line (`func_alias`).
-  The grammar uses exactly this shape, so a real signature returning a
-  `::`-qualified type cannot collide.
+- **Re-export alias** `[vis] FUNC name AS pkg::member` — decided from the
+  logical line's text by `is_func_alias`, which applies the parser's own test
+  (`check_top_level_func_alias`, bug-480). The shape is ambiguous with a
+  parameterless function whose return type is qualified: it is an alias only
+  when `pkg::member` names neither a built-in type
+  (`qualified_builtin_type`) nor a built-in resource
+  (`is_qualified_builtin_resource`). So `FUNC face AS canvas::Font` opens a
+  block and `FUNC close AS lib::close` does not. A `::` that is not the first
+  thing after `AS` (`AS List OF canvas::DrawItem`), or a parameter list, is
+  never alias-shaped. [[src/fmt.rs:is_func_alias]]
+  [[src/ast/items.rs:check_top_level_func_alias]]
 - **Function-type annotation** `FUNC(…) AS T` / `SUB(…)` — detected when the
   keyword is immediately followed by `(` (`func_type`). This is a type, not a
   declaration, so `… AS FUNC(Integer) AS Integer` does not open a second block.

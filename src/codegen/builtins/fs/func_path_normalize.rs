@@ -27,7 +27,9 @@ unchanged. UTF-8 file names are therefore preserved exactly, and the function ne
 resolves symbolic links, accesses any file, or checks whether any path exists. To
 resolve a path against the real directory tree instead, use `fs::canonicalPath`. The
 normalized output is never longer than the input, and the function has no side
-effects."#;
+effects.
+
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"Redundant separators and `.` components are removed:
 
 ```
@@ -79,7 +81,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_fs_path_normalize_nl),
         }],
     });

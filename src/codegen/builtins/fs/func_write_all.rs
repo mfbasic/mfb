@@ -55,7 +55,12 @@ by path in a single call rather than through an open handle, use `fs::writeText`
 
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt
 a blocking host file write, so a worker that needs prompt cancellation around a
-blocking descriptor should check `thread::isCancelled` between operations."#;
+blocking descriptor should check `thread::isCancelled` between operations.
+
+`ErrWriteFailed` means the host write failed — including a handle opened only
+for reading — and `ErrResourceClosed` that `file` has been closed. With
+buffering enabled a failed write can surface later instead, from the
+`fs::writeAll`, `fs::flush` or `fs::close` that drains the buffer."#;
 const EX: &str = r#"Write text to an open file:
 
 ```
@@ -109,7 +114,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec![
+                "ErrWriteFailed",
+                "ErrResourceClosed",
+            ],
             body: Body::abi_function(lower_fs_write_all),
         }],
     });

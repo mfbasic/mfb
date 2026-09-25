@@ -117,7 +117,8 @@ pub fn format_source(source: &str, indent_width: usize) -> Result<String, Format
         i += 1;
 
         let level = stack.len();
-        let (mut first_structural, mut ops) = structural_ops(&sig);
+        let (mut first_structural, mut ops) =
+            structural_ops(&sig, is_func_alias(&cased_lines.join(" ")));
         // bug-348: a line-leading `TGROUP`/`TCASE` opens a block the keyword
         // stream cannot see, since neither word is a keyword.
         if ops.is_empty() {
@@ -174,9 +175,7 @@ enum Sig {
     Kw(Keyword),
     /// A lone `_`, which as the last token of a line is a line continuation.
     Underscore,
-    /// `::`, used to recognize a `FUNC name AS pkg::func` re-export alias.
-    DoubleColon,
-    /// `(`, used to tell a parameterized `FUNC` from a no-body alias.
+    /// `(`, used to tell a function type `FUNC(…)` from a declaration.
     LParen,
     Other,
 }
@@ -340,7 +339,7 @@ fn scan_line(line: &str) -> Scanned {
                 if chars.get(i + 1) == Some(&':') {
                     out.push_str("::");
                     i += 2;
-                    sig.push(Sig::DoubleColon);
+                    sig.push(Sig::Other);
                     suppress = true;
                     stmt_start = false;
                 } else if chars.get(i + 1) == Some(&'=') {
@@ -421,10 +420,66 @@ enum Op {
     EndImplicit,
 }
 
+/// Whether a logical line is a `[vis] FUNC|SUB name AS pkg::member` re-export
+/// alias, which declares no body and so opens no block.
+///
+/// This is the parser's own test (`check_top_level_func_alias`, bug-480): the
+/// alias shape is ambiguous with a parameterless function whose return type is
+/// qualified, and it is an alias only when `pkg::member` names neither a
+/// built-in type nor a built-in resource. `FUNC face AS canvas::Font` is
+/// therefore a function with a body, while `FUNC close AS lib::close` is an
+/// alias. A `::` anywhere later - `AS List OF canvas::DrawItem` - is never
+/// alias-shaped, and neither is any line with a parameter list.
+fn is_func_alias(text: &str) -> bool {
+    let code = text.split('\'').next().unwrap_or("");
+    let mut words = code.split_whitespace().peekable();
+    if words.peek().is_some_and(|w| {
+        ["PRIVATE", "PUBLIC", "EXPORT"]
+            .iter()
+            .any(|v| w.eq_ignore_ascii_case(v))
+    }) {
+        words.next();
+    }
+    let Some(keyword) = words.next() else {
+        return false;
+    };
+    if !keyword.eq_ignore_ascii_case("FUNC") && !keyword.eq_ignore_ascii_case("SUB") {
+        return false;
+    }
+    let Some(name) = words.next() else {
+        return false;
+    };
+    if name.contains('(') || !words.next().is_some_and(|w| w.eq_ignore_ascii_case("AS")) {
+        return false;
+    }
+    // The target is `package::member`. The parser reads it as tokens, so spaces
+    // around the `::` are allowed and are closed up here.
+    let rest = words.collect::<Vec<_>>().join(" ");
+    let rest = rest.replace(" ::", "::").replace(":: ", "::");
+    let Some(target) = rest.split_whitespace().next() else {
+        return false;
+    };
+    let Some((package, member)) = target.split_once("::") else {
+        return false;
+    };
+    let is_word = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if !is_word(package) {
+        return false;
+    }
+    // Like the parser, a malformed target after `pkg::` is still read as an
+    // alias, and left for the parser to report.
+    if !is_word(member) {
+        return true;
+    }
+    let qualified = format!("{package}.{member}");
+    !crate::codegen::builtins::is_qualified_builtin_resource(&qualified)
+        && crate::codegen::builtins::qualified_builtin_type(&qualified).is_none()
+}
+
 /// Extract the block-structure operations for one logical line, and whether the
 /// line's first significant token is itself a structural one (which determines
 /// whether the line is printed dedented).
-fn structural_ops(sig: &[Sig]) -> (bool, Vec<Op>) {
+fn structural_ops(sig: &[Sig], func_alias: bool) -> (bool, Vec<Op>) {
     let first_kw = sig.iter().find_map(|s| match s {
         Sig::Kw(k) => Some(*k),
         _ => None,
@@ -433,14 +488,6 @@ fn structural_ops(sig: &[Sig]) -> (bool, Vec<Op>) {
     // `IF cond THEN stmt [ELSE stmt]` has tokens after `THEN` and opens nothing.
     let multiline_if =
         first_kw == Some(Keyword::If) && matches!(sig.last(), Some(Sig::Kw(Keyword::Then)));
-
-    // A `[vis] FUNC|SUB name AS pkg::func` re-export alias has a `::` target and
-    // no parameter list; it declares no body and opens no block. (The grammar
-    // uses exactly this shape to disambiguate, so a real signature returning a
-    // `::`-qualified type cannot occur.)
-    let has_dcolon = sig.iter().any(|s| matches!(s, Sig::DoubleColon));
-    let has_lparen = sig.iter().any(|s| matches!(s, Sig::LParen));
-    let func_alias = has_dcolon && !has_lparen;
 
     let mut ops = Vec::new();
     let mut first_structural = false;
@@ -999,6 +1046,25 @@ mod tests {
     fn func_alias_does_not_open_a_block() {
         let input = "EXPORT FUNC close AS pkg::close\nlet after = 1\n";
         let expected = "EXPORT FUNC close AS pkg::close\nLET after = 1\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn parameterless_func_returning_a_qualified_type_opens_a_block() {
+        // bug-480 settled the parse: `FUNC name AS pkg::X` is a function, not an
+        // alias, when `pkg::X` names a built-in type or resource. The formatter
+        // must agree, or it flattens the body to the enclosing level.
+        let input = "FUNC face AS canvas::Font\nRETURN x\nEND FUNC\nFUNC tint AS color::Color\nRETURN y\nEND FUNC\nlet after = 1\n";
+        let expected = "FUNC face AS canvas::Font\n  RETURN x\nEND FUNC\nFUNC tint AS color::Color\n  RETURN y\nEND FUNC\nLET after = 1\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn parameterless_func_returning_a_collection_of_a_qualified_type_opens_a_block() {
+        // The `::` is not the first thing after `AS`, so this is never alias-shaped.
+        let input = "FUNC items AS List OF canvas::DrawItem\nRETURN []\nEND FUNC\nlet after = 1\n";
+        let expected =
+            "FUNC items AS List OF canvas::DrawItem\n  RETURN []\nEND FUNC\nLET after = 1\n";
         assert_eq!(fmt(input), expected);
     }
 

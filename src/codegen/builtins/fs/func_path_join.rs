@@ -28,7 +28,9 @@ never consults the filesystem, resolves `.` or `..` segments, follows symbolic
 links, or checks whether any path exists. Each component is interpreted as raw
 UTF-8 bytes, so Unicode file names are preserved unchanged, and embedded NUL
 bytes are copied verbatim rather than treated as terminators. An empty list, or
-a list containing only empty components, yields the empty `String`. The function reads no external state and has no side effects."#;
+a list containing only empty components, yields the empty `String`. The function reads no external state and has no side effects.
+
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"Join a directory and a file name:
 
 ```
@@ -90,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_fs_path_join_nl),
         }],
     });

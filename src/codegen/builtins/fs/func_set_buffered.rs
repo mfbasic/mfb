@@ -54,7 +54,12 @@ Because buffered output is held in memory until it is drained, a hard crash
 flushed. Flush or close a buffered handle to make its data durable, and leave
 buffering off (the default) when partial-output-on-crash durability matters. A
 buffered handle should also be flushed before it is transferred to another
-thread, which resets it to unbuffered."#;
+thread, which resets it to unbuffered.
+
+Turning buffering off drains the pending bytes first. If that write fails the
+call raises `ErrWriteFailed` and the handle stays buffered with its bytes still
+pending, exactly as a failed `fs::flush` leaves it. Calling `fs::setBuffered` on
+a `File` that has been closed raises `ErrResourceClosed`."#;
 const EX: &str = r#"Buffer a loop of small writes and let scope exit flush and close the handle:
 
 ```
@@ -117,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWriteFailed", "ErrResourceClosed"],
             body: Body::abi_function(lower_fs_set_buffered),
         }],
     });

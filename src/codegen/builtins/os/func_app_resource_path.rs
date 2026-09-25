@@ -9,7 +9,7 @@ use super::gen_host_paths::{
     emit_capture_relative, emit_join_result, emit_path_error_tails, emit_validate_relative,
 };
 use super::gen_paths::{emit_executable_path_into, resource_base_offset};
-use super::gen_shared::{void_result, EXE_PATH_FRAME_LOCALS};
+use super::gen_shared::{emit_release_marshalled_result, void_result, EXE_PATH_FRAME_LOCALS};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::PlatformFamily;
 use crate::codegen::engine::util::*;
@@ -65,6 +65,13 @@ pub(crate) fn lower_app_resource_path(
     let mut instructions = Vec::new();
     let arg = emit_capture_relative(&mut vregs, &mut instructions);
     let mut relocations = Vec::new();
+    // bug-696: on Windows the executable path is a marshalled buffer this body
+    // owns, released at `done` once the join has copied it. `bad_arg` reaches
+    // `done` before the acquisition, so the owner starts at 0.
+    let owned = windows.then(|| vregs.next());
+    if let Some(owned) = &owned {
+        instructions.push(abi::move_immediate(owned, "Integer", "0"));
+    }
     // Step 1 (§4.4): reject a `.` or `..` path component.
     emit_validate_relative(
         &symbol,
@@ -86,6 +93,9 @@ pub(crate) fn lower_app_resource_path(
         &fail,
         &mut vregs,
     )?;
+    if let Some(owned) = &owned {
+        instructions.push(abi::move_register(owned, &buf));
+    }
     let n = vregs.next();
     match count {
         Some(count) => instructions.push(abi::move_register(&n, &count)),
@@ -170,6 +180,20 @@ pub(crate) fn lower_app_resource_path(
         &mut instructions,
         &mut relocations,
     );
+    if let Some(owned) = &owned {
+        emit_release_marshalled_result(
+            &mut EmitCtx {
+                symbol: symbol.as_str(),
+                platform_imports: ctx.platform_imports,
+                platform: ctx.platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            owned,
+            &symbol,
+            &mut vregs,
+        )?;
+    }
     instructions.push(abi::return_());
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);

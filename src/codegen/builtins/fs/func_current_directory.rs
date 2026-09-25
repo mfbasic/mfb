@@ -44,7 +44,10 @@ when they are given a path that is not absolute. The current directory can be
 changed with `fs::setCurrentDirectory`.
 
 The function takes no arguments, reads process state only, and has no filesystem
-side effects: it does not create, open, or modify any file."#;
+side effects: it does not create, open, or modify any file.
+
+`ErrReadFailed` means the host could not report the working directory.
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read and print the current working directory:
 
 ```
@@ -81,7 +84,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrReadFailed"],
             body: Body::abi_function(lower_fs_current_directory),
         }],
     });

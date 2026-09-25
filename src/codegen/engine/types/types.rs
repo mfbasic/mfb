@@ -546,6 +546,21 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
     }
+    /// Windows-only (bug-696): release a result `emit_env_get`,
+    /// `emit_os_wide_string` or `emit_environ_pointer` handed out, once the caller
+    /// has copied or tested it. On entry `ARG[0]` holds the non-zero pointer the
+    /// seam returned. Unlike the POSIX `getenv`/`environ` answers, which point into
+    /// memory libc owns, those are arena buffers the marshalling allocated for the
+    /// caller, and nothing else frees them. Clobbers every caller-saved register.
+    fn emit_release_marshalled(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("releasing a marshalled result is only implemented on windows-x86_64".to_string())
+    }
     /// Allocate `ARG[0]` bytes from the process heap, returning the pointer in the
     /// return register (0 on failure) — the `malloc` contract. Defaults to a libc
     /// `malloc` call (byte-identical on macOS/Linux/riscv); Windows has no CRT, so it

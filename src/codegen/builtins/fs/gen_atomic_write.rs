@@ -468,6 +468,7 @@ pub(crate) fn lower_fs_atomic_write_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,
@@ -762,6 +763,7 @@ pub(crate) fn lower_fs_write_path_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,
