@@ -571,8 +571,9 @@ fn emit_ascii_fold(reg: impl Into<Operand>, n: usize, instructions: &mut Vec<Cod
 }
 
 /// A reverse-marshaling frame for a Win32 `*W` call that PRODUCES a UTF-16 path
-/// (GetCurrentDirectoryW / GetTempPathW / GetFullPathNameW). The wide result is
-/// converted back to UTF-8 into the caller's arena buffer via WideCharToMultiByte.
+/// (GetCurrentDirectoryW / GetTempPathW / GetFinalPathNameByHandleW). The wide
+/// result is converted back to UTF-8 into the caller's arena buffer via
+/// WideCharToMultiByte.
 /// Layout relative to `sp` after `subtract_stack(RMARSHAL_FRAME)`:
 ///   [0x00 .. 0x20)  shadow space
 ///   [0x20]          WideCharToMultiByte 5th arg (lpMultiByteStr = UTF-8 dst)
@@ -582,6 +583,7 @@ fn emit_ascii_fold(reg: impl Into<Operand>, n: usize, instructions: &mut Vec<Cod
 ///   [0x40]          saved UTF-8 destination buffer pointer
 ///   [0x48]          saved destination capacity (bytes)
 ///   [0x50]          the arena UTF-16 scratch buffer pointer
+///   [0x58]          free for the caller (`emit_realpath` keeps its HANDLE here)
 const RMARSHAL_FRAME: usize = 0x60;
 const RMARSHAL_DST_SLOT: usize = 0x40;
 const RMARSHAL_CAP_SLOT: usize = 0x48;
@@ -3029,10 +3031,21 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         // realpath(path, resolved): path (arena UTF-8) in ARG[0], resolved buffer
         // (PATH_MAX+1 = 4097 bytes) in ARG[1]; return the resolved buffer pointer
-        // (nonzero) on success. Marshal the input, GetFullPathNameW into an arena
-        // UTF-16 scratch, then convert back to UTF-8 into the caller's buffer.
+        // (nonzero) on success, 0 on failure with the cause left in GetLastError.
+        //
+        // bug-694 C6: resolve the way POSIX `realpath` does — through the entry
+        // itself. Open it (CreateFileW, OPEN_EXISTING, backup semantics so a
+        // directory opens too) and ask GetFinalPathNameByHandleW for the path with
+        // every link followed. A missing entry fails the open with
+        // ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND. GetFullPathNameW, used
+        // before, only rewrote the string: a missing path "resolved", and a
+        // symbolic link was never followed.
+        const HANDLE_SLOT: usize = 0x58;
         let n = instructions.len();
+        let fail_close = format!("{from}_rp_failclose_{n}");
         let fail = format!("{from}_rp_fail_{n}");
+        let plain = format!("{from}_rp_plain_{n}");
+        let stripped = format!("{from}_rp_stripped_{n}");
         let done = format!("{from}_rp_done_{n}");
         instructions.extend([
             abi::subtract_stack(RMARSHAL_FRAME),
@@ -3041,47 +3054,89 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_CAP_SLOT), // capacity
         ]);
         emit_marshal_path(from, instructions, relocations); // input → wide at [MARSHAL_WBUF_SLOT]
+        arena_alloc_to_slot(from, "65536", RMARSHAL_WBUF_SLOT, instructions, relocations);
+        // CreateFileW(wide_in, 0, FILE_SHARE_READ|WRITE|DELETE, NULL, OPEN_EXISTING,
+        //             FILE_FLAG_BACKUP_SEMANTICS, NULL) — a metadata-only handle, as
+        // emit_verify_within opens its root. The three stack args are staged
+        // through ARG[2] before it takes its register value.
         instructions.extend([
-            // arena UTF-16 output scratch.
-            abi::move_immediate(abi::return_register(), "Integer", "65536"),
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
-        ]);
-        relocations.push(CodeRelocation {
-            from: from.to_string(),
-            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-        instructions.extend([
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
-            // GetFullPathNameW(lpFileName=wide_in, nBufferLength=32768,
-            //                  lpBuffer=wide_out, lpFilePart=NULL)
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "3"), // OPEN_EXISTING
+            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "33554432"), // FILE_FLAG_BACKUP_SEMANTICS
+            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile NULL
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT),
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "32768"),
-            abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
-            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // dwDesiredAccess = 0
+            abi::move_immediate(abi::mfb_arg(2), "Integer", "7"),
+            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes NULL
         ]);
-        call_external(
+        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::c_return(0), abi::stack_pointer(), HANDLE_SLOT),
+            // INVALID_HANDLE_VALUE (-1) is negative; a valid handle is positive.
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_lt(&fail),
+        ]);
+        emit_final_path_call(
             from,
-            "GetFullPathNameW",
-            KERNEL32,
+            HANDLE_SLOT,
+            RMARSHAL_WBUF_SLOT,
             instructions,
             relocations,
         );
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"),
-            abi::branch_eq(&fail),
+            abi::branch_eq(&fail_close),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
+        ]);
+        call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
+        // The final path carries the `\\?\` prefix (VOLUME_NAME_DOS). Drop it so the
+        // result reads `C:\dir\name`, and turn `\\?\UNC\server\share` back into
+        // `\\server\share`.
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 4),
+            abi::compare_immediate(abi::mfb_arg(1), "63"), // '?'
+            abi::branch_ne(&stripped),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 8),
+            abi::compare_immediate(abi::mfb_arg(1), "85"), // 'U'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 10),
+            abi::compare_immediate(abi::mfb_arg(1), "78"), // 'N'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 12),
+            abi::compare_immediate(abi::mfb_arg(1), "67"), // 'C'
+            abi::branch_ne(&plain),
+            abi::load_u16(abi::mfb_arg(1), abi::mfb_arg(0), 14),
+            abi::compare_immediate(abi::mfb_arg(1), "92"), // '\'
+            abi::branch_ne(&plain),
+            // `\\?\UNC\` → start at the `C`, rewritten to `\`, giving `\\server`.
+            abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 12),
+            abi::move_immediate(abi::mfb_arg(1), "Integer", "92"),
+            abi::store_u16(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::branch(&stripped),
+            abi::label(&plain),
+            abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 8),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::label(&stripped),
         ]);
         emit_wide_to_utf8(from, instructions, relocations); // wide_out → resolved dst
         instructions.extend([
+            // 0 bytes converted: the UTF-8 path does not fit the 4097-byte buffer.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&fail),
             abi::load_u64(
                 abi::return_register(),
                 abi::stack_pointer(),
                 RMARSHAL_DST_SLOT,
             ),
             abi::branch(&done),
+            abi::label(&fail_close),
+            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE_SLOT),
+        ]);
+        call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::label(&done),

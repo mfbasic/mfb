@@ -99,9 +99,14 @@ pub(crate) fn emit_cstring_nul_scan(
     ]);
 }
 
+/// Generic errno mapping: a missing entry is `ErrNotFound`, a refused one
+/// `ErrAccessDenied`, an existing one `ErrAlreadyExists`, and anything else
+/// `ErrWriteFailed`. The host code is the POSIX errno, or on Windows the
+/// `GetLastError` code, which numbers the same conditions differently (bug-694 C1).
 pub(crate) fn emit_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,
+    family: PlatformFamily,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
@@ -110,16 +115,29 @@ pub(crate) fn emit_errno_error_mapping(
     let err_access_denied = format!("{symbol}_errno_access_denied");
     let err_already_exists = format!("{symbol}_errno_already_exists");
     let err_output = format!("{symbol}_errno_output");
-    instructions.extend([
-        abi::compare_immediate(errno_reg, "2"),
-        abi::branch_eq(&err_not_found),
-        abi::compare_immediate(errno_reg, "13"),
-        abi::branch_eq(&err_access_denied),
-        abi::compare_immediate(errno_reg, "17"),
-        abi::branch_eq(&err_already_exists),
-        abi::branch(&err_output),
-        abi::label(&err_not_found),
-    ]);
+    match family {
+        PlatformFamily::Windows => instructions.extend([
+            abi::compare_immediate(errno_reg, "2"), // ERROR_FILE_NOT_FOUND
+            abi::branch_eq(&err_not_found),
+            abi::compare_immediate(errno_reg, "3"), // ERROR_PATH_NOT_FOUND
+            abi::branch_eq(&err_not_found),
+            abi::compare_immediate(errno_reg, "5"), // ERROR_ACCESS_DENIED
+            abi::branch_eq(&err_access_denied),
+            abi::compare_immediate(errno_reg, "80"), // ERROR_FILE_EXISTS
+            abi::branch_eq(&err_already_exists),
+            abi::compare_immediate(errno_reg, "183"), // ERROR_ALREADY_EXISTS
+            abi::branch_eq(&err_already_exists),
+        ]),
+        _ => instructions.extend([
+            abi::compare_immediate(errno_reg, "2"),
+            abi::branch_eq(&err_not_found),
+            abi::compare_immediate(errno_reg, "13"),
+            abi::branch_eq(&err_access_denied),
+            abi::compare_immediate(errno_reg, "17"),
+            abi::branch_eq(&err_already_exists),
+        ]),
+    }
+    instructions.extend([abi::branch(&err_output), abi::label(&err_not_found)]);
     raise_error_into(symbol, "ErrNotFound", instructions, relocations);
     instructions.extend([abi::branch(done), abi::label(&err_access_denied)]);
     raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);

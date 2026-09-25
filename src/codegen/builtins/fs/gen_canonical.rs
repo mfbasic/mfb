@@ -161,6 +161,7 @@ pub(crate) fn lower_fs_canonical_path_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,
@@ -435,6 +436,7 @@ pub(crate) fn lower_fs_is_within_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,

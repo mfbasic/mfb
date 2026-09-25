@@ -24,9 +24,11 @@
 use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::BuilderHarness;
-use crate::codegen::engine::types::{CodeInstruction, CodeRelocation, CodegenPlatform};
+use crate::codegen::engine::types::{
+    CodeInstruction, CodeRelocation, CodegenPlatform, PlatformFamily,
+};
 use crate::codegen::engine::util::vreg_frame::Vregs;
-use crate::codegen::registry::{registry, AbiCtx, Body, RegistryFunction};
+use crate::codegen::registry::{registry, AbiCtx, Body, Implementation, RegistryFunction};
 use crate::os::linux::flavor::LinuxFlavor;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -165,6 +167,68 @@ fn scan(
     }
 }
 
+/// Lower one implementation of an `fs` member on one backend and return the
+/// emitted instructions and relocations.
+///
+/// A body refuses when an import or string literal it needs is not declared.
+/// The plan derives both from the program, so supply each one it names and lower
+/// again until it succeeds.
+fn lower_body(
+    function: &RegistryFunction,
+    implementation: &Implementation,
+    platform: &dyn CodegenPlatform,
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    let call = format!("fs.{}", function.name);
+    let mut vregs = Vregs::new();
+    let args: Vec<ValueResult> = implementation
+        .params
+        .iter()
+        .map(|param| ValueResult {
+            type_: param.ty.clone(),
+            location: Operand::from(vregs.next().as_str()),
+            text: param.name.to_string(),
+            origin: None,
+        })
+        .collect();
+    let mut harness = BuilderHarness::default();
+    for _ in 0..64 {
+        let mut builder = harness.builder("_mfb_rt_probe", platform);
+        let ctx = AbiCtx {
+            call: &call,
+            ..harness.abi_ctx(platform)
+        };
+        let result = match implementation.body {
+            Body::AbiFunction { lower, .. } | Body::AbiInline(lower) => {
+                lower(&mut builder, &args, &ctx)
+            }
+            _ => Err(format!("{call}: not a native body")),
+        };
+        let error = match result {
+            Ok(_) => return Ok((builder.instructions, builder.relocations)),
+            Err(error) => error,
+        };
+        drop(builder);
+        if let Some(import) = error
+            .split_once("requires ")
+            .and_then(|(_, rest)| rest.strip_suffix(" import"))
+        {
+            harness
+                .platform_imports
+                .insert(import.to_string(), "libc".to_string());
+        } else if let Some(literal) = error
+            .strip_prefix("native code string literal '")
+            .and_then(|rest| rest.strip_suffix("' has no data object"))
+        {
+            harness
+                .string_symbols
+                .insert(literal.to_string(), "_mfb_str_probe".to_string());
+        } else {
+            return Err(error);
+        }
+    }
+    Err(format!("{call}: still refusing after supplying 64 imports"))
+}
+
 /// Lower one member's every implementation on every backend and return the codes
 /// its own instructions load plus the internal symbols it calls.
 fn lower_member(
@@ -174,73 +238,19 @@ fn lower_member(
 ) -> (BTreeSet<&'static str>, BTreeSet<String>) {
     let mut raised = BTreeSet::new();
     let mut callees = BTreeSet::new();
-    let call = format!("fs.{}", function.name);
     for (target, platform) in platforms() {
         for implementation in function.implementations() {
-            let mut vregs = Vregs::new();
-            let args: Vec<ValueResult> = implementation
-                .params
-                .iter()
-                .map(|param| ValueResult {
-                    type_: param.ty.clone(),
-                    location: Operand::from(vregs.next().as_str()),
-                    text: param.name.to_string(),
-                    origin: None,
-                })
-                .collect();
-            let mut harness = BuilderHarness::default();
-            // A body refuses when an import or string literal it needs is not
-            // declared. The plan derives both from the program, so supply each one
-            // it names and lower again until it succeeds.
-            let mut lowered = false;
-            for _ in 0..64 {
-                let mut builder = harness.builder("_mfb_rt_probe", platform.as_ref());
-                let ctx = AbiCtx {
-                    call: &call,
-                    ..harness.abi_ctx(platform.as_ref())
-                };
-                let result = match implementation.body {
-                    Body::AbiFunction { lower, .. } | Body::AbiInline(lower) => {
-                        lower(&mut builder, &args, &ctx)
-                    }
-                    _ => Err(format!("{call}: not a native body")),
-                };
-                let error = match result {
-                    Ok(_) => {
-                        scan(
-                            &builder.instructions,
-                            &builder.relocations,
-                            codes,
-                            &mut raised,
-                            &mut callees,
-                        );
-                        lowered = true;
-                        break;
-                    }
-                    Err(error) => error,
-                };
-                drop(builder);
-                if let Some(import) = error
-                    .split_once("requires ")
-                    .and_then(|(_, rest)| rest.strip_suffix(" import"))
-                {
-                    harness
-                        .platform_imports
-                        .insert(import.to_string(), "libc".to_string());
-                } else if let Some(literal) = error
-                    .strip_prefix("native code string literal '")
-                    .and_then(|rest| rest.strip_suffix("' has no data object"))
-                {
-                    harness
-                        .string_symbols
-                        .insert(literal.to_string(), "_mfb_str_probe".to_string());
-                } else {
-                    failures.push(format!("{target} fs::{} refused: {error}", function.name));
-                    break;
+            match lower_body(function, implementation, platform.as_ref()) {
+                Ok((instructions, relocations)) => scan(
+                    &instructions,
+                    &relocations,
+                    codes,
+                    &mut raised,
+                    &mut callees,
+                ),
+                Err(error) => {
+                    failures.push(format!("{target} fs::{} refused: {error}", function.name))
                 }
-            }
-            if !lowered {
-                failures.push(format!("{target} fs::{} did not lower", function.name));
             }
         }
     }
@@ -333,5 +343,151 @@ fn every_fs_member_declares_exactly_the_errors_its_lowering_raises() {
          raises (fix the descriptor `errors` in src/codegen/builtins/fs/func_*.rs):\n  {}",
         mismatched.len(),
         mismatched.join("\n  ")
+    );
+}
+
+/// On Windows, `fs::canonicalPath` and `fs::isWithin` resolve a path by opening
+/// it and asking the host for the handle's final path, as POSIX `realpath` does.
+///
+/// bug-694 C6: they called `GetFullPathNameW`, which only rewrites the string.
+/// A path that did not exist canonicalized successfully, contradicting both pages
+/// ("every component ... must exist"), and a symbolic link was never followed, so
+/// `isWithin` compared link text rather than where the link leads.
+#[test]
+fn windows_canonicalization_resolves_through_an_open_handle() {
+    let package = registry().resolve_package("fs").expect("fs package");
+    let windows = crate::target::win_x86_64::code::Platform;
+    let mut wrong = Vec::new();
+    for name in ["canonicalPath", "isWithin"] {
+        let function = package
+            .functions()
+            .iter()
+            .find(|function| function.name == name)
+            .expect("fs member");
+        for implementation in function.implementations() {
+            let (_, relocations) =
+                lower_body(function, implementation, &windows).expect("lowers on Windows");
+            let calls: BTreeSet<&str> = relocations
+                .iter()
+                .filter(|relocation| relocation.library.is_some())
+                .map(|relocation| relocation.to.as_str())
+                .collect();
+            for required in ["CreateFileW", "GetFinalPathNameByHandleW", "CloseHandle"] {
+                if !calls.contains(required) {
+                    wrong.push(format!("fs::{name} never calls {required}"));
+                }
+            }
+            if calls.contains("GetFullPathNameW") {
+                wrong.push(format!(
+                    "fs::{name} still canonicalizes lexically with GetFullPathNameW"
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The host error codes each errno-mapping label may be reached from, per
+/// platform family. POSIX errnos differ between Linux and macOS; Windows reports
+/// `GetLastError` codes, a different numbering altogether.
+fn host_codes(family: PlatformFamily, reason: &str) -> Option<&'static [&'static str]> {
+    let codes: &'static [&'static str] = match (family, reason) {
+        // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+        (PlatformFamily::Windows, "not_found" | "path_not_found") => &["2", "3"],
+        // ERROR_ACCESS_DENIED
+        (PlatformFamily::Windows, "access_denied") => &["5"],
+        // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
+        (PlatformFamily::Windows, "already_exists") => &["80", "183"],
+        // ERROR_DIR_NOT_EMPTY
+        (PlatformFamily::Windows, "not_empty") => &["145"],
+        // ERROR_INVALID_NAME, ERROR_FILENAME_EXCED_RANGE
+        (PlatformFamily::Windows, "invalid_path") => &["123", "206"],
+        // ENOENT
+        (_, "not_found" | "path_not_found") => &["2"],
+        // EACCES, and ELOOP from a no-follow open
+        (PlatformFamily::Linux, "access_denied") => &["13", "40"],
+        (_, "access_denied") => &["13", "62"],
+        // EEXIST
+        (_, "already_exists") => &["17"],
+        // ENOTEMPTY
+        (PlatformFamily::Linux, "not_empty") => &["39"],
+        (_, "not_empty") => &["66"],
+        // ENOTDIR, ENAMETOOLONG, EILSEQ, ELOOP
+        (PlatformFamily::Linux, "invalid_path") => &["20", "36", "84", "40"],
+        (_, "invalid_path") => &["20", "63", "92", "62"],
+        _ => return None,
+    };
+    Some(codes)
+}
+
+/// Every host error code an `fs` body compares before branching to one of the
+/// shared errno-mapping labels (`<symbol>_errno_<reason>`) is a code that
+/// platform reports for that reason.
+///
+/// bug-694 C1: `emit_errno_error_mapping` compared the POSIX numbers 2/13/17 on
+/// every backend, so on Windows — where the host reports `GetLastError` codes — a
+/// missing directory (ERROR_PATH_NOT_FOUND, 3) or a refused write
+/// (ERROR_ACCESS_DENIED, 5) fell through to `ErrWriteFailed`, while the unrelated
+/// ERROR_INVALID_DATA (13) became `ErrAccessDenied`.
+#[test]
+fn every_fs_errno_mapping_compares_the_platforms_own_host_codes() {
+    let package = registry().resolve_package("fs").expect("fs package");
+    let mut wrong = Vec::new();
+    let mut mapped = 0usize;
+    for (target, platform) in platforms() {
+        let family = platform.family();
+        for function in package.functions() {
+            for implementation in function.implementations() {
+                let Ok((instructions, _)) = lower_body(function, implementation, platform.as_ref())
+                else {
+                    // A refusal is the declared-errors test's finding, not this one's.
+                    continue;
+                };
+                // Each reason label, and the host codes that branch to it.
+                let mut reached: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+                for pair in instructions.windows(2) {
+                    let (compare, branch) = (&pair[0], &pair[1]);
+                    if compare.op.mnemonic() != "cmp_imm" || branch.op.mnemonic() != "b.eq" {
+                        continue;
+                    }
+                    let (Some(value), Some(label)) = (compare.get("rhs"), branch.get("target"))
+                    else {
+                        continue;
+                    };
+                    let Some((_, reason)) = label.split_once("_errno_") else {
+                        continue;
+                    };
+                    reached.entry(reason.to_string()).or_default().insert(value);
+                }
+                for (reason, values) in reached {
+                    let Some(allowed) = host_codes(family, &reason) else {
+                        continue;
+                    };
+                    mapped += 1;
+                    let foreign: Vec<&String> = values
+                        .iter()
+                        .filter(|value| !allowed.contains(&value.as_str()))
+                        .collect();
+                    if !foreign.is_empty() {
+                        wrong.push(format!(
+                            "{target} fs::{}: `{reason}` is reached from host code(s) \
+                             {foreign:?}, which this platform does not report for it \
+                             (expected {allowed:?})",
+                            function.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        mapped >= 100,
+        "only {mapped} errno-mapping branches found; the instruction scan has broken"
+    );
+    assert!(
+        wrong.is_empty(),
+        "{} errno mapping(s) compare a host code the platform does not report:\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
     );
 }

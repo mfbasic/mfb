@@ -1057,6 +1057,7 @@ pub(crate) fn lower_fs_list_directory_helper(
     emit_errno_error_mapping(
         symbol,
         &errno_reg,
+        platform.family(),
         &mut instructions,
         &mut relocations,
         &done,
