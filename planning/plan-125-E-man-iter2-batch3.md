@@ -40,17 +40,27 @@ References:
 
 See plan-125-A. Additionally:
 
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
+
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-D complete | `grep -c '^- \[ \]' planning/plan-125-D-man-iter2-batch2.md` → `0` | — |
 
 ## 1. Goal
 
-- **All 142 pages** through my per-page pass, one `codex exec` each, and apply.
+- **All 142 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **Every example compiled and run.** `http` examples that need a server are
-  run by the **main thread** against a local server — the Codex sandbox cannot
-  bind sockets (plan-108-C's recorded lesson); the reviewer verifies the claim
-  by reading code and the main thread runs the probe.
+  run by the **main thread** against a local server; the reviewer verifies the
+  claim by reading code and the main thread runs the probe. (The rule came from
+  the Codex sandbox, which cannot bind sockets — plan-108-C. The Fable reviewer
+  has no such sandbox, but the main thread stays the one that runs and records
+  every network probe.)
 - **Every `crypto` claim that names a standard is checked against that
   standard's published vectors**, not against the implementation agreeing with
   itself.
@@ -111,7 +121,7 @@ whole-package review; this letter gives it its first per-page one.
 
 ## 3. Design Overview
 
-Per page: my pass → one `codex exec` → apply, `N` concurrency, main thread
+Per page: my pass → one Fable 5.1 review → apply, `N` concurrency, main thread
 sole writer.
 
 **Order:** `bits` (18, the plan-108-A pilot package — cheapest, confirms the
@@ -231,6 +241,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 

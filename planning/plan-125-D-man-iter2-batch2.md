@@ -39,18 +39,27 @@ References:
 
 See plan-125-A. Additionally:
 
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
+
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-C complete | `grep -c '^- \[ \]' planning/completed/plan-125-C-man-iter2-batch1.md` → `0` | MET 2026-09-16: `0` open; all four Commit lines filled (closed `c420fec6c`) |
 | plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-09-16: rebuilt after `c420fec6c` (the last source change); later commits touch only `planning/` |
-| plan-125-A gate: `codex` CLI | `~/local/bin/codex --version` | MET 2026-09-16: `codex-cli 0.153.0` |
-| plan-125-A gate: account can spend a request | the PONG probe | MET 2026-09-16: `PONG`; re-run before every batch |
+| ~~plan-125-A gate: `codex` CLI~~ (superseded 2026-09-25) | `~/local/bin/codex --version` | MET 2026-09-16: `codex-cli 0.153.0` — Phases 1, 2 and 14 of Phase 3's 26 units ran on it |
+| reviewer gate: Claude Code CLI | `claude --version` | MET 2026-09-25: `2.1.281 (Claude Code)` |
+| reviewer gate: account can spend a request | the Fable PONG probe above, from `/tmp` | MET 2026-09-25: `PONG`, exit 0; re-run before every batch |
 | plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight |
 | this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-09-16: 8 lines in `astrings/gen_astrings.rs` (lowering code, no page prose) |
 
 ## 1. Goal
 
-- **All 142 pages** through my per-page pass, one `codex exec` each, and apply.
+- **All 142 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **Every example compiled and run** — and for `fs`, **every example rewritten
   to touch only temp paths** (plan-108-D's standing rule); a `fs` example that
   writes a real user path is a defect regardless of what it documents.
@@ -107,7 +116,7 @@ and there is an **in-flight `term` change in the working tree at plan-writing**
 
 ## 3. Design Overview
 
-Per page: my pass → one `codex exec` → apply, at `N` concurrency with the main
+Per page: my pass → one Fable 5.1 review → apply, at `N` concurrency with the main
 thread as sole writer.
 
 **Order:** `io` (16, smallest and the handle-vocabulary calibrator) →
@@ -327,6 +336,12 @@ units wait for that. Resume with
 `./scripts/doc-review-fanout.sh --letter D-phase3 --units planning/plan-125-units/D-phase3-resume.txt --prompt planning/plan-125-prompts/man-iter2-page.txt --jobs 4 --timeout 1800`
 (re-run rows append; `--reconcile` reads each unit's last row).
 
+**Resume on Fable 5.1 (owner, 2026-09-25).** The 12 remaining units run on the Fable
+reviewer with the same command — the harness now calls `claude -p --model
+claude-fable-5-1` — so Phase 3's ledger mixes two reviewers: the 14 rows above are
+Codex (`OpenAI Codex v…` banners in `D-phase3/manifest.tsv`), the resumed ones Fable
+(`Claude Code v…/claude-fable-5-1`). Record which reviewer produced each row.
+
 **Running a `term` example needs a terminal.** `scripts/man-run-examples.sh term --run`
 reports 10 of 43 as failures: with stdout on a pipe `term::on` has no terminal and the
 calls raise `ErrUnsupported` (`7-705-0007`, probe `/tmp/p125-ex/termsize`). That is a
@@ -438,6 +453,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 
