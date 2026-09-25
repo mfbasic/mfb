@@ -1,4 +1,4 @@
-' toolbar - the four buttons down the right-hand side.
+' toolbar - the five buttons down the right-hand side.
 '
 ' Each button holds a small copy of the object it adds, drawn by the same code
 ' that draws the object in the window, so the icon is always the object's true
@@ -15,7 +15,7 @@ LET BUTTON_SIZE AS Float = 64.0
 LET BUTTON_GAP AS Float = 12.0
 
 ' The kinds, in the order their buttons run down the toolbar.
-LET TOOL_KINDS AS List OF ShapeKind = [ShapeKind.Rectangle, ShapeKind.Triangle, ShapeKind.Circle, ShapeKind.Ellipse]
+LET TOOL_KINDS AS List OF ShapeKind = [ShapeKind.Rectangle, ShapeKind.Triangle, ShapeKind.Circle, ShapeKind.Ellipse, ShapeKind.Star]
 
 ' Where the play area ends and the toolbar begins.
 FUNC playWidth(width AS Float) AS Float
@@ -63,10 +63,12 @@ FUNC toolbarItems(width AS Float, height AS Float) AS List OF canvas::DrawItem
     items = collections::append(items, button)
     LET kind AS ShapeKind = toolKind(k)
     LET scale AS Float = (BUTTON_SIZE - 20.0) / widestOf(kind)
-    ' A triangle is placed by its centroid, which sits below the middle of its
-    ' height; it is lowered by the difference so it looks centred in the button.
+    ' A triangle is placed by its centroid, and a star by the centre its points
+    ' lie around; both sit below the middle of their height, and are lowered by
+    ' the difference so they look centred in the button.
     MUT lower AS Float = 0.0
     IF kind = ShapeKind.Triangle THEN lower = (TRIANGLE_ABOVE - TRIANGLE_BELOW) / 2.0 * scale
+    IF kind = ShapeKind.Star THEN lower = STAR_OUTER * (1.0 - math::cos(math::pi / toFloat(STAR_POINTS))) / 2.0 * scale
     LET icon AS Shape = Shape[kind := kind, x := x + BUTTON_SIZE / 2.0, y := top + BUTTON_SIZE / 2.0 + lower, angle := 0.0, scale := scale]
     items = collections::append(items, shapeItem(icon, FALSE))
   NEXT
