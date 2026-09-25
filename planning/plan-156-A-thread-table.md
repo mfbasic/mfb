@@ -95,8 +95,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Nothing else touches the thread runtime concurrently | `git log --oneline -1 -- src/codegen/runtime/thread` → the commit this plan was written against, or a reviewed later one | MET (2026-09-24) |
-| The release compiler is current | `ls -la target/release/mfb` newer than the last `src/` commit | re-check |
+| Nothing else touches the thread runtime concurrently | `git log --oneline -1 -- src/codegen/runtime/thread` → the commit this plan was written against, or a reviewed later one | MET (2026-09-24 re-run: `cac235512` bug-655, an ancestor of the plan commit `9f49cf2a8`; no thread-runtime commit since) |
+| The release compiler is current | `ls -la target/release/mfb` newer than the last `src/` commit | MET (2026-09-24: rebuilt in the P-156 worktree 20:00; last `src/` commit `e92693b40` 19:11) |
 
 plan-156 does not depend on bug-690 (the arena large-block reuse): the control
 block's memory is table-owned, not a general-arena client (§4.2).
@@ -305,9 +305,13 @@ Rejected alternatives:
 
 Proves §4.2's premise before anything depends on it.
 
-- [ ] Add `lower_thread_block_arena_create` / `_destroy` helpers
+- [x] Add `lower_thread_block_arena_create` / `_destroy` helpers
       (`src/codegen/runtime/thread/`) that map an arena state with
       `emit_arena_map` and destroy it with `_mfb_arena_destroy`.
+      (`control_block.rs`; the state is a heap block and its chunks are mapped
+      by `_mfb_arena_alloc` through `emit_arena_map` — Correction 5. Exercised
+      by every thread started: `scripts/test-accept.sh target/debug/mfb …
+      'rt-behavior/thread*/**'` → "acceptance tests passed (50 test(s) ran)".)
 - [ ] Add a codegen helper that saves `ARENA_STATE_REGISTER`, points it at a
       given arena, runs `copy_value_to_current_arena` for a value, and
       restores it. It is called from nothing yet except a test.
@@ -330,20 +334,34 @@ Commit: —
 The control block replaces the parent-arena thread block. The queues are
 still their own objects, now allocated in the block arena.
 
-- [ ] `error_constants.rs`: `CONTROL_OFFSET_*` and `CONTROL_BLOCK_SIZE`.
+- [x] `error_constants.rs`: `CONTROL_OFFSET_*` and `CONTROL_BLOCK_SIZE`.
       Remove the moved `THREAD_OFFSET_*` constants, and re-point every user
       (175 Rust occurrences in 9 files, §2).
-- [ ] The `_mfb_rt_thread_table` data symbol, emitted beside the debug
+      (In `src/codegen/runtime/thread/control_block.rs` beside the helpers that
+      own them — Correction 1. `rg -c 'THREAD_OFFSET_|THREAD_BLOCK_SIZE' src
+      --glob '*.rs'` → only doc-comment mentions in two layout files, fixed with
+      the spec pass; build green.)
+- [~] The `_mfb_rt_thread_table` data symbol, emitted beside the debug
       registry in `src/codegen/engine/builder/mod.rs`, plus slot alloc/free
       helpers with growth (§4.1).
-- [ ] `lower_thread_start_helper`: take a slot, allocate the block with
+      (Emitted beside the thread trampoline, under the same `thread.start`
+      gate — Correction 1. Acquire/release run on every start/release in the 50
+      fixtures above; remaining: the growth path is exercised only by
+      `rt_thread_table_growth`, not yet written.)
+- [x] `lower_thread_start_helper`: take a slot, allocate the block with
       `emit_heap_alloc`, create the block arena, and put the queues in it.
       The handle value is the block pointer.
+      (Queue rings are carved from the block arena; the queue headers are
+      embedded in the block — Correction 2. A failed start releases everything
+      it built through `_mfb_rt_thread_block_release`. 50 fixtures pass.)
 - [ ] The trampoline: under the block lock, copy the result into the block
       arena, set COMPLETED, and broadcast.
-- [ ] The WaitFor/Drop arms: read the state and result from the block, then
+- [x] The WaitFor/Drop arms: read the state and result from the block, then
       free the block with §4.4's rule (`refs`) in place of
       `emit_release_thread_plumbing`'s parent-arena frees.
+      (`emit_release_reference` in `runtime_helpers_thread.rs`; the worker's
+      side is `_mfb_rt_thread_finish`. 50 fixtures pass, including
+      `thread-drop-cleanup`'s five drop paths.)
 - [ ] Tests: `tests/runtime/rt_thread_table_growth.rs`. Start and `waitFor`
       5,000 threads sequentially, and hold 200 live at once. The debug report
       shows `live_bytes` back at baseline after all are waited.
@@ -358,12 +376,17 @@ Commit: —
 
 ### Phase 3 — queues under the block lock (largest blast radius last)
 
-- [ ] Fold the four queue rings into the block (§4.3): one mutex, and
+- [x] Fold the four queue rings into the block (§4.3): one mutex, and
       per-direction `not_empty`/`not_full` condvars.
+      (Landed with Phase 2 — Correction 2. The timeout/cancel/interrupt
+      fixtures `thread-queue-timeout-cancel`, `thread-timeout-convention-rt`
+      pass in the 50-fixture run.)
 - [ ] Delete the pending-free lists and their reclaimers (bug-646, and the
       bug-650 walks become block-arena destruction).
-- [ ] Re-point cancel, drop and timeout wakeups
+- [x] Re-point cancel, drop and timeout wakeups
       (`emit_close_resource_queues`, the Cancel arm) at the block condvars.
+      (`emit_close_queue_locked` / `emit_close_resource_queues_locked` run
+      under the block lock; same 50-fixture run.)
 - [ ] Benchmark: `benchmark/` thread rows (list them in Corrections when
       run) before and after on macos-aarch64. Throughput within 10%.
 - [ ] Update `src/docs/spec/threading/07_control-block.md` and
@@ -401,6 +424,38 @@ Commit: —
   `builder_arena_transfer.rs`. Decide on Phase 1's result.
 
 ## Corrections
+
+1. **Where the layout lives.** `CONTROL_OFFSET_*`, `CONTROL_BLOCK_SIZE` and
+   the table layout are in `src/codegen/runtime/thread/control_block.rs`, not
+   `error_constants.rs`: the thread runtime already owned its block layout in
+   its own module (`THREAD_OFFSET_*` lived in `runtime_helpers.rs`, not the
+   constants file). The table data object and the new helpers are emitted
+   beside the thread trampoline, under the same `_mfb_rt_thread_thread_start`
+   gate, not beside the debug registry (which is emitted for every `--debug`
+   build, thread or not).
+2. **Phases 2 and 3's locking landed together.** Phase 2 as written keeps the
+   queues as separately-locked objects while the result and state move under
+   the block lock. That intermediate is incoherent: `waitFor` and `poll` wait
+   on a queue condvar for a *state* change, so the state change and the wait
+   must share one mutex or the wakeup can be lost. The queue headers are
+   therefore embedded in the block under the one block lock from Phase 2 on
+   (their rings are block-arena memory). The Phase 3 tasks this covers are
+   ticked with the same evidence.
+3. **Per-thread fields stay in the block in A.** §4.2 says the OS handle,
+   entry, worker arena state and parent arena state stay out of the block,
+   but A also makes the handle value the block pointer, leaving no other
+   record to hold them until C adds the view records. They are block words
+   in A. `THREAD_OFFSET_PARENT_ARENA_STATE` was dead (written at start, read
+   nowhere: `rg -n PARENT_ARENA_STATE src` at the plan commit) and is gone.
+4. **The worker's arena-state block moved to the heap.** It was carved from
+   the parent's arena, so only the parent could free it; §4.4 lets the worker
+   be the side that frees the block (a parent that dropped a running
+   thread), so the state block is heap memory like the control block.
+5. **Block arena state is a heap block, not a mapping.** `ARENA_STATE_SIZE`
+   bytes from `emit_heap_alloc`, zeroed, fill-seeded; its chunks are mapped
+   on demand by `_mfb_arena_alloc` (through `emit_arena_map`) and unmapped by
+   `_mfb_arena_destroy`, exactly as for every other arena. It registers in
+   the `--debug` registry as a new `thread_block` kind.
 
 ## Summary
 

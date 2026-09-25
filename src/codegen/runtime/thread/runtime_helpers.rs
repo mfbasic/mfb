@@ -7,144 +7,70 @@ use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-pub(crate) const THREAD_OFFSET_STATE: usize = 0;
-pub(crate) const THREAD_OFFSET_CANCELLED: usize = 8;
-pub(crate) const THREAD_OFFSET_RESULT_TAG: usize = 16;
-pub(crate) const THREAD_OFFSET_RESULT_VALUE: usize = 24;
-pub(crate) const THREAD_OFFSET_RESULT_ERROR: usize = 32;
-pub(crate) const THREAD_OFFSET_INBOUND_QUEUE: usize = 40;
-pub(crate) const THREAD_OFFSET_OUTBOUND_QUEUE: usize = 48;
-pub(crate) const THREAD_OFFSET_OS_HANDLE: usize = 56;
-pub(crate) const THREAD_OFFSET_ENTRY: usize = 64;
-pub(crate) const THREAD_OFFSET_DATA: usize = 72;
-pub(crate) const THREAD_OFFSET_ARENA_STATE: usize = 80;
-pub(crate) const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 88;
-// Origin `ErrorLoc` pointer of a worker's terminal error, captured by the
-// trampoline so `thread::waitFor` can recover the worker's source location.
-pub(crate) const THREAD_OFFSET_RESULT_SOURCE: usize = 96;
-// Resource plane (§7): two dedicated queues for `thread::transfer`/
-// `thread::accept`, independent of the data-channel inbound/outbound queues so a
-// thread can carry both planes at once. The resource plane mirrors the data
-// plane's split: the inbound queue carries parent→worker transfers (parent
-// `transfer`, worker `accept`); the outbound queue carries worker→parent
-// transfers (worker `transfer`, parent `accept`). Two queues keep the directions
-// isolated so a thread's own transfer is never re-read by its own accept.
-pub(crate) const THREAD_OFFSET_RESOURCE_INBOUND_QUEUE: usize = 104;
-pub(crate) const THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE: usize = 112;
-// bug-622: how many parent-side bindings still hold this handle. The language lets a
-// handle be read after it is dropped or moved (the op answers `ErrResourceClosed`), and
-// lets one handle be bound under two names, so no single drop knows it is the last
-// reader. `thread::start` sets 1; every further binding of an existing handle (an alias,
-// a parameter) adds 1; each binding's final drop takes 1 away, and only the drop that
-// reaches 0 may free the thread's plumbing. Parent-thread only — a worker never reads it
-// — so it needs no lock.
-pub(crate) const THREAD_OFFSET_OWNERS: usize = 120;
-/// bug-655: the byte size of the seed block at [`THREAD_OFFSET_DATA`], or 0 when the
-/// seed carves no block (a scalar) or is one this compiler does not size.
-///
-/// `thread::start` does NOT copy its data argument — it stores the caller's pointer at
-/// `THREAD_OFFSET_DATA` and the worker trampoline passes that same pointer to the entry
-/// as its `seed` — so the block genuinely crosses, the caller's statement-scope free
-/// would be a use-after-free (which is why `claim_moved_thread_arg_temp` still claims
-/// for `thread.start`), and nothing on the other side ever owned it. One block leaked
-/// per started thread.
-///
-/// The size is computed at the CALL SITE, where the seed's type is known, and passed as
-/// arg 4; `emit_release_thread_plumbing` frees the block with it. That point is the
-/// right one and the only one: it runs after the worker is JOINED (so nothing can still
-/// be reading the seed) and only for the drop that took the owner count to 0, and it
-/// runs on the PARENT, whose arena carved the block — a free from the worker would land
-/// on bins that die with it, which is the same reasoning bug-646 records for the queues.
-pub(crate) const THREAD_OFFSET_DATA_SIZE: usize = 128;
-pub(crate) const THREAD_BLOCK_SIZE: usize = 136;
 // bug-622: the `thread.drop` mode (its second argument). CLOSE marks the handle CLOSED,
 // cancels, and joins a completed worker or detaches a running one — the drop's original
-// meaning. RELEASE gives up the dropping binding's owner count and frees the plumbing
-// when it reaches 0. A trap route closes a handler-visible handle without releasing it;
-// a handle moved into a callee releases without closing.
+// meaning. RELEASE gives up the dropping binding's owner count, and the release that
+// takes it to 0 gives up the handle side's reference on the control block. A trap
+// route closes a handler-visible handle without releasing it; a handle moved into a
+// callee releases without closing.
 pub(crate) const THREAD_DROP_CLOSE: u64 = 1;
 pub(crate) const THREAD_DROP_RELEASE: u64 = 2;
 pub(crate) const THREAD_STATE_RUNNING: &str = "0";
 pub(crate) const THREAD_STATE_COMPLETED: &str = "1";
 pub(crate) const THREAD_STATE_CLOSED: &str = "2";
 
-pub(crate) const THREAD_QUEUE_NOT_EMPTY_OFFSET: usize = 64;
-pub(crate) const THREAD_QUEUE_NOT_FULL_OFFSET: usize = 128;
-pub(crate) const THREAD_QUEUE_CAPACITY_OFFSET: usize = 192;
-pub(crate) const THREAD_QUEUE_COUNT_OFFSET: usize = 200;
-pub(crate) const THREAD_QUEUE_HEAD_OFFSET: usize = 208;
-pub(crate) const THREAD_QUEUE_TAIL_OFFSET: usize = 216;
-pub(crate) const THREAD_QUEUE_CLOSED_OFFSET: usize = 224;
-pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 232;
+// plan-156-A: a queue is embedded in the control block (`CONTROL_OFFSET_*_QUEUE`); these
+// offsets are relative to the queue's base. It has no mutex of its own — every queue
+// shares the block lock — only its two condvars (64 bytes each, which covers every
+// target's `pthread_cond_t`).
+pub(crate) const THREAD_QUEUE_NOT_EMPTY_OFFSET: usize = 0;
+pub(crate) const THREAD_QUEUE_NOT_FULL_OFFSET: usize = 64;
+pub(crate) const THREAD_QUEUE_CAPACITY_OFFSET: usize = 128;
+pub(crate) const THREAD_QUEUE_COUNT_OFFSET: usize = 136;
+pub(crate) const THREAD_QUEUE_HEAD_OFFSET: usize = 144;
+pub(crate) const THREAD_QUEUE_TAIL_OFFSET: usize = 152;
+pub(crate) const THREAD_QUEUE_CLOSED_OFFSET: usize = 160;
+/// The ring: `capacity` entries of [`THREAD_QUEUE_ENTRY_SIZE`] bytes, allocated from the
+/// block arena by `thread::start`.
+pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 168;
 /// Head of a singly-linked list of message copies to reclaim (bug-147.5b, bug-646).
-/// A `thread.send` deep-copies the message before the enqueue commits — since
-/// bug-498 into the SENDER's own arena, never the destination's (allocating from a
-/// peer thread's live arena raced its allocator) — and hands the block across.
-/// Two paths orphan that copy, and both park it here (under the queue mutex, using
-/// the dead block's own first two words as `{next, size}`):
-/// - a failed send (queue full / closed / cancelled) never hands the copy over at
-///   all (bug-147.5b);
-/// - a SUCCESSFUL hand-over whose reader has finished with it — `thread::receive` /
-///   `thread::accept` copy the queued block AGAIN into the reader's own arena, after
-///   which the queued block has no owner (bug-646). The reader cannot park it the
-///   instant it is handed out (the copy has not happened yet and a drainer would free
-///   it underneath), so the read helper parks the PREVIOUS read's block on its next
-///   read — see [`THREAD_QUEUE_LAST_READ_PTR_OFFSET`].
+/// A `thread.send` deep-copies the message into the SENDER's own arena (bug-498) and
+/// hands the block across. Two paths orphan that copy, and both park it here (under the
+/// block lock, using the dead block's own first two words as `{next, size}`):
+/// - a failed send (queue full / closed / cancelled) never hands the copy over at all
+///   (bug-147.5b);
+/// - a SUCCESSFUL hand-over whose reader has finished with it — the reader copies the
+///   queued block AGAIN into its own arena, after which the queued block has no owner
+///   (bug-646). The read helper parks the PREVIOUS read's block on its next read — see
+///   [`THREAD_QUEUE_LAST_READ_PTR_OFFSET`].
 ///
 /// **The list is drained by the SENDING side** — [`thread_queue_write_helper`] at the
-/// top of its next write, and [`emit_release_thread_plumbing`] on the spawning thread
-/// when the handle's plumbing is freed. That is deliberate: every block on this list
-/// was carved by the sender, `arena_free` pushes onto the FREEING thread's own bins,
-/// and a worker's bins die with the worker — so draining on the READER (which is what
-/// bug-147.5b did) returned the sender's memory to a heap that is never reused and
-/// only moved the leak. A free only ever touches the freeing thread's arena state
-/// (`arena_free` never asks which arena carved the block), no arena but the main one
-/// is ever destroyed, and every list op is serialized by the queue mutex both sides
-/// hold — except the release drain, which runs after the worker is joined.
-pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
+/// top of its next write, and the handle side's final release for the two inbound
+/// queues — because every block on it was carved by that queue's sender and
+/// `arena_free` pushes onto the FREEING thread's own bins.
+pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 176;
 /// bug-646: the block the last successful read handed to the reader, and its byte size
-/// (0 = "not reclaimable", the same sentinel the write helper's arg 3 uses — a scalar
-/// message, or a type whose exact copy size we do not compute).
-///
-/// The reader owns this slot: a read stores the block it is about to return here, and
-/// the NEXT read on the same queue moves whatever it finds onto the pending-free list.
-/// One read behind is the earliest safe point — the call site's
-/// `copy_value_to_current_arena` of block N runs after the helper returns, and the
-/// next read on this queue is strictly after that on the same thread (each queue has
-/// exactly one reader: the worker for an inbound queue, the parent for an outbound
-/// one). Whatever is still parked here when the plumbing is released is freed there.
-pub(crate) const THREAD_QUEUE_LAST_READ_PTR_OFFSET: usize = 248;
-pub(crate) const THREAD_QUEUE_LAST_READ_SIZE_OFFSET: usize = 256;
+/// (0 = "not reclaimable", the same sentinel the write helper's arg 3 uses). The NEXT
+/// read on the same queue moves it onto the pending-free list: the call site's copy of
+/// block N runs after the helper returns, and the next read on this queue is strictly
+/// after that on the same thread (each queue has exactly one reader).
+pub(crate) const THREAD_QUEUE_LAST_READ_PTR_OFFSET: usize = 184;
+pub(crate) const THREAD_QUEUE_LAST_READ_SIZE_OFFSET: usize = 192;
 /// bug-650 case 2: the STATE-block byte size that travelled with the block the last
 /// read handed out — the third word of its ring entry — or 0 when the message has no
-/// STATE (every data-plane message, and a bare `RES`).
-///
-/// The companion of [`THREAD_QUEUE_LAST_READ_SIZE_OFFSET`], parked and retired by
-/// exactly the same one-read-behind protocol. It is what lets a reclaimer free BOTH
-/// blocks of a transferred stateful resource. Only the SIZE needs carrying: the STATE
-/// POINTER is read back from the record itself at `RESOURCE_OFFSET_STATE` (+24), which
-/// the pending-free node's `{next, size}` words (+0 and +8) do not overwrite.
-///
-/// Before this, `bare_resource_reclaimable` declined a stateful resource outright —
-/// one size could not describe record + STATE — so the record leaked along with it.
-pub(crate) const THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET: usize = 264;
-pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 272;
+/// STATE. Only the SIZE needs carrying: the STATE POINTER is read back from the record
+/// itself at `RESOURCE_OFFSET_STATE` (+24), which a pending-free node's `{next, size}`
+/// words (+0 and +8) do not overwrite.
+pub(crate) const THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET: usize = 200;
+pub(crate) const THREAD_QUEUE_SIZE: usize = 208;
 /// bug-646: one ring entry is `{value, size, state_size, _}` — the enqueued value (a
 /// pointer for every block-shaped message, the scalar itself otherwise), the byte size
 /// the sender computed for it, and (bug-650 case 2) the byte size of the STATE block
-/// hanging off it, so the reader can hand BOTH blocks back for reclamation without
-/// knowing the message type. The ring was a bare `capacity * 8` value array before
-/// bug-646 and a 16-byte `{value, size}` pair before bug-650.
-///
-/// 32 rather than 24 so the shift below stays a shift: a power-of-two stride keeps
-/// every index-to-offset conversion one instruction, which is what the read, write and
-/// release paths all do. The fourth word is unused padding.
+/// hanging off it. 32 rather than 24 so the index-to-offset conversion stays a shift.
 pub(crate) const THREAD_QUEUE_ENTRY_SIZE: usize = 32;
-/// Byte offset of the STATE size within a pending-free node (bug-650 case 2). A node
-/// reuses the dead block's own words: `{next@0, size@8, state_size@16}`. Written and
-/// read on the resource planes only, where every block is one RESOURCE_RECORD_SIZE
-/// record and +16 is therefore always in range; the STATE POINTER is not stored, it is
-/// read back from the record's own RESOURCE_OFFSET_STATE (+24).
+/// Byte offset of the STATE size within a pending-free node (bug-650 case 2): a node
+/// reuses the dead block's own words `{next@0, size@8, state_size@16}`. Written and read
+/// on the resource planes only, where every block is one resource record.
 pub(crate) const PENDING_FREE_STATE_SIZE: usize = 16;
 /// Byte offset of the STATE size within a ring entry (bug-650 case 2).
 pub(crate) const THREAD_QUEUE_ENTRY_STATE_SIZE: usize = 16;
@@ -458,154 +384,68 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
     Ok(())
 }
 
-pub(crate) fn emit_thread_queue_alloc(
+/// Initialize the queue embedded at `queue` in the control block held in the frame word
+/// `block`: its two condvars, its capacity (the limit in the frame word `limit`), and its
+/// ring — `capacity * THREAD_QUEUE_ENTRY_SIZE` bytes from the block arena (the arena
+/// register pointed at the block arena in the frame word `arena` for the one
+/// `arena_alloc`, parking the caller's arena in `saved_arena`). The block is already
+/// zeroed, so the counters, the closed flag and the reclaim lists start empty. Failures
+/// branch to `oom` / `init_error`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_thread_queue_init(
     ctx: &mut EmitCtx,
-    limit_stack_offset: usize,
-    cb_stack_offset: usize,
-    queue_stack_offset: usize,
-    cb_queue_offset: usize,
-    done_label: &str,
+    block: usize,
+    arena: usize,
+    saved_arena: usize,
+    limit: usize,
+    queue: usize,
+    oom: &str,
+    init_error: &str,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    let alloc_queue_ok = format!("{symbol}_queue_{cb_queue_offset}_alloc_ok");
-    let alloc_values_ok = format!("{symbol}_queue_{cb_queue_offset}_values_ok");
-    let size_overflow = format!("{symbol}_queue_{cb_queue_offset}_size_overflow");
-    let init_error = format!("{symbol}_queue_{cb_queue_offset}_init_error");
-    let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
-
+    for cond in [THREAD_QUEUE_NOT_EMPTY_OFFSET, THREAD_QUEUE_NOT_FULL_OFFSET] {
+        ctx.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), block),
+            abi::add_immediate(abi::c_arg(0), abi::c_arg(0), queue + cond),
+            abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        ]);
+        emit_thread_external_call(ctx, "pthread_cond_init")?;
+        ctx.instructions.extend([
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_ne(init_error),
+        ]);
+    }
     ctx.instructions.extend([
-        abi::move_immediate(
-            abi::c_arg(0),
-            "Integer",
-            &THREAD_QUEUE_BLOCK_SIZE.to_string(),
-        ),
+        abi::load_u64("%v9", abi::stack_pointer(), block),
+        abi::load_u64("%v10", abi::stack_pointer(), limit),
+        abi::store_u64("%v10", "%v9", queue + THREAD_QUEUE_CAPACITY_OFFSET),
+        // size = capacity * THREAD_QUEUE_ENTRY_SIZE. The limit is upper-bounded by the
+        // start helper so this cannot wrap; a wrap would size the ring tiny while the
+        // stored capacity stays huge (bug-60).
+        abi::shift_left_immediate(abi::c_arg(0), "%v10", THREAD_QUEUE_ENTRY_SHIFT),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
+    crate::codegen::runtime::thread::emit_with_arena(
+        ctx.instructions,
+        arena,
+        saved_arena,
+        |instructions| instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL)),
+    );
     ctx.relocations
         .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&alloc_queue_ok),
+        abi::branch_ne(oom),
+        abi::load_u64("%v9", abi::stack_pointer(), block),
+        abi::store_u64(abi::mfb_return(1), "%v9", queue + THREAD_QUEUE_VALUES_OFFSET),
     ]);
-    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
-    ctx.instructions.extend([
-        abi::branch(done_label),
-        abi::label(&alloc_queue_ok),
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), queue_stack_offset),
-        abi::load_u64("%v9", abi::stack_pointer(), cb_stack_offset),
-        abi::store_u64(abi::mfb_return(1), "%v9", cb_queue_offset),
-        abi::load_u64("%v10", abi::stack_pointer(), limit_stack_offset),
-        abi::store_u64("%v10", abi::mfb_return(1), THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_COUNT_OFFSET),
-        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_HEAD_OFFSET),
-        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_TAIL_OFFSET),
-        abi::store_u64(abi::ZERO, abi::mfb_return(1), THREAD_QUEUE_CLOSED_OFFSET),
-        abi::move_immediate("%v11", "Integer", &THREAD_QUEUE_ENTRY_SIZE.to_string()),
-        // size = capacity * THREAD_QUEUE_ENTRY_SIZE. The limit is upper-bounded in
-        // lower_thread_start_helper so this cannot wrap in practice, but trap the high
-        // half anyway (defense in depth; bug-60): a wrap would size the block tiny while
-        // the stored capacity stays huge, so a later enqueue would index out of the
-        // allocation.
-        abi::unsigned_multiply_high_registers("%v12", "%v10", "%v11"),
-        abi::compare_immediate("%v12", "0"),
-        abi::branch_ne(&size_overflow),
-        abi::multiply_registers(abi::c_arg(0), "%v10", "%v11"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    ctx.relocations
-        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    ctx.instructions.extend([
-        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&alloc_values_ok),
-    ]);
-    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
-    ctx.instructions.push(abi::branch(done_label));
-    // capacity * THREAD_QUEUE_ENTRY_SIZE wrapped 64 bits: raise the same catchable
-    // allocation error as an oversized request rather than under-allocate the ring
-    // (bug-60).
-    ctx.instructions.push(abi::label(&size_overflow));
-    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
-    ctx.instructions.extend([
-        abi::branch(done_label),
-        abi::label(&alloc_values_ok),
-        abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        // Empty pending-free list (bug-147.5b) and no block handed out yet (bug-646).
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_PENDING_FREE_OFFSET),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_PTR_OFFSET),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_SIZE_OFFSET),
-        // bug-650 case 2: no STATE block parked yet. The arena is PRNG-poisoned rather
-        // than zeroed, so this must be an explicit store — a missing one would hand the
-        // release-time reclaim a garbage STATE size to free with.
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_STATE_SIZE_OFFSET),
-        abi::move_register(abi::c_arg(0), "%v9"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        "pthread_mutex_init",
-    )?;
-    ctx.instructions.extend([
-        abi::compare_immediate(abi::c_return(0), "0"),
-        abi::branch_ne(&init_error),
-        abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        "pthread_cond_init",
-    )?;
-    ctx.instructions.extend([
-        abi::compare_immediate(abi::c_return(0), "0"),
-        abi::branch_ne(&init_error),
-        abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
-        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        "pthread_cond_init",
-    )?;
-    ctx.instructions.extend([
-        abi::compare_immediate(abi::c_return(0), "0"),
-        abi::branch_ne(&init_error),
-        abi::branch(&init_done),
-        abi::label(&init_error),
-    ]);
-    raise_error_into(symbol, "ErrInterrupted", ctx.instructions, ctx.relocations);
-    ctx.instructions.push(abi::branch(done_label));
-    ctx.instructions.push(abi::label(&init_done));
     Ok(())
 }
 
 /// `thread::openStdIn`/`closeStdIn` (plan-15 §4.5). A thin wrapper over the stdin
 /// broadcast subscribe/unsubscribe helpers: `x0 = 0` (the padded no-arg self form)
 /// subscribes the calling thread (its arena `x19`); a non-null parent `Thread`
-/// handle subscribes the worker behind it (its arena at `THREAD_OFFSET_ARENA_STATE`).
+/// handle subscribes the worker behind it (its arena at `CONTROL_OFFSET_WORKER_ARENA`).
 /// Returns `Nothing`.
 pub(crate) fn lower_thread_stdin_subscription_helper(
     symbol: &str,
@@ -627,7 +467,7 @@ pub(crate) fn lower_thread_stdin_subscription_helper(
         abi::branch(&do_call),
         abi::label(&worker),
         // Worker form: the parent `Thread` handle carries the worker's arena state.
-        abi::load_u64(abi::c_arg(0), "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::load_u64(abi::c_arg(0), "%v9", CONTROL_OFFSET_WORKER_ARENA),
         abi::label(&do_call),
         abi::branch_link(target),
     ];
@@ -704,42 +544,45 @@ pub(crate) fn lower_thread_start_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ThreadBodyParts, String> {
-    // Vreg-allocated (plan-00-G Phase 2): the control-block/queue scratch slots are
-    // an explicit sp-relative local region; x9/x10 scratch becomes vregs. Runs in
-    // the parent (x20 is not the worker thread block here), so no reservation.
-    const FRAME_SIZE: usize = 160;
+    // Vreg-allocated (plan-00-G Phase 2): the explicit sp-relative local region holds
+    // everything that must survive a call. Runs in the parent (x20 is not the worker's
+    // control block here), so no reservation.
+    const FRAME_SIZE: usize = 176;
     const ENTRY_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
     const IN_LIMIT_OFFSET: usize = 24;
     const OUT_LIMIT_OFFSET: usize = 32;
     const CB_OFFSET: usize = 40;
-    const QUEUE_OFFSET: usize = 48;
+    // The block arena, parked for `emit_with_arena`, and the caller's arena across it.
+    const ARENA_OFFSET: usize = 48;
     // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
     const ATTR_OFFSET: usize = 56;
-    // bug-655: arg 4, the seed block's byte size, parked before the allocations below
-    // clobber the argument registers. Stored into the control block at
-    // THREAD_OFFSET_DATA_SIZE beside the seed pointer itself.
+    // bug-655: arg 4, the seed block's byte size, parked before the calls below clobber
+    // the argument registers. Stored beside the seed pointer itself.
     const DATA_SIZE_OFFSET: usize = 120;
-    // Largest queue limit whose `capacity * 8` byte size still fits in 64 bits.
+    const SAVED_ARENA_OFFSET: usize = 128;
+    // The worker's arena-state block, until it is stored in the control block.
+    const WORKER_OFFSET: usize = 136;
+    // Largest queue limit whose ring size (`capacity * THREAD_QUEUE_ENTRY_SIZE`) still
+    // fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
 
-    // bug-369: the writable globals region (program globals + `LINK`/`FREE`
-    // pointer slots + `term::` state) is addressed off the pinned arena-state
-    // register at `ENTRY_GLOBALS_OFFSET + slot * 8`. The main thread carves it out
-    // of the entry frame; a worker's arena state is arena-allocated HERE, so this
-    // block must reserve the same slots or every global access in a worker lands
-    // past the end of the block — a silent out-of-bounds read for a load and heap
-    // corruption for a store. Sized to `ENTRY_GLOBALS_OFFSET` (not
-    // `ARENA_STATE_SIZE`) so the entry's one seed-scratch word between the state
-    // and the globals is present too, keeping the slot offsets identical on both
-    // paths. `thread.drop` frees the block at the same size (bug-622).
+    // bug-369: the writable globals region (program globals + `LINK`/`FREE` pointer
+    // slots + `term::` state) is addressed off the pinned arena-state register at
+    // `ENTRY_GLOBALS_OFFSET + slot * 8`. The main thread carves it out of the entry
+    // frame; a worker's arena state is allocated HERE, so it must reserve the same
+    // slots or every global access in a worker lands past the end of the block. Sized
+    // to `ENTRY_GLOBALS_OFFSET` (not `ARENA_STATE_SIZE`) so the entry's one seed-scratch
+    // word between the state and the globals is present too.
     let worker_arena_size = worker_arena_state_size(arena_global_slots);
 
     let invalid_limit = format!("{symbol}_invalid_limit");
-    let alloc_block_ok = format!("{symbol}_alloc_block_ok");
-    let alloc_worker_arena_ok = format!("{symbol}_alloc_worker_arena_ok");
+    let oom = format!("{symbol}_oom");
+    let oom_unslotted = format!("{symbol}_oom_unslotted");
+    let init_error = format!("{symbol}_init_error");
     let spawn_error = format!("{symbol}_spawn_error");
     let parent_done = format!("{symbol}_parent_done");
+    let block_zero = format!("{symbol}_block_zero");
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
 
@@ -753,116 +596,136 @@ pub(crate) fn lower_thread_start_helper(
         abi::branch_lt(&invalid_limit),
         abi::compare_immediate(abi::c_arg(3), "1"),
         abi::branch_lt(&invalid_limit),
-        // Upper-bound the queue limit so the later `capacity * THREAD_QUEUE_ENTRY_SIZE`
-        // ring size (emit_thread_queue_alloc) cannot wrap 64 bits and under-allocate.
-        // The cap is the largest capacity whose scaled size still fits
-        // (`u64::MAX / THREAD_QUEUE_ENTRY_SIZE`); an out-of-range limit is rejected as
-        // an invalid argument (bug-60). bug-646 widened the entry from 8 to 16 bytes
-        // ({value, size}), which halves the cap — no reachable program names a queue
-        // limit anywhere near either bound.
+        // Upper-bound the queue limit so the ring size cannot wrap 64 bits and
+        // under-allocate; an out-of-range limit is an invalid argument (bug-60).
         abi::move_immediate("%v12", "Integer", &MAX_QUEUE_LIMIT.to_string()),
         abi::compare_registers(abi::c_arg(2), "%v12"),
         abi::branch_hi(&invalid_limit),
         abi::compare_registers(abi::c_arg(3), "%v12"),
         abi::branch_hi(&invalid_limit),
-        abi::move_immediate(abi::c_arg(0), "Integer", &THREAD_BLOCK_SIZE.to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        // plan-156-A: the control block comes from the process heap — it belongs to no
+        // thread, so whichever side lets go of it last can free it.
+        abi::move_immediate(abi::c_arg(0), "Integer", &CONTROL_BLOCK_SIZE.to_string()),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    platform.emit_heap_alloc(symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
-        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&alloc_block_ok),
-    ]);
-    raise_error_into(
-        symbol,
-        "ErrOutOfMemory",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&parent_done),
-        abi::label(&alloc_block_ok),
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), CB_OFFSET),
-        abi::move_register("%v9", abi::mfb_return(1)),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_STATE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_CANCELLED),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_TAG),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_VALUE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_ERROR),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESULT_SOURCE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_INBOUND_QUEUE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_OFFSET_OS_HANDLE),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&oom_unslotted),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CB_OFFSET),
+        // Zero the whole block: RUNNING, not cancelled, no result, empty queues, no
+        // reclaim lists, and every pointer a later failure path tests reads 0.
+        abi::move_register("%v9", abi::c_return(0)),
+        abi::add_immediate("%v10", "%v9", CONTROL_BLOCK_SIZE),
+        abi::label(&block_zero),
+        abi::store_u64(abi::ZERO, "%v9", 0),
+        abi::add_immediate("%v9", "%v9", 8),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_lo(&block_zero),
+        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         // bug-622: the binding this handle is returned to is its first owner.
         abi::move_immediate("%v10", "Integer", "1"),
-        abi::store_u64("%v10", "%v9", THREAD_OFFSET_OWNERS),
-        // PARENT_ARENA_STATE is written with the real value a few lines below;
-        // the zero-init store here was dead (bug-102).
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_OWNERS),
+        // plan-156-A §4.4: one reference for the handle side, one for the worker.
+        abi::move_immediate("%v10", "Integer", "2"),
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_REFS),
         abi::load_u64("%v10", abi::stack_pointer(), ENTRY_OFFSET),
-        abi::store_u64("%v10", "%v9", THREAD_OFFSET_ENTRY),
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_ENTRY),
         abi::load_u64("%v10", abi::stack_pointer(), DATA_OFFSET),
-        abi::store_u64("%v10", "%v9", THREAD_OFFSET_DATA),
-        // bug-655: the seed's size travels with the seed pointer, so the release can
-        // free the block the worker has been reading.
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_DATA),
+        // bug-655: the seed's size travels with the seed pointer, so the handle side's
+        // final release can free the block the worker has been reading.
         abi::load_u64("%v10", abi::stack_pointer(), DATA_SIZE_OFFSET),
-        abi::store_u64("%v10", "%v9", THREAD_OFFSET_DATA_SIZE),
-        abi::store_u64(
-            ARENA_STATE_REGISTER,
-            "%v9",
-            THREAD_OFFSET_PARENT_ARENA_STATE,
-        ),
-        abi::move_immediate(abi::c_arg(0), "Integer", &worker_arena_size.to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::store_u64("%v10", "%v9", CONTROL_OFFSET_DATA_SIZE),
+        // The table slot. From here on every failure releases the block through
+        // `_mfb_rt_thread_block_release`, which frees whatever the block holds so far.
+        abi::move_register(abi::c_arg(0), "%v9"),
+        abi::branch_link(THREAD_TABLE_ACQUIRE_SYMBOL),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    relocations.push(internal_branch(symbol, THREAD_TABLE_ACQUIRE_SYMBOL));
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&alloc_worker_arena_ok),
+        abi::branch_ne(&oom_unslotted),
+        abi::branch_link(THREAD_BLOCK_ARENA_CREATE_SYMBOL),
     ]);
-    raise_error_into(
-        symbol,
-        "ErrOutOfMemory",
-        &mut instructions,
-        &mut relocations,
-    );
-    // Zero the whole child arena block (allocator-04): it is arena-allocated
-    // (poisoned, not zero), and this initializer must stay in lockstep with the
-    // program-entry zeroing (`entry_and_arena.rs` `lower_program_entry`) — that
-    // path zeroes `ARENA_STATE_SIZE` and then every global slot, so zeroing the
-    // whole `worker_arena_size` here covers exactly the same words. Growing the
-    // arena state (e.g. quick bins) or the globals region can therefore never
-    // leave a field as garbage in one path but not the other.
-    let child_zero_loop = format!("{symbol}_child_arena_zero");
+    relocations.push(internal_branch(symbol, THREAD_BLOCK_ARENA_CREATE_SYMBOL));
     instructions.extend([
-        abi::branch(&parent_done),
-        abi::label(&alloc_worker_arena_ok),
-        abi::move_register("%v11", abi::mfb_return(1)),
-        abi::add_immediate("%v12", abi::mfb_return(1), worker_arena_size),
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&oom),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+        abi::store_u64(RESULT_VALUE_REGISTER, "%v9", CONTROL_OFFSET_ARENA),
+        abi::add_immediate(abi::c_arg(0), "%v9", CONTROL_OFFSET_LOCK),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+    ]);
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions: &mut instructions,
+        relocations: &mut relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_mutex_init")?;
+    ctx.instructions.extend([
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_ne(&init_error),
+    ]);
+    // The four queues: the data queues bounded by the two limits, and the resource
+    // plane's (§7) inbound (parent→worker) bounded like the inbound data queue and
+    // outbound (worker→parent) like the outbound one.
+    for (limit, queue) in [
+        (IN_LIMIT_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE),
+        (OUT_LIMIT_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE),
+        (IN_LIMIT_OFFSET, CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE),
+        (OUT_LIMIT_OFFSET, CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE),
+    ] {
+        emit_thread_queue_init(
+            &mut ctx,
+            CB_OFFSET,
+            ARENA_OFFSET,
+            SAVED_ARENA_OFFSET,
+            limit,
+            queue,
+            &oom,
+            &init_error,
+        )?;
+    }
+    // The worker's arena-state block, from the heap like the block itself.
+    ctx.instructions.push(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &worker_arena_size.to_string(),
+    ));
+    platform.emit_heap_alloc(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    // Zero the whole worker arena block (allocator-04): this initializer must stay in
+    // lockstep with the program-entry zeroing (`lower_program_entry`), which zeroes
+    // `ARENA_STATE_SIZE` and then every global slot — exactly the words zeroed here.
+    let child_zero_loop = format!("{symbol}_child_arena_zero");
+    ctx.instructions.extend([
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&oom),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), WORKER_OFFSET),
+        abi::move_register("%v11", abi::c_return(0)),
+        abi::add_immediate("%v12", "%v11", worker_arena_size),
         abi::label(&child_zero_loop),
         abi::store_u64(abi::ZERO, "%v11", 0),
         abi::add_immediate("%v11", "%v11", 8),
         abi::compare_registers("%v11", "%v12"),
         abi::branch_lo(&child_zero_loop),
+        abi::load_u64("%v11", abi::stack_pointer(), WORKER_OFFSET),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::store_u64(abi::mfb_return(1), "%v9", THREAD_OFFSET_ARENA_STATE),
-        // Inherit the parent's Money rounding mode (plan-29-D): the child arena was
-        // just zeroed (= Commercial), so copy the spawning thread's mode field
-        // (`x19` is the parent arena here) into the child, which then diverges
-        // independently — consistent with per-thread RNG/state isolation.
-        abi::load_u64("%v11", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
-        abi::store_u64("%v11", abi::mfb_return(1), ARENA_ROUNDING_MODE_OFFSET),
+        abi::store_u64("%v11", "%v9", CONTROL_OFFSET_WORKER_ARENA),
+        // Inherit the parent's Money rounding mode (plan-29-D): the child arena was just
+        // zeroed (= Commercial), so copy the spawning thread's mode field (`x19` is the
+        // parent arena here) into the child, which then diverges independently.
+        abi::load_u64("%v12", abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
+        abi::store_u64("%v12", "%v11", ARENA_ROUNDING_MODE_OFFSET),
     ]);
     // plan-130-C: register the worker's arena with the `--debug` arena registry. The
     // parent does it, synchronously, before the worker exists, so workers register in
-    // start order. The call clobbers caller-saved registers; everything below reloads
-    // the child arena from the control block.
+    // start order.
     if debug_arena_registry {
-        instructions.extend([
-            abi::move_register(abi::c_arg(0), abi::mfb_return(1)),
+        ctx.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), WORKER_OFFSET),
             abi::move_immediate(
                 abi::c_arg(1),
                 "Integer",
@@ -870,160 +733,88 @@ pub(crate) fn lower_thread_start_helper(
             ),
             abi::branch_link(crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL),
         ]);
-        relocations.push(internal_branch(
+        ctx.relocations.push(internal_branch(
             symbol,
             crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL,
         ));
     }
-
     if uses_rng {
-        // Give the new thread its own PCG64 stream by drawing a 64-bit seed from
-        // the spawning thread's generator (runs in the parent, so `x19` is the
-        // parent arena and the draw is race-free). Reload the child arena from
-        // the control block afterwards because the draw clobbers x0-x18.
-        instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
-        relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
-        instructions.extend([
+        // Give the new thread its own PCG64 stream by drawing a 64-bit seed from the
+        // spawning thread's generator (runs in the parent, so `x19` is the parent
+        // arena and the draw is race-free).
+        ctx.instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
+        ctx.relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
+        ctx.instructions.extend([
             abi::move_register(abi::c_arg(1), abi::return_register()),
-            abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), WORKER_OFFSET),
         ]);
-        instructions.push(abi::branch_link(RNG_SEED_SYMBOL));
-        relocations.push(internal_branch(symbol, RNG_SEED_SYMBOL));
+        ctx.instructions.push(abi::branch_link(RNG_SEED_SYMBOL));
+        ctx.relocations.push(internal_branch(symbol, RNG_SEED_SYMBOL));
     }
-
-    // Seed the worker's dedicated memory-fill RNG (always on, plan-01 §6). Draw an
-    // entropy-derived 64-bit value from the parent's fill stream — race-free since
-    // this runs in the parent (`x19` is the parent arena) — and XOR the worker
-    // arena address so each worker poisons with a distinct stream. The worker's
-    // fill RNG (offsets 16/24) is separate from its `math::rand` stream, exactly
-    // as on the main thread. (`arenaStartTime` at offset 40 stays 0 for workers;
-    // it is a main-thread diagnostic and not needed for the seed's distinctness.)
-    instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
-    relocations.push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
-    instructions.extend([
+    // Seed the worker's dedicated memory-fill RNG (always on, plan-01 §6): a value from
+    // the parent's fill stream XOR the worker arena address, so each worker poisons
+    // with a distinct stream, separate from its `math::rand` stream.
+    ctx.instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
+    ctx.instructions.extend([
         abi::move_register(abi::c_arg(1), abi::return_register()),
-        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(abi::return_register(), "%v9", THREAD_OFFSET_ARENA_STATE),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), WORKER_OFFSET),
         abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::return_register()),
     ]);
-    instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
-    relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
-
-    emit_thread_queue_alloc(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        IN_LIMIT_OFFSET,
-        CB_OFFSET,
-        QUEUE_OFFSET,
-        THREAD_OFFSET_INBOUND_QUEUE,
-        &parent_done,
-    )?;
-    emit_thread_queue_alloc(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        OUT_LIMIT_OFFSET,
-        CB_OFFSET,
-        QUEUE_OFFSET,
-        THREAD_OFFSET_OUTBOUND_QUEUE,
-        &parent_done,
-    )?;
-    // Resource plane queues (§7): inbound (parent→worker) bounded like the
-    // inbound data queue, outbound (worker→parent) bounded like the outbound
-    // data queue.
-    emit_thread_queue_alloc(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        IN_LIMIT_OFFSET,
-        CB_OFFSET,
-        QUEUE_OFFSET,
-        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
-        &parent_done,
-    )?;
-    emit_thread_queue_alloc(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        OUT_LIMIT_OFFSET,
-        CB_OFFSET,
-        QUEUE_OFFSET,
-        THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
-        &parent_done,
-    )?;
+    ctx.instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
 
     if platform.family() == PlatformFamily::Windows {
         // CreateThread(NULL, 8 MiB, trampoline, cb, 0, NULL). lpStartAddress and
-        // lpParameter land in r8/r9 exactly where the POSIX ARG[2]/ARG[3] would;
-        // the two remaining stack args (dwCreationFlags, lpThreadId) plus the
-        // 32-byte shadow ride a self-contained 0x40 frame. CreateThread returns the
-        // OS HANDLE (NULL on failure) — the same slot the pthread path fills via its
-        // `&os_handle` out-param. There is no attr object: the 8 MiB worker stack is
-        // a direct CreateThread argument.
-        // Load lpParameter (cb) BEFORE the stack adjustment — CB_OFFSET is relative
-        // to the function frame, so reading it after subtract_stack would be off by
-        // 0x40. ARG[3] (r9) is not touched by the trampoline-address load below, so
-        // it survives to the CreateThread call.
-        instructions.push(abi::load_u64(
+        // lpParameter land in r8/r9 exactly where the POSIX ARG[2]/ARG[3] would; the two
+        // remaining stack args (dwCreationFlags, lpThreadId) plus the 32-byte shadow ride
+        // a self-contained 0x40 frame. CreateThread returns the OS HANDLE (NULL on
+        // failure). Load lpParameter (cb) BEFORE the stack adjustment — CB_OFFSET is
+        // relative to the function frame.
+        ctx.instructions.push(abi::load_u64(
             abi::c_arg(3),
             abi::stack_pointer(),
             CB_OFFSET,
         ));
-        instructions.push(abi::subtract_stack(0x40));
-        instructions.push(abi::load_page_address(
+        ctx.instructions.push(abi::subtract_stack(0x40));
+        ctx.instructions.push(abi::load_page_address(
             abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
-        relocations.push(CodeRelocation {
+        ctx.relocations.push(CodeRelocation {
             from: symbol.to_string(),
             to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
             kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         });
-        instructions.push(abi::add_page_offset(
+        ctx.instructions.push(abi::add_page_offset(
             abi::c_arg(2),
             abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
-        relocations.push(CodeRelocation {
+        ctx.relocations.push(CodeRelocation {
             from: symbol.to_string(),
             to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
             kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         });
-        instructions.extend([
-            // ARG[3] (cb) was loaded before subtract_stack and is still live.
+        ctx.instructions.extend([
             abi::move_immediate(abi::c_arg(0), "Integer", "0"), // lpThreadAttributes
             abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // dwCreationFlags = 0
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // lpThreadId = NULL
             abi::branch_link("CreateThread"),
         ]);
-        relocations.push(external_branch(symbol, "CreateThread", platform_imports)?);
-        instructions.extend([
+        ctx.relocations
+            .push(external_branch(symbol, "CreateThread", platform_imports)?);
+        ctx.instructions.extend([
             abi::add_stack(0x40),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64(abi::c_return(0), "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
+            abi::store_u64(abi::c_return(0), "%v9", CONTROL_OFFSET_OS_HANDLE),
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&spawn_error), // NULL = failure
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
@@ -1045,68 +836,66 @@ pub(crate) fn lower_thread_start_helper(
                 ),
             };
         // Give the worker an explicit 8 MiB stack. musl's default pthread stack is
-        // 128 KiB — far below what the main thread gets (typically 8 MiB via
-        // RLIMIT_STACK) — so worker code with large frames (the regex engine has a
-        // ~230 KiB frame) overflowed the stack on Linux/musl while passing on
-        // macOS (512 KiB default). The memory is reserved lazily (virtual), so the
-        // cost per thread is address space, not RSS. The attr is stack scratch;
-        // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
-        // glibc, and macOS, so it is not called.
-        instructions.push(abi::add_immediate(
+        // 128 KiB — far below what the main thread gets — so worker code with large
+        // frames (the regex engine has a ~230 KiB frame) overflowed on Linux/musl. The
+        // memory is reserved lazily (virtual). The attr is stack scratch;
+        // pthread_attr_destroy is a no-op for a stacksize-only attr, so it is not called.
+        ctx.instructions.push(abi::add_immediate(
             abi::c_arg(0),
             abi::stack_pointer(),
             ATTR_OFFSET,
         ));
-        instructions.push(abi::branch_link(attr_init_symbol));
-        relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
-        instructions.extend([
+        ctx.instructions.push(abi::branch_link(attr_init_symbol));
+        ctx.relocations
+            .push(external_branch(symbol, attr_init_symbol, platform_imports)?);
+        ctx.instructions.extend([
             abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ATTR_OFFSET),
             abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
         ]);
-        instructions.push(abi::branch_link(attr_setstacksize_symbol));
-        relocations.push(external_branch(
+        ctx.instructions.push(abi::branch_link(attr_setstacksize_symbol));
+        ctx.relocations.push(external_branch(
             symbol,
             attr_setstacksize_symbol,
             platform_imports,
         )?);
-        instructions.extend([
+        ctx.instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::add_immediate(abi::c_arg(0), "%v9", THREAD_OFFSET_OS_HANDLE),
+            abi::add_immediate(abi::c_arg(0), "%v9", CONTROL_OFFSET_OS_HANDLE),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ATTR_OFFSET),
         ]);
-        instructions.push(abi::load_page_address(
+        ctx.instructions.push(abi::load_page_address(
             abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
-        relocations.push(CodeRelocation {
+        ctx.relocations.push(CodeRelocation {
             from: symbol.to_string(),
             to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
             kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         });
-        instructions.push(abi::add_page_offset(
+        ctx.instructions.push(abi::add_page_offset(
             abi::c_arg(2),
             abi::c_arg(2),
             THREAD_TRAMPOLINE_SYMBOL,
         ));
-        relocations.push(CodeRelocation {
+        ctx.relocations.push(CodeRelocation {
             from: symbol.to_string(),
             to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
             kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         });
-        instructions.extend([
+        ctx.instructions.extend([
             abi::move_register(abi::c_arg(3), "%v9"),
             abi::branch_link(pthread_create_symbol),
         ]);
-        relocations.push(external_branch(
+        ctx.relocations.push(external_branch(
             symbol,
             pthread_create_symbol,
             platform_imports,
         )?);
-        instructions.extend([
+        ctx.instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
@@ -1116,34 +905,61 @@ pub(crate) fn lower_thread_start_helper(
         ]);
     }
 
-    instructions.push(abi::label(&invalid_limit));
+    // Failure paths. A failed start frees everything it built: before the table slot
+    // there is only the heap block (freed directly); after it the block release frees
+    // the slot, the block arena and the worker arena block, whichever exist (zero words
+    // are skipped). The error registers are parked across the release.
+    let release_and_fail = |ctx: &mut EmitCtx, error: &str| -> Result<(), String> {
+        ctx.instructions.extend([
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CB_OFFSET),
+            abi::branch_link(THREAD_BLOCK_RELEASE_SYMBOL),
+        ]);
+        ctx.relocations
+            .push(internal_branch(symbol, THREAD_BLOCK_RELEASE_SYMBOL));
+        raise_error_into(symbol, error, ctx.instructions, ctx.relocations);
+        ctx.instructions.push(abi::branch(&parent_done));
+        Ok(())
+    };
+    ctx.instructions.push(abi::label(&invalid_limit));
     raise_error_into(
         symbol,
         "ErrInvalidArgument",
-        &mut instructions,
-        &mut relocations,
+        ctx.instructions,
+        ctx.relocations,
     );
-    instructions.extend([abi::branch(&parent_done), abi::label(&spawn_error)]);
-    raise_error_into(
-        symbol,
-        "ErrInterrupted",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.push(abi::branch(&parent_done));
-    instructions.extend([abi::label(&parent_done), abi::return_()]);
+    ctx.instructions
+        .extend([abi::branch(&parent_done), abi::label(&oom_unslotted)]);
+    ctx.instructions
+        .push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CB_OFFSET));
+    let skip_free = format!("{symbol}_oom_no_block");
+    ctx.instructions.extend([
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_eq(&skip_free),
+    ]);
+    platform.emit_heap_free(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.push(abi::label(&skip_free));
+    raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
+    ctx.instructions
+        .extend([abi::branch(&parent_done), abi::label(&oom)]);
+    release_and_fail(&mut ctx, "ErrOutOfMemory")?;
+    ctx.instructions.push(abi::label(&init_error));
+    release_and_fail(&mut ctx, "ErrInterrupted")?;
+    ctx.instructions.push(abi::label(&spawn_error));
+    release_and_fail(&mut ctx, "ErrInterrupted")?;
+    ctx.instructions
+        .extend([abi::label(&parent_done), abi::return_()]);
 
     Ok((instructions, relocations, FRAME_SIZE))
 }
 
 pub(crate) fn lower_thread_trampoline(
-    platform_imports: &HashMap<String, String>,
+    _platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     uses_stdin: bool,
     arena_init: ArenaInitSymbols,
 ) -> Result<CodeFunction, String> {
     // Machine-floor code: hand-managed frame + pinned registers across the worker
-    // call and the `pthread_*` calls, so the allocator cannot run here. Scratch is
+    // call and the exit helper, so the allocator cannot run here. Scratch is
     // the neutral `abi::SCRATCH` pool (realized in `abi.rs`), confined to the low
     // indices `SCRATCH[4]`/`SCRATCH[5]` (AArch64 `x13`/`x14`) — NOT `SCRATCH[0]`
     // (`x9`): the x86 residual-scratch pool wraps at xN+11, so `x9` would alias the
@@ -1161,7 +977,6 @@ pub(crate) fn lower_thread_trampoline(
     const VALUE_OFFSET: usize = 48;
     const ERROR_OFFSET: usize = 56;
     const SOURCE_OFFSET: usize = 64;
-    let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     // Stack-alignment fixup, mirroring the program entry's
@@ -1210,7 +1025,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64(
             ARENA_STATE_REGISTER,
             abi::CURRENT_THREAD,
-            THREAD_OFFSET_ARENA_STATE,
+            CONTROL_OFFSET_WORKER_ARENA,
         ),
         // plan-99: publish the TCB back into this worker's arena state, now that
         // both pinned registers are live. `os::sleep` reads `[arena+8]` to tell a
@@ -1267,10 +1082,10 @@ pub(crate) fn lower_thread_trampoline(
         ]);
     }
     instructions.extend([
-        abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, THREAD_OFFSET_ENTRY),
+        abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, CONTROL_OFFSET_ENTRY),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::SCRATCH[4], CLOSURE_OFFSET_ENV),
         abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[4], CLOSURE_OFFSET_CODE),
-        abi::load_u64(abi::c_arg(1), abi::CURRENT_THREAD, THREAD_OFFSET_DATA),
+        abi::load_u64(abi::c_arg(1), abi::CURRENT_THREAD, CONTROL_OFFSET_DATA),
         abi::move_register(abi::c_arg(0), abi::CURRENT_THREAD),
         abi::branch_link_register(abi::SCRATCH[4]),
         abi::label(&worker_result),
@@ -1300,270 +1115,19 @@ pub(crate) fn lower_thread_trampoline(
             STDIN_UNSUBSCRIBE_SYMBOL,
         ));
     }
+    // plan-156-A: everything the exit does to the control block — publish the result
+    // and `COMPLETED`, close the queues and wake every waiter, drop the worker's
+    // reference and, when it was the last, free the block — is one vreg-allocated
+    // helper, so this machine-floor tail only marshals the parked result into it.
     instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_INBOUND_QUEUE,
-        ),
-        abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), TAG_OFFSET),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), VALUE_OFFSET),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), ERROR_OFFSET),
+        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), SOURCE_OFFSET),
+        abi::branch_link(THREAD_FINISH_SYMBOL),
     ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_mutex_lock",
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_INBOUND_QUEUE,
-        ),
-        abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
-        abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-        abi::add_immediate(
-            abi::c_arg(0),
-            abi::SCRATCH[4],
-            THREAD_QUEUE_NOT_EMPTY_OFFSET,
-        ),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_cond_broadcast",
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_INBOUND_QUEUE,
-        ),
-        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_cond_broadcast",
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::c_arg(0),
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_INBOUND_QUEUE,
-        ),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_mutex_unlock",
-    )?;
-    // Close both resource-plane queues on worker exit, mirroring the data
-    // queues: wake any parent blocked in `thread::transfer` (writing the inbound
-    // resource queue) or `thread::accept` (reading the outbound resource queue).
-    for resource_queue_offset in [
-        THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
-        THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
-    ] {
-        instructions.extend([
-            abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
-            abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
-        ]);
-        emit_thread_external_call(
-            &mut EmitCtx {
-                symbol: THREAD_TRAMPOLINE_SYMBOL,
-                platform_imports,
-                platform,
-                instructions: &mut instructions,
-                relocations: &mut relocations,
-            },
-            "pthread_mutex_lock",
-        )?;
-        instructions.extend([
-            abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
-            abi::move_immediate(abi::SCRATCH[5], "Integer", "1"),
-            abi::store_u64(abi::SCRATCH[5], abi::SCRATCH[4], THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate(
-                abi::c_arg(0),
-                abi::SCRATCH[4],
-                THREAD_QUEUE_NOT_EMPTY_OFFSET,
-            ),
-        ]);
-        emit_thread_external_call(
-            &mut EmitCtx {
-                symbol: THREAD_TRAMPOLINE_SYMBOL,
-                platform_imports,
-                platform,
-                instructions: &mut instructions,
-                relocations: &mut relocations,
-            },
-            "pthread_cond_broadcast",
-        )?;
-        instructions.extend([
-            abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, resource_queue_offset),
-            abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
-        ]);
-        emit_thread_external_call(
-            &mut EmitCtx {
-                symbol: THREAD_TRAMPOLINE_SYMBOL,
-                platform_imports,
-                platform,
-                instructions: &mut instructions,
-                relocations: &mut relocations,
-            },
-            "pthread_cond_broadcast",
-        )?;
-        instructions.extend([
-            abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64(abi::c_arg(0), abi::CURRENT_THREAD, resource_queue_offset),
-        ]);
-        emit_thread_external_call(
-            &mut EmitCtx {
-                symbol: THREAD_TRAMPOLINE_SYMBOL,
-                platform_imports,
-                platform,
-                instructions: &mut instructions,
-                relocations: &mut relocations,
-            },
-            "pthread_mutex_unlock",
-        )?;
-    }
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-        ),
-        abi::move_register(abi::c_arg(0), abi::SCRATCH[4]),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_mutex_lock",
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, THREAD_OFFSET_STATE),
-        abi::compare_immediate(abi::SCRATCH[4], THREAD_STATE_CLOSED),
-        abi::branch_eq(&result_closed),
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(abi::SCRATCH[4], abi::stack_pointer(), TAG_OFFSET),
-        abi::store_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_RESULT_TAG,
-        ),
-        abi::load_u64(abi::SCRATCH[4], abi::stack_pointer(), VALUE_OFFSET),
-        abi::store_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_RESULT_VALUE,
-        ),
-        abi::load_u64(abi::SCRATCH[4], abi::stack_pointer(), ERROR_OFFSET),
-        abi::store_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_RESULT_ERROR,
-        ),
-        abi::load_u64(abi::SCRATCH[4], abi::stack_pointer(), SOURCE_OFFSET),
-        abi::store_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_RESULT_SOURCE,
-        ),
-        abi::move_immediate(abi::SCRATCH[5], "Integer", THREAD_STATE_COMPLETED),
-        abi::store_u64(abi::SCRATCH[5], abi::CURRENT_THREAD, THREAD_OFFSET_STATE),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-        ),
-        abi::add_immediate(
-            abi::c_arg(0),
-            abi::SCRATCH[4],
-            THREAD_QUEUE_NOT_EMPTY_OFFSET,
-        ),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_cond_broadcast",
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::SCRATCH[4],
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-        ),
-        abi::add_immediate(abi::c_arg(0), abi::SCRATCH[4], THREAD_QUEUE_NOT_FULL_OFFSET),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_cond_broadcast",
-    )?;
-    instructions.extend([
-        abi::label(&result_closed),
-        abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64(
-            abi::c_arg(0),
-            abi::CURRENT_THREAD,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-        ),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol: THREAD_TRAMPOLINE_SYMBOL,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_mutex_unlock",
-    )?;
+    relocations.push(internal_branch(THREAD_TRAMPOLINE_SYMBOL, THREAD_FINISH_SYMBOL));
     instructions.extend([
         abi::move_immediate(abi::c_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),

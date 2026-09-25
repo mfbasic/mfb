@@ -682,8 +682,8 @@ impl CodeBuilder<'_> {
         // to a consuming helper are consumed regardless of success or failure.
         if raw {
             // bug-658: a FAILED `thread::start` under an inline `TRAP` never reaches the
-            // release that frees the seed — the handler binds the zeroed CLOSED handle,
-            // whose THREAD_OFFSET_DATA is 0 — and the caller has already given up its
+            // release that frees the seed — the handler binds the CLOSED stub, which
+            // has no seed — and the caller has already given up its
             // own claim on the block. Release it here, on the Err tag, while the seed
             // pointer is still in its frame slot. Emitted BEFORE
             // `materialize_current_result`, which consumes the result registers.

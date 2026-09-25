@@ -972,6 +972,10 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_cond_signal",
                 "_pthread_cond_broadcast",
                 "_clock_gettime",
+                // plan-156-A: the control block, its block-arena state, the worker's
+                // arena-state block and the thread table's slot array live in the heap.
+                "_malloc",
+                "_free",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {

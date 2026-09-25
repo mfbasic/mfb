@@ -2841,6 +2841,33 @@ pub(crate) fn lower_module_for_platform(
                 global_init: global_initializer_symbol.as_deref(),
             },
         )?);
+        // plan-156-A: the thread table, the control block's block arena, its release,
+        // and the worker's exit — shared by every `thread` helper that starts, reads or
+        // lets go of a thread.
+        use crate::codegen::runtime::thread::{
+            lower_thread_block_arena_create, lower_thread_block_arena_destroy,
+            lower_thread_block_release, lower_thread_finish, lower_thread_table_acquire,
+            lower_thread_table_release, thread_table_data_object,
+        };
+        code_functions.push(lower_thread_table_acquire(&platform_imports, platform)?);
+        code_functions.push(lower_thread_table_release(&platform_imports, platform)?);
+        code_functions.push(lower_thread_block_arena_create(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_arena_destroy(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_block_release(
+            debug_arena,
+            &platform_imports,
+            platform,
+        )?);
+        code_functions.push(lower_thread_finish(&platform_imports, platform)?);
+        data_objects.push(thread_table_data_object(platform.family()));
     }
     // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
     // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.

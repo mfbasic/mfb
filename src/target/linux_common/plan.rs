@@ -645,6 +645,13 @@ impl LinuxPlan<'_> {
                 symbol: symbol.to_string(),
                 required_by: required_by.to_string(),
             })
+            // plan-156-A: the control block, its block-arena state, the worker's
+            // arena-state block and the thread table's slot array live in the heap.
+            .chain(
+                ["malloc", "free"]
+                    .into_iter()
+                    .map(|symbol| self.libc_import(symbol, required_by)),
+            )
             .collect(),
             call if call.starts_with("audio.") => {
                 // The Linux audio backend resolves libasound.so.2 at first use

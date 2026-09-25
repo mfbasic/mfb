@@ -59,6 +59,9 @@ pub(crate) const DEBUG_ARENA_SAMPLE_SYMBOL: &str = "_mfb_debug_arena_sample";
 pub(crate) const ARENA_KIND_MAIN: &str = "0";
 pub(crate) const ARENA_KIND_WORKER: &str = "1";
 pub(crate) const ARENA_KIND_GRAPHICS: &str = "2";
+/// plan-156-A: a thread control block's own arena — the block arena every value that
+/// crosses between a parent and its worker is copied into.
+pub(crate) const ARENA_KIND_THREAD_BLOCK: &str = "3";
 
 const ARENA_REPORT_SYMBOL: &str = "_mfb_debug_report_arena";
 const ARENA_BASE_SYMBOL: &str = "_mfb_rt_debug_arena_base";
@@ -70,6 +73,7 @@ const ARENA_KIND_SUFFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_kind";
 const ARENA_TOKEN_MAIN_SYMBOL: &str = "_mfb_rt_debug_arena_token_main";
 const ARENA_TOKEN_WORKER_SYMBOL: &str = "_mfb_rt_debug_arena_token_worker";
 const ARENA_TOKEN_GRAPHICS_SYMBOL: &str = "_mfb_rt_debug_arena_token_graphics";
+const ARENA_TOKEN_THREAD_BLOCK_SYMBOL: &str = "_mfb_rt_debug_arena_token_thread_block";
 const ARENA_SERIES_INFIX_SYMBOL: &str = "_mfb_rt_debug_arena_series_infix";
 const ARENA_SERIES_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_series_key_count";
 
@@ -712,6 +716,7 @@ fn lower_report(
     let rows = "debug_arena_rows";
     let worker = "debug_arena_kind_worker";
     let graphics = "debug_arena_kind_graphics";
+    let thread_block = "debug_arena_kind_thread_block";
     let line = "debug_arena_line";
     let done = "debug_arena_done";
     let mut instructions = vec![abi::label("entry")];
@@ -764,6 +769,8 @@ fn lower_report(
         abi::branch_eq(worker),
         abi::compare_immediate(&kind, ARENA_KIND_GRAPHICS),
         abi::branch_eq(graphics),
+        abi::compare_immediate(&kind, ARENA_KIND_THREAD_BLOCK),
+        abi::branch_eq(thread_block),
     ]);
     push_symbol_address(
         symbol,
@@ -784,6 +791,14 @@ fn lower_report(
     push_symbol_address(
         symbol,
         ARENA_TOKEN_GRAPHICS_SYMBOL,
+        &token,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(line), abi::label(thread_block)]);
+    push_symbol_address(
+        symbol,
+        ARENA_TOKEN_THREAD_BLOCK_SYMBOL,
         &token,
         &mut instructions,
         &mut relocations,
@@ -1143,6 +1158,7 @@ impl DebugFeature for ArenaFeature {
             text(ARENA_TOKEN_MAIN_SYMBOL, "main\n"),
             text(ARENA_TOKEN_WORKER_SYMBOL, "worker\n"),
             text(ARENA_TOKEN_GRAPHICS_SYMBOL, "graphics\n"),
+            text(ARENA_TOKEN_THREAD_BLOCK_SYMBOL, "thread_block\n"),
         ];
         for (name, _) in ARENA_COUNTERS {
             objects.push(text(&counter_suffix_symbol(name), &format!(".{name} ")));

@@ -1016,8 +1016,8 @@ impl CodeBuilder<'_> {
         // `outboundLimit` below 1 raises `ErrInvalidArgument` before any thread
         // exists), or a bind an error path jumped past on its way to the function
         // `TRAP` handler, leaves the slot at its zero-init 0. `thread.drop` opens
-        // with an unconditional `load handle + THREAD_OFFSET_OUTBOUND_QUEUE` fed
-        // straight into `pthread_mutex_lock`, so a null read SIGSEGVs *after* the
+        // with an unconditional read of the handle's owner count and state, so a
+        // null handle SIGSEGVs *after* the
         // handler has already run and returned (bug-469). The same guard the
         // resource path carries for the identical hazard (bug-246); the bind site
         // zeroes the slot and lists it for prologue zero-init so it reads 0 rather

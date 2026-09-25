@@ -229,12 +229,23 @@ mod tests {
         let platform = Platform {
             flavor: LinuxFlavor::Glibc,
         };
+        let imports = platform.runtime_imports(spec);
+        // plan-156-A: the heap pair behind the control block is a libc import, like
+        // `app.setTitle`'s; every other thread import is the pthread set.
+        let heap = |imp: &PlatformImport| matches!(imp.symbol.as_str(), "malloc" | "free");
         assert!(
-            platform
-                .runtime_imports(spec)
+            imports
                 .iter()
+                .filter(|imp| !heap(imp))
                 .all(|imp| imp.library == "libpthread.so.0"),
             "glibc aarch64 thread imports bind to libpthread.so.0"
+        );
+        assert!(
+            imports
+                .iter()
+                .filter(|imp| heap(imp))
+                .all(|imp| imp.library == "libc.so.6"),
+            "glibc aarch64 heap imports bind to libc.so.6"
         );
     }
 }

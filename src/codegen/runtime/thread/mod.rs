@@ -1,5 +1,7 @@
 //! `codegen::runtime::thread` module wiring.
 
+pub(crate) mod control_block;
+pub(crate) use control_block::*;
 pub(crate) mod runtime_helpers;
 pub(crate) use runtime_helpers::*;
 pub(crate) mod runtime_helpers_thread;

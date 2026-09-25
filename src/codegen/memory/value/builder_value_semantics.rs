@@ -70,7 +70,7 @@ impl CodeBuilder<'_> {
     }
 
     /// Materialize a fresh CLOSED thread handle: an arena-allocated
-    /// [`THREAD_BLOCK_SIZE`] block, zeroed, with `THREAD_OFFSET_STATE` set to
+    /// [`CONTROL_BLOCK_SIZE`] stub with `CONTROL_OFFSET_STATE` set to
     /// [`THREAD_STATE_CLOSED`] (bug-479 defect D).
     ///
     /// This is the value a `LET t AS Thread … = thread::start(…) TRAP` error path
@@ -79,26 +79,28 @@ impl CodeBuilder<'_> {
     /// on the error path, and there was none — the bind died with an UNLOCATED
     /// `native code cannot materialize default value for type 'Thread OF …'`.
     ///
-    /// **The queue pointers stay null, and that is what forces the other half of
-    /// this fix.** A thread op used to load `THREAD_OFFSET_OUTBOUND_QUEUE` and
-    /// `pthread_mutex_lock` it BEFORE reading the state, so a zeroed block faulted
-    /// before it could notice it was closed. `simple_thread_handle_helper` now
-    /// checks `THREAD_STATE_CLOSED` first; see the comment there for why an
-    /// unlocked read is sound.
+    /// The stub has no lock, no queues and no block arena, and that is what forces
+    /// the other half of this fix: `simple_thread_handle_helper` checks
+    /// `THREAD_STATE_CLOSED` before it takes the block lock (see the comment there
+    /// for why an unlocked read is sound), so only the words read before that check
+    /// are written here — the state, the owner count, and the zero block-arena word
+    /// the final drop reads to tell a stub from a real block.
     ///
     /// Nothing here invents a contract. Every op already answers
     /// `ErrResourceClosed` on a `CLOSED` handle, and `Drop` already treats one as
     /// a no-op — so a `RECOVER`ed handle behaves exactly like a thread the program
     /// closed itself, which is the same answer bug-372 gave for a resource.
     fn emit_closed_thread_handle(&mut self) -> Result<VirtualRegister, String> {
-        use crate::codegen::runtime::thread::runtime_helpers::{
-            THREAD_BLOCK_SIZE, THREAD_OFFSET_STATE, THREAD_STATE_CLOSED,
+        use crate::codegen::runtime::thread::{
+            CONTROL_BLOCK_SIZE, CONTROL_OFFSET_ARENA, CONTROL_OFFSET_OS_HANDLE,
+            CONTROL_OFFSET_OWNERS, CONTROL_OFFSET_STATE, CONTROL_OFFSET_WORKER_ARENA,
+            THREAD_STATE_CLOSED,
         };
         let block = self.allocate_register();
         self.emit(abi::move_immediate(
             abi::return_register(),
             "Integer",
-            &THREAD_BLOCK_SIZE.to_string(),
+            &CONTROL_BLOCK_SIZE.to_string(),
         ));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_symbol_call(ARENA_ALLOC_SYMBOL);
@@ -111,27 +113,23 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::move_register(&block, abi::mfb_return(1)));
-        // Zero the whole block — every queue, os-handle and arena pointer in it is
-        // invalid, and a null queue is exactly what the closed pre-check expects.
-        let mut offset = 0;
-        while offset < THREAD_BLOCK_SIZE {
+        for offset in [
+            CONTROL_OFFSET_ARENA,
+            CONTROL_OFFSET_WORKER_ARENA,
+            CONTROL_OFFSET_OS_HANDLE,
+        ] {
             self.emit(abi::store_u64(abi::ZERO, &block, offset));
-            offset += 8;
         }
         let closed = self.allocate_register();
         self.emit(abi::move_immediate(&closed, "Integer", THREAD_STATE_CLOSED));
-        self.emit(abi::store_u64(&closed, &block, THREAD_OFFSET_STATE));
+        self.emit(abi::store_u64(&closed, &block, CONTROL_OFFSET_STATE));
         // bug-622: owner-counted like a started handle, so the drop that releases its last
         // binding frees this block (it has no plumbing to free). The inline `TRAP` binds it
         // as the trap's value on every start and the successful assign drops it at once,
         // so leaving it uncounted leaked a control block per trapped `thread::start`.
         let owners = self.allocate_register();
         self.emit(abi::move_immediate(&owners, "Integer", "1"));
-        self.emit(abi::store_u64(
-            &owners,
-            &block,
-            crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS,
-        ));
+        self.emit(abi::store_u64(&owners, &block, CONTROL_OFFSET_OWNERS));
         Ok(block)
     }
 

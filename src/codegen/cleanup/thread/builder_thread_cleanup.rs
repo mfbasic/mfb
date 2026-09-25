@@ -74,21 +74,21 @@ impl CodeBuilder<'_> {
     }
 
     /// bug-622: add one owner to the thread handle stored in the stack slot at `slot`
-    /// (`THREAD_OFFSET_OWNERS`). A null slot is left alone. Every handle is counted —
+    /// (`CONTROL_OFFSET_OWNERS`). A null slot is left alone. Every handle is counted —
     /// including the zeroed CLOSED handle an inline `TRAP` on `thread::start` binds,
     /// whose last release frees its block — so an alias of it cannot free it twice.
     /// Call-free.
     pub(crate) fn emit_thread_owner_increment(&mut self, slot: usize) {
-        use crate::codegen::runtime::thread::THREAD_OFFSET_OWNERS;
+        use crate::codegen::runtime::thread::CONTROL_OFFSET_OWNERS;
         let skip = self.label("thread_owner_increment_skip");
         let handle = self.temporary_vreg();
         let count = self.temporary_vreg();
         self.emit(abi::load_u64(&handle, abi::stack_pointer(), slot));
         self.emit(abi::compare_immediate(&handle, "0"));
         self.emit(abi::branch_eq(&skip));
-        self.emit(abi::load_u64(&count, &handle, THREAD_OFFSET_OWNERS));
+        self.emit(abi::load_u64(&count, &handle, CONTROL_OFFSET_OWNERS));
         self.emit(abi::add_immediate(&count, &count, 1));
-        self.emit(abi::store_u64(&count, &handle, THREAD_OFFSET_OWNERS));
+        self.emit(abi::store_u64(&count, &handle, CONTROL_OFFSET_OWNERS));
         self.emit(abi::label(&skip));
     }
 
@@ -109,7 +109,7 @@ impl CodeBuilder<'_> {
     /// owner on both outcomes: a delivered one is reclaimed through the queue's
     /// pending-free list by the sender (bug-646), a failed send's orphan by the
     /// same list (bug-147.5b). `thread.start` stays claimed because it does NOT
-    /// copy — it stores the caller's pointer in `THREAD_OFFSET_DATA` and the
+    /// copy — it stores the caller's pointer in `CONTROL_OFFSET_DATA` and the
     /// worker body reads it as its argument for the thread's whole life, so the
     /// statement-scope free would be a use-after-free.
     pub(crate) fn claim_moved_thread_arg_temp(&mut self, target: &str, arg_values: &[ValueResult]) {
@@ -201,7 +201,7 @@ impl CodeBuilder<'_> {
     ///
     /// On the success path the thread owns the seed and frees it at its release
     /// (bug-655). A failed start has no thread to do that: the inline `TRAP` binds the
-    /// zeroed CLOSED handle, whose `THREAD_OFFSET_DATA` is 0, and the propagating path
+    /// zeroed CLOSED stub, which has no seed, and the propagating path
     /// leaves the statement entirely — while `claim_moved_thread_arg_temp` has already
     /// taken the block out of the caller's temp cleanup, because at the point the claim
     /// is emitted nobody knows yet whether the start will succeed. The claim is a
@@ -373,8 +373,8 @@ impl CodeBuilder<'_> {
         // bug-498: the message is deep-copied into the SENDER's own arena (the
         // pinned `ARENA_STATE_REGISTER` is left alone) and the copy is handed across
         // through the queue. This lowering used to repoint the arena register at the
-        // DESTINATION thread's arena state (`THREAD_OFFSET_ARENA_STATE`, or
-        // `THREAD_OFFSET_PARENT_ARENA_STATE` for `thread.emit`) and allocate there —
+        // DESTINATION thread's arena state (the worker's, or the parent's for
+        // `thread.emit`) and allocate there —
         // unlocked, while that thread was allocating from the same arena. The
         // allocator's quick-bin pop is a plain load/store of a free-list head, so the
         // two racing pops handed one block out twice or tore a `next` link; both
