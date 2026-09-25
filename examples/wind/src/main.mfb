@@ -45,7 +45,6 @@ IMPORT app
 IMPORT canvas
 IMPORT collections
 IMPORT color
-IMPORT datetime
 IMPORT errorCode
 IMPORT fs
 IMPORT io
@@ -271,11 +270,13 @@ END FUNC
 ' The frame loop
 ' ---------------------------------------------------------------------------
 
-' The frame budget in milliseconds. canvas::present installs a scene rather than
-' waiting for the screen, so nothing here blocks on the display and the loop
-' would otherwise spin as fast as the machine allows - burning a core to compute
-' frames nobody sees.
-LET FRAME_MILLIS AS Integer = 16
+' The loop is paced by the display. canvas::present installs a scene and returns at
+' once, so on its own the loop would spin as fast as the machine allows - burning a
+' core to compute frames nobody sees. canvas::waitFrame ends each pass: it returns
+' once the frame just presented has been picked up for drawing and one display
+' refresh has passed, so the loop runs at the monitor's rate and the next scene is
+' built while the last one draws. canvas::getFrameStats().dt is the time since the
+' previous present, which is the step the simulation advances by.
 
 ' The longest step the simulation will take at once. Without it, a window
 ' dragged to another desktop or a machine that went to sleep comes back with a
@@ -387,7 +388,6 @@ FUNC main AS Integer
   seedSwarm(countFor(view), view)
   canvas::enableMouse(TRUE)
 
-  MUT lastNanos AS Integer = datetime::monotonicNanos()
   DO WHILE running
     IF canvas::didResize() THEN
       size = canvas::getSize()
@@ -465,9 +465,7 @@ FUNC main AS Integer
       END IF
     LOOP
 
-    LET startNanos AS Integer = datetime::monotonicNanos()
-    LET elapsed AS Float = math::clamp(toFloat(startNanos - lastNanos) / 1000000000.0, 0.0, MAX_STEP_SECONDS)
-    lastNanos = startNanos
+    LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
 
     ' Playing runs the thumb along the line and round to the start again.
     IF playback.playing AND NOT scrubbing THEN
@@ -484,9 +482,7 @@ FUNC main AS Integer
       scene = collections::append(scene, item)
     NEXT
     canvas::present(scene)
-
-    LET spentMillis AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
-    IF spentMillis < FRAME_MILLIS THEN os::sleep(FRAME_MILLIS - spentMillis)
+    canvas::waitFrame()
   LOOP
 
   RETURN 0

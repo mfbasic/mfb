@@ -1,7 +1,8 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::macos_aarch64::app::{
     CLASS_CA_METAL_LAYER, CLASS_CA_TRANSACTION, CLASS_MTL_RENDER_PASS_DESCRIPTOR,
-    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR, LIB_QUARTZCORE,
+    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR, CLASS_MTL_TEXTURE_DESCRIPTOR,
+    CLASS_NS_NOTIFICATION_CENTER, CLASS_NS_SCREEN, LIB_QUARTZCORE, NS_WINDOW_DID_CHANGE_SCREEN,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
@@ -286,11 +287,14 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_getentropy".to_string(),
                 required_by: required_by.clone(),
             }],
-            "datetime.nowNanos" | "datetime.monotonicNanos" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_clock_gettime".to_string(),
-                required_by: required_by.clone(),
-            }],
+            // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => {
+                vec![PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_clock_gettime".to_string(),
+                    required_by: required_by.clone(),
+                }]
+            }
             // plan-67-C: perf_start/perf_end read the monotonic clock inline
             // (arena-free) via the same libc entry the datetime helper uses.
             "perf.start" | "perf.end" => vec![PlatformImport {
@@ -870,6 +874,9 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -893,6 +900,10 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_cond_wait",
                 "_pthread_cond_signal",
                 "_pthread_cond_broadcast",
+                // plan-155-C: `canvas::awaitPickup`'s display floor — a timed wait on
+                // `CLOCK_REALTIME`.
+                "_pthread_cond_timedwait",
+                "_clock_gettime",
                 "_getenv",
             ]
             .into_iter()
@@ -943,6 +954,22 @@ impl plan::NativePlanPlatform for Platform {
                         symbol: symbol.to_string(),
                         required_by: required_by.clone(),
                     }),
+            )
+            .chain(
+                // plan-155-A: the display-rate publish reads `NSScreen` and observes
+                // `NSWindowDidChangeScreenNotification` through the default center.
+                // Canvas-gated for the reason the Metal rows are.
+                [
+                    ("AppKit", CLASS_NS_SCREEN),
+                    ("AppKit", NS_WINDOW_DID_CHANGE_SCREEN),
+                    ("Foundation", CLASS_NS_NOTIFICATION_CENTER),
+                ]
+                .into_iter()
+                .map(|(library, symbol)| PlatformImport {
+                    library: library.to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                }),
             )
             .collect(),
             "thread.start"

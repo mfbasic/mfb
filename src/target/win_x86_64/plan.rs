@@ -176,6 +176,11 @@ impl NativePlanPlatform for Platform {
             import("GetDC", USER32, "_main"),
             import("ReleaseDC", USER32, "_main"),
             import("ShowWindow", USER32, "_main"),
+            // plan-155-A: the refresh rate of the canvas window's monitor —
+            // monitor handle, its device name, then that device's current mode.
+            import("MonitorFromWindow", USER32, "_main"),
+            import("GetMonitorInfoW", USER32, "_main"),
+            import("EnumDisplaySettingsW", USER32, "_main"),
             import("InvalidateRect", USER32, "_main"),
             import("UpdateWindow", USER32, "_main"),
             import("BeginPaint", USER32, "_main"),
@@ -215,7 +220,9 @@ impl NativePlanPlatform for Platform {
             // ===== plan-66 A/B/C/D import arms, dropped by the stale main→P-66
             // merge (same as the mod.rs advertising); restored. =====
             // Phase A — datetime (no libc clocks on Windows).
-            "datetime.monotonicNanos" => vec![
+            // plan-155-B: `canvas::frameNanos` is the same clock body, and since
+            // `canvas::getFrameStats` it runs in every build, not only `--debug`.
+            "datetime.monotonicNanos" | "canvas.frameNanos" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],
@@ -558,6 +565,9 @@ impl NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
+            | "canvas.awaitPickup"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"
@@ -578,6 +588,9 @@ impl NativePlanPlatform for Platform {
                 import("WakeConditionVariable", KERNEL32, required_by),
                 import("WakeAllConditionVariable", KERNEL32, required_by),
                 import("SleepConditionVariableSRW", KERNEL32, required_by),
+                // plan-155-C: `canvas::awaitPickup`'s timed wait reads the clock its
+                // `pthread_cond_timedwait` / `clock_gettime` arms are built on.
+                import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
                 // plan-98-F Phase 3: the Vulkan loader arrives through
                 // `LoadLibraryExA`/`GetProcAddress`, never an import-table entry on
                 // `vulkan-1.dll` — a canvas program must still run on a Windows box

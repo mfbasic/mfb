@@ -25,6 +25,16 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
 
 /// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
+    let gpu: &[(&str, &str)] = if metal {
+        &[("MFB_CANVAS_GPU", "1")]
+    } else {
+        &[]
+    };
+    run_env(name, source, sync, gpu)
+}
+
+/// As `run`, plus arbitrary extra environment variables.
+fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
@@ -37,9 +47,7 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
     }
-    if metal {
-        command.env("MFB_CANVAS_GPU", "1");
-    }
+    command.envs(env.iter().copied());
     let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -146,6 +154,50 @@ fn a_static_scene_renders_once_and_does_not_spin() {
         "a scene that never changes must not be redrawn while the program idles: \
          {frames:?}",
     );
+}
+
+/// plan-155-C: the same guarantee under a `present` + `waitFrame` loop. `waitFrame`
+/// waits and never repaints (`.ai/canvas-threading.md` §9), so fifty paced iterations
+/// over an unchanged scene still cost exactly one frame.
+#[test]
+fn a_static_scene_under_a_wait_frame_loop_renders_once() {
+    let source = program(&format!(
+        "{ONE_BOX}  MUT i AS Integer = 0\n  \
+         WHILE i < 50\n    canvas::present([box])\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  \
+         io::print(\"waited\")\n"
+    ));
+    let (stdout, frames) = run_env(
+        "canvas_gfx_static_wait",
+        &source,
+        false,
+        &[("MFB_CANVAS_DISPLAY_HZ", "100")],
+    );
+    assert!(stdout.contains("waited"));
+    assert_eq!(
+        frames.len(),
+        1,
+        "waitFrame must not redraw an unchanged scene: {frames:?}",
+    );
+}
+
+/// plan-155-A: `MFB_CANVAS_DISPLAY_HZ` pins the display rate the runtime reports.
+///
+/// A headless run has no monitor to ask, so without the override the published rate
+/// is `0` and nothing downstream (plan-155-B's `displayHz`, C's `waitFrame` floor) could
+/// be tested with a known rate. The stats line is the only window onto it.
+#[test]
+fn display_hz_override_reaches_the_stats_line() {
+    let (_, frames) = run_env(
+        "canvas_gfx_display_hz",
+        &program(&format!("{ONE_BOX}  canvas::present([box])\n")),
+        true,
+        &[("MFB_CANVAS_DISPLAY_HZ", "144")],
+    );
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    let hz: f64 = stat_field(&frames[0], "displayHz=")
+        .parse()
+        .unwrap_or_else(|e| panic!("displayHz= is not a number ({e}): {frames:?}"));
+    assert_eq!(hz, 144.0, "{frames:?}");
 }
 
 /// An identical re-present publishes nothing, so it draws nothing.

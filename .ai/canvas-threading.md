@@ -206,6 +206,18 @@ Main never touches the pixel buffer, and graphics never touches the window. The 
 is not involved at all — the guarantee `term::` does not give: **a canvas resizes and
 repaints correctly while the program is blocked in `io::input`.**
 
+**The display rate is published the same way, and triggers no redraw** (plan-155-A).
+The main thread writes the window's monitor's refresh rate, in millihertz, into
+`GRAPHICS_OFFSET_DISPLAY_MHZ` with one plain store: macOS on every canvas entry and on
+`NSWindowDidChangeScreenNotification` (`app/display.rs`, the screen's *maximum* rate,
+guarded by `respondsToSelector:` because the binary's minimum is 11.0 and the property
+is 12+); GTK where the canvas reconcile reads the window's `GdkSurface`, and on that
+surface's `enter-monitor` (connected once per surface); Windows when the canvas window
+is shown, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
+`0` means unknown — and on GTK it is what the first frame usually reports, because an
+unmapped Wayland surface has no monitor until the compositor sends `enter`. A rate changes no pixel, so nothing is signalled — §4's triggers
+stay five.
+
 A frame already in flight when the resize lands finishes at the old size and is
 presented; the next frame is at the new size. Tearing the frame mid-render would mean
 drawing part of the picture at each size.
@@ -334,6 +346,10 @@ row names the rule from above that protects it.
 | R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
 | R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
 | R21 | 200 × install/remove of a group owning a resource | `groupBytes=` returns to baseline | plan-116-J + §13's gate |
+| R22 | `waitFrame` in progress while the graphics thread stops | `waitFrame` returns; shutdown completes | §15: the stop path broadcasts `FRAME_COND` beside its `COND` signal, and `awaitPickup` returns on `STOPPING` |
+| R23 | `waitFrame` before the first present | returns after the display floor; the program exits normally | §15: `waitFrame` calls `ensureGraphics` itself, so the mutex and both condition variables exist; nothing is owed |
+| R24 | `waitFrame` after a present, with the previous frame held mid-render | returns only once the render loop has *taken* the redraw — one frame in flight | §15: `waitForRedraw` broadcasts `FRAME_COND` as it clears `PENDING` |
+| R25 | a resize lands while the worker is in `waitFrame` | the loop finishes; the next frame is at the new size | §15: `waitFrame` waits on `FRAME_COND` only, so the resize's `COND` signal can only wake the render loop |
 
 **R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
 nothing live names it** — where "live" is the scene about to be published *plus every
@@ -372,7 +388,9 @@ stopped) before the worker's entry unwinds.
 * **No lock on the building slot.** The language is single-worker (spec: one runtime
   worker pthread, no user thread primitive), so a second concurrent `present` is not
   a thing that can happen. A lock there would guard an impossible caller.
-* **No time-based repaint.** §4.
+* **No time-based repaint.** §4. `canvas::waitFrame` (plan-155-C) waits on time and
+  never repaints: it signals nothing, so a static scene under a `present` +
+  `waitFrame` loop still costs one frame.
 * **No cross-thread arena free.** §3.
 
 ## 10. The renderer branch, and what the Metal backend inherits
@@ -659,6 +677,13 @@ lost — on the one path whose entire job is to report edges.
   `MFB_CANVAS_SYNC=0` is ON (`__canvas_ensureGraphics` tests the length), which is how a
   "pipelined" measurement in bug-686 silently ran serialized. Leave it unset to pipeline.
 
+* `MFB_CANVAS_DISPLAY_HZ` — pin the display refresh rate the runtime reports
+  (plan-155-A), in whole hertz. Stored ×1000 into `GRAPHICS_OFFSET_DISPLAY_OVERRIDE`
+  by `__canvas_ensureGraphics`, and it wins over the rate the main thread publishes,
+  which it never overwrites (a separate word). It exists because a headless run has no
+  window and so no monitor to ask; the stats line's `displayHz=` shows what the runtime
+  would use.
+
 A fourth selects the renderer rather than observing it:
 
 * `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all
@@ -910,6 +935,53 @@ only ever says "different" too often — two identically BUILT items are not byt
 (list headroom, padding), so a rebuilt scene is hashed, never mis-carried. `Text` and
 `Picture` are never carried: their hash folds in a resource id that answers 0 once
 closed, with the item's bytes unchanged.
+
+## 15. Frame statistics (plan-155-B)
+
+`canvas::getFrameStats` compares two things two different threads do — the worker's
+presents and the graphics thread's drawn frames — so everything it reads is in the
+**graphics state**, not in MFBASIC globals. `__CANVAS_FRAMES`, `__CANVAS_SKIPPED` and
+`__CANVAS_GPU_FRAMES` are graphics-thread globals (§2): the worker's copies are its own
+and always zero, which is why the stats line, written on the graphics thread, is the
+only place they are visible.
+
+Two event logs, each a total, a ring head and a 64-entry ring of `canvas::frameNanos`
+timestamps (`GRAPHICS_OFFSET_PRESENTS…LAST_RENDERER`):
+
+* **presents** — written by `canvas::notePresent` from both present wrappers,
+  unconditionally, identical re-presents included;
+* **drawn** — written by `canvas::frameDone` when its `drew` argument is TRUE, inside
+  the critical section it already held for `FRAMES` and the broadcast. `FRAMES` itself
+  still counts every loop iteration, skipped ones too — a `syncFrame` waiter is released
+  by a skipped frame, so the two counters must stay separate.
+
+**One lock, one snapshot.** `canvas::frameCounters` copies both logs, the last render
+time and renderer, and the display rate into one list inside one critical section, so
+`pps - fps` never compares two samples taken at different moments. It allocates the list
+before locking; the critical section is loads and stores.
+
+**The mutex must exist before either writer locks it.** It is initialized by
+`startGraphics`, so both wrappers now call `__canvas_ensureGraphics()` ahead of their
+publish test rather than inside it — the first present of any scene, even one identical
+to the empty initial scene, starts the thread. `notePresent` still checks `STARTED`
+(an out-of-memory spawn leaves it 0), and `frameCounters` reads without the lock while it
+is 0, when nothing has written a word.
+
+**`canvas::waitFrame` has its own condition variable** (plan-155-C,
+`GRAPHICS_OFFSET_FRAME_COND`). `signalRedraw` and the stop path wake `COND` with
+`pthread_cond_signal`, which wakes one waiter; a worker waiting on `COND` could take the
+wake-up a resize meant for the render loop, leaving the redraw owed and the worker
+waiting for a pickup that never comes. `syncFrame` has that hazard, but only under the
+`MFB_CANVAS_SYNC` test switch. `waitFrame` waits on `FRAME_COND` alone, broadcast where
+its answer can change: in `waitForRedraw` as `PENDING` is cleared, and on stop. Reusing
+`COND` with broadcasts everywhere would also fix the lost wake-up, at the price of waking
+the render loop for every `waitFrame` event and the reverse.
+
+**Why rings and not a moving average.** An average updated per event never decays: a
+static scene would report its last rate forever. A rate over the trailing second counts
+ring entries newer than `now - 1 s`; when all 64 are, the ring spans under a second and
+the rate is taken from its span (`__canvas_rate`), so a fast loop is measured, not
+capped at 64.
 
 ## See also
 
