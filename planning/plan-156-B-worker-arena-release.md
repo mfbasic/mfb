@@ -25,7 +25,7 @@ See plan-156-A. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-156-A complete | `ls planning/plan-156-A-*` → no match (archived to `planning/completed/`) | NOT MET |
+| plan-156-A complete | `ls planning/plan-156-A-*` → no match (archived to `planning/completed/`) | MET (2026-09-24: "no matches found"; archived in `509259761`) |
 
 ## 1. Goal
 
@@ -72,14 +72,45 @@ build (`fill_free_calls`) as the detector.
 
 ### Phase 1 — audit and baseline
 
-- [ ] Read bug-547; write its reason and whether it applies to worker arenas
+- [x] Read bug-547; write its reason and whether it applies to worker arenas
       here.
-- [ ] Audit every value that crosses out of a worker (result, send, emit,
+      (`bugs/completed/bug-547-…`: the main arena's destroy at exit
+      `VirtualFree`d the control block and the worker's arena-state block,
+      both carved from the main arena, under a still-running worker —
+      `cdb` caught the fault on the trampoline's `load [rbx+0x50]`. It does
+      not apply here: after plan-156-A both blocks are heap blocks, and B's
+      destroy is of the worker's OWN arena, by the worker, after its last use
+      of it, never by `_mfb_shutdown`. Whether the main-arena skip is still
+      needed is outside B: leaving it costs nothing (process exit reclaims the
+      arena), so it is not a defect to file — see Correction 1.)
+- [x] Audit every value that crosses out of a worker (result, send, emit,
       transferResource, emitResource, the error `ErrorLoc` string) and confirm
       each is in the block arena after A. List each with its symbol in this
       file.
-- [ ] Baseline: `tests/runtime/rt_worker_arena_release.rs`. 1,000 workers ×
+      - result value: copied by `_mfb_rt_thread_finish`
+        (`runtime_helpers_thread.rs:lower_thread_finish`) through the result
+        type's copy function, into the block arena, before `COMPLETED`.
+      - error message and `ErrorLoc`: same helper, the fixed `String` and
+        `ErrorLoc` copy functions (`value_functions::request`).
+      - `emit` / `emitResource`: `thread_queue_write_helper` copies into the
+        block arena at the enqueue (`emit_call_in_block_arena`).
+      - `send` / `transferResource` (parent → worker) cross the other way;
+        the worker's own copy of what it `receive`s/`accept`s is in its arena
+        and dies with it, which is correct (it is the worker's value).
+      - the seed: block arena (`lower_thread_start_helper`), not the worker's.
+      - a nested thread the worker started: its control block is heap, its
+        messages in its own block arena; the worker's handle binding is
+        dropped by the worker's scope exit before the entry returns.
+      - the worker's stdin subscription: unsubscribed by the trampoline
+        before `_mfb_rt_thread_finish` runs; the log's buffers are `malloc`ed.
+      - the `--debug` registry slot keeps only the arena-state address (a
+        heap block, freed with the control block), never a chunk pointer.
+      Nothing the parent or another thread can read points into the worker's
+      arena once `_mfb_rt_thread_finish` has published the result.
+- [x] Baseline: `tests/runtime/rt_worker_arena_release.rs`. 1,000 workers ×
       10 MB; record the RSS today (expected to fail the < 100 MB assertion).
+      (`cargo test --test rt_worker_arena_release` → FAILED: "peak RSS was
+      9548 MB: finished workers' arenas are not being returned to the OS".)
 
 Acceptance: the audit list is complete; the new test fails for the documented
 reason.
@@ -111,6 +142,18 @@ Commit: —
 - Final gate: at the end of F.
 
 ## Corrections
+
+1. **bug-547 resolved, and outside B.** §2's UNVERIFIED line is settled by
+   reading the bug (Phase 1): its cause was the control block and the worker's
+   arena-state block living in the main arena. B does not touch the main
+   arena's shutdown. The skip is left as is: it cannot be wrong (process exit
+   reclaims the arena) and it is no longer load-bearing for those two blocks
+   (plan-156-A moved them to the heap); the spec now states exactly that
+   (`./mfb spec threading os-integration`).
+2. **The worker's arena-state block is a heap block**, not "carved from the
+   parent's arena" (§2, §3): plan-156-A Correction 4 moved it so either side
+   can free it. It is still freed with the control block, never by the
+   worker's own destroy, which unmaps only the arena's chunks.
 
 ## Summary
 

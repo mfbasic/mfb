@@ -983,6 +983,10 @@ name = "rt_thread_table_growth"
 path = "tests/runtime/rt_thread_table_growth.rs"
 
 [[test]]
+name = "rt_worker_arena_release"
+path = "tests/runtime/rt_worker_arena_release.rs"
+
+[[test]]
 name = "rt_trapped_call_capability_gate"
 path = "tests/runtime/rt_trapped_call_capability_gate.rs"
 
