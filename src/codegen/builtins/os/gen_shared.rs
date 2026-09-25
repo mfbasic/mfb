@@ -141,6 +141,49 @@ pub(crate) fn borrow_cstring(src: &str, out: &str) -> CodeInstruction {
     abi::add_immediate(out, src, 8)
 }
 
+/// bug-696: release the Windows marshalled result in the vreg `owned` — what
+/// `emit_env_get`, `emit_os_wide_string` or `emit_environ_pointer` returned, or 0
+/// for nothing — at a body's exit, after the result registers are set. The release
+/// is a call, so the four result registers ride across it in vregs, as
+/// [`super::gen_env::emit_env_unlock_return`] does for the unlock. Every path to
+/// the exit must have defined `owned`. `uniq` names the skip label.
+pub(crate) fn emit_release_marshalled_result(
+    ctx: &mut EmitCtx,
+    owned: &str,
+    uniq: &str,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let skip = format!("{uniq}_release_skip");
+    let saved = [
+        RESULT_TAG_REGISTER,
+        RESULT_VALUE_REGISTER,
+        RESULT_ERROR_MESSAGE_REGISTER,
+        RESULT_ERROR_SOURCE_REGISTER,
+    ]
+    .map(|register| (register, vregs.next()));
+    for (register, vreg) in &saved {
+        ctx.instructions
+            .push(abi::move_register(vreg, register.clone()));
+    }
+    ctx.instructions.extend([
+        abi::compare_immediate(owned, "0"),
+        abi::branch_eq(&skip),
+        abi::move_register(abi::c_arg(0), owned),
+    ]);
+    ctx.platform.emit_release_marshalled(
+        ctx.symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.push(abi::label(&skip));
+    for (register, vreg) in &saved {
+        ctx.instructions
+            .push(abi::move_register(register.clone(), vreg));
+    }
+    Ok(())
+}
+
 /// Build an owned arena `String` from the NUL-terminated C-string in `cstr`,
 /// landing it in the result registers with the OK tag. Branches to `alloc_fail`
 /// on OOM. `cstr` is a vreg (preserved across `arena_alloc`).

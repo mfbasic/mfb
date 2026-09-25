@@ -1,5 +1,6 @@
 // --- codegen tier imports (migration) ---
 use super::gen_shared::*;
+use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -108,6 +109,21 @@ pub(crate) fn lower_os_wide_string_windows(
     );
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
-    instructions.extend([abi::label(&done), abi::return_()]);
+    instructions.push(abi::label(&done));
+    // bug-696: the UTF-8 answer is a marshalled buffer this body owns (0 on the
+    // failure path).
+    emit_release_marshalled_result(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &value,
+        symbol,
+        &mut vregs,
+    )?;
+    instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
 }

@@ -269,6 +269,9 @@ impl NativePlanPlatform for Platform {
                 import("GetEnvironmentVariableW", KERNEL32, required_by),
                 import("SetEnvironmentVariableW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+                // bug-696: `emit_env_get` clears the last error before its lookup,
+                // to tell an empty value from an unset variable.
+                import("SetLastError", KERNEL32, required_by),
             ],
             "os.hostName" => vec![
                 import("GetComputerNameExW", KERNEL32, required_by),
