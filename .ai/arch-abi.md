@@ -531,6 +531,45 @@ treats BOTH 47 and 92 as component boundaries on Windows when refusing a `.`/`..
 component. That rejects strictly more traversal and nothing valid — a Windows
 filename cannot contain `\`.
 
+**Only on Windows — the in-place arm must use the same set.** The in-place
+`s = os::appResourcePath(s)` validator once treated `\` as a boundary on every
+target, so on POSIX it raised `ErrInvalidPath` for `a\..\b` while the copying
+call returned a path (plan-156-B Correction B-1). An arm must agree with its
+copying helper byte for byte; "stricter is safe" is wrong when the two can be
+told apart.
+
+### `emit_errno` on Windows is raw `GetLastError` — never compare it to a POSIX errno
+
+`CodegenPlatform::emit_errno` returns the `GetLastError` DWORD on
+`windows-x86_64`, not an errno. A shared body that tests `17` (`EEXIST`), `2`, or
+`13` is silently wrong there: `ERROR_ALREADY_EXISTS` is **183**,
+`ERROR_PATH_NOT_FOUND` **3**, `ERROR_ACCESS_DENIED` **5**. `fs::createDirectories`
+compared against 17 and split only on `/`, so every nested create on Windows
+failed with `ErrWriteFailed` until plan-156-C (Correction C-4). The existing
+fixtures never ran on 2230, so nothing noticed. Branch per family, as
+`emit_fs_path_errno_error_mapping` (`fs/gen_shared.rs`) does, and run the fixture
+on box 2230.
+
+### Known-folder queries: GUID in the arg area, free on every path, check the conversion
+
+`SHGetKnownFolderPath` (plan-156, `known_folder_guid` / `emit_known_folder_query`
+/ `emit_known_folder_into_query` in `win_x86_64/code.rs`) rides the same
+`subtract_stack(0x60)` window as `emit_os_wide_string`. Four rules:
+
+* Put the 16-byte `GUID` in the stack-argument area `[0x20..0x30)`. It is free
+  until `WideCharToMultiByte` later stages its 5th–8th arguments there. The other
+  window slots (`0x40..0x60`) are all in use.
+* Pre-zero the out-param slot and `CoTaskMemFree` it on **both** exits. Microsoft
+  requires the free whether the call succeeded or not, and `CoTaskMemFree(NULL)`
+  is a no-op.
+* Compare the HRESULT through a `store_u32`/`load_u32` round trip: a 32-bit
+  return does not guarantee rax's upper half.
+* Check `WideCharToMultiByte`'s result. `emit_wide_slot_to_utf8` ignores it,
+  which is safe only while the source is ≤ 2048 UTF-16 units (≤ 6144 UTF-8
+  bytes < the 8 KiB buffer). A known folder has no such bound. The
+  non-allocating variant measures first (`NULL`, 0) and converts into the
+  caller's buffer only when the size, NUL included, fits.
+
 ### The compiler's own main-thread stack is 1 MiB on Windows, 8 MiB elsewhere
 
 The front end's depth guards all admit a tree **256 levels deep** (`ast::expr::MAX_EXPR_DEPTH`,

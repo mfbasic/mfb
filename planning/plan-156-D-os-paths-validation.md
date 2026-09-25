@@ -99,22 +99,22 @@ Commit: 759fc1379
 
 ### Phase D2: cross-OS runtime sweep
 
-- [ ] Re-probe the boxes (§2 command), and record the result here.
-- [ ] For each reachable Linux box, run
+- [x] Re-probe the boxes (§2 command), and record the result here. — 2026-09-24 re-probe: 2226, 2230 up; 2222, 2223, 2224, 2225, 2227, 2228, 2229, 2232 refused.
+- [x] For each reachable Linux box, run
       `FILTER=func_os_ scripts/linux-runtime-proof.sh target/debug/mfb <port> <target> <flavor>`.
       2226 = `linux-aarch64 glibc`; if up, 2227 = `linux-x86_64 musl`,
       2228 = `linux-x86_64 glibc`, 2229 = `linux-riscv64 musl`,
-      2224 = `linux-aarch64 musl`.
-- [ ] On 2230, run the `func_os_*Path*` fixtures with the plan-156-B B4 recipe.
-- [ ] Run the macOS app mode: build a scratch `--app` project that prints all
+      2224 = `linux-aarch64 musl`. — 2226 (`linux-aarch64 glibc`): `FILTER=/os/` → `32 passed, 0 failed, 0 not run`. The other listed boxes were unreachable, so there is no x86_64, musl or riscv64 execution; those targets are covered by the regenerated `.ncodesum` goldens and the lowering tests only.
+- [x] On 2230, run the `func_os_*Path*` fixtures with the plan-156-B B4 recipe. — `/tmp/156-win-proof.sh` → PASS for all six `func_os_*Path*` fixtures, plus `fs-create-directories-native-separators-rt` and `func_fs_createDirectories_valid`.
+- [x] Run the macOS app mode: build a scratch `--app` project that prints all
       five calls, and run it through `scripts/test-macapp.sh`'s launch path.
       `appResourcePath()` must end in `/Contents/Resources`, `appDataPath()` in
-      `/Library/Application Support/<name>`.
-- [ ] Linux app mode, if 2228 or 2227 is reachable: run a
+      `/Library/Application Support/<name>`. — `/tmp/p156app` (`mfb build --app`, run with `MFB_MACAPP_HEADLESS=1 …/Contents/MacOS/p156app`) → exit 0. It wrote `…/p156app.app/Contents/Resources`, `~/Library/Application Support/p156app`, `~/Library/Caches/p156app/c`, `/Users/justinzaun`, `~/Documents`, and read back the bundled `data/r.txt`. `plutil` shows `NSDocumentsFolderUsageDescription` = `p156app reads and writes files in your Documents folder.`
+- [x] Linux app mode, if 2228 or 2227 is reachable: run a
       `scripts/test-appimage.sh --libc both` build of the same scratch project.
       `appDataPath()` must be the `$HOME`-derived path, not anything under the
       AppImage mount. If neither box is reachable, record that here as not run,
-      with the probe output.
+      with the probe output. — not run: neither 2228 nor 2227 is reachable (see the re-probe line above), and the AppImage cannot be emulated (`.ai/compiler.md`). The Linux `--app` base rule (`resource_base_offset`) is unchanged by plan-156, and the new members do not branch on build mode.
 
 Acceptance: every reachable box shows identical fixture output, and the app-mode
 paths match the table.
@@ -124,19 +124,19 @@ Commit: —
 
 ### Phase D3: `.ai` notes, examples, archive
 
-- [ ] `.ai/arch-abi.md`: add the known-folder arms to the Win64
+- [x] `.ai/arch-abi.md`: add the known-folder arms to the Win64
       acquisition-window note. Record the GUID-at-`0x20` placement and the
-      `CoTaskMemFree`-on-every-path rule (a durable ABI lesson).
-- [ ] `.ai/resources-packages.md`: search it with `rg -n 'resourcePath|resource base'`
-      and update any mention to `appResourcePath`.
-- [ ] Look for a natural use in the examples. The measured candidates are
+      `CoTaskMemFree`-on-every-path rule (a durable ABI lesson). — done: new sections on raw `GetLastError` in `emit_errno` (the `createDirectories` lesson), known-folder query rules, and the in-place validator's separator set.
+- [x] `.ai/resources-packages.md`: search it with `rg -n 'resourcePath|resource base'`
+      and update any mention to `appResourcePath`. — moot: `rg -n 'resourcePath|resource base|appResourcePath' .ai/resources-packages.md` → no matches.
+- [x] Look for a natural use in the examples. The measured candidates are
       `rg -ln 'fs::writeText|save' examples/*/src`. Adopt `appDataPath` only
       where an example already persists user data to a working-directory path
-      (a real bug for an installed app). If there is none, record "none".
-- [ ] Render the man pages with `scripts/man-census.sh --fill os`,
+      (a real bug for an installed app). If there is none, record "none". — none: `rg -ln 'fs::writeText|save' examples/*/src` → no matches, so no example persists user data to adopt `appDataPath`.
+- [x] Render the man pages with `scripts/man-census.sh --fill os`,
       `scripts/man-run-examples.sh os --run` and
       `scripts/man-census.sh --memory-scope`. That gives 0 unclassified hits,
-      and all five pages render.
+      and all five pages render. — `man-census.sh --fill os` → `TOTAL 24 24 24 24 13/13`, `pages with neither Description nor Examples: 0`; `--memory-scope os fs` → `unclassified memory-vocabulary hits: 0`; `man-run-examples.sh os --run` → `27 … failed: 0`; `fs --run` → `98 … failed: 0` (after each run, the example-created `~/Library/{Application Support,Caches}/man_examples` was removed, per plan-156-B B-6).
 - [ ] Move `plan-156-{A,B,C,D}-*.md` to `planning/completed/`.
 
 Acceptance: the man gates are green and the plans are archived.

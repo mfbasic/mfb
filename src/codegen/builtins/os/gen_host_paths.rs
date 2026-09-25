@@ -153,7 +153,14 @@ pub(crate) fn emit_join_result(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let base_len = &if suffix.is_empty() {
-        emit_root_elided_len(label_prefix, base_ptr, base_len, Some(&arg.len), vregs, instructions)
+        emit_root_elided_len(
+            label_prefix,
+            base_ptr,
+            base_len,
+            Some(&arg.len),
+            vregs,
+            instructions,
+        )
     } else {
         emit_root_elided_len(label_prefix, base_ptr, base_len, None, vregs, instructions)
     };
