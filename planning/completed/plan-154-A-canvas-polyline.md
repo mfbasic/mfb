@@ -352,7 +352,7 @@ the docs render and their examples run.
   `cli_canvas_package` 7 passed; `MFB=./target/debug/mfb scripts/man-run-examples.sh canvas --run`
   → examples 32, built 32, ran 32, failed 0; `MISS-SYMBOL 0`;
   `cargo test --bin mfb spec` → 44 passed.
-Commit: —
+Commit: 814cc5fa0
 
 ## Validation Plan
 
