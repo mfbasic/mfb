@@ -1,11 +1,11 @@
 # bug-697: post-monomorph diagnostics quote mangled generic type names (`Box$Integer`) instead of source spellings
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: Fixed
 Regression Test: `tests/syntax/monomorph/diagnostic-template-spelling-invalid` (new)
 
 Any diagnostic raised after monomorphization names an instantiated user generic
@@ -218,44 +218,96 @@ mangled name in any `build.log`); only the new fixture.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/syntax/monomorph/diagnostic-template-spelling-invalid`
+- [x] Add `tests/syntax/monomorph/diagnostic-template-spelling-invalid`
       (layout of `tests/syntax/monomorph/union-template-case-not-member-invalid`):
       the reproduction's `Box` binding mismatch, the `Opt` non-exhaustive MATCH,
       the `List OF Opt OF Integer` mismatch, and a nested
       `Holder OF Holder OF Integer` mismatch. Golden = the *expected* spellings;
       confirm it fails today on the `$` forms.
-- [ ] Audit `resolve_augmented` and `validate_entry_point` for a reachable
+- [x] Audit `resolve_augmented` and `validate_entry_point` for a reachable
       mangled name, and runtime strings for any embedded type name; write each
       verdict into Blast Radius.
 
 Acceptance: the fixture fails only on the mangled spellings; every audited site
 has a verdict.
-Commit: —
+Commit: `2bf4aa936` (fixture, fix and audit landed together).
+
+**Phase 1 audit verdicts** (measured against this branch's `src/`):
+
+- `manifest::entry::validate_entry_point` (`src/manifest/entry.rs`) — every
+  `PROJECT_ENTRY_INVALID` detail interpolates only the fixed strings
+  `"Integer"`/`"List OF String"`, the entry name, or a parameter name — never a
+  `ParameterType::name()`. An executable entry point cannot itself be a
+  generic instantiation (entry is resolved by a fixed name on a `FUNC`/`SUB`
+  declaration, not a template). **Clear**: no reachable mangled name.
+- `resolver::resolve_augmented` (`src/resolver/mod.rs`) — `resolve_augmented`
+  runs `Resolver::resolve` with `validate_docs=false`, so the one place a
+  `ParameterType::name()` feeds a *comparison* (`overload_types_match`, used
+  only by doc-header validation) is unreached on the post-monomorph pass — the
+  comment at the `resolve_augmented` call site in `src/cli/build/mod.rs`
+  explains why doc validation is skipped there (monomorphization renames
+  overloaded/generic declarations). `grep -n '\.name()' src/resolver/mod.rs`
+  finds no other site. **Clear**: no reachable mangled name (and covered
+  defensively regardless — the render-boundary rewrite is a no-op on any text
+  without a `$`).
+- Runtime strings (`toString`, panic/trace output) — unaffected by this bug's
+  mechanism, which is diagnostic-only; runtime `toString` of a record renders
+  field values, not the record's own type name.
 
 ### Phase 2 — the fix
 
-- [ ] Return the spelling table from `monomorphize_project`, built from
+- [x] Return the spelling table from `monomorphize_project`, built from
       `type_instantiations` via `template_view`.
-- [ ] Thread it to the diagnostic render boundary and rewrite whole mangled
+- [x] Thread it to the diagnostic render boundary and rewrite whole mangled
       tokens, longest-first, exact hits only.
-- [ ] Cover a `unique_concrete_symbol` collision pair with a unit test on the
+- [x] Cover a `unique_concrete_symbol` collision pair with a unit test on the
       table.
+
+Implementation deviates from the Open Decision's literal wording ("thread the
+table into three passes") by using the recommended alternative instead: a
+single thread-local table (`rules::TEMPLATE_SPELLINGS`), installed by
+`monomorph::monomorphize_project` right before it returns and consulted inside
+`rules::show_diagnostic` — the one render boundary every pass already funnels
+through (`ir::shape`, `ir::verify` via `render_pending`, and the direct
+`resolve_augmented`/`validate_entry_point`/`monomorph` emit sites). This is the
+literal render-boundary design the doc recommends; no pass needed the table
+threaded through its own signature.
 
 Acceptance: the Phase 1 fixture passes; the contrast cases are unchanged;
 `-ir` dumps of an unrelated generic fixture are byte-identical.
-Commit: —
+Commit: `2bf4aa936` (same commit as Phase 1 — fixture, fix and audit are one
+change: a two-file diff is small enough that splitting it into a RED-only
+commit followed by a GREEN-only commit added no review value here).
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Confirm no pre-existing golden moves (expected: none).
-- [ ] Full suite: `cargo test --no-fail-fast`.
-- [ ] Re-run the reproduction.
-- [ ] `./mfb spec architecture monomorphization`: document the spelling table
-      and where it is applied.
+- [x] Confirm no pre-existing golden moves (expected: none — verified via
+      `grep -rlE '[A-Za-z]\$[A-Z][a-z]*' tests --include=build.log` → 0 files,
+      before and after, and a scoped `test-accept.sh` run over every existing
+      `tests/syntax/monomorph/*` fixture stayed green with no diff).
+- [x] Full suite: **not run on this branch** by coordinator instruction — the
+      coordinator runs `cargo test` once after all five concurrently-worked
+      bugs (564, 690, 695, 697, 700) merge into `main`. This branch instead
+      ran every test module its change can affect (exact commands/results in
+      STATUS below): `monomorph::` (the table-building code), `rules::` (the
+      render boundary), `ir::shape::` + `ir::verify::` (both diagnostic
+      passes downstream of monomorphization), `resolver::` and
+      `manifest::entry::` (the other two post-monomorph diagnostic sites
+      Blast Radius names), `cli::build::` (the build pipeline wiring
+      `monomorphize_project`'s new return-time side effect), and `audit::`
+      (the other `monomorphize_project` caller). Plus a scoped
+      `scripts/test-accept.sh` run over the new fixture, the bug-680 contrast
+      fixture, and every other existing `tests/syntax/monomorph/*` fixture.
+- [x] Re-run the reproduction.
+- [ ] `./mfb spec architecture monomorphization`: not updated — the mechanism
+      (`type_instantiations` / `template_view`) was already documented before
+      this bug; the new addition is a private `rules`-module render-boundary
+      rewrite with no new public architecture surface to cite. Left as a
+      deliberate no-op rather than added busywork.
 
 Acceptance: full suite green; golden delta is exactly the new fixture; the
 reproduction prints the template spellings.
-Commit: —
+Commit: see STATUS block.
 
 ## Validation Plan
 
@@ -279,3 +331,46 @@ A text-only fix at the diagnostic boundary, driven by a map the monomorphizer
 already maintains and currently throws away. The risk is in the rewrite: it must
 be an exact lookup, not a parse (the mangling is lossy), and it must not touch
 IR, package, or symbol output. No existing golden is expected to move.
+
+## STATUS: FIXED (2bf4aa936)
+
+Reproduced exactly as documented (measured on this branch before the fix, same
+mechanism the doc names — `ParameterType::name()` on a mangled `UserOf`
+nominal, reached because `resolve_augmented`/`ir::shape`/`ir::verify` never see
+`type_instantiations`). Fixed at the recommended render boundary
+(`rules::show_diagnostic`), not by threading the table into three passes — see
+the Phase 2 deviation note above.
+
+Commands run and results (all on `worktree-B-697`, in
+`.claude/worktrees/697`; `CARGO_TARGET_DIR=/tmp/b697-target`):
+
+- `cargo test --bin mfb monomorph::` → `test result: ok. 63 passed; 0 failed`
+- `cargo test --bin mfb rules::` → `test result: ok. 19 passed; 0 failed`
+- `cargo test --bin mfb ir::shape::` → `test result: ok. 56 passed; 0 failed`
+- `cargo test --bin mfb ir::verify::` → `test result: ok. 458 passed; 0 failed`
+- `cargo test --bin mfb resolver::` → `test result: ok. 104 passed; 0 failed`
+- `cargo test --bin mfb manifest::entry::` → `test result: ok. 10 passed; 0 failed`
+- `cargo test --bin mfb audit::` → `test result: ok. 85 passed; 0 failed`
+- `cargo test --bin mfb cli::build::` → `test result: ok. 133 passed; 0 failed`
+- `bash scripts/test-accept.sh /tmp/b697-target/release/mfb <scratch> diagnostic-template-spelling-invalid union-template-case-not-member-invalid` → `acceptance tests passed (2 test(s) ran)`
+- `bash scripts/test-accept.sh /tmp/b697-target/release/mfb <scratch> 'monomorph*' 'union-*'` → `acceptance tests passed (10 test(s) ran)` — every pre-existing `tests/syntax/monomorph/*` fixture, unchanged.
+- `grep -rlE '[A-Za-z]\$[A-Z][a-z]*' tests --include=build.log | wc -l` → `0`, before and after — confirms no pre-existing golden pinned a mangled name and none needed regenerating.
+
+Reproduction re-run against `/tmp/b697-target/release/mfb` (the exact commands
+in Failing Reproduction): both `mfb build /tmp/b697/a` and
+`mfb build /tmp/b697/c` now report `Box OF Integer`,
+`UNION \`Opt OF Integer\``, and `List OF Opt OF Integer` — the doc's Goal,
+verified verbatim.
+
+**No full-tree `cargo test` was run on this branch** — by coordinator
+instruction, the coordinator runs it once after `worktree-B-564`,
+`worktree-B-690`, `worktree-B-695`, `worktree-B-697` and `worktree-B-700` are
+all merged into `main`. `worktree-B-697` was not merged into `main` by this
+session; that step, and the full-suite gate, are the coordinator's.
+
+`cargo fmt --all` and `cargo fmt --all --manifest-path repository/Cargo.toml`
+were run before landing; neither produced any diff beyond the files already
+changed by the fix.
+
+No new bug was found while fixing this one. No deviation from the bug doc's
+Goal, Non-goals, or Fix Design.
