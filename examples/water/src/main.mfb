@@ -1,0 +1,338 @@
+' water - a pipe, a thousand drops of water, and things to pour it on.
+'
+' A pipe hangs from the top of the window and pours water. The water falls, and
+' splashes off and runs down whatever is in its way; what reaches the bottom or
+' the sides of the window drains away and comes back out of the pipe. The
+' toolbar on the right adds things to put in its way - a rectangle, a triangle, a
+' circle and an ellipse - which can then be moved, turned, sized and removed.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/water
+'   open examples/water/build/water.app          (macOS)
+'   ./examples/water/build/water.AppImage        (Linux)
+'
+' Controls:
+'   drag the pipe       slide it along the top of the window
+'   click the pipe      turn the water on or off
+'   click a button      add that object to the window
+'   click an object     select it
+'   drag an object      move it (and select it)
+'   a d                 turn the selected object anticlockwise, clockwise
+'   w s                 make the selected object bigger, smaller
+'   arrow keys          the same as w a s d, once they reach the program: in a
+'                       window build today they do not (bug-699)
+'   delete, backspace   remove the selected object
+'   esc                 quit
+'
+' The program is in five files:
+'   shapes.mfb    the objects, and where a point meets one
+'   water.mfb     the pool of drops, and falling, bouncing and spreading them
+'   pipe.mfb      the pipe, and letting drops out of the pool
+'   toolbar.mfb   the buttons down the right-hand side
+'   main.mfb      the font, the keys, the mouse, and the frame loop
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT errorCode
+IMPORT fs
+IMPORT io
+IMPORT math
+IMPORT os
+
+' ---------------------------------------------------------------------------
+' The font
+' ---------------------------------------------------------------------------
+
+' canvas::loadFont reads TrueType outlines, so every candidate here is a plain
+' .ttf. The font is only for the line of hints along the bottom, so a machine
+' without any of these still runs the program, just without the hints.
+FUNC systemFontPath AS String
+  MUT candidates AS List OF String = []
+  IF os::name() = "macos" THEN
+    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
+  ELSEIF os::name() = "windows" THEN
+    candidates = ["C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", "C:\\Windows\\Fonts\\verdana.ttf"]
+  ELSE
+    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
+  END IF
+
+  FOR EACH path IN candidates
+    IF fs::fileExists(path) THEN RETURN path
+  NEXT
+  RETURN ""
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Input
+' ---------------------------------------------------------------------------
+
+FUNC pending(ms AS Integer) AS Boolean
+  RETURN io::pollInput(ms)
+END FUNC
+
+' One character of input, or "" once there is no more. Only the two failures a
+' keyboard can actually produce are answered here: the end of input, which
+' readKey turns into a quit, and a byte that is not UTF-8, which is a key this
+' program has no use for. Anything else is a real failure and goes on up.
+FUNC nextChar AS String
+  RETURN io::readChar()
+
+  TRAP(e)
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN ""
+    IF e.code = errorCode::ErrEncoding THEN RETURN "\u{FFFD}"
+    PROPAGATE
+  END TRAP
+END FUNC
+
+' One key press, with the arrow keys and forward delete named.
+'
+' Those keys arrive as terminal escape sequences - escape, then "[" or "O", then
+' a letter, or "3~" for delete - so a lone escape byte with nothing behind it is
+' the Esc key and one with more behind it is the start of a sequence. Anything
+' else in a sequence is read off and reported as "", which does nothing.
+FUNC readKey AS String
+  LET first AS String = nextChar()
+  IF first = "" THEN RETURN "EOF"
+  IF first <> "\u{1B}" THEN RETURN first
+  IF NOT pending(20) THEN RETURN "ESC"
+
+  LET bracket AS String = nextChar()
+  IF bracket <> "[" AND bracket <> "O" THEN RETURN ""
+  IF NOT pending(20) THEN RETURN ""
+
+  MATCH nextChar()
+    CASE "A" : RETURN "UP"
+    CASE "B" : RETURN "DOWN"
+    CASE "C" : RETURN "RIGHT"
+    CASE "D" : RETURN "LEFT"
+    CASE "3"
+      IF pending(20) THEN
+        IF nextChar() = "~" THEN RETURN "DELETE"
+      END IF
+      RETURN ""
+    CASE ELSE : RETURN ""
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Commands
+' ---------------------------------------------------------------------------
+
+TYPE Rotate
+  turns AS Float       ' ROTATE_STEPs, clockwise positive
+END TYPE
+
+TYPE Resize
+  steps AS Float       ' SCALE_STEPs, bigger positive
+END TYPE
+
+TYPE Remove
+END TYPE
+
+TYPE Quit
+END TYPE
+
+TYPE Ignore
+END TYPE
+
+UNION Command
+  Rotate
+  Resize
+  Remove
+  Quit
+  Ignore
+END UNION
+
+FUNC commandFor(key AS String) AS Command
+  MATCH key
+    CASE "a", "A", "LEFT" : RETURN Rotate[turns := -1.0]
+    CASE "d", "D", "RIGHT" : RETURN Rotate[turns := 1.0]
+    CASE "w", "W", "UP" : RETURN Resize[steps := 1.0]
+    CASE "s", "S", "DOWN" : RETURN Resize[steps := -1.0]
+      ' The key marked delete on a Mac sends DEL; the one marked Backspace
+      ' elsewhere sends BS or DEL depending on the system.
+    CASE "\u{7F}", "\u{08}", "DELETE" : RETURN Remove[]
+    CASE "ESC", "EOF" : RETURN Quit[]
+    CASE ELSE : RETURN Ignore[]
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The mouse
+' ---------------------------------------------------------------------------
+'
+' A press picks what is under the pointer - a toolbar button, an object, the
+' pipe, or nothing - and the rest of the gesture belongs to it until the button
+' comes up. Moving more than CLICK_SLOP pixels makes the gesture a drag; a
+' gesture that never did is a click. The difference only matters for the pipe,
+' whose click turns it on or off and whose drag slides it: an object is selected
+' by the press either way, and then moved if the gesture turns out to be a drag.
+
+ENUM Grab
+  None, Pipe, Object
+END ENUM
+
+LET CLICK_SLOP AS Float = 4.0
+
+TYPE Gesture
+  grab AS Grab
+  startX AS Float      ' where the press was
+  startY AS Float
+  offsetX AS Float     ' from the pointer to what it grabbed
+  offsetY AS Float
+  dragging AS Boolean
+END TYPE
+
+LET NO_GESTURE AS Gesture = Gesture[grab := Grab.None, startX := 0.0, startY := 0.0, offsetX := 0.0, offsetY := 0.0, dragging := FALSE]
+
+' The object a toolbar button adds goes a little way below the middle of the
+' play area, each one stepped sideways from the last so a row of them added in
+' a hurry can still be told apart.
+FUNC newShapeX(play AS Float) AS Float
+  RETURN play / 2.0 + toFloat(shapeCount() MOD 5 - 2) * 40.0
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The scene
+' ---------------------------------------------------------------------------
+
+LET BACKGROUND AS color::Color = color::rgb(14, 19, 28)
+
+LET HINT_COLOR AS color::Color = color::rgb(120, 140, 158)
+
+LET HINT_SIZE AS Float = 13.0
+
+FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawItem
+  MUT state AS String = "on"
+  IF NOT p.on THEN state = "off"
+  LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
+  RETURN canvas::Text[x := 12.0, y := height - 12.0, text := text, font := face, size := HINT_SIZE, paint := canvas::fill(HINT_COLOR)]
+END FUNC
+
+FUNC frameScene(width AS Float, height AS Float, p AS Pipe, selected AS Integer) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]]
+  FOR EACH item IN shapeItems(selected)
+    items = collections::append(items, item)
+  NEXT
+  FOR EACH item IN waterItems()
+    items = collections::append(items, item)
+  NEXT
+  FOR EACH item IN pipeItems(p)
+    items = collections::append(items, item)
+  NEXT
+  FOR EACH item IN toolbarItems(width, height)
+    items = collections::append(items, item)
+  NEXT
+  RETURN items
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The frame loop
+' ---------------------------------------------------------------------------
+
+' The loop is paced by the display: canvas::waitFrame ends each pass, so it runs
+' at the monitor's rate, and canvas::getFrameStats().dt - the time since the
+' previous present - is the step the water advances by.
+
+' The longest step the water will take at once. A window that was hidden or a
+' machine that went to sleep comes back with a long dt, and a step that long
+' would carry every drop through whatever it was resting on.
+LET MAX_STEP_SECONDS AS Float = 0.034
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Water")
+
+  LET fontPath AS String = systemFontPath()
+  LET hints AS Boolean = fontPath <> ""
+  ' A RES binding must hold an open handle, so the font is kept in a list that
+  ' is simply left empty when no font was found; the hints are then not drawn.
+  MUT faces AS List OF RES canvas::Font = []
+  IF hints THEN faces = [canvas::loadFont(fontPath)]
+
+  fillPool()
+  canvas::enableMouse(TRUE)
+
+  MUT size AS canvas::Size = canvas::getSize()
+  MUT pipe AS Pipe = Pipe[x := playWidth(toFloat(size.width)) / 2.0, on := TRUE, owed := 0.0]
+  MUT selected AS Integer = -1
+  MUT gesture AS Gesture = NO_GESTURE
+  MUT running AS Boolean = TRUE
+
+  DO WHILE running
+    IF canvas::didResize() THEN size = canvas::getSize()
+    LET width AS Float = toFloat(size.width)
+    LET height AS Float = toFloat(size.height)
+    LET play AS Float = playWidth(width)
+    pipe = pipeWithin(pipe, play)
+
+    DO WHILE pending(0)
+      MATCH commandFor(readKey())
+        CASE Rotate(r) : IF selected >= 0 THEN rotateShape(selected, r.turns)
+        CASE Resize(z) : IF selected >= 0 THEN scaleShape(selected, z.steps)
+        CASE Remove
+          IF selected >= 0 THEN
+            ' A drag of the object being removed ends with it.
+            IF gesture.grab = Grab.Object THEN gesture = NO_GESTURE
+            removeShape(selected)
+            selected = -1
+          END IF
+        CASE Quit : running = FALSE
+        CASE Ignore
+      END MATCH
+    LOOP
+
+    DO WHILE TRUE
+      LET mouse AS canvas::MouseEvent = canvas::pollMouse()
+      IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
+      LET at AS canvas::Point = mouse.position
+
+      IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
+        gesture = WITH NO_GESTURE { startX := at.x, startY := at.y }
+        IF onToolbar(width, at) THEN
+          LET button AS Integer = buttonAt(width, at)
+          IF button >= 0 THEN selected = addShape(toolKind(button), newShapeX(play), height * 0.55)
+        ELSE
+          LET hit AS Integer = shapeAt(at.x, at.y)
+          IF hit >= 0 THEN
+            selected = hit
+            gesture = WITH gesture { grab := Grab.Object, offsetX := shapeX(hit) - at.x, offsetY := shapeY(hit) - at.y }
+          ELSEIF onPipe(pipe, at) THEN
+            gesture = WITH gesture { grab := Grab.Pipe, offsetX := pipe.x - at.x }
+          ELSE
+            selected = -1
+          END IF
+        END IF
+      ELSEIF mouse.kind = canvas::MouseKind.Drag AND mouse.button = canvas::MouseButton.Left AND gesture.grab <> Grab.None THEN
+        IF NOT gesture.dragging THEN
+          IF math::abs(at.x - gesture.startX) > CLICK_SLOP OR math::abs(at.y - gesture.startY) > CLICK_SLOP THEN gesture = WITH gesture { dragging := TRUE }
+        END IF
+        IF gesture.dragging THEN
+          IF gesture.grab = Grab.Pipe THEN
+            pipe = pipeWithin(WITH pipe { x := at.x + gesture.offsetX }, play)
+          ELSEIF selected >= 0 THEN
+            ' The centre is held to the play area, so an object cannot be lost
+            ' under the toolbar or off the edge of the window.
+            moveShape(selected, math::clamp(at.x + gesture.offsetX, 0.0, play), math::clamp(at.y + gesture.offsetY, 0.0, height))
+          END IF
+        END IF
+      ELSEIF mouse.kind = canvas::MouseKind.Up AND mouse.button = canvas::MouseButton.Left THEN
+        IF gesture.grab = Grab.Pipe AND NOT gesture.dragging THEN pipe = WITH pipe { on := NOT pipe.on }
+        gesture = NO_GESTURE
+      END IF
+    LOOP
+
+    LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
+    pipe = pour(pipe, elapsed)
+    stepWater(elapsed, play, height)
+
+    MUT scene AS List OF canvas::DrawItem = frameScene(width, height, pipe, selected)
+    IF hints THEN scene = collections::append(scene, hintItem(collections::get(faces, 0), height, pipe))
+    canvas::present(scene)
+    canvas::waitFrame()
+  LOOP
+
+  RETURN 0
+END FUNC
