@@ -15,12 +15,12 @@ IMPORT collections
 ' concurrently: the main tick loop drains every live child's stdout without
 ' blocking, so switching sessions never stalls an in-flight generation.
 '
-' A resource may not be a record field (TYPE_RESOURCE_FIELD_FORBIDDEN), so the
-' live children live in a `Map OF Integer TO RES process::Process` keyed by
-' session id (§15.6 "Resources in collections"); the plain Session data record
-' just carries the id. Ownership floats up to the map's scope in main, so a
-' child spawned in an inner block is closed exactly once when the map's scope
-' ends -- and reaped explicitly with process::waitFor when its stream finishes.
+' The live children live in a `Map OF Integer TO RES process::Process` keyed by
+' session id (§15.6 "Resources in collections"), keeping the plain Session data
+' record resource-free so it just carries the id. Ownership floats up to the
+' map's scope in main, so a child spawned in an inner block is closed exactly
+' once when the map's scope ends -- and reaped explicitly with
+' process::waitFor when its stream finishes.
 '
 ' Build and run it from an interactive terminal:
 '   mfb build examples/ai_chat
@@ -78,9 +78,8 @@ END TYPE
 
 ' All non-resource UI state, bundled so the keypress handlers can be pure
 ' functions (they return a new UiState). The live child processes live in a
-' separate Map OF RES in main -- a record may not hold a resource, and keeping
-' the handlers resource-free is also what lets them be split out of main to stay
-' under the AArch64 per-function branch-range limit.
+' separate Map OF RES in main, keeping the handlers resource-free so they can
+' be split out of main as their own functions.
 TYPE UiState
   sessions AS List OF Session
   activeIdx AS Integer
@@ -259,12 +258,10 @@ END FUNC
 ' contributes plus any session id, model name, and usage snapshot it carries.
 ' Only text_delta chunks are collected, so the trailing `assistant`/`result`
 ' full-text lines never double the transcript.
-' NB: json::parse is called without a local TRAP on purpose. Binding a fallible
-' union-returning call (parse returns the Json union) through a TRAP hits a
-' codegen limitation -- "native code cannot materialize default value for type
-' 'Json'" -- because the trap temp needs a synthesized union default. Instead a
-' parse failure auto-propagates out of this FUNC, and the caller TRAPs the call
-' to parseStreamLine, whose Parsed record default IS materializable.
+' NB: json::parse is called without a local TRAP on purpose. A parse failure
+' auto-propagates out of this FUNC, and the caller TRAPs the call to
+' parseStreamLine instead, recovering with a blank Parsed record -- one place
+' to decide how a bad stream line is reported, rather than one per json call.
 FUNC parseStreamLine(line AS String) AS Parsed
   LET doc AS json::Json = json::parse(line)
   MUT text AS String = ""
@@ -1090,8 +1087,8 @@ FUNC main() AS Integer
       '
       ' handleKey is pure: it returns the new UI state plus any resource Intent.
       ' main is the only place that touches the child map, so all spawning and
-      ' terminating stays here -- and keeping the big keypress ladder in its own
-      ' functions is what holds each function under the AArch64 branch range.
+      ' terminating stays here -- and keeping the big keypress ladder in its
+      ' own functions keeps main itself short.
       LET ui0 AS UiState = UiState[sessions, activeIdx, focus, inputBuf, nextId, modal, modelSel, running]
       LET ks AS KeyStep = handleKey(ui0, key, panelBottom)
       sessions = ks.ui.sessions
