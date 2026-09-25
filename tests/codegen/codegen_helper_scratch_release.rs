@@ -231,8 +231,12 @@ fn assert_package_for(package: &str, target: &str, expected: &[(&str, Counts)]) 
 ///
 /// * `openFile`/`open`/`openFileNoFollow`/`createTempFile` allocate the path
 ///   scratch AND the `File` record they hand back — one free.
-/// * `listDirectory`/`currentDirectory`/`tempDirectory` allocate the scratch (or
-///   the `getcwd` buffer) AND the `String`/`List` result — one free.
+/// * `currentDirectory`/`tempDirectory` allocate the scratch (or the `getcwd`
+///   buffer) AND the `String` result — one free.
+/// * `listDirectory` allocates the path scratch AND the `List` result, and has TWO
+///   guarded frees: the scratch, and the List on the one path that does not return
+///   it — the directory vanishing between the two scans, after the List was sized
+///   (bug-696). That free's pointer is null on every path that returns the List.
 /// * `readText` and `canonicalPath` marshal NOTHING: plan-146-F replaced their
 ///   `len + 1` path copy with a pointer into the argument block's own bytes at
 ///   `+8`, which already end in a NUL (`borrow_cstring`, `os/gen_shared.rs`; the
@@ -270,7 +274,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_fs_flush", (0, 0, 0)),
     ("_mfb_rt_fs_fs_isBuffered", (0, 0, 0)),
     ("_mfb_rt_fs_fs_isWithin", (4, 4, 4)),
-    ("_mfb_rt_fs_fs_listDirectory", (2, 1, 1)),
+    ("_mfb_rt_fs_fs_listDirectory", (2, 2, 2)),
     ("_mfb_rt_fs_fs_open", (2, 1, 1)),
     ("_mfb_rt_fs_fs_openFile", (2, 1, 1)),
     ("_mfb_rt_fs_fs_openFileNoFollow", (2, 1, 1)),
@@ -306,7 +310,19 @@ const FS_HELPERS: &[(&str, Counts)] = &[
 /// allocates only its result: `args`, `environ`, `hostName`, `userName`,
 /// `executablePath`, `name`, `arch`, `appResourcePath`. `os::arch()` being flat is
 /// the report's own contrast row.
+///
+/// plan-156-B/C's four host directories borrow `relative` and allocate only the
+/// joined result — one allocation per base source, of which exactly one runs:
+/// `appDataPath`/`appCachePath` join onto `$XDG_*_HOME` or the home fallback, and
+/// on Linux `userDocumentsPath` onto the `user-dirs.dirs` folder or
+/// `<home>/Documents` (its parser's buffers are frame locals). `userHomePath` has
+/// the one source. None frees: every block is the result. (They landed without
+/// rows here; bug-696 found the file red at `e4e8b0a85` and classified them.)
 const OS_HELPERS: &[(&str, Counts)] = &[
+    ("_mfb_rt_os_os_appCachePath", (2, 0, 0)),
+    ("_mfb_rt_os_os_appDataPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userDocumentsPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userHomePath", (1, 0, 0)),
     ("_mfb_rt_os_os_arch", (1, 0, 0)),
     ("_mfb_rt_os_os_args", (1, 0, 0)),
     ("_mfb_rt_os_os_cpuCount", (0, 0, 0)),
