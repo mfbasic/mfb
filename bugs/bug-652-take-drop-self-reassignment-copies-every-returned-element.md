@@ -506,7 +506,11 @@ Other checks:
   `rt_inplace_field_{loop,mixed,nested}`, `rt_inplace_global_record`,
   `rt_for_each_self_update`, `rt_global_self_update` and `inplace_self_update_census`
   suites all pass.
-- `rt_inplace_self_update` status: see the Phase 3 note.
+- **Not verified here:** `rt_inplace_self_update`, `rt_res_state_inplace_mutation` and
+  `rt_lambda_capture_self_update`. At load average 130–207 the
+  `rt_inplace_self_update` matrix was still building cases (about 9,940 of them) after
+  2h50m. I killed it so the box was not held any longer, and the two suites queued
+  after it never ran. All three are left to the coordinator's full suite.
 
 Commit: —
 
