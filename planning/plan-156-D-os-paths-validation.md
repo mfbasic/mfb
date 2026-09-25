@@ -95,7 +95,7 @@ golden is on the list.
   plan's one full run, per AGENTS.md "never one module" before a re-baseline).
   Result (scoped per Correction D-1): the scoped re-run and the `os`/`fs` artifact
   gates are green (see the task lines); the re-run of `test-accept.sh … 156d2` → `acceptance tests passed (59 test(s) ran)`.
-Commit: {D1}
+Commit: 759fc1379
 
 ### Phase D2: cross-OS runtime sweep
 
