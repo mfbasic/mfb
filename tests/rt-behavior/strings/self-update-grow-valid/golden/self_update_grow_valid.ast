@@ -243,16 +243,16 @@
       "returnType": null,
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "data/x.txt" }, "line": 178 },
-      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 179 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 180 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 179 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 180 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "same", "arguments": [{ "kind": "string", "value": "resourcePath" }, { "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "a" }] }, "line": 181 },
       { "kind": "assignment", "name": "s", "value": { "kind": "string", "value": "" }, "line": 183 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 184 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 185 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 184 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 185 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "same", "arguments": [{ "kind": "string", "value": "resourcePathEmpty" }, { "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "b" }] }, "line": 186 },
       { "kind": "assignment", "name": "g", "value": { "kind": "string", "value": "a/b.txt" }, "line": 188 },
-      { "kind": "binding", "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 189 },
-      { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 190 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 189 },
+      { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 190 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "same", "arguments": [{ "kind": "string", "value": "g.resourcePath" }, { "kind": "identifier", "value": "g" }, { "kind": "identifier", "value": "c" }] }, "line": 191 },
       { "kind": "binding", "mutable": true, "name": "t", "type": "String", "value": { "kind": "string", "value": "x" }, "line": 194 },
       {
@@ -263,7 +263,7 @@
         "step": null,
         "line": 195,
         "body": [
-        { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 196 },
+        { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 196 },
         { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "strings.right", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "1" }] }, "line": 197 }
         ]
       },
@@ -281,7 +281,7 @@
       "returnType": null,
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "../etc/passwd" }, "line": 203 },
-      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 204 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 204 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap.resourceDots NOT RAISED [" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 205 },
       { "kind": "exit", "target": "sub", "code": null, "line": 206 }
       ],

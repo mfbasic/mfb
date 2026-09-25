@@ -1,5 +1,5 @@
 {
-  "project": "func_os_resourcePath_reads_resource",
+  "project": "func_os_appResourcePath_reads_resource",
   "files": [
   {
     "path": "src/main.mfb",
@@ -20,24 +20,34 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "string", "value": "greeting.txt" }] }, "line": 14 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/" }] }] }] }, "line": 15 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/greeting.txt" }] }] }] }, "line": 16 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.trim", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 17 },
-      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "string", "value": "greeting.txt" }] }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 17,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "right": { "kind": "string", "value": ":\\" } }] }] }, "line": 18 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/" }] }] }] }, "line": 20 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "/greeting.txt" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.trim", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
       { "kind": "expression", "expression": {
         "kind": "trapped",
         "binding": "e",
-        "line": 21,
+        "line": 27,
         "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "../secret" }] },
         "handler": [
-        { "kind": "assignment", "name": "bad", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 22 },
-        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 23 }
+        { "kind": "assignment", "name": "bad", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 28 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 29 }
         ]
-      }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] }] }, "line": 25 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "a/b.txt" }] }, { "kind": "string", "value": "/a/b.txt" }] }] }] }, "line": 26 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "call", "callee": "resolve", "arguments": [{ "kind": "string", "value": "a/b.txt" }] }, { "kind": "string", "value": "/a/b.txt" }] }] }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
       ]
     },
     {
@@ -45,13 +55,13 @@
       "visibility": "public",
       "isolated": false,
       "name": "resolve",
-      "line": 30,
+      "line": 36,
       "params": [
-      { "name": "rel", "type": "String", "default": null, "line": 30 }
+      { "name": "rel", "type": "String", "default": null, "line": 36 }
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "identifier", "value": "rel" }] }, "line": 31 }
+      { "kind": "return", "value": { "kind": "call", "callee": "os.appResourcePath", "arguments": [{ "kind": "identifier", "value": "rel" }] }, "line": 37 }
       ]
     }
     ]

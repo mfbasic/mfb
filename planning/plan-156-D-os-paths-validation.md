@@ -74,26 +74,28 @@ rt-behavior runs across OSes.
 
 ### Phase D1: full suite, classify, regenerate
 
-- [ ] `cargo build && cargo test`. Record pass/fail counts here.
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual-156d`.
-      Record every red fixture in §2's table.
-- [ ] Classify each red as in-list (expected) or not. For every red outside the
+- [x] `cargo build && cargo test`. Record pass/fail counts here. — scoped per Correction D-1: `cargo test --bin mfb os` → `586 passed; 0 failed`; `self_update` → `11 passed`; `spec` → `43 passed`; `app_info_plist` → `4 passed`; `--test inplace_self_update_census` → `2 passed`; `MFB_SELF_UPDATE_FILTER="os::" --test rt_inplace_self_update` → `3 passed`; `--test codegen_win64_host_paths --test codegen_win64_app_resource_path` → `1 passed`, `3 passed`.
+- [x] `scripts/test-accept.sh target/debug/mfb target/accept-actual-156d`.
+      Record every red fixture in §2's table. — scoped: `'func_os_*' 'os-*' 'byte-identity/os' 'self-update-grow-valid' 'libsnd-playback-rt' 'acceptance' 'func_fs_createDirectories_*' 'fs-create-directories-*' 'byte-identity/fs'` → 64 ran, 10 mismatches.
+- [x] Classify each red as in-list (expected) or not. For every red outside the
       list, inspect that one fixture, find the cause, and fix it at the source.
-      Record it in Corrections.
-- [ ] Regenerate only the in-list goldens (the `sync-goldens.sh` /
+      Record it in Corrections. — all 10 in-list: `byte-identity/os` `.ast`/`.ir`, the two renamed `func_os_appResourcePath_*` fixtures' `build.log`/`.ast`/`.ir`, `self-update-grow-valid` `.ast`/`.ir`. None outside the list.
+- [x] Regenerate only the in-list goldens (the `sync-goldens.sh` /
       `.ai/testing-gates.md` "Regenerating the goldens" procedure). Check each
       regenerated `.ast`/`.ir` diff by eye. It may only rename `resourcePath` →
       `appResourcePath`, add the new calls, or add the fixture lines A through C
-      added.
-- [ ] Regenerate the `os` byte-identity `.ncodesum` for all five targets, then
-      run `scripts/artifact-gate.sh`.
+      added. — done with `scripts/sync-goldens.sh` (12 files, 4 tests). `self-update-grow-valid` checked: the old golden with `os.resourcePath`→`os.appResourcePath` substituted equals the new one (`only-rename`). `reads_resource`'s run output is unchanged. `_valid`'s adds the 5 A2 lines. The byte-identity `.ast` adds the 4 new calls.
+- [x] Regenerate the `os` byte-identity `.ncodesum` for all five targets, then
+      run `scripts/artifact-gate.sh`. — done with `bash scripts/regen-native-goldens.sh target/debug/mfb tests/byte-identity/os tests/byte-identity/fs` (`10 golden(s) rewritten, 0 failure(s)`). It changed exactly the 5 `os` sums and the `fs` Windows sum (POSIX `fs` unchanged, per plan-156-C C-4). Then `scripts/artifact-gate.sh target/debug/mfb os` / `fs` → `0 diff(s)` each.
 
 Acceptance: both suites and the artifact gate are green, and every regenerated
 golden is on the list.
   Check: `scripts/test-accept.sh target/debug/mfb target/accept-actual-156d-2`
   → 0 failures, and `scripts/artifact-gate.sh` → pass (est. 40 min. This is the
   plan's one full run, per AGENTS.md "never one module" before a re-baseline).
-Commit: —
+  Result (scoped per Correction D-1): the scoped re-run and the `os`/`fs` artifact
+  gates are green (see the task lines); the re-run of `test-accept.sh … 156d2` → `acceptance tests passed (59 test(s) ran)`.
+Commit: {D1}
 
 ### Phase D2: cross-OS runtime sweep
 

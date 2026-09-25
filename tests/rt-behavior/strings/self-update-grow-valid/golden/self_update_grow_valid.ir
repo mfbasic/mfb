@@ -241,16 +241,16 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 178, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "data/x.txt" } },
-    { "op": "bind", "line": 179, "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "s" }] } },
-    { "op": "assign", "line": 180, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 179, "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "assign", "line": 180, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "eval", "line": 181, "value": { "kind": "call", "type": "Nothing", "target": "same", "args": [{ "kind": "const", "type": "String", "value": "resourcePath" }, { "kind": "local", "name": "s" }, { "kind": "local", "name": "a" }] } },
     { "op": "assign", "line": 183, "name": "s", "value": { "kind": "const", "type": "String", "value": "" } },
-    { "op": "bind", "line": 184, "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "s" }] } },
-    { "op": "assign", "line": 185, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 184, "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "assign", "line": 185, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "eval", "line": 186, "value": { "kind": "call", "type": "Nothing", "target": "same", "args": [{ "kind": "const", "type": "String", "value": "resourcePathEmpty" }, { "kind": "local", "name": "s" }, { "kind": "local", "name": "b" }] } },
     { "op": "assignGlobal", "line": 188, "name": "g", "value": { "kind": "const", "type": "String", "value": "a/b.txt" } },
-    { "op": "bind", "line": 189, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "global", "name": "g" }] } },
-    { "op": "assignGlobal", "line": 190, "name": "g", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "global", "name": "g" }] } },
+    { "op": "bind", "line": 189, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "global", "name": "g" }] } },
+    { "op": "assignGlobal", "line": 190, "name": "g", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "global", "name": "g" }] } },
     { "op": "eval", "line": 191, "value": { "kind": "call", "type": "Nothing", "target": "same", "args": [{ "kind": "const", "type": "String", "value": "g.resourcePath" }, { "kind": "global", "name": "g" }, { "kind": "local", "name": "c" }] } },
     { "op": "bind", "line": 194, "mutable": true, "name": "t", "type": "String", "value": { "kind": "const", "type": "String", "value": "x" } },
     { "op": "bind", "line": 195, "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
@@ -265,7 +265,7 @@
       "step": { "kind": "local", "name": "$for_step5" },
       "body": [
       { "op": "bind", "line": 195, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
-      { "op": "assign", "line": 196, "name": "t", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "t" }] } },
+      { "op": "assign", "line": 196, "name": "t", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "t" }] } },
       { "op": "assign", "line": 197, "name": "t", "value": { "kind": "call", "type": "String", "target": "strings.right", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "1" }] } }
       ]
     },
@@ -282,7 +282,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 203, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "../etc/passwd" } },
-    { "op": "assign", "line": 204, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "assign", "line": 204, "name": "s", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "eval", "line": 205, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trap.resourceDots NOT RAISED [" }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
     { "op": "return", "line": 206, "value": null },
     {
