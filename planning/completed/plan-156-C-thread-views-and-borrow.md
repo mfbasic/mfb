@@ -316,7 +316,7 @@ unchanged; the re-baselined tests assert the new behavior.
   `scripts/artifact-gate.sh target/release/mfb all` → "2142 golden(s) checked,
   0 diff(s)" after the two thread fixtures' `.ncodesum` (expected, §3) and
   Correction 8's stale golden were regenerated.
-Commit: a9253dbb5 (code); re-baselines in the next commit
+Commit: a9253dbb5 (code), 21762a894 (re-baselines)
 
 ## Validation Plan
 
