@@ -42,7 +42,8 @@ position, write anything, or close `file`.
 Because determining the length requires seeking, `fs::eof` only works on a
 seekable handle — a regular file on disk. On a pipe, a socket, or another
 non-seekable handle the host cannot report a position or length, and the call
-raises an error instead of returning a `Boolean`.
+raises `ErrReadFailed` instead of returning a `Boolean`. Calling it on a `File`
+that has been closed raises `ErrResourceClosed`.
 
 Use `fs::eof` to guard a read loop so that `fs::readLine` and the other reading
 functions are only called while input remains. This is the intended pattern

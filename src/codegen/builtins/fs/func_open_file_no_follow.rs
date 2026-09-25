@@ -70,7 +70,20 @@ requires a NUL-terminated path.
 
 The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the file and gives you the `File`
-resource."#;
+resource.
+
+An empty `path`, one containing a NUL byte, or a `mode` that is not one of the
+names above raises `ErrInvalidArgument`. When the file cannot be opened the
+error says why: `ErrAccessDenied` if a component of `path` is a symbolic link or
+permission is refused, `ErrPathNotFound` if the file does not exist — or, for a
+mode that creates the file, if a directory above it does not — and
+`ErrInvalidPath` if the path cannot name a file: a name that is too long, or a
+file used as a directory (Windows reports these as `ErrPathNotFound`). Any other
+refusal raises `ErrWriteFailed`; opening a directory to write fails this way,
+and Windows reports it as `ErrAccessDenied`. `ErrOutOfMemory` means the program
+ran out of memory. The table also lists `ErrAlreadyExists` and `ErrResourceBusy`
+because every `fs` function that takes a path reports host refusals through one
+shared set of errors; no mode produces either."#;
 const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path:
 
 ```

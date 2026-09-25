@@ -51,7 +51,15 @@ resolution buffer sized to hold up to `PATH_MAX` bytes plus the terminating NUL
 (`4097`).
 
 The function reads filesystem metadata only; it does not open, create, or modify
-any file and has no other side effects."#;
+any file and has no other side effects.
+
+When `path` cannot be resolved the error says why: `ErrNotFound` if a component
+does not exist, `ErrAccessDenied` if a directory on the way may not be searched,
+and `ErrWriteFailed` for any other failure — a file used as a directory, or a
+loop of symbolic links (Windows reports both as `ErrNotFound`). `ErrOutOfMemory`
+means the program ran out of memory. The table also lists `ErrAlreadyExists`
+because every `fs` function that takes a path reports host refusals through one
+shared set of errors; resolving a path never produces it."#;
 const EX: &str = r#"Resolve a relative path against the working directory:
 
 ```

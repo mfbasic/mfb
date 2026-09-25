@@ -39,7 +39,9 @@ flag clear, so a program that never calls `fs::setBuffered` always observes
 `FALSE` here. The flag becomes `TRUE` after `fs::setBuffered(file, TRUE)` and
 returns to `FALSE` after `fs::setBuffered(file, FALSE)`. Transferring a buffered
 handle to another thread resets it to unbuffered, so the receiving thread again
-observes `FALSE`."#;
+observes `FALSE`.
+
+Calling it on a `File` that has been closed raises `ErrResourceClosed`."#;
 const EX: &str = r#"Enable buffering only when it is not already on:
 
 ```

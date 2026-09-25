@@ -72,7 +72,19 @@ world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 `root` and `relPath` are interpreted as UTF-8 bytes and passed to the host
 filesystem. `root` must resolve to an existing directory (it is canonicalized
 with `realpath`), and neither string may be empty or contain an embedded NUL
-byte. The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`."#;
+byte. The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`.
+
+`ErrInvalidArgument` means `root` or `relPath` is empty or contains a NUL byte,
+`relPath` is absolute or has a `..` component, `mode` is not one of the names
+above, or the joined path is longer than the host allows. When the file cannot
+be opened the error says why: `ErrPathNotFound` if `root` or the file does not
+exist, `ErrAccessDenied` if permission is refused or the open would pass through
+a symbolic link or leave `root`, and `ErrInvalidPath` if the path cannot name a
+file — a name that is too long, or a file used as a directory. Any other refusal
+raises `ErrWriteFailed`. `ErrOutOfMemory` means the program ran out of memory.
+The table also lists `ErrAlreadyExists` and `ErrResourceBusy` because every `fs`
+function that takes a path reports host refusals through one shared set of
+errors; no mode produces either."#;
 const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for reading:
 
 ```

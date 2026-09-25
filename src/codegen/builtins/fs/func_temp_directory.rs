@@ -51,7 +51,10 @@ The source of the path is platform specific:
 
 The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
-configured path."#;
+configured path.
+
+`ErrReadFailed` means the host could not report a temporary directory.
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read and print the host temporary directory:
 
 ```

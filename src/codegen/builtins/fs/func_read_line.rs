@@ -41,7 +41,7 @@ terminator and is also stripped from the returned `String`. A bare CR with no
 following LF is not a terminator and is returned as an ordinary character. When
 the remaining bytes contain no LF, the entire remainder of the file is returned
 as the final line and the position is advanced to end of input; the next call
-then fails with end-of-input.
+then fails with `ErrEndOfFile`.
 
 The returned `String` never includes the terminating LF or the CR of a CRLF pair.
 An empty line (an LF, or a CRLF, with nothing before it) yields an empty `String`
@@ -67,7 +67,11 @@ logical position.
 Thread cancellation is cooperative: a read already waiting on the host is not
 interrupted. A worker that must stop promptly should check
 `thread::isCancelled` between reads rather than expect a blocked one to be cut
-short."#;
+short.
+
+`ErrEndOfFile` means no bytes remain, `ErrEncoding` that the line is not valid
+UTF-8, `ErrReadFailed` that the host read failed, and `ErrResourceClosed` that
+`file` has been closed. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read the first line of a file:
 
 ```

@@ -37,9 +37,10 @@ dereferences the last component: a symlink pointing at an existing target report
 `TRUE`, and a symlink whose target is missing reports `FALSE`.
 
 A failed check — for example a missing path or an unreadable parent directory — is
-reported as `FALSE` rather than raised as an error. The only failure the call
-itself raises is running out of memory while preparing the path of
-`path`.
+reported as `FALSE` rather than raised as an error. The call itself
+raises only `ErrInvalidArgument`, when `path` contains a NUL byte, and
+`ErrOutOfMemory`, when the program runs out of memory. An empty `path` is not an
+error: nothing exists there, so the result is `FALSE`.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
 absolute or relative to the current working directory, and may contain Unicode

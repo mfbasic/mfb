@@ -43,7 +43,7 @@ The file is opened with the append flag set, so every write is positioned at the
 current end of the file. The bytes are written exactly
 as the list holds them. The write is retried until every byte has been written
 or the host reports an output failure, so a short host write that transfers only
-part of the buffer is resumed rather than treated as complete, and an interrupted
+part of the buffer is resumed rather than treated as complete, and an
 interruption never loses or duplicates bytes. An
 empty byte list leaves the file's length unchanged, creating it as an empty file
 if it did not exist. Bytes are written exactly as held in the list, with no
@@ -64,7 +64,17 @@ requires a NUL-terminated path.
 The file is closed before the function returns on both the success and the
 write-failure paths. The append is not atomic: a reader observing the file while
 the write is in progress may see only part of the appended bytes, and a failure
-partway through leaves the file extended by only the bytes written so far."#;
+partway through leaves the file extended by only the bytes written so far.
+
+An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
+the file cannot be opened the error says why: `ErrNotFound` if a directory in
+`path` does not exist, `ErrAccessDenied` if permission is refused, and
+`ErrWriteFailed` for any other refusal — including `path` naming a directory,
+which Windows reports as `ErrAccessDenied`. A failed write, flush to disk or
+close also raises `ErrWriteFailed`. `ErrOutOfMemory` means the program ran out
+of memory. The table also lists `ErrAlreadyExists` because every `fs` function
+that takes a path reports host refusals through one shared set of errors;
+appending to a file never produces it."#;
 const EX: &str = r#"Append a single newline byte to a log file:
 
 ```

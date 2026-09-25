@@ -59,9 +59,16 @@ Unicode characters when the host filesystem accepts those names. It must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of scope leaves
+The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of
 scope, or explicitly with `fs::close`. The file itself is not deleted on close;
-removing it is the caller's responsibility, for example with `fs::deleteFile`."#;
+removing it is the caller's responsibility, for example with `fs::deleteFile`.
+
+An empty `directory`, or one containing a NUL byte, raises `ErrInvalidArgument`.
+When the file cannot be created the error says why: `ErrNotFound` if `directory`
+does not exist, `ErrAccessDenied` if it may not be written, `ErrAlreadyExists`
+if the generated name is already taken — which the random name makes practically
+impossible — and `ErrWriteFailed` for any other failure. `ErrOutOfMemory` means
+the program ran out of memory."#;
 const EX: &str = r#"Create a temporary file in the host temporary directory and write to it:
 
 ```

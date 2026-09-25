@@ -58,7 +58,15 @@ be absolute or relative to the current working directory and may contain Unicode
 characters, including emoji, when the host filesystem accepts those names. The
 string must not be empty and must not contain an embedded NUL byte, because the
 host call cannot carry one. Apart from opening and closing the directory,
-the call only reads the filesystem and has no side effects."#;
+the call only reads the filesystem and has no side effects.
+
+An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
+the directory cannot be opened the error says why: `ErrNotFound` if `path` does
+not exist, `ErrAccessDenied` if it may not be read, and `ErrWriteFailed` for any
+other refusal — including `path` naming a file. `ErrOutOfMemory` means the
+program ran out of memory. The table also lists `ErrAlreadyExists` because every
+`fs` function that takes a path reports host refusals through one shared set of
+errors; listing a directory never produces it."#;
 const EX: &str = r#"Print every entry in a directory in sorted order:
 
 ```

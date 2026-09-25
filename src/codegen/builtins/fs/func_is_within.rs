@@ -60,7 +60,16 @@ This check is inherently subject to a time-of-check/time-of-use race: a
 component of either path can be swapped for a symbolic link after `isWithin`
 returns but before a later `fs::open` acts on the result. When the goal is to
 open a caller-supplied name that cannot escape a trusted root, use
-`fs::openWithin`, which enforces containment atomically at open time."#;
+`fs::openWithin`, which enforces containment atomically at open time.
+
+An empty `base` or `child`, or one containing a NUL byte, raises
+`ErrInvalidArgument`. When either path cannot be resolved the call raises the
+error `fs::canonicalPath` would: `ErrNotFound` if a component does not exist,
+`ErrAccessDenied` if a directory on the way may not be searched, and
+`ErrWriteFailed` for any other failure. `ErrOutOfMemory` means the program ran
+out of memory. The table also lists `ErrAlreadyExists` because every `fs`
+function that takes a path reports host refusals through one shared set of
+errors; resolving a path never produces it."#;
 const EX: &str = r#"Guard against escaping a root directory:
 
 ```

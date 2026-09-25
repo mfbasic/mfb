@@ -54,7 +54,9 @@ another non-seekable handle the call raises `ErrReadFailed`. Calling it on a
 `File` that has already been closed raises `ErrResourceClosed`. No decoding or
 UTF-8 validation is performed, so the bytes come back exactly as stored, suitable
 for binary data. To learn how many bytes a file holds before reading, use
-`fs::size`. To read a whole file by path in one call, use `fs::readBytes`."#;
+`fs::size`. To read a whole file by path in one call, use `fs::readBytes`.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read ten bytes from the middle of a file without reading the rest:
 
 ```
