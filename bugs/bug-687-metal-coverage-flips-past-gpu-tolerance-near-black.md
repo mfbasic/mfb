@@ -130,7 +130,7 @@ without a new owner decision.
 | {251/97} over black | **FAIL** 3,567 px, max delta 4 | **FAIL** worst 4, 1.36%, first (373, 261) | **FAIL** worst 4, 1.36%, first (373, 261) |
 | {301/97} over black | **FAIL** 3,394 px, max delta 4 | **FAIL** worst 4, 1.39%, first (370, 183) | **FAIL** worst 4, 1.39%, first (370, 183) |
 | {301/2} over black | **FAIL** 103 px, max delta 3 | **FAIL** worst 3, 0.03%, first (270, 318) | **FAIL** worst 3, 0.03%, first (270, 318) |
-| `LARGE_POLYGONS` over black | ok (worst 1, 0.08%) | **FAIL** worst 4, 0.19%, first (736, 52) — bug-688's pixel | see below |
+| `LARGE_POLYGONS` over black | ok (worst 1, 0.08%) | **FAIL** worst 4, 0.19%, first (736, 52) — bug-688's pixel | **FAIL** worst 4, 0.19%, first (736, 52) |
 
 Vulkan: `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64
 --rows star251x97,star301x97,star301x2,polygonsblack` (and `--target windows-x86_64`).
