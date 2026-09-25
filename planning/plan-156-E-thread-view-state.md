@@ -94,14 +94,24 @@ See plan-156-A. Additionally:
 
 ### Phase 1 — failing tests
 
-- [ ] `tests/rt-behavior/threads/bug693-worker-state/`: bug-693's
+- [x] `tests/rt-behavior/threads/bug693-worker-state/`: bug-693's
       reproduction, expecting 5.
-- [ ] `tests/rt-behavior/threads/thread-view-state-independent/`: parent and
+      (Today: "error: native code WITH target 'Unknown' is not a record while
+      lowering state assign worker", no executable.)
+- [x] `tests/rt-behavior/threads/thread-view-state-independent/`: parent and
       worker STATE, each side printing only its own values.
+      (Parent `STATE P {n}`, worker `STATE W {n, label}` — different types.
+      Expected `parent starts at 0`, `parent 7`, `worker 10`, `parent still 7`.
+      Today: `MFB_PARSE_UNEXPECTED_TOKEN` at the worker's `STATE` without
+      `RES`, reached before the binding's `TYPE_BINDING_MISMATCH` the plan
+      predicted — Correction 1.)
 
 Acceptance: both fail (an internal error and `TYPE_BINDING_MISMATCH`).
   Check: `bash scripts/test-accept.sh target/release/mfb $(mktemp -d) 'rt-behavior/threads/bug693-*' 'rt-behavior/threads/thread-view-state-*'`
   → 2 failures (est. 1 min).
+  Result: "acceptance tests failed: 4 mismatch(es) (2 test(s) ran)" — both
+  `build.log`s, plus bug-693's `.ast`/`.ir`, which exist once it parses and are
+  recorded in Phase 2.
 Commit: —
 
 ### Phase 2 — parse, type, store
@@ -126,6 +136,15 @@ Commit: —
 - Final gate: at the end of F.
 
 ## Corrections
+
+1. **The corpus count, and the second failure's reason.** The Summary's
+   `rg -n 'Thread(Worker)? OF .*TO .* STATE' tests examples src/docs` finds 5
+   files, all false positives: a resource-plane `STATE` (`RES X STATE S TO O`)
+   or a second `STATE` later on the same line. Anchored to a `STATE` directly
+   after the output type (`TO <Out> STATE`), the count outside the two new
+   fixtures is 0, so nothing relies on the old binding to `out`. The
+   independent-state fixture fails at parse, on the worker's `STATE` without
+   `RES`, rather than on the binding's type.
 
 ## Summary
 

@@ -1,0 +1,21 @@
+IMPORT io
+IMPORT thread
+
+' bug-693: a thread type's trailing STATE bound to its output type, and a write
+' to the worker's state crashed the compiler. STATE belongs to the handle: each
+' view carries its own, and a worker declares its view's in its entry signature.
+
+TYPE W
+  n AS Integer
+END TYPE
+
+ISOLATED FUNC work(RES worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer
+  worker.state.n = 3
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET t = thread::start(work, 5)
+  io::print(toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

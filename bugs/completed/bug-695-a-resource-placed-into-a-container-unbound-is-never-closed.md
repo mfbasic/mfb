@@ -9,7 +9,7 @@ Status: Fixed
 Regression Test: tests/runtime/rt_scope_drop_leaks.rs
 (`a_resource_temporary_in_a_container_is_closed`)
 
-## STATUS: FIXED (see the commit that archives this document)
+## STATUS: FIXED (7eab44946)
 
 A new IR-lowering pass, `ir/resource_hoist.rs`, names each such temporary before
 the escape analysis runs: a producer call in an element position whose type is a
