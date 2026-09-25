@@ -1,12 +1,12 @@
 # bug-696: every Windows `os::getEnv*`/`hasEnv` call leaks 256 KiB and every Windows path call leaks 64 KiB — the backend's UTF-16 marshalling buffers are never freed
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Memory-safety (leak)
 
 Status: Open
-Regression Test: none yet — a Windows-executed runtime test (Phase 1)
+Regression Test: `scripts/test-winleak.sh` (box 2230); `marshal_ownership_tests` in `src/target/win_x86_64/code.rs`
 
 The Windows x86-64 backend marshals UTF-8 strings to and from UTF-16 through
 scratch buffers it allocates from the arena, and it never frees any of them.
@@ -100,22 +100,115 @@ preserved. Right-size where it is cheap (a path needs `2 × (len + 1)` bytes, no
 
 ### Phase 1 — failing test + audit
 
-- [ ] A Windows-executed runtime check of the reproduction (the project runs
-      Windows proofs on box 2230; see `.ai/testing-gates.md`).
-- [ ] The per-site audit above.
+- [x] A Windows-executed runtime check of the reproduction:
+      `scripts/test-winleak.sh <mfb>` runs 23 modes (one per seam, and one per
+      shared consumer of a returned buffer) with 1 and 25 calls on box 2230 and
+      requires equal `arena.0.live_bytes`. RED at `e4e8b0a85`: all 23 leaked,
+      from 8,192 B/call (`appDataPath`) to 393,216 B/call (`openWithin`), and
+      `environ` produced no report at all (see Finding 1). Plus two static tests
+      in `src/target/win_x86_64/code.rs` (`marshal_ownership_tests`), a
+      path-sensitive alloc-minus-free walk over each seam's instructions: RED on
+      13 scratch-only seams and 6 result-returning ones.
+- [x] The per-site audit — every allocation in `code.rs`, who reads it last, and
+      where it is now freed:
 
-Commit: —
+| Seam | Buffer(s) | Last reader | Freed |
+| --- | --- | --- | --- |
+| `emit_marshal_path` (exists, stat, fs op, open, rename ×2, opendir, realpath) | wide path, now `2 × (len + 1)` | the seam's Win32 call | by each seam, after the call |
+| `emit_dir_path_query` (currentDirectory, tempDirectory) | 64 KiB wide out | the seam's conversion | the seam |
+| `emit_realpath` | wide in + 64 KiB wide out | the seam | the seam (the input pointer moves off `[0x38]`, which the conversion's 8th stack argument reuses) |
+| `emit_verify_nofollow` / `emit_verify_within` | 3 wide buffers each | the seam | the seam (`verify_within`'s frame grew 0x70 → 0x80 for the answer slot) |
+| `emit_mkstemps` | wide template, sized once | the retry loop | the seam, on both exits |
+| `emit_env_set` | wide name, wide value | `SetEnvironmentVariableW` | the seam; the value on its own arm |
+| `emit_env_get` | wide name, 64 KiB wide value; UTF-8 value | seam; **consumer** | seam; `lower_get_env` / `lower_has_env` via `emit_release_marshalled` |
+| `emit_os_wide_string` (host, user, exe) | 4 KiB wide; UTF-8 answer | seam; **consumer** | seam; `lower_os_wide_string_windows`, `lower_app_resource_path` |
+| `emit_known_folder_query` | UTF-8 answer (wide is `CoTaskMem`) | **consumer** | `lower_host_dir`'s Windows `Join` arm; the seam on a failed conversion |
+| `emit_environ_pointer` | pointer array + one string per entry → now ONE block | **consumer** | `lower_environ` |
+| `emit_opendir` | wide pattern; `DIR` | seam; `readdir` loop | seam; `emit_closedir` (and `emit_opendir` when the search fails) |
+| `emit_build_argv_utf8` | argv array + one UTF-8 string per argument | `os::args`, for the process's life | never — each string now sized to its argument instead of 128 KiB |
+
+Every result buffer is now sized to its content (a measuring
+`WideCharToMultiByte`) and every buffer carries an 8-byte size header
+(`MARSHAL_HEADER`), so a consumer frees it without tracking the size.
+
+Commit: `05296eca3` (the `marshal_ownership_tests`), `ab490d531`
+(`scripts/test-winleak.sh`)
 
 ### Phase 2 — the fix
 
-Commit: —
+- [x] Seams free their scratch; results are one sized block the consumer
+      releases (`CodegenPlatform::emit_release_marshalled`, called from
+      `emit_release_marshalled_result` at each consumer's single exit with the
+      result registers carried across).
+- [x] Finding 1 (below) fixed by the `emit_environ_pointer` rewrite.
+- [x] Finding 2 fixed in `emit_env_get` (+ the `SetLastError` import).
+- [x] Finding 3 fixed in `lower_fs_list_directory_helper`.
+- [x] Finding 4: the spec's `getEnvOr` sentence corrected.
+
+Commit: `05296eca3` (seams, consumers, Findings 1–2), `8eb5f7031` (Finding 3),
+`de1e8ff38` (spec, Finding 4)
 
 ### Phase 3 — goldens + validation
 
-- [ ] Regenerate the `windows-x86_64` goldens; confirm only the added frees.
-- [ ] Full suite; the reproduction on 2230.
+- [x] Regenerate the goldens the change moves; confirm only the intended change.
+      `artifact-gate.sh <mfb> all`: 9 of 2142 moved, each localized per function
+      against a compiler built at `e4e8b0a85` — `fs::listDirectory` alone on
+      macOS/Linux; on Windows only the helpers that inline the reworked seams
+      (`fs` path members, `os` env/introspection members and `_main`'s argv
+      build, and the `fs` helpers `http`/`thread`/`app_mouse_surface` embed).
+      After merging `main` (`505e9930e`, then `d55df2748`): 0 diffs over 2142.
+- [x] The reproduction on 2230 now reads, for every mode, `alloc_calls ==
+      free_calls` and `live_bytes 0` (`none` 7/7, `env` 407/407, `has` 307/307,
+      `fs` 207/207 — before: 26,476,544 / 26,476,544 / 6,815,744 live).
+      `test-winleak.sh`, `test-winprocess.sh` and `test-winapp.sh` pass on 2230.
+- [ ] Full suite — **partial**. The first full `cargo test --no-fail-fast` (pre-
+      `main`-merge) completed: every target green except
+      `codegen_helper_scratch_release` (fixed in `d264ddf05`: the listDirectory
+      row moved as intended, and the `os` table was already red at `e4e8b0a85`)
+      and `rt_compress_bounds::decode_time_is_linear_in_output_size`, a timing
+      ratio that also fails at `e4e8b0a85` under load (2 of 3 there, 0 of 3 here
+      in alternating runs) and whose program compiles byte-identically before and
+      after. After the second `main` merge (`d55df2748`, which folded bug-694's
+      `emit_realpath` rewrite into these seams) the full run was stopped at the
+      user's request; the fs/os/Windows subset ran instead, all green: 18 test
+      targets (205 tests: every `rt_fs_*`, `rt_scope_drop_leaks`,
+      `rt_debug_arena`, `codegen_helper_scratch_release`, the
+      `codegen_win64_*`/`cli_windows_*`/`cli_process_windows_build` targets,
+      `rt_process_spawn_env_replace_bogus_environ`,
+      `inplace_self_update_census`) and the `--bin mfb` filters `win_x86_64`
+      (40), `fs_declared_errors` (3, bug-694's C6 regression included),
+      `builtins::os`, `platform_failure`, `platform_hooks`, `field_kind_census`;
+      plus `test-winleak.sh` and a `canonicalPath` probe on 2230 (a missing path
+      still raises `ErrNotFound` through the frees).
 
-Commit: —
+Commit: `d264ddf05` (scratch-release table), `427d04a4a` (9 `.ncodesum`),
+`505e9930e` and `d55df2748` (merges of `main`)
+
+## Findings along the way
+
+1. **`os::environ` crashed every Windows program that called it** — measured at
+   `e4e8b0a85`: one call exits `-1073741819` (`0xC0000005`) on 2230, before any
+   output. The old `emit_environ_pointer` kept its loop state in the fixed
+   `SCRATCH` pool, whose Win64 realizations include the callee-saved
+   `rbx`/`rsi`/`rdi`, and staged `_mfb_arena_alloc`'s alignment argument in
+   `SCRATCH[1]` instead of `ARG[1]`. Which of the two faulted was not isolated;
+   the rewrite removes both (only `ARG[0..3]` and frame slots), and `environ`
+   now runs 25 times with the right values (`test-winleak.sh`'s `environ` and
+   `values` rows).
+2. **A Windows variable set to `""` read as unset** — measured on 2230:
+   `os::setEnv("X", "")` then `os::hasEnv("X")` → `FALSE`, `os::getEnvOr("X",
+   "FALLBACK")` → `"FALLBACK"`, while `os::environ()` listed it and macOS
+   answers `TRUE` / `""`. `GetEnvironmentVariableW` returns 0 for both; only
+   `GetLastError() == ERROR_ENVVAR_NOT_FOUND` means unset, and the call does not
+   clear the last error on success. Now cleared first and checked.
+3. **`fs::listDirectory` leaked its List on every target** when the directory
+   went away between its two scans: the second `opendir` failing jumped to the
+   error tail after the List was allocated. The List now rides the same
+   `done`-exit release as the marshalled path. Not reproduced at runtime (it
+   needs the directory removed between two consecutive `opendir`s); fixed by
+   construction.
+4. **`mfb spec stdlib os` said `os::getEnvOr` cannot tell unset from `""`** —
+   wrong: it returns `""`, not the fallback (measured on macOS). Corrected.
 
 ## Validation Plan
 
