@@ -287,7 +287,8 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_getentropy".to_string(),
                 required_by: required_by.clone(),
             }],
-            "datetime.nowNanos" | "datetime.monotonicNanos" => vec![PlatformImport {
+            // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_clock_gettime".to_string(),
                 required_by: required_by.clone(),
@@ -871,6 +872,8 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"

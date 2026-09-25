@@ -140,6 +140,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.surfaceHeight",
     "canvas.displayMilliHz",
     "canvas.setDisplayOverride",
+    "canvas.notePresent",
+    "canvas.frameCounters",
     "canvas.setGpuMode",
     "canvas.useGpu",
     "canvas.metalAvailable",

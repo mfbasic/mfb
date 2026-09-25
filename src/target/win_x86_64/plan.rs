@@ -220,7 +220,9 @@ impl NativePlanPlatform for Platform {
             // ===== plan-66 A/B/C/D import arms, dropped by the stale main→P-66
             // merge (same as the mod.rs advertising); restored. =====
             // Phase A — datetime (no libc clocks on Windows).
-            "datetime.monotonicNanos" => vec![
+            // plan-155-B: `canvas::frameNanos` is the same clock body, and since
+            // `canvas::getFrameStats` it runs in every build, not only `--debug`.
+            "datetime.monotonicNanos" | "canvas.frameNanos" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],
@@ -560,6 +562,8 @@ impl NativePlanPlatform for Platform {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"

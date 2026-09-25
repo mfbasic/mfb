@@ -41,8 +41,8 @@ See plan-155-A for the feature-wide prerequisites.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-155-A complete | `ls planning/plan-155-A-*` → no match (archived) | NOT MET |
-| `displayMilliHz` exists | `grep -n '"displayMilliHz"' src/codegen/builtins/canvas/func_graphics.rs` → 1 match | NOT MET |
+| plan-155-A complete | `ls planning/plan-155-A-*` → no match (archived) | MET (2026-09-24: `no matches found`) |
+| `displayMilliHz` exists | `grep -n '"displayMilliHz"' src/codegen/builtins/canvas/func_graphics.rs` → 1 match | MET (2026-09-24: `510:        "displayMilliHz",`) |
 
 If plan-155-A is not complete, this plan cannot start, full stop.
 
@@ -260,37 +260,57 @@ re-baseline those lines only.
 
 ### Phase 1 — storage and recording (internal only)
 
-- [ ] `runtime/canvas/mod.rs`: add the §3 offsets and set
+- [x] `runtime/canvas/mod.rs`: add the §3 offsets and set
       `GRAPHICS_STATE_SIZE` to 1896. Add `emit_note_present`, extend
       `emit_frame_done` with the `drew` / renderer / nanos arguments, and add
-      `emit_frame_counters` (with the `STARTED` check).
-- [ ] `func_graphics.rs`: register internal `notePresent`, the new
-      `frameDone` parameters, and `frameCounters`.
-- [ ] `func_present.rs` and `func_present_layers.rs`: move `ensureGraphics`
-      ahead of the `IF` and add `canvas::notePresent()`.
-- [ ] `helper_render.rs`: set `__CANVAS_LAST_DREW` and
+      `emit_frame_counters` (with the `STARTED` check). → the offsets are derived
+      from `FRAME_RING_SLOTS` (824…1888, size 1896 as planned); `frameDone`,
+      `notePresent` and `frameCounters` take `now` as an argument (Corrections 1).
+- [x] `func_graphics.rs`: register internal `notePresent`, the new
+      `frameDone` parameters, and `frameCounters`. Arguments are copied into vregs
+      first: they arrive in argument registers the mutex call clobbers.
+- [x] (added) List `canvas.notePresent` / `canvas.frameCounters` per target and on the
+      three pthread import arms; add `canvas.frameNanos` to each platform's
+      `datetime.monotonicNanos` import arm; license `canvas.frameCounters` in
+      `every_block_returning_runtime_helper_is_classified` (Corrections 2, 3).
+- [x] `func_present.rs` and `func_present_layers.rs`: move `ensureGraphics`
+      ahead of the `IF` and add `canvas::notePresent()`. → in `presentLayers` the `IF`
+      *is* `publishLayers`, which carries the mode gate, so its result is bound first
+      and the two calls follow it (Corrections 4).
+- [x] `helper_render.rs`: set `__CANVAS_LAST_DREW` and
       `__CANVAS_LAST_RENDERER` on every return path of
       `__canvas_renderFrame` (Metal, Vulkan, software, skip), time the call,
-      and pass all three to `frameDone`.
-- [ ] Check that the move changed nothing covered: run the full canvas
-      runtime set, because the change touches every present.
+      and pass all three to `frameDone`. → reset to FALSE/0 at the top (covers the
+      skip), set on each backend's success; the globals live beside
+      `__CANVAS_SKIPPED` in `helper_damage.rs`.
+- [x] Check that the move changed nothing covered: run the full canvas
+      runtime set, because the change touches every present. → `cargo test --test
+      'rt_canvas_*'` on a Phase-1-only binary: 15 suites, 205 passed, 0 failed,
+      4 ignored.
 
 Acceptance: every existing canvas runtime test still passes.
   Check: `cargo test --test 'rt_canvas_*'` → all pass (est. 12 min; the moved
   `ensureGraphics` changes when the thread starts on every present path, and
   no single file covers all of them).
-Commit: —
+  Verified: 205 passed, 0 failed (15 suites).
+Commit: see Phase 2 (Corrections 5)
 
 ### Phase 2 — the public record and function
 
-- [ ] `canvas/mod.rs`: register `Renderer` (Software, Metal, Vulkan) and
+- [x] `canvas/mod.rs`: register `Renderer` (Software, Metal, Vulkan) and
       `FrameStats`, with `description` prose per field.
-- [ ] Add `func_get_frame_stats.rs`, whose MFBASIC body builds the record from
+- [x] Add `func_get_frame_stats.rs`, whose MFBASIC body builds the record from
       `frameCounters()` through `__canvas_rate`. Register it in
-      `mod.rs:register`.
-- [ ] Read `__canvas_renderMetal` for the direct-present path (§2
-      UNVERIFIED) and record the answer in Corrections.
-- [ ] Tests, in a new `tests/canvas/rt_canvas_frame_stats.rs` (a `[[test]]`
+      `mod.rs:register`. → the body is generated from `FRAME_RING_SLOTS` /
+      `FRAME_COUNTER_HEADER_WORDS` so the ring width and word order exist once.
+- [x] (added) `__canvas_readDisplayOverride`: the `MFB_CANVAS_DISPLAY_HZ` read moved
+      out of `ensureGraphics` into a once-only helper `getFrameStats` also calls, or
+      `before_any_present_every_field_is_zero` could not see the override
+      (Corrections 6).
+- [x] Read `__canvas_renderMetal` for the direct-present path (§2
+      UNVERIFIED) and record the answer in Corrections. → it returns `TRUE` from
+      `__canvas_renderMetal` like a readback frame (Corrections 7).
+- [x] Tests, in a new `tests/canvas/rt_canvas_frame_stats.rs` (a `[[test]]`
       entry in `Cargo.toml` beside `rt_canvas_graphics_thread`), headless and
       cross-platform:
       - `before_any_present_every_field_is_zero`: every field is 0 and
@@ -309,23 +329,36 @@ Commit: —
       - `frame_seconds_and_renderer_after_a_drawn_frame`: under SYNC,
         `frameSeconds > 0` and `renderer = Software`. With `MFB_CANVAS_GPU=1`
         on macOS, `Metal`, gated like the existing Metal cases.
-- [ ] Man page: `intro`, `desc` and `example` on `getFrameStats`, following
+      → `cargo test --test rt_canvas_frame_stats` → 6 passed (126.8 s). The Metal arm
+      is gated on the stats line's `metalReady=TRUE`, which this Mac reports, so it
+      asserted `renderer=metal`.
+- [x] Man page: `intro`, `desc` and `example` on `getFrameStats`, following
       `.ai/man-content.md`. The desc says plainly that a static scene reports
       `fps = 0`, and that `fps` below `pps` means presents are arriving faster
       than frames are drawn. Add `getFrameStats` to
-      `tests/cli/cli_canvas_man_examples_compile.rs:MEMBERS`.
-- [ ] Spec, `src/docs/spec/app/06_canvas.md` "Rendering conventions": what
+      `tests/cli/cli_canvas_man_examples_compile.rs:MEMBERS`. → the example prints
+      `presents: 30` (`scripts/man-run-examples.sh canvas --run getFrameStats`);
+      `cargo test --test cli_canvas_man_examples_compile` → 1 passed;
+      `scripts/man-census.sh --memory-scope` → 0 unclassified.
+- [x] Spec, `src/docs/spec/app/06_canvas.md` "Rendering conventions": what
       each field counts, the one-second window, and the 64-entry saturation
       rule, cited to `[[src/codegen/runtime/canvas/mod.rs:emit_frame_counters]]`
       and the `__canvas_rate` helper.
-- [ ] `.ai/canvas-threading.md`: a new §15 on frame statistics (the two rings,
+- [x] `.ai/canvas-threading.md`: a new §15 on frame statistics (the two rings,
       single-lock snapshot, why they are not MFBASIC globals).
+- [x] (added) Goldens: the canvas sentinel's `.ir` (the two new types, the new calls,
+      line shifts), `.nir`, `.nplan` (the new calls; `_clock_gettime` for
+      `canvas.frameNanos`) and four `.app.ncodesum`; no other app golden moved
+      (`check-app-sums`). `scripts/test-accept.sh … 'app-*' 'macos-app-mode-*' 'app_*'`
+      → passed. Unit: `cargo test --bin mfb canvas` 97, `registry` 97, `target::` 219,
+      `man` 313 — all passed.
 
 Acceptance: the six tests pass; the man page renders and its example runs.
   Check: `cargo test --test rt_canvas_frame_stats` → 6 passed (est. 4 min);
   `scripts/man-run-examples.sh canvas --run` → all pass (est. 3 min);
   `cargo test --bin mfb spec` → pass, and `scripts/spec-census.sh --citations`
   → `MISS-SYMBOL 0` (est. 3 min).
+  Verified: 6 passed; `scripts/man-run-examples.sh canvas --run` → examples 30, built 30, ran 30, failed 0; spec 44 passed; `MISS-SYMBOL 0`.
 Commit: —
 
 ## Validation Plan
@@ -353,7 +386,39 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **`now` is an argument.** `notePresent`, `frameDone` and `frameCounters` were
+   specified to read `frameNanos` themselves; they take it as an `Integer` argument
+   the MFBASIC caller evaluates with `canvas::frameNanos()`, so no native emitter
+   carries a per-platform clock sequence. `frameDone` therefore has four parameters
+   (`drew`, `renderer`, `renderNanos`, `now`), not three. The present timestamp is taken
+   just before the lock, which is the same instant to within the lock's cost.
+2. **Per-target call lists and import arms** (as plan-155-A Correction 4 predicted):
+   the two new calls are listed in `src/target/{macos_aarch64,linux_common,win_x86_64}/mod.rs`
+   and added to each platform's pthread arm in `plan.rs`.
+3. **`canvas::frameNanos` now runs in every build.** It was reached only from the
+   `--debug` phase timers, so no platform declared imports for it; with it on the
+   present path, `the_canvas_program_lowers_on_every_app_capable_backend` failed on
+   Windows ("runtime helper requires QueryPerformanceCounter import"). It joined each
+   platform's `datetime.monotonicNanos` arm — the same `lower_monotonic_nanos` body.
+   `every_block_returning_runtime_helper_is_classified` also needed `canvas.frameCounters`
+   licensed: it arena-allocates its list on the calling thread and returns the only
+   pointer, which is the licence the test asks to be confirmed.
+4. **`presentLayers`.** "Move `ensureGraphics` ahead of the `IF`" would, there, put it
+   ahead of `publishLayers` — the call carrying the `Mode.Canvas` gate — and start a
+   render thread for a program in the wrong mode. `publishLayers`' result is bound to
+   `installed` first, and `ensureGraphics` + `notePresent` follow it.
+5. **Phases 1 and 2 landed in one commit.** Phase 2 was written while Phase 1's 12-minute
+   check ran against a binary built before any Phase 2 edit; both phases' goldens
+   (the canvas sentinel) move again in Phase 2, so one re-baseline serves both. Phase 1's
+   check result is from the Phase-1-only binary.
+6. **The display override is read by `getFrameStats` too.** It was read only in
+   `__canvas_ensureGraphics`, i.e. at the first present, so a snapshot taken before any
+   present — this plan's first test — reported the platform's rate (120 on this Mac,
+   whose headless reconcile publishes the main screen) instead of the override.
+   `__canvas_readDisplayOverride` reads it once, whichever asks first.
+7. **Direct present (§2 UNVERIFIED).** `__canvas_renderMetal` returns `TRUE` after a
+   successful `canvas::metalPresentScene` exactly as after a readback frame, so the
+   render loop tags both `Metal` (1). Settled by reading it; the spec says so.
 
 ## Summary
 

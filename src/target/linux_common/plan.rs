@@ -241,7 +241,8 @@ impl LinuxPlan<'_> {
         let mut imports = sigpipe_imports;
         imports.extend(match spec.call {
             "crypto.randomBytes" => vec![self.libc_import("getentropy", required_by)],
-            "datetime.nowNanos" | "datetime.monotonicNanos" => {
+            // `canvas.frameNanos` (plan-155-B): the same clock body as monotonicNanos.
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "canvas.frameNanos" => {
                 vec![self.libc_import("clock_gettime", required_by)]
             }
             "datetime.localOffset" => vec![self.libc_import("localtime_r", required_by)],
@@ -567,6 +568,8 @@ impl LinuxPlan<'_> {
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
+            | "canvas.notePresent"
+            | "canvas.frameCounters"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
             | "canvas.setGpuMode"

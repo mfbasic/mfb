@@ -373,6 +373,48 @@ across its width; mixing the encoded bytes directly would make it dark for most 
 length, which is the same error as blending encoded bytes and is just as plausible-
 looking.
 
+**Frame statistics are two event logs, read in one critical section.**
+`canvas::getFrameStats` reports two different counts, and they are written by
+different threads:
+
+- **Presents.** Every `present` and `presentLayers` call is logged by the worker,
+  including an identical re-present that publishes nothing.
+- **Drawn frames.** A frame a backend actually drew is logged by the graphics
+  thread when the frame completes. A wake-up whose damage is empty is not logged.
+  Nor is anything logged for a resize or an expose that redraws nothing.
+
+Each log is a running total, plus a ring of the last 64 monotonic timestamps with
+its head. All of it lives in the process-global graphics state, since the worker
+cannot see the graphics thread's globals. It is written and read only under the
+graphics mutex, which the frame-completion path already takes, so the drawn log adds
+no lock. `canvas::frameCounters` copies both logs, the last frame's render time and
+renderer, and the display rate in one critical section. Before the graphics thread
+starts it copies without the lock: at that point nothing has written a word.
+[[src/codegen/runtime/canvas/mod.rs:emit_note_present]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_done]]
+[[src/codegen/runtime/canvas/mod.rs:emit_frame_counters]]
+
+A rate is over the trailing second, counted from one log's ring:
+
+- **The ring has not saturated.** If fewer than 64 held entries are newer than
+  `now - 1 s`, the rate is exactly that count.
+- **The ring has saturated.** If all 64 are newer, the ring spans less than a
+  second, and the rate is `63 / (newest - oldest)`. A loop that presents thousands
+  of times a second is then measured, not reported as 64.
+
+Either way the rate is 0 one second after the last event. `dt` is the gap between
+the two newest present timestamps, and 0 before the second present. `renderer` is
+the backend that returned the drawn frame: `Software` (0), `Metal` (1, including a
+frame presented straight to the window's layer) or `Vulkan` (2). It reads
+`Software` before the first frame.
+[[src/codegen/builtins/canvas/func_get_frame_stats.rs:body]]
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_LOOP]]
+
+Both wrappers call `__canvas_ensureGraphics` and then log the present
+**unconditionally**, ahead of their publish test. So the first present of any scene
+starts the graphics thread, even one identical to the empty initial scene.
+[[src/codegen/builtins/canvas/func_present.rs:BODY]]
+
 ## Named groups
 
 `canvas::setGroup(name, items)` installs a list of items under a name;

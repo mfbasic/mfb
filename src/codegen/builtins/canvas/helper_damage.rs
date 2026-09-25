@@ -45,6 +45,11 @@ MUT __CANVAS_KEPT_W AS Integer = 0
 MUT __CANVAS_KEPT_H AS Integer = 0
 MUT __CANVAS_FRAMES AS Integer = 0
 MUT __CANVAS_SKIPPED AS Integer = 0
+' plan-155-B: what the frame `__canvas_renderFrame` just finished did -- whether a
+' backend drew it, and the `canvas::Renderer` ordinal that did. Graphics-thread globals,
+' read by the render loop right after the call and handed to `canvas::frameDone`.
+MUT __CANVAS_LAST_DREW AS Boolean = FALSE
+MUT __CANVAS_LAST_RENDERER AS Integer = 0
 MUT __CANVAS_PARTIAL AS Integer = 0
 ' Frames a GPU backend actually rendered (plan-116-F).
 '

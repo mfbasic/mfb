@@ -1079,13 +1079,23 @@ FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
     canvas::setGpuMode(__canvas_wantGpu())
-    ' plan-155-A: a test affordance, off by default -- pin the display rate the
-    ' runtime reports, since a headless run has no monitor to ask.
-    canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
+    __canvas_readDisplayOverride()
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF
 END FUNC
+
+' plan-155-A: a test affordance, off by default -- pin the display rate the runtime
+' reports, since a headless run has no monitor to ask. Read once, by whichever asks
+' first: the first present, or (plan-155-B) a `canvas::getFrameStats` made before it.
+MUT __CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = FALSE
+
+SUB __canvas_readDisplayOverride()
+  IF NOT __CANVAS_DISPLAY_OVERRIDE_READ THEN
+    canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
+    __CANVAS_DISPLAY_OVERRIDE_READ = TRUE
+  END IF
+END SUB
 
 FUNC __canvas_wantGpu() AS Boolean
   LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
@@ -1103,12 +1113,20 @@ macro_rules! render_loop_head {
     () => {
         r#"FUNC __canvas_renderLoop() AS Nothing
   WHILE canvas::waitForRedraw()
+    ' plan-155-B: time the frame and report whether -- and by which renderer -- it
+    ' was drawn, for `canvas::getFrameStats`. `__canvas_renderFrame` sets the two
+    ' globals on every path out of it.
+    LET started AS Integer = canvas::frameNanos()
     __canvas_renderFrame()
-    canvas::frameDone()
+    LET finished AS Integer = canvas::frameNanos()
+    canvas::frameDone(__CANVAS_LAST_DREW, __CANVAS_LAST_RENDERER, finished - started, finished)
   END WHILE
 END FUNC
 
 FUNC __canvas_renderFrame() AS Nothing
+  ' Not drawn until a backend says so: the skip below returns with these unchanged.
+  __CANVAS_LAST_DREW = FALSE
+  __CANVAS_LAST_RENDERER = 0
   LET size AS Size = __canvas_surfaceSize()
   __canvas_phaseMark(0)
   ' The geometry is built once, here, and the offsets are then handed to whichever
@@ -1179,19 +1197,27 @@ macro_rules! render_loop_tail {
   ' honest reading here -- the capability the plan named (`VK_KHR_incremental_present`,
   ' Metal dirty rects) belongs to presenting a swapchain drawable, which this renderer
   ' does not do at all (Correction 24).
+  ' plan-155-B: the renderer ordinals are `canvas::Renderer`'s -- 0 Software, 1 Metal,
+  ' 2 Vulkan. A GPU arm that declines leaves them for the next arm to set.
   IF canvas::useGpu() AND canvas::metalReady() THEN
     IF __canvas_renderMetal(offsets, size.width, size.height) THEN
+      __CANVAS_LAST_DREW = TRUE
+      __CANVAS_LAST_RENDERER = 1
       __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   IF canvas::useGpu() AND canvas::vulkanReady() THEN
     IF __canvas_renderVulkan(offsets, size.width, size.height) THEN
+      __CANVAS_LAST_DREW = TRUE
+      __CANVAS_LAST_RENDERER = 2
       __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
   __canvas_renderScene(offsets, damage, size.width, size.height)
+  __CANVAS_LAST_DREW = TRUE
+  __CANVAS_LAST_RENDERER = 0
   __canvas_phaseMark(4)
 END FUNC"#
     };

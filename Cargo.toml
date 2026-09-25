@@ -301,6 +301,10 @@ name = "rt_canvas_graphics_thread"
 path = "tests/canvas/rt_canvas_graphics_thread.rs"
 
 [[test]]
+name = "rt_canvas_frame_stats"
+path = "tests/canvas/rt_canvas_frame_stats.rs"
+
+[[test]]
 name = "rt_canvas_debug_hooks"
 path = "tests/canvas/rt_canvas_debug_hooks.rs"
 

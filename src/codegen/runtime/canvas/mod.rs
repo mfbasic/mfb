@@ -330,8 +330,44 @@ pub(crate) const GRAPHICS_OFFSET_DISPLAY_MHZ: usize = 808;
 /// `…_DISPLAY_MHZ`. **A test affordance, and off by default.** A separate word rather
 /// than a write into the published one, so a platform republish can never clobber it.
 pub(crate) const GRAPHICS_OFFSET_DISPLAY_OVERRIDE: usize = 816;
+/// Frame statistics (plan-155-B), read by `canvas::getFrameStats` through
+/// `canvas::frameCounters`. Process-global for the reason everything cross-thread here
+/// is (`.ai/canvas-threading.md` §2): the graphics thread's frame record would be
+/// invisible to the worker as an MFBASIC global.
+///
+/// Two event logs, each a running total, a ring head and a ring of the last
+/// [`FRAME_RING_SLOTS`] timestamps (`canvas::frameNanos`), written and read only under
+/// `GRAPHICS_OFFSET_MUTEX`:
+///
+/// * **presents** — every `present` / `presentLayers`, identical re-presents included,
+///   written by the worker (`canvas::notePresent`);
+/// * **drawn** — every frame a backend actually drew, written by the graphics thread in
+///   `canvas::frameDone` (a wake-up whose damage was empty is not one).
+///
+/// Then the render time of the last drawn frame, in nanoseconds, and which renderer drew
+/// it (the `canvas::Renderer` ordinal: 0 Software, 1 Metal, 2 Vulkan).
+pub(crate) const GRAPHICS_OFFSET_PRESENTS: usize = 824;
+pub(crate) const GRAPHICS_OFFSET_PRESENT_HEAD: usize = 832;
+pub(crate) const GRAPHICS_OFFSET_PRESENT_RING: usize = 840;
+pub(crate) const GRAPHICS_OFFSET_DRAWN: usize =
+    GRAPHICS_OFFSET_PRESENT_RING + FRAME_RING_SLOTS * 8;
+pub(crate) const GRAPHICS_OFFSET_DRAWN_HEAD: usize = GRAPHICS_OFFSET_DRAWN + 8;
+pub(crate) const GRAPHICS_OFFSET_DRAWN_RING: usize = GRAPHICS_OFFSET_DRAWN_HEAD + 8;
+pub(crate) const GRAPHICS_OFFSET_LAST_RENDER_NANOS: usize =
+    GRAPHICS_OFFSET_DRAWN_RING + FRAME_RING_SLOTS * 8;
+pub(crate) const GRAPHICS_OFFSET_LAST_RENDERER: usize = GRAPHICS_OFFSET_LAST_RENDER_NANOS + 8;
+/// Timestamps kept per event log. A rate over the trailing second counts ring entries
+/// newer than a second; when all of them are, the ring spans less than a second and the
+/// rate is measured from its span instead (`__canvas_rate`), so the bound costs no
+/// accuracy. A power of two, so the head wraps with a mask.
+pub(crate) const FRAME_RING_SLOTS: usize = 64;
+/// The words `canvas::frameCounters` returns, in order: `now`, presents, present head,
+/// drawn, drawn head, last render nanos, last renderer, display millihertz, then the
+/// present ring and the drawn ring. `__canvas_getFrameStats` indexes by these.
+pub(crate) const FRAME_COUNTER_HEADER_WORDS: usize = 8;
+pub(crate) const FRAME_COUNTER_WORDS: usize = FRAME_COUNTER_HEADER_WORDS + 2 * FRAME_RING_SLOTS;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 824;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_RENDERER + 8;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -1835,14 +1871,291 @@ fn emit_graphics_spawn(
     Ok(())
 }
 
-/// `canvas::frameDone()` — the render loop reports a completed frame.
+/// The four values `canvas::frameDone` records, each already in a register the caller
+/// allocated (a value in an argument register would not survive the mutex call).
+pub(crate) struct FrameRecord<'a> {
+    /// Non-zero when a backend drew the frame; zero for a wake-up with nothing to draw.
+    pub(crate) drew: &'a str,
+    /// The `canvas::Renderer` ordinal that drew it.
+    pub(crate) renderer: &'a str,
+    /// How long `__canvas_renderFrame` took, in nanoseconds.
+    pub(crate) render_nanos: &'a str,
+    /// `canvas::frameNanos` at the end of the frame — the drawn ring's timestamp.
+    pub(crate) now: &'a str,
+}
+
+/// Push `value` onto the ring at `ring` whose head is at `head`, and advance the head.
+/// `scratch.base` must hold the graphics state; the caller holds the mutex.
+fn emit_ring_push(
+    scratch: &GraphicsScratch,
+    head: usize,
+    ring: usize,
+    value: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
+    instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
+    instructions.push(abi::add_registers(&scratch.end, &scratch.end, &scratch.base));
+    instructions.push(abi::store_u64(value, &scratch.end, ring));
+    instructions.push(abi::add_immediate(&scratch.cursor, &scratch.cursor, 1));
+    instructions.push(abi::move_immediate(
+        &scratch.end,
+        "Integer",
+        &(FRAME_RING_SLOTS - 1).to_string(),
+    ));
+    instructions.push(abi::and_registers(
+        &scratch.cursor,
+        &scratch.cursor,
+        &scratch.end,
+    ));
+    instructions.push(abi::store_u64(&scratch.cursor, &scratch.base, head));
+}
+
+/// `global += 1` for the graphics-state word at `offset`.
+fn emit_bump(scratch: &GraphicsScratch, offset: usize, instructions: &mut Vec<CodeInstruction>) {
+    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
+    instructions.push(abi::add_immediate(&scratch.scratch, &scratch.scratch, 1));
+    instructions.push(abi::store_u64(&scratch.scratch, &scratch.base, offset));
+}
+
+/// `canvas::notePresent(now)` — count a present and log its time (plan-155-B).
+///
+/// Every `present` and `presentLayers` calls this, identical re-presents included:
+/// `presents` is "what the program offered", which is the comparison `fps` is read
+/// against. Under the mutex because `canvas::frameCounters` reads the same words under
+/// it, so a snapshot never sees a half-written ring. A no-op before the thread starts —
+/// the mutex is not initialized until then, and both wrappers start it first.
+pub(crate) fn emit_note_present(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    now: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_no_thread");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_STARTED,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_eq(&skip));
+    emit_graphics_lock(symbol, scratch, "pthread_mutex_lock", platform_imports, platform, instructions, relocations)?;
+    state_base(symbol, &scratch.base, instructions, relocations);
+    emit_bump(scratch, GRAPHICS_OFFSET_PRESENTS, instructions);
+    emit_ring_push(
+        scratch,
+        GRAPHICS_OFFSET_PRESENT_HEAD,
+        GRAPHICS_OFFSET_PRESENT_RING,
+        now,
+        instructions,
+    );
+    emit_graphics_lock(symbol, scratch, "pthread_mutex_unlock", platform_imports, platform, instructions, relocations)?;
+    instructions.push(abi::label(&skip));
+    Ok(())
+}
+
+/// Lock or unlock (`call`) the graphics mutex.
+fn emit_graphics_lock(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    call: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, call)
+}
+
+/// `canvas::frameCounters(now) AS List OF Integer` — one consistent snapshot of the
+/// frame statistics (plan-155-B), laid out as [`FRAME_COUNTER_WORDS`] says.
+///
+/// **One lock, one moment.** `presents` and `drawn` are written by different threads,
+/// and `pps - fps` is only meaningful if both are read at the same instant, so every word
+/// is copied inside a single critical section. The list is allocated before the lock is
+/// taken, so the critical section is loads and stores only.
+///
+/// Before the graphics thread exists there is no mutex to take and nothing has written
+/// a word (both writers run only once it has started), so the words are copied without
+/// it — all zeros, with `now` and the display rate filled in.
+pub(crate) fn emit_frame_counters(
+    builder: &mut CodeBuilder,
+    now: &Operand,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let now_value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&now_value, now));
+    let now_slot = builder.spill_to_slot("canvas_counters_now", &now_value);
+
+    let list_type = crate::types::ParameterType::list_of(crate::types::ParameterType::Integer);
+    let layout = CollectionTypeLayout::from_type(&list_type)
+        .ok_or_else(|| format!("canvas: no layout for {list_type}"))?;
+    let block_slot = builder.allocate_stack_object("canvas_counters_block", 8);
+    let ok = builder.label("canvas_counters_alloc_ok");
+    builder.emit(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        &(COLLECTION_HEADER_SIZE + FRAME_COUNTER_WORDS * 8).to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_eq(&ok));
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::label(&ok));
+    builder.emit(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        block_slot,
+    ));
+    let block = builder.temporary_vreg();
+    let words = builder.temporary_vreg();
+    let bytes = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+    builder.emit(abi::move_immediate(
+        &words,
+        "Integer",
+        &FRAME_COUNTER_WORDS.to_string(),
+    ));
+    builder.emit(abi::move_immediate(
+        &bytes,
+        "Integer",
+        &(FRAME_COUNTER_WORDS * 8).to_string(),
+    ));
+    builder.emit_write_collection_header_full(&layout, &block, &words, &words, &bytes, &bytes);
+
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let unlocked = builder.label("canvas_counters_unlocked");
+    let copied = builder.label("canvas_counters_copied");
+    let started = builder.temporary_vreg();
+    // Whether the thread exists cannot change under us: only this thread (the worker)
+    // starts it, and nothing stops it before the program ends.
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    builder.emit(abi::load_u64(&started, &scratch.base, GRAPHICS_OFFSET_STARTED));
+    builder.emit(abi::compare_immediate(&started, "0"));
+    builder.emit(abi::branch_eq(&unlocked));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_lock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::label(&unlocked));
+
+    // The copy: loads and stores only.
+    state_base(&symbol, &scratch.base, &mut builder.instructions, &mut builder.relocations);
+    let data = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&data, abi::stack_pointer(), block_slot));
+    builder.emit(abi::add_immediate(&data, &data, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::load_u64(&scratch.scratch, abi::stack_pointer(), now_slot));
+    builder.emit(abi::store_u64(&scratch.scratch, &data, 0));
+    for (word, offset) in [
+        (1, GRAPHICS_OFFSET_PRESENTS),
+        (2, GRAPHICS_OFFSET_PRESENT_HEAD),
+        (3, GRAPHICS_OFFSET_DRAWN),
+        (4, GRAPHICS_OFFSET_DRAWN_HEAD),
+        (5, GRAPHICS_OFFSET_LAST_RENDER_NANOS),
+        (6, GRAPHICS_OFFSET_LAST_RENDERER),
+    ] {
+        builder.emit(abi::load_u64(&scratch.scratch, &scratch.base, offset));
+        builder.emit(abi::store_u64(&scratch.scratch, &data, word * 8));
+    }
+    // Word 7: the display rate, override first — `canvas::displayMilliHz`'s rule.
+    let chosen = builder.label("canvas_counters_display");
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_OVERRIDE,
+    ));
+    builder.emit(abi::compare_immediate(&scratch.scratch, "0"));
+    builder.emit(abi::branch_ne(&chosen));
+    builder.emit(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_DISPLAY_MHZ,
+    ));
+    builder.emit(abi::label(&chosen));
+    builder.emit(abi::store_u64(&scratch.scratch, &data, 7 * 8));
+    for (ring, first_word) in [
+        (GRAPHICS_OFFSET_PRESENT_RING, FRAME_COUNTER_HEADER_WORDS),
+        (
+            GRAPHICS_OFFSET_DRAWN_RING,
+            FRAME_COUNTER_HEADER_WORDS + FRAME_RING_SLOTS,
+        ),
+    ] {
+        let again = builder.label("canvas_counters_ring");
+        builder.emit(abi::add_immediate(&scratch.cursor, &scratch.base, ring));
+        builder.emit(abi::add_immediate(
+            &scratch.end,
+            &scratch.cursor,
+            FRAME_RING_SLOTS * 8,
+        ));
+        builder.emit(abi::add_immediate(&scratch.arena, &data, first_word * 8));
+        builder.emit(abi::label(&again));
+        builder.emit(abi::load_u64(&scratch.scratch, &scratch.cursor, 0));
+        builder.emit(abi::store_u64(&scratch.scratch, &scratch.arena, 0));
+        builder.emit(abi::add_immediate(&scratch.cursor, &scratch.cursor, 8));
+        builder.emit(abi::add_immediate(&scratch.arena, &scratch.arena, 8));
+        builder.emit(abi::compare_registers(&scratch.cursor, &scratch.end));
+        builder.emit(abi::branch_lo(&again));
+    }
+
+    builder.emit(abi::compare_immediate(&started, "0"));
+    builder.emit(abi::branch_eq(&copied));
+    emit_graphics_lock(
+        &symbol,
+        &scratch,
+        "pthread_mutex_unlock",
+        platform_imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::label(&copied));
+    builder.emit(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        abi::stack_pointer(),
+        block_slot,
+    ));
+    Ok(())
+}
+
+/// `canvas::frameDone(drew, renderer, renderNanos, now)` — the render loop reports a
+/// completed frame.
 ///
 /// Advances the frame counter and wakes anything waiting on it. Broadcast rather
 /// than signal: the waiter is a different party from the render loop, and a signal
 /// could wake the loop's own wait instead.
+///
+/// When the frame was drawn (plan-155-B) it also logs it for `canvas::getFrameStats`:
+/// the drawn total and ring, the render time and the renderer — inside the same critical
+/// section, so the record adds no lock. A wake-up that drew nothing still advances
+/// `FRAMES` (a `syncFrame` waiter is released by it) but is not a drawn frame.
 pub(crate) fn emit_frame_done(
     symbol: &str,
     scratch: &GraphicsScratch,
+    record: &FrameRecord<'_>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
@@ -1875,6 +2188,28 @@ pub(crate) fn emit_frame_done(
         &scratch.base,
         GRAPHICS_OFFSET_FRAMES,
     ));
+    let not_drawn = format!("{symbol}_not_drawn");
+    instructions.push(abi::compare_immediate(record.drew, "0"));
+    instructions.push(abi::branch_eq(&not_drawn));
+    emit_bump(scratch, GRAPHICS_OFFSET_DRAWN, instructions);
+    emit_ring_push(
+        scratch,
+        GRAPHICS_OFFSET_DRAWN_HEAD,
+        GRAPHICS_OFFSET_DRAWN_RING,
+        record.now,
+        instructions,
+    );
+    instructions.push(abi::store_u64(
+        record.render_nanos,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_RENDER_NANOS,
+    ));
+    instructions.push(abi::store_u64(
+        record.renderer,
+        &scratch.base,
+        GRAPHICS_OFFSET_LAST_RENDERER,
+    ));
+    instructions.push(abi::label(&not_drawn));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,

@@ -39,6 +39,7 @@ const MEMBERS: &[&str] = &[
     "getSize",
     "getBytes",
     "setBytes",
+    "getFrameStats",
 ];
 
 /// Pull the fenced example out of `mfb man canvas <member>`.

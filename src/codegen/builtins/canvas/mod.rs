@@ -49,6 +49,7 @@ mod func_frame_nanos;
 mod func_geo_build;
 mod func_geo_cache;
 mod func_get_bytes;
+mod func_get_frame_stats;
 mod func_get_size;
 mod func_graphics;
 mod func_group_stats;
@@ -529,6 +530,89 @@ pub(crate) fn register(r: &mut Registry) {
                               it fills — an ellipse's radial gradient does not become \
                               elliptical.",
                 advisory: None,
+            },
+        ],
+    });
+
+    // plan-155-B: what drew a frame, and the timing record `canvas::getFrameStats`
+    // returns. The variant order is the ordinal `canvas::frameDone` records, so it is
+    // frozen: Software first, because it is also what a canvas reports before its first
+    // frame.
+    pkg.add_enum(RegistryEnum {
+        name: "Renderer",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Software",
+                description: "Drawn on the CPU. The default for a program with no window, and what a canvas reports before its first frame.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Metal",
+                description: "Drawn on the GPU through Metal (macOS).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Vulkan",
+                description: "Drawn on the GPU through Vulkan (Linux and Windows).",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "FrameStats",
+        export: true,
+        description: "The canvas's timing at one moment, as `canvas::getFrameStats` \
+                      returns it. Every field is from the same instant, so two of them \
+                      can be compared.",
+        props: vec![
+            RecordProp {
+                name: "dt",
+                ty: ParameterType::Float,
+                description: "Seconds between the last two `canvas::present` calls — the \
+                              step to advance an animation by. `0.0` until the second \
+                              present.",
+            },
+            RecordProp {
+                name: "pps",
+                ty: ParameterType::Float,
+                description: "Presents in the last second, identical ones included. Falls \
+                              to `0.0` a second after presenting stops.",
+            },
+            RecordProp {
+                name: "fps",
+                ty: ParameterType::Float,
+                description: "Frames drawn in the last second. A present of an unchanged \
+                              scene draws no frame, so a static scene reports `0.0`.",
+            },
+            RecordProp {
+                name: "displayHz",
+                ty: ParameterType::Float,
+                description: "The refresh rate of the monitor the window is on, in hertz. \
+                              `0.0` when it is not known.",
+            },
+            RecordProp {
+                name: "frameSeconds",
+                ty: ParameterType::Float,
+                description: "How long the last drawn frame took to draw, in seconds. \
+                              `0.0` before the first frame.",
+            },
+            RecordProp {
+                name: "presents",
+                ty: ParameterType::Integer,
+                description: "Every `canvas::present` and `canvas::presentLayers` call \
+                              since the program started.",
+            },
+            RecordProp {
+                name: "frames",
+                ty: ParameterType::Integer,
+                description: "Every frame drawn since the program started.",
+            },
+            RecordProp {
+                name: "renderer",
+                ty: ParameterType::named("Renderer"),
+                description: "What drew the last frame. `Software` before the first.",
             },
         ],
     });
@@ -1205,6 +1289,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_metal_draw::register(&mut pkg);
     func_metal_present::register(&mut pkg);
     func_graphics::register(&mut pkg);
+    func_get_frame_stats::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);
     func_scene_hashes::register(&mut pkg);

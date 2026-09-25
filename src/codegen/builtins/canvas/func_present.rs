@@ -139,9 +139,13 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
   __CANVAS_LAST_GROUP_SIG = sig
+  ' plan-155-B: every present is counted, identical ones included, so the thread (and
+  ' with it the mutex the count is kept under) starts on the first present of any
+  ' scene. `ensureGraphics` is idempotent -- one Boolean test after the first call.
+  __canvas_ensureGraphics()
+  canvas::notePresent(canvas::frameNanos())
   IF installed OR moved THEN
     canvas::publishHashes(__canvas_hashScene(items, carried))
-    __canvas_ensureGraphics()
     canvas::signalRedraw()
     canvas::syncFrame()
   END IF

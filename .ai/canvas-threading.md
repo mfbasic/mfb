@@ -930,6 +930,43 @@ only ever says "different" too often — two identically BUILT items are not byt
 `Picture` are never carried: their hash folds in a resource id that answers 0 once
 closed, with the item's bytes unchanged.
 
+## 15. Frame statistics (plan-155-B)
+
+`canvas::getFrameStats` compares two things two different threads do — the worker's
+presents and the graphics thread's drawn frames — so everything it reads is in the
+**graphics state**, not in MFBASIC globals. `__CANVAS_FRAMES`, `__CANVAS_SKIPPED` and
+`__CANVAS_GPU_FRAMES` are graphics-thread globals (§2): the worker's copies are its own
+and always zero, which is why the stats line, written on the graphics thread, is the
+only place they are visible.
+
+Two event logs, each a total, a ring head and a 64-entry ring of `canvas::frameNanos`
+timestamps (`GRAPHICS_OFFSET_PRESENTS…LAST_RENDERER`):
+
+* **presents** — written by `canvas::notePresent` from both present wrappers,
+  unconditionally, identical re-presents included;
+* **drawn** — written by `canvas::frameDone` when its `drew` argument is TRUE, inside
+  the critical section it already held for `FRAMES` and the broadcast. `FRAMES` itself
+  still counts every loop iteration, skipped ones too — a `syncFrame` waiter is released
+  by a skipped frame, so the two counters must stay separate.
+
+**One lock, one snapshot.** `canvas::frameCounters` copies both logs, the last render
+time and renderer, and the display rate into one list inside one critical section, so
+`pps - fps` never compares two samples taken at different moments. It allocates the list
+before locking; the critical section is loads and stores.
+
+**The mutex must exist before either writer locks it.** It is initialized by
+`startGraphics`, so both wrappers now call `__canvas_ensureGraphics()` ahead of their
+publish test rather than inside it — the first present of any scene, even one identical
+to the empty initial scene, starts the thread. `notePresent` still checks `STARTED`
+(an out-of-memory spawn leaves it 0), and `frameCounters` reads without the lock while it
+is 0, when nothing has written a word.
+
+**Why rings and not a moving average.** An average updated per event never decays: a
+static scene would report its last rate forever. A rate over the trailing second counts
+ring entries newer than `now - 1 s`; when all 64 are, the ring spans under a second and
+the rate is taken from its span (`__canvas_rate`), so a fast loop is measured, not
+capped at 64.
+
 ## See also
 
 * `planning/completed/plan-98-A-*` — cross-cutting invariants 1, 2, 4, 5, 7, 8.

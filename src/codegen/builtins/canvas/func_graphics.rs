@@ -15,7 +15,8 @@ use crate::codegen::registry::{
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
 use crate::codegen::runtime::canvas::vulkan::emit_vulkan_ready;
 use crate::codegen::runtime::canvas::{
-    emit_display_milli_hz, emit_frame_done, emit_set_display_override, emit_set_gpu_mode, emit_set_sync_mode, emit_signal_redraw,
+    emit_display_milli_hz, emit_frame_counters, emit_frame_done, emit_note_present,
+    emit_set_display_override, emit_set_gpu_mode, FrameRecord, emit_set_sync_mode, emit_signal_redraw,
     emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
     emit_wait_for_redraw, GraphicsScratch, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
     GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
@@ -126,23 +127,111 @@ pub(crate) fn lower_wait_for_redraw(
     })
 }
 
-/// `canvas::frameDone()` — the render loop reports a completed frame.
+/// Copy argument `index` into a fresh vreg: an argument arrives in an argument
+/// register, and every emitter here makes a mutex call it would not survive.
+fn argument_vreg(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    index: usize,
+    what: &str,
+) -> Result<String, String> {
+    let location = args
+        .get(index)
+        .ok_or_else(|| format!("'{}' expects the {what} argument", builder.current_symbol))?
+        .location
+        .clone();
+    let value = builder.temporary_vreg().to_string();
+    builder.emit(abi::move_register(&value, &location));
+    Ok(value)
+}
+
+/// `canvas::frameDone(drew, renderer, renderNanos, now)` — the render loop reports a
+/// completed frame, and (plan-155-B) whether and how it was drawn.
 pub(crate) fn lower_frame_done(
     builder: &mut CodeBuilder,
-    _args: &[ValueResult],
+    args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
+    let drew = argument_vreg(builder, args, 0, "drew")?;
+    let renderer = argument_vreg(builder, args, 1, "renderer")?;
+    let render_nanos = argument_vreg(builder, args, 2, "renderNanos")?;
+    let now = argument_vreg(builder, args, 3, "now")?;
     let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
     emit_frame_done(
         &symbol,
         &scratch,
+        &FrameRecord {
+            drew: &drew,
+            renderer: &renderer,
+            render_nanos: &render_nanos,
+            now: &now,
+        },
         ctx.platform_imports,
         ctx.platform,
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
     Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::notePresent(now)` — count a present for `canvas::getFrameStats`.
+pub(crate) fn lower_note_present(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let now = argument_vreg(builder, args, 0, "now")?;
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    emit_note_present(
+        &symbol,
+        &scratch,
+        &now,
+        ctx.platform_imports,
+        ctx.platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::frameCounters(now) AS List OF Integer` — the frame statistics, one lock.
+pub(crate) fn lower_frame_counters(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let now = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the now argument"))?
+        .location
+        .clone();
+    emit_frame_counters(builder, &now, ctx.platform_imports, ctx.platform)?;
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+/// One `Integer` parameter of an internal member.
+fn integer_param(name: &'static str) -> Parameter {
+    Parameter {
+        name,
+        desc: "",
+        aliases: &[],
+        ty: ParameterType::Integer,
+        default: DefaultValue::None,
+    }
 }
 
 /// `canvas::syncFrame()` — wait for the frame this present asked for, in sync mode.
@@ -606,7 +695,59 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_use_gpu),
         }],
     });
-    pkg.add_function(internal("frameDone", Body::abi_function(lower_frame_done)));
+    pkg.add_function(RegistryFunction {
+        name: "frameDone",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "drew",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Boolean,
+                    default: DefaultValue::None,
+                },
+                integer_param("renderer"),
+                integer_param("renderNanos"),
+                integer_param("now"),
+            ],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_frame_done),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "notePresent",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![integer_param("now")],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_note_present),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "frameCounters",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![integer_param("now")],
+            return_type: ParameterType::list_of(ParameterType::Integer),
+            errors: vec!["ErrOutOfMemory"],
+            body: Body::abi_function(lower_frame_counters),
+        }],
+    });
     pkg.add_function(internal("syncFrame", Body::abi_function(lower_sync_frame)));
     pkg.add_function(RegistryFunction {
         name: "waitForRedraw",
