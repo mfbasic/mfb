@@ -282,6 +282,33 @@ END UNION
 
 A non-template user-defined union introduces one concrete type name, even when it includes another union.
 
+A member, or an included union, may be a template instantiation, and a union may take template parameters of its own (§3) that its members and includes use:
+
+```basic
+TYPE Some OF T
+  value AS T
+END TYPE
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+TYPE None
+END TYPE
+
+UNION Opt OF T
+  Some OF T
+  None
+END UNION
+
+UNION Slot
+  Box OF Integer
+  None
+END UNION
+```
+
+Each use of a template union (`Opt OF Integer`) monomorphizes to one concrete union over the substituted members (`Some OF Integer`, `None`) [[src/monomorph/lower.rs:lower_type]]. A `MATCH` arm names a template member by its template's name, `CASE Some(s)`, and the arm binds the instantiation the scrutinee's union carries (§9) [[src/monomorph/lower.rs:union_pattern_type]]. Because the name alone selects the member, a union may carry at most one instantiation of each template: two declared members that instantiate one template are `TYPE_DUPLICATE_VARIANT` [[src/resolver/resolution.rs:resolve_type_decl]], and a `CASE` naming a template that the scrutinee's union carries more than once through `INCLUDES`, or not at all, is `TYPE_MATCH_PATTERN_MISMATCH`. A `DOC` block's `PROP` likewise names a template member by its template's name.
+
 ## 4.4 `Error` and absence (built in)
 
 The error model is built on two built-in read-only types, `Error` and

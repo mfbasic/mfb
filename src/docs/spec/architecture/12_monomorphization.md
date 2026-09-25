@@ -207,6 +207,17 @@ The context is extended as statements are lowered: `LET` records the bound type,
 OF`/`Map OF` to the element/entry type, match-`Union` patterns and lambda params
 bind their declared types, and the `RETURN` slot is typed by `enclosing_return`.
 
+A match-`Union` pattern that names a `TYPE` template (`CASE Some(s)`) carries no
+arguments of its own, so `union_pattern_type` takes them from the scrutinee: it
+types the lowered scrutinee with `expression_type`, walks that concrete union's
+members and, recursively, its `INCLUDES`, in `concrete_types`, and keeps the
+members whose `type_instantiations` entry names that template. Exactly one match
+becomes the pattern's type and the binding's; none, or more than one, is
+reported as `TYPE_MATCH_PATTERN_MISMATCH` in template spellings. Any other
+pattern goes through `concrete_type` like every other type position.
+[[src/monomorph/lower.rs:union_pattern_type]]
+[[src/monomorph/lower.rs:collect_union_instantiations]]
+
 ## Overload resolution
 
 A call is lowered in `lower_expression`'s `Call` arm, which tries, in order:

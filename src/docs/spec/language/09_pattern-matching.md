@@ -24,6 +24,7 @@ END MATCH
 
 - If the scrutinee type is a union type, each non-`ELSE` union case must bind one local: `CASE MemberType(binding)`.
 - The scrutinee keeps its declared union type. The bound case local has the concrete member type.
+- A member that is a template instantiation is named by its template: over an `Opt OF Integer` scrutinee whose union carries `Some OF Integer`, the arm is `CASE Some(s)` and `s` has type `Some OF Integer` (§4.3).
 - Literal patterns and comma-separated literal lists.
 - `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns.
 - Enum matches use qualified enum member patterns such as `Color.Red`. An enum case parses as a member-access literal, so the `Type.Member` qualifier is required for the arm to count toward exhaustiveness — a bare `CASE Red` does not.
