@@ -369,10 +369,18 @@ impl NativePlanPlatform for Platform {
                 import("DeleteFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateDirectoryW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+            ],
+            // bug-694 C5: `GetFileAttributesW` tells an existing final directory
+            // from a file.
+            "fs.createDirectories" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("GetFileAttributesW", KERNEL32, required_by),
             ],
             "fs.deleteDirectory" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),

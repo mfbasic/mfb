@@ -450,9 +450,15 @@ impl LinuxPlan<'_> {
                 self.libc_import("unlink", required_by),
                 self.libc_import("__errno_location", required_by),
             ],
-            "fs.createDirectory" | "fs.createDirectories" => vec![
+            "fs.createDirectory" => vec![
                 self.libc_import("mkdir", required_by),
                 self.libc_import("__errno_location", required_by),
+            ],
+            // bug-694 C5: `stat` tells an existing final directory from a file.
+            "fs.createDirectories" => vec![
+                self.libc_import("mkdir", required_by),
+                self.libc_import("__errno_location", required_by),
+                self.libc_import("stat", required_by),
             ],
             "fs.deleteDirectory" => vec![
                 self.libc_import("rmdir", required_by),

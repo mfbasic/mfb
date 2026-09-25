@@ -107,6 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
                 "ErrNotFound",
+                "ErrAlreadyExists",
             ],
             body: Body::abi_function(lower_fs_create_directories),
         }],

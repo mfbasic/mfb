@@ -723,6 +723,10 @@ name = "rt_fs_temp_directory_clamp"
 path = "tests/runtime/rt_fs_temp_directory_clamp.rs"
 
 [[test]]
+name = "rt_fs_create_directories_existing_entry"
+path = "tests/runtime/rt_fs_create_directories_existing_entry.rs"
+
+[[test]]
 name = "rt_global_argument_reassigned_by_callee"
 path = "tests/runtime/rt_global_argument_reassigned_by_callee.rs"
 
