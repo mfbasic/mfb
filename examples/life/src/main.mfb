@@ -11,7 +11,7 @@ IMPORT color
 '
 ' Build and run it from an interactive terminal:
 '   mfb build examples/life
-'   ./examples/life/life.out
+'   ./examples/life/build/life.out
 '
 ' The board fills the whole terminal except the last line, which is a status bar
 ' showing the live/dead cell counts, the generation number, the current pattern,
