@@ -306,6 +306,14 @@ const FS_HELPERS: &[(&str, Counts)] = &[
 /// allocates only its result: `args`, `environ`, `hostName`, `userName`,
 /// `executablePath`, `name`, `arch`, `appResourcePath`. `os::arch()` being flat is
 /// the report's own contrast row.
+///
+/// plan-157's four host directories allocate only their result, too, and free
+/// nothing: `relative` is read in place, and each base (an environment variable or
+/// the `passwd` entry, read under the env lock) is copied straight into the result
+/// by `gen_host_paths::emit_join_result`. The count is one per result SINK, not a
+/// scratch: on `linux-x86_64` `appDataPath`/`appCachePath` have two (the XDG base,
+/// then `$HOME`), `userDocumentsPath` two (`user-dirs.dirs`, then `$HOME`), and
+/// `userHomePath` one.
 const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_arch", (1, 0, 0)),
     ("_mfb_rt_os_os_args", (1, 0, 0)),
@@ -319,6 +327,10 @@ const OS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_os_os_name", (1, 0, 0)),
     ("_mfb_rt_os_os_pid", (0, 0, 0)),
     ("_mfb_rt_os_os_appResourcePath", (1, 0, 0)),
+    ("_mfb_rt_os_os_appCachePath", (2, 0, 0)),
+    ("_mfb_rt_os_os_appDataPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userDocumentsPath", (2, 0, 0)),
+    ("_mfb_rt_os_os_userHomePath", (1, 0, 0)),
     ("_mfb_rt_os_os_setEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_unsetEnv", (0, 0, 0)),
     ("_mfb_rt_os_os_userName", (1, 0, 0)),
