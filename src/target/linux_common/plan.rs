@@ -279,6 +279,28 @@ impl LinuxPlan<'_> {
                 self.libc_import("getuid", required_by),
                 self.libc_import("getpwuid", required_by),
             ],
+            // plan-156-B/C: `HOME`/`XDG_*` through `getenv`, then the `passwd`
+            // fallback; each call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase" => vec![
+                self.libc_import("getenv", required_by),
+                self.libc_import("getuid", required_by),
+                self.libc_import("getpwuid", required_by),
+            ],
+            // plan-156-C: the Documents lookup also reads `user-dirs.dirs`.
+            "os.userDocumentsPath" | "os.userDocumentsPathBase" => vec![
+                self.libc_import("getenv", required_by),
+                self.libc_import("getuid", required_by),
+                self.libc_import("getpwuid", required_by),
+                self.libc_import("open", required_by),
+                self.libc_import("read", required_by),
+                self.libc_import("close", required_by),
+                self.libc_import("__errno_location", required_by),
+            ],
             // plan-55-B: `os.appResourcePath` reuses the `readlink("/proc/self/exe")`
             // acquisition, so it needs the same import.
             "os.executablePath" | "os.appResourcePath" => {

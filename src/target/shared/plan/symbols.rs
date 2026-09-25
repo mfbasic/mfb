@@ -36,6 +36,20 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             );
         }
     }
+    // plan-156-B: `s = os::appDataPath(s)` (and its host-path siblings) lowers in
+    // place, and the arm reads the base through the member's internal
+    // `<member>Base` helper — a runtime call no NIR op names.
+    for member in crate::codegen::collection::assign::string_self_update::HOST_PATH_ARM_MEMBERS {
+        let bare = member.trim_start_matches("os.");
+        if crate::codegen::collection::assign::self_update::module_self_updates_with(module, bare) {
+            if let Some(spec) = runtime::spec_for_call(&format!("{member}Base")) {
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
+            }
+        }
+    }
     if module_has_thread_owner(module) {
         push_unique(
             &mut symbols,
@@ -335,18 +349,9 @@ pub(super) fn platform_imports(
 }
 
 /// The frontend `os::` calls whose lowering takes the process-global env/pwd lock
-/// (bug-64): the readers `getEnv`/`getEnvOr`/`hasEnv`/`environ`/`userName` and the
-/// writers `setEnv`/`unsetEnv`. Kept in sync with the code-layer gate
-/// `os::module_uses_env_lock`.
-const OS_ENV_LOCK_CALLS: &[&str] = &[
-    "os.getEnv",
-    "os.getEnvOr",
-    "os.hasEnv",
-    "os.environ",
-    "os.userName",
-    "os.setEnv",
-    "os.unsetEnv",
-];
+/// (bug-64). The code layer's list, reused so the two cannot drift (plan-156-B
+/// replaced a hand-synced copy here).
+use crate::codegen::builtins::os::OS_ENV_LOCK_CALLS;
 
 /// The runtime helper symbols for the env/pwd helpers `module` actually emits, so
 /// the pthread mutex imports can be attributed to each real caller (the object-plan

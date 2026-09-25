@@ -449,6 +449,10 @@ path = "tests/codegen/codegen_win64_entry_seed_scratch.rs"
 name = "codegen_win64_app_resource_path"
 path = "tests/codegen/codegen_win64_app_resource_path.rs"
 
+[[test]]
+name = "codegen_win64_host_paths"
+path = "tests/codegen/codegen_win64_host_paths.rs"
+
 # --- tests/gate/ ------------------------------------------------------
 [[test]]
 name = "gate_lock_covers_every_writer"

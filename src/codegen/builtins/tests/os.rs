@@ -25,13 +25,12 @@ use crate::testutil::{code_for_src_cached, code_function, try_code_for_src, Code
 
 /// A program that calls the WHOLE `os::` surface.
 ///
-/// Nineteen of the twenty members, not a sample: each one dispatches on
+/// Every member but `os::appResourcePath`, not a sample: each one dispatches on
 /// `ctx.platform.family()` into a different syscall, so a member the program
 /// does not call leaves three arms unmeasured rather than one. Calling them all
 /// and lowering for all five backends is what turns "the host's arm" into "every
-/// arm". `os::appResourcePath` is the one left out, because it does not lower for
-/// Windows at all -- that refusal is a contract of its own and gets its own case
-/// below.
+/// arm". `os::appResourcePath` has its own every-backend case below
+/// (`resource_path_lowers_on_every_backend`).
 const SRC: &str = "\
 IMPORT io
 IMPORT os
@@ -57,6 +56,10 @@ FUNC main() AS Integer
   LET argv AS List OF String = os::args()
   io::print(toString(len(argv)))
   io::print(os::prog())
+  io::print(os::appDataPath(\"d\"))
+  io::print(os::appCachePath())
+  io::print(os::userHomePath(\"h\"))
+  io::print(os::userDocumentsPath())
   os::sleep(0)
   RETURN 0
 END FUNC
@@ -85,7 +88,16 @@ fn calls(f: &CodeFunction) -> Vec<String> {
 #[test]
 fn every_backend_implements_every_os_member() {
     for target in CodeTarget::ALL {
-        for member in ["version", "uptime", "isAdmin", "pid"] {
+        for member in [
+            "version",
+            "uptime",
+            "isAdmin",
+            "pid",
+            "appDataPath",
+            "appCachePath",
+            "userHomePath",
+            "userDocumentsPath",
+        ] {
             let f = body(target, member);
             let called = calls(f);
             assert!(
@@ -409,6 +421,14 @@ fn register_publishes_the_whole_os_surface() {
         "pid",
         "executablePath",
         "appResourcePath",
+        "appDataPath",
+        "appDataPathBase",
+        "appCachePath",
+        "appCachePathBase",
+        "userHomePath",
+        "userHomePathBase",
+        "userDocumentsPath",
+        "userDocumentsPathBase",
         "name",
         "arch",
         "hostName",

@@ -159,6 +159,18 @@ Commit: —
 
 ## Corrections
 
+- **D-1 (user direction, 2026-09-24): the final gate is the `os::` tests only,
+  not the full suite.** The user said: "you dont have to run the full test suite
+  for this. Only the os:: tests are needed for the final gate". D1's full
+  `cargo test` + `test-accept.sh` + `artifact-gate.sh` run becomes a scoped one:
+  - `cargo test --bin mfb os`;
+  - the `os` acceptance fixtures (`scripts/test-accept.sh … 'func_os_*' 'os-*'`,
+    plus the other fixtures this plan touched: `self-update-grow-valid`,
+    `libsnd-playback-rt`, and the `os` byte-identity fixture);
+  - the `os` byte-identity sums.
+
+  Golden regeneration stays limited to the expected list.
+
 ## Summary
 
 This sub-plan has no new design. The risk is misclassifying a red golden, and

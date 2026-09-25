@@ -99,7 +99,11 @@ strings::padRight(value AS String, width AS Integer, [padChar AS String]) AS Str
 strings::padLeftToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padLeftToWidth(x, 8) ; x = strings::right(x, 3)	before
 strings::padRightToWidth(value AS String, columns AS Integer, [padChar AS String]) AS String	arm	String = "abc"	x = strings::padRightToWidth(x, 8) ; x = strings::left(x, 3)	before
 strings::repeat(value AS String, times AS Integer) AS String	arm	String = "abc"	x = strings::repeat(x, 2) ; x = strings::left(x, 3)	before
-os::appResourcePath(relative AS String) AS String	arm	String = "r"	x = os::appResourcePath(x) ; x = fs::pathBaseName(x)	before
+os::appResourcePath([relative AS String]) AS String	arm	String = "r"	x = os::appResourcePath(x) ; x = fs::pathBaseName(x)	before
+os::appDataPath([relative AS String]) AS String	arm	String = "r"	x = os::appDataPath(x) ; x = fs::pathBaseName(x)	before
+os::appCachePath([relative AS String]) AS String	arm	String = "r"	x = os::appCachePath(x) ; x = fs::pathBaseName(x)	before
+os::userHomePath([relative AS String]) AS String	arm	String = "r"	x = os::userHomePath(x) ; x = fs::pathBaseName(x)	before
+os::userDocumentsPath([relative AS String]) AS String	arm	String = "r"	x = os::userDocumentsPath(x) ; x = fs::pathBaseName(x)	before
 strings::upper(value AS String) AS String	arm	String = "abc"	x = strings::upper(x) ; x = strings::lower(x)	before
 strings::lower(value AS String) AS String	arm	String = "ABC"	x = strings::lower(x) ; x = strings::upper(x)	before
 strings::caseFold(value AS String) AS String	arm	String = "abc"	x = strings::caseFold(x)	before

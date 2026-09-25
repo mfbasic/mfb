@@ -973,6 +973,11 @@ fn app_info_plist_has_required_bundle_keys() {
     assert!(plist.contains("<string>dev.mfbasic.hello</string>"));
     assert!(plist.contains("<key>CFBundlePackageType</key>\n  <string>APPL</string>"));
     assert!(plist.contains("<key>NSPrincipalClass</key>\n  <string>NSApplication</string>"));
+    // plan-156-C: the Documents-folder privacy prompt carries a purpose string.
+    assert!(plist.contains(
+        "<key>NSDocumentsFolderUsageDescription</key>\n  \
+         <string>hello reads and writes files in your Documents folder.</string>"
+    ));
 }
 
 // bug-248: App Store upload validation (`altool`) rejects a bundle whose

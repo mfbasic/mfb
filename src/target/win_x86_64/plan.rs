@@ -278,6 +278,21 @@ impl NativePlanPlatform for Platform {
                 import("GetUserNameW", ADVAPI32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
+            // plan-156-B/C: the known-folder query (`emit_os_wide_string` /
+            // `emit_known_folder_into`), the `CoTaskMemFree` of its result, and the
+            // UTF-16 → UTF-8 marshal; each call's internal `*Base` twin needs the same.
+            "os.appDataPath"
+            | "os.appCachePath"
+            | "os.appDataPathBase"
+            | "os.appCachePathBase"
+            | "os.userHomePath"
+            | "os.userHomePathBase"
+            | "os.userDocumentsPath"
+            | "os.userDocumentsPathBase" => vec![
+                import("SHGetKnownFolderPath", SHELL32, required_by),
+                import("CoTaskMemFree", OLE32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
             // bug-454: `os.appResourcePath` reuses the same `GetModuleFileNameW`
             // acquisition, so it needs the same two imports.
             "os.executablePath" | "os.appResourcePath" => vec![

@@ -66,7 +66,14 @@ pub(crate) fn lower_app_resource_path(
     let arg = emit_capture_relative(&mut vregs, &mut instructions);
     let mut relocations = Vec::new();
     // Step 1 (§4.4): reject a `.` or `..` path component.
-    emit_validate_relative(&symbol, &arg, windows, &bad_arg, &mut vregs, &mut instructions);
+    emit_validate_relative(
+        &symbol,
+        &arg,
+        windows,
+        &bad_arg,
+        &mut vregs,
+        &mut instructions,
+    );
     // Step 2 (§4.4): acquire the executable path, then compute its byte length `n`.
     let (buf, count) = emit_executable_path_into(
         &mut EmitCtx {
@@ -142,6 +149,7 @@ pub(crate) fn lower_app_resource_path(
         suffix_bytes_with_slash.extend_from_slice(&suffix_bytes);
     }
     emit_join_result(
+        &symbol,
         &symbol,
         &buf,
         &prefix_len,

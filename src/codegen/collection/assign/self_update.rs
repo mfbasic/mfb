@@ -490,6 +490,10 @@ pub(crate) const STRING_SELF_UPDATE_SPELLINGS: &[(&str, &str)] = &[
     ("#strings_padLeftToWidth", "padLeftToWidth"),
     ("#strings_padRightToWidth", "padRightToWidth"),
     ("os.appResourcePath", "appResourcePath"),
+    ("os.appDataPath", "appDataPath"),
+    ("os.appCachePath", "appCachePath"),
+    ("os.userHomePath", "userHomePath"),
+    ("os.userDocumentsPath", "userDocumentsPath"),
     ("toString", "toString"),
 ];
 
@@ -1940,6 +1944,29 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
         probes: &[str_probe(OS, STR, "os::appResourcePath(x)")],
     },
+    // plan-156-B: `GrowKind::HostPath` — the base is `f("")`, re-acquired per
+    // statement (it follows `HOME`), then `x` grows by `base` + `/`.
+    SelfUpdateRow {
+        function: "os::appDataPath",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(OS, STR, "os::appDataPath(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::appCachePath",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(OS, STR, "os::appCachePath(x)")],
+    },
+    // plan-156-C: the same `GrowKind::HostPath` arm.
+    SelfUpdateRow {
+        function: "os::userHomePath",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(OS, STR, "os::userHomePath(x)")],
+    },
+    SelfUpdateRow {
+        function: "os::userDocumentsPath",
+        kind: SelfUpdate::Arm(&[ArmId::StrGrow]),
+        probes: &[str_probe(OS, STR, "os::userDocumentsPath(x)")],
+    },
     SelfUpdateRow {
         function: "strings::upper",
         kind: SelfUpdate::Arm(&[ArmId::StrRewrite]),
@@ -3201,6 +3228,10 @@ mod tests {
             ("#strings_padRightToWidth", "padRightToWidth"),
             ("strings.repeat", "repeat"),
             ("os.appResourcePath", "appResourcePath"),
+            ("os.appDataPath", "appDataPath"),
+            ("os.appCachePath", "appCachePath"),
+            ("os.userHomePath", "userHomePath"),
+            ("os.userDocumentsPath", "userDocumentsPath"),
             ("strings.upper", "upper"),
             ("strings.lower", "lower"),
             ("strings.caseFold", "caseFold"),

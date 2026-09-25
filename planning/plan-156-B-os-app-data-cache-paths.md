@@ -377,24 +377,24 @@ Acceptance: `appResourcePath` emits the same bytes as before.
   `linux-aarch64 identical`, `linux-riscv64 identical`, `windows-x86_64 identical`
   (the before set was built from `/tmp/156b1-src`, a copy of the fixture, at
   plan-156-A's HEAD).
-Commit: —
+Commit: 78cf1c0c1
 
 ### Phase B2: POSIX lookups and the macOS/Linux lowering
 
-- [ ] Add `emit_posix_home_base` and `emit_posix_env_abs_base` to
-      `gen_host_paths.rs` (§4.1).
-- [ ] Add `func_app_data_path.rs` and `func_app_cache_path.rs` with their
+- [x] Add `emit_posix_home_base` and `emit_posix_env_abs_base` to
+      `gen_host_paths.rs` (§4.1). — done (`gen_host_paths.rs`), plus `emit_trim_trailing_slashes` and `emit_cstr_len`.
+- [x] Add `func_app_data_path.rs` and `func_app_cache_path.rs` with their
       descriptors (`relative` defaulting to `""`, both errors) and the
       `lower_app_dir(kind)` body for macOS and Linux (§4.3). Write the man
-      prose per `.ai/man-content.md`:
+      prose per `.ai/man-content.md`: — done; the shared body is `lower_host_dir(dir, into)` (renamed from `lower_app_dir` when the `*Base` sink was added, Correction B-4).
   - what each directory is for (data versus regenerable cache);
   - the per-OS table;
   - "does not create the directory — create it with `fs::createDirectories`
     before writing";
   - the sandboxed-macOS container sentence;
   - an example that creates the directory, then writes a file.
-- [ ] Add `"os.appDataPath"`, `"os.appCachePath"` to `OS_ENV_LOCK_CALLS`.
-- [ ] Add both calls to every matching table from plan-156-A's census:
+- [x] Add `"os.appDataPath"`, `"os.appCachePath"` to `OS_ENV_LOCK_CALLS`. — done, plus the `*Base` twins; `plan/symbols.rs`'s hand-synced copy of the list was replaced by a re-export of this one.
+- [x] Add both calls to every matching table from plan-156-A's census: — done: `data_objects.rs`, the three supported-call lists, the three `plan.rs` import rows (each also serving the `*Base` call), `registry/mod.rs`'s two sorted `String`-result lists (with `os.appResourcePath` put back in sorted position), `audit/collect/source.rs` (`environment` plus the fallible list).
   - `data_objects.rs`: `ErrUnsupported` and `ErrInvalidPath`;
   - the `linux_common`/`macos_aarch64` supported-call lists, and their
     `plan.rs` import rows (`getenv`, `getuid`, `getpwuid`,
@@ -402,23 +402,24 @@ Commit: —
   - `registry/mod.rs`'s two `String`-result lists;
   - `audit/collect/source.rs`: capability `"environment"` (it reads the
     environment), and the fallible-call list.
-- [ ] Windows lowering is B4. Until B4 lands, **do not** add the calls to
+- [x] Windows lowering is B4. Until B4 lands, **do not** add the calls to
       `win_x86_64/mod.rs`'s supported list. B2 and B4 must land in the same
-      push (see the B4 note).
+      push (see the B4 note). — moot: `lower_host_dir` has its Windows arm from the start, so the calls were added to `win_x86_64/mod.rs` together with the POSIX rows, and no commit ships a member that fails to lower on Windows.
 
 Acceptance: on macOS both calls return the table's values under controlled
 environments.
   Check: `target/debug/mfb build tests/rt-behavior/os/func_os_appDataPath_valid && …/build/*.out`
   prints the fixture's expected lines (written in B3) (est. 2 min).
-Commit: —
+  Result: macOS smoke run: `HOME=/tmp/h/` → `/tmp/h/Library/Application Support/p156b/a`; `HOME` unset → `/Users/justinzaun/Library/Application Support/p156b`.
+Commit: {BC}
 
 ### Phase B3: fixtures and the POSIX runtime proof
 
-- [ ] Add `tests/rt-behavior/os/func_os_appDataPath_valid` and
+- [x] Add `tests/rt-behavior/os/func_os_appDataPath_valid` and
       `func_os_appCachePath_valid`. Each program sets its own environment with
       `os::setEnv`/`os::unsetEnv`, branches on `os::name()`, and prints only
       `TRUE`/`FALSE`/error-code lines. That makes the golden identical on
-      every OS. Cases:
+      every OS. Cases: — done: 18 lines each, only booleans and codes; goldens (`.ast`/`.ir`/`build.log`/`.run`) written via placeholder + `scripts/sync-goldens.sh`.
   - **`HOME=/tmp/mfb156`:** `appDataPath()` equals the OS row with that home
     (macOS: `/tmp/mfb156/Library/Application Support/<fixture name>`; Linux:
     with `XDG_DATA_HOME` unset, `/tmp/mfb156/.local/share/<fixture name>`;
@@ -437,13 +438,13 @@ Commit: —
   - **In place after `os::setEnv("HOME", "/tmp/other")`:** the next in-place
     result uses the new home (proves the arm does not cache).
   - The same set for `appCachePath`, with `XDG_CACHE_HOME`.
-- [ ] Add `tests/syntax/os/func_os_appDataPath_invalid` and
-      `func_os_appCachePath_invalid`, covering a wrong type and a wrong arity.
-- [ ] Linux runtime:
+- [x] Add `tests/syntax/os/func_os_appDataPath_invalid` and
+      `func_os_appCachePath_invalid`, covering a wrong type and a wrong arity. — done (`TYPE_CALL_ARGUMENT_MISMATCH` + `TYPE_CALL_ARITY_MISMATCH`).
+- [x] Linux runtime:
       `FILTER=func_os_app scripts/linux-runtime-proof.sh target/debug/mfb 2226 linux-aarch64 glibc`
       → both fixtures match. Add one `/tmp` probe run on 2226 that compares
       the `HOME`-unset result against `getent passwd $(id -un) | cut -d: -f6`.
-      This settles the Linux `pw_dir` offset of 32 (§2).
+      This settles the Linux `pw_dir` offset of 32 (§2). — done: `linux runtime proof: linux-aarch64/glibc on port 2226 — 3 passed, 1 failed` (the failure is `func_os_appResourcePath_valid`'s stale golden, due in D). `getent` check: with `HOME` unset, `/home/test/.local/share/p156pw` from both the program and `getent passwd $(id -un)`, which settles `pw_dir` at 32 on glibc.
 
 Acceptance: both fixtures pass locally and on 2226, and the `getent` comparison
 matches.
@@ -451,7 +452,8 @@ matches.
   → 4 new fixtures written and nothing else changed (est. 3 min). Then run the
   2226 command above → all ok (est. 5 min; box 2226 because it is the only
   reachable glibc Linux box, per the plan-156-A prerequisites).
-Commit: —
+  Result: `scripts/sync-goldens.sh` wrote the 4 fixtures' goldens; 2226 → both PASS; the `getent` line matched.
+Commit: {BC}
 
 ### Phase B4: Windows known-folder lowering
 
@@ -459,22 +461,22 @@ Commit: —
 > because the calls would not lower on `windows-x86_64`. Land B2 through B4 as
 > consecutive commits in one push.
 
-- [ ] Add the `"appData"`/`"appCache"` arms and `emit_known_folder` in
+- [x] Add the `"appData"`/`"appCache"` arms and `emit_known_folder` in
       `src/target/win_x86_64/code.rs` (§4.2). Put the GUID in window bytes
-      `0x20..0x30`.
-- [ ] Read `emit_wide_slot_to_utf8`. It must return failure, not a truncated
+      `0x20..0x30`. — done as `known_folder_guid` + `emit_known_folder_query` (GUID at `0x20..0x30`), plus the non-allocating `emit_known_folder_into_query` behind the new `CodegenPlatform::emit_known_folder_into` hook (Correction B-4).
+- [x] Read `emit_wide_slot_to_utf8`. It must return failure, not a truncated
       string, when the 8192-byte buffer is too small. Record the evidence here;
       if it truncates, fix it (this affects `hostName`/`userName`/
-      `executablePath` too).
-- [ ] Add the Windows arm of `lower_app_dir`, the `win_x86_64/plan.rs` import
-      rows, and the `win_x86_64/mod.rs` supported-call entries.
-- [ ] Add a structural test in `tests/codegen/`, mirroring
+      `executablePath` too). — done: `emit_wide_slot_to_utf8` ignores `WideCharToMultiByte`'s return. That is safe for the existing arms (at most 2048 UTF-16 units, so at most 6144 UTF-8 bytes, under 8192) but not for a known folder, so both known-folder queries check it: a 0 result fails the call instead of returning a truncated or unterminated path.
+- [x] Add the Windows arm of `lower_app_dir`, the `win_x86_64/plan.rs` import
+      rows, and the `win_x86_64/mod.rs` supported-call entries. — done.
+- [x] Add a structural test in `tests/codegen/`, mirroring
       `codegen_win64_app_resource_path.rs`'s
       `nothing_addresses_outside_the_windows_acquisition_frame`, for
-      `os.appDataPath` and `os.appCachePath`. Register it in `Cargo.toml`.
-- [ ] Extend `builtins/tests/os.rs`'s every-backend-lowers test to cover both
-      calls.
-- [ ] Windows runtime proof on 2230 (a one-off in `/tmp`, not `scripts/`):
+      `os.appDataPath` and `os.appCachePath`. Register it in `Cargo.toml`. — done: `tests/codegen/codegen_win64_host_paths.rs` (list-driven over the members; asserts no `rsp` access at or past the window, two `CoTaskMemFree` calls, and the marshal inside the window).
+- [x] Extend `builtins/tests/os.rs`'s every-backend-lowers test to cover both
+      calls. — done: both calls are in the whole-surface program and in `every_backend_implements_every_os_member`.
+- [x] Windows runtime proof on 2230 (a one-off in `/tmp`, not `scripts/`): — done: `/tmp/156-win-proof.sh` → `PASS func_os_appDataPath_valid`, `PASS func_os_appCachePath_valid`. A smoke run printed `C:\Users\test\AppData\Roaming/p156b` and `…\Local/p156b/c/x.bin`, and PowerShell `GetFolderPath('ApplicationData'|'LocalApplicationData')` gave `C:\Users\test\AppData\Roaming` / `…\Local`, so the GUIDs are verified.
   1. Build both B3 fixtures with `-target windows-x86_64`.
   2. Ship them with `win_ship` (`scripts/remote-common.sh`).
   3. Run them, and diff the output against the golden `build.log` run tail.
@@ -487,25 +489,27 @@ PowerShell's folders.
   Check: the 2230 run above → identical output, and the two equality lines are
   `TRUE` (est. 8 min: the build is local, and ship+run is about 1 min per
   fixture; nothing smaller exercises `SHGetKnownFolderPath`).
-Commit: —
+  Result: 2230 → `PASS` ×2, and PowerShell folders equal; `cargo test --test codegen_win64_host_paths` → `1 passed`.
+Commit: {BC}
 
 ### Phase B5: byte-identity coverage and the package-name probe
 
-- [ ] Add `io::print(os::appDataPath("d"))` and
+- [x] Add `io::print(os::appDataPath("d"))` and
       `io::print(os::appCachePath("c"))` to
       `tests/byte-identity/os/src/main.mfb`. The five `.ncodesum` goldens are
-      regenerated in plan-156-D, after the full suite.
-- [ ] Probe (in `/tmp`): a `.mfp` package whose function returns
+      regenerated in plan-156-D, after the full suite. — done.
+- [x] Probe (in `/tmp`): a `.mfp` package whose function returns
       `os::appDataPath()`, called from an executable project named `host`.
       Record whether the result ends with `/host` or with the package's name.
       If it ends with the package's name, that is a bug in `module_name`
       threading. Fix it here: the directory must be the executable's name,
-      because that is the app.
+      because that is the app. — done: `/tmp/p156pkg` (executable `host`, `file:` package `dirpkg`) printed `/Users/justinzaun/Library/Application Support/host` and `…/Caches/host/x` (the latter through the in-place arm inside the package), so the executable's name is used and no fix is needed.
 
 Acceptance: the probe result is recorded in Corrections, and it ends with
 `/host` (after a fix if one was needed).
   Check: the probe's stdout (est. 3 min).
-Commit: —
+  Result: the probe printed `…/Application Support/host`.
+Commit: {BC}
 
 ## Validation Plan
 
@@ -537,6 +541,53 @@ Commit: —
   `/Library/Application Support/<name>`, not `//Library…`.
 
 ## Corrections
+
+- **B-1: the `appResourcePath` in-place validator was stricter than the copying
+  helper on POSIX.** The arm treated `\` as a component boundary on every target,
+  so on macOS `s = os::appResourcePath(s)` with `s = "a\\..\\b"` raised
+  `ErrInvalidPath` (probe: `Error: 7-703-0002`) while
+  `os::appResourcePath("a\\..\\b")` returned a path. Now the arm checks `\` on
+  Windows only (the helper's exact set), and takes the member name so the
+  `HostPath` rows raise under their own name.
+- **B-2: `scripts/linux-runtime-proof.sh` shipped only the executable.** A
+  project's manifest `resources` land in `build/` beside it, so
+  `func_os_resourcePath_reads_resource` failed on 2226 at `main` HEAD too
+  (`/tmp/mfb156head`: `Error: 7-703-0001`). The script now ships the rest of
+  `build/` as well; the fixture passes on 2226.
+- **B-3: `func_os_appResourcePath_{valid,reads_resource}` asserted
+  `startsWith(p, "/")` on every target.** On 2230 that line printed `FALSE` for
+  the absolute path `C:\...` (the spec's own base table gives `…\build` for
+  Windows). Bug-454's Windows proof used a separate program, so these fixtures had
+  never run there. The line now checks the drive form (`:\` at index 1) on
+  Windows; macOS/Linux output is unchanged, and both fixtures print identical
+  lines on macOS and Windows.
+- **B-4: the §4.4 arm design (`member("")` per statement) fails the harness it
+  exists for.** `tests/runtime/rt_inplace_self_update.rs` counts arena
+  `alloc_calls`, and an `arm` line must add fewer than N/8 over N extra runs; one
+  base allocation per statement adds N. The `""` argument also needed a
+  string-literal data object that a program without its own `""` literal lacks
+  (`native code string literal '' has no data object`). Caching the base per
+  function (the `appResourcePath` approach) would disagree with the copying call
+  after `os::setEnv("HOME", …)`. The fix: each member has an internal,
+  non-allocating `<member>Base(dst, cap) -> length` helper (the same
+  `lower_host_dir` body with an `Into` sink). The arm sizes it with `(0, 0)`,
+  reserves the function's self-update scratch, and fills it, looping if the base
+  grew in between. On Windows it goes through the new
+  `CodegenPlatform::emit_known_folder_into`, which converts straight into the
+  caller's buffer. `STRING_SHADOW_ARMS`, `target_needs_string_scratch`,
+  `runtime_symbols` (which emits the `*Base` helper no NIR op names) and the
+  import rows gained the members.
+- **B-5: plan-156-A left the self-update census red.** The optional `relative`
+  changed `appResourcePath`'s rendered signature to `([relative AS String])`, and
+  A's checks never ran `tests/guards/inplace_self_update_census.rs`. The
+  `cases.tsv` / `field_expect.tsv` rows were updated here, and the two new members
+  got rows mirroring `appResourcePath`'s (`String` x → `deferred:string` at every
+  field site, `na:` at S7/T7, per `field_expect_gen.py`'s rule).
+- **B-6: `scripts/man-run-examples.sh os --run` writes to the real user
+  directories.** The `appDataPath`/`appCachePath` examples created
+  `~/Library/Application Support/man_examples/saves/slot1.txt` and
+  `~/Library/Caches/man_examples/latest.json`. They were removed after the run;
+  expect the same after any future run of the os examples.
 
 ## Summary
 

@@ -12,7 +12,13 @@ IMPORT strings
 
 FUNC main AS Integer
   LET p AS String = os::appResourcePath("greeting.txt")
-  io::print(toString(strings::startsWith(p, "/")))
+  ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows — the base is what the
+  ' host produced (plan-156-B Correction B-3: this line asserted `/` everywhere).
+  IF os::name() = "windows" THEN
+    io::print(toString(strings::mid(p, 1, 2) = ":\\"))
+  ELSE
+    io::print(toString(strings::startsWith(p, "/")))
+  END IF
   io::print(toString(strings::endsWith(p, "/greeting.txt")))
   io::print(strings::trim(fs::readText(p)))
   ' A `.`/`..` component is still refused, and a valid nested relative path is

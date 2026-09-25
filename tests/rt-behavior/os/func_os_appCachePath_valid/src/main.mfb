@@ -1,0 +1,95 @@
+' os::appCachePath — the per-user app cache directory (plan-156-B). Every line is a
+' TRUE/FALSE or an error code, computed against the running OS's own rule, so the
+' output is the same on macOS, Linux and Windows:
+'   macOS   <home>/Library/Caches/<project name>
+'   Linux   $XDG_CACHE_HOME/<name> when set, non-empty and absolute, else <home>/.cache/<name>
+'   Windows <LOCALAPPDATA known folder>/<name>
+' <home> is $HOME when set and non-empty, else the account's home directory.
+IMPORT os
+IMPORT io
+IMPORT strings
+
+FUNC resolve(p AS String) AS String
+  RETURN os::appCachePath(p)
+END FUNC
+
+FUNC code(p AS String) AS Integer
+  MUT c AS Integer = 0
+  resolve(p) TRAP(e)
+    c = e.code
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+' The base this OS must produce for `home` with XDG_CACHE_HOME unset.
+FUNC expected(home AS String) AS String
+  IF os::name() = "windows" THEN
+    RETURN os::getEnv("LOCALAPPDATA") & "/func_os_appCachePath_valid"
+  END IF
+  IF os::name() = "macos" THEN
+    RETURN home & "/Library/Caches/func_os_appCachePath_valid"
+  END IF
+  RETURN home & "/.cache/func_os_appCachePath_valid"
+END FUNC
+
+FUNC main AS Integer
+  os::unsetEnv("XDG_CACHE_HOME")
+  os::setEnv("HOME", "/tmp/mfb156")
+  LET base AS String = os::appCachePath()
+  io::print(toString(base = expected("/tmp/mfb156")))
+  ' A trailing `/` on HOME is dropped.
+  os::setEnv("HOME", "/tmp/mfb156/")
+  io::print(toString(os::appCachePath() = base))
+  ' XDG_CACHE_HOME: an absolute value wins on Linux; macOS and Windows ignore it.
+  os::setEnv("XDG_CACHE_HOME", "/tmp/xdg156")
+  IF os::name() = "linux" THEN
+    io::print(toString(os::appCachePath() = "/tmp/xdg156/func_os_appCachePath_valid"))
+  ELSE
+    io::print(toString(os::appCachePath() = base))
+  END IF
+  ' A relative or empty value is ignored everywhere.
+  os::setEnv("XDG_CACHE_HOME", "rel/dir")
+  io::print(toString(os::appCachePath() = base))
+  os::setEnv("XDG_CACHE_HOME", "")
+  io::print(toString(os::appCachePath() = base))
+  os::unsetEnv("XDG_CACHE_HOME")
+  ' `relative` joins with `/`; omitted, there is no trailing `/`.
+  io::print(toString(os::appCachePath("saves/a.dat") = base & "/saves/a.dat"))
+  io::print(toString(strings::endsWith(base, "/")))
+  io::print(toString(os::appCachePath("") = base))
+  ' A `.`/`..` component raises ErrInvalidPath (77030002); a dot in a name is fine.
+  io::print(toString(code("a/../b")))
+  io::print(toString(code("../x")))
+  io::print(toString(code("x/..")))
+  io::print(toString(code("./x")))
+  io::print(toString(code("..cfg/a..b")))
+  ' `\` ends a component on Windows only.
+  IF os::name() = "windows" THEN
+    io::print(toString(code("..\\x") = 77030002))
+  ELSE
+    io::print(toString(code("..\\x") = 0))
+  END IF
+  ' HOME unset: the account's home directory (POSIX); Windows never reads HOME.
+  os::unsetEnv("HOME")
+  LET noHome AS String = os::appCachePath()
+  IF os::name() = "windows" THEN
+    io::print(toString(noHome = base))
+  ELSE
+    io::print(toString(strings::startsWith(noHome, "/") AND strings::endsWith(noHome, "/func_os_appCachePath_valid")))
+  END IF
+  os::setEnv("HOME", "/tmp/mfb156")
+  ' In place: `s = os::appCachePath(s)` agrees with the copying call.
+  MUT s AS String = "saves/a.dat"
+  s = os::appCachePath(s)
+  io::print(toString(s = base & "/saves/a.dat"))
+  MUT e AS String = ""
+  e = os::appCachePath(e)
+  io::print(toString(e = base))
+  ' ...and follows a HOME change between statements (nothing is cached).
+  os::setEnv("HOME", "/tmp/other156")
+  MUT k AS String = "k"
+  k = os::appCachePath(k)
+  io::print(toString(k = expected("/tmp/other156") & "/k"))
+  RETURN 0
+END FUNC

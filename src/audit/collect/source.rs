@@ -900,6 +900,12 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         "os" => match callee {
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv"
             | "os.environ" => Some("environment"),
+            // plan-156-B: the per-user app directories are read from `HOME` /
+            // `XDG_*` (and the account record) on POSIX.
+            "os.appDataPath" | "os.appCachePath" | "os.userHomePath" => Some("environment"),
+            // plan-156-C: on Linux the Documents folder comes from reading
+            // `~/.config/user-dirs.dirs`, a file the program never named.
+            "os.userDocumentsPath" => Some("filesystem"),
             // `os.appResourcePath` reads `/proc/self/exe` exactly as
             // `os.executablePath` does; it was added later and never mapped
             // (bug-278).
@@ -1063,6 +1069,10 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "os.getEnvOr"
             | "os.hostName"
             | "os.appResourcePath"
+            | "os.appDataPath"
+            | "os.appCachePath"
+            | "os.userHomePath"
+            | "os.userDocumentsPath"
             | "os.setEnv"
             | "os.userName"
             // regex — compilation of a caller-supplied pattern can fail

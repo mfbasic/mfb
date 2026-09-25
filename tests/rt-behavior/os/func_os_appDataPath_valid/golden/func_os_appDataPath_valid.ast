@@ -1,0 +1,167 @@
+{
+  "project": "func_os_appDataPath_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 8 },
+    { "module": "io", "line": 9 },
+    { "module": "strings", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "resolve",
+      "line": 12,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 12 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "code",
+      "line": 16,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 16 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 17 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 18,
+        "expression": { "kind": "call", "callee": "resolve", "arguments": [{ "kind": "identifier", "value": "p" }] },
+        "handler": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 19 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 20 }
+        ]
+      }, "line": 18 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "expected",
+      "line": 26,
+      "params": [
+      { "name": "home", "type": "String", "default": null, "line": 26 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 27,
+        "then": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "APPDATA" }] }, "right": { "kind": "string", "value": "/func_os_appDataPath_valid" } }, "line": 28 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "macos" } },
+        "line": 30,
+        "then": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "home" }, "right": { "kind": "string", "value": "/Library/Application Support/func_os_appDataPath_valid" } }, "line": 31 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "home" }, "right": { "kind": "string", "value": "/.local/share/func_os_appDataPath_valid" } }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 36,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "XDG_DATA_HOME" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": "String", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "call", "callee": "expected", "arguments": [{ "kind": "string", "value": "/tmp/mfb156" }] } }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156/" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "XDG_DATA_HOME" }, { "kind": "string", "value": "/tmp/xdg156" }] }, "line": 45 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "linux" } },
+        "line": 46,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "right": { "kind": "string", "value": "/tmp/xdg156/func_os_appDataPath_valid" } }] }] }, "line": 47 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 49 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "XDG_DATA_HOME" }, { "kind": "string", "value": "rel/dir" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "XDG_DATA_HOME" }, { "kind": "string", "value": "" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "XDG_DATA_HOME" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "string", "value": "saves/a.dat" }] }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "string", "value": "/saves/a.dat" } } }] }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "string", "value": "/" }] }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "string", "value": "" }] }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "a/../b" }] }] }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "../x" }] }] }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "x/.." }] }] }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "./x" }] }] }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "..cfg/a..b" }] }] }] }, "line": 66 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 68,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "..\\x" }] }, "right": { "kind": "number", "value": "77030002" } }] }] }, "line": 69 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "code", "arguments": [{ "kind": "string", "value": "..\\x" }] }, "right": { "kind": "number", "value": "0" } }] }] }, "line": 71 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "HOME" }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "noHome", "type": "String", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [] }, "line": 75 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } },
+        "line": 76,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "noHome" }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 77 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "noHome" }, { "kind": "string", "value": "/" }] }, "right": { "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "noHome" }, { "kind": "string", "value": "/func_os_appDataPath_valid" }] } }] }] }, "line": 79 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/mfb156" }] }, "line": 81 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "saves/a.dat" }, "line": 83 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "base" }, "right": { "kind": "string", "value": "/saves/a.dat" } } }] }] }, "line": 85 },
+      { "kind": "binding", "mutable": true, "name": "e", "type": "String", "value": { "kind": "string", "value": "" }, "line": 86 },
+      { "kind": "assignment", "name": "e", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "identifier", "value": "e" }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "e" }, "right": { "kind": "identifier", "value": "base" } }] }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "HOME" }, { "kind": "string", "value": "/tmp/other156" }] }, "line": 90 },
+      { "kind": "binding", "mutable": true, "name": "k", "type": "String", "value": { "kind": "string", "value": "k" }, "line": 91 },
+      { "kind": "assignment", "name": "k", "value": { "kind": "call", "callee": "os.appDataPath", "arguments": [{ "kind": "identifier", "value": "k" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "expected", "arguments": [{ "kind": "string", "value": "/tmp/other156" }] }, "right": { "kind": "string", "value": "/k" } } }] }] }, "line": 93 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 94 }
+      ]
+    }
+    ]
+  }
+  ]
+}

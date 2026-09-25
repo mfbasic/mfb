@@ -288,12 +288,12 @@ Decisions.
 
 ### Phase C1: `userHomePath` on all three platforms
 
-- [ ] Add a `"userHome"` arm (`FOLDERID_Profile`) to `emit_os_wide_string`.
-- [ ] Add `src/codegen/builtins/os/func_user_home_path.rs`: the descriptor,
-      man prose, and `lower_user_home_path` (§4.1).
-- [ ] Add the table entries (§4.5) for `os.userHomePath`.
-- [ ] Add `tests/rt-behavior/os/func_os_userHomePath_valid`, which prints only
-      booleans and codes, branching on `os::name()`:
+- [x] Add a `"userHome"` arm (`FOLDERID_Profile`) to `emit_os_wide_string`. — done (`known_folder_guid` "userHome"; also served by the non-allocating `emit_known_folder_into`).
+- [x] Add `src/codegen/builtins/os/func_user_home_path.rs`: the descriptor,
+      man prose, and `lower_user_home_path` (§4.1). — done; the body is `lower_host_dir(HostDir::UserHome, …)`, with an internal `userHomePathBase` twin for the in-place arm.
+- [x] Add the table entries (§4.5) for `os.userHomePath`. — done: the lock list, `data_objects.rs`, the supported-call lists, the import rows, the registry `String` lists, and audit (`environment`).
+- [x] Add `tests/rt-behavior/os/func_os_userHomePath_valid`, which prints only
+      booleans and codes, branching on `os::name()`: — done: 15 lines. Plus a `HOME=/` join line and its in-place twin, which found and drove the root-`/` fix (Correction C-2).
   - `HOME=/tmp/mfb156h` → `/tmp/mfb156h`;
   - `HOME=/tmp/mfb156h/` → the same (trimmed);
   - `userHomePath("a/b")` = `userHomePath() & "/a/b"`;
@@ -302,10 +302,10 @@ Decisions.
   - `HOME` unset → starts with `/`;
   - in place, including after `setEnv("HOME", …)`;
   - Windows: `userHomePath()` = `os::getEnv("USERPROFILE")`.
-- [ ] Add `tests/syntax/os/func_os_userHomePath_invalid`, covering a wrong type
-      and a wrong arity.
-- [ ] Extend the every-backend-lowers test and the Win64 window structural test
-      with `os.userHomePath`.
+- [x] Add `tests/syntax/os/func_os_userHomePath_invalid`, covering a wrong type
+      and a wrong arity. — done.
+- [x] Extend the every-backend-lowers test and the Win64 window structural test
+      with `os.userHomePath`. — done: both the whole-surface program and `every_backend_implements_every_os_member`; `codegen_win64_host_paths.rs`'s `MEMBERS`.
 
 Acceptance: the fixture passes locally, on 2226 and on 2230.
   Check:
@@ -315,34 +315,36 @@ Acceptance: the fixture passes locally, on 2226 and on 2230.
     (est. 3 min).
   - The 2230 ship-and-run (the plan-156-B B4 recipe), plus a PowerShell
     `GetFolderPath('UserProfile')` comparison (est. 5 min).
-Commit: —
+  Result: `func_os_userHomePath_valid` PASS on macOS (golden), 2226 (`linux runtime proof … passed`) and 2230 (`PASS`); PowerShell `UserProfile` = ours.
+Commit: {BC}
 
 ### Phase C2: `userDocumentsPath` on macOS and Windows, and the Linux parser
 
-- [ ] Add a `"userDocuments"` arm (`FOLDERID_Documents`) to
-      `emit_os_wide_string`.
-- [ ] Add `src/codegen/builtins/os/gen_user_dirs.rs` with
-      `emit_linux_user_dirs_documents` (§4.2). Record in this task line:
+- [x] Add a `"userDocuments"` arm (`FOLDERID_Documents`) to
+      `emit_os_wide_string`. — done.
+- [x] Add `src/codegen/builtins/os/gen_user_dirs.rs` with
+      `emit_linux_user_dirs_documents` (§4.2). Record in this task line: — done. `open_flag_set(Linux, false).read` already includes `O_CLOEXEC` (524288, bug-499). `USER_DIRS_FRAME_LOCALS` = 20512 (a 32-byte name slot, then an 8192-byte path/compose buffer and three 4096-byte chunk/value/best buffers).
   - whether `open_flag_set` includes `O_CLOEXEC`;
   - the body's final `stack_size`.
-- [ ] Add `src/codegen/builtins/os/func_user_documents_path.rs`: the
-      descriptor, man prose, and `lower_user_documents_path` (§4.2, §4.3).
-- [ ] Add the table entries (§4.5) for `os.userDocumentsPath`.
+- [x] Add `src/codegen/builtins/os/func_user_documents_path.rs`: the
+      descriptor, man prose, and `lower_user_documents_path` (§4.2, §4.3). — done.
+- [x] Add the table entries (§4.5) for `os.userDocumentsPath`. — done (audit capability `filesystem`, because it reads a file the program never named).
 
 Acceptance: the function lowers on all five targets, and on macOS it returns
 `<home>/Documents`.
   Check: `cargo test --bin mfb os` → pass (est. 6 min), and a `/tmp` scratch
   program on macOS with `HOME=/tmp/d` prints `/tmp/d/Documents` (est. 1 min).
-Commit: —
+  Result: `cargo test --bin mfb os` → `586 passed; 0 failed`; macOS `HOME=/tmp/uh/` → `/tmp/uh/Documents`.
+Commit: {BC}
 
 ### Phase C3: the Linux Documents fixture, and GLib equivalence
 
-- [ ] Add `tests/rt-behavior/os/func_os_userDocumentsPath_valid`. The program
+- [x] Add `tests/rt-behavior/os/func_os_userDocumentsPath_valid`. The program
       builds each case itself: it sets `HOME` and `XDG_CONFIG_HOME` to
       directories under `fs::tempDirectory()`, writes `user-dirs.dirs` with
       `fs::writeText`, calls the function, and prints a boolean against the
       per-OS expectation (on macOS and Windows the file is ignored, and the
-      expectation says so). Cases:
+      expectation says so). Cases: — done: 20 lines (the 16 planned cases plus other keys in the file, the last-quote rule, and `"/srv/docs/"`). macOS, 2226 (`linux runtime proof … 3 passed, 0 failed`) and 2230 (`PASS func_os_userDocumentsPath_valid`) all print the golden.
   1. No file → `<home>/Documents`.
   2. `XDG_DOCUMENTS_DIR="$HOME/Dokumente"` → `<home>/Dokumente`.
   3. `XDG_DOCUMENTS_DIR="/srv/docs/"` → `/srv/docs`.
@@ -360,13 +362,13 @@ Commit: —
   14. Relative join: `userDocumentsPath("r.txt")` = base `& "/r.txt"`.
   15. The dot-component codes.
   16. In place.
-- [ ] Add `tests/syntax/os/func_os_userDocumentsPath_invalid`.
-- [ ] GLib equivalence on 2226 (a one-off in `/tmp`): for cases 1–13, run
+- [x] Add `tests/syntax/os/func_os_userDocumentsPath_invalid`. — done.
+- [x] GLib equivalence on 2226 (a one-off in `/tmp`): for cases 1–13, run
       `g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS)` with the same
       `HOME`, `XDG_CONFIG_HOME` and file, using `python3` `gi` or a 10-line C
       program against the installed GLib. Compare it with our output, where
       GLib's NULL means our `<home>/Documents`. Record any disagreement in
-      Corrections, and fix our parser toward GLib.
+      Corrections, and fix our parser toward GLib. — done: `/tmp/156glib.sh` on 2226 ran 18 cases through `python3` GLib `get_user_special_dir(DIRECTORY_DOCUMENTS)`. 15 AGREE; the 3 DIFFER are deliberate rules now in the spec (Correction C-1).
 
 Acceptance: the fixture passes on macOS and on 2226, and every GLib-comparable
 case agrees.
@@ -377,36 +379,38 @@ case agrees.
     (est. 3 min).
   - The GLib probe (est. 5 min). This is the only check that catches a wrong
     parse rule, because our fixture encodes our reading of GLib, not GLib's.
-Commit: —
+  Result: macOS golden; 2226 all 20 lines as expected; GLib 15/18 AGREE, with the 3 deliberate differences (C-1).
+Commit: {BC}
 
 ### Phase C4: the Windows Documents proof
 
-- [ ] Run the C3 fixture on 2230 (the B4 recipe).
-- [ ] Compare `os::userDocumentsPath()` against PowerShell
-      `[Environment]::GetFolderPath('MyDocuments')`.
+- [x] Run the C3 fixture on 2230 (the B4 recipe). — done: `PASS func_os_userDocumentsPath_valid`, `PASS func_os_userHomePath_valid`.
+- [x] Compare `os::userDocumentsPath()` against PowerShell
+      `[Environment]::GetFolderPath('MyDocuments')`. — done: ours `C:\\Users\\test` / `C:\\Users\\test\\Documents` (in place: `…\\Documents/x`); PowerShell `UserProfile` / `MyDocuments` gave `C:\\Users\\test` / `C:\\Users\\test\\Documents`.
 
 Acceptance: the fixture output matches its golden, and the PowerShell
 comparison is `TRUE`.
   Check: the 2230 run (est. 5 min).
-Commit: —
+  Result: 2230 → `PASS func_os_userDocumentsPath_valid`; PowerShell `MyDocuments` = ours.
+Commit: {BC}
 
 ### Phase C5: `Info.plist`, self-update rows, and byte-identity source
 
-- [ ] Add the §4.4 key to `app_info_plist`. Update
+- [x] Add the §4.4 key to `app_info_plist`. Update
       `app_info_plist_has_required_bundle_keys` to assert it, and fix any
       rendered-plist golden (`rg -l NSPrincipalClass tests`) as an expected
-      diff.
-- [ ] Add the `SELF_UPDATE_TABLE`, `STRING_GROW_FNS` and spelling rows for both
+      diff. — done. `rg -l NSPrincipalClass tests` → no rendered-plist golden to update.
+- [x] Add the `SELF_UPDATE_TABLE`, `STRING_GROW_FNS` and spelling rows for both
       members (if C1/C2 did not already add them to keep the census green; the
-      census must pass at every commit).
-- [ ] Add `io::print(os::userHomePath("h"))` and
+      census must pass at every commit). — done in C1/C2 (the census must pass at every commit).
+- [x] Add `io::print(os::userHomePath("h"))` and
       `io::print(os::userDocumentsPath("d"))` to
-      `tests/byte-identity/os/src/main.mfb`.
-- [ ] Update `src/docs/spec/stdlib/14_os.md`. Add a "User directories" section
+      `tests/byte-identity/os/src/main.mfb`. — done.
+- [x] Update `src/docs/spec/stdlib/14_os.md`. Add a "User directories" section
       with the table, the GLib-mirroring parser rules from §4.2 (with a
       `[[src/codegen/builtins/os/gen_user_dirs.rs:emit_linux_user_dirs_documents]]`
       citation), the known-folder mapping, the sandbox note and the plist key.
-      Add both calls to the error table.
+      Add both calls to the error table. — done; `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`. Also added: the path family in `language/18_builtin-functions.md`'s `os` list.
 
 Acceptance: the plist test passes, the self-update census passes, and the spec
 builds.
@@ -414,7 +418,8 @@ builds.
   (est. 6 min). Then `target/debug/mfb build --app` on a scratch project, and
   `plutil -p build/*.app/Contents/Info.plist | grep NSDocumentsFolderUsageDescription`
   → 1 line (est. 2 min).
-Commit: —
+  Result: `cargo test --bin mfb app_info_plist` → `4 passed`; `self_update` → `11 passed`; `inplace_self_update_census` → `2 passed`; `rt_inplace_self_update` (all 5 `os::` rows) → `3 passed`; `spec` → `43 passed`.
+Commit: {BC}
 
 ## Validation Plan
 
@@ -441,6 +446,48 @@ Commit: —
   it anyway, which matches GLib and the no-existence-check contract.
 
 ## Corrections
+
+- **C-1: GLib differs from the plan's parser rules in three cases.** Measured with
+  `/tmp/156glib.sh` on 2226:
+  - `c11`, a value over 4096 bytes: GLib uses it; we ignore it (no usable path is
+    that long).
+  - `c16`, `"/"`: GLib returns the empty string; we ignore it.
+  - `c14`, a relative `XDG_CONFIG_HOME`: GLib (this Debian's) uses it relative to
+    the working directory; we ignore it, per the XDG Base Directory specification.
+
+  All three are kept as deliberate rules and written into `mfb spec stdlib os`.
+  The other 15 cases agree, including `$HOMEfoo` → `home/foo`, `"$HOME/"` →
+  home, the last-quote rule, and an invalid later line not clobbering an earlier
+  valid one.
+- **C-2: a root home doubled the separator.** With `HOME=/`,
+  `os::appDataPath()` was `//Library/…` and `os::userHomePath("a")` was `//a`,
+  against plan-156-B's own Open Decision (`/Library/…`). Found by the new
+  `HOME=/` fixture line. `emit_root_elided_len` now drops the base's `/` when
+  something follows (in the joiner and in the `*Base` sink), and the arm skips
+  the joining `/` after a base ending in `/`.
+- **C-3: the Windows `*Base` helper could write one byte past the buffer.** With
+  an empty suffix (the user folders), `cap' = cap + 1` let the hook's NUL land at
+  `dst[cap]`, and a fill that did not fit still reported a length ≤ cap. Now it
+  passes `cap` unchanged and reports `len + 1` when the NUL did not fit, keeping
+  "written exactly when the returned length ≤ cap". The in-place lines on 2230
+  pass.
+- **C-4: `fs::createDirectories` never worked on Windows for a nested path (found
+  here, fixed here).** It split on `/` only, and read "already exists" as the
+  POSIX 17 while Windows' `emit_errno` returns `GetLastError` (183). Measured on
+  2230 at `main` HEAD (`/tmp/mfb156head`): `func_fs_createDirectories_valid` and
+  the new `fs-create-directories-native-separators-rt` both fail with
+  `Error: 7-702-0002`. With the fix both PASS. The Windows walk now splits on `\`
+  too, skips a drive or UNC-share prefix, maps 183/2/3/5, and restores the
+  separator it cut at. The four POSIX `fs` byte-identity sums are unchanged
+  (`SAME` ×4); only `windows-x86_64` moves. Its man page's stale `ErrOutput` (the
+  error is `ErrWriteFailed`, 77020002) was corrected, and so was `fs::flush`'s.
+- **C-5: every `fs` member declares no errors**
+  (`rg -c 'errors: vec!\[\]' src/codegen/builtins/fs/*.rs` → 42 of 42), so no
+  `fs` man page has an Errors section. Too large to fold in here; filed as
+  `bugs/bug-694-fs-man-pages-declare-no-errors.md`.
+- **B and C landed in one commit.** C's table rows went into the same match arms
+  as B's before B was committed, so the two could not be split without
+  hand-editing hunks.
 
 ## Summary
 

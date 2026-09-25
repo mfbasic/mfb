@@ -588,6 +588,24 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os wide-string query is only implemented on windows-x86_64".to_string())
     }
+    /// Windows-only, non-allocating known-folder query (plan-156-B): the folder
+    /// `which` names (`"appData"`, `"appCache"`, `"userHome"`, `"userDocuments"`)
+    /// as UTF-8, written to the caller's buffer. On entry `ARG[0]` is the buffer and
+    /// `ARG[1]` its capacity in bytes; on exit the return register holds the path's
+    /// byte length (no NUL) — the bytes were written only when `length + 1 <=
+    /// capacity` (a NUL follows them) — or -1 on failure. Nothing is allocated from
+    /// the arena, which is what lets the in-place `s = os::appDataPath(s)` arm stay
+    /// allocation-free per statement.
+    fn emit_known_folder_into(
+        &self,
+        _which: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("the known-folder query is only implemented on windows-x86_64".to_string())
+    }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:
     /// clear `ECHO`/`ICANON` in the local-flags field when requested and set

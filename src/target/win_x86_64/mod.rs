@@ -58,6 +58,11 @@ const RUNTIME_CALLS: &[&str] = &[
     // (`GetModuleFileNameW` via `emit_os_wide_string`) and was the ONE call
     // macos-aarch64 and linux-* both advertise that this list omitted.
     "os.appResourcePath",
+    // plan-156-B: `SHGetKnownFolderPath` via `emit_os_wide_string`.
+    "os.appDataPath",
+    "os.appCachePath",
+    "os.userHomePath",
+    "os.userDocumentsPath",
     "os.version",
     "os.uptime",
     "os.isAdmin",

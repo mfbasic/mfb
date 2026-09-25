@@ -23,5 +23,9 @@ FUNC main() AS Integer
   io::print(toString(os::hasEnv("MFB_COVER")))
   os::unsetEnv("MFB_COVER")
   io::print(os::appResourcePath("data/asset.txt"))
+  io::print(os::appDataPath("d"))
+  io::print(os::appCachePath("c"))
+  io::print(os::userHomePath("h"))
+  io::print(os::userDocumentsPath("d"))
   RETURN 0
 END FUNC

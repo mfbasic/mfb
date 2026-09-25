@@ -12,7 +12,13 @@ END FUNC
 
 FUNC main AS Integer
   LET p AS String = os::appResourcePath("music/x.ogg")
-  io::print(toString(strings::startsWith(p, "/")))
+  ' Absolute: `/…` on POSIX, a drive (`C:\…`) on Windows (plan-156-B
+  ' Correction B-3: this line asserted `/` everywhere).
+  IF os::name() = "windows" THEN
+    io::print(toString(strings::mid(p, 1, 2) = ":\\"))
+  ELSE
+    io::print(toString(strings::startsWith(p, "/")))
+  END IF
   io::print(toString(strings::endsWith(p, "/music/x.ogg")))
   ' A dot inside a component (not a whole `.`/`..` component) is accepted.
   LET q AS String = os::appResourcePath("..foo/bar")
