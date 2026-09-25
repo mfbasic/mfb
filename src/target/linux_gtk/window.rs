@@ -92,12 +92,19 @@ pub(crate) fn emit_window_sync_seam(
     from_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-    call_idle_add: impl FnOnce(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>) -> Result<(), String>,
+    call_idle_add: impl FnOnce(
+        &mut Vec<CodeInstruction>,
+        &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>,
 ) -> Result<(), String> {
     let skip = format!("{from_symbol}_window_sync_skip");
     let mut asm = Asm::new(from_symbol);
     asm.local_address(abi::mfb_arg(0), STATE_SYMBOL);
-    asm.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), ST_APPLICATION));
+    asm.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        ST_APPLICATION,
+    ));
     asm.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     asm.push(abi::branch_eq(&skip)); // headless: no main loop to run the idle
     asm.local_address(abi::mfb_arg(0), WINDOW_SYNC_SYMBOL); // GSourceFunc
