@@ -33,7 +33,7 @@ ever held back, so `fs::flush` is a no-op. It is also a no-op when a buffered
 handle has no pending bytes.
 
 A partial write is not a failure — the rest is written. If the write genuinely
-fails, `flush` raises `ErrOutput` and **leaves the pending bytes in the buffer**,
+fails, `flush` raises `ErrWriteFailed` and **leaves the pending bytes in the buffer**,
 so a later `fs::flush` can retry them rather than losing them.
 
 Use `fs::flush` at a checkpoint where buffered data must reach the file before the

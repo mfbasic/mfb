@@ -1,0 +1,72 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_create_directories_native_separators_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "sep",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 12,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "os.name", "args": [] }, "right": { "kind": "const", "type": "String", "value": "windows" } },
+      "then": [
+      { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "\\" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "String", "value": "/" } }
+    ]
+  },
+  {
+    "name": "tree",
+    "line": 18,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "root", "line": 18, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "type": "String", "target": "sep", "args": [] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "leaf", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "root" }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "a" } }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "b" } }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "c" } } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "leaf" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "leaf" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "leaf" }] }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "leaf" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteDirectory", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "root" }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "a" } }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "b" } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteDirectory", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "root" }, "right": { "kind": "local", "name": "s" } }, "right": { "kind": "const", "type": "String", "value": "a" } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "root" }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "root" }] }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "tree", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "target" }, "right": { "kind": "call", "type": "String", "target": "sep", "args": [] } }, "right": { "kind": "const", "type": "String", "value": "fs_native_sep_rel" } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "tree", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }, "right": { "kind": "const", "type": "String", "value": "/fs_native_sep_abs" } }] } },
+    { "op": "return", "line": 37, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
