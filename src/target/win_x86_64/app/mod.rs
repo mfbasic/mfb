@@ -154,6 +154,17 @@ const DIB_RGB_COLORS: &str = "0";
 /// "retrievable in canvas mode, released after exit" observable, and is where
 /// plan-98-F reads the handle from.
 const CANVAS_HWND_SYM: &str = "_mfb_winapp_canvas_hwnd";
+/// plan-155-A: the `HMONITOR` the display rate was last published for. A platform
+/// static rather than a graphics-state word: only the UI thread reads or writes it,
+/// and it exists so `WM_MOVE` — sent on every move — costs one `MonitorFromWindow`
+/// and a compare unless the window actually changed monitor.
+const DISPLAY_MONITOR_SYM: &str = "_mfb_winapp_display_monitor";
+/// plan-155-A: `_mfb_winapp_display_rate(hwnd, force)` — publish the refresh rate of
+/// the window's monitor (UI thread).
+const DISPLAY_RATE_SYMBOL: &str = "_mfb_winapp_display_rate";
+/// `WM_MOVE` and `WM_DISPLAYCHANGE`, the two messages the display rate follows.
+const WM_MOVE: &str = "3";
+const WM_DISPLAYCHANGE: &str = "126"; // 0x007E
 /// plan-98-C Phase 3: the committed frame, as one `HeapAlloc` block holding its own
 /// width at +0, height at +8 and BGRX pixels from +16.
 ///
@@ -397,6 +408,11 @@ pub(super) fn emit_app_program_entry(
         emit_editproc(),
         emit_finish(),
     ];
+    // plan-155-A: the display-rate publish. Gated on the program drawing: it names the
+    // canvas graphics state, which only such a program emits.
+    if spec.uses_canvas {
+        functions.push(emit_display_rate());
+    }
     // The `app` window members' UI-thread sync. Gated: it names the process-global
     // window data, emitted only for such a program.
     if spec.uses_window {
@@ -1315,7 +1331,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     // reference, not behaviour.
     if uses_canvas {
         ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
-        ins.push(abi::branch_ne("wnd_check_char"));
+        ins.push(abi::branch_ne("wnd_check_display"));
         load_addr(abi::SCRATCH[0], CANVAS_HWND_SYM, from, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
         ins.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -1359,6 +1375,30 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
         // the graphics thread exists. Safe to call from here: the frame preserves the
         // nonvolatile bank, and `wnd_default` reloads the four arguments.
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+        ins.push(abi::branch("wnd_default"));
+
+        // ---- plan-155-A: the display rate follows the window across monitors ----
+        //
+        // `WM_DISPLAYCHANGE` (a mode change — the rate itself may have changed)
+        // republishes unconditionally; `WM_MOVE` only when `MonitorFromWindow` names
+        // a different monitor, which the helper decides. Both chain to the default:
+        // they are notifications. Gated on a live canvas surface, like WM_SIZE.
+        ins.push(abi::label("wnd_check_display"));
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_MOVE));
+        ins.push(abi::branch_eq("wnd_display_move"));
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_DISPLAYCHANGE));
+        ins.push(abi::branch_ne("wnd_check_char"));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
+        ins.push(abi::branch("wnd_display_publish"));
+        ins.push(abi::label("wnd_display_move"));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
+        ins.push(abi::label("wnd_display_publish"));
+        load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("wnd_default"));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+        call_internal(from, DISPLAY_RATE_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::branch("wnd_default"));
     }
 
@@ -1560,6 +1600,14 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
     load_addr(abi::mfb_arg(1), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    // plan-155-A: publish the display rate for the monitor the canvas window is on,
+    // now that it is on screen. Forced: a program re-entering canvas mode on the
+    // monitor it left still republishes.
+    if uses_canvas {
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
+        call_internal(from, DISPLAY_RATE_SYMBOL, &mut ins, &mut rel);
+    }
     // A title or fullscreen request made while windowless lands now.
     if uses_window {
         window::emit_sync_call(from, H0, &mut ins, &mut rel);
@@ -4449,6 +4497,140 @@ fn utf16z_data_object(symbol: &str, text: &str) -> CodeDataObject {
     }
 }
 
+/// plan-155-A: `_mfb_winapp_display_rate(hwnd /*rcx*/, force /*rdx*/)` (UI thread).
+///
+/// `MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)`; unless `force`, stop when that
+/// is the monitor last published for (`WM_MOVE` is sent on every move). Then
+/// `GetMonitorInfoW` for the monitor's device name and
+/// `EnumDisplaySettingsW(name, ENUM_CURRENT_SETTINGS)` for its mode. The rate is
+/// `dmDisplayFrequency × 1000`; a frequency of 0 or 1 is Windows' "hardware default",
+/// which says nothing, so it publishes 0 — as does any call that fails.
+///
+/// Every value that crosses a call lives in a stack slot: the only registers used are
+/// the Win64 volatile argument/return registers, so the helper owes its caller
+/// nothing (WndProc already preserves the nonvolatile bank, bug-695).
+///
+/// Frame: shadow[0x00..0x20], hwnd@0x20, force@0x28, `MONITORINFOEXW`@0x30 (104 bytes,
+/// `szDevice` at +40), `DEVMODEW`@0x98 (220 bytes: `dmSize` at +68, `dmDriverExtra` at
+/// +70, `dmDisplayFrequency` at +184 — the offset measured on box 2230). 0x178 ≡ 8
+/// (mod 16), so every call is aligned.
+fn emit_display_rate() -> CodeFunction {
+    const FRAME: usize = 0x178;
+    const HWND: usize = 0x20;
+    const FORCE: usize = 0x28;
+    const MONITOR_INFO: usize = 0x30;
+    const MONITOR_INFO_SIZE: &str = "104";
+    const MONITOR_INFO_DEVICE: usize = 40;
+    const DEVMODE: usize = 0x98;
+    const DEVMODE_SIZE: &str = "220";
+    const DEVMODE_DM_SIZE: usize = 68;
+    const DEVMODE_FREQUENCY: usize = 184;
+    const MONITOR_DEFAULTTONEAREST: &str = "2";
+    const ENUM_CURRENT_SETTINGS: &str = "4294967295"; // (DWORD)-1
+    let from = DISPLAY_RATE_SYMBOL;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), HWND));
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), FORCE));
+
+    // monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        MONITOR_DEFAULTTONEAREST,
+    ));
+    call_external(from, "MonitorFromWindow", USER32, &mut ins, &mut rel);
+    // Unless forced, a move within the same monitor changes nothing.
+    load_addr(abi::mfb_arg(1), DISPLAY_MONITOR_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), FORCE));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
+    ins.push(abi::branch_ne("display_changed"));
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(1), 0));
+    ins.push(abi::compare_registers(abi::mfb_arg(2), abi::c_return(0)));
+    ins.push(abi::branch_eq("display_done"));
+    ins.push(abi::label("display_changed"));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
+
+    // GetMonitorInfoW(monitor, &info) with info.cbSize = sizeof(MONITORINFOEXW)
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        MONITOR_INFO_SIZE,
+    ));
+    ins.push(abi::store_u32(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        MONITOR_INFO,
+    ));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        MONITOR_INFO,
+    ));
+    call_external(from, "GetMonitorInfoW", USER32, &mut ins, &mut rel);
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+    ins.push(abi::branch_eq("display_unknown"));
+
+    // EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode), with
+    // mode.dmSize = sizeof(DEVMODEW) and mode.dmDriverExtra = 0 (one 32-bit store).
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", DEVMODE_SIZE));
+    ins.push(abi::store_u32(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        DEVMODE + DEVMODE_DM_SIZE,
+    ));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        MONITOR_INFO + MONITOR_INFO_DEVICE,
+    ));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        ENUM_CURRENT_SETTINGS,
+    ));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        DEVMODE,
+    ));
+    call_external(from, "EnumDisplaySettingsW", USER32, &mut ins, &mut rel);
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+    ins.push(abi::branch_eq("display_unknown"));
+    ins.push(abi::load_u32(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        DEVMODE + DEVMODE_FREQUENCY,
+    ));
+    // 0 and 1 both mean "the hardware's default" — not a rate.
+    ins.push(abi::compare_immediate(abi::mfb_arg(3), "1"));
+    ins.push(abi::branch_le("display_unknown"));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1000"));
+    ins.push(abi::multiply_registers(
+        abi::mfb_arg(3),
+        abi::mfb_arg(3),
+        abi::mfb_arg(2),
+    ));
+    ins.push(abi::branch("display_publish"));
+    ins.push(abi::label("display_unknown"));
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
+    ins.push(abi::label("display_publish"));
+    crate::codegen::runtime::canvas::emit_publish_display_rate(
+        from,
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::label("display_done"));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    code_function("winapp.display_rate", DISPLAY_RATE_SYMBOL, ins, rel)
+}
+
 /// Read-only data the bootstrap references: the window class name, the title
 /// (the project name), and the headless env-var name.
 ///
@@ -4508,6 +4690,8 @@ fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         // copy of the transcript EDIT HWND.
         writable_qword(CANVAS_HWND_SYM),
         writable_qword(CANVAS_FRAME_SYM),
+        // plan-155-A: the monitor the display rate was last published for.
+        writable_qword(DISPLAY_MONITOR_SYM),
         writable_qword(EDIT_HWND_SAVED_SYM),
         // plan-66-J-4 input state: the pipe write handle and the EDIT's original
         // window proc, both written by `_main` at window build (0 until then).
@@ -5076,10 +5260,11 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            12,
-            "6 address loads — Canvas publishes, Console and None clear, WM_CHAR \
-             gates on it, WM_PAINT gates on it, and WM_SIZE gates on it \
-             (plan-98-F Phase 3) — each an adrp/add pair = 2 relocations"
+            14,
+            "7 address loads — Canvas publishes, Console and None clear, WM_CHAR \
+             gates on it, WM_PAINT gates on it, WM_SIZE gates on it (plan-98-F \
+             Phase 3), and WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A) — each \
+             an adrp/add pair = 2 relocations"
         );
     }
 
@@ -5359,6 +5544,61 @@ mod canvas_reconcile_tests {
                 );
             }
         }
+    }
+
+    /// plan-155-A: the display rate is published when the canvas window is shown and
+    /// followed through WM_MOVE / WM_DISPLAYCHANGE — two calls to the helper — and the
+    /// helper exists only for a program that draws.
+    #[test]
+    fn the_display_rate_is_published_on_canvas_entry_and_followed_by_the_wndproc() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        assert_eq!(externals(&wndproc, DISPLAY_RATE_SYMBOL), 2);
+        let immediates = compare_immediates(&wndproc);
+        assert!(immediates.contains(&WM_MOVE.to_string()));
+        assert!(immediates.contains(&WM_DISPLAYCHANGE.to_string()));
+        let with = emit_app_program_entry(&spec(PresentationMode::Console), &HashMap::new())
+            .expect("app entry");
+        assert!(with.iter().any(|f| f.symbol == DISPLAY_RATE_SYMBOL));
+        let mut plain = spec(PresentationMode::Console);
+        plain.uses_canvas = false;
+        let without = emit_app_program_entry(&plain, &HashMap::new()).expect("app entry");
+        assert!(!without.iter().any(|f| f.symbol == DISPLAY_RATE_SYMBOL));
+    }
+
+    /// The helper's three Win32 calls in order, its frame aligned for them, and the
+    /// monitor static consulted before any of the expensive two.
+    #[test]
+    fn the_display_rate_helper_asks_the_monitor_then_its_mode() {
+        let helper = emit_display_rate();
+        let order: Vec<&str> = helper
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|n| {
+                matches!(
+                    *n,
+                    "MonitorFromWindow" | "GetMonitorInfoW" | "EnumDisplaySettingsW"
+                ) || *n == DISPLAY_MONITOR_SYM
+            })
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                "MonitorFromWindow",
+                DISPLAY_MONITOR_SYM,
+                DISPLAY_MONITOR_SYM,
+                "GetMonitorInfoW",
+                "EnumDisplaySettingsW"
+            ]
+        );
+        let frame = helper
+            .instructions
+            .iter()
+            .find(|i| i.op == CodeOp::SubSp)
+            .and_then(|i| i.get("imm"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .expect("a frame");
+        assert_eq!(frame % 16, 8, "entered at rsp % 16 == 8, so every call aligns");
     }
 
     /// bug-695: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled

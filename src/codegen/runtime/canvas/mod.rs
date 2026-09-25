@@ -2102,15 +2102,20 @@ pub(crate) fn emit_publish_surface_size(
 /// reason, and **no redraw**: a new rate changes no pixel, and `.ai/canvas-threading.md`
 /// §4's triggers stay five. Readers want "some recent value", and a store of a word is
 /// never torn.
+///
+/// Takes operands rather than register names so a caller can pass an ABI role token
+/// (the Windows helper uses the Win64 argument registers, spelled `abi::mfb_arg(n)`):
+/// rendering such a token to a string loses the role the selector realizes it from.
 pub(crate) fn emit_publish_display_rate(
     symbol: &str,
-    base: &str,
-    mhz: &str,
+    base: impl Into<Operand>,
+    mhz: impl Into<Operand>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    state_base(symbol, base, instructions, relocations);
-    instructions.push(abi::store_u64(mhz, base, GRAPHICS_OFFSET_DISPLAY_MHZ));
+    let base = base.into();
+    push_symbol_address(symbol, GRAPHICS_STATE_SYMBOL, &base, instructions, relocations);
+    instructions.push(abi::store_u64(mhz, &base, GRAPHICS_OFFSET_DISPLAY_MHZ));
 }
 
 /// `canvas::displayMilliHz() AS Integer` — the rate, override first; `0` when unknown.

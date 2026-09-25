@@ -211,9 +211,11 @@ The main thread writes the window's monitor's refresh rate, in millihertz, into
 `GRAPHICS_OFFSET_DISPLAY_MHZ` with one plain store: macOS on every canvas entry and on
 `NSWindowDidChangeScreenNotification` (`app/display.rs`, the screen's *maximum* rate,
 guarded by `respondsToSelector:` because the binary's minimum is 11.0 and the property
-is 12+); GTK on realize and on the surface's `enter-monitor`; Windows at canvas
-creation, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
-`0` means unknown. A rate changes no pixel, so nothing is signalled — §4's triggers
+is 12+); GTK where the canvas reconcile reads the window's `GdkSurface`, and on that
+surface's `enter-monitor` (connected once per surface); Windows when the canvas window
+is shown, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
+`0` means unknown — and on GTK it is what the first frame usually reports, because an
+unmapped Wayland surface has no monitor until the compositor sends `enter`. A rate changes no pixel, so nothing is signalled — §4's triggers
 stay five.
 
 A frame already in flight when the resize lands finishes at the old size and is

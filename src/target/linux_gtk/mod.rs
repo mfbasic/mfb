@@ -101,6 +101,12 @@ const CANVAS_RESIZE_SYMBOL: &str = "_mfb_gtkapp_canvas_resize";
 /// emitter expects a vreg allocator. A rename breaks the link step loudly ("internal
 /// relocation target ... is not defined") instead of silently dropping the repaint.
 const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
+/// plan-155-A: `_mfb_gtkapp_display_rate(GdkSurface *)` — publish the refresh rate of
+/// the monitor the surface is on, and hook the surface's `enter-monitor` once.
+const DISPLAY_RATE_SYMBOL: &str = "_mfb_gtkapp_display_rate";
+/// plan-155-A: the `GdkSurface::enter-monitor` handler — republish for the monitor.
+const ENTER_MONITOR_SYMBOL: &str = "_mfb_gtkapp_enter_monitor";
+const STR_ENTER_MONITOR: (&str, &str) = ("_mfb_gtkapp_str_enter_monitor", "enter-monitor");
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
@@ -222,7 +228,12 @@ const ST_CANVAS_SURFACE: usize = ST_CANVAS_AREA + 8;
 /// the GTK main loop. A separate width slot would have to be published separately,
 /// and a frame could then be drawn with the previous frame's dimensions.
 const ST_CANVAS_PIXELS: usize = ST_CANVAS_SURFACE + 8;
-const STATE_SIZE: usize = ST_CANVAS_PIXELS + 8;
+/// plan-155-A: the `GdkSurface*` the `enter-monitor` display-rate handler was last
+/// connected to. The canvas reconcile runs on every canvas entry, and connecting on
+/// each would stack one handler per entry on the same surface; comparing against this
+/// connects once per surface. Only the GTK main loop reads or writes it.
+const ST_DISPLAY_HOOKED: usize = ST_CANVAS_PIXELS + 8;
+const STATE_SIZE: usize = ST_DISPLAY_HOOKED + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -656,6 +667,9 @@ pub(crate) fn emit_app_program_entry(
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
         functions.push(emit_canvas_resize_helper()?);
+        // plan-155-A: the display-rate publish and its `enter-monitor` handler.
+        functions.push(emit_display_rate_helper()?);
+        functions.push(emit_enter_monitor_helper()?);
     }
     Ok(functions)
 }
@@ -750,6 +764,9 @@ pub(crate) fn emit_app_program_entry_x86(
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
         functions.push(emit_canvas_resize_helper()?);
+        // plan-155-A: the display-rate publish and its `enter-monitor` handler.
+        functions.push(emit_display_rate_helper()?);
+        functions.push(emit_enter_monitor_helper()?);
     }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -1036,6 +1053,11 @@ pub(crate) fn app_mode_imports(
         // symbols plan-98-F imports, and naming either here would fail to bind on
         // the other display server.
         (GTK, "gtk_native_get_surface"),
+        // plan-155-A: the refresh rate of the monitor the canvas window is on
+        // (millihertz, `0` = unknown), and the display that answers for the surface.
+        (GTK, "gdk_surface_get_display"),
+        (GTK, "gdk_display_get_monitor_at_surface"),
+        (GTK, "gdk_monitor_get_refresh_rate"),
         // plan-98-C Phase 3: the CPU-buffer blit. Cairo rather than a `GdkTexture`
         // because the surface plan-98-A built is a `GtkDrawingArea`, whose draw
         // callback hands out a `cairo_t` — displaying a texture through it would
@@ -1146,6 +1168,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
         STR_RESIZE,
+        // plan-155-A: the surface signal the display rate is republished on.
+        STR_ENTER_MONITOR,
         STR_RESIZE_W_ENV,
         STR_RESIZE_H_ENV,
         STR_EXIT_PREFIX,
@@ -1884,5 +1908,54 @@ mod canvas_reconcile_tests {
         let console = bootstrap::emit_activate_handler(PresentationMode::Console, false, false)
             .expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
+    }
+    /// plan-155-A: the canvas reconcile publishes the display rate right after it reads
+    /// the window's surface — and only for a program that draws, since the helper names
+    /// the canvas graphics state.
+    #[test]
+    fn the_canvas_reconcile_publishes_the_display_rate_after_reading_the_surface() {
+        let canvas = bootstrap::emit_reconcile_idle_helper(true, false).expect("reconcile");
+        let order: Vec<&str> = canvas
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|n| *n == "gtk_native_get_surface" || *n == DISPLAY_RATE_SYMBOL)
+            .collect();
+        assert_eq!(order, vec!["gtk_native_get_surface", DISPLAY_RATE_SYMBOL]);
+        let plain = bootstrap::emit_reconcile_idle_helper(false, false).expect("reconcile");
+        assert_eq!(externals(&plain, DISPLAY_RATE_SYMBOL), 0);
+    }
+
+    /// The helper connects `enter-monitor` (once per surface, through
+    /// `ST_DISPLAY_HOOKED`) and asks GDK for the monitor at the surface; the handler
+    /// reads the monitor it is handed. Every GDK call it makes is declared.
+    #[test]
+    fn the_display_rate_follows_the_surface_across_monitors() {
+        let helper = bootstrap::emit_display_rate_helper().expect("helper");
+        assert_eq!(externals(&helper, STR_ENTER_MONITOR.0), 2, "one adrp/add pair");
+        assert_eq!(externals(&helper, ENTER_MONITOR_SYMBOL), 2, "the handler address");
+        assert_eq!(externals(&helper, "g_signal_connect_data"), 1);
+        assert_eq!(externals(&helper, "gdk_display_get_monitor_at_surface"), 1);
+        assert_eq!(externals(&helper, "gdk_monitor_get_refresh_rate"), 1);
+        let handler = bootstrap::emit_enter_monitor_helper().expect("handler");
+        assert_eq!(externals(&handler, "gdk_monitor_get_refresh_rate"), 1);
+        let names = AppLibcNames {
+            libc: "libc.so.6",
+            libpthread: "libpthread.so.0",
+        };
+        let declared: Vec<String> = app_mode_imports(names, false)
+            .into_iter()
+            .map(|i| i.symbol)
+            .collect();
+        for symbol in [
+            "gdk_surface_get_display",
+            "gdk_display_get_monitor_at_surface",
+            "gdk_monitor_get_refresh_rate",
+        ] {
+            assert!(
+                declared.iter().any(|d| d == symbol),
+                "{symbol} must be declared"
+            );
+        }
     }
 }

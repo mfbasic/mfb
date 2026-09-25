@@ -176,6 +176,11 @@ impl NativePlanPlatform for Platform {
             import("GetDC", USER32, "_main"),
             import("ReleaseDC", USER32, "_main"),
             import("ShowWindow", USER32, "_main"),
+            // plan-155-A: the refresh rate of the canvas window's monitor —
+            // monitor handle, its device name, then that device's current mode.
+            import("MonitorFromWindow", USER32, "_main"),
+            import("GetMonitorInfoW", USER32, "_main"),
+            import("EnumDisplaySettingsW", USER32, "_main"),
             import("InvalidateRect", USER32, "_main"),
             import("UpdateWindow", USER32, "_main"),
             import("BeginPaint", USER32, "_main"),

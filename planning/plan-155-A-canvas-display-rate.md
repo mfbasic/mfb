@@ -314,7 +314,7 @@ Commit: `16a90c4e4` (bug-695: `13f3ea204`)
       `the_rate_send_is_guarded_and_published`,
       `the_screen_change_imp_republishes_for_the_notifying_window`
       (`cargo test --bin mfb macos_aarch64::app` → 36 passed).
-- [ ] Runtime proof: build a non-headless `--debug` canvas app, run it with
+- [x] Runtime proof: build a non-headless `--debug` canvas app, run it with
       `MFB_CANVAS_STATS=/tmp/s.txt`, and read `displayHz=` off the stats line.
       It must match the Phase 1 probe (120 on a ProMotion panel, 60 on an
       external monitor if one is attached). Record the observed line.
@@ -335,23 +335,51 @@ Acceptance: a real, windowed macOS run reports the probed rate.
   Check: the runtime proof above → `displayHz=` equals the probe (est. 5 min;
   it needs a real window, which is why a headless test can't stand in).
   Verified: `displayHz=120.00` = the probe's 120.
-Commit: —
+Commit: `1e6d26581`
 
 ### Phase 3 — GTK and Windows publish
 
-- [ ] `linux_gtk/mod.rs` imports plus `bootstrap.rs`: publish on realize and
-      on `"enter-monitor"`.
-- [ ] `win_x86_64/plan.rs` imports plus `app/mod.rs:emit_wndproc`: publish on
-      create, `WM_DISPLAYCHANGE`, and a `WM_MOVE` whose monitor changed.
-- [ ] Runtime proof on 2226 and 2230, observed the way Phase 1 found possible.
+- [x] `linux_gtk/mod.rs` imports plus `bootstrap.rs`: publish on realize and
+      on `"enter-monitor"`. → published where the canvas reconcile reads the window's
+      `GdkSurface` (the first point one exists, every canvas entry), with
+      `enter-monitor` connected once per surface via a new `ST_DISPLAY_HOOKED` slot
+      (Corrections 8). Pinned by
+      `the_canvas_reconcile_publishes_the_display_rate_after_reading_the_surface`,
+      `the_display_rate_follows_the_surface_across_monitors`.
+- [x] `win_x86_64/plan.rs` imports plus `app/mod.rs:emit_wndproc`: publish on
+      create, `WM_DISPLAYCHANGE`, and a `WM_MOVE` whose monitor changed. → "create" is
+      the canvas reconcile arm, after the window is shown and its HWND published;
+      `_mfb_winapp_display_rate(hwnd, force)` keeps the last `HMONITOR` in
+      `_mfb_winapp_display_monitor`. Pinned by
+      `the_display_rate_is_published_on_canvas_entry_and_followed_by_the_wndproc`,
+      `the_display_rate_helper_asks_the_monitor_then_its_mode`; the existing
+      `canvas_hwnd_is_published_by_one_arm_and_cleared_by_the_others` count 12 → 14
+      (Corrections 9). `cargo test --bin mfb target::` → 219 passed.
+- [x] Runtime proof on 2226 and 2230, observed the way Phase 1 found possible.
       If a box can only run headless, the proof is `displayHz=0` there plus
       the Phase 1 probe showing the API answers 0 in that session. Record
-      which it was.
-- [ ] Re-baseline `tests/syntax/app/app-mouse-surface`, only the lines the
-      publish calls add (inspect one diff first, per `.ai/testing-gates.md`).
+      which it was. → both windowed, both real values (the probe program, `/tmp/p155/win`:
+      present, sleep 12 s, present):
+      - 2226 (GNOME Wayland, the glibc AppImage extracted, no HEADLESS variable):
+        `frames=1 displayHz=0.00`, `frames=2 displayHz=74.99`, `frames=3 displayHz=74.99`
+        — probe 74993 mHz. The first frame is drawn before the compositor maps the
+        window, so GDK knows no monitor yet; the value arrives through `enter-monitor`.
+      - 2230 (Win11, over ssh, windowed): `frames=1 displayHz=60.00`,
+        `frames=2 displayHz=60.00` — probe 60 Hz. rc=0 — the first windowed run of the
+        bug-695 WndProc.
+- [x] Re-baseline `tests/syntax/app/app-mouse-surface`, only the lines the
+      publish calls add (inspect one diff first, per `.ai/testing-gates.md`). → and the
+      other app fixtures, whose Linux/Windows sums move for the unconditional imports:
+      localized on `macos-app-mode-term` (Windows: three imports + the monitor static;
+      linux-aarch64: three imports, the `enter-monitor` string, the state block one
+      word larger). 11 sums rewritten; `scripts/test-accept.sh … 'app-*'
+      'macos-app-mode-*' 'app_*'` → passed (9 tests).
+- [x] (added) `emit_publish_display_rate` takes `impl Into<Operand>`: the Windows
+      helper passes Win64 role tokens, and `to_string()` on one produced
+      `unknown x86-64 register '%argMFB2'` at the first Windows build (Corrections 10).
 
 Acceptance: both platforms build and run a canvas app and report the value
-their session allows.
+their session allows. Verified: 2226 `displayHz=74.99`, 2230 `displayHz=60.00`.
   Check: `scripts/linux-runtime-proof.sh` on box 2226 running the same `--debug`
   canvas app → `displayHz=` line present (est. 8 min: box 2223 has no GTK, so
   the GTK box is the smallest one that exercises the realize hook);
@@ -428,6 +456,30 @@ Commit: —
    view to catch stray overrides. §3 puts the screen-change method on that view, so the
    line became 4 and the selector joined the by-name list; nothing else in the test
    changed.
+8. **GTK: the hook is the surface read, not `realize`.** The canvas reconcile already
+   reads `gtk_native_get_surface` right after `gtk_window_present`, the first point a
+   `GdkSurface` exists — the same moment `realize` would give, on a path that runs every
+   canvas entry. Connecting there each time would stack handlers, and
+   `g_signal_handlers_disconnect_matched` takes seven arguments (a stack argument on
+   x86-64 SysV), so the helper records the surface it hooked in `ST_DISPLAY_HOOKED` and
+   connects only for a new one. The first probe run looked like a failure
+   (`displayHz=0.00` on both frames): WAYLAND_DEBUG showed no compositor event at all
+   after the toplevel was created, and the same program from the HEAD compiler showed
+   the same — the main thread was busy (`/proc/<pid>/task/*/wchan`: `running`) in GTK's
+   first software-GL frame on this VM, and the 2 s program ended before the window
+   mapped. A 12 s program showed the handler publishing 74.99. The plan's check named
+   `scripts/linux-runtime-proof.sh`, which runs acceptance `.run` fixtures and cannot run
+   a canvas app with `MFB_CANVAS_STATS`; the proof ran the AppImage on the box the way
+   `scripts/test-canvas-gpu-rows.sh` does, without `MFB_GTKAPP_HEADLESS`.
+9. **The Windows HWND-read count.** `canvas_hwnd_is_published_by_one_arm_and_cleared_by_the_others`
+   (plan-98-A, extended by plan-98-F) enumerates every WndProc read of `CANVAS_HWND_SYM`;
+   the display arms' gate is a seventh, so 12 relocations became 14 and the new reader
+   is named in the message.
+10. **`emit_publish_display_rate` signature.** Written with `&str` registers after
+   `emit_publish_surface_size`; the Windows helper uses `abi::mfb_arg(n)` tokens (the
+   volatile Win64 registers), which must reach the selector as tokens. Changed to
+   `impl Into<Operand>` — the unit tests passed with the string form because they
+   inspect pre-select instructions; the Windows `--app` build is what failed.
 
 ## Summary
 
