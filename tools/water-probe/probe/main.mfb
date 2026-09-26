@@ -13,13 +13,17 @@
 ' every frame (main.mfb, beside pipeWithin) - the same every-frame pattern
 ' pipeWithin already used for the pipe. This probe reproduces the exact
 ' decision order main.mfb's mouse-down handler uses (onToolbar before
-' shapeAt) against the real shapes.mfb/toolbar.mfb logic (verbatim, minus
-' the canvas-drawing/import surface a headless probe cannot use - see
-' toolbar_under_test.mfb's header), before and after a simulated shrink with
-' clampShapes applied.
+' shapeAt) against the REAL shapes.mfb/toolbar.mfb (run.sh stages both fresh
+' on every run - not a copy committed here), before and after a simulated
+' shrink with clampShapes applied. onToolbar/buttonAt take a real
+' canvas::Point, exactly as examples/water/src/main.mfb calls them - no
+' signature substitute is needed since this probe is an --app build (like
+' wind-map-probe), run headless.
 '
-' Usage: water-probe.out (no arguments; prints PASS/FAIL to stdout)
+' Usage: MFB_MACAPP_HEADLESS=1 water-probe.out (no arguments; prints
+' PASS/FAIL to stdout)
 
+IMPORT canvas
 IMPORT io
 
 FUNC main AS Integer
@@ -30,7 +34,7 @@ FUNC main AS Integer
   io::print("old width=" & toString(oldWidth) & " oldPlay=" & toString(oldPlay))
   io::print("placed shape " & toString(i) & " at x=" & toString(shapeX(i)) & " y=" & toString(shapeY(i)))
 
-  IF onToolbar(oldWidth, shapeX(i)) THEN
+  IF onToolbar(oldWidth, canvas::Point[x := shapeX(i), y := shapeY(i)]) THEN
     io::print("FAIL: the shape starts out already under the toolbar - test setup is wrong")
     RETURN 1
   END IF
@@ -64,15 +68,14 @@ FUNC main AS Integer
   ' click lands somewhere on the object's visible body, most of which is now
   ' inside the play area. This probes a point on the body, a few pixels left
   ' of centre - representative of an actual click - not the centroid itself.
-  LET clickX AS Float = shapeXAfter - 20.0
-  LET clickY AS Float = shapeYAfter
+  LET click AS canvas::Point = canvas::Point[x := shapeXAfter - 20.0, y := shapeYAfter]
 
-  IF onToolbar(newWidth, clickX) THEN
+  IF onToolbar(newWidth, click) THEN
     io::print("FAIL: onToolbar(newWidth, a point on the shape's body) is still TRUE after clampShapes - a click there would still be swallowed by the toolbar")
     anyFail = TRUE
   END IF
 
-  LET hit AS Integer = shapeAt(clickX, clickY)
+  LET hit AS Integer = shapeAt(click.x, click.y)
   IF hit <> i THEN
     io::print("FAIL: shapeAt(a point on the shape's body) did not find the shape after clampShapes (got " & toString(hit) & ")")
     anyFail = TRUE

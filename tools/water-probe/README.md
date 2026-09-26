@@ -6,31 +6,29 @@ permanently unselectable — `onToolbar` is checked before `shapeAt` in
 `main.mfb`'s mouse-down handling, so a click on the object's own, still
 visible, pixel was decided as a toolbar click.
 
-The real `water` program is `--app`-mode and needs a live window, which
-cannot be driven headlessly in every environment. This tool is a console-mode
-program built from verbatim copies of the relevant logic:
+## What this tool checks, and how
 
-- `src/shapes_under_test.mfb` — `examples/water/src/shapes.mfb` with its
-  canvas-drawing section removed (collision/position logic needs no
-  display), including the bug-716 fix (`clampShapes`) and the bug-717 fix
-  (the bounding-radius reject and per-shape cache) it was copied alongside.
-- `src/toolbar_under_test.mfb` — `examples/water/src/toolbar.mfb`'s decision
-  logic (`playWidth`/`onToolbar`/`buttonAt`/`toolKind`), with `at AS
-  canvas::Point` split into `atX, atY AS Float` parameters (importing
-  `canvas` at all forces `--app` mode) — the same change this bug's own
-  manual reproduction made.
-- `src/main.mfb` — places a shape well inside a 300-wide window's play area,
-  shrinks the window to 200 wide (which shrinks the play area to less than
-  the shape's x), calls `clampShapes` (the fix), and checks: the shape's
-  centre is no longer past the new play area; a click on a point on the
-  shape's visible body (not its exact mathematical centre — see the file's
-  own comment for why that distinction matters) is decided by `shapeAt`, not
-  swallowed by `onToolbar`.
+This tool builds and runs the **real** `examples/water/src/shapes.mfb` and
+`toolbar.mfb` — `run.sh` stages them into a fresh scratch project on every
+invocation (`mktemp -d`, then `cp` from the live example tree), alongside
+`probe/main.mfb` — the only file this tool commits. If either file
+regresses, the next run stages the regressed file and this probe catches
+it.
+
+`probe/main.mfb` places a shape well inside a 300-wide window's play area,
+shrinks the window to 200 wide (which shrinks the play area to less than the
+shape's x), calls `clampShapes` (the fix), and checks: the shape's centre is
+no longer past the new play area; a click on a point on the shape's visible
+body (not its exact mathematical centre — see "A boundary note, not a bug"
+below) is decided by `shapeAt`, not swallowed by `onToolbar`. It calls the
+real `onToolbar`/`buttonAt` with a real `canvas::Point`, exactly as
+`examples/water/src/main.mfb` does — this probe is an `--app` build, run
+headless via `MFB_MACAPP_HEADLESS=1` (the same technique `wind-map-probe`
+uses), so no signature substitute is needed.
 
 ## Running it
 
 ```
-$ target/release/mfb build tools/water-probe   # once, or whenever mfb itself changes
 $ ./tools/water-probe/run.sh target/release/mfb
 old width=300.00 oldPlay=212.00
 placed shape 0 at x=150.00 y=100.00
@@ -39,10 +37,13 @@ shape.x after clampShapes: 112.00
 PASS: bug-716 — a shape's position is reclamped into the shrunk play area, onToolbar no longer claims its pixel, and shapeAt finds it
 ```
 
-Without the fix (`clampShapes` not called — checked by hand while landing this
-tool, not committed as a separate mode): `shape.x after clampShapes: 150.00`,
-then two failures — the shape is still past `newPlay`, and a click on its
-body is still swallowed by the toolbar.
+Verified RED against the real pre-fix `shapes.mfb` (`git show <pre-fix
+commit>^:examples/water/src/shapes.mfb`, swapped in temporarily, not
+committed): the probe fails to **build** — `clampShapes` does not exist yet.
+Restored, this tool is GREEN again.
+
+Skips (exit 0) on a non-macOS host, since this is an `--app` build and only
+macOS is exercised here.
 
 ## A boundary note, not a bug
 
