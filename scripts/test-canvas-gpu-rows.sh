@@ -20,7 +20,7 @@
 # apart, and on Mesa's lavapipe every pixel 20 or more blends deep drifts one step from
 # the oracle (11.8% of the frame, past GPU_DEFAULT's 2%) — blend precision, not edges.
 #
-# The four `*_on_black` rows are bug-687's: polygons over the default black surface, where
+# The six `*_on_black` rows are bug-687's: shapes over the default black surface, where
 # one step of coverage is several sRGB levels, so a GPU distance that rounds to a different
 # coverage step than the oracle's shows past `GPU_DEFAULT`.
 #
@@ -98,6 +98,8 @@ star251x97|star_251_97_on_black|render
 star301x97|star_301_97_on_black|render
 star301x2|star_301_2_on_black|render
 polygonsblack|large_polygons_on_black|render
+smallpolysblack|small_polygons_on_black|render
+rectsblack|rectangles_on_black|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo

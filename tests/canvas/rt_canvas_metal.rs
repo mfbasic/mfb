@@ -1203,3 +1203,30 @@ fn polygons_past_two_hundred_fifty_six_edges_over_black_match_the_software_oracl
         "filled, stroked, transformed and self-intersecting polygons over black",
     );
 }
+
+/// 140 small filled polygons over black (bug-687): every rim pixel of every ring is near
+/// black. Before the double-float polygon path Metal put 3 pixels past `GPU_DEFAULT`
+/// here, worst 4.
+const SMALL_POLYGONS_ON_BLACK: &str = include_str!("scenes/small_polygons_on_black.mfb");
+
+#[test]
+fn small_polygons_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_small_polygons_on_black",
+        SMALL_POLYGONS_ON_BLACK,
+        "140 small filled polygons over black",
+    );
+}
+
+/// 140 rectangles over black (bug-687): a guard. Rectangles keep their fp32 distance and
+/// measured worst 2 on Metal and on Vulkan -- inside `GPU_DEFAULT`, only just.
+const RECTANGLES_ON_BLACK: &str = include_str!("scenes/rectangles_on_black.mfb");
+
+#[test]
+fn rectangles_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_rectangles_on_black",
+        RECTANGLES_ON_BLACK,
+        "140 filled rectangles over black",
+    );
+}
