@@ -65,14 +65,14 @@ ISOLATED FUNC fetchForecast(worker AS ThreadWorker OF ForecastNews TO Integer, c
     LET hour AS Integer = n * FORECAST_STEP_HOURS
 
     MUT tried AS Attempt = attemptCycle(c, hour)
-    DO WHILE len(tried.data) = 0
+    DO WHILE tried.problem <> ""
       LET wait AS ForecastNews = ForecastWait[hour := hour, reason := tried.problem]
       thread::send(worker, wait)
       os::sleep(RETRY_MILLIS)
       tried = attemptCycle(c, hour)
     LOOP
 
-    LET frame AS ForecastNews = ForecastFrame[hour := hour, winds := windsFrom(tried.data, c)]
+    LET frame AS ForecastNews = ForecastFrame[hour := hour, winds := tried.winds]
     thread::send(worker, frame)
   NEXT
 
