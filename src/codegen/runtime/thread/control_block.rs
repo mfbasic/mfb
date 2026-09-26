@@ -30,7 +30,7 @@
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::finalize_vreg_body_with_locals;
+use crate::codegen::engine::util::{finalize_vreg_body_with_locals, Vregs};
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
@@ -264,6 +264,8 @@ pub(crate) fn lower_thread_table_acquire(
     let store = format!("{symbol}_store");
     let oom = format!("{symbol}_oom");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
@@ -280,53 +282,53 @@ pub(crate) fn lower_thread_table_acquire(
     push_symbol_address(
         symbol,
         THREAD_TABLE_SYMBOL,
-        "%v8",
+        &r.v8,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
         // A free slot first: reuse keeps the array as small as the peak live count.
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_FREE),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_FREE),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_ne(&from_free),
         // Otherwise the next never-used slot, growing the array when it is full.
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_HIGH),
-        abi::load_u64("%v10", "%v8", THREAD_TABLE_CAPACITY),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_HIGH),
+        abi::load_u64(&r.v10, &r.v8, THREAD_TABLE_CAPACITY),
+        abi::compare_registers(&r.v9, &r.v10),
         abi::branch_lo(&fresh),
         abi::branch(&grow),
         abi::label(&from_free),
         // %v9 = index + 1; the free slot holds `(next << 1) | 1`.
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", abi::stack_pointer(), INDEX),
-        abi::load_u64("%v10", "%v8", THREAD_TABLE_SLOTS),
-        abi::shift_left_immediate("%v11", "%v9", 3),
-        abi::add_registers("%v10", "%v10", "%v11"),
-        abi::load_u64("%v11", "%v10", 0),
-        abi::shift_right_immediate("%v11", "%v11", 1),
-        abi::store_u64("%v11", "%v8", THREAD_TABLE_FREE),
+        abi::subtract_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, abi::stack_pointer(), INDEX),
+        abi::load_u64(&r.v10, &r.v8, THREAD_TABLE_SLOTS),
+        abi::shift_left_immediate(&r.v11, &r.v9, 3),
+        abi::add_registers(&r.v10, &r.v10, &r.v11),
+        abi::load_u64(&r.v11, &r.v10, 0),
+        abi::shift_right_immediate(&r.v11, &r.v11, 1),
+        abi::store_u64(&r.v11, &r.v8, THREAD_TABLE_FREE),
         abi::branch(&store),
         abi::label(&fresh),
-        abi::store_u64("%v9", abi::stack_pointer(), INDEX),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_HIGH),
+        abi::store_u64(&r.v9, abi::stack_pointer(), INDEX),
+        abi::add_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_HIGH),
         abi::branch(&store),
         // Grow: a new array twice the size (the initial capacity when there is none),
         // the used prefix copied across, the old array freed. Blocks never move — the
         // array holds pointers to them — so nothing outside the table notices.
         abi::label(&grow),
-        abi::load_u64("%v10", "%v8", THREAD_TABLE_CAPACITY),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v10, &r.v8, THREAD_TABLE_CAPACITY),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_ne(&have_capacity),
         abi::move_immediate(
-            "%v10",
+            &r.v10,
             "Integer",
             &(THREAD_TABLE_INITIAL_CAPACITY / 2).to_string(),
         ),
         abi::label(&have_capacity),
-        abi::add_registers("%v10", "%v10", "%v10"),
-        abi::store_u64("%v10", abi::stack_pointer(), NEW_CAPACITY),
-        abi::shift_left_immediate(abi::c_arg(0), "%v10", 3),
+        abi::add_registers(&r.v10, &r.v10, &r.v10),
+        abi::store_u64(&r.v10, abi::stack_pointer(), NEW_CAPACITY),
+        abi::shift_left_immediate(abi::c_arg(0), &r.v10, 3),
     ]);
     platform.emit_heap_alloc(
         symbol,
@@ -342,29 +344,29 @@ pub(crate) fn lower_thread_table_acquire(
     push_symbol_address(
         symbol,
         THREAD_TABLE_SYMBOL,
-        "%v8",
+        &r.v8,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
         // Copy the `high` used words (every slot below it, used or free).
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_SLOTS),
-        abi::load_u64("%v10", abi::stack_pointer(), NEW_SLOTS),
-        abi::load_u64("%v11", "%v8", THREAD_TABLE_HIGH),
-        abi::shift_left_immediate("%v11", "%v11", 3),
-        abi::add_registers("%v11", "%v11", "%v9"),
-        abi::compare_registers("%v9", "%v11"),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_SLOTS),
+        abi::load_u64(&r.v10, abi::stack_pointer(), NEW_SLOTS),
+        abi::load_u64(&r.v11, &r.v8, THREAD_TABLE_HIGH),
+        abi::shift_left_immediate(&r.v11, &r.v11, 3),
+        abi::add_registers(&r.v11, &r.v11, &r.v9),
+        abi::compare_registers(&r.v9, &r.v11),
         abi::branch_lo(&grow_copy),
         abi::branch(&grow_copied),
         abi::label(&grow_copy),
-        abi::load_u64("%v12", "%v9", 0),
-        abi::store_u64("%v12", "%v10", 0),
-        abi::add_immediate("%v9", "%v9", 8),
-        abi::add_immediate("%v10", "%v10", 8),
-        abi::compare_registers("%v9", "%v11"),
+        abi::load_u64(&r.v12, &r.v9, 0),
+        abi::store_u64(&r.v12, &r.v10, 0),
+        abi::add_immediate(&r.v9, &r.v9, 8),
+        abi::add_immediate(&r.v10, &r.v10, 8),
+        abi::compare_registers(&r.v9, &r.v11),
         abi::branch_lo(&grow_copy),
         abi::label(&grow_copied),
-        abi::load_u64(abi::c_arg(0), "%v8", THREAD_TABLE_SLOTS),
+        abi::load_u64(abi::c_arg(0), &r.v8, THREAD_TABLE_SLOTS),
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(&grow_no_old),
     ]);
@@ -378,31 +380,31 @@ pub(crate) fn lower_thread_table_acquire(
     push_symbol_address(
         symbol,
         THREAD_TABLE_SYMBOL,
-        "%v8",
+        &r.v8,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), NEW_SLOTS),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_SLOTS),
-        abi::load_u64("%v9", abi::stack_pointer(), NEW_CAPACITY),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_CAPACITY),
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_HIGH),
-        abi::store_u64("%v9", abi::stack_pointer(), INDEX),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_HIGH),
+        abi::load_u64(&r.v9, abi::stack_pointer(), NEW_SLOTS),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_SLOTS),
+        abi::load_u64(&r.v9, abi::stack_pointer(), NEW_CAPACITY),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_CAPACITY),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_HIGH),
+        abi::store_u64(&r.v9, abi::stack_pointer(), INDEX),
+        abi::add_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_HIGH),
         // Store the block at its slot and its index in the block.
         abi::label(&store),
-        abi::load_u64("%v9", abi::stack_pointer(), INDEX),
-        abi::load_u64("%v10", "%v8", THREAD_TABLE_SLOTS),
-        abi::shift_left_immediate("%v11", "%v9", 3),
-        abi::add_registers("%v10", "%v10", "%v11"),
-        abi::load_u64("%v12", abi::stack_pointer(), BLOCK),
-        abi::store_u64("%v12", "%v10", 0),
-        abi::store_u64("%v9", "%v12", CONTROL_OFFSET_SLOT),
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_USED),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_USED),
+        abi::load_u64(&r.v9, abi::stack_pointer(), INDEX),
+        abi::load_u64(&r.v10, &r.v8, THREAD_TABLE_SLOTS),
+        abi::shift_left_immediate(&r.v11, &r.v9, 3),
+        abi::add_registers(&r.v10, &r.v10, &r.v11),
+        abi::load_u64(&r.v12, abi::stack_pointer(), BLOCK),
+        abi::store_u64(&r.v12, &r.v10, 0),
+        abi::store_u64(&r.v9, &r.v12, CONTROL_OFFSET_SLOT),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_USED),
+        abi::add_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_USED),
     ]);
     table_lock(
         symbol,
@@ -450,6 +452,8 @@ pub(crate) fn lower_thread_table_release(
     let symbol = THREAD_TABLE_RELEASE_SYMBOL;
     const LOCALS: usize = 16;
     const INDEX: usize = 8;
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), INDEX),
@@ -466,25 +470,25 @@ pub(crate) fn lower_thread_table_release(
     push_symbol_address(
         symbol,
         THREAD_TABLE_SYMBOL,
-        "%v8",
+        &r.v8,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), INDEX),
-        abi::load_u64("%v10", "%v8", THREAD_TABLE_SLOTS),
-        abi::shift_left_immediate("%v11", "%v9", 3),
-        abi::add_registers("%v10", "%v10", "%v11"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), INDEX),
+        abi::load_u64(&r.v10, &r.v8, THREAD_TABLE_SLOTS),
+        abi::shift_left_immediate(&r.v11, &r.v9, 3),
+        abi::add_registers(&r.v10, &r.v10, &r.v11),
         // slot = (free << 1) | 1; free = index + 1.
-        abi::load_u64("%v11", "%v8", THREAD_TABLE_FREE),
-        abi::shift_left_immediate("%v11", "%v11", 1),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::store_u64("%v11", "%v10", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_FREE),
-        abi::load_u64("%v9", "%v8", THREAD_TABLE_USED),
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", THREAD_TABLE_USED),
+        abi::load_u64(&r.v11, &r.v8, THREAD_TABLE_FREE),
+        abi::shift_left_immediate(&r.v11, &r.v11, 1),
+        abi::add_immediate(&r.v11, &r.v11, 1),
+        abi::store_u64(&r.v11, &r.v10, 0),
+        abi::add_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_FREE),
+        abi::load_u64(&r.v9, &r.v8, THREAD_TABLE_USED),
+        abi::subtract_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, THREAD_TABLE_USED),
     ]);
     table_lock(
         symbol,
@@ -528,6 +532,8 @@ pub(crate) fn lower_thread_block_arena_create(
     let zero = format!("{symbol}_zero");
     let oom = format!("{symbol}_oom");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_immediate(abi::c_arg(0), "Integer", &ARENA_STATE_SIZE.to_string()),
@@ -543,12 +549,12 @@ pub(crate) fn lower_thread_block_arena_create(
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&oom),
         abi::store_u64(abi::c_return(0), abi::stack_pointer(), STATE),
-        abi::move_register("%v9", abi::c_return(0)),
-        abi::add_immediate("%v10", "%v9", ARENA_STATE_SIZE),
+        abi::move_register(&r.v9, abi::c_return(0)),
+        abi::add_immediate(&r.v10, &r.v9, ARENA_STATE_SIZE),
         abi::label(&zero),
-        abi::store_u64(abi::ZERO, "%v9", 0),
-        abi::add_immediate("%v9", "%v9", 8),
-        abi::compare_registers("%v9", "%v10"),
+        abi::store_u64(abi::ZERO, &r.v9, 0),
+        abi::add_immediate(&r.v9, &r.v9, 8),
+        abi::compare_registers(&r.v9, &r.v10),
         abi::branch_lo(&zero),
     ]);
     if debug_arena_registry {
@@ -629,9 +635,12 @@ pub(crate) fn emit_with_arena(
 /// Call the per-type value function whose address is in the frame word `fn_slot`
 /// with the value in the frame word `value_slot` as its argument, with the arena
 /// register pointed at the block arena in `arena_slot` (see [`emit_with_arena`]).
-/// The function's tagged result is left in the result registers.
+/// The function's tagged result is left in the result registers. `callee` is a vreg
+/// the caller minted (bug-721: never a hand-numbered one) that carries the function's
+/// address to the indirect call.
 pub(crate) fn emit_call_in_block_arena(
     instructions: &mut Vec<CodeInstruction>,
+    callee: &str,
     arena_slot: usize,
     saved_slot: usize,
     fn_slot: usize,
@@ -640,8 +649,8 @@ pub(crate) fn emit_call_in_block_arena(
     emit_with_arena(instructions, arena_slot, saved_slot, |instructions| {
         instructions.extend([
             abi::load_u64(abi::c_arg(0), abi::stack_pointer(), value_slot),
-            abi::load_u64("%v15", abi::stack_pointer(), fn_slot),
-            abi::branch_link_register("%v15"),
+            abi::load_u64(callee, abi::stack_pointer(), fn_slot),
+            abi::branch_link_register(callee),
         ]);
     });
 }
@@ -652,15 +661,20 @@ pub(crate) fn emit_call_in_block_arena(
 /// view, or the closed default an inline `TRAP` binds); otherwise replace `c_arg(0)`
 /// with the control block the view names (`RESOURCE_OFFSET_HANDLE`), so the op's body
 /// works on the block. Emitted first, before the op reads any argument. `closed` is
-/// emitted by [`emit_view_closed_exit`].
-pub(crate) fn emit_control_block_of(instructions: &mut Vec<CodeInstruction>, closed: &str) {
+/// emitted by [`emit_view_closed_exit`]. `scratch` is a vreg the caller minted
+/// (bug-721); it holds the view's closed word.
+pub(crate) fn emit_control_block_of(
+    instructions: &mut Vec<CodeInstruction>,
+    closed: &str,
+    scratch: &str,
+) {
     instructions.extend([
         // A null view is a binding whose drop already freed its record (a `TRAP`
         // handler reading a thread the error route dropped): closed, too.
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(closed),
-        abi::load_u64("%v9", abi::c_arg(0), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(scratch, abi::c_arg(0), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(scratch, "0"),
         abi::branch_ne(closed),
         abi::load_u64(abi::c_arg(0), abi::c_arg(0), RESOURCE_OFFSET_HANDLE),
     ]);
@@ -695,6 +709,8 @@ pub(crate) fn lower_thread_block_arena_destroy(
     const LOCALS: usize = 32;
     const STATE: usize = 8;
     const SAVED_ARENA: usize = 16;
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), STATE),
@@ -705,11 +721,11 @@ pub(crate) fn lower_thread_block_arena_destroy(
     });
     relocations.push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
     if debug_arena_registry {
-        instructions.push(abi::load_u64("%v9", abi::stack_pointer(), STATE));
+        instructions.push(abi::load_u64(&r.v9, abi::stack_pointer(), STATE));
         crate::codegen::debug::arena::emit_debug_arena_unregister(
             symbol,
-            "%v9",
-            ["%v10", "%v11", "%v12", "%v13"],
+            &r.v9,
+            [&r.v10, &r.v11, &r.v12, &r.v13],
             &mut instructions,
             &mut relocations,
         );
@@ -769,6 +785,8 @@ pub(crate) fn lower_thread_block_release(
     const DROP: usize = 56;
     let no_arena = format!("{symbol}_no_arena");
     let no_worker_arena = format!("{symbol}_no_worker_arena");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
@@ -794,56 +812,56 @@ pub(crate) fn lower_thread_block_release(
         let ring = format!("{symbol}_queue_{queue}_ring");
         let wrapped = format!("{symbol}_queue_{queue}_wrapped");
         instructions.extend([
-            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-            abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+            abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_ARENA),
+            abi::compare_immediate(&r.v9, "0"),
             abi::branch_eq(&next),
-            abi::store_u64("%v9", abi::stack_pointer(), ARENA),
-            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_DROP_OFFSET),
-            abi::compare_immediate("%v9", "0"),
+            abi::store_u64(&r.v9, abi::stack_pointer(), ARENA),
+            abi::load_u64(&r.v9, &r.v8, queue + THREAD_QUEUE_DROP_OFFSET),
+            abi::compare_immediate(&r.v9, "0"),
             abi::branch_eq(&next),
-            abi::store_u64("%v9", abi::stack_pointer(), DROP),
-            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_LAST_READ_OFFSET),
-            abi::compare_immediate("%v9", "0"),
+            abi::store_u64(&r.v9, abi::stack_pointer(), DROP),
+            abi::load_u64(&r.v9, &r.v8, queue + THREAD_QUEUE_LAST_READ_OFFSET),
+            abi::compare_immediate(&r.v9, "0"),
             abi::branch_eq(&last_done),
-            abi::store_u64("%v9", abi::stack_pointer(), VALUE),
+            abi::store_u64(&r.v9, abi::stack_pointer(), VALUE),
         ]);
-        emit_call_in_block_arena(&mut instructions, ARENA, SAVED_ARENA, DROP, VALUE);
+        emit_call_in_block_arena(&mut instructions, &r.v15, ARENA, SAVED_ARENA, DROP, VALUE);
         instructions.extend([
             abi::label(&last_done),
-            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_HEAD_OFFSET),
-            abi::store_u64("%v9", abi::stack_pointer(), INDEX),
-            abi::load_u64("%v9", "%v8", queue + THREAD_QUEUE_COUNT_OFFSET),
-            abi::store_u64("%v9", abi::stack_pointer(), LEFT),
+            abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+            abi::load_u64(&r.v9, &r.v8, queue + THREAD_QUEUE_HEAD_OFFSET),
+            abi::store_u64(&r.v9, abi::stack_pointer(), INDEX),
+            abi::load_u64(&r.v9, &r.v8, queue + THREAD_QUEUE_COUNT_OFFSET),
+            abi::store_u64(&r.v9, abi::stack_pointer(), LEFT),
             abi::label(&ring),
-            abi::load_u64("%v9", abi::stack_pointer(), LEFT),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(&r.v9, abi::stack_pointer(), LEFT),
+            abi::compare_immediate(&r.v9, "0"),
             abi::branch_eq(&next),
-            abi::subtract_immediate("%v9", "%v9", 1),
-            abi::store_u64("%v9", abi::stack_pointer(), LEFT),
-            abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-            abi::load_u64("%v10", abi::stack_pointer(), INDEX),
-            abi::load_u64("%v11", "%v8", queue + THREAD_QUEUE_VALUES_OFFSET),
-            abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
-            abi::add_registers("%v11", "%v11", "%v12"),
-            abi::load_u64("%v12", "%v11", 0),
-            abi::store_u64("%v12", abi::stack_pointer(), VALUE),
+            abi::subtract_immediate(&r.v9, &r.v9, 1),
+            abi::store_u64(&r.v9, abi::stack_pointer(), LEFT),
+            abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+            abi::load_u64(&r.v10, abi::stack_pointer(), INDEX),
+            abi::load_u64(&r.v11, &r.v8, queue + THREAD_QUEUE_VALUES_OFFSET),
+            abi::shift_left_immediate(&r.v12, &r.v10, THREAD_QUEUE_ENTRY_SHIFT),
+            abi::add_registers(&r.v11, &r.v11, &r.v12),
+            abi::load_u64(&r.v12, &r.v11, 0),
+            abi::store_u64(&r.v12, abi::stack_pointer(), VALUE),
             // Advance the cursor, wrapping at capacity, before the drop call.
-            abi::add_immediate("%v10", "%v10", 1),
-            abi::load_u64("%v11", "%v8", queue + THREAD_QUEUE_CAPACITY_OFFSET),
-            abi::compare_registers("%v10", "%v11"),
+            abi::add_immediate(&r.v10, &r.v10, 1),
+            abi::load_u64(&r.v11, &r.v8, queue + THREAD_QUEUE_CAPACITY_OFFSET),
+            abi::compare_registers(&r.v10, &r.v11),
             abi::branch_lt(&wrapped),
-            abi::move_immediate("%v10", "Integer", "0"),
+            abi::move_immediate(&r.v10, "Integer", "0"),
             abi::label(&wrapped),
-            abi::store_u64("%v10", abi::stack_pointer(), INDEX),
+            abi::store_u64(&r.v10, abi::stack_pointer(), INDEX),
         ]);
-        emit_call_in_block_arena(&mut instructions, ARENA, SAVED_ARENA, DROP, VALUE);
+        emit_call_in_block_arena(&mut instructions, &r.v15, ARENA, SAVED_ARENA, DROP, VALUE);
         instructions.extend([abi::branch(&ring), abi::label(&next)]);
     }
     instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-        abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_ARENA),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_ARENA),
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(&no_arena),
         abi::branch_link(THREAD_BLOCK_ARENA_DESTROY_SYMBOL),
@@ -851,21 +869,21 @@ pub(crate) fn lower_thread_block_release(
     ]);
     relocations.push(internal_branch(symbol, THREAD_BLOCK_ARENA_DESTROY_SYMBOL));
     instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_WORKER_ARENA),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_WORKER_ARENA),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_eq(&no_worker_arena),
     ]);
     if debug_arena_registry {
         crate::codegen::debug::arena::emit_debug_arena_unregister(
             symbol,
-            "%v9",
-            ["%v10", "%v11", "%v12", "%v13"],
+            &r.v9,
+            [&r.v10, &r.v11, &r.v12, &r.v13],
             &mut instructions,
             &mut relocations,
         );
     }
-    instructions.push(abi::move_register(abi::c_arg(0), "%v9"));
+    instructions.push(abi::move_register(abi::c_arg(0), &r.v9));
     platform.emit_heap_free(
         symbol,
         platform_imports,
