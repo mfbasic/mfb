@@ -14,8 +14,9 @@ impl CodeBuilder<'_> {
     /// [`Self::temporary_vreg`] is the same allocation under the name the many
     /// scratch-register call sites use.
     pub(crate) fn allocate_register(&mut self) -> VirtualRegister {
-        let vreg = self.next_vreg;
-        self.next_vreg += 1;
+        // The one id source every minter shares, so this can never equal a `Vregs`
+        // name in the same stream (bug-721).
+        let vreg = regalloc::mint_vreg_id(RegClass::Int);
         // Advance the bump counter: some lowerings advance it as a positional
         // reservation (`while self.next_register <= 12 { … }` in
         // `builder_numeric`), so it must always move or those loops never
@@ -29,8 +30,7 @@ impl CodeBuilder<'_> {
     /// chained float arithmetic stays resident in `d`-registers instead of
     /// round-tripping its bit pattern through a GPR.
     pub(crate) fn allocate_fp_register(&mut self) -> VirtualRegister {
-        let vreg = self.next_fp_vreg;
-        self.next_fp_vreg += 1;
+        let vreg = regalloc::mint_vreg_id(RegClass::Fp);
         VirtualRegister::new(RegClass::Fp, vreg)
     }
 

@@ -139,12 +139,6 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) used_callee_saved: Vec<String>,
     pub(crate) stack_size: usize,
     pub(crate) next_register: usize,
-    /// Next virtual-register index `allocate_register` will hand out. Virtual
-    /// registers are colored to physical registers after the whole function is
-    /// lowered (`regalloc::allocate`, plan-03).
-    pub(crate) next_vreg: u32,
-    /// FP virtual-register counter (plan-03 Stage C).
-    pub(crate) next_fp_vreg: u32,
     /// Float values whose bits in a GPR `ValueResult.location` are *also* resident
     /// in an FP virtual register (the `d`-register a float op left its result in).
     /// Lets a chained float operand be read straight from the `d`-register instead
@@ -645,8 +639,6 @@ impl<'a> CodeBuilder<'a> {
             used_callee_saved: Vec::new(),
             stack_size: 0,
             next_register: 8,
-            next_vreg: 0,
-            next_fp_vreg: 0,
             float_residents: HashMap::new(),
             promoted_float_locals: HashMap::new(),
             address_taken_locals: HashSet::new(),
@@ -1152,6 +1144,9 @@ pub(crate) fn lower_module_for_platform(
     packages: &[PathBuf],
     platform: &dyn CodegenPlatform,
 ) -> Result<NativeCodePlan, String> {
+    // One virtual-register id sequence per module (bug-721): the ids — and so the
+    // allocation — depend only on what this module lowers.
+    crate::codegen::engine::regalloc::reset_vreg_ids();
     if module.target != platform.target() {
         return Err(format!(
             "native code platform '{}' cannot lower module target '{}'",

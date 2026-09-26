@@ -615,17 +615,22 @@ fn resolve_stack_arg_sentinels(
 /// (plan-00-G Phase 2): each call yields a fresh `%vN` the shared allocator
 /// colors. Lets the PCG64 / arena helpers be written in target-neutral MIR (no
 /// fixed `x9`/`x13`…) so register placement is a per-ISA backend job.
-pub(crate) struct Vregs(usize);
+///
+/// Every name comes from the one per-compilation id source
+/// ([`regalloc::mint_vreg_id`](crate::codegen::engine::regalloc::mint_vreg_id)), shared
+/// with `CodeBuilder::allocate_register` — so no two minters, however nested, can
+/// hand out the same name in one instruction stream (bug-721).
+pub(crate) struct Vregs;
 
 impl Vregs {
     pub(crate) fn new() -> Self {
-        Vregs(0)
+        Vregs
     }
 
     pub(crate) fn next(&mut self) -> String {
-        let name = format!("%v{}", self.0);
-        self.0 += 1;
-        name
+        crate::codegen::engine::regalloc::vreg_name(crate::codegen::engine::regalloc::mint_vreg_id(
+            crate::target::shared::regmodel::RegClass::Int,
+        ))
     }
 }
 
