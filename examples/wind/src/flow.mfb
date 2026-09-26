@@ -66,10 +66,15 @@ END TYPE
 ' streak reads as fast.
 LET DRIFT_RATE AS Float = 1.15
 
-' How many positions of a particle's history are kept. The trail is drawn as
-' this many points joined by lines, so it is also the cost: the scene carries
-' roughly particleCount() * (TRAIL_LENGTH - 1) lines.
-LET TRAIL_LENGTH AS Integer = 12
+' Enough history for the longest trail, at whole-world zoom. The rendered
+' length falls with zoom: 44 segments at 1x (four times the old 11), down to
+' one segment at 60x (about one tenth of the old length).
+LET TRAIL_LENGTH AS Integer = 45
+
+' The power curve through (zoom 1, multiplier 4) and (zoom 60, multiplier
+' 0.1). A multiplicative zoom therefore changes the trail smoothly rather
+' than spending most of the change at one end of the range.
+LET TRAIL_ZOOM_EXPONENT AS Float = -0.900969
 
 ' How many frames a particle lives before it is picked up and dropped somewhere
 ' else.
@@ -381,6 +386,14 @@ FUNC trailPointColor(tint AS color::Color, k AS Integer, segments AS Integer) AS
   RETURN color::withAlpha(tint, 40 + math::floor(fade * 195.0))
 END FUNC
 
+' How much of the retained history to draw at this zoom. Eleven segments was
+' the old fixed length, so the endpoints are 44 at 1x and one at 60x. The
+' lower bound keeps every live particle visible as a line rather than a point.
+FUNC trailSegments(zoom AS Float) AS Integer
+  LET scaled AS Float = 44.0 * math::pow(math::max(zoom, 1.0), TRAIL_ZOOM_EXPONENT)
+  RETURN math::clamp(math::floor(scaled + 0.5), 1, TRAIL_LENGTH - 1)
+END FUNC
+
 ' One run of a trail, as the PolyLine that draws it.
 '
 ' It builds the item and nothing else; the caller appends it to the frame's
@@ -398,11 +411,11 @@ END FUNC
 ' off screen, and one that spans more than half the map, which is what the
 ' antimeridian looks like when a particle crosses it and its longitude wraps.
 ' A particle younger than its trail has only that much history to draw.
-FUNC trailItems(v AS View) AS List OF canvas::DrawItem
+FUNC trailItems(v AS View, zoom AS Float) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = []
   LET count AS Integer = particleCount()
   LET trail AS Integer = TRAIL_LENGTH
-  LET segments AS Integer = trail - 1
+  LET segments AS Integer = trailSegments(zoom)
   IF count = 0 OR segments < 1 THEN RETURN items
 
   LET box AS Box = viewBox(v, 0.02)

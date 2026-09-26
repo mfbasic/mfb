@@ -245,7 +245,7 @@ END FUNC
 FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = mapItems(world, v)
 
-  FOR EACH item IN trailItems(v)
+  FOR EACH item IN trailItems(v, v.scale / fitScale(size))
     items = collections::append(items, item)
   NEXT
 
