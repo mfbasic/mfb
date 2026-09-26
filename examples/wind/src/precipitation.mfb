@@ -1,0 +1,167 @@
+' precipitation - the rain layer, and the key that reads it.
+'
+' GFS gives the rate water is falling at the forecast hour, in kilograms per
+' square metre per second - which, a square metre of water a millimetre deep
+' being a kilogram, is millimetres a second. It is shown in millimetres an
+' hour, the unit the categories are written in: light rain is under 2.5 mm/h,
+' moderate up to 7.6, heavy up to 50, and anything past that is extreme.
+'
+' Rain that matters spans more than two orders of magnitude, so the colour
+' follows the logarithm of the rate, a third of the scale to each of light,
+' moderate and heavy and the last tenth to extreme. Where it is barely falling
+' the colour fades out rather than stopping at an edge, and where it is not
+' falling at all the map shows through untouched.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' Rates, in millimetres an hour, where the colour scale reaches each position in
+' RAIN_POSITIONS. Between two of them the position follows the logarithm of the
+' rate.
+LET RAIN_RATES AS List OF Float = [0.5, 2.5, 7.6, 50.0, 100.0]
+
+LET RAIN_POSITIONS AS List OF Float = [0.0, 0.3, 0.6, 0.9, 1.0]
+
+' Below this rate nothing is drawn. Between it and the first of RAIN_RATES the
+' colour fades in.
+LET RAIN_TRACE AS Float = 0.1
+
+' The colour scale, from light at 0.0 to extreme at 1.0, in even steps. These
+' are read off the reference key the layer was designed against: blue, through
+' purple and yellow, to white.
+LET RAIN_COLORS AS List OF color::Color = [color::rgb(53, 119, 244), color::rgb(69, 108, 236), color::rgb(105, 98, 227), color::rgb(149, 89, 218), color::rgb(180, 120, 174), color::rgb(207, 169, 120), color::rgb(236, 221, 85), color::rgb(255, 255, 88), color::rgb(255, 255, 124), color::rgb(255, 255, 183), color::rgb(255, 255, 255)]
+
+' The key's four rows, and where on the scale each is written. Each sits inside
+' the band it names.
+LET RAIN_LABELS AS List OF String = ["Light", "Moderate", "Heavy", "Extreme"]
+
+LET RAIN_LABEL_POSITIONS AS List OF Float = [0.05, 0.35, 0.65, 0.95]
+
+' The precipitation rate at one place and forecast moment, in millimetres an
+' hour. The blend of two hours can dip a hair below zero where one of them is
+' dry, so it is held at zero.
+FUNC precipitationBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Float
+  LET a AS Float = sampleField(earlier.precipitation, g)
+  IF mix <= 0.0 THEN RETURN math::max(a, 0.0) * 3600.0
+  LET b AS Float = sampleField(later.precipitation, g)
+  RETURN math::max(a + (b - a) * mix, 0.0) * 3600.0
+END FUNC
+
+' Where a rate falls on the colour scale, 0.0 to 1.0.
+FUNC rainPosition(mmPerHour AS Float) AS Float
+  IF mmPerHour <= collections::get(RAIN_RATES, 0) THEN RETURN 0.0
+  FOR k = 1 TO len(RAIN_RATES) - 1
+    LET high AS Float = collections::get(RAIN_RATES, k)
+    IF mmPerHour < high THEN
+      LET low AS Float = collections::get(RAIN_RATES, k - 1)
+      LET along AS Float = math::log(mmPerHour / low) / math::log(high / low)
+      LET start AS Float = collections::get(RAIN_POSITIONS, k - 1)
+      LET finish AS Float = collections::get(RAIN_POSITIONS, k)
+      RETURN start + (finish - start) * along
+    END IF
+  NEXT
+  RETURN 1.0
+END FUNC
+
+' One channel a fraction `along` of the way from one byte to another.
+FUNC blendChannel(start AS Byte, finish AS Byte, along AS Float) AS Integer
+  LET a AS Float = toFloat(toInt(start))
+  LET b AS Float = toFloat(toInt(finish))
+  RETURN math::clamp(math::round(a + (b - a) * along), 0, 255)
+END FUNC
+
+' The colour at a position on the scale, blended between the two stops either
+' side of it the same way the reference key blends them.
+FUNC rainColor(position AS Float) AS color::Color
+  LET steps AS Integer = len(RAIN_COLORS) - 1
+  LET scaled AS Float = math::clamp(position, 0.0, 1.0) * toFloat(steps)
+  LET lower AS Integer = math::min(math::floor(scaled), steps - 1)
+  LET along AS Float = scaled - toFloat(lower)
+  LET a AS color::Color = collections::get(RAIN_COLORS, lower)
+  LET b AS color::Color = collections::get(RAIN_COLORS, lower + 1)
+  RETURN color::rgb(blendChannel(a.red, b.red, along), blendChannel(a.green, b.green, along), blendChannel(a.blue, b.blue, along))
+END FUNC
+
+' The RGBA8 pixel for a rate in millimetres an hour: clear where it is dry, and
+' faded in over the lightest rates.
+FUNC precipitationPixel(mmPerHour AS Float) AS List OF Byte
+  IF mmPerHour < RAIN_TRACE THEN RETURN CLEAR_PIXEL
+  LET shade AS color::Color = rainColor(rainPosition(mmPerHour))
+  LET first AS Float = collections::get(RAIN_RATES, 0)
+  LET fade AS Float = math::clamp(math::log(mmPerHour / RAIN_TRACE) / math::log(first / RAIN_TRACE), 0.0, 1.0)
+  RETURN [shade.red, shade.green, shade.blue, toByte(math::round(fade * 255.0))]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The key
+' ---------------------------------------------------------------------------
+
+LET KEY_BACKGROUND AS color::Color = color::rgba(58, 62, 70, 225)
+
+LET KEY_EDGE AS color::Color = color::rgba(255, 255, 255, 38)
+
+LET KEY_TITLE_COLOR AS color::Color = color::rgb(244, 246, 248)
+
+LET KEY_LABEL_COLOR AS color::Color = color::rgb(196, 200, 206)
+
+' The scale as a bottom-to-top ramp of the same stops the map is painted with.
+FUNC rainGradient(bottom AS Float, top AS Float) AS canvas::Gradient
+  MUT stops AS List OF canvas::GradientStop = []
+  LET steps AS Integer = len(RAIN_COLORS) - 1
+  FOR k = 0 TO steps
+    LET stop AS canvas::GradientStop = canvas::GradientStop[offset := toFloat(k) / toFloat(steps), color := collections::get(RAIN_COLORS, k)]
+    stops = collections::append(stops, stop)
+  NEXT
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops]
+END FUNC
+
+' The key, in a panel whose top right corner is at (right, top), drawn at a
+' text size of `size`: a title over a colour bar with the categories beside it.
+FUNC precipitationKey(face AS canvas::Font, size AS Float, right AS Float, top AS Float) AS List OF canvas::DrawItem
+  LET title AS String = "Precipitation"
+  LET titleSize AS Float = size * 1.05
+  LET labelSize AS Float = size * 0.95
+  LET pad AS Float = size * 0.9
+  LET barWidth AS Float = size * 0.4
+  LET gap AS Float = size * 0.8
+  LET rowSpacing AS Float = size * 2.2
+
+  MUT widest AS Float = 0.0
+  FOR EACH label IN RAIN_LABELS
+    widest = math::max(widest, canvas::measureText(face, labelSize, label).width)
+  NEXT
+  LET titleWidth AS Float = canvas::measureText(face, titleSize, title).width
+  LET width AS Float = math::max(titleWidth, barWidth + gap + widest) + pad * 2.0
+
+  ' The bar runs past the first and last rows by what puts them at their
+  ' positions on it: the rows are evenly spaced, and so are the positions.
+  LET labelSpan AS Float = rowSpacing * toFloat(len(RAIN_LABELS) - 1)
+  LET firstAt AS Float = collections::get(RAIN_LABEL_POSITIONS, 0)
+  LET lastAt AS Float = collections::get(RAIN_LABEL_POSITIONS, len(RAIN_LABEL_POSITIONS) - 1)
+  LET barHeight AS Float = labelSpan / (lastAt - firstAt)
+
+  LET left AS Float = right - width
+  LET dividerY AS Float = top + pad + titleSize * 1.15
+  LET barTop AS Float = dividerY + pad
+  LET barBottom AS Float = barTop + barHeight
+  LET height AS Float = barBottom + pad - top
+
+  MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
+  LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := right, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  items = collections::append(items, [heading, divider])
+
+  LET barLeft AS Float = left + pad
+  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(RAIN_COLORS, 0)) { fillGradient := rainGradient(barBottom, barTop) }]
+  items = collections::append(items, bar)
+
+  FOR k = 0 TO len(RAIN_LABELS) - 1
+    LET y AS Float = barBottom - collections::get(RAIN_LABEL_POSITIONS, k) * barHeight
+    LET label AS canvas::DrawItem = canvas::Text[x := barLeft + barWidth + gap, y := y + labelSize * 0.35, text := collections::get(RAIN_LABELS, k), font := face, size := labelSize, paint := canvas::fill(KEY_LABEL_COLOR)]
+    items = collections::append(items, label)
+  NEXT
+
+  RETURN items
+END FUNC
