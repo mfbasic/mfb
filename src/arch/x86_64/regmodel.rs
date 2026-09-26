@@ -282,6 +282,30 @@ impl RegisterModel for Win64RegisterModel {
     }
 }
 
+/// The Win64 nonvolatile integer bank, in save-slot order: every register a
+/// hand-written Win64 callback (the app window procedure) owes its caller
+/// (bug-698). Built from this model's own callee-saved table so the ABI-mandated
+/// set has one spelling (bug-721).
+pub(crate) fn win64_nonvolatile_int_registers() -> Vec<crate::target::shared::abi::Reg> {
+    WIN64_INT_CALLEE_SAVED
+        .iter()
+        .map(|name| crate::target::shared::abi::Reg::physical(name))
+        .collect()
+}
+
+/// The SysV callee-saved integer registers the Linux GTK x86-64 app wrap bracket
+/// saves around a hand-built callback body, in save-slot order: the callee-saved
+/// bank minus the frame pointer `rbp` and the pinned arena base. The last entry
+/// (`r14`) doubles as the runtime zero register the bracket zeroes after saving.
+/// Built from this model's own callee-saved table (bug-721).
+pub(crate) fn sysv_app_bracket_callee_saved_registers() -> Vec<crate::target::shared::abi::Reg> {
+    INT_CALLEE_SAVED
+        .iter()
+        .filter(|name| **name != "rbp" && **name != ARENA_BASE_REGISTER)
+        .map(|name| crate::target::shared::abi::Reg::physical(name))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -71,10 +71,10 @@ pub(super) fn emit_display_functions() -> Vec<CodeFunction> {
 
 /// `class_addMethod(cls, @selector(mfbScreenChanged:), imp, "v@:@")`, for the canvas
 /// view class being built in `class_reg` (before `objc_registerClassPair`).
-pub(super) fn emit_install_screen_changed_method(asm: &mut Asm, class_reg: &str) {
+pub(super) fn emit_install_screen_changed_method(asm: &mut Asm, class_reg: Reg) {
     asm.load_selector(SEL_MFB_SCREEN_CHANGED.0);
-    asm.local_address("x2", SCREEN_CHANGED_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+    asm.local_address(abi::c_arg(2), SCREEN_CHANGED_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), class_reg));
     asm.call_external("_class_addMethod", LIB_OBJC);
 }
@@ -89,9 +89,9 @@ pub(super) fn emit_install_screen_changed_method(asm: &mut Asm, class_reg: &str)
 /// center nor the observing SEL may wait in an argument register.
 pub(super) fn emit_observe_screen_changes(
     asm: &mut Asm,
-    view_reg: &str,
-    center_reg: &str,
-    sel_reg: &str,
+    view_reg: Reg,
+    center_reg: Reg,
+    sel_reg: Reg,
 ) {
     asm.external_data(center_reg, CLASS_NS_NOTIFICATION_CENTER, LIB_FOUNDATION);
     asm.load_selector(SEL_DEFAULT_CENTER.0);
@@ -105,7 +105,7 @@ pub(super) fn emit_observe_screen_changes(
     asm.push(abi::move_register(abi::c_arg(3), sel_reg)); // selector
                                                           // The name is an `NSString * const` global: external_data yields the variable's
                                                           // address, so dereference once more for the string.
-    asm.external_data("x4", NS_WINDOW_DID_CHANGE_SCREEN, LIB_APPKIT);
+    asm.external_data(abi::c_arg(4), NS_WINDOW_DID_CHANGE_SCREEN, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(4), abi::c_arg(4), 0));
     asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0")); // object: nil
     asm.push(abi::move_register(abi::c_arg(0), center_reg));

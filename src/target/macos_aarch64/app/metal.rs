@@ -1185,7 +1185,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     // `LOCAL[5]` joins the saved set for plan-116-B: the four-pipeline loop needs a
     // register that survives `local_address` to hold each handle between creating it
     // and storing it. The frame is 64 bytes and offsets 48 and 56 were spare.
-    let saves: [(&str, usize); 6] = [
+    let saves: [(Reg, usize); 6] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
         (abi::LOCAL[2], 24),
@@ -5395,6 +5395,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::engine::operand::Operand;
     use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
     /// Every `objc_msgSend` in the pipeline setup sets its receiver *after* the

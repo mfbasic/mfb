@@ -754,7 +754,8 @@ fn emit_term_active_gate(asm: &mut Asm, term_state_offset: usize, done: &str) {
 /// Clobbers the objc call-clobbered registers, but not `x19` (the arena-state
 /// base). objc staging uses role tokens (`mfb_arg`/`mfb_return`, byte-identical to
 /// x0/x1 on aarch64) so the `abi_function` vreg finalizer accepts the stream.
-fn emit_get_tv_state(asm: &mut Asm, state_reg: &str, nil_label: &str) {
+fn emit_get_tv_state(asm: &mut Asm, state_reg: impl Into<Reg>, nil_label: &str) {
+    let state_reg: Reg = state_reg.into();
     asm.external_data(state_reg, CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register(abi::mfb_arg(0), state_reg));
@@ -1095,7 +1096,7 @@ fn emit_app_draw_line(
 
 /// Emit `dst = table[ord]` (a unichar code point) as a select-by-ordinal chain,
 /// defaulting to entry 0 for an out-of-range ordinal. `tag` uniquifies the labels.
-fn emit_app_select_unichar(asm: &mut Asm, ord: &str, dst: &str, table: &[u32], tag: &str) {
+fn emit_app_select_unichar(asm: &mut Asm, ord: Reg, dst: Reg, table: &[u32], tag: &str) {
     let done = format!("{tag}_done");
     asm.push(abi::move_immediate(dst, "Integer", &table[0].to_string()));
     for (ordinal, codepoint) in table.iter().enumerate().skip(1) {

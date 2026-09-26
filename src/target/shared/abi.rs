@@ -39,8 +39,13 @@ enum RegRepr {
     },
     /// A neutral role token defined in this module, realized per backend.
     Token(&'static str),
-    /// A physical register named by the target's register model.
-    Physical(&'static str),
+    /// A physical register the allocator or a backend chose, with its register
+    /// class and register-table index (what `Operand::Phys` carries).
+    Physical {
+        class: RegClass,
+        index: u32,
+        name: &'static str,
+    },
 }
 
 impl Reg {
@@ -56,8 +61,25 @@ impl Reg {
     /// `tests/guards/architecture_guards.rs::physical_registers_stay_in_the_backends`
     /// confines the callers to the allocator, the frame finalizer, the register
     /// models and `src/arch`.
+    /// Panics unless `name` is a real physical register of some target — so this
+    /// cannot become a way to spell a virtual register or a role by hand.
+    #[track_caller]
     pub(crate) fn physical(name: &str) -> Self {
-        Reg(RegRepr::Physical(intern_physical(name)))
+        use crate::codegen::engine::regalloc::analysis::{
+            fp_physical_index, int_concrete_physical_index,
+        };
+        let (class, index) = if let Some(index) = int_concrete_physical_index(name) {
+            (RegClass::Int, index)
+        } else if let Some(index) = fp_physical_index(name).filter(|_| !name.starts_with('%')) {
+            (RegClass::Fp, index)
+        } else {
+            panic!("`{name}` is not a physical register (bug-721)");
+        };
+        Reg(RegRepr::Physical {
+            class,
+            index,
+            name: intern_physical(name),
+        })
     }
 
     /// The operand this register is written into an instruction as.
@@ -69,7 +91,9 @@ impl Reg {
                 role,
                 index,
             } => Operand::abi(convention, role, index),
-            RegRepr::Token(spelling) | RegRepr::Physical(spelling) => Operand::Raw(spelling.into()),
+            RegRepr::Token(spelling) => Operand::Raw(spelling.into()),
+            // Typed, so `CodeInstruction::field` knows it is a register and not text.
+            RegRepr::Physical { class, index, name } => Operand::phys(class, index, name),
         }
     }
 
@@ -92,7 +116,7 @@ impl Reg {
     /// production code.
     #[cfg(test)]
     pub(crate) fn test_physical(name: &'static str) -> Self {
-        Reg(RegRepr::Physical(name))
+        Reg::physical(name)
     }
 }
 
@@ -134,7 +158,11 @@ impl From<&Operand> for Reg {
                 role: *role,
                 index: *index,
             }),
-            Operand::Phys { name, .. } => Reg(RegRepr::Physical(name)),
+            Operand::Phys { class, index, name } => Reg(RegRepr::Physical {
+                class: *class,
+                index: *index,
+                name,
+            }),
             Operand::Raw(text) => match role_token(text) {
                 Some(token) => Reg(RegRepr::Token(token)),
                 None => panic!("`{text}` is not a register operand (bug-721)"),
@@ -1971,6 +1999,13 @@ mod tests {
         CodeInstruction::new("label").field("name", "x9");
         // `cmp_imm`'s `rhs` is the immediate it compares against.
         compare_immediate(ZERO, "0");
+        // A register the allocator or a backend chose is typed, so the guard accepts
+        // it; `Reg::physical` refuses a name that is no physical register.
+        store_u64(Reg::physical("x19"), stack_pointer(), 8);
+        store_u64(Reg::physical("rbx"), stack_pointer(), 8);
+        for not_physical in ["%v9", "%scratch0", "banana"] {
+            assert!(std::panic::catch_unwind(|| Reg::physical(not_physical)).is_err());
+        }
     }
 
     fn get(inst: &CodeInstruction, key: &str) -> Option<String> {

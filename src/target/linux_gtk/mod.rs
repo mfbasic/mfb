@@ -44,6 +44,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::PresentationMode;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 
 // --- Emitted symbols -------------------------------------------------------
 
@@ -489,7 +490,7 @@ impl Asm {
     }
 
     /// Materialize an internal data/text symbol's address into `dst` (adrp/add).
-    fn local_address(&mut self, dst: impl Into<Operand>, symbol: &str) {
+    fn local_address(&mut self, dst: impl Into<Reg>, symbol: &str) {
         let dst = dst.into();
         self.push(
             CodeInstruction::new("adrp")
@@ -519,7 +520,7 @@ impl Asm {
     /// token — not raw `x9` — so a caller injected into a vreg-finalized
     /// `abi_function` body (plan-101 append shape) does not trip the plan-34-D
     /// zero-physical-register guard; realized to the same `x9` in a standalone body.
-    fn state_array(&mut self, dst: impl Into<Operand>, offset: usize) {
+    fn state_array(&mut self, dst: impl Into<Reg>, offset: usize) {
         let dst = dst.into();
         // The large-offset form below stages the offset in the scratch temp, so a
         // `SCRATCH[0]` destination would have the offset written OVER the base it
@@ -530,7 +531,7 @@ impl Asm {
         // (found while proving bug-539). Refuse the aliasing instead of documenting
         // it: `finish` surfaces a recorded error as a plan-level build failure, so a
         // future caller gets a named diagnostic rather than a crash on a Linux box.
-        if offset >= 4096 && dst.render() == abi::SCRATCH[0] && self.err.is_none() {
+        if offset >= 4096 && dst == abi::SCRATCH[0] && self.err.is_none() {
             self.err = Some(format!(
                 "gtk app codegen: state_array({}, {offset}) aliases its own scratch temp \
                  in '{}' -- pick a destination other than SCRATCH[0] for an offset past \
@@ -557,7 +558,7 @@ impl Asm {
     /// token — not raw `x9` — so a caller injected into a vreg-finalized
     /// `abi_function` body (plan-101 append shape) does not trip the plan-34-D
     /// zero-physical-register guard; realized to the same `x9` in a standalone body.
-    fn load_state(&mut self, dst: impl Into<Operand>, offset: usize) {
+    fn load_state(&mut self, dst: impl Into<Reg>, offset: usize) {
         self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
         self.push(abi::load_u64(dst, abi::SCRATCH[0], offset));
     }
@@ -566,7 +567,7 @@ impl Asm {
     /// scratch-pool register, realized `x9`). Spelled with the neutral token
     /// because some callers' sequences are injected into shared helper bodies,
     /// which the plan-34-D stream guard requires to be token-pure.
-    fn store_state(&mut self, src: impl Into<Operand>, offset: usize) {
+    fn store_state(&mut self, src: impl Into<Reg>, offset: usize) {
         self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
         self.push(abi::store_u64(src, abi::SCRATCH[0], offset));
     }
@@ -814,12 +815,18 @@ const X86_WRAP_BYTES: usize = 56;
 /// hand-built app body: the general callee-saved bank the interior code (the
 /// linear-scan allocator's output plus the residual scratch map) may land on,
 /// minus `rbp` (the frame pointer) and `r15` (the pinned arena base). These are
-/// listed as *data* — the physical save targets of the machine-floor bracket,
-/// which by construction cannot be virtual or neutral-token operands (they wrap
-/// the vreg-allocated body and must name the concrete callee-saved registers to
-/// preserve). `r14` (index 3) additionally doubles as the runtime zero register
-/// and is zeroed after being saved.
-const X86_BRACKET_CALLEE_SAVED: [&str; 4] = ["rbx", "r12", "r13", "r14"];
+/// the physical save targets of the machine-floor bracket, which by construction
+/// cannot be virtual or neutral-token operands (they wrap the vreg-allocated body
+/// and must name the concrete callee-saved registers to preserve), so the x86-64
+/// register model owns the list
+/// ([`crate::arch::x86_64::regmodel::sysv_app_bracket_callee_saved_registers`]).
+/// `r14` (index 3) additionally doubles as the runtime zero register and is
+/// zeroed after being saved.
+fn x86_bracket_callee_saved() -> [Reg; 4] {
+    crate::arch::x86_64::regmodel::sysv_app_bracket_callee_saved_registers()
+        .try_into()
+        .expect("the SysV app bracket saves exactly four callee-saved registers")
+}
 
 /// Finalize a hand-built app function for x86-64. These bodies were written
 /// against the AArch64 register conventions: `x9`–`x17` caller-saved scratch
@@ -887,15 +894,15 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
             }
         }
     }
-    let rename: HashMap<String, String> = order
+    let mut vregs = crate::codegen::engine::util::Vregs::new();
+    let rename: HashMap<String, Reg> = order
         .into_iter()
-        .enumerate()
-        .map(|(index, register)| (register, format!("%v{index}")))
+        .map(|register| (register, Reg::from(vregs.next())))
         .collect();
     for instruction in instructions.iter_mut() {
         for (_, value) in instruction.fields.iter_mut() {
             if let Some(vreg) = rename.get(&value.render()) {
-                *value = Operand::from(vreg.as_str());
+                *value = Operand::from(*vreg);
             }
         }
     }
@@ -915,27 +922,24 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
             .first()
             .is_some_and(|instruction| instruction.op == CodeOp::Label),
     );
+    let saved = x86_bracket_callee_saved();
     let prologue = vec![
         abi::subtract_stack(X86_WRAP_BYTES),
-        abi::store_u64(X86_BRACKET_CALLEE_SAVED[0], abi::stack_pointer(), 0),
-        abi::store_u64(X86_BRACKET_CALLEE_SAVED[1], abi::stack_pointer(), 8),
-        abi::store_u64(X86_BRACKET_CALLEE_SAVED[2], abi::stack_pointer(), 16),
-        abi::store_u64(X86_BRACKET_CALLEE_SAVED[3], abi::stack_pointer(), 24),
-        abi::exclusive_or_registers(
-            X86_BRACKET_CALLEE_SAVED[3],
-            X86_BRACKET_CALLEE_SAVED[3],
-            X86_BRACKET_CALLEE_SAVED[3],
-        ),
+        abi::store_u64(saved[0], abi::stack_pointer(), 0),
+        abi::store_u64(saved[1], abi::stack_pointer(), 8),
+        abi::store_u64(saved[2], abi::stack_pointer(), 16),
+        abi::store_u64(saved[3], abi::stack_pointer(), 24),
+        abi::exclusive_or_registers(saved[3], saved[3], saved[3]),
     ];
     instructions.splice(entry_at..entry_at, prologue);
     let mut index = entry_at + 6;
     while index < instructions.len() {
         if instructions[index].op == CodeOp::Ret {
             let epilogue = vec![
-                abi::load_u64(X86_BRACKET_CALLEE_SAVED[0], abi::stack_pointer(), 0),
-                abi::load_u64(X86_BRACKET_CALLEE_SAVED[1], abi::stack_pointer(), 8),
-                abi::load_u64(X86_BRACKET_CALLEE_SAVED[2], abi::stack_pointer(), 16),
-                abi::load_u64(X86_BRACKET_CALLEE_SAVED[3], abi::stack_pointer(), 24),
+                abi::load_u64(saved[0], abi::stack_pointer(), 0),
+                abi::load_u64(saved[1], abi::stack_pointer(), 8),
+                abi::load_u64(saved[2], abi::stack_pointer(), 16),
+                abi::load_u64(saved[3], abi::stack_pointer(), 24),
                 abi::add_stack(X86_WRAP_BYTES),
             ];
             let count = epilogue.len();

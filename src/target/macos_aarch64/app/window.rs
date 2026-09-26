@@ -130,15 +130,15 @@ pub(crate) fn emit_window_sync_seam(
 
 /// Add the three window methods to the delegate class being built in
 /// `class_reg` (before `objc_registerClassPair`).
-pub(super) fn emit_install_window_methods(asm: &mut Asm, class_reg: &str) {
+pub(super) fn emit_install_window_methods(asm: &mut Asm, class_reg: Reg) {
     for (selector, imp) in [
         (SEL_MFB_SYNC_WINDOW.0, WINDOW_SYNC_SYMBOL),
         (SEL_MFB_FS_ENTERED.0, FS_ENTERED_SYMBOL),
         (SEL_MFB_FS_EXITED.0, FS_EXITED_SYMBOL),
     ] {
         asm.load_selector(selector);
-        asm.local_address("x2", imp);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.local_address(abi::c_arg(2), imp);
+        asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), class_reg));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
@@ -146,7 +146,7 @@ pub(super) fn emit_install_window_methods(asm: &mut Asm, class_reg: &str) {
 
 /// Register the delegate instance in `delegate_reg` for the fullscreen
 /// notifications (main thread, once, after the delegate is created).
-pub(super) fn emit_observe_call(asm: &mut Asm, delegate_reg: &str) {
+pub(super) fn emit_observe_call(asm: &mut Asm, delegate_reg: Reg) {
     asm.push(abi::move_register(abi::c_arg(0), delegate_reg));
     asm.call_internal(WINDOW_OBSERVE_SYMBOL);
 }
@@ -249,7 +249,7 @@ fn emit_window_sync() -> CodeFunction {
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address("x1", WINDOW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window (or nil)
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
@@ -386,7 +386,7 @@ fn emit_window_observe() -> CodeFunction {
         asm.push(abi::move_register(abi::c_arg(3), abi::LOCAL[2])); // selector
                                                                     // The name is an `NSString * const` global: external_data yields the
                                                                     // variable's address, so dereference once more for the string.
-        asm.external_data("x4", name, LIB_APPKIT);
+        asm.external_data(abi::c_arg(4), name, LIB_APPKIT);
         asm.push(abi::load_u64(abi::c_arg(4), abi::c_arg(4), 0));
         asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0")); // object: nil
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));

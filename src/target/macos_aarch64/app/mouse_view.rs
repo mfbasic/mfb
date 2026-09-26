@@ -255,13 +255,13 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
         asm.push(abi::add_immediate(abi::c_arg(5), abi::c_arg(5), 1));
         emit_format_report(
             &SgrReport {
-                button_code: abi::c_arg(3),
-                x: abi::c_arg(4),
-                y: abi::c_arg(5),
-                terminator: abi::c_arg(6),
+                button_code: abi::c_arg(3).into(),
+                x: abi::c_arg(4).into(),
+                y: abi::c_arg(5).into(),
+                terminator: abi::c_arg(6).into(),
             },
-            &abi::c_arg(2),
-            &abi::c_arg(7),
+            &abi::c_arg(2).into(),
+            &abi::c_arg(7).into(),
             OFF_SCRATCH,
             sym,
             &scratch,
@@ -449,7 +449,7 @@ fn emit_to_surface_coords(asm: &mut Asm, imp: &MouseImp, done: &str) {
 /// Signed, because a coordinate outside the window is genuinely negative and an
 /// unsigned test would read it as enormous — which happens to reject it too, but
 /// for the wrong reason and only by luck.
-fn emit_range_check(asm: &mut Asm, sym: &str, value: &str, limit: &str, done: &str, tag: &str) {
+fn emit_range_check(asm: &mut Asm, sym: &str, value: Reg, limit: Reg, done: &str, tag: &str) {
     let ok = format!("{sym}_{tag}_ok");
     asm.push(abi::compare_immediate(value, "0"));
     asm.push(abi::branch_lt(done));
@@ -742,7 +742,7 @@ pub(super) fn emit_mouse_imps(uses_canvas: bool) -> Vec<CodeFunction> {
 /// `class_addMethod` every mouse IMP onto the class in `class_reg`.
 pub(super) fn emit_install_mouse_imps(
     asm: &mut Asm,
-    class_reg: impl Into<Operand>,
+    class_reg: impl Into<Reg>,
     surface: MouseSurface,
 ) {
     let class_reg = class_reg.into();
@@ -773,7 +773,7 @@ pub(super) fn emit_install_mouse_imps(
 /// message whose result AppKit would discard. `NSTrackingActiveAlways` (0x80)
 /// delivers motion whether or not the app is frontmost; `NSTrackingMouseMoved`
 /// (0x02) is the event itself.
-pub(super) fn emit_install_tracking_area(asm: &mut Asm, view_reg: impl Into<Operand>) {
+pub(super) fn emit_install_tracking_area(asm: &mut Asm, view_reg: impl Into<Reg>) {
     const NS_TRACKING_MOUSE_MOVED: u64 = 0x02;
     const NS_TRACKING_ACTIVE_ALWAYS: u64 = 0x80;
     const NS_TRACKING_IN_VISIBLE_RECT: u64 = 0x200;

@@ -29,7 +29,6 @@ use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFrame;
@@ -51,6 +50,7 @@ use crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_CURSOR_VISIBLE_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_FG_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET;
+use crate::target::shared::abi::Reg;
 
 const KERNEL32: &str = "kernel32.dll";
 const USER32: &str = "user32.dll";
@@ -259,10 +259,13 @@ const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
 /// The Win64 nonvolatile integer bank (bug-698), in save-slot order. A window
 /// procedure is a callback, so it owes `DispatchMessageW` every one of these — and
 /// the machine-floor scratch pool its arms stage values in realizes to six of them
-/// (`map_scratch_register`). Physical names on purpose: this list is Win64's
-/// contract, not a role the selector should remap. No arm uses an `xmm` register,
-/// so the nonvolatile `xmm6`–`xmm15` need no save.
-const WIN64_NONVOLATILE: [&str; 8] = ["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"];
+/// (`map_scratch_register`). Physical registers on purpose: this list is Win64's
+/// contract, not a role the selector should remap, so the x86-64 register model
+/// owns it ([`crate::arch::x86_64::regmodel::win64_nonvolatile_int_registers`]).
+/// No arm uses an `xmm` register, so the nonvolatile `xmm6`–`xmm15` need no save.
+fn win64_nonvolatile() -> Vec<Reg> {
+    crate::arch::x86_64::regmodel::win64_nonvolatile_int_registers()
+}
 const WM_CHAR: &str = "258"; // 0x0102
 const VK_RETURN: &str = "13"; // '\r' (WM_CHAR wParam on Enter)
 const GWLP_WNDPROC: usize = 4; // -(-4) the SetWindowLongPtrW index for the wndproc
@@ -307,7 +310,7 @@ fn call_internal(
 /// (`runtime_helpers.rs`) loads a *function* address with exactly this
 /// `DataAddrHi/Lo` + `binding: "data"` shape, so it works for both.
 fn load_addr(
-    reg: impl Into<Operand>,
+    reg: impl Into<Reg>,
     symbol: &str,
     from: &str,
     ins: &mut Vec<CodeInstruction>,
@@ -1183,7 +1186,7 @@ fn emit_worker() -> CodeFunction {
 /// writes UTF-16 into the shared buffer, so the digits are two bytes apart.
 fn emit_parse_wide_env(
     name_sym: &str,
-    dst: &str,
+    dst: Reg,
     tag: &str,
     from: &str,
     ins: &mut Vec<CodeInstruction>,
@@ -1263,7 +1266,7 @@ fn emit_wndproc(
     };
     // bug-698: the nonvolatile save area sits at the TOP of the frame, past every arm's
     // slots, so no existing offset moves. 64 bytes keeps the frame ≡ 8 (mod 16).
-    let frame = arms_frame + WIN64_NONVOLATILE.len() * 8;
+    let frame = arms_frame + win64_nonvolatile().len() * 8;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
@@ -1865,7 +1868,7 @@ fn emit_wndproc(
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
 }
 
-/// bug-698: save [`WIN64_NONVOLATILE`] right after the frame is allocated and reload
+/// bug-698: save [`win64_nonvolatile`] right after the frame is allocated and reload
 /// it before every return, at `[sp + save_base ..]`.
 ///
 /// A rewrite over the finished body rather than a save written into each arm: the arms
@@ -1884,7 +1887,7 @@ fn preserve_win64_nonvolatile(ins: Vec<CodeInstruction>, save_base: usize) -> Ve
     let mut saved = false;
     for (instruction, exits) in ins.into_iter().zip(exits) {
         if exits {
-            for (slot, register) in WIN64_NONVOLATILE.iter().enumerate() {
+            for (slot, register) in win64_nonvolatile().iter().enumerate() {
                 out.push(abi::load_u64(
                     *register,
                     abi::stack_pointer(),
@@ -1896,7 +1899,7 @@ fn preserve_win64_nonvolatile(ins: Vec<CodeInstruction>, save_base: usize) -> Ve
         out.push(instruction);
         if !saved && allocates {
             saved = true;
-            for (slot, register) in WIN64_NONVOLATILE.iter().enumerate() {
+            for (slot, register) in win64_nonvolatile().iter().enumerate() {
                 out.push(abi::store_u64(
                     *register,
                     abi::stack_pointer(),
@@ -3222,7 +3225,7 @@ fn emit_win_grid_size(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     from: &str,
-    reg: Operand,
+    reg: Reg,
     axis: GridAxis,
 ) {
     load_addr(reg.clone(), axis.symbol(), from, ins, rel);
@@ -3234,7 +3237,7 @@ fn emit_win_grid_last(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     from: &str,
-    reg: Operand,
+    reg: Reg,
     axis: GridAxis,
 ) {
     emit_win_grid_size(ins, rel, from, reg.clone(), axis);
@@ -3250,7 +3253,7 @@ fn win_clamp_register(
     rel: &mut Vec<CodeRelocation>,
     from: &str,
     tag: &str,
-    reg: Operand,
+    reg: Reg,
     axis: GridAxis,
 ) {
     let lo = format!("{tag}_clo");
@@ -5874,7 +5877,9 @@ mod tests {
         emit_app_io_write("_test_io", false, false, None, &mut ins, &mut _rel);
         let nul_idx = ins
             .iter()
-            .position(|i| i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO))
+            .position(|i| {
+                i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+            })
             .expect("transcript path NUL-terminates wbuf via a str_u16 of the zero register");
         let clamped = ins[..nul_idx]
             .iter()
@@ -6388,26 +6393,34 @@ mod canvas_reconcile_tests {
                 .iter()
                 .position(|i| i.op == CodeOp::SubSp)
                 .expect("WndProc allocates a frame");
-            let saved: Vec<String> = ins[sub + 1..sub + 1 + WIN64_NONVOLATILE.len()]
+            let saved: Vec<String> = ins[sub + 1..sub + 1 + win64_nonvolatile().len()]
                 .iter()
                 .filter(|i| i.op == CodeOp::StrU64)
                 .filter_map(|i| i.get("src"))
                 .collect();
             assert_eq!(
-                saved, WIN64_NONVOLATILE,
+                saved,
+                win64_nonvolatile()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
                 "the prologue must save the whole nonvolatile bank"
             );
             let returns = ins.iter().filter(|i| i.op == CodeOp::Ret).count();
             assert!(returns > 0);
             for (at, _) in ins.iter().enumerate().filter(|(_, i)| i.op == CodeOp::Ret) {
                 assert_eq!(ins[at - 1].op, CodeOp::AddSp, "ret follows the frame pop");
-                let reloaded: Vec<String> = ins[at - 1 - WIN64_NONVOLATILE.len()..at - 1]
+                let reloaded: Vec<String> = ins[at - 1 - win64_nonvolatile().len()..at - 1]
                     .iter()
                     .filter(|i| i.op == CodeOp::LdrU64)
                     .filter_map(|i| i.get("dst"))
                     .collect();
                 assert_eq!(
-                    reloaded, WIN64_NONVOLATILE,
+                    reloaded,
+                    win64_nonvolatile()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>(),
                     "every return must reload the nonvolatile bank"
                 );
             }
