@@ -13,7 +13,11 @@ arithmetic (see "Phase 1 results"). **V5 chosen (owner, 2026-09-25)**: carry eac
 vertex at double-float precision and evaluate the polygon distance and the inverse
 transform in double-float in both shaders. **Phase 2 done (2026-09-25)**: the four rows
 pass on Metal and on Vulkan (2226, 2230), every existing GPU row still passes; see
-"Phase 2 results". Not archived: waiting on the coordinator's merge.
+"Phase 2 results". **Not fixed "for every scene"**: Phase 3's probes show circles,
+ellipses, lines, arcs, polylines, a polygon's non-grid stroke half-width and a non-grid
+group offset still flip past `GPU_DEFAULT` near black, on Metal and Vulkan, before and
+after this change. That is every other SDF, so it goes back to the owner (see "Phase 3").
+Not archived.
 Regression Test: `tests/canvas/rt_canvas_metal.rs` (the four `*over_black*` rows) and the
 `star251x97`, `star301x97`, `star301x2`, `polygonsblack` rows of
 `scripts/test-canvas-gpu-rows.sh` — RED at `4ef538bb9`, GREEN on this branch
@@ -315,16 +319,11 @@ quantisation moves.
   coverage mismatches for V5.
 - Vulkan: `scripts/test-canvas-gpu-rows.sh <mfb> --target linux-aarch64` and
   `--target windows-x86_64`. Every row drew on the GPU with `geoVerifyMismatches=0`.
-- **2230's `race` row fails, and not because of this change.** The GPU run renders 2
-  frames, too few to race, so the script races on the software renderer, which also
-  renders only 2 frames against the 3 it requires. `geoVerifyMismatches=0` on both runs.
-  It fails identically with the compiler from before this bug's shader work
-  (`8158a9524`): `scripts/test-canvas-gpu-rows.sh <that mfb> --target windows-x86_64
-  --rows race` prints `FAIL: race/sw: the race did not happen (2 frames,
-  geoResolvedChecked=12000)`. The software path does not touch anything this bug changed.
-  bug-688 measured 3 software frames there, exactly at the threshold, so the emulated box
-  is now just slower. It is reported to the coordinator, not changed here: making it pass
-  means editing a shared race scene or its frame threshold, which needs its own proof.
+- **2230's `race` row fails, and not because of this change.** It is filed as
+  **bug-734**. It fails 3 of 3 runs at `main` `4df37a4fe` (detached worktree, box alone),
+  and at `8158a9524`. A 6,000-item software frame on the emulated box takes 13-18 s
+  against a 15-19 s publish window, so only 2 frames are rendered; macOS renders 6-9. The
+  3-frame requirement is real (the first two frames only fill the caches), so it stays.
 - Unit tests: `cargo test --release --bin mfb -- metal vulkan canvas` gives 107 passed.
   That includes the extended region-chain tests, the spec-constant test and the
   shape-space test.
@@ -381,3 +380,53 @@ half-width is not a multiple of 2^-16, or a group at a non-16.16 offset, can sti
 step near black. Neither is in any row here.
 
 Commit: —
+
+### Phase 3: the other shapes (coordinator, 2026-09-25)
+
+Probes: `/tmp/b687-limits/gen.py <kind>` builds 140 items of one kind on a 60-px grid,
+so nothing overlaps. Positions and sizes are off the pixel and 16.16 grids, the fill is
+`rgb(250, 250, 120)` over the default black, and strokes are 2 px unless stated. Metal is
+local (`/tmp/b687-model/run_scene.sh`). Vulkan is box 2226 (`/tmp/b687-limits/vk.sh`,
+`MFB_CANVAS_SYNC=1`, `gpuFrames=1` on every run). Each cell is pixels past delta 2 /
+worst delta:
+
+| kind | Metal before (`8158a9524`) | Metal after | Vulkan 2226 after |
+| --- | --- | --- | --- |
+| polygon (40-edge rings, filled) | 3 / 4 | **0 / 1** | **0 / 1** |
+| rectangle | 0 / 2 | 0 / 2 | 0 / 2 |
+| polygon, stroke width 1.0-2.9 (half-width off 16.16) | 4 / 6 | 1 / 3 | 2 / 3 |
+| polygon in a group at an off-grid offset | 3 / 4 | 3 / 4 | 4 / 4 |
+| polyline | 2 / 6 | 2 / 6 | 4 / 6 |
+| circle | 2 / 6 | 2 / 6 | 3 / 6 |
+| ellipse | 8 / 9 | 8 / 9 | 12 / 9 |
+| line | 1 / 3 | 1 / 3 | 1 / 3 |
+| arc | 3 / 9 | 3 / 9 | 3 / 9 |
+
+Findings:
+
+- **The polygon path is fixed and held.** Two new guard rows in `rt_canvas_metal.rs`
+  and `test-canvas-gpu-rows.sh`:
+  - `small_polygons_on_black.mfb`: RED before on Metal (3 / 4) and on 2226 (worst 4);
+    GREEN after on Metal, 2226 and 2230 (worst 1).
+  - `rectangles_on_black.mfb`: worst 2 everywhere, before and after.
+- **Every other signed distance still flips near black.** Circle, ellipse, line, arc and
+  polyline trip before and after, by 3-9 levels. So do two inputs that still reach the
+  polygon path as 16.16: the stroke half-width and the group offset.
+- **This is the same bug, bug-687's mechanism.** Each is an fp32 distance, from inputs
+  narrowed to 16.16, against the oracle's f64.
+- **It is not contained.** Fixing it in V5's style means:
+  - residual words for every item-block field that feeds a distance: centres, radii,
+    ellipse axes, arc endpoints, stroke half-width, clip rectangle;
+  - the same for the per-draw group offset;
+  - a double-float twin of every SDF, including the ellipse's 24-step bisection and the
+    arc's sweep test;
+  - for arcs, the angles themselves: the shader takes `cos`/`sin` of 16.16 angles, and
+    GPU transcendentals do not match the oracle's.
+
+  That is a new block layout, a new offset transport, and double-float in every shader
+  arm. It is not a residual of the polygon change. **Stopped here for an owner
+  decision**, as the task required. The choices are unchanged from Fix Design: extend
+  V5 to every kind (large; ellipses and arcs are the risk), or options 1 or 3 for the
+  kinds V5 does not cover.
+- The tripping kinds were not added as rows. They would be RED on every backend today;
+  the probes above are the reproduction.
