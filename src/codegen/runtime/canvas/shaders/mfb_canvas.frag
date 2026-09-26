@@ -270,39 +270,107 @@ int dfCoverage(vec2 d) {
 // bug-687: in double-float, at the shape-space point (`x`, `y`). Each endpoint is its
 // 16.16 word plus its residual, so the polygon is the oracle's to ~2^-41 px; the edge
 // vector is the integer difference of the words plus the residuals' difference. The
-// crossing test is the oracle's `px < ax + (py - ay) / dy * dx`, multiplied out by
-// `dy` so it needs no division. Metal's `edgeDistance`, line for line.
-vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y) {
-    vec2 best = vec2(1.0e6, 0.0);
+// crossing test is the oracle's `px < ax + (py - ay) / dy * dx`, multiplied out by `dy`
+// so it needs no division.
+//
+// Double-float is spent only where fp32 cannot decide, and that is NOT a tolerance: the
+// value returned is the double-float value, pixel for pixel. `edgeSlack` is an ERROR
+// BOUND on evaluating one edge in fp32 (the words' conversion, the dropped residual, the
+// arithmetic): 2^-18 of the six coordinates' magnitudes plus 2^-12 px, so each edge's
+// double-float distance lies in [d32 - slack, d32 + slack]. Pass 1 (fp32) finds `bound`
+// (least `d32 + slack`), `low` (least `d32 - slack`) and the parity of every edge whose
+// crossing fp32 decides; pass 2 evaluates in double-float only edges that can be the
+// nearest (`d32 - slack <= bound`) and the `edgeUnsure` crossings, and is skipped when
+// `low` is past `reach`, where coverage is 0 or 255 whatever the distance. Each
+// double-float helper has one call site, because lavapipe compiles the whole shader at
+// pipeline creation. Metal's `edgeDistance`, line for line, where the argument is set
+// out in full.
+float edgeSlack(vec2 p, vec2 a, vec2 b) {
+    return (abs(p.x) + abs(p.y) + abs(a.x) + abs(a.y) + abs(b.x) + abs(b.y)) * (1.0 / 262144.0) + (1.0 / 4096.0);
+}
+bool edgeUnsure(vec2 p, vec2 a, vec2 b, float slack) {
+    if (abs(a.y - p.y) <= slack || abs(b.y - p.y) <= slack) { return true; }
+    if ((a.y > p.y) == (b.y > p.y)) { return false; }
+    float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
+    return abs(cross) <= slack * (abs(b.x - a.x) + abs(b.y - a.y) + 2.0 * (abs(p.x - a.x) + abs(p.y - a.y)));
+}
+bool edgeToggles32(vec2 p, vec2 a, vec2 b) {
+    if ((a.y > p.y) == (b.y > p.y)) { return false; }
+    float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
+    return b.y > a.y ? cross < 0.0 : cross > 0.0;
+}
+struct DfEdge { vec2 ax; vec2 ay; vec2 vx; vec2 vy; };
+DfEdge dfEdge(int base, int e) {
+    int i = (base + e) * 4;
+    int r = (base + e) * 4 + EDGE_RESIDUAL_BASE;
+    DfEdge g;
+    g.ax = edgeCoord(i, r);
+    g.ay = edgeCoord(i + 1, r + 1);
+    g.vx = dfAdd(dfWord(edges.values[i + 2] - edges.values[i]),
+                 dfTwoSum(residualPx(edges.values[r + 2]), -residualPx(edges.values[r])));
+    g.vy = dfAdd(dfWord(edges.values[i + 3] - edges.values[i + 1]),
+                 dfTwoSum(residualPx(edges.values[r + 3]), -residualPx(edges.values[r + 1])));
+    return g;
+}
+vec2 dfSegmentDistance(DfEdge g, vec2 x, vec2 y) {
+    vec2 wx = dfSub(x, g.ax);
+    vec2 wy = dfSub(y, g.ay);
+    vec2 len2 = dfAdd(dfMul(g.vx, g.vx), dfMul(g.vy, g.vy));
+    vec2 t = vec2(0.0, 0.0);
+    if (len2.x > 0.0) {
+        t = dfDiv(dfAdd(dfMul(wx, g.vx), dfMul(wy, g.vy)), len2);
+        if (dfLess(t, vec2(0.0, 0.0))) { t = vec2(0.0, 0.0); }
+        if (dfLess(vec2(1.0, 0.0), t)) { t = vec2(1.0, 0.0); }
+    }
+    vec2 qx = dfSub(wx, dfMul(g.vx, t));
+    vec2 qy = dfSub(wy, dfMul(g.vy, t));
+    return dfSqrt(dfAdd(dfMul(qx, qx), dfMul(qy, qy)));
+}
+bool dfToggles(DfEdge g, vec2 x, vec2 y) {
+    if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return false; }
+    vec2 lhs = dfMul(dfSub(x, g.ax), g.vy);
+    vec2 rhs = dfMul(dfSub(y, g.ay), g.vx);
+    return g.vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs);
+}
+vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach) {
+    vec2 p = vec2(x.x, y.x);
+    float bound = 1.0e6;
+    float low = 1.0e6;
+    bool unsure = false;
     bool inside = false;
     for (int j = 0; j < count; ++j) {
+        int i = (base + (list < 0 ? j : edges.values[list + j])) * 4;
+        vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+        vec2 b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
+        float slack = edgeSlack(p, a, b);
+        float d32 = segmentDistance(p, a, b);
+        bound = min(bound, d32 + slack);
+        low = min(low, d32 - slack);
+        if (edgeUnsure(p, a, b, slack)) {
+            unsure = true;
+        } else if (edgeToggles32(p, a, b)) {
+            inside = !inside;
+        }
+    }
+    bool distant = low > reach;
+    vec2 best = distant ? vec2(low, 0.0) : vec2(1.0e6, 0.0);
+    for (int j = 0; j < count && (!distant || unsure); ++j) {
         int e = list < 0 ? j : edges.values[list + j];
         int i = (base + e) * 4;
-        int r = (base + e) * 4 + EDGE_RESIDUAL_BASE;
-        vec2 ax = edgeCoord(i, r);
-        vec2 ay = edgeCoord(i + 1, r + 1);
-        vec2 vx = dfAdd(dfWord(edges.values[i + 2] - edges.values[i]),
-                        dfTwoSum(residualPx(edges.values[r + 2]), -residualPx(edges.values[r])));
-        vec2 vy = dfAdd(dfWord(edges.values[i + 3] - edges.values[i + 1]),
-                        dfTwoSum(residualPx(edges.values[r + 3]), -residualPx(edges.values[r + 1])));
-        vec2 wx = dfSub(x, ax);
-        vec2 wy = dfSub(y, ay);
-        vec2 len2 = dfAdd(dfMul(vx, vx), dfMul(vy, vy));
-        vec2 t = vec2(0.0);
-        if (len2.x > 0.0) {
-            t = dfDiv(dfAdd(dfMul(wx, vx), dfMul(wy, vy)), len2);
-            if (dfLess(t, vec2(0.0))) { t = vec2(0.0); }
-            if (dfLess(vec2(1.0, 0.0), t)) { t = vec2(1.0, 0.0); }
+        vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+        vec2 b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
+        float slack = edgeSlack(p, a, b);
+        vec2 gap = max(max(min(a, b) - p, p - max(a, b)), vec2(0.0, 0.0));
+        float within = bound + slack;
+        bool candidate = !distant && dot(gap, gap) <= within * within && segmentDistance(p, a, b) - slack <= bound;
+        bool unsureEdge = unsure && edgeUnsure(p, a, b, slack);
+        if (!candidate && !unsureEdge) { continue; }
+        DfEdge g = dfEdge(base, e);
+        if (candidate) {
+            vec2 d = dfSegmentDistance(g, x, y);
+            if (dfLess(d, best)) { best = d; }
         }
-        vec2 qx = dfSub(wx, dfMul(vx, t));
-        vec2 qy = dfSub(wy, dfMul(vy, t));
-        vec2 d = dfSqrt(dfAdd(dfMul(qx, qx), dfMul(qy, qy)));
-        if (dfLess(d, best)) { best = d; }
-        if (dfLess(y, ay) != dfLess(y, dfAdd(ay, vy))) {
-            vec2 lhs = dfMul(wx, vy);
-            vec2 rhs = dfMul(wy, vx);
-            if (vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs)) { inside = !inside; }
-        }
+        if (unsureEdge && dfToggles(g, x, y)) { inside = !inside; }
     }
     return inside ? -best : best;
 }
@@ -661,7 +729,8 @@ vec2 shapeDistanceAndScale(vec2 p) {
 // and `main`'s two quantisations, operation for operation: the inverse map with the
 // float32 terms, the central differences at 0.5 (all five on the centre's band),
 // `d / ||grad d||`, and the stroke's half-width taken off in shape space before the
-// scale. Metal's `polygonCoverage`, line for line.
+// scale. The five samples are one loop so `edgeDistance` is inlined once. Metal's
+// `polygonCoverage`, line for line.
 vec2 dfMapX(vec2 x, vec2 y) {
     return dfAdd(dfAdd(dfMulF(x, intBitsToFloat(item.xform0.x)), dfMulF(y, intBitsToFloat(item.xform0.z))),
                  vec2(intBitsToFloat(item.xform1.x), 0.0));
@@ -670,24 +739,23 @@ vec2 dfMapY(vec2 x, vec2 y) {
     return dfAdd(dfAdd(dfMulF(x, intBitsToFloat(item.xform0.y)), dfMulF(y, intBitsToFloat(item.xform0.w))),
                  vec2(intBitsToFloat(item.xform1.y), 0.0));
 }
-vec2 mappedEdgeDistance(ivec2 band, vec2 x, vec2 y) {
-    return edgeDistance(item.arc.z, band.y, band.x, dfMapX(x, y), dfMapY(x, y));
-}
 ivec2 polygonCoverage(vec2 x, vec2 y) {
-    vec2 dRaw;
-    vec2 g = vec2(1.0, 0.0);
     bool mapped = hasTransform();
-    if (!mapped) {
-        ivec2 band = polygonBand(y.x);
-        dRaw = edgeDistance(item.arc.z, band.y, band.x, x, y);
-    } else {
-        vec2 h = vec2(0.5, 0.0);
-        ivec2 band = polygonBand(dfMapY(x, y).x);
-        dRaw = mappedEdgeDistance(band, x, y);
-        vec2 gx = dfSub(mappedEdgeDistance(band, dfAdd(x, h), y),
-                        mappedEdgeDistance(band, dfSub(x, h), y));
-        vec2 gy = dfSub(mappedEdgeDistance(band, x, dfAdd(y, h)),
-                        mappedEdgeDistance(band, x, dfSub(y, h)));
+    ivec2 band = polygonBand(mapped ? dfMapY(x, y).x : y.x);
+    float reach = mapped ? 1.0e30 : 0.5 + max(fx(item.misc.z), 0.0);
+    vec2 d[5];
+    for (int k = 0; k < (mapped ? 5 : 1); ++k) {
+        vec2 sx = dfAdd(x, vec2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));
+        vec2 sy = dfAdd(y, vec2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));
+        vec2 qx = mapped ? dfMapX(sx, sy) : sx;
+        vec2 qy = mapped ? dfMapY(sx, sy) : sy;
+        d[k] = edgeDistance(item.arc.z, band.y, band.x, qx, qy, reach);
+    }
+    vec2 dRaw = d[0];
+    vec2 g = vec2(1.0, 0.0);
+    if (mapped) {
+        vec2 gx = dfSub(d[1], d[2]);
+        vec2 gy = dfSub(d[3], d[4]);
         g = dfSqrt(dfAdd(dfMul(gx, gx), dfMul(gy, gy)));
         if (!(g.x > 0.000001)) { g = vec2(1.0, 0.0); }
     }
@@ -695,8 +763,8 @@ ivec2 polygonCoverage(vec2 x, vec2 y) {
     int stroke = 0;
     float halfWidth = fx(item.misc.z);
     if (halfWidth > 0.0) {
-        vec2 band = dfSub(dRaw.x < 0.0 ? -dRaw : dRaw, vec2(halfWidth, 0.0));
-        stroke = dfCoverage(mapped ? dfDiv(band, g) : band);
+        vec2 s = dfSub(dRaw.x < 0.0 ? -dRaw : dRaw, vec2(halfWidth, 0.0));
+        stroke = dfCoverage(mapped ? dfDiv(s, g) : s);
     }
     return ivec2(fill, stroke);
 }
