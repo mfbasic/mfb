@@ -7,9 +7,10 @@
 '
 ' parse() (in parse.mfb) turns HTML into a document: an ElementNode tagged
 ' "#document" whose first child is the HeaderNode and whose remaining children
-' are the parsed body tree. The whole package is iterative — it never recurses
-' over Node — because a recursive function over an imported union does not yet
-' lower to native code across a package boundary (see the browser README).
+' are the parsed body tree. The whole package is iterative — an explicit work
+' stack, never recursion over Node — because a recursive builder would rebuild
+' a shared list of child subtrees through collections::take/drop on every
+' return, which is quadratic (see the browser README, "The DOM parser").
 
 IMPORT collections
 IMPORT strings
@@ -232,8 +233,9 @@ END FUNC
 ' applyFieldValues folds those values back in for the one operation that does need a
 ' whole document — a full re-layout.
 '
-' These recurse over dom's own Node union, which is fine inside dom (only a consumer
-' recursing over the imported union has to be iterative — see resolve.mfb).
+' These recurse over dom's own Node union, which is fine here — see the browser
+' README ("The DOM parser") for why a tree-building pass still favors an
+' explicit work stack over recursion.
 
 ' Rebuild `n`, stamping each editable <input> with its ordinal starting at `startAt`,
 ' and return the rebuilt node together with the first ordinal still free (`after`).

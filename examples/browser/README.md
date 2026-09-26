@@ -46,9 +46,11 @@ once the three `.mfp` files are installed under `app/packages/`.
 `http::read` is **blocking**: it freezes the calling thread until the whole
 exchange finishes. To keep the UI free to animate the spinner, the app runs the
 fetch on a separate OS thread with `thread::start(fetch::fetch, url)` and polls
-`thread::isRunning` while redrawing. `thread::start` requires an **exported
-`ISOLATED` function from an imported package**, which is why the fetch lives in
-`fetch`.
+`thread::isRunning` while redrawing. `thread::start` accepts any `ISOLATED FUNC`
+— one the caller's own project declares, or an exported `ISOLATED` function of
+an imported package — so putting the fetch in its own `fetch` package is not a
+requirement of `thread::start`; it is the same reason `dom` and `display` are
+their own packages: it is one self-contained concern, reusable outside this app.
 
 The worker parses the page into a DOM on that thread and returns the **document
 `Node`** — a recursive tree — which `thread::waitFor` **deep-copies** out of the
@@ -150,7 +152,7 @@ What is still true, and is the real reason to keep a work-stack here, is that
 rebuilding a shared list of subtrees is quadratic: self-assigning a
 `List OF <recursive union>` through `collections::take`/`drop` deep-copies every
 element it returns (21.96 s versus 0.02 s for `append` at 8,000 nodes — see
-`bugs/bug-647-take-drop-self-reassignment-copies-every-returned-element.md`).
+`bugs/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
 A builder that appends to a frame-local list instead handles 100,000 nodes in
 about 0.3 s.
 
@@ -180,8 +182,9 @@ union carry the full type closure of its variants' fields.
 
 Every `ElementNode` carries a resolved **`Style`** and a computed **`Layout`**,
 filled by two passes over the tree that live *inside* `dom` (so they may recurse
-over `dom`'s own `Node` union — the "must be iterative" rule only binds a consumer
-recursing over an *imported* union):
+over `dom`'s own `Node` union directly, the same as any recursive tree-building
+pass — see "The DOM parser", above, for why a tree-*building* pass still favors
+an explicit work stack over recursion):
 
 - **`Style`** (`style.mfb`) is the CSS a single element resolves to — a closed
   record with one typed field per supported property (a `Display` / `FlexDirection`

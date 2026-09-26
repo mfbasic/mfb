@@ -65,8 +65,8 @@ IMPORT thread
 '
 ' The work is split across three imported packages: `dom` (the Node types +
 ' HTML parser), `fetch` (the ISOLATED thread worker that fetches + parses into a
-' document Node — thread::start needs the worker in an imported package), and
-' `display` (renders a Node to readable text or an indented tree).
+' document Node), and `display` (renders a Node to readable text or an indented
+' tree) — each its own self-contained concern.
 
 ' ----- small numeric helpers (no built-in min/max) -----
 

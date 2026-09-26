@@ -17,13 +17,13 @@ END TYPE
 
 ' Drops a second while the pipe is on. The whole pool is out in a few seconds,
 ' which is about as long as a drop takes to fall past a heap of objects.
-LET FLOW_RATE AS Float = 260.0
+LET FLOW_RATE AS Float = 520.0
 
 ' The pipe's shape, in pixels.
 LET PIPE_HALF_WIDTH AS Float = 14.0
-LET PIPE_LENGTH AS Float = 54.0
+LET PIPE_LENGTH AS Float = 27.0
 LET MOUTH_HALF_WIDTH AS Float = 21.0
-LET MOUTH_HEIGHT AS Float = 12.0
+LET MOUTH_HEIGHT AS Float = 6.0
 
 ' The speed a drop leaves the pipe at, downward, and the most it strays sideways.
 LET OUTFLOW_SPEED AS Float = 140.0

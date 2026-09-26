@@ -18,9 +18,9 @@
 ' overflowing. Layout depends on the viewport and glyph size, so it is recomputed on
 ' each render/resize rather than stored once by the worker.
 '
-' Like resolve, this lives in dom so it can recurse over dom's OWN Node union
-' (native lowering is fine inside the defining package); a consumer that imported
-' Node would have to iterate.
+' Like resolve, this lives in dom so it can recurse over dom's OWN Node union —
+' see the browser README ("The DOM parser") for why a tree-building pass still
+' favors an explicit work stack over recursion.
 '
 ' Supported subset (a terminal text browser, not a conformant CSS engine):
 '   - main axis: flex-direction row / column (reverse falls back to forward)

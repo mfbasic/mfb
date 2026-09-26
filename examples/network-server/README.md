@@ -72,17 +72,10 @@ and provider state travel with the handle, which is what
 [`bug-464`](../../bugs/completed/bug-464-sockets-and-listeners-not-thread-sendable.md)
 made possible.
 
-One worker serves every connection rather than one worker per connection,
-because a `Thread` handle is itself an owned handle and cannot be stored in a
-collection:
-
-```
-error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections
-cannot store resource or thread ownership
-```
-
-so a thread-per-connection server would have no way to hold, poll, or reap its
-handles.
+One worker serves every connection rather than one worker per connection: it
+keeps the design to a single accept loop and a single worker loop no matter how
+many clients are attached, mirroring the single-threaded transport's one set of
+parallel lists instead of growing a list of worker handles alongside it.
 
 `--udp --thread` is rejected: a UDP server has one bound socket shared by every
 peer, so there is no per-connection handle to hand over.
