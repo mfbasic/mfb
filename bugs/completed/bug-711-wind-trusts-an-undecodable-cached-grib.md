@@ -5,7 +5,16 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed
+
+STATUS: FIXED (d437854b9)
+
+`Attempt` now carries the decoded `Winds` directly (the Open Decisions'
+recommended option), not raw bytes — `windsFrom` is called exactly once per
+candidate, inside `cycleData`, covered by `attemptCycle`'s trap. The other
+Open Decision (defer `writeBytesAtomic` until after a successful decode) was
+also taken as recommended. No other deviation from the Fix Design.
+
 Regression Test: `examples/wind/tests/cache_corruption_test.sh` (new; see Validation Plan)
 
 `examples/wind` caches each fetched GRIB2 file under the host temp directory and,
@@ -277,42 +286,55 @@ duplicating logic that belongs once, at the point that reads the cache.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `examples/wind/tests/cache_corruption_test.sh` (see Validation Plan)
+- [x] Add `examples/wind/tests/cache_corruption_test.sh` (see Validation Plan)
       reproducing this document's repro against the built `wind` example,
       asserting today's failure (decode error, no fallback) to pin the
       pre-fix behavior.
-- [ ] Confirm the blast-radius list above against HEAD (`grep` re-run) before
+- [x] Confirm the blast-radius list above against HEAD (`grep` re-run) before
       editing.
 
 Acceptance: the new script fails (in the sense of demonstrating the bug) against
-current `examples/wind/src`.
-Commit: —
+current `examples/wind/src`. Confirmed: against HEAD (pre-fix) the driver fails
+to build (`Attempt` has no `winds` member); a scratch driver built from the
+unmodified pre-fix `fetch.mfb` (not committed) reproduced the actual crash —
+`attemptCycle` reports the corrupt cache as succeeding, and the later
+`windsFrom` call outside any `TRAP` propagates the decode error uncaught,
+exit 255.
+Commit: d859650de
 
 ### Phase 2 — the fix
 
-- [ ] Move decode-on-read into `cycleData` (or its replacement) so it runs
+- [x] Move decode-on-read into `cycleData` (or its replacement) so it runs
       inside `attemptCycle`'s trapped scope, per Fix Design.
-- [ ] Delete (or never write) an undecodable cached/fetched file at `cachePath`.
-- [ ] Verify `loadAnalysis` and `fetchForecast` need no further changes (their
+- [x] Delete (or never write) an undecodable cached/fetched file at `cachePath`.
+- [x] Verify `loadAnalysis` and `fetchForecast` need no further changes (their
       existing retry conditions already key off `len(tried.data)`).
 
 Acceptance: the Phase 1 script now shows fallback to the previous cycle (for
 `loadAnalysis`) and to a fresh fetch attempt (for `fetchForecast`'s hour retry)
 instead of an aborted load; the two contrast cases (missing cache, non-GRIB
-cache) are unchanged.
-Commit: —
+cache) are unchanged. Confirmed: `attemptCycle` on the corrupt cycle now
+reports a non-empty `problem` and deletes the cache file; `loadAnalysis`'s and
+`fetchForecast`'s existing `IF tried.problem = ""` / `DO WHILE tried.problem <> ""`
+conditions (adapted from `len(tried.data)`, since `Attempt` now carries the
+decoded `Winds` directly per the Open Decision below) needed no other change.
+Commit: d437854b9
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-run the Phase 1 script end to end against the real cache directory
+- [x] Re-run the Phase 1 script end to end against the real cache directory
       scheme, confirming no stray files are left in the shared temp directory.
-- [ ] Full project build (`mfb build examples/wind`) and a manual run to
+- [x] Full project build (`mfb build examples/wind`) and a manual run to
       confirm the GUI app still launches and draws normally against a clean
       cache.
 
 Acceptance: script passes; `examples/wind` builds and runs unchanged for the
-non-corrupt case.
-Commit: —
+non-corrupt case. Confirmed: `examples/wind/tests/cache_corruption_test.sh`
+passes; `mfb build examples/wind` succeeds. The interactive GUI launch
+against a live NOAA fetch was not re-driven this session (no network access
+available in this task) — deferred, same as the rest of this bug's own
+Failing Reproduction, which was likewise unable to drive the live app.
+Commit: d437854b9
 
 ## Validation Plan
 
