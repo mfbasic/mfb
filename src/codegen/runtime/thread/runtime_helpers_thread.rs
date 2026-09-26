@@ -1,5 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
@@ -28,14 +29,14 @@ pub(crate) type ThreadBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, us
 /// the same relative order — the allocator's tie-break (`linear_scan`: interval start,
 /// then vreg id) sees the same input, and the emitted machine code is unchanged.
 pub(crate) struct ThreadVregs {
-    pub(crate) v8: String,
-    pub(crate) v9: String,
-    pub(crate) v10: String,
-    pub(crate) v11: String,
-    pub(crate) v12: String,
-    pub(crate) v13: String,
-    pub(crate) v14: String,
-    pub(crate) v15: String,
+    pub(crate) v8: VirtualRegister,
+    pub(crate) v9: VirtualRegister,
+    pub(crate) v10: VirtualRegister,
+    pub(crate) v11: VirtualRegister,
+    pub(crate) v12: VirtualRegister,
+    pub(crate) v13: VirtualRegister,
+    pub(crate) v14: VirtualRegister,
+    pub(crate) v15: VirtualRegister,
 }
 
 impl ThreadVregs {

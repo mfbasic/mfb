@@ -417,19 +417,19 @@ pub(crate) fn emit_hints(
 struct AddrVregs {
     /// Walking cursor while measuring the host string. The `sockaddr` builder
     /// reuses it to hold the `sockaddr` pointer while decoding the port.
-    cursor: String,
+    cursor: VirtualRegister,
     /// The measured host length; reused as the port's high byte.
-    len: String,
+    len: VirtualRegister,
     /// Copy source cursor; reused as the port's low byte.
-    src: String,
+    src: VirtualRegister,
     /// Copy destination cursor.
-    dst: String,
+    dst: VirtualRegister,
     /// Copy loop index.
-    idx: String,
+    idx: VirtualRegister,
     /// The byte in flight.
-    byte: String,
+    byte: VirtualRegister,
     /// The scratch MFBASIC `String` block the record copies the host from.
-    string: String,
+    string: VirtualRegister,
 }
 
 impl AddrVregs {
@@ -1013,7 +1013,7 @@ fn lower_net_endpoint_helper(
         platform.emit_set_nonblocking(
             FD_OFFSET,
             FLAGS_OFFSET,
-            &vregs.next(),
+            vregs.next().into(),
             symbol,
             platform_imports,
             &mut instructions,

@@ -479,7 +479,7 @@ pub(crate) fn lower_thread_stdin_subscription_helper(
 pub(crate) fn emit_relative_sleep(
     ctx: &mut EmitCtx,
     r: &ThreadVregs,
-    ms_reg: crate::codegen::engine::operand::Operand,
+    ms_reg: impl Into<abi::Reg>,
     req_offset: usize,
     rem_offset: usize,
     ok_label: &str,
@@ -1239,7 +1239,7 @@ pub(crate) fn lower_thread_trampoline(
         params: vec![CodeParam {
             name: "controlBlock".to_string(),
             type_: "ThreadControlBlock".to_string(),
-            location: abi::c_arg(0),
+            location: abi::c_arg(0).into(),
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {

@@ -7089,9 +7089,9 @@ fn emit_state_store(
     builder: &mut CodeBuilder,
     state_slot: usize,
     offset: usize,
-    value: impl Into<Operand>,
+    value: impl Into<abi::Reg>,
 ) {
-    let value = value.into();
+    let value: abi::Reg = value.into();
     builder.emit(abi::load_u64(
         abi::SCRATCH[3],
         abi::stack_pointer(),
@@ -7104,7 +7104,7 @@ fn emit_state_load(
     builder: &mut CodeBuilder,
     state_slot: usize,
     offset: usize,
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
 ) {
     // No temporary at all: the state base goes into `dst` itself, which the second load
     // overwrites anyway. Both kinds of temporary have broken this helper on x86-64:
@@ -7120,9 +7120,9 @@ fn emit_state_load(
     //   this call, the vreg came out as `r10`, and the table pointer became the state
     //   block plus 4 MiB — an access violation on Windows, and nothing on AArch64, where
     //   `x9`–`x17` are outside the allocatable file.
-    let dst = dst.into();
-    builder.emit(abi::load_u64(dst.clone(), abi::stack_pointer(), state_slot));
-    builder.emit(abi::load_u64(dst.clone(), dst, offset));
+    let dst: abi::Reg = dst.into();
+    builder.emit(abi::load_u64(dst, abi::stack_pointer(), state_slot));
+    builder.emit(abi::load_u64(dst, dst, offset));
 }
 
 /// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
@@ -7143,7 +7143,7 @@ fn emit_state_load(
 /// primitive that would invite the general one.
 fn emit_store_f32_from_integer(
     builder: &mut CodeBuilder,
-    value: impl Into<Operand>,
+    value: impl Into<abi::Reg>,
     offset: usize,
 ) {
     let bits = abi::SCRATCH[8];

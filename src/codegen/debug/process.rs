@@ -67,7 +67,7 @@ pub(super) const PEAK_RSS_BUFFER_SIZE: usize = if RUSAGE_SIZE > PMC_SIZE {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_debug_peak_rss(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     buffer_offset: usize,
     platform: &dyn CodegenPlatform,
     platform_imports: &HashMap<String, String>,
@@ -75,6 +75,7 @@ pub(super) fn emit_debug_peak_rss(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: abi::Reg = dst.into();
     let zero = vregs.next();
     instructions.push(abi::move_immediate(&zero, "Integer", "0"));
     match platform.family() {

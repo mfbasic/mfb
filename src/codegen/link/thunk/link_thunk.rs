@@ -92,12 +92,12 @@ fn slot_offset(globals_base: usize, index: usize) -> usize {
 /// Emit `adrp`/`add` to materialize the address of data `symbol` into `dst`.
 pub(crate) fn emit_data_address(
     from: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let dst = dst.into();
+    let dst: abi::Reg = dst.into();
     instructions.push(abi::load_page_address(&dst, symbol));
     instructions.push(abi::add_page_offset(&dst, &dst, symbol));
     relocations.extend([
@@ -149,7 +149,7 @@ pub(crate) fn emit_posix_dlopen<P: CodegenPlatform + ?Sized>(
 /// `return_register()` (0 if absent).
 pub(crate) fn emit_posix_dlsym<P: CodegenPlatform + ?Sized>(
     platform: &P,
-    handle_reg: &str,
+    handle_reg: impl Into<abi::Reg>,
     symbol_symbol: &str,
     from: &str,
     platform_imports: &HashMap<String, String>,
@@ -464,7 +464,7 @@ fn lower_link_initializer(
             // slot = dlsym(handle, symbolName) on POSIX; `GetProcAddress` on
             // Windows. The resolved address lands in `return_register()`.
             platform.emit_lib_get_sym(
-                &handle,
+                handle.into(),
                 &sym_symbol(fn_idx),
                 symbol,
                 platform_imports,
@@ -484,7 +484,7 @@ fn lower_link_initializer(
             // own slot (reserved past the per-function slots).
             if let Some(k) = free_index_of[fn_idx] {
                 platform.emit_lib_get_sym(
-                    &handle,
+                    handle.into(),
                     &free_sym_symbol(k),
                     symbol,
                     platform_imports,
@@ -921,11 +921,10 @@ fn lower_link_thunk(
             size_offsets.entry(pin_name).or_insert(pin_off);
         }
 
-        let mut vreg = LINK_EXPR_VREG_BASE;
         let size_reg = emit_link_expr(
             &buffer.size,
             &size_offsets,
-            &mut vreg,
+            &mut vregs,
             &symbol,
             &mut counter,
             &mut instructions,
@@ -1322,11 +1321,10 @@ fn lower_link_thunk(
 
     // SUCCESS_ON gate: a failing status produces an Error result.
     if let Some(success) = &function.success_on {
-        let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             success,
             &expr_offsets,
-            &mut vreg,
+            &mut vregs,
             &symbol,
             &mut counter,
             &mut instructions,
@@ -1439,11 +1437,10 @@ fn lower_link_thunk(
                     .result_length
                     .as_ref()
                     .expect("check_buffer_slots requires LENGTH on a returned CBuffer");
-                let mut vreg = LINK_EXPR_VREG_BASE;
                 let k = emit_link_expr(
                     length,
                     &expr_offsets,
-                    &mut vreg,
+                    &mut vregs,
                     &symbol,
                     &mut counter,
                     &mut instructions,
@@ -1535,11 +1532,10 @@ fn lower_link_thunk(
             &mut relocations,
         )?;
     } else if let Some(result) = &function.result {
-        let mut vreg = LINK_EXPR_VREG_BASE;
         let value = emit_link_expr(
             result,
             &expr_offsets,
-            &mut vreg,
+            &mut vregs,
             &symbol,
             &mut counter,
             &mut instructions,
@@ -1799,7 +1795,7 @@ fn lower_link_thunk(
                     // The wrapper's incoming MFB argument register, as a role
                     // token — the thunk body saves from the same bank
                     // (plan-34-D; ≤8 params, enforced by `argument_register`).
-                    location: abi::argument_register(idx)?,
+                    location: abi::argument_register(idx)?.into(),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
@@ -2113,14 +2109,6 @@ fn emit_copy_cstring_to_string(
     ]);
 }
 
-/// First virtual-register index `emit_link_expr` hands out. The thunk body's
-/// scratch vregs ([`ThunkScratch`]) are the first eight minted from the thunk's
-/// `Vregs` (`%v0`..`%v7`); starting the expression's own vregs well past that
-/// window guarantees the two name spaces never overlap, so the shared
-/// linear-scan allocator sees each expression temporary as an independent value
-/// (bug-56).
-const LINK_EXPR_VREG_BASE: usize = 64;
-
 /// The integer scratch vregs of one `LINK` thunk, minted once per thunk and
 /// handed to every helper that emits into the thunk's instruction stream.
 ///
@@ -2131,15 +2119,15 @@ const LINK_EXPR_VREG_BASE: usize = 64;
 /// order, which is the order of the literals `%v9`..`%v16` they replaced, so the
 /// allocator's `(start, vreg)` tie-break sees the same relative order.
 struct ThunkScratch {
-    t0: String,
-    t1: String,
-    t2: String,
-    t3: String,
-    t4: String,
-    t5: String,
-    t6: String,
+    t0: VirtualRegister,
+    t1: VirtualRegister,
+    t2: VirtualRegister,
+    t3: VirtualRegister,
+    t4: VirtualRegister,
+    t5: VirtualRegister,
+    t6: VirtualRegister,
     /// The resolved native function pointer a `blr` calls through.
-    callee: String,
+    callee: VirtualRegister,
 }
 
 impl ThunkScratch {
@@ -2160,7 +2148,7 @@ impl ThunkScratch {
 /// Emit code computing the boolean/integer value of a `SUCCESS_ON`/`RESULT`
 /// expression, reading the native return variable from `[sp + status_off]`.
 ///
-/// Every intermediate is a fresh virtual register (`%vN`, allocated from `vreg`)
+/// Every intermediate is a fresh virtual register minted from the thunk's `vregs`
 /// that the shared linear-scan allocator places and spills — the same discipline
 /// as the rest of the thunk (plan-00-G). This replaces the historical scheme that
 /// hand-assigned escalating *physical* registers (`x{base}`, `+2`, `+4`) with no
@@ -2177,13 +2165,12 @@ impl ThunkScratch {
 fn emit_link_expr(
     expr: &IrLinkExpr,
     offsets: &HashMap<&str, usize>,
-    vreg: &mut usize,
+    vregs: &mut Vregs,
     symbol: &str,
     counter: &mut usize,
     instructions: &mut Vec<CodeInstruction>,
-) -> String {
-    let dst = format!("%v{vreg}");
-    *vreg += 1;
+) -> VirtualRegister {
+    let dst = vregs.next();
     match expr {
         IrLinkExpr::Int(value) => {
             instructions.push(abi::move_immediate(
@@ -2199,8 +2186,8 @@ fn emit_link_expr(
         // their consumers (SIZE against CBUFFER_MAX_BYTES, LENGTH clamped to
         // capacity), so an overflow cannot become an out-of-bounds size.
         IrLinkExpr::Mul(lhs, rhs) | IrLinkExpr::Add(lhs, rhs) | IrLinkExpr::Sub(lhs, rhs) => {
-            let lhs_reg = emit_link_expr(lhs, offsets, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_expr(rhs, offsets, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_expr(lhs, offsets, vregs, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, offsets, vregs, symbol, counter, instructions);
             instructions.push(match expr {
                 IrLinkExpr::Mul(..) => abi::multiply_registers(&dst, &lhs_reg, &rhs_reg),
                 IrLinkExpr::Add(..) => abi::add_registers(&dst, &lhs_reg, &rhs_reg),
@@ -2216,7 +2203,7 @@ fn emit_link_expr(
             instructions.push(abi::load_u64(&dst, abi::stack_pointer(), off));
         }
         IrLinkExpr::Not(inner) => {
-            let inner_reg = emit_link_expr(inner, offsets, vreg, symbol, counter, instructions);
+            let inner_reg = emit_link_expr(inner, offsets, vregs, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let set = format!("{symbol}_not{id}_zero");
@@ -2232,8 +2219,8 @@ fn emit_link_expr(
             ]);
         }
         IrLinkExpr::Compare { op, lhs, rhs } => {
-            let lhs_reg = emit_link_expr(lhs, offsets, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_expr(rhs, offsets, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_expr(lhs, offsets, vregs, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, offsets, vregs, symbol, counter, instructions);
             let id = *counter;
             *counter += 1;
             let end = format!("{symbol}_cmp{id}_end");
@@ -2266,13 +2253,13 @@ fn emit_link_expr(
             // `0`/`1` first so bitwise coincides with logical (bug-66). Comparison /
             // logical sub-expressions already yield `0`/`1`, so they pass through
             // unchanged and `AND`/`OR`-of-comparisons stays byte-identical.
-            let lhs_reg = emit_link_bool(lhs, offsets, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_bool(rhs, offsets, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_bool(lhs, offsets, vregs, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, offsets, vregs, symbol, counter, instructions);
             instructions.push(abi::and_registers(&dst, &lhs_reg, &rhs_reg));
         }
         IrLinkExpr::Or(lhs, rhs) => {
-            let lhs_reg = emit_link_bool(lhs, offsets, vreg, symbol, counter, instructions);
-            let rhs_reg = emit_link_bool(rhs, offsets, vreg, symbol, counter, instructions);
+            let lhs_reg = emit_link_bool(lhs, offsets, vregs, symbol, counter, instructions);
+            let rhs_reg = emit_link_bool(rhs, offsets, vregs, symbol, counter, instructions);
             instructions.push(abi::or_registers(&dst, &lhs_reg, &rhs_reg));
         }
     }
@@ -2300,17 +2287,16 @@ fn link_expr_is_boolean(expr: &IrLinkExpr) -> bool {
 fn emit_link_bool(
     expr: &IrLinkExpr,
     offsets: &HashMap<&str, usize>,
-    vreg: &mut usize,
+    vregs: &mut Vregs,
     symbol: &str,
     counter: &mut usize,
     instructions: &mut Vec<CodeInstruction>,
-) -> String {
-    let value = emit_link_expr(expr, offsets, vreg, symbol, counter, instructions);
+) -> VirtualRegister {
+    let value = emit_link_expr(expr, offsets, vregs, symbol, counter, instructions);
     if link_expr_is_boolean(expr) {
         return value;
     }
-    let dst = format!("%v{vreg}");
-    *vreg += 1;
+    let dst = vregs.next();
     let id = *counter;
     *counter += 1;
     let nonzero = format!("{symbol}_bool{id}_nz");
@@ -2329,7 +2315,7 @@ fn emit_link_bool(
 
 /// Emit the sized store for a struct field of `ctype` at `[sp + off]` from `src`
 /// (plan-50-E §4.4).
-fn store_field(ctype: CAbiType, src: &str, off: usize) -> CodeInstruction {
+fn store_field(ctype: CAbiType, src: impl Into<abi::Reg>, off: usize) -> CodeInstruction {
     match ctype {
         CAbiType::Int8 | CAbiType::UInt8 | CAbiType::Bool | CAbiType::Byte => {
             abi::store_u8(src, abi::stack_pointer(), off)
@@ -2357,7 +2343,7 @@ fn store_field(ctype: CAbiType, src: &str, off: usize) -> CodeInstruction {
 /// Every load zero-extends, so a SIGNED narrow field is sign-extended by the
 /// caller — otherwise a `CInt32 sections = -1` surfaces as 4294967295, which is
 /// exactly bug-238.
-fn load_field(ctype: CAbiType, dst: &str, off: usize) -> CodeInstruction {
+fn load_field(ctype: CAbiType, dst: impl Into<abi::Reg>, off: usize) -> CodeInstruction {
     match ctype {
         CAbiType::Int8 | CAbiType::UInt8 | CAbiType::Bool | CAbiType::Byte => {
             abi::load_u8(dst, abi::stack_pointer(), off)
