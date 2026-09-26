@@ -1,12 +1,12 @@
 # bug-721: Windows `--app` — the arena free list corrupts while a `thread::start` worker runs beside a canvas frame loop
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 Effort: x-large (1d–3d) — Windows-only, reproduces only on a real PC so far, needs a minidump
 Severity: HIGH
-Class: Memory-safety (Windows runtime, arena allocator under threads)
+Class: Memory-safety (register aliasing: a hand-picked virtual register named a live minted one)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Root cause found; fix in progress
+Regression Test: `gen_schannel_tests.rs::connect_keeps_its_host_scratch_pointer_intact_to_the_release`, `scripts/test-wintls.sh`, `tests/guards/architecture_guards.rs` (register guards)
 
 `examples/wind`, built with `mfb build --target windows-x86_64` and run on a real
 Windows 11 PC, shows a white window and then exits with `0xC0000005` (access
@@ -136,62 +136,65 @@ with the unmodified build.
 
 ## Root Cause
 
-Not yet known. The faulting instruction proves the free list of one arena bin
-was corrupt when a thread walked it. It does not say which thread faulted,
-whose arena that was, or who wrote the bad pointer. The hypotheses, most likely
-first:
+**Not a thread race and not a Windows allocator defect: a double free in Schannel
+`tls::connect`, caused by a hand-numbered virtual register aliasing a minted one.**
 
-1. **A cross-thread allocation into another thread's arena (the bug-498
-   class), on a path only Windows takes.** `.ai/canvas-threading.md` §2: an
-   arena's quick-bin pop is a plain load/store, so two threads popping the same
-   arena corrupt it exactly like this. Suspects are any Windows-only code that
-   reaches `_mfb_arena_alloc` with an arena state that is not the calling
-   thread's own:
-   - The Windows app shell. `src/target/win_x86_64/app/mod.rs:arena_alloc` calls
-     `ARENA_ALLOC_SYMBOL` directly from the Win64 app layer. Its current callers
-     are the term/io marshalling paths (`mod.rs` around lines 1916, 2262, 4403,
-     5113). Each one must be checked for the thread it runs on and the `%r15` it
-     sees.
-   - The graphics thread on Windows. It must never allocate from the language
-     thread's arena (§2), for instance through `MAIN_ARENA_GLOBAL_SYMBOL`, which
-     names the last entry to run.
-   - `thread::send` / `receive` boundary copies on Win64
-     (`src/codegen/runtime/thread/runtime_helpers.rs`). The copy must be made in
-     the sender's arena and adopted by the receiver.
-2. **`%r15` is not the calling thread's own arena at some Windows callback or
-   trampoline.** On Win64 `%r15` is callee-saved, so the OS preserves it. But a
-   callback the OS invokes on a thread (a window procedure, a thread start
-   routine) that runs MFB code must set `%r15` itself. If one inherits a stale
-   or shared value, that thread allocates into someone else's arena. Check
-   `src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper` and
-   the Windows thread trampoline for the worker's child arena block, and the
-   Windows app's window-procedure entry.
-3. **A use-after-free or overrun of an arena block**, where some code writes
-   into a freed or undersized block and smashes a free-list node. This would
-   not need two threads, but it matches the evidence less well: the fault never
-   happens without the worker.
+Measured on the real PC (192.168.1.206) with a no-admin Win32 debug-API harness
+(`CreateProcess(DEBUG_ONLY_THIS_PROCESS)` + `GetThreadContext` on every thread at the
+first access violation), then with probe builds of the allocator:
 
-How to tell them apart: capture a minidump of the unmodified `wind.exe`
-fault. This needs admin on the machine:
+1. **The faulting thread is the `thread::start` worker, walking its OWN arena.** At the
+   fault (`_mfb_arena_alloc+0x502`, the large-bin walk off `%r15+0x490`), `r15` was the
+   worker's heap-carved arena state; the UI, language and graphics threads each had a
+   distinct `r15`. The corrupt node was always the first chunk of a 0x11000 mapping
+   (a ~68 KiB large block), and its first words were live SMALL-object data: once the
+   ASCII `"nomads.ncep.noaa"` (the forecast host), three times the three `Float`s of a
+   freshly built `grib.mfb:Scaling` record (`2005.76, 1.0, 10.0`).
+2. **No second thread ever entered the worker's allocator.** A probe recording each
+   arena's first caller's stack and trapping on any other thread's
+   `_mfb_arena_alloc`/`_mfb_arena_free` never fired. Every allocator operation is in
+   `memory/arena/arena.rs`; none is inlined elsewhere.
+3. **The block was freed twice with different sizes.** A probe trapping when a
+   quick-bin (small) free hands in a pointer already parked in a large bin fired at
+   `_mfb_arena_free`, called from `_mfb_rt_tls_tls_connect+0x230f`, freeing
+   `ptr` whose node read `{next, size = 0x10000}` with a request of `0x15` bytes —
+   `"nomads.ncep.noaa.gov"` + NUL.
 
-```powershell
-$k = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
-New-Item -Force $k | Out-Null
-Set-ItemProperty $k DumpFolder C:\Users\test\dumps
-Set-ItemProperty $k DumpCount 5
-Set-ItemProperty $k DumpType 1
-```
+The mechanism, from the generated code of `tls_connect`:
+`lower_tls_connect` (`builtins/tls/gen_schannel_impl.rs`) mints its vregs from a
+`Vregs` counting from `%v0`; its host C-string `HelperScratch` pointer was the tenth,
+`%v9`. `marshal::emit_free_buffer_guarded` staged the pointer it frees in a
+**hard-coded `"%v9"`** — the same name, so the same register to the allocator. The
+success path freed the 64 KiB wide server-name buffer through it, overwriting the
+scratch pointer; the release at `done` then freed that 64 KiB block AGAIN at the host
+string's size. The block was linked in large bin 0 and in the 32-byte quick bin at
+once; the next 32-byte allocation (a `Scaling`) was carved on top of the large node,
+and the next large request hashing to bin 0 (`0x103800` in `unpackComplex`) walked
+through `Scaling`'s bytes and faulted.
 
-From the dump (stream 3 threads, stream 6 exception; `CONTEXT` `Rip` at
-`0xF8`, `Rsp` at `0x98`, and `R15` read from the same `CONTEXT`):
+That is why it looked thread- and canvas-related: only the worker made HTTPS requests
+(one per forecast hour) and only its GRIB decode issued the 1 KiB-multiple large
+requests that walk bin 0; the reduced programs never combined a `tls::connect` with
+that allocation pattern. macOS (Network.framework) and Linux (OpenSSL) use other TLS
+backends.
 
-- **The faulting thread.** Is it the UI thread, the language thread, the
-  graphics thread or the `thread::start` worker?
-- **Its `R15` against every thread's `R15`.** Two threads with the same `R15`,
-  or a faulting `R15` that is not that thread's own arena state, confirms
-  hypothesis 1 or 2 and names the thread.
-- **The bad node value** (`R10` at the fault). Is it a small integer, a pointer
-  into another arena's chunk, or freed memory?
+A parallel investigation (bug-564, on box 2230) found the same double free from the
+other end — a second `tls::connect` in one process crashing on the 8-byte host
+"8.8.8.8" — and landed `97afb6768` (`emit_free_buffer_guarded` names no vreg) and
+`753391711` (every marshal helper mints from the caller's `Vregs`), which remove this
+instance.
+
+**The class is the real root cause.** A register was TEXT: any emitter could write
+`"%v9"`, `"x9"` or `format!("%v{n}")`, and two independent counters (`Vregs::new()`,
+each `CodeBuilder`) both started at `%v0`. The source guard banning hand-numbered
+vregs scanned only `src/codegen/builtins`, so the builtin reached the banned style
+through one call into `src/codegen/memory/marshal`; the physical-register guard only
+looked at lines containing `abi::`/`.field(`. The migration found more live instances:
+Linux OpenSSL `tls::connect`'s set-nonblocking hook wrote a hard-coded `%v9` that WAS
+its SNI scratch pointer (a failed or timed-out connect freed address 2048); four mouse
+emitters, `lower_generate` and `emit_mouse_ready_verify` each started a second counter
+at `%v0` inside a caller's stream; `emit_link_expr` hand-numbered from `%v64`; the
+macOS app shell staged C-call arguments in raw `"x0"`–`"x4"`.
 
 ## Goal
 
@@ -219,26 +222,36 @@ From the dump (stream 3 threads, stream 6 exception; `CONTEXT` `Rip` at
 
 ## Blast Radius
 
-Not yet audited. The audit is Phase 1 and depends on the dump naming the path.
-The search set:
-
-- `src/target/win_x86_64/app/mod.rs:arena_alloc` and each of its callers — which
-  thread each runs on, and whose `%r15` it uses.
-- Every Windows-target site that loads `MAIN_ARENA_GLOBAL_SYMBOL` or otherwise
-  repoints `%r15` (`git grep -n MAIN_ARENA_GLOBAL_SYMBOL -- src/target/win_x86_64`).
-- `src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper` and
-  the Win64 thread trampoline: how the child arena block is carved and when.
-- The Windows canvas graphics thread: every call it makes that could reach the
-  arena.
-- The Linux and macOS counterparts of whichever site is guilty, classified as
-  unaffected, with the reason (for example a different trampoline).
+Every emitter that names a register. Before the fix: 2,412 hand-numbered `"%vN"`
+literals in emission code across 16 files (measured with the guard's own rules over all
+of `src/`), 88 functions that started a second `Vregs` counter inside a caller's
+instruction stream, ~130 hand-picked physical registers reaching operands through
+helpers the physical guard did not recognise, and `format!`-built vreg names. All
+targets: the aliasing is target-neutral; only which instance corrupts memory, and where,
+differs (Windows Schannel connect: double free; Linux OpenSSL connect: free of address
+2048 on failure).
 
 ## Fix Design
 
-To be written once the root cause is confirmed. The constraint is known already:
-the fix makes the offending thread allocate only from its own arena, or hands a
-block across by adoption as §2 describes. It does not add locking to the
-allocator.
+Registers are fixed **by construction**, not by a lint (owner decision 2026-09-26).
+
+1. **One id source.** `regalloc::mint_vreg` is the only way to obtain a virtual register;
+   `CodeBuilder`, `Vregs` and the optimizer's GVN all draw from it, reset once per module
+   (`lower_module_for_platform`). Two minters can no longer hand out the same name.
+   `VirtualRegister::new` / `Operand::vreg` are engine-private; `Operand::parse` is
+   test-only.
+2. **A typed register.** `abi::Reg` is the only thing a register-valued `abi::` operand
+   accepts. It has a private representation and no conversion from text: a register is
+   a minted `VirtualRegister`, an ABI role (`c_arg`, `mfb_return`, …), a role token
+   `abi.rs` defines (`ZERO`, `ARENA`, `SCRATCH[i]`, `LOCAL[i]`, …), or a physical register
+   the allocator or a backend chose (`Reg::physical`). A hand-picked register is a
+   compile error on every target.
+3. **Backstops.** `CodeInstruction::field` panics on text in a register-role field;
+   `physical_field` / `Reg::physical` are confined to `src/arch`, the allocator and the
+   frame finalizer (`physical_registers_stay_in_the_backends`); `no_hand_picked_vreg`
+   scans all of `src/`; `no_constructed_vreg_name` bans `format!("%v…")`.
+4. **Runtime gate.** `scripts/test-wintls.sh` runs every `rt-behavior/tls` fixture on the
+   Windows box.
 
 ## Phases
 

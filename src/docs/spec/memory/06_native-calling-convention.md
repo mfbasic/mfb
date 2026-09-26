@@ -163,6 +163,9 @@ Lowerings do not name physical temporary registers. `allocate_register` mints a
 **virtual register** carried in the instruction stream; after a function is fully
 lowered, a coloring pass assigns each virtual register a physical register (or a
 spill slot). [[src/codegen/engine/regalloc/builder_registers.rs:allocate_register]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
+A register operand is a typed `abi::Reg` — a minted virtual register, an ABI role or an
+ABI role token — and has no conversion from text, so a lowering cannot name a register
+by hand. [[src/target/shared/abi.rs:Reg]]
 
 The allocator, **linear scan**, computes liveness over the lowered
 stream and colors the integer class by live interval, reusing a register as soon
