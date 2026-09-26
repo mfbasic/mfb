@@ -460,7 +460,10 @@ mod tests {
         pub(crate) fn fixed() -> Self {
             Self {
                 regs: [9, 10, 11, 12, 13, 14].map(|id| {
-                    VirtualRegister::new_for_test(crate::target::shared::regmodel::RegClass::Int, id)
+                    VirtualRegister::new_for_test(
+                        crate::target::shared::regmodel::RegClass::Int,
+                        id,
+                    )
                 }),
             }
         }

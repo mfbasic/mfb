@@ -1533,8 +1533,7 @@ impl CodeBuilder<'_> {
                             // default to arena allocations already).
                             let location = if result.type_ == ParameterType::String {
                                 Operand::from(
-                                    self.copy_flat_block(&ParameterType::String, &result.location)?
-                                        .render(),
+                                    self.copy_flat_block(&ParameterType::String, &result.location)?,
                                 )
                             } else {
                                 result.location

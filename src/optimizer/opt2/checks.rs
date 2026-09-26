@@ -55,7 +55,6 @@ use crate::codegen::engine::regalloc::analysis::{
 };
 use crate::codegen::engine::regalloc::{self};
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use super::plans::mark::{conditional_terminator, flag_preserving, removable_op};

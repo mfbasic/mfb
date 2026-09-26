@@ -181,19 +181,27 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         // the consumer adds or subtracts. `c` is the other (addend) operand.
         let fused = if consumer_op == CodeOp::FAddD && lhs == product {
             // w = product + rhs  →  rhs + a*b
-            let Some(c) = register(j, "rhs") else { continue };
+            let Some(c) = register(j, "rhs") else {
+                continue;
+            };
             abi::float_multiply_add_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FAddD && rhs == product {
             // w = lhs + product  →  lhs + a*b
-            let Some(c) = register(j, "lhs") else { continue };
+            let Some(c) = register(j, "lhs") else {
+                continue;
+            };
             abi::float_multiply_add_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FSubD && lhs == product {
             // w = product - rhs  →  a*b - rhs
-            let Some(c) = register(j, "rhs") else { continue };
+            let Some(c) = register(j, "rhs") else {
+                continue;
+            };
             abi::float_multiply_sub_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FSubD && rhs == product {
             // w = lhs - product  →  lhs - a*b
-            let Some(c) = register(j, "lhs") else { continue };
+            let Some(c) = register(j, "lhs") else {
+                continue;
+            };
             abi::float_negate_multiply_sub_d(dst, c, a_reg, b_reg)
         } else {
             // `product` appears in a non-register field (should not happen for

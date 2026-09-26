@@ -46,15 +46,18 @@ pub(crate) fn bug387_selfmove_lines(instructions: &[CodeInstruction], target: &s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::abi;
 
     #[test]
     fn probe_flags_self_move_and_ignores_distinct() {
         // A realized same-register move (the plan-71-E staging no-op) and a
         // genuine cross-register move in one stream: exactly the first is flagged.
         let stream = vec![
-            abi::move_register("x0", "x0"),
-            abi::move_register("x0", "x1"),
+            CodeInstruction::new("mov")
+                .physical_field("dst", "x0")
+                .physical_field("src", "x0"),
+            CodeInstruction::new("mov")
+                .physical_field("dst", "x0")
+                .physical_field("src", "x1"),
         ];
         let lines = bug387_selfmove_lines(&stream, "aarch64");
         assert_eq!(
@@ -95,7 +98,10 @@ mod tests {
     #[test]
     fn probe_ignores_non_mov_with_equal_operands() {
         // A store whose operands render equally is not a no-op and must not count.
-        let stream = vec![abi::store_u64("x0", "x0", 0)];
+        let stream = vec![CodeInstruction::new("str_u64")
+            .physical_field("src", "x0")
+            .physical_field("base", "x0")
+            .field("offset", "0")];
         let lines = bug387_selfmove_lines(&stream, "riscv64");
         assert!(
             lines.is_empty(),

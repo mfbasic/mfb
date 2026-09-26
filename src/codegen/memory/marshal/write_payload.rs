@@ -34,7 +34,6 @@
 //! had it, so a correctly-typed `tcp::write(sock, "literal")` stays byte-identical.
 
 use crate::codegen::collection::layout::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;

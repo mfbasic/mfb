@@ -36,7 +36,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::arch::ops::CodeOp;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use crate::codegen::engine::operand::Operand;
@@ -226,31 +225,30 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     // silent stale-forward into a correct invalidation. Non-numeric offsets (which
     // the frame model never produces for sp slots) fall back to exact-string
     // matching so their behaviour is likewise unchanged.
-    let set_slot = |slots: &mut Vec<(String, String, Operand)>,
-                    offset: &str,
-                    src: &str,
-                    operand: Operand| {
-        let this = offset.parse::<i64>().ok();
-        slots.retain(|(off, _, _)| {
-            if off == offset {
-                return false; // exact slot: re-inserted below with the new source
-            }
-            match (this, off.parse::<i64>().ok()) {
-                // Both numeric: keep only when the 8-byte ranges are disjoint.
-                (Some(a), Some(b)) => (a - b).abs() >= 8,
-                // A non-numeric offset on either side is not range-comparable; keep
-                // it (exact-string keying, as before).
-                _ => true,
-            }
-        });
-        slots.push((offset.to_string(), src.to_string(), operand));
-    };
-    let slot_reg = |slots: &[(String, String, Operand)], offset: &str| -> Option<(String, Operand)> {
-        slots
-            .iter()
-            .find(|(off, _, _)| off == offset)
-            .map(|(_, src, operand)| (src.clone(), operand.clone()))
-    };
+    let set_slot =
+        |slots: &mut Vec<(String, String, Operand)>, offset: &str, src: &str, operand: Operand| {
+            let this = offset.parse::<i64>().ok();
+            slots.retain(|(off, _, _)| {
+                if off == offset {
+                    return false; // exact slot: re-inserted below with the new source
+                }
+                match (this, off.parse::<i64>().ok()) {
+                    // Both numeric: keep only when the 8-byte ranges are disjoint.
+                    (Some(a), Some(b)) => (a - b).abs() >= 8,
+                    // A non-numeric offset on either side is not range-comparable; keep
+                    // it (exact-string keying, as before).
+                    _ => true,
+                }
+            });
+            slots.push((offset.to_string(), src.to_string(), operand));
+        };
+    let slot_reg =
+        |slots: &[(String, String, Operand)], offset: &str| -> Option<(String, Operand)> {
+            slots
+                .iter()
+                .find(|(off, _, _)| off == offset)
+                .map(|(_, src, operand)| (src.clone(), operand.clone()))
+        };
 
     // Indexed on purpose: the body rewrites `instructions[index]` in place while
     // `classify` is still holding a reference to that same element, so an `iter_mut` reference
@@ -273,7 +271,8 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                             .operand("dst")
                             .cloned()
                             .expect("a classified sp load has a dst");
-                        instructions[index] = super::rebuilt("mov", vec![("dst", target), ("src", source)]);
+                        instructions[index] =
+                            super::rebuilt("mov", vec![("dst", target), ("src", source)]);
                         forwarded += 1;
                     }
                 }
@@ -354,7 +353,11 @@ pub(crate) fn remove_fp_shuttles(
                 |src, base, off| {
                     super::rebuilt(
                         "str_d",
-                        vec![("src", src), ("base", base), ("offset", Operand::from(&off.to_string()))],
+                        vec![
+                            ("src", src),
+                            ("base", base),
+                            ("offset", Operand::from(&off.to_string())),
+                        ],
                     )
                 },
             ),
@@ -368,7 +371,11 @@ pub(crate) fn remove_fp_shuttles(
                 |dst, base, off| {
                     super::rebuilt(
                         "ldr_d",
-                        vec![("dst", dst), ("base", base), ("offset", Operand::from(&off.to_string()))],
+                        vec![
+                            ("dst", dst),
+                            ("base", base),
+                            ("offset", Operand::from(&off.to_string())),
+                        ],
                     )
                 },
             ),
@@ -469,7 +476,9 @@ mod tests {
             ),
             (
                 "a multiply with no dst",
-                op("mul").physical_field("lhs", "x1").physical_field("rhs", "x2"),
+                op("mul")
+                    .physical_field("lhs", "x1")
+                    .physical_field("rhs", "x2"),
             ),
             (
                 "a float conversion with no dst",
@@ -517,7 +526,9 @@ mod tests {
                 .physical_field("src", "x8")
                 .physical_field("base", "sp")
                 .field("offset", "16"),
-            op("ldr_u64").physical_field("base", "sp").physical_field("dst", "x9"),
+            op("ldr_u64")
+                .physical_field("base", "sp")
+                .physical_field("dst", "x9"),
             op("ldr_u64")
                 .physical_field("dst", "x10")
                 .physical_field("base", "sp")
@@ -572,7 +583,9 @@ mod tests {
     #[test]
     fn folds_dead_result_and_operand_shuttles() {
         let mut instructions = vec![
-            op("fmov_x_from_d").physical_field("dst", "x8").physical_field("src", "d11"),
+            op("fmov_x_from_d")
+                .physical_field("dst", "x8")
+                .physical_field("src", "d11"),
             op("str_u64")
                 .physical_field("src", "x8")
                 .physical_field("base", "sp")
@@ -582,7 +595,9 @@ mod tests {
                 .physical_field("dst", "x8")
                 .physical_field("base", "sp")
                 .field("offset", "80"),
-            op("fmov_d_from_x").physical_field("dst", "d9").physical_field("src", "x8"),
+            op("fmov_d_from_x")
+                .physical_field("dst", "d9")
+                .physical_field("src", "x8"),
             op("ret"),
         ];
         // AArch64 spellings (`x8`, `d9`), so the AArch64 model supplies the
@@ -606,7 +621,9 @@ mod tests {
     #[test]
     fn keeps_shuttle_when_gpr_still_live() {
         let mut instructions = vec![
-            op("fmov_x_from_d").physical_field("dst", "x8").physical_field("src", "d11"),
+            op("fmov_x_from_d")
+                .physical_field("dst", "x8")
+                .physical_field("src", "d11"),
             op("str_u64")
                 .physical_field("src", "x8")
                 .physical_field("base", "sp")

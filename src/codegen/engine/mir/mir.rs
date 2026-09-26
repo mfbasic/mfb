@@ -1803,7 +1803,10 @@ mod tests {
         let stream = [
             abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, 0),
             abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::subtract_registers("x9", abi::ZERO, "x9"),
+            CodeInstruction::new("sub")
+                .physical_field("dst", "x9")
+                .field("lhs", abi::ZERO)
+                .physical_field("rhs", "x9"),
         ];
         let mir = lower_to_mir(&stream);
         for inst in &mir {

@@ -159,7 +159,7 @@ pub(crate) fn eliminate(instructions: &mut [CodeInstruction], model: &dyn Regist
         // them, so no wider invalidation is needed for `bl`.)
         for def in effect(&instructions[i], int_model).defs {
             if let RegRef::VReg(id) = def {
-                numbers.remove(&format!("%v{id}"));
+                numbers.remove(&crate::codegen::engine::regalloc::vreg_name(id));
             }
         }
     }

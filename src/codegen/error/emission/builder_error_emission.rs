@@ -648,8 +648,7 @@ impl CodeBuilder<'_> {
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
                 Operand::from(
-                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?
-                        .render(),
+                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?,
                 )
             } else {
                 value.location.clone()

@@ -489,7 +489,8 @@ pub(crate) struct CodeBuilder<'a> {
     /// the `broadcast_*` coefficient loads share one allocator-placed base within
     /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
     /// backends that pin a physical base.
-    pub(crate) math_pool_base_vreg: Option<(String, crate::codegen::engine::operand::VirtualRegister)>,
+    pub(crate) math_pool_base_vreg:
+        Option<(String, crate::codegen::engine::operand::VirtualRegister)>,
     /// plan-01-vector: in-flight register-native small-vector values. A
     /// `Float2/3/4` produced by a construction or an inlined op that has not yet
     /// crossed a storage/escape boundary lives here as its N per-lane scalar

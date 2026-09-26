@@ -45,7 +45,6 @@
 
 use crate::codegen::collection::layout::type_participates_in_cycle;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;

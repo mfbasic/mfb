@@ -28,7 +28,6 @@ use std::collections::HashMap;
 
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 
 /// Run the MIR constant folder over one function's selected stream, in place.
 /// Self-guarded on the row's catalog level (1); the fold count feeds the same

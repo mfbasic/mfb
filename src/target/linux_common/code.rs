@@ -23,7 +23,6 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::codegen::engine::mir::MirPlan;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFunction;
@@ -925,7 +924,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: crate::target::shared::abi::Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

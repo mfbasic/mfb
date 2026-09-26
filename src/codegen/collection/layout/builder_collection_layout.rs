@@ -2757,7 +2757,7 @@ pub(crate) fn emit_alloc_byte_list(
     if byte_list_entry_stride() != 0 {
         instructions.extend([
             abi::add_immediate(v11, v15, COLLECTION_HEADER_SIZE), // entry cursor
-            abi::move_immediate(v13, "Integer", "0"),                // i
+            abi::move_immediate(v13, "Integer", "0"),             // i
             abi::label(&entry_loop),
             abi::compare_registers(v13, v10),
             abi::branch_ge(&entry_done),

@@ -1,7 +1,6 @@
 //! Split from `the retired flat codegen_utils.rs` (category `string.validate`).
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;

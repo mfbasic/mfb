@@ -78,17 +78,17 @@ pub(crate) fn emit_arena_free(
 #[must_use = "bug-574: a declared scratch block must reach \
               `emit_helper_scratch_release`, or the helper leaks it"]
 pub(crate) struct HelperScratch {
-    pub(crate) pointer: abi::Reg,
-    pub(crate) size: abi::Reg,
+    pub(crate) pointer: VirtualRegister,
+    pub(crate) size: VirtualRegister,
 }
 
 impl HelperScratch {
     /// Name an EXISTING pointer/size vreg pair as a scratch block. The caller is
     /// responsible for nulling both before any branch that can reach `done`.
-    pub(crate) fn new(pointer: impl Into<abi::Reg>, size: impl Into<abi::Reg>) -> Self {
+    pub(crate) fn new(pointer: &VirtualRegister, size: &VirtualRegister) -> Self {
         Self {
-            pointer: pointer.into(),
-            size: size.into(),
+            pointer: *pointer,
+            size: *size,
         }
     }
 
@@ -108,20 +108,16 @@ impl HelperScratch {
     /// `cname`/`c_path` the rest of the lowering reads): mint only the size and
     /// null both.
     pub(crate) fn declare_for(
-        pointer: impl Into<abi::Reg>,
+        pointer: VirtualRegister,
         vregs: &mut Vregs,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Self {
-        let pointer: abi::Reg = pointer.into();
         let size = vregs.next();
         instructions.extend([
             abi::move_immediate(pointer, "Integer", "0"),
             abi::move_immediate(&size, "Integer", "0"),
         ]);
-        Self {
-            pointer,
-            size: size.into(),
-        }
+        Self { pointer, size }
     }
 }
 

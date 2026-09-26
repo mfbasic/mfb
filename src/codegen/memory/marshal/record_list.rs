@@ -26,7 +26,6 @@
 //! every caller-saved register. The scratch vregs written are a [`MarshalRegs`].
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;

@@ -45,7 +45,7 @@ impl CodegenPlatform for TestPlatform {
     fn emit_current_directory(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_current_directory") }
     fn emit_environ_pointer(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_environ_pointer") }
     fn emit_fs_path_operation(&self, _from: &str, _op: FsPathOperation, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_fs_path_operation") }
-    fn emit_errno(&self, _from: &str, dst: Operand, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_errno(&self, _from: &str, dst: abi::Reg, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // Leave a plausible errno value in `dst`; a plain move is enough for
         // helpers (e.g. the non-blocking connect timeout path) to lower and
         // register-allocate.

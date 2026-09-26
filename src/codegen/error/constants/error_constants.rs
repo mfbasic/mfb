@@ -5,7 +5,6 @@
 //! layout chains below are written in ascending-offset (dependency) order.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 // ===========================================================================
 // Result / Error calling protocol

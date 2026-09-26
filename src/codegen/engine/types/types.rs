@@ -367,7 +367,7 @@ pub(crate) trait CodegenPlatform {
     /// `dlsym(handle, name)`; Windows overrides it with `GetProcAddress`.
     fn emit_lib_get_sym(
         &self,
-        handle_reg: &str,
+        handle_reg: crate::target::shared::abi::Reg,
         symbol_symbol: &str,
         from: &str,
         platform_imports: &HashMap<String, String>,
@@ -772,7 +772,7 @@ pub(crate) trait CodegenPlatform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: crate::target::shared::abi::Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

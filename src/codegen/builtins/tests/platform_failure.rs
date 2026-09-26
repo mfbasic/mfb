@@ -153,7 +153,7 @@ impl CodegenPlatform for FailAt<'_> {
     }
     fn emit_lib_get_sym(
         &self,
-        handle_reg: &str,
+        handle_reg: crate::target::shared::abi::Reg,
         symbol_symbol: &str,
         from: &str,
         platform_imports: &HashMap<String, String>,
@@ -315,12 +315,12 @@ impl CodegenPlatform for FailAt<'_> {
     }
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: crate::target::shared::abi::Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
-        scratch: [&str; 2],
+        scratch: [crate::target::shared::abi::Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         self.inner.emit_apply_raw_mode(
@@ -430,9 +430,9 @@ impl CodegenPlatform for FailAt<'_> {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: crate::target::shared::abi::Reg,
+        mask: crate::target::shared::abi::Reg,
+        expected: crate::target::shared::abi::Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -490,7 +490,7 @@ impl CodegenPlatform for FailAt<'_> {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: crate::target::shared::abi::Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -651,10 +651,10 @@ impl CodegenPlatform for FailAt<'_> {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: crate::target::shared::abi::Reg,
+        namelen: crate::target::shared::abi::Reg,
+        byte: crate::target::shared::abi::Reg,
+        scratch: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         self.inner
@@ -673,7 +673,7 @@ impl CodegenPlatform for FailAt<'_> {
     }
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         self.tick()?;
@@ -732,7 +732,7 @@ impl CodegenPlatform for FailAt<'_> {
         &self,
         fd_offset: usize,
         flags_offset: usize,
-        scratch: &str,
+        scratch: crate::target::shared::abi::Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

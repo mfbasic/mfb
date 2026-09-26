@@ -1,6 +1,5 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {

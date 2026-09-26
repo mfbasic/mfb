@@ -35,7 +35,6 @@
 
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::builder_arena_transfer::PayloadEdgeShape;

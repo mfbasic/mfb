@@ -25,7 +25,6 @@ use crate::arch::ops::CodeOp;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::regalloc::analysis::{build_cfg, classify_ref, RegRef};
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use super::constant_folding::{fold_one, Step};

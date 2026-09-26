@@ -1425,11 +1425,11 @@ impl CodeBuilder<'_> {
 
         // bug-536 shape B: `result_slot` holds this lowering's own
         // `emit_arena_alloc_call` block, with the list's bytes copied in.
-        self.mark_fresh_string(Operand::from(result.to_string()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.to_string()),
+            location: Operand::from(result),
             text: "toString(List OF Byte)".to_string(),
         })
     }

@@ -145,27 +145,39 @@ impl RegisterModel for Aarch64RegisterModel {
 
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::store_u64(abi::Reg::physical(reg), abi::stack_pointer(), offset),
+            RegClass::Int => CodeInstruction::new("str_u64")
+                .physical_field("src", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
             // 128-bit store — a 64-bit `str d` would drop a spilled vector's high
             // lane, corrupting the vector::/math-array kernels. `str q` needs a
             // 16-aligned offset: the slot stride is 16, the spill base is
             // 16-aligned by the callers, and `finalize_frame` shifts by a
             // 16-aligned save area.
-            RegClass::Fp => {
-                abi::vector_store(abi::Reg::physical(reg), abi::stack_pointer(), offset)
-            }
+            RegClass::Fp => CodeInstruction::new("str_q")
+                .physical_field("src", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
         }
     }
 
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::load_u64(abi::Reg::physical(reg), abi::stack_pointer(), offset),
-            RegClass::Fp => abi::vector_load(abi::Reg::physical(reg), abi::stack_pointer(), offset),
+            RegClass::Int => CodeInstruction::new("ldr_u64")
+                .physical_field("dst", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
+            RegClass::Fp => CodeInstruction::new("ldr_q")
+                .physical_field("dst", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
         }
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
-        abi::move_register(abi::Reg::physical(dst), abi::Reg::physical(src))
+        CodeInstruction::new("mov")
+            .physical_field("dst", dst)
+            .physical_field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {

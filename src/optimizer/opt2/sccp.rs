@@ -35,7 +35,6 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::regalloc::analysis::{build_cfg, classify_ref, is_use_field, RegRef};
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use super::branches::{bits, verdict};
