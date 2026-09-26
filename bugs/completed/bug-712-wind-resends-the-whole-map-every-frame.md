@@ -16,9 +16,15 @@ deviation from the Fix Design; see Phase notes below for the one gate
 deviation (this lane's narrower build-examples gate, not the full
 `scripts/build-examples.sh` sweep).
 
-Regression Test: a `/tmp`-style item-count probe promoted into the example, see
-"Validation Plan" (examples have no test harness; propose adding one under
-`tests/` per Blast Radius)
+Correction (post-landing review): `tools/wind-map-probe` originally shipped
+with committed copies of `land.mfb`/`earth.mfb`/`coastline.bin`, which would
+stay green under a regression in the real files. `run.sh` now stages the
+real `examples/wind/src/land.mfb`/`earth.mfb` and the real
+`examples/wind/resources/wind/coastline.bin` fresh on every run; only
+`probe/main.mfb` (driver glue) is committed.
+
+Regression Test: `tools/wind-map-probe/` — stages and exercises the real, unmodified `examples/wind/src/land.mfb`/`earth.mfb` and `resources/wind/coastline.bin` fresh on every run (see
+"Validation Plan"; examples have no test harness otherwise, so this is new ground)
 
 `examples/wind` runs an animation loop (particle streamlines over a world map)
 that calls `canvas::present` once per frame via `canvas::waitFrame`. Every

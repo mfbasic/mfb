@@ -15,7 +15,15 @@ candidate, inside `cycleData`, covered by `attemptCycle`'s trap. The other
 Open Decision (defer `writeBytesAtomic` until after a successful decode) was
 also taken as recommended. No other deviation from the Fix Design.
 
-Regression Test: `examples/wind/tests/cache_corruption_test.sh` (new; see Validation Plan)
+Correction (post-landing review): the fixture
+`examples/wind/tests/fixtures/valid-analysis.grb2` originally committed here
+was a captured real 926 KB GFS file; it is now a generated 624-byte synthetic
+GRIB2 file (`tools/synthetic-grib-fixture/generate.py`), since the decoder
+does not care about grid resolution and nothing smaller or already in-tree
+could serve. `cache_corruption_test.sh` itself (which always ran the real,
+staged `examples/wind/src/fetch.mfb`/`grib.mfb`, never a copy) is unchanged.
+
+Regression Test: `examples/wind/tests/cache_corruption_test.sh` (new; see Validation Plan) — exercises the real, unmodified `examples/wind/src/fetch.mfb`/`grib.mfb` (copied into its own scratch driver at run time, not forked), against `tools/synthetic-grib-fixture`'s generated fixture
 
 `examples/wind` caches each fetched GRIB2 file under the host temp directory and,
 on a later run, trusts a cached file as "the answer for this cycle/hour" the

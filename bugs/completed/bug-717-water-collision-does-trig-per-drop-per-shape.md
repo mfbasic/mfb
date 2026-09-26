@@ -16,7 +16,17 @@ bounding-radius reject and is otherwise byte-for-byte the function `shapeAt`
 still calls. Regression tool: `tools/water-collision-bench/` (commit
 841bf3bdd). No other deviation from the Fix Design.
 
-Regression Test: `tools/water-collision-bench/` (new; see Validation Plan)
+Correction (post-landing review): `tools/water-collision-bench` originally
+shipped with a committed copy of `shapes.mfb` (`shapes_under_test.mfb`,
+drawing section removed), which would stay green under a regression in the
+real file. `run.sh` now stages the real, whole, unmodified
+`examples/water/src/shapes.mfb` fresh on every run, as an `--app`-mode
+headless build (`MFB_MACAPP_HEADLESS=1`), so nothing needs trimming. The
+pre-fix `oracleContactWith` inside `probe/main.mfb` is unchanged — it is a
+deliberately frozen reference point, not a fork of the file under test, and
+the review confirmed that distinction is legitimate.
+
+Regression Test: `tools/water-collision-bench/` — stages and exercises the real, unmodified `examples/water/src/shapes.mfb` fresh on every run, against a frozen pre-fix oracle (new; see Validation Plan)
 
 `examples/water/src/shapes.mfb:contactWith` is the collision test the water
 example's physics loop calls for every drop, every substep, every shape, every

@@ -15,7 +15,16 @@ commit 81febeba1) was added. One bug found and fixed while verifying the fix
 — see Phase 2's note on the centroid/boundary distinction; no change to the
 Fix Design was needed, only to how the regression check reads the result.
 
-Regression Test: `tools/water-probe/` (new)
+Correction (post-landing review): `tools/water-probe` originally shipped
+with committed copies of `shapes.mfb`/`toolbar.mfb` (the latter also with
+`at AS canvas::Point` split into `atX`/`atY` floats), which would stay green
+under a regression in the real files. `run.sh` now stages the real
+`examples/water/src/shapes.mfb`/`toolbar.mfb` fresh on every run, as an
+`--app`-mode headless build (`MFB_MACAPP_HEADLESS=1`, like `wind-map-probe`),
+so `probe/main.mfb` calls the real `onToolbar`/`buttonAt` with a real
+`canvas::Point` — no signature substitute needed.
+
+Regression Test: `tools/water-probe/` — stages and exercises the real, unmodified `examples/water/src/shapes.mfb`/`toolbar.mfb` fresh on every run (new)
 
 `examples/water`'s window can be resized narrower at any time
 (`canvas::didResize()`, checked every frame in `examples/water/src/main.mfb:main`
