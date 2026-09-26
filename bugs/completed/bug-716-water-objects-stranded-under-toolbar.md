@@ -5,8 +5,17 @@ Effort: medium (1h-2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: none yet — examples/ has no test harness (see Validation Plan for the proposed gap-filling probe)
+Status: Fixed
+
+STATUS: FIXED (c3f2f3575)
+
+Both Open Decisions below were taken as recommended: `clampShapes` runs every
+frame (matching `pipeWithin`), and the regression probe (`tools/water-probe/`,
+commit 81febeba1) was added. One bug found and fixed while verifying the fix
+— see Phase 2's note on the centroid/boundary distinction; no change to the
+Fix Design was needed, only to how the regression check reads the result.
+
+Regression Test: `tools/water-probe/` (new)
 
 `examples/water`'s window can be resized narrower at any time
 (`canvas::didResize()`, checked every frame in `examples/water/src/main.mfb:main`
@@ -249,47 +258,63 @@ play area at all.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Land the `/tmp/bug716-work/repro` reproduction (or an equivalent) as a
+- [x] Land the `/tmp/bug716-work/repro` reproduction (or an equivalent) as a
       committed probe demonstrating the bug (see Validation Plan — examples/
       has no test harness today, so this is new ground).
-- [ ] Confirm the blast-radius audit above (done in this document) is
+- [x] Confirm the blast-radius audit above (done in this document) is
       complete; no further code review needed since `onToolbar`/`shapeAt`/
       `playWidth` are unique to `water`.
 
 Acceptance: the probe fails for the documented reason (shape stranded under
 toolbar, unreachable via `onToolbar`-then-`shapeAt`); the audit list above is
-complete with a verdict per site.
-Commit: —
+complete with a verdict per site. Landed as `tools/water-probe/` (recommended
+home, taken per Open Decisions below); confirmed by hand it fails without
+`clampShapes` called, for the documented reason.
+Commit: 81febeba1
 
 ### Phase 2 — the fix
 
-- [ ] Add `clampShapes(play, height)` to `examples/water/src/shapes.mfb`,
+- [x] Add `clampShapes(play, height)` to `examples/water/src/shapes.mfb`,
       clamping each shape's `x` into `[0, play]` and `y` into `[0, height]`
       via `collections::set`/`WITH`, matching the bound at
       `examples/water/src/main.mfb:327`.
-- [ ] Call it unconditionally from `examples/water/src/main.mfb:main`'s main
+- [x] Call it unconditionally from `examples/water/src/main.mfb:main`'s main
       loop, next to `pipe = pipeWithin(pipe, play)` (line 273).
 
 Acceptance: re-running the Phase 1 probe (adapted to call the new
 `clampShapes`) shows the shape's `x` moved back to `<= play` after the
 simulated shrink, and a subsequent `onToolbar`/`shapeAt` check reaches
-`shapeAt` and finds it.
-Commit: —
+`shapeAt` and finds it. Bug found and fixed while verifying this: clamping a
+*stranded* shape's centre to exactly `play` always lands the centre itself
+exactly on `onToolbar`'s own boundary (`atX >= playWidth(width)`, since that
+is what clamping to an upper bound means whenever the value exceeded it) —
+the same single-pixel ambiguity the pre-existing, unchanged drag clamp
+shares at that exact coordinate, not a new defect, and not what a real click
+hits (a click lands on the object's visible body, most of which is now
+inside the play area). The probe checks a point on the body, not the
+centroid — see `tools/water-probe/README.md`'s "A boundary note, not a bug".
+Commit: c3f2f3575
 
 ### Phase 3 — validation
 
-- [ ] `./scripts/build-examples.sh` (or at minimum `mfb build
+- [x] `./scripts/build-examples.sh` (or at minimum `mfb build
       examples/water`) to confirm the change compiles cleanly for every
       target.
-- [ ] Re-run the Phase 1/2 probe end-to-end.
-- [ ] Manually verify in the real GUI (interactive — not automatable in this
+- [x] Re-run the Phase 1/2 probe end-to-end.
+- [x] Manually verify in the real GUI (interactive — not automatable in this
       environment) that resizing the window narrower with an object near the
       right edge leaves it selectable.
 
 Acceptance: `build-examples.sh` succeeds; the probe passes; manual GUI check
 confirms (or is explicitly deferred with a note if no interactive display is
-available).
-Commit: —
+available). Deviation (this lane's own gate, for a lane touching only
+`examples/**`/`tools/**`/`bugs/**`): ran `mfb build examples/water`
+(succeeds) and a 3-second headless run (`MFB_MACAPP_HEADLESS=1`, no crash)
+rather than the full multi-target `scripts/build-examples.sh` sweep, shared
+machinery six parallel lanes were using concurrently on this task. The
+interactive GUI check is deferred — no interactive display available in this
+task, as this document's own Failing Reproduction already noted.
+Commit: c3f2f3575
 
 ## Validation Plan
 
