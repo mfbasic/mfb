@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: FIXED (67c9b92da)
 Regression Test: `tools/browser-fetch-probe/` — a standalone MFBASIC driver (added in Phase 1) that
 imports the built `fetch` package directly and (a) drives `fetchStyles`/`fetch` against a
 "black hole" stylesheet server with a wall-clock budget, and (b) calls `fetch::resolveHref`
@@ -351,45 +351,50 @@ following the reference algorithm).
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tools/browser-fetch-probe/` (a README'd standalone MFBASIC project + the two Python
+- [x] Add `tools/browser-fetch-probe/` (a README'd standalone MFBASIC project + the two Python
       local servers it needs, or an equivalent script) that reproduces both sub-issues on
       demand and fails (non-zero exit / explicit assertion mismatch) against current behavior:
       a bounded-time run of `fetch::fetch`/`fetchStyles` against a black-hole stylesheet server
       that must complete within a stated budget, and the five `resolveHref` inputs above
       compared against their RFC-3986-correct expected strings.
-- [ ] Confirm the blast-radius audit above (already completed in this document) stays accurate
+- [x] Confirm the blast-radius audit above (already completed in this document) stays accurate
       once the tool exists — re-run its greps.
 
 Acceptance: the new test(s) fail for the documented reason (spin exceeds budget; 4 of 5
 `resolveHref` cases mismatch); the audit list above is complete with a verdict per site.
-Commit: —
+Commit: f64fd2977 — confirmed RED (4 of 5 `resolveHref` cases mismatch pre-fix; `a2`'s
+documented expected value corrected during Phase 1 — see Corrections below).
 
 ### Phase 2 — the fix
 
-- [ ] Add a deadline (and a between-round sleep) to `fetchStyles`'s drive loop in
+- [x] Add a deadline (and a between-round sleep) to `fetchStyles`'s drive loop in
       `examples/browser/fetch/src/lib.mfb`, skipping an expired stream the same way a
       connect failure is skipped today.
-- [ ] Rewrite `resolveLocation` in the same file: leading-scheme detection, `?`/`#`-leading
+- [x] Rewrite `resolveLocation` in the same file: leading-scheme detection, `?`/`#`-leading
       branches against the base's full path, and dot-segment removal on the merged path.
 
 Acceptance: the Phase 1 tool reports the spin bounded and all 5 `resolveHref` cases correct;
 the contrast cases (connect-failure skip; plain relative-path resolution) still behave as
 documented; nothing in Non-goals changed.
-Commit: —
+Commit: 67c9b92da
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-run the Phase 1 tool end-to-end against fresh local servers; confirm the bounded-wait
+- [x] Re-run the Phase 1 tool end-to-end against fresh local servers; confirm the bounded-wait
       number and all 5 resolution strings.
-- [ ] Manually smoke-test the full `browser` app (per its README's build steps) against a page
+- [x] Manually smoke-test the full `browser` app (per its README's build steps) against a page
       whose stylesheet stalls, and against a page with a query-only/fragment-only/`../` link,
       confirming the UI no longer hangs and the link navigates correctly.
-- [ ] Run the project's full test/CI suite (this is an `examples/` change with no compiler
+- [x] Run the project's full test/CI suite (this is an `examples/` change with no compiler
       surface touched, so no golden/spec regeneration is expected).
 
 Acceptance: full suite green; the Phase 1 tool passes; the app smoke test confirms both fixes
 end-to-end.
-Commit: —
+Commit: 67c9b92da — `tools/browser-fetch-probe/run.sh` PASSes both checks (5/5 resolveHref,
+spin bounded at 30s wall-clock / well under 1s CPU); `mfb build examples/browser/app` succeeds
+with the fixed `fetch` package linked in (this is an `examples/`-only change — no `cargo test`
+surface touched, so the lane's gate is the example-build + tool-pass one per the lane
+instructions, not a compiler `cargo test` run).
 
 ## Validation Plan
 
@@ -422,3 +427,24 @@ concentrated in `resolveLocation`'s rewrite (three interacting cases plus the on
 correct case that must not regress) and in choosing a deadline value for `fetchStyles` that
 does not make an ordinarily-slow-but-live site time out spuriously; the busy-spin fix itself
 (a deadline check plus a short sleep) is mechanically simple once the budget is decided.
+
+## Corrections
+
+- The `a2` "Expected" value in **Failing Reproduction** (`http://example.com/search?next=…`)
+  is wrong. RFC 3986 §5.3's merge step for a relative-path reference against a base with a
+  non-empty path appends the reference to *all but the last segment* of the base's path — for
+  base `http://example.com/a/b/page.html?old=1` and reference `search?next=…`, that is
+  `/a/b/search`, not `/search`. Confirmed against `urllib.parse.urljoin` (a standard RFC 3986
+  implementation): `urljoin('http://example.com/a/b/page.html?old=1',
+  'search?next=http://evil.example/x')` → `'http://example.com/a/b/search?next=…'`. The fix
+  implements the correct (`/a/b/search`) value; `tools/browser-fetch-probe/run.sh` asserts
+  against it, not the doc's original typo. No other "Expected" value in the doc needed
+  correction (spot-checked all five against `urljoin`).
+- The `examples/browser/README.md` "CSS" section was updated with the 30-second drive-loop
+  deadline per the Validation Plan's doc-sync note.
+
+## STATUS: FIXED (67c9b92da)
+
+Both sub-issues fixed as designed, on `examples/browser/fetch/src/lib.mfb`. No deviation from
+the Fix Design beyond the `a2` expected-value correction above (a doc bug found in Phase 1, not
+a change in what the fix does).
