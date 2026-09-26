@@ -104,17 +104,19 @@ impl CodeBuilder<'_> {
         // only the live ones when A's dead bytes (left by in-place removals)
         // outnumber them. Kind 2 has no dead bytes and keeps its instructions.
         let packed_a = if entry_stride != 0 {
-            Some(self.emit_list_packed_length(base_slot, element_type))
+            let packed = self.emit_list_packed_length(base_slot, element_type);
+            // The walk used its own registers; reload the operands it may share.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            Some(packed)
         } else {
             None
         };
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
         self.emit(abi::load_u64(
             &scratch12,
             &scratch9,
