@@ -38,6 +38,13 @@ pub(crate) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
 pub(crate) const TLS_OFFSET_CTX: usize = 32;
 pub(crate) const TLS_OFFSET_SSL: usize = 40;
 pub(crate) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
+// OpenSSL `Socket` only: 1 once `tls::read` has reported the peer's close
+// (`ErrConnectionClosed`). From then on every `tls::write` on the socket raises
+// `ErrConnectionClosed` before touching the session, the rule every backend
+// follows (Schannel keeps the same flag in its state block, Network.framework in
+// its connection ctx). `tls::connect` and `tls::accept` zero it, and it is a
+// declared live slot so a `thread::transfer` carries it.
+pub(crate) const TLS_OFFSET_PEER_CLOSED: usize = 48;
 
 // The schannel (Windows) backend stores a pointer to its separate SSPI
 // credential/context arena block in the record. Before plan-80 that pointer sat
@@ -64,6 +71,7 @@ const _: () = assert!(TLS_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
 // The widest TLS tail (`SSL*`@40) fits inside the shared envelope.
 const _: () = assert!(TLS_OFFSET_SSL + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(TLS_SCHANNEL_OFFSET_BLOCK + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(TLS_OFFSET_PEER_CLOSED + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 pub(crate) const SOCK_STREAM: &str = "1";
 pub(crate) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
@@ -122,6 +130,11 @@ pub(crate) const TLS_SYMBOLS: &[&str] = &[
     // SO_RCVTIMEO surfaces as SSL_ERROR_WANT_READ/WRITE with the session intact,
     // which is `ErrTimeout`, not `ErrTlsFailed`.
     "SSL_get_error",
+    // bug-564: tell OpenSSL 3's "unexpected EOF" (SSL_ERROR_SSL, reason 294 --
+    // the peer went away without close_notify) from a real protocol failure in a
+    // failed `SSL_read`. It lives in libcrypto; `dlsym` on the libssl handle
+    // finds it through libssl's own dependency.
+    "ERR_peek_last_error",
     // plan-76-B: non-consuming count of already-decrypted, buffered app bytes —
     // the readiness fast-path for `tls::poll` (a TLS record can hold app bytes with
     // the fd idle, so an fd-only poll would under-report).

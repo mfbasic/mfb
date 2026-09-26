@@ -1376,7 +1376,16 @@ pub(crate) fn lower_tls_read_macos(
         abi::branch(&done),
     ]);
 
-    ins.push(abi::label(&peer_closed));
+    // bug-564: this read has reported the peer's close, so every later
+    // `tls::write` must raise (see `CTX_RXEOF`). Both routes here (a final empty
+    // receive, a terminal state) load CTX into the frame first.
+    ins.extend([
+        abi::label(&peer_closed),
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::add_immediate(&v9, &v9, CTX_RXEOF),
+        abi::store_release_u64(&v10, &v9),
+    ]);
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
@@ -1448,6 +1457,14 @@ pub(crate) fn lower_tls_write_macos(
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
         abi::load_u64(&v9, abi::return_register(), REC_CTX),
         abi::store_u64(&v9, abi::stack_pointer(), CTX),
+        // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
+        // already reported the peer's close. Raise before anything is created
+        // or sent, empty payload included. Network.framework would take the
+        // bytes of a half-closed peer, and the other backends refuse them too.
+        abi::add_immediate(&v10, &v9, CTX_RXEOF),
+        abi::load_acquire_u64(&v10, &v10),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&peer_closed),
     ]);
     // bug-497 / bug-508: one payload view for every backend — the text form
     // as before, the byte form after a header check (`push_write_payload_view`).
@@ -1533,6 +1550,38 @@ pub(crate) fn lower_tls_write_macos(
         &load_fail,
         &mut vregs,
     )?;
+    // bug-386: skip the send + FOREVER wait if the connection is already in a
+    // terminal state (failed=4 / cancelled=5). The send completion would be
+    // dropped and, with no further state transition to fire the state-changed
+    // handler, the wait would hang. A write to a dead connection is an error,
+    // not success. See the read path for the full rationale (the state handler
+    // still covers a mid-wait transition).
+    //
+    // bug-483: which error it is depends on what killed the session, so this
+    // goes through `write_classify` rather than straight to `ErrTlsFailed`. It
+    // has to: measured against a departed peer, only the FIRST failing write
+    // takes the CTX_ERROR path below — every write after it lands here, because
+    // Network.framework has moved the connection to `failed` (4; never 5) by
+    // then. Reporting `ErrConnectionClosed` once and `ErrTlsFailed` forever
+    // after, for one disconnect, is what this bug is about.
+    //
+    // bug-564: this is a GATE read and `write_classify` reads the payload
+    // (`CTX_EDOM`) after it, both unlocked against the handler thread. The
+    // handler publishes the payload first and the gate by store-release. The
+    // gate is loaded by load-acquire, which runs before every later load, so the
+    // `CTX_EDOM` load cannot run early against memory older than the gate.
+    //
+    // bug-564: this guard runs BEFORE `dispatch_data_create`. It used to run
+    // after it, and `write_classify`'s exits do not release the content, so
+    // every write to a dead connection leaked the copy of its payload that
+    // `dispatch_data_create` had just made.
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::add_immediate(&v10, &v9, CTX_STATE),
+        abi::load_acquire_u32(&v10, &v10),
+        abi::compare_immediate(&v10, "4"),
+        abi::branch_ge(&write_classify),
+    ]);
     // content = dispatch_data_create(data, len, NULL, NULL)  (NULL = copy)
     dlsym(
         &mut EmitCtx {
@@ -1591,33 +1640,6 @@ pub(crate) fn lower_tls_write_macos(
         &load_fail,
         &mut vregs,
     )?;
-    // bug-386: skip the send + FOREVER wait if the connection is already in a
-    // terminal state (failed=4 / cancelled=5). The send completion would be
-    // dropped and, with no further state transition to fire the state-changed
-    // handler, the wait would hang. A write to a dead connection is an error,
-    // not success. See the read path for the full rationale (the state handler
-    // still covers a mid-wait transition).
-    //
-    // bug-483: which error it is depends on what killed the session, so this
-    // goes through `write_classify` rather than straight to `ErrTlsFailed`. It
-    // has to: measured against a departed peer, only the FIRST failing write
-    // takes the CTX_ERROR path below — every write after it lands here, because
-    // Network.framework has moved the connection to `failed` (4; never 5) by
-    // then. Reporting `ErrConnectionClosed` once and `ErrTlsFailed` forever
-    // after, for one disconnect, is what this bug is about.
-    //
-    // bug-564: this is a GATE read and `write_classify` reads the payload
-    // (`CTX_EDOM`) after it, both unlocked against the handler thread. The
-    // handler publishes the payload first and the gate by store-release. The
-    // gate is loaded by load-acquire, which runs before every later load, so the
-    // `CTX_EDOM` load cannot run early against memory older than the gate.
-    ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::add_immediate(&v10, &v9, CTX_STATE),
-        abi::load_acquire_u32(&v10, &v10),
-        abi::compare_immediate(&v10, "4"),
-        abi::branch_ge(&write_classify),
-    ]);
     // nw_connection_send(conn, content, context, is_complete=true, &block)
     dlsym(
         &mut EmitCtx {

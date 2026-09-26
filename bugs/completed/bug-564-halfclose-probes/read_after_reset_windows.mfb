@@ -1,0 +1,22 @@
+IMPORT errorCode
+IMPORT io
+IMPORT net
+IMPORT tls
+
+FUNC readAfter(RES conn AS tls::Socket) AS String
+  LET b AS List OF Byte = tls::read(conn, 4096)
+  RETURN "read=GOT"
+  TRAP(err)
+    RETURN "read closed=" & toString(err.code = errorCode::ErrConnectionClosed) & " code=" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 0, "C:\\Users\\test\\b564p\\cert.pem", "C:\\Users\\test\\b564p\\key1.pem")
+  LET bound = tls::localAddress(server)
+  io::print("port=" & toString(bound.port))
+  RES conn = tls::accept(server)
+  LET go AS String = io::input()
+  io::print(readAfter(conn))
+  RETURN 0
+END FUNC

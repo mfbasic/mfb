@@ -170,6 +170,16 @@ pub(crate) const CTX_WTO: usize = 112;
 // mistaking it for its own. This is the same outstanding-operation model
 // plan-76-B gave the receive side with `CTX_ARMED`.
 pub(crate) const CTX_WARMED: usize = 120;
+// 1 once `tls::read` has reported the peer's close (`ErrConnectionClosed`).
+// Every later `tls::write` raises `ErrConnectionClosed` from it before it
+// creates or sends anything: Network.framework itself completes those sends with
+// no error and keeps the connection `ready`, so without the flag a write after a
+// peer's close_notify would "succeed" on this backend alone. The same flag
+// exists on the other two (`TLS_OFFSET_PEER_CLOSED`, Schannel `st::PEER_CLOSED`).
+// Stored with `stlr` and loaded with `ldar`, like the handler gates, so the
+// flag stays ordered with the session state whichever thread holds the socket.
+// Connection ctx only (calloc'd, so it starts at 0); no listener path uses 128.
+pub(crate) const CTX_RXEOF: usize = 128;
 // bug-483: the send completion's `nw_error` classification, captured where the
 // error is still ALIVE.
 //

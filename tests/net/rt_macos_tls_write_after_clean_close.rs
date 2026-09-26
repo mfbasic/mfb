@@ -24,9 +24,13 @@
 //! `rt_macos_tls_write_capacity.rs`, the identity is minted at run time and the
 //! server announces the port it bound.
 //!
-//! NOT pinned here: a write after `tls::read` has ALREADY reported the close.
-//! On macOS that write never raises, on the pre-fix compiler too. It is recorded
-//! as OPEN in bugs/bug-564, with the repro.
+//! NOT pinned here: a write after `tls::read` has ALREADY reported the close,
+//! issued while the peer is still alive. s_client then sits in a bidirectional
+//! shutdown, reading and discarding until our close_notify, so the write is
+//! DELIVERED: a counting relay saw every byte on macOS and Linux, and Schannel
+//! delivered the same (bugs/completed/bug-564, "The OPEN finding was a false
+//! premise"). It was once recorded here as "never raises"; that was the peer
+//! still reading, not a dropped write.
 //!
 //! Gated to macOS: the trampolines under test exist only in the
 //! Network.framework backend.
