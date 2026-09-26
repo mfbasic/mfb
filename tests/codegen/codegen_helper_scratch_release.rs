@@ -529,8 +529,13 @@ const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_poll", (0, 0, 0)),
     ("_mfb_rt_tls_tls_pollList", (0, 0, 0)),
     ("_mfb_rt_tls_tls_read", (2, 2, 0)),
-    ("_mfb_rt_tls_tls_write", (1, 0, 0)),
-    ("_mfb_rt_tls_tls_writeText", (1, 0, 0)),
+    // bug-564: the one allocation is the per-write send buffer. `(1, 0, 0)` pinned
+    // its leak (~16 KiB per write; 20000 writes peaked at 400 MB on box 2230, 9 MB
+    // fixed). It is now released, null-guarded like `tls_read`'s buffers
+    // (`emit_free_buffer_guarded`), on success and on each exit reached after the
+    // allocation (peer closed, timeout, send failure): 4 frees.
+    ("_mfb_rt_tls_tls_write", (1, 4, 0)),
+    ("_mfb_rt_tls_tls_writeText", (1, 4, 0)),
 ];
 
 /// `audio` on its three backends — Core Audio, ALSA and WASAPI each have their own

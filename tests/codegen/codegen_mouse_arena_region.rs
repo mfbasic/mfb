@@ -191,10 +191,15 @@ fn mouse_region_is_appended_and_moves_no_existing_arena_offset() {
         "expected exactly MOUSE_STATE_SLOTS new zero-initialized slots"
     );
     // AArch64 keeps `sp` 16-byte aligned, so the frame can only grow in 16-byte
-    // steps: by the region's size rounded up to that alignment, and no more.
+    // steps. The frame is the arena state ROUNDED UP, so appending an R-byte region
+    // grows it by round16(B + R) - round16(B): R rounded up when the state B is
+    // 16-aligned, but R rounded DOWN when B already carried 8 bytes of padding
+    // (bug-690 appended one 8-byte word, making B = 8 mod 16: 72 -> 64). Either
+    // way it is within one alignment step of R, and no more.
     let growth = mouse_frame - plain_frame;
+    let region = MOUSE_STATE_SLOTS * 8;
     assert!(
-        growth % 16 == 0 && growth >= MOUSE_STATE_SLOTS * 8 && growth < MOUSE_STATE_SLOTS * 8 + 16,
+        growth % 16 == 0 && growth + 16 > region && growth < region + 16,
         "entry frame should grow by exactly the mouse region's size, rounded to the \
          16-byte stack alignment: grew {growth} for a {}-byte region",
         MOUSE_STATE_SLOTS * 8
