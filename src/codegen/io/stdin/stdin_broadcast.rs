@@ -15,6 +15,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -42,10 +43,11 @@ pub(crate) fn stdin_log_data_object() -> CodeDataObject {
 /// with the standard data-address relocation pair).
 pub(crate) fn push_log_address(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let dst: abi::Reg = dst.into();
     instructions.push(
         CodeInstruction::new("adrp")
             .field("dst", dst)
@@ -212,14 +214,14 @@ pub(crate) fn emit_stdin_poll_ready_check(
 /// which runs the check in the MIDDLE of a read helper whose own temporaries are
 /// live across it.
 pub(crate) struct PollReadyRegs<'a> {
-    pub(crate) addr: &'a str,
-    pub(crate) local_pos: &'a str,
-    pub(crate) local_filled: &'a str,
-    pub(crate) subscriber: &'a str,
-    pub(crate) log: &'a str,
-    pub(crate) cursor: &'a str,
-    pub(crate) fill: &'a str,
-    pub(crate) eof: &'a str,
+    pub(crate) addr: &'a VirtualRegister,
+    pub(crate) local_pos: &'a VirtualRegister,
+    pub(crate) local_filled: &'a VirtualRegister,
+    pub(crate) subscriber: &'a VirtualRegister,
+    pub(crate) log: &'a VirtualRegister,
+    pub(crate) cursor: &'a VirtualRegister,
+    pub(crate) fill: &'a VirtualRegister,
+    pub(crate) eof: &'a VirtualRegister,
 }
 
 /// [`emit_stdin_poll_ready_check`] with caller-chosen temporaries.

@@ -1,7 +1,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::*;
 use crate::codegen::engine::operand::VirtualRegister;
+use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;

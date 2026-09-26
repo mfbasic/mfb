@@ -48,6 +48,7 @@
 //! whole contract, and it is why `decode` may assume it is not mid-drain.
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -173,7 +174,12 @@ pub(crate) fn emit_branch_if_owed(
 /// The instruction vocabulary has `lo`/`ls`/`hi` but no `hs`, so this compares the
 /// operands the other way round: `rhs <= lhs` is the same predicate. Spelled once
 /// here because getting it backwards is a silent off-by-one in a loop bound.
-fn branch_unsigned_ge(lhs: impl Into<abi::Reg>, rhs: impl Into<abi::Reg>, target: &str, ctx: &mut EmitCtx) {
+fn branch_unsigned_ge(
+    lhs: impl Into<abi::Reg>,
+    rhs: impl Into<abi::Reg>,
+    target: &str,
+    ctx: &mut EmitCtx,
+) {
     let lhs: abi::Reg = lhs.into();
     let rhs: abi::Reg = rhs.into();
     ctx.instructions.push(abi::compare_registers(rhs, lhs));
@@ -534,13 +540,15 @@ pub(crate) fn emit_decode_byte(
 /// report, which is not itself in the buffer.
 fn emit_parse_and_enqueue(
     terminator: impl Into<abi::Reg>,
-    buf: &str,
-    len: &str,
+    buf: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
     mouse_state_offset: usize,
     clock_scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let len: abi::Reg = len.into();
+    let buf: abi::Reg = buf.into();
     let terminator: abi::Reg = terminator.into();
     let symbol = ctx.symbol;
     let l = |s: &str| format!("{symbol}_mouse_parse_{s}");
@@ -701,11 +709,12 @@ fn emit_parse_and_enqueue(
 fn emit_parse_decimal(
     label_base: &str,
     buf: impl Into<abi::Reg>,
-    len: &str,
+    len: impl Into<abi::Reg>,
     cursor: impl Into<abi::Reg>,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
-) -> String {
+) -> VirtualRegister {
+    let len: abi::Reg = len.into();
     let buf: abi::Reg = buf.into();
     let cursor: abi::Reg = cursor.into();
     let loop_head = format!("{label_base}_loop");

@@ -33,7 +33,8 @@ use crate::target::shared::abi;
 /// `dst = &region` for the calling thread. Computed in a register rather than
 /// used as a load displacement: arena-state offsets sit past rv64's 12-bit
 /// immediate (the stdin fields do the same, `stdin_broadcast::field_addr`).
-fn emit_region_address(dst: &str, state_offset: usize, ctx: &mut EmitCtx) {
+fn emit_region_address(dst: impl Into<abi::Reg>, state_offset: usize, ctx: &mut EmitCtx) {
+    let dst: abi::Reg = dst.into();
     field_addr(dst, ARENA_STATE_REGISTER, state_offset, ctx.instructions);
 }
 
@@ -60,7 +61,12 @@ pub(crate) fn emit_branch_if_buffered(
 /// Drop the oldest `count` bytes from the buffer (`count` <= the length): shift
 /// the rest to the front and shorten it. The buffer is small and a token is a
 /// handful of bytes, so a copy is cheaper to get right than a ring's wrap.
-pub(crate) fn emit_consume(count: impl Into<abi::Reg>, state_offset: usize, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+pub(crate) fn emit_consume(
+    count: impl Into<abi::Reg>,
+    state_offset: usize,
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+) {
     let count: abi::Reg = count.into();
     let symbol = ctx.symbol;
     let tag = ctx.instructions.len();

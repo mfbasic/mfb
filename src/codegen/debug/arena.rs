@@ -252,12 +252,12 @@ pub(crate) fn emit_debug_arena_slot(
 pub(crate) fn emit_debug_arena_unregister(
     from: &str,
     state: impl Into<abi::Reg>,
-    scratch: [&str; 4],
+    scratch: [impl Into<abi::Reg>; 4],
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let state: abi::Reg = state.into();
-    let [base, count, slot, word] = scratch;
+    let [base, count, slot, word]: [abi::Reg; 4] = scratch.map(Into::into);
     // A helper may retire arenas from more than one site; the emission point keeps the
     // labels unique.
     let site = instructions.len();
@@ -469,7 +469,7 @@ fn lower_register(
     ]);
     // First registration maps the region. A failed map leaves the base at 0, so this
     // arena goes unrecorded and the next registration tries again.
-    platform.emit_arena_map(&size, &mut instructions)?;
+    platform.emit_arena_map(size.into(), &mut instructions)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(unlock),
@@ -540,9 +540,9 @@ fn lower_register(
 #[allow(clippy::too_many_arguments)]
 fn emit_slot_line(
     symbol: &str,
-    index: &str,
+    index: impl Into<abi::Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<abi::Reg>,
     tag: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -550,6 +550,8 @@ fn emit_slot_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let index: abi::Reg = index.into();
+    let value: abi::Reg = value.into();
     let cursor = vregs.next();
     let newline = vregs.next();
     let suffix = vregs.next();
@@ -613,10 +615,10 @@ fn emit_slot_line(
 #[allow(clippy::too_many_arguments)]
 fn emit_series_line(
     symbol: &str,
-    index: &str,
-    sample: &str,
+    index: impl Into<abi::Reg>,
+    sample: impl Into<abi::Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<abi::Reg>,
     tag: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -624,6 +626,9 @@ fn emit_series_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let index: abi::Reg = index.into();
+    let sample: abi::Reg = sample.into();
+    let value: abi::Reg = value.into();
     let cursor = vregs.next();
     let newline = vregs.next();
     let suffix = vregs.next();

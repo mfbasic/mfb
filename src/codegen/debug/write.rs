@@ -181,7 +181,7 @@ pub(super) fn emit_write_window(
 pub(super) fn emit_debug_key_value(
     from: &str,
     key_symbol: &str,
-    value: &str,
+    value: impl Into<abi::Reg>,
     tag: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -189,6 +189,7 @@ pub(super) fn emit_debug_key_value(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let value: abi::Reg = value.into();
     let cursor = vregs.next();
     let newline = vregs.next();
     let key = vregs.next();

@@ -156,7 +156,7 @@ fn debug_helpers_reference_no_arena_symbol() {
             for (field, _) in &instruction.fields {
                 assert_ne!(
                     instruction.get(field).as_deref(),
-                    Some(ARENA_STATE_REGISTER),
+                    Some(ARENA_STATE_REGISTER.to_string().as_str()),
                     "{} names the arena register in `{field}` of {:?}",
                     function.symbol,
                     instruction.op

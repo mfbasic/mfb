@@ -48,11 +48,12 @@ pub(crate) const MOUSE_CLOCK_SCRATCH_BYTES: usize = 16;
 /// caller has reserved. `dst` must be a vreg (it is written after the external
 /// call, so nothing is held across it).
 pub(crate) fn emit_monotonic_nanos(
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: abi::Reg = dst.into();
     if ctx.platform.family() == PlatformFamily::Windows {
         emit_windows_qpc_nanos(dst, scratch, ctx, vregs)
     } else {

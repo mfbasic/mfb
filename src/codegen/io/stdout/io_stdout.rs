@@ -1,5 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -207,8 +208,8 @@ pub(crate) fn stdout_epipe_label<'a>(
 /// How the direct-write fallback obtains the destination fd (bug-331 §E): stdout
 /// writes fd `1` as an immediate; a file loads its fd from the handle once per
 /// direct-write path and moves it into the return register.
-pub(crate) struct FdLoad<'a> {
-    pub reg: &'a str,
+pub(crate) struct FdLoad {
+    pub reg: VirtualRegister,
     pub off: usize,
 }
 
@@ -220,15 +221,15 @@ pub(crate) struct FdLoad<'a> {
 /// constant, the label infix, the nine role registers (minted by each caller),
 /// and the fd source.
 pub(crate) struct BufferSink<'a> {
-    pub state_reg: &'a str,
+    pub state_reg: abi::Reg,
     pub buf_ptr_off: usize,
     pub filled_off: usize,
     pub drain_symbol: &'a str,
-    pub drain_handle: Option<&'a str>,
+    pub drain_handle: Option<abi::Reg>,
     pub cap: &'a str,
     pub prefix: &'a str,
-    pub v: [&'a str; 9],
-    pub fd: Option<FdLoad<'a>>,
+    pub v: [VirtualRegister; 9],
+    pub fd: Option<FdLoad>,
     /// bug-467: where a direct write's `EPIPE` goes. `Some` only for the stdout
     /// sink on a POSIX target — the caller owns the label and emits the
     /// `signal(SIGPIPE, SIG_DFL)` + `raise` block once per function. `None` for a
