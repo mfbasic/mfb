@@ -183,7 +183,9 @@ pub(crate) fn lower_read_char(
         &read_resume,
         &input_error,
         &invalid_context,
-        mouse_pump.map(|pump| (pump, &mut vregs)),
+        mouse_pump,
+        ctx.input_state_offset,
+        &mut vregs,
     )?;
     let three_not_e0 = format!("{symbol}_three_not_e0");
     let three_general = format!("{symbol}_three_general");
@@ -215,6 +217,7 @@ pub(crate) fn lower_read_char(
         BYTES_OFFSET,
         LEN_OFFSET,
         None,
+        ctx.input_state_offset,
         &mut vregs,
         &mut instructions,
         &mut relocations,

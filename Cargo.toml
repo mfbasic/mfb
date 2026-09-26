@@ -370,6 +370,10 @@ name = "codegen_owned_drop_free_and_null"
 path = "tests/codegen/codegen_owned_drop_free_and_null.rs"
 
 [[test]]
+name = "app_special_keys"
+path = "tests/codegen/app_special_keys.rs"
+
+[[test]]
 name = "codegen_reduce_concat_fold"
 path = "tests/codegen/codegen_reduce_concat_fold.rs"
 

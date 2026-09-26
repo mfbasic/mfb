@@ -170,7 +170,9 @@ pub(crate) fn lower_read_byte(
         &read_resume,
         &input_error,
         &invalid_context,
-        mouse_pump.map(|pump| (pump, &mut vregs)),
+        mouse_pump,
+        ctx.input_state_offset,
+        &mut vregs,
     )?;
     instructions.extend([
         abi::branch_eq(&eof),

@@ -1677,6 +1677,35 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let mouse_state_slots = if uses_mouse { MOUSE_STATE_SLOTS } else { 0 };
+    // bug-699: the input-buffer region — the bytes a stdin subscriber has pulled
+    // but no reader has consumed. A FOURTH conditionally-reserved region, appended
+    // past the mouse-state region for the same reason that one was appended: every
+    // program that does not read through the buffer keeps every existing offset,
+    // entry frame and golden byte-identical. Keyed on the readers that decode
+    // through it (`io::input::INPUT_BUFFER_READERS`), because only a reader that
+    // looks ahead can leave bytes in it; the plain readers then drain it first.
+    let uses_input_buffer = crate::codegen::io::input::program_uses_input_buffer(&runtime_symbols);
+    let input_state_offset = if uses_input_buffer {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base
+                    + link_slot_count
+                    + term_state_slots
+                    + presentation_mode_slots
+                    + mouse_state_slots)
+                    * 8,
+        )
+    } else {
+        None
+    };
+    #[cfg(test)]
+    crate::codegen::io::input::RESERVED_INPUT_STATE_OFFSET
+        .with(|slot| slot.set(input_state_offset));
+    let input_state_slots = if uses_input_buffer {
+        crate::codegen::io::input::INPUT_STATE_SLOTS
+    } else {
+        0
+    };
     // plan-94-A §4.4b: the process-global mouse-mode word. Not part of any arena,
     // because an app backend's mouse handler runs on the UI thread and has no arena
     // state to read — see `MOUSE_MODE_SYMBOL`. Emitted only when the program uses
@@ -1728,7 +1757,8 @@ pub(crate) fn lower_module_for_platform(
         + link_slot_count
         + term_state_slots
         + presentation_mode_slots
-        + mouse_state_slots;
+        + mouse_state_slots
+        + input_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -2236,6 +2266,12 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
         code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
     }
+    // bug-699: the input decoder, for the readers that decode through the input
+    // buffer. Reserved and emitted together, so a program without such a reader
+    // carries neither.
+    if input_state_offset.is_some() {
+        code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
+    }
     // App-mode io members lower their transcript-write / prompt+read / present
     // sequences inline (plan-101 append shape): each io `abi_function` body calls
     // the platform's `emit_app_io_*` to append its GUI sequence directly, and the
@@ -2552,6 +2588,7 @@ pub(crate) fn lower_module_for_platform(
                         term_state_offset,
                         presentation_mode_offset,
                         mouse_state_offset,
+                        input_state_offset,
                         global_slots: arena_global_slots,
                         debug_arena_registry: crate::codegen::debug::feature_active(
                             module,
@@ -3212,6 +3249,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
                 arena_layout.mouse_state_offset,
+                arena_layout.input_state_offset,
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,

@@ -300,10 +300,10 @@ fn emit_coordinates(
         ins.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), off_y));
     }
 
-    // Cells (mode 1): a CONSTANT divide — the Windows app grid is fixed at
-    // `TUI_COLS` x `TUI_ROWS` cells of `TUI_CELL_W` x `TUI_CELL_H`, with no
-    // reflow, which is the same reason `term::didResize` always reads FALSE here.
-    // No cached metrics to look up and no float arithmetic at all.
+    // Cells (mode 1): a CONSTANT divide by the fixed `TUI_CELL_W` x `TUI_CELL_H`
+    // cell — no cached metrics to look up and no float arithmetic at all — then a
+    // range check against the LIVE surface (bug-540 WIN-02): the grid follows the
+    // window, and this runs on the UI thread, the one that publishes its size.
     ins.push(abi::compare_immediate(abi::LOCAL[0], "1"));
     ins.push(abi::branch_ne(&pixels));
     ins.push(abi::move_immediate(
@@ -330,16 +330,8 @@ fn emit_coordinates(
     ));
     ins.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_x));
     ins.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), off_y));
-    ins.push(abi::move_immediate(
-        abi::SCRATCH[2],
-        "Integer",
-        &TUI_COLS.to_string(),
-    ));
-    ins.push(abi::move_immediate(
-        abi::SCRATCH[3],
-        "Integer",
-        &TUI_ROWS.to_string(),
-    ));
+    emit_win_grid_size(ins, rel, from, abi::SCRATCH[2].into(), GridAxis::Cols);
+    emit_win_grid_size(ins, rel, from, abi::SCRATCH[3].into(), GridAxis::Rows);
     emit_range_check(
         from,
         tag,

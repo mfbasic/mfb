@@ -272,7 +272,9 @@ pub(crate) fn lower_read_line_family(
         &read_resume,
         &input_error,
         &invalid_context,
-        mouse_pump.map(|pump| (pump, &mut vregs)),
+        mouse_pump,
+        ctx.input_state_offset,
+        &mut vregs,
     )?;
     let read_eof = format!("{symbol}_read_eof");
     let multi_start = format!("{symbol}_multi_start");
@@ -308,6 +310,7 @@ pub(crate) fn lower_read_line_family(
         BYTES_OFFSET,
         SEQ_LEN_OFFSET,
         Some(&trim_cr),
+        ctx.input_state_offset,
         &mut vregs,
         &mut instructions,
         &mut relocations,
