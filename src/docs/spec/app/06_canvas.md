@@ -171,15 +171,22 @@ division), the inverse transform, the central-difference gradient and the covera
 rounding in double-float. The quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 +
 0.5)`. The double-float helpers need their operations kept in written order: Metal's
 fast math reassociates them away, so each MSL helper disables reassociation for its
-body, and the GLSL marks them `precise`. A `PolyLine` shares the edge region but keeps its
-fp32 distance, and so do a stroke's half-width and a group's offset, which are still
-16.16.
+body, and the GLSL marks them `precise`. The double-float work is confined to the edges
+fp32 cannot decide, without changing the result. For each edge, an error bound on its
+fp32 distance (2^-18 of the coordinates' magnitudes plus 2^-12 px) brackets the
+double-float distance. A first fp32 pass over the pixel's band finds the least upper
+bracket. Only edges whose lower bracket does not exceed it are evaluated in double-float,
+and only crossings too close to call against the same bound. A pixel whose every lower
+bracket is past `0.5 +` the stroke half-width (untransformed) is 0 or 255 whatever the
+exact distance, so it skips the second pass. A `PolyLine` shares the edge region but keeps
+its fp32 distance. A stroke's half-width and a group's offset are still 16.16.
 [[src/codegen/runtime/canvas/mod.rs:EDGE_RESIDUAL_SCALE]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_EDGE_RESIDUAL_BASE_WORDS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_EDGE_RESIDUAL_BASE_WORDS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polygonCoverage]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeSlack]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
