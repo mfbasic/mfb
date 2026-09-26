@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (test gate that cannot pass on its designated box)
 
-Status: Open
+Status: Fixed (owner-directed, 2026-09-25) — see STATUS; archive after the coordinator merges
 Regression Test: `scripts/test-canvas-gpu-rows.sh --target windows-x86_64 --rows race`; `tests/canvas/rt_canvas_geo_native.rs::a_frame_never_draws_one_scenes_geometry_for_anothers_items`
 
 The `race` row of `scripts/test-canvas-gpu-rows.sh` runs
@@ -17,6 +17,14 @@ at `main` HEAD (`4df37a4fe`), so it is **not** caused by bug-687, which found it
 **The single correct behavior a fix produces:** on every box the script targets, the
 race row renders at least 3 frames that overlap the worker's publishes. It then passes
 or fails on `geoVerifyMismatches` alone, with the "≥ 3 frames" requirement unchanged.
+
+## STATUS: FIXED (commit: see below)
+
+The shared scene's worker keeps publishing past 60 until the graphics thread reports
+3 drawn frames (`canvas::getFrameStats().frames`), with a 20,000-publish cap. The
+3-frame requirement in the script and in the Rust test is unchanged. The script's
+comment and pass message now say "during the publishes" instead of "60 publishes", and
+the Rust test's doc comment is updated to match.
 
 References:
 
@@ -124,8 +132,52 @@ the scene. Either way the assertions stay as they are.
 
 ### Phase 2: the fix
 
-- [ ] Choose between a frame-count-driven publish loop and a harness knob; prove the
-      scene change with the four questions; the race row passes on 2230, 2226 and macOS
-      with the 3-frame requirement untouched.
+- [x] Frame-count-driven publish loop (owner, 2026-09-25: "make the shared race scene
+      keep publishing until the needed frame overlap is reached"). The scene now loops
+      `WHILE n < 60 OR (canvas::getFrameStats().frames < 3 AND n < 20000)`. The worker
+      stops only after it has SEEN the third frame complete, so that frame was drawn
+      while the worker was still publishing — the cache-hit race the row exists for.
+
+**The four never-edit-a-test questions, answered for the shared scene**
+(`tests/canvas/scenes/canvas_geo_native_publish_race.mfb`):
+
+1. **When and why it was written.** bug-686 `e5e8167ef` (2026-09-24, "each frame draws
+   one consistent snapshot of the installed scene") introduced it inline in
+   `rt_canvas_geo_native.rs` as the RED test for the scene sequence lock. bug-688
+   `6ef055958` moved it to `tests/canvas/scenes/` so the Vulkan rows share it
+   (`git log --follow`, `git log -S a_frame_never_draws_one_scenes_geometry_for_anothers_items`).
+2. **The behaviour it protects.** A frame never pairs one published scene's items with
+   another's hashes. A cache hit taken while a publish lands must draw the geometry of the
+   item the frame holds: `geoVerifyMismatches=0` over ≥ 6,000 resolved indices on ≥ 3
+   frames.
+3. **Who depends on it.** `grep -rn publish_race tests scripts` finds two consumers:
+   - `tests/canvas/rt_canvas_geo_native.rs::a_frame_never_draws_one_scenes_geometry_for_anothers_items`
+     (macOS);
+   - the `race` row of `scripts/test-canvas-gpu-rows.sh` (2226, 2230).
+
+   Both require ≥ 3 frames and ≥ 6,000 checked indices. Neither requirement changes.
+4. **Proof it is wrong.** Its consumers' contract is "≥ 3 frames overlapping the
+   publishes", and on a supported target the fixed 60-publish window cannot meet it:
+   - On 2230, one 6,000-item frame takes 13-18 s against a 15-19 s window, so 2 frames,
+     3 of 3 runs at `main` `4df37a4fe` (table above).
+   - The same program is fine on a fast renderer (macOS 6-9 frames).
+
+   So the gate's outcome depended on host speed, not on the lock. That is the
+   sibling-contract proof. This change is not the proof: the RED was measured at the base
+   before anything was edited.
+
+**RED → GREEN**, final scene with the bug-687 branch's compiler:
+
+| where | before (fixed 60) | after |
+| --- | --- | --- |
+| 2230 `test-canvas-gpu-rows.sh --target windows-x86_64 --rows race` | GPU 2 → software 2 frames, FAIL (3 of 3 at `main`) | GPU **5 frames**, 30,000 indices, 0 mismatches — pass, 3 of 3 runs |
+| 2230 software, `MFB_CANVAS_GEO_VERIFY=1` (probe) | 2 frames (6 runs) | **4 frames**, 24,000 indices, 0 mismatches, 20 s |
+| 2226 `--target linux-aarch64 --rows race` | GPU 3-10 frames, pass | GPU 9 frames, 54,000 indices, 0 mismatches — pass |
+| macOS Metal, `MFB_CANVAS_GPU=1 MFB_CANVAS_GEO_VERIFY=1` (3 runs) | — | 34 / 54 / 53 frames, `gpuFrames` = frames, 0 mismatches |
+| macOS `cargo test --release --test rt_canvas_geo_native -- a_frame_never_draws` | pass | pass |
+
+On a fast renderer the loop still ends at 60 publishes: the frames come from the same
+window as before. The Metal counts are higher than the earlier 6-9 because that probe
+ran without `MFB_CANVAS_GPU=1`.
 
 Commit: —

@@ -265,11 +265,12 @@ while IFS='|' read -r row scene kind <&3; do
       fi
       check_geometry "$row" gpu "$stats"
       if [ "$kind" = race ]; then
-        # The race needs frames to OVERLAP the 60 publishes, and a slow renderer can
-        # draw too few to prove it: on the emulated Windows box a 6,000-item frame takes
-        # ~3.7 s through lavapipe, so the GPU run renders 2 frames (bug-688). The
-        # sequence lock is the same code under either renderer, so a GPU run too slow
-        # to race is followed by a software run, which must race.
+        # The race needs frames to OVERLAP the publishes. Since bug-734 the scene keeps
+        # publishing until the graphics thread has drawn 3 frames, so a slow renderer
+        # gets a longer window instead of too few frames: at a fixed 60 publishes the
+        # emulated Windows box drew 2 on either renderer. The software fall-back below
+        # (bug-688) stays for a GPU run that still ends short; the sequence lock is the
+        # same code under either renderer.
         tag=gpu
         frames="$(wc -l < "$work/$row/gpu.txt" | tr -d ' ')"
         if [ "$frames" -lt 3 ]; then
@@ -283,7 +284,7 @@ while IFS='|' read -r row scene kind <&3; do
         fi
         checked="$(field "$stats" geoResolvedChecked)"
         if [ "${frames:-0}" -ge 3 ] && [ "${checked:-0}" -ge 6000 ]; then
-          pass "$row/$tag: $frames frames rendered during 60 publishes, $checked resolved indices checked"
+          pass "$row/$tag: $frames frames rendered during the publishes, $checked resolved indices checked"
         else
           fail "$row/$tag: the race did not happen (${frames:-0} frames, geoResolvedChecked=${checked:-missing})"
         fi

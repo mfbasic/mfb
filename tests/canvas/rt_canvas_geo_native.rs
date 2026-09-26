@@ -216,9 +216,9 @@ fn the_native_frame_pass_matches_the_mfbasic_walk_on_a_mixed_moving_scene() {
 ///
 /// A hit is trusted on the item's hash alone, and the hashes are published by a second
 /// call (`canvas::publishHashes`) after the scene (`canvas::publishScene`). The worker
-/// here alternates two scenes of the same length, A and B, 60 times, a few milliseconds
-/// apart and without `MFB_CANVAS_SYNC`, so the graphics thread renders while publishes
-/// land. A and B put
+/// here alternates two scenes of the same length, A and B, at least 60 times and until 3
+/// frames are drawn (bug-734), a few milliseconds apart and without `MFB_CANVAS_SYNC`, so
+/// the graphics thread renders while publishes land. A and B put
 /// different kinds at the same indices and different positions on them, and every item of
 /// both is cached after the first two frames — so a frame that pairs one scene's items
 /// with the other's hashes draws a HIT of the wrong item, and one that files a miss under
