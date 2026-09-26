@@ -739,11 +739,33 @@ Recorded where they bite; none changes a Decision.
    (checked by rebuilding every native golden of those two plus
    `macos-app-mode-io`/`-term`: every other one identical; both are identical
    on the base compiler).
-3. **NOT fixed (measured by the Phase 1 agent on 2230, not in this assignment's
-   scope) — Windows `--app`: a program that never calls `app::setMode` gets `0` from
-   `io::readByte` immediately and forever, before any key.** Adding an explicit
-   `app::setMode(app::Mode.Console)` makes the same program work; Linux handles it.
-   Needs its own repro and bug document.
+3. **FIXED here — Windows `--app`: a program that never calls `app::setMode` got
+   `0` from `io::readByte` immediately and forever.** Reproduced on 2230
+   (10.0.26100, base compiler, no input at all): a Console-start program reading 20
+   bytes printed `0 0 … 0 END` within 5 s — also with `IMPORT app` + `getMode`;
+   the same program with `setMode(Console)` waited correctly. **Mechanism:** `_main`'s
+   `MFB_WINAPP_INPUT` test affordance (`emit_main`, `src/target/win_x86_64/app/mod.rs`)
+   took `GetEnvironmentVariableW`'s count from `abi::return_register()` — the Win64
+   MFB result register `rcx`, which the call leaves undefined — instead of the C
+   result `abi::c_return(0)` (`rax`): the exact trap `.ai/testing-gates.md` "Win64
+   codegen invariant" names. With the variable UNSET the count was junk, so `_main`
+   posted that many `WM_CHAR 0`s from its zeroed buffer to the transcript EDIT,
+   whose subclass wrote each byte into the input pipe. A `None` start zeroes the
+   EDIT handle before the loop, so its posts went nowhere — why only Console starts
+   showed it. The affordance itself was broken too: `MFB_WINAPP_INPUT=ab` delivered
+   nothing. **Fix:** read the count from `c_return(0)` (two instructions).
+   **RED → GREEN** (`tests/codegen/app_special_keys.rs`, running `_main` in the
+   `.ncode` interpreter, which now leaves caller-saved registers holding junk after
+   an external call as hardware does): `windows_main_posts_no_keystrokes_when_mfb_winapp_input_is_unset`
+   (RED: 65 `WM_CHAR 0`s) and `windows_main_posts_mfb_winapp_input_then_enter`
+   (RED: `a b 0 … 0 CR`); both GREEN. On 2230 with the fixed compiler: no input →
+   `readByte` blocks (`started`, still running); `MFB_WINAPP_INPUT=ab` →
+   `97 98 10`. `cargo test --bin mfb win_x86_64` 40 passed.
+   **Goldens that move (expected, regenerate on merge):** every Windows `--app`
+   native golden, since `_main` is in every Windows app binary —
+   `app-mouse-surface`, `app-window-surface`, `macos-app-mode-io`,
+   `macos-app-mode-plumbing`, `macos-app-mode-term` `.windows-x86_64.app.ncodesum`
+   (5 files; all identical on the base compiler).
 
 ## Validation Plan
 

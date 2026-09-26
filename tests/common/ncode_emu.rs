@@ -144,6 +144,7 @@ pub struct Machine<'a> {
     next_heap: u64,
     flags: (u64, u64),
     steps: u64,
+    halted: bool,
 }
 
 fn field<'v>(instruction: &'v Value, name: &str) -> &'v str {
@@ -211,6 +212,7 @@ impl<'a> Machine<'a> {
             next_heap: HEAP_BASE,
             flags: (0, 0),
             steps: 0,
+            halted: false,
         };
         let mut next_data = DATA_BASE;
         for object in ncode["dataObjects"].as_array().expect("dataObjects") {
@@ -360,6 +362,16 @@ impl<'a> Machine<'a> {
             out.push(byte);
             at += 1;
         }
+    }
+
+    /// Stop the program: every active call returns at once (a model's
+    /// `ExitProcess`/`_exit`).
+    pub fn halt(&mut self) {
+        self.halted = true;
+    }
+
+    pub fn halted(&self) -> bool {
+        self.halted
     }
 
     /// A fresh zeroed block of `len` bytes, for the platform model's objects.
@@ -576,6 +588,12 @@ impl<'a> Machine<'a> {
                             self.set_reg("lr", saved_lr);
                         }
                     } else {
+                        let before: Vec<u64> = self
+                            .abi
+                            .caller_saved()
+                            .iter()
+                            .map(|r| self.reg(r))
+                            .collect();
                         let result = externals.call(self, &target).unwrap_or_else(|| {
                             panic!(
                                 "{symbol}: the platform model does not answer external call \
@@ -586,8 +604,28 @@ impl<'a> Machine<'a> {
                                 self.arg(3)
                             )
                         });
+                        // A real call leaves every caller-saved register but the
+                        // result undefined. Poison the ones the model did not set
+                        // (it may return a second value, like the arena
+                        // allocator's block in `x1`), so code that reads one after
+                        // a call — a result taken from the wrong register — sees
+                        // garbage here as it does on hardware, not a stale value.
+                        //
+                        // The poison is a small positive number, not an obviously
+                        // bad one: what a register really holds after a call is a
+                        // leftover count or index, and a huge or negative value
+                        // would sail past the `count > 0` / `i < count` tests a
+                        // wrong-register bug actually gets through.
                         let ret = self.abi.return_register();
+                        for (i, register) in self.abi.caller_saved().iter().enumerate() {
+                            if *register != ret && self.reg(register) == before[i] {
+                                self.set_reg(register, 0x40 + i as u64);
+                            }
+                        }
                         self.set_reg(ret, result);
+                    }
+                    if self.halted {
+                        return;
                     }
                 }
                 "branch_self" => panic!("{symbol}: reached a branch-to-self (a deliberate hang)"),

@@ -701,12 +701,18 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
         &mut ins,
         &mut rel,
     );
+    // The count is the Win32 call's C result (`rax`), NOT `return_register()` —
+    // on Win64 that is the MFB result `rcx`, which the call leaves undefined
+    // (`.ai/testing-gates.md`, "Win64 codegen invariant"). Reading `rcx` made an
+    // UNSET variable look like a garbage-length string, and the loop below posted
+    // that many `WM_CHAR 0`s into the input pipe: `io::readByte` in a program that
+    // starts in `Console` returned 0 at once, forever (bug-699).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         INJ_N,
     )); // count
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
     ins.push(abi::label("inject_loop"));

@@ -956,3 +956,124 @@ fn windows_ascii_wm_char_is_written_verbatim() {
         assert_eq!(hex(&bytes), hex(b"z"), "{surface}: WM_CHAR 'z'");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Windows `_main`: the MFB_WINAPP_INPUT test affordance
+// ---------------------------------------------------------------------------
+
+/// Win32 as `_main` sees it, far enough to run the bootstrap to its message loop:
+/// every handle is a distinct fake, the message loop ends at once (`GetMessageW`
+/// returns 0), and `PostMessageW` is recorded.
+struct WinMainModel {
+    env: HashMap<String, String>,
+    next_handle: u64,
+    posted: Vec<(u64, u64, u64)>,
+}
+
+impl WinMainModel {
+    fn handle(&mut self) -> u64 {
+        self.next_handle += 0x10;
+        self.next_handle
+    }
+}
+
+fn read_utf16z(m: &Machine, mut at: u64) -> String {
+    let mut units = Vec::new();
+    loop {
+        let unit = m.read_uint(at, 2) as u16;
+        if unit == 0 {
+            return String::from_utf16_lossy(&units);
+        }
+        units.push(unit);
+        at += 2;
+    }
+}
+
+impl Externals for WinMainModel {
+    fn call(&mut self, m: &mut Machine, name: &str) -> Option<u64> {
+        match name {
+            "GetModuleHandleW" => Some(0x40_0000),
+            "GetEnvironmentVariableW" => {
+                let var = read_utf16z(m, m.arg(0));
+                let Some(value) = self.env.get(&var) else {
+                    return Some(0);
+                };
+                let units: Vec<u16> = value.encode_utf16().collect();
+                let (buf, cap) = (m.arg(1), m.arg(2) as usize);
+                if buf == 0 || cap <= units.len() {
+                    return Some(units.len() as u64 + 1);
+                }
+                for (i, unit) in units.iter().chain(std::iter::once(&0)).enumerate() {
+                    m.write_uint(buf + 2 * i as u64, 2, u64::from(*unit));
+                }
+                Some(units.len() as u64)
+            }
+            "RegisterClassExW" => Some(0xC001),
+            "CreateWindowExW" | "SetWindowLongPtrW" | "CreateThread" => Some(self.handle()),
+            "CreatePipe" => {
+                let (read, write) = (self.handle(), self.handle());
+                m.write_uint(m.arg(0), 8, read);
+                m.write_uint(m.arg(1), 8, write);
+                Some(1)
+            }
+            "SetStdHandle" | "ShowWindow" | "UpdateWindow" => Some(1),
+            "PostMessageW" => {
+                self.posted.push((m.arg(1), m.arg(2), m.arg(0)));
+                Some(1)
+            }
+            "GetMessageW" | "TranslateMessage" | "DispatchMessageW" | "WaitForSingleObject" => {
+                Some(0)
+            }
+            "ExitProcess" => {
+                m.halt();
+                Some(0)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Run a Console-start program's `_main` to its message loop and return the
+/// `WM_CHAR`s it posted, as characters.
+fn win_main_posted_chars(env: &[(&str, &str)]) -> Vec<u64> {
+    let ncode = ncode_of("windows-x86_64", CONSOLE_PROGRAM);
+    let mut machine = Machine::new(ncode);
+    let mut model = WinMainModel {
+        env: env
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect(),
+        next_handle: 0x1000,
+        posted: Vec::new(),
+    };
+    machine.call("_main", &[], &mut model);
+    model
+        .posted
+        .iter()
+        .filter(|(msg, _, _)| *msg == win32::WM_CHAR)
+        .map(|(_, wparam, _)| *wparam)
+        .collect()
+}
+
+/// bug-699 (found measuring the key matrix on 2230): a Windows `--app` program
+/// that never calls `app::setMode` got `0` from `io::readByte` immediately and
+/// forever. `_main`'s `MFB_WINAPP_INPUT` affordance read `GetEnvironmentVariableW`'s
+/// count from `return_register()` — `rcx` on Win64, which the call leaves
+/// undefined — instead of the C result `rax`. With the variable UNSET the count
+/// was garbage, so `_main` posted that many `WM_CHAR 0`s from its zeroed buffer
+/// to the transcript, whose subclass wrote each into the input pipe. (A program
+/// that calls `setMode` starts with no transcript handle, so its posts went
+/// nowhere — which is why only the Console start showed it.)
+#[test]
+fn windows_main_posts_no_keystrokes_when_mfb_winapp_input_is_unset() {
+    assert_eq!(win_main_posted_chars(&[]), Vec::<u64>::new());
+}
+
+#[test]
+fn windows_main_posts_mfb_winapp_input_then_enter() {
+    // The affordance's own contract: each character, then a final Enter.
+    assert_eq!(
+        win_main_posted_chars(&[("MFB_WINAPP_INPUT", "ab")]),
+        vec![u64::from(b'a'), u64::from(b'b'), 13]
+    );
+}
