@@ -146,8 +146,9 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
   slots the `Data` region has room for — it still governs the data base and the
   block size, so it remains meaningful with an entry stride of zero.
 - `dataLength` is the end of the used bytes in `Data`: every payload lies below
-  it. For a variable-width list it can exceed the sum of the live payload lengths,
-  by the holes an in-place length-changing `set` leaves (see [`set`](#set)).
+  it. For a variable-width list or a `Map`/`Set` it can exceed the sum of the live
+  payload lengths, by the dead bytes an in-place length-changing `set` or an
+  in-place removal leaves (see *Compaction*).
 - `dataCapacity` is the number of bytes allocated for `Data`. It may exceed
   `dataLength` for the same reason.
 
@@ -185,7 +186,11 @@ type table; that extension must preserve the fixed header size through
 
 ### Lookup Entry Fields
 
-- `flags` includes at least a used/deleted state.
+- `flags` includes at least a used/deleted state. Every live entry is `used`
+  (`1`). An in-place `Map`/`Set` removal marks the entries it takes out `2`
+  (`COLLECTION_ENTRY_FLAG_REMOVED`) and drops them before the statement ends, so
+  no value ever holds one.
+  [[src/codegen/error/constants/error_constants.rs:COLLECTION_ENTRY_FLAG_REMOVED]]
 - `keyOffset` and `keyLength` identify the map key payload in `Data`.
 - `valueOffset` and `valueLength` identify the list item or map value payload in
   `Data`.
@@ -223,7 +228,15 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   in O(1) when they are already built (`_mfb_rt_map_bucket_put`) and invalidates
   (`bucketsReady = 0`) when a capacity grow moves/resizes the region, so building a
   map with repeated `set` stays O(n). An in-place value overwrite or value-grow
-  leaves keys/indices unchanged and so leaves the index valid.
+  leaves keys/indices unchanged and so leaves the index valid. An in-place removal
+  (`removeKey`, a `Set`'s `remove`, `difference`, `symmetricDifference`) keeps the
+  index built: it deletes each removed entry's bucket by **backward-shift
+  deletion** — every later slot of the probe run moves back into the gap unless
+  its key's home slot lies cyclically between the gap and that slot, so no
+  tombstone is needed and every surviving key stays reachable — and, as the later
+  entries slide down, renumbers each moved entry's bucket to its new index.
+  [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_bucket_delete_helper]]
+  [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_compact_from_helper]]
 
 The data region packs every **flat** payload directly, addressed by the lookup
 entry's `valueOffset`/`valueLength`: primitive
@@ -564,7 +577,9 @@ into `s`'s own block:
 - **window** — `strings::left`, `right`, `mid`, `stripPrefix`, `stripSuffix`,
   `trim`, `trimStart`, `trimEnd`, `trimChars`, `graphemeAt`, `fs::pathBaseName`,
   `pathDirName`, `pathExtension`: the result is a run of `s`'s own bytes, moved
-  down to the start of the block;
+  down to the start of the block — or left where it is when it already starts
+  there (`stripSuffix`, a `stripPrefix` that matches nothing, `trimEnd`, `left`
+  and `mid` from 0);
 - **grow** — `strings::padLeft`, `padRight`, `padLeftToWidth`, `padRightToWidth`,
   `repeat`, `os::appResourcePath`: the added bytes are written into the block's spare
   capacity, which grows geometrically, so a loop that grows `s` allocates
@@ -605,37 +620,47 @@ read `byteLength` bytes and hand on the tight form.
   an operation that tests or rewrites every element (`filter`, `distinct`,
   `replace`, `transform`, `sort`, `sortBy`, the element-wise `math` functions,
   `intersection`, `mapValues`, the `String` rewrite family), the elements it
-  tests. Apart from the forms listed below as not yet within the bound, it
-  never costs the size of the part of `x` it leaves alone, at any optimization
-  level.
+  tests. It never costs the size of the part of `x` it leaves alone, at any
+  optimization level. A lookup costs what that key type's lookup costs anywhere:
+  an O(1)-average hash probe for a probe-eligible key type (see *Map Hash
+  Index*), an entry scan otherwise.
   [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
   - `take`, `drop` and `mid` compact `x` in place. A range that removes
     nothing (`take(x, len(x))`, `drop(x, 0)`, `mid(x, 0, len(x))`) is O(1). A
     range that starts at 0 is a truncation: the kept elements do not move, so
-    it costs the removed elements. On a variable-width list that holds when the
-    removed payloads are the tail of the data region, which is always true for a
-    list built by `append`. `dataLength` then retracts over them. A range that
+    it costs the removed elements. On a variable-width list `dataLength`
+    retracts over each removed payload that is the data tail (always so for a
+    list built by `append`); a removed payload that is not — after a `sort`,
+    `prepend`, `insert` or relocating `set` — becomes dead bytes. A range that
     starts past 0 moves every kept element and costs that. The dropped-element
     pass frees only the removed elements' graphs.
     [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
     [[src/codegen/collection/list/list_compact.rs:lower_list_compact_in_place]]
-  - **Not yet within the bound** — these in-place forms cost O(size of `x`) per
-    call:
-    - a truncation of a variable-width list whose removed payloads are not the
-      data tail (after a `sort`, `prepend`, `insert` or relocating `set`). It
-      takes the general compaction, which walks every entry to count live
-      bytes. [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
-    - `removeAt` on a variable-width list, which fixes up every entry's offset.
-      [[src/codegen/collection/buffer/collection_buffer.rs:emit_offset_compaction_fixup]]
-    - `removeKey` and a `Set`'s `remove`. They scan for the key, shift the later
-      entries, and invalidate the bucket index, which the next probe rebuilds.
-      [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
-    - `difference` and `symmetricDifference`, which mark every element of `x`.
-      [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_filter_set]]
-      [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
-    - the `String` window family, which copies the whole result window to the
-      block start even when it is already there.
-      [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+  - `removeAt` shifts the entries after the index down one slot and moves no
+    payload: it costs the entries after the index. On a variable-width list the
+    removed payload's bytes are retracted over when they are the data tail and
+    become dead bytes otherwise.
+    [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at_in_place]]
+  - `removeKey` and a `Set`'s `remove` cost the lookup plus the entries after the
+    removed one, which slide down with their buckets renumbered; the hash index
+    stays built.
+    [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
+  - `difference(x, t)` looks each element of `t` up in `x` and drops the hits in
+    one pass from the first of them: it costs `t`'s elements plus the entries of
+    `x` after the first hit. `symmetricDifference(x, t)` is the same pass, then
+    appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_difference_assign]]
+    [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
+  - A `String` window costs the bytes it gives up plus the bytes it moves: none
+    move when the window already starts at the block start. `trimEnd` and the
+    end of `trim` step back over the trailing whitespace only.
+    [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+    [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim_window]]
+  - Dead bytes left by an in-place removal cost nothing until the list's data
+    region next grows: every in-place grow of a variable-width list first totals
+    the live bytes (the grow already copies every entry) and repacks when the
+    dead bytes outnumber them, so a loop that keeps removing and adding stays
+    within a constant factor of its live bytes. See *Compaction*.
+    [[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
 - **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
   codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
   result is a new value.
@@ -773,8 +798,11 @@ allocates a fresh **tight** buffer sized for `count + insertedCount` entries and
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
-dataLength`). No existing entry is shifted in place and no dead space is left. The
-inserted argument is first normalized to a singleton list.
+dataLength`). When the source list's dead bytes outnumber its live ones, only its
+live payloads are copied, packed in entry order (see *Compaction*). No existing
+entry is shifted in place. The inserted argument is first normalized to a
+singleton list. (A self-update `x = insert(x, …)` is the in-place form, under
+*Self-updates*.)
 
 ### `removeAt`
 
@@ -803,24 +831,53 @@ For `Map`, setting or removing keys updates lookup entries and packed key/value
 payloads. Key lookup goes through the *Map Hash Index* (O(1)-average FNV-1a probe,
 with a linear-scan fallback for any non-probe key type). Missing removed keys are
 ignored. In-place `set` (insert into spare headroom, or value overwrite) is
-described under [`set`](#set) above; `removeKey` takes the value path, which
-re-tightens the buffer and leaves `bucketsReady = 0` for a lazy rebuild.
+described under [`set`](#set) above. The copying `removeKey` builds a tight
+buffer and leaves `bucketsReady = 0` for a lazy rebuild; the in-place one (a
+self-update) deletes the entry and keeps the index built (see *Self-updates*,
+"Cost", and *Map Hash Index*). The removed key and value bytes stay behind in the
+data region as dead bytes.
 
 ## Compaction
 
 The value-semantic update operations (`insert`, `removeAt`, and the value-path
-`append`) **always** produce a fresh, tight buffer with no slack capacity; the data
-region is copied verbatim, so any holes a source carries are carried with it.
+`append`) **always** produce a fresh, tight buffer with no slack capacity. The
+data region is copied verbatim, so a source's holes are carried with it, unless
+they outnumber its live bytes (below).
 
-The only dead space a buffer acquires is from an in-place length-changing `set` on
-a variable-width list, which leaves the replaced payload's old span unreferenced
-(see [`set`](#set)). It is reclaimed by the one compactor in the codegen,
-`emit_repack_list_data`, which runs when a `set`'s tail write does not fit
-`dataCapacity`. It copies each live payload, by its own entry, packed in entry
-order into a fresh block whose data capacity is the geometric step of the live
-bytes plus the pending write plus `count`, so dead space never exceeds the
-headroom the previous repack granted.
-[[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
+Dead space enters a buffer only through in-place self-updates:
+
+- a length-changing `set` on a variable-width list leaves the replaced payload's
+  old span unreferenced (see [`set`](#set));
+- an in-place removal from a variable-width list — `removeAt`, a truncating
+  `take`/`drop`/`mid`, and the out-of-order form of the other shrinking
+  compactions — leaves each removed payload that is not the data tail;
+- an in-place `Map`/`Set` removal leaves the removed key and value bytes.
+
+A variable-width list's dead space is reclaimed by the one compactor in the
+codegen, `emit_repack_list_data`. It copies each live payload, by its own entry,
+packed in entry order into a fresh block whose data capacity is the geometric
+step of the live bytes plus the pending write plus `count`. It runs when a `set`'s
+tail write does not fit `dataCapacity`, when an out-of-order shrinking
+compaction leaves more dead bytes than live ones, and at the start of every other
+in-place grow of the data region (`append`, bulk `append`, `insert`, `prepend`,
+and their record-field forms) when the dead bytes outnumber the live ones — the
+grow first totals the live bytes, an O(count) walk its own entry copy already
+pays for. Every verbatim grow therefore starts from at most as many dead bytes as
+live ones, and the data capacity stays within a constant factor of the live
+bytes. [[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
+[[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
+
+The copying `insert`/`append`/`prepend` (`lower_list_insert_collection`, also
+the rebuild a growing update takes at a field that is not its record's last
+inlined field) totals the source's live bytes the same way and, when the dead
+bytes outnumber them, copies only the live payloads, packed in entry order. So a
+loop that removes in place and grows by copying cannot carry dead bytes forward
+either. [[src/codegen/collection/list/list_mutate.rs:lower_list_insert_collection]]
+
+A plain value copy (`copy_collection_tight`) copies `dataLength` bytes verbatim,
+so it carries whatever dead bytes its source holds at that moment; it does not
+repack, and it does not grow. A `Map`/`Set`'s dead bytes are not reclaimed by any
+grow. [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
 The only `dataCapacity`/`capacity` slack the layout ever carries is the
 **intentional** headroom of an in-place `MUT` append working buffer (see *Capacity
