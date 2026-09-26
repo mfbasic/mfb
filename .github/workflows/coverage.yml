@@ -171,6 +171,18 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: cargo test --release --workspace --target x86_64-unknown-linux-musl --no-fail-fast
+      # The in-place self-update grid (tests/runtime/rt_inplace_self_update.rs) builds
+      # thousands of programs, so its two tests are `#[ignore]`d out of every plain
+      # `cargo test` and run only here. The harness is `#![cfg(unix)]`, so Windows is
+      # skipped. `!cancelled()` so a red suite step above does not hide this result.
+      - name: In-place self-update grid (native)
+        if: ${{ !cancelled() && matrix.rust_target == 'native' && runner.os != 'Windows' }}
+        run: cargo test --release --test rt_inplace_self_update -- --ignored
+      - name: In-place self-update grid (x86-64 musl)
+        if: ${{ !cancelled() && matrix.rust_target == 'x86_64-unknown-linux-musl' }}
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo test --release --target x86_64-unknown-linux-musl --test rt_inplace_self_update -- --ignored
   # Acceptance: reuses the compiled binary (no recompile). test-accept.sh uses
   # bash arrays + process substitution, so it must run under bash (not sh).
   acceptance:

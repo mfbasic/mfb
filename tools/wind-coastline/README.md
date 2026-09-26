@@ -1,29 +1,31 @@
 # tools/wind-coastline
 
-Builds `examples/wind/resources/wind/coastline.bin`, the coastline the wind example
-draws, from Natural Earth's 1:10m land layer.
+Builds `examples/wind/resources/wind/coastline.bin`, the land and lakes the wind
+example draws, from Natural Earth's 1:10m layers.
 
     curl -L -o ne_10m_land.geojson \
       https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson
-    python3 tools/wind-coastline/generate.py ne_10m_land.geojson \
+    curl -L -o ne_10m_lakes.geojson \
+      https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_lakes.geojson
+    python3 tools/wind-coastline/generate.py ne_10m_land.geojson ne_10m_lakes.geojson \
       examples/wind/resources/wind/coastline.bin
 
-Standard-library Python 3 only. The run that produced the checked-in file used a
-download with sha256
-`1ac90796408bc6ad6911d69448485d3c4dbf2190370080368a09976e1c9f7416` and reported
-`rings=6832 stitched=5 polar=1 points=434267 of 443787 holes_skipped=1 bytes=1914513`,
-in about 4 s.
+Standard-library Python 3 only. The run that produced the checked-in file used
+downloads with sha256 `1ac90796408bc6ad6911d69448485d3c4dbf2190370080368a09976e1c9f7416`
+for land and `2d036f53dedec578001c5c30c2959ee7d4eebc1306900fa4367c49929ec8f2d9`
+for lakes. It reported
+`rings=8430 land_stitched=5 polar=1 lakes=1367 lake_islands=231 points=576531 of 609027 land_holes=1 bytes=2537195`.
 
 Natural Earth is public domain (https://www.naturalearthdata.com/about/terms-of-use/).
 
 ## Why the file is shaped this way
 
 The example draws the map at a level of detail that follows the view: at most
-`coastBudget()` (1,500) coastline points on screen whether the window shows the
-whole world or one island (`examples/wind/src/land.mfb`). To take any level of
-detail out of one file, every point carries its **importance**: the area of the
-triangle it formed with its neighbours when Visvalingam-Whyatt simplification
-removed it.
+`COAST_BUDGET` (1,500) land-and-lake outline points on screen whether the window
+shows the whole world or one island (`examples/wind/src/land.mfb`). To take any
+level of detail out of one file, every point carries its **importance**: the area
+of the triangle it formed with its neighbours when Visvalingam-Whyatt
+simplification removed it.
 - The simplification runs on the projected (Equal Earth) plane, so areas compare
   the way the map shows them.
 - Areas are made monotone, so keeping every point at or above a threshold
@@ -60,12 +62,22 @@ Chukotka or through Fiji. So the generator undoes the cuts:
 
 The app cuts every ring at the current edge meridians itself (`land.mfb`).
 
-## Format (version 2)
+## Lakes
+
+Lake outer rings are water polygons drawn after all land. The land layer's one
+interior ring, the Caspian Sea (which the lake layer does not carry), is the first
+of them. A lake-layer polygon's interior rings are islands and are drawn back as
+land immediately after their lake. The
+generator rejects a lake touching the antimeridian until that case gets the same
+explicit stitching treatment as land; the checked-in Natural Earth layer has no
+such lake.
+
+## Format (version 3)
 
 All integers are LEB128 varints.
-- **Header:** `"MFBC"`, a version byte (`2`), then the ring count.
-- **Each ring:** a kind byte (`0` a closed outline, `1` a south-polar coast
-  path), its point count, then for each point:
+- **Header:** `"MFBC"`, a version byte (`3`), then the ring count.
+- **Each ring:** a kind byte (`0` a closed land outline, `1` a south-polar coast
+  path, `2` a lake, `3` a lake island), its point count, then for each point:
   - the zigzag-varint change in longitude and in latitude from the previous point
     (the first from 0), in 1/10000 of a degree (about 11 m, 0.05 px at the deepest
     zoom);
@@ -75,6 +87,6 @@ All integers are LEB128 varints.
 Points whose importance falls below level 1 (2^-35 plane units squared, under 0.05
 square pixels at the deepest zoom on a Retina-wide window) are left out of the file.
 
-The layer's single interior ring (a hole) is skipped. Every other ring is an outer
-outline filled as land. A polar path's two end points always get level 255, since
-they are where the app closes it.
+The land layer's single interior ring is kept as a lake. Lake interior rings are
+kept as islands. A polar path's two end points always get level 255, since they are where
+the app closes it.

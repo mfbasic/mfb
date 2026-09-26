@@ -1,0 +1,72 @@
+' raster - the weather layers drawn as a small animated image over the map.
+'
+' The GFS grid is much denser than the screen needs for a translucent colour
+' wash. A layer samples it into a fixed-size image, using the same
+' interpolation in space and forecast time as the wind. The image is regenerated
+' every frame the layer is visible, and canvas stretches it over the window.
+
+IMPORT collections
+IMPORT math
+
+' What the map shows over the land: the moving wind, or one of the two colour
+' washes.
+ENUM Layer
+  Wind, Temperature, Precipitation
+END ENUM
+
+LET RASTER_WIDTH AS Integer = 160
+
+LET RASTER_HEIGHT AS Integer = 100
+
+' The four bytes of a pixel with nothing in it.
+LET CLEAR_PIXEL AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(0)]
+
+' The layer to go to from `layer` when the mode button is pressed.
+FUNC nextLayer(layer AS Layer) AS Layer
+  MATCH layer
+    CASE Layer.Wind : RETURN Layer.Temperature
+    CASE Layer.Temperature : RETURN Layer.Precipitation
+    CASE Layer.Precipitation : RETURN Layer.Wind
+  END MATCH
+END FUNC
+
+' One RGBA8 pixel of a colour-wash layer, at one place and forecast moment.
+FUNC layerPixel(layer AS Layer, earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS List OF Byte
+  MATCH layer
+    CASE Layer.Temperature : RETURN temperaturePixel(temperatureBetween(earlier, later, mix, g))
+    CASE Layer.Precipitation : RETURN precipitationPixel(precipitationBetween(earlier, later, mix, g))
+    CASE Layer.Wind : RETURN CLEAR_PIXEL
+  END MATCH
+END FUNC
+
+' RGBA8 pixels of a layer for the visible view. One inverse-projection is done
+' per row to recover latitude; longitude then follows directly from Equal
+' Earth's x equation. Pixels outside the oval world are transparent.
+FUNC rasterPixels(layer AS Layer, earlier AS Winds, later AS Winds, mix AS Float, v AS View) AS List OF Byte
+  MUT pixels AS List OF Byte = []
+
+  FOR row = 0 TO RASTER_HEIGHT - 1
+    LET sy AS Float = (toFloat(row) + 0.5) * v.height / toFloat(RASTER_HEIGHT)
+    LET rowPlane AS Plane = toPlane(v, 0.0, sy)
+    LET rowPlace AS Unprojected = unproject(rowPlane, v.lon0)
+    LET lat AS Float = rowPlace.place.lat
+    LET theta AS Float = thetaOf(lat)
+    LET lonFactor AS Float = degrees(EE_M * eeDenominator(theta) / math::cos(theta))
+    LET insideY AS Boolean = math::abs(rowPlane.y) <= PLANE_HALF_HEIGHT
+
+    FOR column = 0 TO RASTER_WIDTH - 1
+      LET sx AS Float = (toFloat(column) + 0.5) * v.width / toFloat(RASTER_WIDTH)
+      LET p AS Plane = toPlane(v, sx, sy)
+      LET relativeLon AS Float = p.x * lonFactor
+
+      IF insideY AND math::abs(relativeLon) <= 180.0 THEN
+        LET g AS Geo = Geo[lon := wrapLon(relativeLon + v.lon0), lat := lat]
+        pixels = collections::append(pixels, layerPixel(layer, earlier, later, mix, g))
+      ELSE
+        pixels = collections::append(pixels, CLEAR_PIXEL)
+      END IF
+    NEXT
+  NEXT
+
+  RETURN pixels
+END FUNC

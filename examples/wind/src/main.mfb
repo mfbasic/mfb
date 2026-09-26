@@ -6,7 +6,9 @@
 ' field. Once that is on screen, a worker thread fetches the next five days of
 ' the same run's forecast, and when the last of it is in, the forecast plays:
 ' the wind under the tracers changes hour by hour along a tracker at the bottom
-' of the window. Nothing is bundled but the coastline.
+' of the window. A button swaps the tracers for a colour wash of the temperature
+' or of the precipitation, which plays along with the forecast the same way.
+' Nothing is bundled but the land-and-lake map resource.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/wind
@@ -24,22 +26,26 @@
 '   space          play or stop the forecast
 '   esc            quit
 '
-' The mouse works the button and the tracker: click the button to play or stop,
-' and click or drag along the tracker to go to a moment of the forecast.
+' The mouse works the buttons and the tracker: click the round button at the top
+' right to go from the wind to the temperature to the precipitation and back,
+' click the one by the tracker to play or stop, and click or drag along the
+' tracker to go to a moment of the forecast.
 '
-' The program is in nine files:
+' The program is in eleven files:
 '   grib.mfb      GRIB2: messages, sections, and the two packings NCEP writes
 '   fetch.mfb     which GFS cycle to ask NOMADS for, and the on-disk cache
 '   forecast.mfb  the worker thread that fetches the five-day forecast
 '   earth.mfb     the Equal Earth projection, and the window onto it
-'   land.mfb      the coastline resource, and the blue-and-green underlay
+'   land.mfb      the land-and-lake resource, and the map underlay
 '   flow.mfb      sampling the field, and the swarm of tracers over it
-'   temperature.mfb  the animated temperature raster
+'   raster.mfb    the weather layers, and the animated image they are drawn in
+'   temperature.mfb  the temperature layer's colours
+'   precipitation.mfb  the precipitation layer's colours, and its key
 '   timeline.mfb  the play/stop button and the tracker
 '   main.mfb      the font, the keys, the mouse, and the frame loop
 '
-' The first run downloads about three quarters of a megabyte and takes a moment
-' to decode before the map appears, then about 28 megabytes more in the
+' The first run downloads about 0.9 megabytes and takes a moment to decode
+' before the map appears, then about 44 megabytes more in the
 ' background for the forecast; later runs of the same GFS cycle read the cached
 ' files instead.
 
@@ -244,7 +250,8 @@ FUNC zoomCaption(v AS View, size AS canvas::Size) AS String
 END FUNC
 
 ' The mode switch at the top right. Its icon names the active layer: three wind
-' streaks for wind, or a thermometer for temperature.
+' streaks for wind, a thermometer for temperature, or a raindrop for
+' precipitation.
 TYPE ModeButton
   x AS Float
   y AS Float
@@ -264,13 +271,20 @@ FUNC onModeButton(button AS ModeButton, at AS canvas::Point) AS Boolean
   RETURN dx * dx + dy * dy <= reach * reach
 END FUNC
 
-FUNC modeButtonItems(button AS ModeButton, temperatureMode AS Boolean) AS List OF canvas::DrawItem
+FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::DrawItem
   LET cx AS Float = button.x
   LET cy AS Float = button.y
   LET r AS Float = button.radius
   MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(color::rgba(12, 28, 42, 150), color::rgba(255, 255, 255, 100), 1.2)]]
 
-  IF temperatureMode THEN
+  IF layer = Layer.Precipitation THEN
+    ' A disc with a point on top, the two sides of the point running into the
+    ' disc along its tangents so the outline has no corner.
+    LET drop AS color::Color = color::rgb(96, 158, 250)
+    LET body AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.18, radius := r * 0.34, paint := canvas::fill(drop)]
+    LET tip AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]], paint := canvas::fill(drop)]
+    items = collections::append(items, [body, tip])
+  ELSEIF layer = Layer.Temperature THEN
     LET stemWidth AS Float = r * 0.26
     LET stemHeight AS Float = r * 0.92
     LET stem AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth / 2.0, y := cy - r * 0.62, w := stemWidth, h := stemHeight, cornerRadius := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244))]
@@ -289,15 +303,15 @@ FUNC modeButtonItems(button AS ModeButton, temperatureMode AS Boolean) AS List O
 END FUNC
 
 ' One frame: the map, the selected weather layer, and the controls over it.
-FUNC frameScene(world AS Ring, v AS View, heatItems AS List OF canvas::DrawItem, temperatureMode AS Boolean, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
+FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawItem, layer AS Layer, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = mapItems(world, v)
 
-  IF temperatureMode THEN
-    FOR EACH item IN heatItems
+  IF layer = Layer.Wind THEN
+    FOR EACH item IN trailItems(v)
       items = collections::append(items, item)
     NEXT
   ELSE
-    FOR EACH item IN trailItems(v)
+    FOR EACH item IN rasterItems
       items = collections::append(items, item)
     NEXT
   END IF
@@ -310,11 +324,31 @@ FUNC frameScene(world AS Ring, v AS View, heatItems AS List OF canvas::DrawItem,
     items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, HINT_COLOR, hint))
   END IF
 
-  FOR EACH item IN modeButtonItems(modeButtonFor(v), temperatureMode)
+  LET button AS ModeButton = modeButtonFor(v)
+  FOR EACH item IN modeButtonItems(button, layer)
     items = collections::append(items, item)
   NEXT
 
+  ' The precipitation layer's key hangs under the button, and goes with the
+  ' captions.
+  IF captions AND layer = Layer.Precipitation THEN
+    LET keyRight AS Float = button.x + button.radius
+    LET keyTop AS Float = button.y + button.radius * 1.8
+    FOR EACH item IN precipitationKey(face, captionSize(v), keyRight, keyTop)
+      items = collections::append(items, item)
+    NEXT
+  END IF
+
   RETURN items
+END FUNC
+
+' How strongly each colour-wash layer is drawn over the map. Temperature covers
+' every pixel of the world, so it is kept faint enough for the land to read
+' through it; precipitation covers only where it is falling, and fades itself
+' in, so it is drawn nearly solid.
+FUNC rasterOpacity(layer AS Layer) AS Integer
+  IF layer = Layer.Precipitation THEN RETURN 230
+  RETURN 135
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -349,11 +383,11 @@ LET MAX_STEP_SECONDS AS Float = 0.05
 MUT forecastFrames AS List OF Winds = []
 MUT earlierIndex AS Integer = -1
 MUT laterIndex AS Integer = -1
-MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), label := ""]
-MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), label := ""]
+MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
 
 FUNC emptyField AS Field
-  RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
+  RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
 END FUNC
 
 ' Point earlierWinds and laterWinds at the pair either side of `hours`, and say
@@ -419,7 +453,7 @@ FUNC main AS Integer
   END IF
   RES face AS canvas::Font = canvas::loadSystemFont(fontName)
 
-  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about three quarters of a megabyte of GRIB2, then a moment to unpack it"))
+  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about 0.9 megabytes of GRIB2, then a moment to unpack it"))
 
   LET analysis AS Analysis = loadAnalysis() TRAP(e)
     canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
@@ -444,12 +478,12 @@ FUNC main AS Integer
   MUT size AS canvas::Size = canvas::getSize()
   MUT view AS View = wholeWorld(size)
   MUT captions AS Boolean = TRUE
-  MUT temperatureMode AS Boolean = FALSE
+  MUT layer AS Layer = Layer.Wind
   MUT running AS Boolean = TRUE
   MUT scrubbing AS Boolean = FALSE
   seedSwarm(countFor(view), view)
   LET initialMix AS Float = windsFor(0.0)
-  RES heatImage AS canvas::Image = canvas::createImage(HEAT_WIDTH, HEAT_HEIGHT, temperaturePixels(earlierWinds, laterWinds, initialMix, view))
+  RES layerImage AS canvas::Image = canvas::createImage(RASTER_WIDTH, RASTER_HEIGHT, rasterPixels(Layer.Temperature, earlierWinds, laterWinds, initialMix, view))
   canvas::enableMouse(TRUE)
 
   DO WHILE running
@@ -513,7 +547,7 @@ FUNC main AS Integer
       IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
       IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
         IF onModeButton(modeButtonFor(view), mouse.position) THEN
-          temperatureMode = NOT temperatureMode
+          layer = nextLayer(layer)
         ELSEIF onButton(track, mouse.position) THEN
           IF ready THEN playback = WITH playback { playing := NOT playback.playing }
         ELSEIF onTrack(track, mouse.position) THEN
@@ -540,12 +574,12 @@ FUNC main AS Integer
 
     reprojectTrails(view.lon0)
     stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
-    MUT heatItems AS List OF canvas::DrawItem = []
-    IF temperatureMode THEN
-      canvas::setBytes(heatImage, temperaturePixels(earlierWinds, laterWinds, mix, view))
-      heatItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := heatImage, paint := canvas::fill(color::rgba(255, 255, 255, 135))]]
+    MUT rasterItems AS List OF canvas::DrawItem = []
+    IF layer <> Layer.Wind THEN
+      canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
+      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := canvas::fill(color::rgba(255, 255, 255, rasterOpacity(layer)))]]
     END IF
-    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, heatItems, temperatureMode, face, size, captions)
+    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)
       scene = collections::append(scene, item)
     NEXT
