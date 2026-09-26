@@ -18,10 +18,10 @@ use crate::codegen::builtins::tls::gen_macos::{
     CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE,
     SEND_INVOKE, STATE_INVOKE, VERIFY_CAP_SNAME, VERIFY_FNS_SYMBOL, VERIFY_INVOKE,
 };
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeFrame;
 use crate::codegen::engine::types::CodeFunction;
 use crate::codegen::engine::types::CodeInstruction;
+use crate::target::shared::abi::Reg;
 
 /// A leaf frame that only saves the link register (these trampolines call
 /// captured function pointers, so they are not true leaves).
@@ -97,8 +97,8 @@ fn recv_invoke_impl(
 /// semaphore wakes is a use-after-free (measured — see `CTX_EDOMFN`).
 fn record_error_domain(
     instructions: &mut Vec<CodeInstruction>,
-    ctx_reg: &str,
-    err_reg: Operand,
+    ctx_reg: Reg,
+    err_reg: Reg,
     skip: &str,
 ) {
     instructions.extend([

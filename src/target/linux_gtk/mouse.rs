@@ -413,7 +413,7 @@ fn emit_translate_and_convert(asm: &mut Asm, done: &str, uses_canvas: bool) -> R
 }
 
 /// Branch to `done` unless `0 <= value < limit`, signed.
-fn emit_range_check(asm: &mut Asm, value: &str, limit: &str, done: &str, tag: &str) {
+fn emit_range_check(asm: &mut Asm, value: Reg, limit: Reg, done: &str, tag: &str) {
     let ok = format!("mouse_{tag}_ok");
     asm.push(abi::compare_immediate(value, "0"));
     asm.push(abi::branch_lt(done));
@@ -656,7 +656,7 @@ pub(super) fn emit_attach_controllers(asm: &mut Asm) {
     add_controller(asm, abi::LOCAL[0]);
 }
 
-fn connect(asm: &mut Asm, controller: &str, signal_symbol: &str, handler: &str) {
+fn connect(asm: &mut Asm, controller: Reg, signal_symbol: &str, handler: &str) {
     asm.local_address(abi::c_arg(1), signal_symbol);
     asm.local_address(abi::c_arg(2), handler);
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
@@ -666,7 +666,7 @@ fn connect(asm: &mut Asm, controller: &str, signal_symbol: &str, handler: &str) 
     asm.call_external("g_signal_connect_data");
 }
 
-fn add_controller(asm: &mut Asm, controller: &str) {
+fn add_controller(asm: &mut Asm, controller: Reg) {
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.push(abi::move_register(abi::c_arg(1), controller));
     asm.call_external("gtk_widget_add_controller");
