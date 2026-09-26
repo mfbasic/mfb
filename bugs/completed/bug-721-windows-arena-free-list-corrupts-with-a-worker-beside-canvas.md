@@ -6,6 +6,17 @@ Severity: HIGH
 Class: Memory-safety (register aliasing: a hand-picked virtual register named a live minted one)
 
 Status: Fixed
+
+> **STATUS: FIXED (ebf6e08ee)** — merged from `worktree-B-721`. Deviations from the
+> original plan: the root cause was not a cross-thread arena allocation (the hypothesis
+> the doc opened with) but a register alias in Schannel `tls::connect`; the instance
+> itself landed first on `main` as bug-564 (`97afb6768`, `753391711`). By owner
+> decision the class was then fixed by construction — typed `abi::Reg`, one vreg id
+> source per compilation, backends-only physical doors — rather than by a wider lint.
+> No minidump was needed: a no-admin Win32 debug-API harness captured the fault. 153
+> goldens moved, each proven allocation/frame-layout only. Final `cargo test
+> --no-fail-fast`: 242 targets, 0 failed (unit suite 4395 passed).
+
 Regression Test: `gen_schannel_tests.rs::connect_keeps_its_host_scratch_pointer_intact_to_the_release`, `scripts/test-wintls.sh`, `tests/guards/architecture_guards.rs` (register guards)
 
 `examples/wind`, built with `mfb build --target windows-x86_64` and run on a real
