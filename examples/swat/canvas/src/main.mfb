@@ -7,12 +7,12 @@ IMPORT io
 IMPORT math
 IMPORT strings
 
-' Bugs - click the bugs, spare the plants. The canvas edition of
-' examples/bugs/tui: the same game, drawn with shapes instead of text.
+' Swat - click the bugs, spare the plants. The canvas edition of
+' examples/swat/tui: the same game, drawn with shapes instead of text.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
-'   mfb build examples/bugs/canvas
-'   open examples/bugs/canvas/build/bugs.app        (macOS)
+'   mfb build examples/swat/canvas
+'   open examples/swat/canvas/build/swat-canvas.app        (macOS)
 '
 ' Rules:
 '   Plants sprout at random. At most level * 10 are on the field at once; when
@@ -87,9 +87,11 @@ END TYPE
 ' Timing and rules (the same as the tui edition)
 ' ---------------------------------------------------------------------------
 
-FUNC frameDelayMs AS Integer
-  RETURN 16
-END FUNC
+' The tui edition has no canvas::waitFrame equivalent for term::, so it still
+' paces its loop with io::pollInput(frameDelayMs()) — see that edition's own
+' frameDelayMs. This edition is display-synced (canvas::waitFrame, after
+' canvas::present, matching water/wind) instead, so it has no frameDelayMs of
+' its own to pace against.
 
 FUNC grassDelayMs AS Integer
   RETURN math::rand(200, 800)
@@ -825,7 +827,13 @@ FUNC main AS Integer
     IF paused THEN drawnAt = pausedAt
     canvas::present(sceneFor(lay, face, level, score, grass, bug, bugTheme, bugVisible, effects, drawnAt, gameOver, paused))
 
-    IF ready(frameDelayMs()) THEN
+    ' The loop is paced by the display: canvas::waitFrame ends each pass, so it
+    ' runs at the display's refresh rate instead of a fixed poll timeout —
+    ' matching water/wind (plan-155-C). Keys are drained non-blockingly right
+    ' after, same as those siblings' `DO WHILE pending(0)`.
+    canvas::waitFrame()
+
+    DO WHILE ready(0)
       LET key AS String = readKey()
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
@@ -845,7 +853,7 @@ FUNC main AS Integer
       ELSEIF key = "r" OR key = "R" THEN
         restart = TRUE
       END IF
-    END IF
+    LOOP
   LOOP
 
   canvas::enableMouse(FALSE)

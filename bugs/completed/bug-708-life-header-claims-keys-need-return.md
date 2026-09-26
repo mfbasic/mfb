@@ -1,17 +1,17 @@
 # bug-708: `examples/life` header comment claims keys need Return; they don't
 
-Last updated: 2026-09-25
+STATUS: FIXED (f9c2d75f4)
+
+Last updated: 2026-09-26
 Effort: small (<1h)
 Severity: HIGH
 Class: Other
 
-Status: Open
-Regression Test: none exists today — examples have no test harness. Propose adding
-`tools/example-pty-smoke/` (a small Python `pty`-based driver, following the shape
-used to reproduce this bug) with one script, `life_quit_no_return.py`, that
-builds `examples/life`, spawns it on a pty, sends a single `q` with no trailing
-Return, and asserts the process exits with code 0 within ~1s. That script also
-serves as the executable proof the header comment is correct once fixed.
+Status: Closed
+Regression Test: `tools/pty-probe/life_quit_no_return.py` (landed under the
+shared `tools/pty-probe/` tool rather than a new `tools/example-pty-smoke/`,
+since bug-703 landed in the same session and needed the identical pty-driving
+primitives — see Open Decisions).
 
 `examples/life/src/main.mfb`'s header comment tells the developer reading the
 example that the terminal "stays in cooked/line mode" and a key "takes effect
@@ -159,38 +159,38 @@ entirely in wording accuracy, not behavior.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tools/example-pty-smoke/life_quit_no_return.py` (or land the /tmp
+- [x] Add `tools/example-pty-smoke/life_quit_no_return.py` (or land the /tmp
       driver used here) asserting: build `examples/life`, send `q` with no
       Return over a pty, process exits 0 within ~1s. Confirm it demonstrates
       the current header comment is false (the process DOES exit without
       Return, contradicting what the comment claims).
-- [ ] Blast-radius audit above is complete (done in this document).
+- [x] Blast-radius audit above is complete (done in this document).
 
 Acceptance: the smoke script's assertion (exit 0, no Return sent) passes today,
 proving the header's claim is false right now.
-Commit: —
+Commit: f9c2d75f4
 
 ### Phase 2 — the fix
 
-- [ ] Rewrite `examples/life/src/main.mfb:21-22` per Fix Design above.
+- [x] Rewrite `examples/life/src/main.mfb:21-22` per Fix Design above.
 
 Acceptance: the header comment no longer claims cooked/line mode or a Return
 requirement; wording matches the single-key-mode mechanism `term::on` actually
 provides.
-Commit: —
+Commit: f9c2d75f4
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Rebuild `examples/life` (`mfb build examples/life`) and re-run the Phase 1
+- [x] Rebuild `examples/life` (`mfb build examples/life`) and re-run the Phase 1
       smoke script to confirm behavior (already correct) still matches the
       corrected comment.
-- [ ] No goldens or generated artifacts reference this comment's text, so no
+- [x] No goldens or generated artifacts reference this comment's text, so no
       other regeneration is expected — confirm with a repo-wide grep for the
       old wording before closing.
 
 Acceptance: smoke script passes; grep for the retired phrase
 ("cooked/line mode", "followed by Return") returns no hits under `examples/`.
-Commit: —
+Commit: f9c2d75f4
 
 ## Validation Plan
 
@@ -209,8 +209,11 @@ Commit: —
 - Whether to land the pty smoke script under `tools/example-pty-smoke/` now
   (recommended, since it also gives every other `term::`-based example a
   reusable input-behavior probe) or defer it and fix only the comment by
-  inspection. Recommended: land it — it is the only way this class of stale
-  comment gets caught before a developer copies it.
+  inspection. **Resolved: landed it, but under the shared `tools/pty-probe/`
+  tool** (per the fix-bug lane's shared instructions for this run — bug-703,
+  fixed in the same session, needed the identical pty-fork-and-drive
+  primitives, so both probes share one reviewed `pty_probe.py` instead of
+  each rolling — or naming — their own).
 
 ## Summary
 
