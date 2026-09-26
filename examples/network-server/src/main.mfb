@@ -433,11 +433,14 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
   END TRAP
 
   ' The handshake still completes here, on the main thread: tls::accept is the
-  ' handshake. Only the finished session crosses to the worker. Unlike the
-  ' single-threaded loop this one may block indefinitely in accept, because
-  ' nothing else runs on this thread that a tick could be late for.
+  ' handshake. Only the finished session crosses to the worker. This is the
+  ' only thread that ever accepts in --tls --thread mode, so the accept call
+  ' is bounded (bug-704): an idle or hostile peer that never completes its
+  ' handshake would otherwise park this thread forever, starving every other
+  ' client queued behind it. A timed-out or failed handshake is treated like
+  ' any other TRAP here — the loop just moves on to the next connection.
   DO
-    RES sock AS tls::Socket = tls::accept(server) TRAP(e)
+    RES sock AS tls::Socket = tls::accept(server, acceptHandshakeTimeoutMs()) TRAP(e)
       CONTINUE DO
     END TRAP
     thread::transfer(worker, sock) TRAP(e)
