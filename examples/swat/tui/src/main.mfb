@@ -6,12 +6,12 @@ IMPORT math
 IMPORT strings
 IMPORT term
 
-' Bugs - click the bugs, spare the grass. A mouse-driven game built on the
+' Swat - click the bugs, spare the grass. A mouse-driven game built on the
 ' term:: TUI module.
 '
 ' Build and run it from an interactive terminal:
-'   mfb build examples/bugs/tui
-'   ./examples/bugs/tui/build/bugs.out
+'   mfb build examples/swat/tui
+'   ./examples/swat/tui/build/swat-tui.out
 '
 ' Rules:
 '   Grass sprouts at random. At most level * 10 plants are on the field at
