@@ -35,7 +35,7 @@ pub(crate) mod metal;
 pub(crate) mod vulkan;
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
@@ -52,16 +52,16 @@ use std::collections::HashMap;
 /// the scratch is taken from whichever allocator owns the function being emitted
 /// into, and taken *before* the call so the borrow does not outlive it.
 pub(crate) struct GraphicsScratch {
-    base: String,
-    scratch: String,
-    verdict: String,
-    arena: String,
-    cursor: String,
-    end: String,
+    base: VirtualRegister,
+    scratch: VirtualRegister,
+    verdict: VirtualRegister,
+    arena: VirtualRegister,
+    cursor: VirtualRegister,
+    end: VirtualRegister,
 }
 
 impl GraphicsScratch {
-    pub(crate) fn new(vreg: &mut dyn FnMut() -> String) -> Self {
+    pub(crate) fn new(vreg: &mut dyn FnMut() -> VirtualRegister) -> Self {
         GraphicsScratch {
             base: vreg(),
             scratch: vreg(),
@@ -1369,10 +1369,11 @@ pub(crate) fn emit_graphics_trampoline(
 /// Load the graphics-state block's address into `dst`.
 pub(crate) fn state_base(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
+    let dst: abi::Reg = dst.into();
     push_symbol_address(from, GRAPHICS_STATE_SYMBOL, dst, ins, rel);
 }
 
@@ -1963,13 +1964,13 @@ fn emit_graphics_spawn(
 /// allocated (a value in an argument register would not survive the mutex call).
 pub(crate) struct FrameRecord<'a> {
     /// Non-zero when a backend drew the frame; zero for a wake-up with nothing to draw.
-    pub(crate) drew: &'a str,
+    pub(crate) drew: &'a VirtualRegister,
     /// The `canvas::Renderer` ordinal that drew it.
-    pub(crate) renderer: &'a str,
+    pub(crate) renderer: &'a VirtualRegister,
     /// How long `__canvas_renderFrame` took, in nanoseconds.
-    pub(crate) render_nanos: &'a str,
+    pub(crate) render_nanos: &'a VirtualRegister,
     /// `canvas::frameNanos` at the end of the frame — the drawn ring's timestamp.
-    pub(crate) now: &'a str,
+    pub(crate) now: &'a VirtualRegister,
 }
 
 /// Push `value` onto the ring at `ring` whose head is at `head`, and advance the head.
@@ -1978,9 +1979,10 @@ fn emit_ring_push(
     scratch: &GraphicsScratch,
     head: usize,
     ring: usize,
-    value: &str,
+    value: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let value: abi::Reg = value.into();
     instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
     instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
     instructions.push(abi::add_registers(
@@ -2020,12 +2022,13 @@ fn emit_bump(scratch: &GraphicsScratch, offset: usize, instructions: &mut Vec<Co
 pub(crate) fn emit_note_present(
     symbol: &str,
     scratch: &GraphicsScratch,
-    now: &str,
+    now: impl Into<abi::Reg>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let now: abi::Reg = now.into();
     let skip = format!("{symbol}_no_thread");
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::load_u64(
@@ -2150,7 +2153,7 @@ pub(crate) fn emit_frame_counters(
     ));
     builder.emit_write_collection_header_full(&layout, &block, &words, &words, &bytes, &bytes);
 
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     let unlocked = builder.label("canvas_counters_unlocked");
     let copied = builder.label("canvas_counters_copied");
     let started = builder.temporary_vreg();
@@ -2460,7 +2463,7 @@ pub(crate) fn emit_await_pickup(
     let interval_value = builder.temporary_vreg();
     builder.emit(abi::move_register(&interval_value, interval));
     let ts = builder.allocate_stack_object("canvas_await_ts", 16);
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     let now = builder.temporary_vreg();
     let deadline = builder.temporary_vreg();
     let cap = builder.temporary_vreg();
@@ -2782,12 +2785,15 @@ pub(crate) fn emit_surface_dimension(
 /// the new size unused until something else asked for a frame.
 pub(crate) fn emit_publish_surface_size(
     symbol: &str,
-    base: &str,
-    width: &str,
-    height: &str,
+    base: impl Into<abi::Reg>,
+    width: impl Into<abi::Reg>,
+    height: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let base: abi::Reg = base.into();
+    let height: abi::Reg = height.into();
+    let width: abi::Reg = width.into();
     let unchanged = format!("{symbol}_resize_same");
     state_base(symbol, base, instructions, relocations);
     // Count the resize only when the size actually changed. Every platform re-publishes
@@ -2830,12 +2836,12 @@ pub(crate) fn emit_publish_surface_size(
 /// rendering such a token to a string loses the role the selector realizes it from.
 pub(crate) fn emit_publish_display_rate(
     symbol: &str,
-    base: impl Into<Operand>,
-    mhz: impl Into<Operand>,
+    base: impl Into<abi::Reg>,
+    mhz: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let base = base.into();
+    let base: abi::Reg = base.into();
     push_symbol_address(
         symbol,
         GRAPHICS_STATE_SYMBOL,
@@ -2895,7 +2901,7 @@ pub(crate) fn emit_set_display_override(
 /// platform resize callback that already spells its own registers, and adding a fifth
 /// argument to all of them to pass a register they all have spare is churn. `SCRATCH[5]`
 /// is above the four each caller stages its own values in.
-const SCRATCH_RESIZE: &str = abi::SCRATCH[5];
+const SCRATCH_RESIZE: abi::Reg = abi::SCRATCH[5];
 
 /// `canvas::didResize()` — has the surface changed size since this was last asked?
 ///

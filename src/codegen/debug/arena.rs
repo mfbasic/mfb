@@ -202,11 +202,12 @@ fn family_of(module: &NirModule) -> PlatformFamily {
 /// survive it. `from` is the emitting helper's symbol (labels and relocation).
 pub(crate) fn emit_debug_arena_slot(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) {
+    let dst: abi::Reg = dst.into();
     let global = vregs.next();
     let base = vregs.next();
     let count = vregs.next();
@@ -250,12 +251,13 @@ pub(crate) fn emit_debug_arena_slot(
 /// registers only. `from` is the emitting helper's symbol (labels and relocation).
 pub(crate) fn emit_debug_arena_unregister(
     from: &str,
-    state: &str,
-    scratch: [&str; 4],
+    state: impl Into<abi::Reg>,
+    scratch: [impl Into<abi::Reg>; 4],
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let [base, count, slot, word] = scratch;
+    let state: abi::Reg = state.into();
+    let [base, count, slot, word]: [abi::Reg; 4] = scratch.map(Into::into);
     // A helper may retire arenas from more than one site; the emission point keeps the
     // labels unique.
     let site = instructions.len();
@@ -288,12 +290,13 @@ pub(crate) fn emit_debug_arena_unregister(
 /// `[slot + counter] += 1` when `slot` is non-zero. `tag` keeps labels distinct.
 pub(crate) fn emit_debug_arena_bump(
     from: &str,
-    slot: &str,
+    slot: impl Into<abi::Reg>,
     counter: usize,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let slot: abi::Reg = slot.into();
     let value = vregs.next();
     let skip = format!("{from}_dbg_{tag}_skip");
     instructions.extend([
@@ -309,13 +312,15 @@ pub(crate) fn emit_debug_arena_bump(
 /// `[slot + counter] += amount` when `slot` is non-zero; `amount` is read, not changed.
 pub(crate) fn emit_debug_arena_add(
     from: &str,
-    slot: &str,
+    slot: impl Into<abi::Reg>,
     counter: usize,
-    amount: &str,
+    amount: impl Into<abi::Reg>,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let amount: abi::Reg = amount.into();
+    let slot: abi::Reg = slot.into();
     let value = vregs.next();
     let skip = format!("{from}_dbg_{tag}_skip");
     instructions.extend([
@@ -332,12 +337,14 @@ pub(crate) fn emit_debug_arena_add(
 /// `peak_live_bytes` follows it up. No-op when `slot` is zero.
 pub(crate) fn emit_debug_arena_live_add(
     from: &str,
-    slot: &str,
-    size: &str,
+    slot: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let size: abi::Reg = size.into();
+    let slot: abi::Reg = slot.into();
     let live = vregs.next();
     let peak = vregs.next();
     let skip = format!("{from}_dbg_{tag}_skip");
@@ -360,12 +367,14 @@ pub(crate) fn emit_debug_arena_live_add(
 /// `slot` is zero.
 pub(crate) fn emit_debug_arena_live_sub(
     from: &str,
-    slot: &str,
-    size: &str,
+    slot: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let size: abi::Reg = size.into();
+    let slot: abi::Reg = slot.into();
     let live = vregs.next();
     let skip = format!("{from}_dbg_{tag}_skip");
     let floor = format!("{from}_dbg_{tag}_floor");
@@ -460,7 +469,7 @@ fn lower_register(
     ]);
     // First registration maps the region. A failed map leaves the base at 0, so this
     // arena goes unrecorded and the next registration tries again.
-    platform.emit_arena_map(&size, &mut instructions)?;
+    platform.emit_arena_map(size.into(), &mut instructions)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(unlock),
@@ -531,9 +540,9 @@ fn lower_register(
 #[allow(clippy::too_many_arguments)]
 fn emit_slot_line(
     symbol: &str,
-    index: &str,
+    index: impl Into<abi::Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<abi::Reg>,
     tag: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -541,6 +550,8 @@ fn emit_slot_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let index: abi::Reg = index.into();
+    let value: abi::Reg = value.into();
     let cursor = vregs.next();
     let newline = vregs.next();
     let suffix = vregs.next();
@@ -604,10 +615,10 @@ fn emit_slot_line(
 #[allow(clippy::too_many_arguments)]
 fn emit_series_line(
     symbol: &str,
-    index: &str,
-    sample: &str,
+    index: impl Into<abi::Reg>,
+    sample: impl Into<abi::Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<abi::Reg>,
     tag: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -615,6 +626,9 @@ fn emit_series_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let index: abi::Reg = index.into();
+    let sample: abi::Reg = sample.into();
+    let value: abi::Reg = value.into();
     let cursor = vregs.next();
     let newline = vregs.next();
     let suffix = vregs.next();

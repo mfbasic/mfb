@@ -29,11 +29,12 @@ pub(crate) fn emit_configure_stdin_terminal(
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
     slots: &TerminalModeSlots,
-    base_register: &str,
+    base_register: impl Into<abi::Reg>,
     disable_echo: bool,
     disable_canonical: bool,
     error_label: &str,
 ) -> Result<(), String> {
+    let base_register: abi::Reg = base_register.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -71,16 +72,16 @@ pub(crate) fn emit_configure_stdin_terminal(
         abi::store_u64(&active, base_register, slots.active),
     ]);
 
+    // The platform's termios edit needs two scratch registers (the flag word and
+    // its mask), minted here from this function's counter (bug-721).
+    let raw_scratch = [vregs.next().into(), vregs.next().into()];
     platform.emit_apply_raw_mode(
         base_register,
         slots.original,
         slots.modified,
         disable_echo,
         disable_canonical,
-        // The scratch this module already names (`%v9`, dead by here), plus the
-        // mask register the platform edit used; both still hand-numbered, as
-        // is the rest of this file.
-        ["%v9", "%v10"],
+        raw_scratch,
         ctx.instructions,
     );
 

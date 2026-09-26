@@ -28,6 +28,7 @@
 
 use super::keys::*;
 use super::{CSI_PARAM_CAP, GRAPHEME_CAP};
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::string::unicode_props::{
@@ -99,25 +100,25 @@ struct Dec<'a> {
     rel: &'a mut Vec<CodeRelocation>,
     v: Vregs,
     labels: usize,
-    buf: String,
-    len: String,
-    flags: String,
-    out: String,
+    buf: VirtualRegister,
+    len: VirtualRegister,
+    flags: VirtualRegister,
+    out: VirtualRegister,
     /// Alt-prefix ESCs before the token (a legacy terminal's Meta-sends-Escape).
-    p: String,
+    p: VirtualRegister,
     /// The event a sequence with no event field reports.
-    evdef: String,
+    evdef: VirtualRegister,
     // The token under construction.
-    key: String,
-    event: String,
-    mods: String,
+    key: VirtualRegister,
+    event: VirtualRegister,
+    mods: VirtualRegister,
     /// Bytes consumed, counted from `p`.
-    cons: String,
-    glen: String,
+    cons: VirtualRegister,
+    glen: VirtualRegister,
 }
 
 impl Dec<'_> {
-    fn r(&mut self) -> String {
+    fn r(&mut self) -> VirtualRegister {
         self.v.next()
     }
     fn label(&mut self, name: &str) -> String {
@@ -127,7 +128,8 @@ impl Dec<'_> {
     fn push(&mut self, instruction: CodeInstruction) {
         self.ins.push(instruction);
     }
-    fn imm(&mut self, dst: &str, value: u64) {
+    fn imm(&mut self, dst: impl Into<abi::Reg>, value: u64) {
+        let dst: abi::Reg = dst.into();
         self.push(abi::move_immediate(dst, "Integer", &value.to_string()));
     }
     fn at(&mut self, name: &str) {
@@ -137,33 +139,41 @@ impl Dec<'_> {
         self.push(abi::branch(name));
     }
     /// `if reg == value goto target`.
-    fn beq(&mut self, reg: &str, value: u64, target: &str) {
+    fn beq(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_eq(target));
     }
-    fn bne(&mut self, reg: &str, value: u64, target: &str) {
+    fn bne(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_ne(target));
     }
     /// Unsigned `if reg < value goto target`.
-    fn blo(&mut self, reg: &str, value: u64, target: &str) {
+    fn blo(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_lo(target));
     }
     /// Unsigned `if reg > value goto target`.
-    fn bhi(&mut self, reg: &str, value: u64, target: &str) {
+    fn bhi(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_hi(target));
     }
     /// Unsigned `if a >= b goto target` (the vocabulary has no `hs`).
-    fn bge_u(&mut self, a: &str, b: &str, target: &str) {
+    fn bge_u(&mut self, a: impl Into<abi::Reg>, b: impl Into<abi::Reg>, target: &str) {
+        let a: abi::Reg = a.into();
+        let b: abi::Reg = b.into();
         self.push(abi::compare_registers(b, a));
         self.push(abi::branch_ls(target));
     }
     /// `dst = buf[index]`.
-    fn byte_at(&mut self, dst: &str, index: &str) {
+    fn byte_at(&mut self, dst: impl Into<abi::Reg>, index: impl Into<abi::Reg>) {
+        let dst: abi::Reg = dst.into();
+        let index: abi::Reg = index.into();
         let addr = self.r();
-        let buf = self.buf.clone();
+        let buf = self.buf;
         self.push(abi::add_registers(&addr, &buf, index));
         self.push(abi::load_u8(dst, &addr, 0));
     }
@@ -172,22 +182,31 @@ impl Dec<'_> {
         let t = self.r();
         let m = self.r();
         self.imm(&m, bit);
-        let flags = self.flags.clone();
+        let flags = self.flags;
         self.push(abi::and_registers(&t, &flags, &m));
         self.beq(&t, 0, target);
     }
     /// Store one byte of the grapheme at `out + TOKEN_GRAPHEME + glen` and
     /// advance `glen`.
-    fn append_grapheme_byte(&mut self, byte: &str) {
+    fn append_grapheme_byte(&mut self, byte: impl Into<abi::Reg>) {
+        let byte: abi::Reg = byte.into();
         let addr = self.r();
-        let (out, glen) = (self.out.clone(), self.glen.clone());
+        let (out, glen) = (self.out, self.glen);
         self.push(abi::add_registers(&addr, &out, &glen));
         self.push(abi::store_u8(byte, &addr, TOKEN_GRAPHEME));
         self.push(abi::add_immediate(&glen, &glen, 1));
     }
     /// `KEY = value; goto target` for each `(match, value)` whose match equals
     /// `reg`; falls through when none does.
-    fn lookup(&mut self, reg: &str, table: &[(u64, u64)], dst: &str, found: &str) {
+    fn lookup(
+        &mut self,
+        reg: impl Into<abi::Reg>,
+        table: &[(u64, u64)],
+        dst: impl Into<abi::Reg>,
+        found: &str,
+    ) {
+        let reg: abi::Reg = reg.into();
+        let dst: abi::Reg = dst.into();
         let mut arms = Vec::new();
         for (key, value) in table {
             let arm = self.label("arm");
@@ -214,23 +233,23 @@ pub(crate) fn lower_input_decode() -> Result<CodeFunction, String> {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     let mut v = Vregs::new();
-    let names: Vec<String> = (0..11).map(|_| v.next()).collect();
+    let names: Vec<VirtualRegister> = (0..11).map(|_| v.next()).collect();
     let mut d = Dec {
         ins: &mut instructions,
         rel: &mut relocations,
         v,
         labels: 0,
-        buf: names[0].clone(),
-        len: names[1].clone(),
-        flags: names[2].clone(),
-        out: names[3].clone(),
-        p: names[4].clone(),
-        evdef: names[5].clone(),
-        key: names[6].clone(),
-        event: names[7].clone(),
-        mods: names[8].clone(),
-        cons: names[9].clone(),
-        glen: names[10].clone(),
+        buf: names[0],
+        len: names[1],
+        flags: names[2],
+        out: names[3],
+        p: names[4],
+        evdef: names[5],
+        key: names[6],
+        event: names[7],
+        mods: names[8],
+        cons: names[9],
+        glen: names[10],
     };
     emit_body(&mut d);
     Ok(finalize_vreg_helper(
@@ -251,14 +270,14 @@ struct Exits {
 }
 
 fn emit_body(d: &mut Dec) {
-    let (buf, len, flags, out) = (d.buf.clone(), d.len.clone(), d.flags.clone(), d.out.clone());
-    let (p, evdef) = (d.p.clone(), d.evdef.clone());
+    let (buf, len, flags, out) = (d.buf, d.len, d.flags, d.out);
+    let (p, evdef) = (d.p, d.evdef);
     d.push(abi::move_register(&buf, abi::c_arg(0)));
     d.push(abi::move_register(&len, abi::c_arg(1)));
     d.push(abi::move_register(&flags, abi::c_arg(2)));
     d.push(abi::move_register(&out, abi::c_arg(3)));
     d.imm(&p, 0);
-    let glen = d.glen.clone();
+    let glen = d.glen;
     d.imm(&glen, 0);
     // The event a sequence with no event field reports.
     let events_done = d.label("events_done");
@@ -362,17 +381,12 @@ fn emit_body(d: &mut Dec) {
 fn emit_named_const(
     d: &mut Dec,
     key: KeyName,
-    event: Option<&str>,
+    event: Option<abi::Reg>,
     mods: u64,
     consumed: u64,
     exits: &Exits,
 ) {
-    let (kr, er, mr, cr) = (
-        d.key.clone(),
-        d.event.clone(),
-        d.mods.clone(),
-        d.cons.clone(),
-    );
+    let (kr, er, mr, cr) = (d.key, d.event, d.mods, d.cons);
     d.imm(&kr, k(key));
     match event {
         Some(reg) => d.push(abi::move_register(&er, reg)),
@@ -384,7 +398,8 @@ fn emit_named_const(
 }
 
 /// A C0 byte (not ESC or CR) or DEL.
-fn emit_c0(d: &mut Dec, b0: &str, exits: &Exits) {
+fn emit_c0(d: &mut Dec, b0: impl Into<abi::Reg>, exits: &Exits) {
+    let b0: abi::Reg = b0.into();
     let backspace = d.label("c0_bs");
     let tab = d.label("c0_tab");
     let lf = d.label("c0_lf");
@@ -412,7 +427,7 @@ fn emit_c0(d: &mut Dec, b0: &str, exits: &Exits) {
     d.goto(&exits.skip); // unreachable: every C0 byte that gets here is in the table
     d.at(&found);
     d.append_grapheme_byte(&g);
-    let (er, mr, cr) = (d.event.clone(), d.mods.clone(), d.cons.clone());
+    let (er, mr, cr) = (d.event, d.mods, d.cons);
     d.imm(&er, KeyEvent::NotSupported as u64);
     d.imm(&mr, MOD_CTRL);
     d.imm(&cr, 1);
@@ -424,13 +439,16 @@ fn emit_c0(d: &mut Dec, b0: &str, exits: &Exits) {
 /// ill-formed subpart's length in `bad`, or `truncated`.
 fn emit_scalar_len(
     d: &mut Dec,
-    pos: &str,
-    slen: &str,
-    bad: &str,
+    pos: impl Into<abi::Reg>,
+    slen: impl Into<abi::Reg>,
+    bad: impl Into<abi::Reg>,
     ok: &str,
     invalid: &str,
     truncated: &str,
 ) {
+    let bad: abi::Reg = bad.into();
+    let pos: abi::Reg = pos.into();
+    let slen: abi::Reg = slen.into();
     let lead = d.r();
     d.byte_at(&lead, pos);
     let (n, lo, hi) = (d.r(), d.r(), d.r());
@@ -498,7 +516,7 @@ fn emit_scalar_len(
     d.bge_u(&i, &n, &done);
     let at = d.r();
     d.push(abi::add_registers(&at, pos, &i));
-    let len = d.len.clone();
+    let len = d.len;
     d.bge_u(&at, &len, truncated);
     let c = d.r();
     d.byte_at(&c, &at);
@@ -523,7 +541,9 @@ fn emit_scalar_len(
 }
 
 /// Copy `count` bytes from `buf[from]` onto the grapheme.
-fn emit_copy_to_grapheme(d: &mut Dec, from: &str, count: &str) {
+fn emit_copy_to_grapheme(d: &mut Dec, from: impl Into<abi::Reg>, count: impl Into<abi::Reg>) {
+    let count: abi::Reg = count.into();
+    let from: abi::Reg = from.into();
     let i = d.r();
     d.imm(&i, 0);
     let top = d.label("copy_top");
@@ -541,9 +561,17 @@ fn emit_copy_to_grapheme(d: &mut Dec, from: &str, count: &str) {
 }
 
 /// The code point of the valid scalar of `slen` bytes at `buf[pos]`.
-fn emit_codepoint(d: &mut Dec, pos: &str, slen: &str, cp: &str) {
+fn emit_codepoint(
+    d: &mut Dec,
+    pos: impl Into<abi::Reg>,
+    slen: impl Into<abi::Reg>,
+    cp: impl Into<abi::Reg>,
+) {
+    let cp: abi::Reg = cp.into();
+    let slen: abi::Reg = slen.into();
+    let pos: abi::Reg = pos.into();
     let ptr = d.r();
-    let buf = d.buf.clone();
+    let buf = d.buf;
     d.push(abi::add_registers(&ptr, &buf, pos));
     let lead = d.r();
     d.push(abi::load_u8(&lead, &ptr, 0));
@@ -553,7 +581,15 @@ fn emit_codepoint(d: &mut Dec, pos: &str, slen: &str, cp: &str) {
 }
 
 /// Grapheme-break properties of `cp`.
-fn emit_break_props(d: &mut Dec, cp: &str, bc: &str, icb: &str) {
+fn emit_break_props(
+    d: &mut Dec,
+    cp: impl Into<abi::Reg>,
+    bc: impl Into<abi::Reg>,
+    icb: impl Into<abi::Reg>,
+) {
+    let bc: abi::Reg = bc.into();
+    let cp: abi::Reg = cp.into();
+    let icb: abi::Reg = icb.into();
     let (prop, scratch, width) = (d.r(), d.r(), d.r());
     let prefix = d.label("props");
     emit_unicode_property_ptr_free(
@@ -570,20 +606,20 @@ fn emit_break_props(d: &mut Dec, cp: &str, bc: &str, icb: &str) {
 
 /// Plain text: one scalar, or (CLUSTER) one grapheme cluster.
 fn emit_text(d: &mut Dec, exits: &Exits) {
-    let p = d.p.clone();
+    let p = d.p;
     let (slen, bad) = (d.r(), d.r());
     let ok = d.label("text_ok");
     let invalid = d.label("text_invalid");
     let truncated = d.label("text_truncated");
     emit_scalar_len(d, &p, &slen, &bad, &ok, &invalid, &truncated);
     d.at(&invalid);
-    let cons = d.cons.clone();
+    let cons = d.cons;
     d.push(abi::move_register(&cons, &bad));
     d.goto(&exits.skip);
     // Truncated at the end of what arrived: wait, or (FINAL) drop it.
     d.at(&truncated);
     d.unless_flag(FLAG_FINAL, &exits.need_more);
-    let len = d.len.clone();
+    let len = d.len;
     d.push(abi::subtract_registers(&cons, &len, &p));
     d.goto(&exits.skip);
 
@@ -619,7 +655,7 @@ fn emit_text(d: &mut Dec, exits: &Exits) {
     d.at(&joins);
     // The cap: a scalar that would carry the grapheme past it starts the next token.
     let grown = d.r();
-    let glen = d.glen.clone();
+    let glen = d.glen;
     d.push(abi::add_registers(&grown, &glen, &nlen));
     d.bhi(&grown, GRAPHEME_CAP as u64, &finish);
     emit_copy_to_grapheme(d, &end, &nlen);
@@ -631,7 +667,7 @@ fn emit_text(d: &mut Dec, exits: &Exits) {
     d.at(&open);
     d.unless_flag(FLAG_FINAL, &exits.need_more);
     d.at(&finish);
-    let (er, mr) = (d.event.clone(), d.mods.clone());
+    let (er, mr) = (d.event, d.mods);
     d.push(abi::move_register(&cons, &glen));
     d.imm(&er, KeyEvent::NotSupported as u64);
     d.imm(&mr, 0);
@@ -643,7 +679,7 @@ fn emit_alt_introducer(d: &mut Dec, c: u8, exits: &Exits) {
     let g = d.r();
     d.imm(&g, u64::from(c));
     d.append_grapheme_byte(&g);
-    let (er, mr, cr) = (d.event.clone(), d.mods.clone(), d.cons.clone());
+    let (er, mr, cr) = (d.event, d.mods, d.cons);
     d.imm(&er, KeyEvent::NotSupported as u64);
     d.imm(&mr, MOD_ALT);
     d.imm(&cr, 2);
@@ -651,7 +687,9 @@ fn emit_alt_introducer(d: &mut Dec, c: u8, exits: &Exits) {
 }
 
 /// `mods = modifier_bits(parameter)` (`NONE` counts as 1).
-fn emit_modifier_bits(d: &mut Dec, parameter: &str, mods: &str) {
+fn emit_modifier_bits(d: &mut Dec, parameter: impl Into<abi::Reg>, mods: impl Into<abi::Reg>) {
+    let mods: abi::Reg = mods.into();
+    let parameter: abi::Reg = parameter.into();
     let (bits, t, m) = (d.r(), d.r(), d.r());
     let none = d.label("mods_none");
     let have = d.label("mods_have");
@@ -678,8 +716,8 @@ fn emit_modifier_bits(d: &mut Dec, parameter: &str, mods: &str) {
 
 /// `ESC [` … — CSI.
 fn emit_csi(d: &mut Dec, exits: &Exits) {
-    let (p, len) = (d.p.clone(), d.len.clone());
-    let cons = d.cons.clone();
+    let (p, len) = (d.p, d.len);
+    let cons = d.cons;
     let base = d.r();
     d.push(abi::add_immediate(&base, &p, 2));
 
@@ -701,7 +739,7 @@ fn emit_csi(d: &mut Dec, exits: &Exits) {
     d.at(&linux_have);
     let c = d.r();
     d.byte_at(&c, &at);
-    let key = d.key.clone();
+    let key = d.key;
     let table: Vec<(u64, u64)> = LINUX_CONSOLE_F_KEYS
         .iter()
         .map(|(c, key)| (u64::from(*c), k(*key)))
@@ -711,7 +749,7 @@ fn emit_csi(d: &mut Dec, exits: &Exits) {
     d.imm(&cons, 3);
     d.goto(&exits.skip);
     d.at(&found);
-    let (er, mr) = (d.event.clone(), d.mods.clone());
+    let (er, mr) = (d.event, d.mods);
     d.imm(&er, KeyEvent::NotSupported as u64);
     d.imm(&mr, 0);
     d.imm(&cons, 4);
@@ -805,9 +843,9 @@ fn emit_csi(d: &mut Dec, exits: &Exits) {
 
     let params = emit_parse_params(d, &base, &pe);
     // Modifiers and event, from the second field.
-    let mods = d.mods.clone();
+    let mods = d.mods;
     emit_modifier_bits(d, &params.f10, &mods);
-    let event = d.event.clone();
+    let event = d.event;
     emit_event(d, &params.f11, &event, &exits.skip);
 
     emit_csi_final(d, &fin, &params, exits);
@@ -816,21 +854,23 @@ fn emit_csi(d: &mut Dec, exits: &Exits) {
 /// Parsed CSI parameters: the subfields the decoder reads, and whether the
 /// third field (kitty's associated text) was well-formed.
 struct Params {
-    f00: String,
-    f01: String,
-    f10: String,
-    f11: String,
-    f20: String,
+    f00: VirtualRegister,
+    f01: VirtualRegister,
+    f10: VirtualRegister,
+    f11: VirtualRegister,
+    f20: VirtualRegister,
     /// Count of text code points seen in the third field.
-    text_count: String,
+    text_count: VirtualRegister,
     /// A text code point was not a scalar value.
-    text_bad: String,
+    text_bad: VirtualRegister,
 }
 
 /// Parse `buf[from..to)` as `;`-separated fields of `:`-separated decimals.
 /// The third field's code points are encoded onto the grapheme as they are read
 /// (kitty's associated text), up to the cap.
-fn emit_parse_params(d: &mut Dec, from: &str, to: &str) -> Params {
+fn emit_parse_params(d: &mut Dec, from: impl Into<abi::Reg>, to: impl Into<abi::Reg>) -> Params {
+    let to: abi::Reg = to.into();
+    let from: abi::Reg = from.into();
     let params = Params {
         f00: d.r(),
         f01: d.r(),
@@ -908,12 +948,17 @@ fn emit_parse_params(d: &mut Dec, from: &str, to: &str) -> Params {
 fn emit_store_param(
     d: &mut Dec,
     params: &Params,
-    fi: &str,
-    si: &str,
-    acc: &str,
-    has: &str,
-    text_full: &str,
+    fi: impl Into<abi::Reg>,
+    si: impl Into<abi::Reg>,
+    acc: impl Into<abi::Reg>,
+    has: impl Into<abi::Reg>,
+    text_full: impl Into<abi::Reg>,
 ) {
+    let fi: abi::Reg = fi.into();
+    let has: abi::Reg = has.into();
+    let si: abi::Reg = si.into();
+    let text_full: abi::Reg = text_full.into();
+    let acc: abi::Reg = acc.into();
     let value = d.r();
     let have = d.label("sp_have");
     let chosen = d.label("sp_chosen");
@@ -975,7 +1020,8 @@ fn emit_store_param(
 
 /// Append the UTF-8 of `cp` to the grapheme; `bad` when it is not a scalar
 /// value, `full` (when given) when it would carry the grapheme past the cap.
-fn emit_encode_utf8(d: &mut Dec, cp: &str, bad: &str, full: Option<&str>) {
+fn emit_encode_utf8(d: &mut Dec, cp: impl Into<abi::Reg>, bad: &str, full: Option<&str>) {
+    let cp: abi::Reg = cp.into();
     let n = d.r();
     let (l1, l2, l3, l4, sized) = (
         d.label("enc_l1"),
@@ -999,7 +1045,7 @@ fn emit_encode_utf8(d: &mut Dec, cp: &str, bad: &str, full: Option<&str>) {
     d.at(&sized);
     if let Some(full) = full {
         let grown = d.r();
-        let glen = d.glen.clone();
+        let glen = d.glen;
         d.push(abi::add_registers(&grown, &glen, &n));
         d.bhi(&grown, GRAPHEME_CAP as u64, full);
     }
@@ -1044,9 +1090,16 @@ fn emit_encode_utf8(d: &mut Dec, cp: &str, bad: &str, full: Option<&str>) {
 }
 
 /// `event` from a CSI's `:event` subfield; `invalid` for an undefined one.
-fn emit_event(d: &mut Dec, subfield: &str, event: &str, invalid: &str) {
+fn emit_event(
+    d: &mut Dec,
+    subfield: impl Into<abi::Reg>,
+    event: impl Into<abi::Reg>,
+    invalid: &str,
+) {
+    let event: abi::Reg = event.into();
+    let subfield: abi::Reg = subfield.into();
     let (t, done) = (d.r(), d.label("ev_done"));
-    let evdef = d.evdef.clone();
+    let evdef = d.evdef;
     d.push(abi::move_register(event, &evdef));
     d.push(abi::move_immediate(&t, "Integer", NONE));
     d.push(abi::compare_registers(subfield, &t));
@@ -1069,8 +1122,9 @@ fn table_of(entries: &[(u8, KeyName)]) -> Vec<(u64, u64)> {
 }
 
 /// Everything after a CSI's parameters are parsed.
-fn emit_csi_final(d: &mut Dec, fin: &str, params: &Params, exits: &Exits) {
-    let (key, event, mods) = (d.key.clone(), d.event.clone(), d.mods.clone());
+fn emit_csi_final(d: &mut Dec, fin: impl Into<abi::Reg>, params: &Params, exits: &Exits) {
+    let fin: abi::Reg = fin.into();
+    let (key, event, mods) = (d.key, d.event, d.mods);
     // CSI [1;m] <letter>
     d.lookup(fin, &table_of(CSI_LETTER_KEYS), &key, &exits.named);
     // rxvt Shift+arrow
@@ -1170,21 +1224,28 @@ fn emit_csi_final(d: &mut Dec, fin: &str, params: &Params, exits: &Exits) {
     d.goto(&exits.unicode);
     d.at(&is_named);
     // The parsed text went onto the grapheme; a code token writes its own.
-    let glen = d.glen.clone();
+    let glen = d.glen;
     d.imm(&glen, 0);
     d.goto(&no_text);
     d.at(&no_text);
     d.beq(&params.f00, 0, &exits.skip);
-    let f00 = params.f00.clone();
-    let f01 = params.f01.clone();
+    let f00 = params.f00;
+    let f01 = params.f01;
     emit_code_token(d, &f00, &f01, exits);
 }
 
 /// A token for the key whose kitty/xterm code is `code` (`shifted` is the
 /// alternate-key subfield, or `NONE`).
-fn emit_code_token(d: &mut Dec, code: &str, shifted: &str, exits: &Exits) {
-    let key = d.key.clone();
-    let glen = d.glen.clone();
+fn emit_code_token(
+    d: &mut Dec,
+    code: impl Into<abi::Reg>,
+    shifted: impl Into<abi::Reg>,
+    exits: &Exits,
+) {
+    let code: abi::Reg = code.into();
+    let shifted: abi::Reg = shifted.into();
+    let key = d.key;
+    let glen = d.glen;
     d.imm(&glen, 0);
     let named: Vec<(u64, u64)> = KITTY_CODES
         .iter()
@@ -1216,7 +1277,7 @@ fn emit_code_token(d: &mut Dec, code: &str, shifted: &str, exits: &Exits) {
     d.push(abi::move_register(&cp, code));
     let (m, t) = (d.r(), d.r());
     let chosen = d.label("code_chosen");
-    let mods = d.mods.clone();
+    let mods = d.mods;
     d.imm(&m, MOD_SHIFT);
     d.push(abi::and_registers(&t, &mods, &m));
     d.beq(&t, 0, &chosen);
@@ -1240,8 +1301,8 @@ fn emit_code_token(d: &mut Dec, code: &str, shifted: &str, exits: &Exits) {
 
 /// `ESC O` … — SS3.
 fn emit_ss3(d: &mut Dec, exits: &Exits) {
-    let (p, len) = (d.p.clone(), d.len.clone());
-    let cons = d.cons.clone();
+    let (p, len) = (d.p, d.len);
+    let cons = d.cons;
     let j = d.r();
     d.push(abi::add_immediate(&j, &p, 2));
     let (value, has) = (d.r(), d.r());
@@ -1289,7 +1350,7 @@ fn emit_ss3(d: &mut Dec, exits: &Exits) {
     d.byte_at(&fin, &j);
     d.push(abi::subtract_registers(&cons, &j, &p));
     d.push(abi::add_immediate(&cons, &cons, 1));
-    let (key, event, mods) = (d.key.clone(), d.event.clone(), d.mods.clone());
+    let (key, event, mods) = (d.key, d.event, d.mods);
     d.imm(&event, KeyEvent::NotSupported as u64);
     let parameter = d.r();
     let mods_set = d.label("ss3_mods_set");
@@ -1314,7 +1375,7 @@ fn emit_ss3(d: &mut Dec, exits: &Exits) {
     d.goto(&exits.skip);
     // `ESC O` then a byte that is no SS3 final: Alt+O, and that byte is next.
     d.at(&other);
-    let glen = d.glen.clone();
+    let glen = d.glen;
     d.imm(&glen, 0);
     emit_alt_introducer(d, b'O', exits);
     d.at(&rxvt);
@@ -1327,14 +1388,8 @@ fn emit_ss3(d: &mut Dec, exits: &Exits) {
 
 /// The four finishing blocks, shared by every path.
 fn emit_exits(d: &mut Dec, exits: &Exits) {
-    let (out, p) = (d.out.clone(), d.p.clone());
-    let (key, event, mods, cons, glen) = (
-        d.key.clone(),
-        d.event.clone(),
-        d.mods.clone(),
-        d.cons.clone(),
-        d.glen.clone(),
-    );
+    let (out, p) = (d.out, d.p);
+    let (key, event, mods, cons, glen) = (d.key, d.event, d.mods, d.cons, d.glen);
     let status = d.r();
     let text_kind = d.r();
     let scalar = d.r();

@@ -23,6 +23,7 @@
 //! which the usual wrapped-index ring has to burn a slot or a flag on.
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -33,16 +34,16 @@ use super::clock::emit_monotonic_nanos;
 /// filled. Each is a vreg name.
 pub(crate) struct MouseEventRegs<'a> {
     /// `MouseKind` ordinal (`MOUSE_KIND_*`).
-    pub(crate) kind: &'a str,
+    pub(crate) kind: &'a VirtualRegister,
     /// `MouseButton` ordinal (`MOUSE_BUTTON_*`).
-    pub(crate) button: &'a str,
+    pub(crate) button: &'a VirtualRegister,
     /// First coordinate — `row` in cells, `x` in pixels. The producer chose the
     /// unit; the ring does not care (plan-94-A §4.2).
-    pub(crate) coord_a: &'a str,
+    pub(crate) coord_a: &'a VirtualRegister,
     /// Second coordinate — `column` in cells, `y` in pixels.
-    pub(crate) coord_b: &'a str,
+    pub(crate) coord_b: &'a VirtualRegister,
     /// Packed `MOUSE_MOD_*` bits.
-    pub(crate) mods: &'a str,
+    pub(crate) mods: &'a VirtualRegister,
 }
 
 /// Address of the ring slot for absolute cursor `cursor`, into `dst`.
@@ -50,7 +51,16 @@ pub(crate) struct MouseEventRegs<'a> {
 /// `slot = ring + (cursor % CAPACITY) * SLOT_BYTES`. The capacity is a power of
 /// two, so the modulo is a mask — which matters because this runs inside the
 /// per-byte stdin read path.
-fn emit_slot_address(dst: &str, ring: &str, cursor: &str, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+fn emit_slot_address(
+    dst: impl Into<abi::Reg>,
+    ring: impl Into<abi::Reg>,
+    cursor: impl Into<abi::Reg>,
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+) {
+    let cursor: abi::Reg = cursor.into();
+    let dst: abi::Reg = dst.into();
+    let ring: abi::Reg = ring.into();
     debug_assert!(
         MOUSE_RING_CAPACITY.is_power_of_two(),
         "the slot index masks rather than divides; a non-power-of-two capacity \
@@ -163,11 +173,11 @@ pub(crate) fn emit_enqueue(
 
 /// Where a successful [`emit_dequeue`] leaves the event it took.
 pub(crate) struct DequeuedRegs {
-    pub(crate) kind: String,
-    pub(crate) button: String,
-    pub(crate) coord_a: String,
-    pub(crate) coord_b: String,
-    pub(crate) mods: String,
+    pub(crate) kind: VirtualRegister,
+    pub(crate) button: VirtualRegister,
+    pub(crate) coord_a: VirtualRegister,
+    pub(crate) coord_b: VirtualRegister,
+    pub(crate) mods: VirtualRegister,
 }
 
 /// Take the oldest event that is still fresh, skipping any that have expired.
