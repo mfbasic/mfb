@@ -245,7 +245,7 @@ END FUNC
 FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = mapItems(world, v)
 
-  FOR EACH item IN trailItems(v, v.scale / fitScale(size))
+  FOR EACH item IN trailItems(v)
     items = collections::append(items, item)
   NEXT
 
@@ -467,6 +467,7 @@ FUNC main AS Integer
     LOOP
 
     LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
+    LET zoom AS Float = view.scale / fitScale(size)
 
     ' Playing runs the thumb along the line and round to the start again.
     IF playback.playing AND NOT scrubbing THEN
@@ -477,7 +478,7 @@ FUNC main AS Integer
     LET mix AS Float = windsFor(playback.hours)
 
     reprojectTrails(view.lon0)
-    stepSwarm(earlierWinds, laterWinds, mix, view, elapsed)
+    stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
     MUT scene AS List OF canvas::DrawItem = frameScene(world, view, analysis.winds, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)
       scene = collections::append(scene, item)
