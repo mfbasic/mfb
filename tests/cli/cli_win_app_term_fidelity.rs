@@ -690,3 +690,88 @@ fn windows_app_mode_window_and_scripted_resize_share_one_term_handler() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// bug-540 (found while verifying WIN-02 windowed): Win32 results are read from
+// the C return register.
+// ---------------------------------------------------------------------------
+
+/// The Win64 volatile argument registers. After a call into a Win32 DLL none of
+/// them holds anything the caller can use until it writes it again — the result is
+/// in `rax` (`abi::c_return(0)`), and the aligned MFB return register
+/// (`abi::return_register()`) realizes to `rcx`.
+const WIN64_VOLATILE_ARGS: [&str; 4] = ["rcx", "rdx", "r8", "r9"];
+
+/// For each `bl` to a Win32 import, the first instruction after it (before the next
+/// call, label or branch) that READS a volatile argument register the call left
+/// undefined. Every read field counts: a store's `src` and `base`, an ALU op's
+/// `lhs`/`rhs`, a load's `base`, a move's `src`.
+fn reads_of_clobbered_args(instructions: &[Value]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (at, call) in instructions.iter().enumerate() {
+        let Some(target) = call["target"].as_str() else {
+            continue;
+        };
+        if call["op"] != "bl" || target.starts_with("_mfb") {
+            continue;
+        }
+        let mut written: Vec<String> = Vec::new();
+        for next in &instructions[at + 1..] {
+            let op = next["op"].as_str().unwrap_or("");
+            if op == "bl" || op == "label" || op == "b" || op.starts_with("b.") || op == "ret" {
+                break;
+            }
+            for field in ["src", "base", "lhs", "rhs"] {
+                if let Some(register) = next[field].as_str() {
+                    if WIN64_VOLATILE_ARGS.contains(&register)
+                        && !written.iter().any(|w| w == register)
+                    {
+                        found.push(format!("{op} reads {register} after bl {target}"));
+                    }
+                }
+            }
+            if let Some(dst) = next["dst"].as_str() {
+                written.push(dst.to_string());
+            }
+        }
+    }
+    found
+}
+
+/// The transcript write reads `MultiByteToWideChar`'s count to place the NUL. It
+/// read `rcx` — the aligned MFB return register, which a Win32 call leaves holding
+/// garbage — instead of `rax`, so the count clamped to 32767 and the EDIT received
+/// the text plus ~32K units of arena garbage. Measured on box 2230: a windowed
+/// `io::print("FALSE")` handed `EM_REPLACESEL` 32767 units ("FALSE" + garbage), and
+/// the UI thread spent ~75 s laying it out before the program could exit. `_main`
+/// had the same read twice: the surviving copy of the EDIT's HWND after
+/// `CreateWindowExW`, and the `MFB_WINAPP_INPUT` length after
+/// `GetEnvironmentVariableW`.
+#[test]
+fn windows_app_mode_reads_win32_results_from_the_c_return_register() {
+    let windows = resize_ncode_functions("win_app_c_return");
+    let mut bodies: Vec<(String, &[Value])> = vec![
+        ("_main".to_string(), body(&windows, "_main")),
+        ("io::write".to_string(), io_write_grid_body(&windows)),
+    ];
+    for (symbol, instructions) in &windows {
+        if symbol.starts_with("_mfb_winapp_") || symbol.starts_with("_mfb_rt_term_") {
+            bodies.push((
+                symbol.clone(),
+                instructions.as_array().expect("instructions"),
+            ));
+        }
+    }
+    let mut violations = Vec::new();
+    for (name, instructions) in bodies {
+        for read in reads_of_clobbered_args(instructions) {
+            violations.push(format!("{name}: {read}"));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "a Win32 call's result is in rax (abi::c_return(0)); these read a volatile \
+         argument register the call left undefined:\n  {}",
+        violations.join("\n  ")
+    );
+}

@@ -748,6 +748,131 @@ case "$tnr" in
 esac
 
 # ---------------------------------------------------------------------------
+# A WINDOWED `term::` program: a live resize, and a clean exit (bug-540)
+#
+# Every case above runs headless. This one builds the real window and runs the
+# message loop — session 0 has an (invisible) desktop, so it works over ssh — and a
+# PowerShell driver started from the SAME .bat (so the same window station) resizes
+# the window with `SetWindowPos`. (`[NullString]::Value`, not `$null`: PowerShell
+# passes `$null` to a `string` parameter as "", and `FindWindowW` then matches no
+# window whose title is empty.) That exercises what the scripted hook stands in
+# for: the WM_SIZE arm itself. The driver prints the client size it produced, and
+# the program's `term::terminalSize` must equal it divided by the 8x16 cell.
+#
+# The transcript is read back with `MFB_WINAPP_DUMP` (a `--debug` build) and must be
+# EXACTLY the two printed lines. That is the other half: the transcript write
+# placed its NUL from `rcx` instead of `MultiByteToWideChar`'s count in `rax`, so
+# `io::print("FALSE")` handed the EDIT "FALSE" plus ~32K units of arena garbage, and
+# the UI thread took ~75 s to lay it out — measured on this box as a windowed
+# `term::` + `io::print` program that "never exits" under a short timeout.
+lvproj="$work/winlive"
+mkdir -p "$lvproj/src"
+scaffold_project "$lvproj" winlive
+cat > "$lvproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT os
+
+SUB main()
+  term::on()
+  LET before AS term::TermSize = term::terminalSize()
+  MUT seen AS Boolean = FALSE
+  MUT tries AS Integer = 0
+  ' 30 s bound: the driver's Add-Type compile alone can take >10 s on this box.
+  DO WHILE NOT seen AND tries < 1200
+    IF term::didResize() THEN
+      seen = TRUE
+    ELSE
+      os::sleep(25)
+    END IF
+    tries = tries + 1
+  LOOP
+  LET after AS term::TermSize = term::terminalSize()
+  ' Keep the window alive while the driver reads back the client size it produced.
+  os::sleep(2000)
+  term::drawBox(term::LineStyle.Light, 0, 0, after.rows - 1, after.columns - 1)
+  term::sync()
+  term::off()
+  io::print("live before=" & toString(before.columns) & "x" & toString(before.rows) & ";resized=" & toString(seen) & ";after=" & toString(after.columns) & "x" & toString(after.rows))
+  io::print(toString(term::isOn()))
+END SUB
+MFB
+
+echo "--- building the windowed term program for windows-x86_64 ---"
+"$MFB_EXE" build --app --debug --target windows-x86_64 "$lvproj" >/dev/null
+
+cat > "$work/resize.ps1" <<'PS'
+param([int]$W = 900, [int]$H = 560)
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class U {
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, string t);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+}
+"@
+$h = [IntPtr]::Zero
+for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { $h = [U]::FindWindowW("MFBWinApp", [NullString]::Value); if ($h -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 50 } }
+if ($h -eq [IntPtr]::Zero) { "driver: no window"; exit 1 }
+Start-Sleep -Milliseconds 1500
+# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+$ok = [U]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $W, $H, 0x16)
+$r = New-Object U+RECT
+[void][U]::GetClientRect($h, [ref]$r)
+"driver: setwindowpos=$ok client=$($r.R - $r.L)x$($r.B - $r.T) cells=$([math]::Floor(($r.R - $r.L) / 8))x$([math]::Floor(($r.B - $r.T) / 16))"
+PS
+
+cat > "$work/winlive.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_DUMP=1
+cd /d C:\mfbwin
+del /q winlive.out 2>nul
+start "" /b cmd /c "winlive.exe > winlive.out 2>&1"
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\mfbwin\resize.ps1 900 560
+set /a n=0
+:wait
+tasklist /FI "IMAGENAME eq winlive.exe" | find /i "winlive.exe" >nul || goto done
+set /a n+=1
+if %n% geq 60 goto timeout
+ping -n 2 127.0.0.1 >nul
+goto wait
+:timeout
+echo winlive: still running after 60 s
+taskkill /F /IM winlive.exe >nul 2>&1
+:done
+echo winlive: exited
+BAT
+
+remote_scp "$PORT" "$lvproj/build/winlive.exe" "$host:C:/mfbwin/winlive.exe" >/dev/null
+remote_scp "$PORT" "$work/resize.ps1" "$host:C:/mfbwin/resize.ps1" >/dev/null
+remote_scp "$PORT" "$work/winlive.bat" "$host:C:/mfbwin/winlive.bat" >/dev/null
+lout="$(remote_ssh "$PORT" "$host" "$remote\\winlive.bat" 2>&1 || true)"
+echo "$lout" | sed 's/^/    /'
+remote_scp "$PORT" "$host:C:/mfbwin/winlive.out" "$work/winlive.out" >/dev/null 2>&1 || true
+# The readback is raw UTF-16LE at the end of the output, after the debug report.
+transcript="$(python3 - "$work/winlive.out" <<'PY' 2>/dev/null || true
+import sys
+data = open(sys.argv[1], 'rb').read()
+at = data.find('live '.encode('utf-16-le'))
+print(repr(data[at:].decode('utf-16-le', 'replace')) if at >= 0 else 'NO-TRANSCRIPT')
+PY
+)"
+echo "    transcript: $transcript"
+case "$lout" in
+  *"still running after 60 s"*) fail "the windowed term:: program did not exit within 60 s — the transcript NUL read from rcx (bug-540)" ;;
+  *"winlive: exited"*) pass "the windowed term:: program exited on its own" ;;
+  *) fail "the windowed run did not report an exit" ;;
+esac
+cells="$(echo "$lout" | sed -n 's/.*cells=\([0-9]*x[0-9]*\).*/\1/p')"
+case "$transcript" in
+  "'live before="*";resized=TRUE;after=$cells\r\nFALSE\r\n'")
+    pass "a live SetWindowPos resize reached term:: — didResize TRUE, terminalSize $cells = the client / 8x16 (bug-540 WIN-02/WIN-03)" ;;
+  *) fail "the windowed transcript is not exactly the two printed lines with the driver's size ($cells) — a missed live resize, or garbage after the text (bug-540)" ;;
+esac
+
+# ---------------------------------------------------------------------------
 # The app window members (setTitle/getTitle/setFullscreen/getFullscreen)
 #
 # Headless there is no window (`MAIN_HWND_SYM` stays 0), so the members are
