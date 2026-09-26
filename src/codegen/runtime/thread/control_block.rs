@@ -640,12 +640,13 @@ pub(crate) fn emit_with_arena(
 /// address to the indirect call.
 pub(crate) fn emit_call_in_block_arena(
     instructions: &mut Vec<CodeInstruction>,
-    callee: &str,
+    callee: impl Into<abi::Reg>,
     arena_slot: usize,
     saved_slot: usize,
     fn_slot: usize,
     value_slot: usize,
 ) {
+    let callee: abi::Reg = callee.into();
     emit_with_arena(instructions, arena_slot, saved_slot, |instructions| {
         instructions.extend([
             abi::load_u64(abi::c_arg(0), abi::stack_pointer(), value_slot),
@@ -666,8 +667,9 @@ pub(crate) fn emit_call_in_block_arena(
 pub(crate) fn emit_control_block_of(
     instructions: &mut Vec<CodeInstruction>,
     closed: &str,
-    scratch: &str,
+    scratch: impl Into<abi::Reg>,
 ) {
+    let scratch: abi::Reg = scratch.into();
     instructions.extend([
         // A null view is a binding whose drop already freed its record (a `TRAP`
         // handler reading a thread the error route dropped): closed, too.
