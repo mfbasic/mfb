@@ -51,6 +51,7 @@ TYPE Field
   parameter AS Integer   ' section 4's parameter number within that category
   surface AS Integer     ' section 4's type of first fixed surface
   height AS Integer      ' the value of that surface, in its own units
+  interval AS Boolean    ' a statistic over a time span, not a single moment
   values AS List OF Float
 END TYPE
 
@@ -335,14 +336,17 @@ FUNC gridOf(s3 AS List OF Byte) AS Field
   LET scanning AS Integer = toInt(collections::get(s3, 71))
   IF scanning <> 0 THEN FAIL error(errorCode::ErrUnsupported, "grib: scanning mode " & toString(scanning) & " is not the north-to-south, west-to-east order this reader assumes")
 
-  RETURN Field[ni := beInt(s3, 30, 4), nj := beInt(s3, 34, 4), lat1 := angle(s3, 46), lon1 := angle(s3, 50), dlat := angle(s3, 67), dlon := angle(s3, 63), category := 0, parameter := 0, surface := 0, height := 0, values := []]
+  RETURN Field[ni := beInt(s3, 30, 4), nj := beInt(s3, 34, 4), lat1 := angle(s3, 46), lon1 := angle(s3, 50), dlat := angle(s3, 67), dlon := angle(s3, 63), category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
 END FUNC
 
 ' What section 4 says the message carries. Product templates 4.0 and 4.8 - an
 ' instant and an interval - agree on every octet this reads, which is all the
-' agreement needed to tell UGRD at 10 m from everything else.
+' agreement needed to tell UGRD at 10 m from everything else. The template
+' number itself, at octets 8-9, is kept as whether the message is an interval:
+' a forecast hour holds the precipitation rate twice, once at the hour and once
+' averaged over the hours before it, and only the template tells them apart.
 FUNC describedBy(f AS Field, s4 AS List OF Byte) AS Field
-  RETURN WITH f { category := toInt(collections::get(s4, 9)), parameter := toInt(collections::get(s4, 10)), surface := toInt(collections::get(s4, 22)), height := beInt(s4, 24, 4) }
+  RETURN WITH f { category := toInt(collections::get(s4, 9)), parameter := toInt(collections::get(s4, 10)), surface := toInt(collections::get(s4, 22)), height := beInt(s4, 24, 4), interval := beInt(s4, 7, 2) = 8 }
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -364,7 +368,7 @@ FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
   LET length AS Integer = beInt(data, at + 8, 8)
   IF at + length > len(data) THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the message at byte " & toString(at) & " runs past the end of the file")
 
-  MUT field AS Field = Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
+  MUT field AS Field = Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
   MUT packing AS List OF Byte = []
   MUT count AS Integer = 0
   MUT template AS Integer = -1
@@ -426,13 +430,14 @@ FUNC decodeFile(data AS List OF Byte) AS List OF Field
   RETURN out
 END FUNC
 
-' The first field carrying a given parameter at a given fixed surface. The
+' The first field carrying a given parameter at a given fixed surface, as it
+' stood at the forecast hour rather than averaged over the hours before it. The
 ' numbers are WMO's: discipline 0 category 2 is momentum, where parameter 2 is
 ' the u wind component and 3 is v, and surface type 103 is "height above
 ' ground", measured in metres.
 FUNC pick(fields AS List OF Field, category AS Integer, parameter AS Integer, surface AS Integer, height AS Integer) AS Field
   FOR EACH f IN fields
-    IF f.category = category AND f.parameter = parameter AND f.surface = surface AND f.height = height THEN RETURN f
+    IF f.category = category AND f.parameter = parameter AND f.surface = surface AND f.height = height AND NOT f.interval THEN RETURN f
   NEXT
-  FAIL error(errorCode::ErrNotFound, "grib: the file holds no parameter " & toString(category) & "." & toString(parameter) & " at " & toString(height) & " m above ground")
+  FAIL error(errorCode::ErrNotFound, "grib: the file holds no parameter " & toString(category) & "." & toString(parameter) & " on surface type " & toString(surface) & " at " & toString(height))
 END FUNC

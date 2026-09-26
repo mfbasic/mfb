@@ -3,10 +3,9 @@
 '   render(node, width)  the readable page text, wrapped to width
 '   tree(node, width)     an indented DOM tree (for a "raw" view)
 '
-' Both walk the tree iteratively with an explicit stack — a recursive function
-' over the imported Node union does not lower to native code across a package
-' boundary (see the browser README). Every MATCH on the imported (open) Node
-' union carries a CASE ELSE, as the language requires.
+' Both walk the tree iteratively with an explicit stack, matching dom's own
+' iterative style (see the browser README, "The DOM parser"). Every MATCH on
+' the imported (open) Node union carries a CASE ELSE, as the language requires.
 
 IMPORT astrings
 IMPORT color
@@ -468,7 +467,7 @@ END FUNC
 ' tall), maps every text run's px box down to terminal cells as it draws, carries each
 ' run's styling onto the rows, and collects each link's text rectangles (see paintRun).
 ' This is where all px → cell conversion happens; the DOM never knows about terminal
-' cells. Walks iteratively (the imported Node union does not lower to a recursive fn).
+' cells. Walks iteratively, matching dom's own style (see the browser README).
 EXPORT FUNC paint(root AS dom::Node, widthCols AS Integer, cellPx AS Integer, linePx AS Integer) AS PaintResult
   LET cw AS Integer = maxOf(1, cellPx)
   LET lh AS Integer = maxOf(1, linePx)
@@ -520,7 +519,7 @@ EXPORT TYPE Link
 END TYPE
 
 ' The concatenated text of an element's subtree, in document order (skipping a
-' display:none subtree). Iterative — no recursion over the imported Node union.
+' display:none subtree). Iterative, matching dom's own style (see the browser README).
 FUNC subtreeText(e AS dom::ElementNode) AS String
   MUT parts AS List OF String = []
   MUT stack AS List OF dom::Node = []

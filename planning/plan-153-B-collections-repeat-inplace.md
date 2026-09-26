@@ -173,7 +173,7 @@ the exemption excludes.
 Acceptance: the census guard passes (the row exists), and the runtime
 harness fails the new rows on the `arm` bound, because the value path still
 copies.
-  Check: `cargo test --test inplace_self_update_census` → pass; `cargo test --test rt_inplace_self_update repeat` → fails on the bound (est. 4 min).
+  Check: `cargo test --test inplace_self_update_census` → pass; `MFB_SELF_UPDATE_FILTER=repeat cargo test --test rt_inplace_self_update -- --ignored` → fails on the bound (est. 4 min).
 Commit: —
 
 ### Phase 2 — the arm
@@ -191,7 +191,7 @@ Commit: —
 
 Acceptance: the Phase 1 rows pass the `arm` bound and the failure-atomicity
 cases pass.
-  Check: `cargo test --test rt_inplace_self_update && cargo test --test rt_inplace_failure_atomic` → pass (est. 6 min);
+  Check: `cargo test --test rt_inplace_self_update -- --ignored && cargo test --test rt_inplace_failure_atomic` → pass (est. 6 min);
   `cargo test --bin mfb self_update` → the table and census unit tests pass (est. 3 min).
 Commit: —
 

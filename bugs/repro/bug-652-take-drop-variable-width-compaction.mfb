@@ -1,0 +1,118 @@
+' bug-652 repro: `x = collections::take(x, len(x))` / `x = collections::drop(x, 0)`
+' on a variable-width list costs O(count) per call even though nothing is removed,
+' so a build loop is quadratic. Usage: app.out <shape> <n>
+'   shapes: wideAppend wideTake wideDrop wideDropAll intTake intDropAll
+' Expected: every shape linear in n (wideTake/wideDropAll track wideAppend).
+IMPORT io
+IMPORT os
+IMPORT collections
+
+TYPE Attribute
+  name AS String
+  value AS String
+END TYPE
+
+TYPE Text
+  value AS String
+END TYPE
+
+TYPE Comment
+  value AS String
+END TYPE
+
+TYPE ProcessingInstruction
+  target AS String
+  data AS String
+END TYPE
+
+TYPE Element
+  name AS String
+  attributes AS List OF Attribute
+  children AS List OF Node
+END TYPE
+
+UNION Node
+  Element
+  Text
+  Comment
+  ProcessingInstruction
+END UNION
+
+FUNC leaf(name AS String) AS Node
+  RETURN Element[name := name, attributes := [], children := []]
+END FUNC
+
+FUNC wideAppend(n AS Integer) AS List OF Node
+  MUT pending AS List OF Node = []
+  FOR i = 1 TO n
+    pending = collections::append(pending, leaf("i"))
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC wideTake(n AS Integer) AS List OF Node
+  MUT pending AS List OF Node = []
+  FOR i = 1 TO n
+    pending = collections::take(pending, len(pending))
+    pending = collections::append(pending, leaf("i"))
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC wideDrop(n AS Integer) AS List OF Node
+  MUT pending AS List OF Node = []
+  FOR i = 1 TO n
+    LET kids AS List OF Node = collections::drop(pending, len(pending))
+    pending = collections::append(pending, leaf("i"))
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC wideDropAll(n AS Integer) AS List OF Node
+  MUT pending AS List OF Node = []
+  FOR i = 1 TO n
+    pending = collections::drop(pending, 0)
+    pending = collections::append(pending, leaf("i"))
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC intTake(n AS Integer) AS List OF Integer
+  MUT pending AS List OF Integer = []
+  FOR i = 1 TO n
+    pending = collections::take(pending, len(pending))
+    pending = collections::append(pending, i)
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC intDropAll(n AS Integer) AS List OF Integer
+  MUT pending AS List OF Integer = []
+  FOR i = 1 TO n
+    pending = collections::drop(pending, 0)
+    pending = collections::append(pending, i)
+  NEXT
+  RETURN pending
+END FUNC
+
+FUNC main AS Integer
+  LET args = os::args()
+  LET shape = collections::get(args, 0)
+  LET n = toInt(collections::get(args, 1))
+  MUT count AS Integer = 0
+  IF shape = "wideAppend" THEN
+    count = len(wideAppend(n))
+  ELSEIF shape = "wideTake" THEN
+    count = len(wideTake(n))
+  ELSEIF shape = "wideDrop" THEN
+    count = len(wideDrop(n))
+  ELSEIF shape = "wideDropAll" THEN
+    count = len(wideDropAll(n))
+  ELSEIF shape = "intTake" THEN
+    count = len(intTake(n))
+  ELSEIF shape = "intDropAll" THEN
+    count = len(intDropAll(n))
+  END IF
+  io::print(shape & " " & toString(count))
+  RETURN 0
+END FUNC

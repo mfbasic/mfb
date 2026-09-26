@@ -2,10 +2,17 @@
 '
 ' The data is NOAA's Global Forecast System, served by NOMADS. The whole GFS
 ' output for one hour is hundreds of megabytes, so this asks NOMADS' filter CGI
-' for the two fields it actually draws - UGRD and VGRD, the eastward and
-' northward components of the wind at 10 metres above the ground - on the half
-' degree grid. That comes back as a two-message GRIB2 file of about half a
-' megabyte.
+' for the four fields it actually draws - UGRD and VGRD, the eastward and
+' northward components of the wind at 10 metres above the ground, TMP at two
+' metres above the ground, and PRATE, the precipitation rate at the surface - on
+' the half degree grid.
+'
+' That takes two requests per hour, because the filter asks for every variable
+' at every level named: asking for PRATE's level, the surface, in the same
+' request as the rest would bring the ground's own temperature along too. The
+' two answers are GRIB2 files, and a GRIB2 file is nothing but its messages one
+' after another, so they are kept as one file: the wind and temperature, then
+' the precipitation. For the analysis that is about 0.9 megabytes.
 '
 ' GFS runs four times a day, at 00, 06, 12 and 18 UTC, and the analysis hour of
 ' a run appears on NOMADS roughly four hours after the run's nominal time. So
@@ -23,9 +30,10 @@
 ' Downloads are cached in the host temporary directory under the cycle and hour
 ' they came from, so the second run of the program starts instantly and a
 ' rebuild while working on the drawing costs nothing. Only the newest cycle is
-' kept: a run is 41 files and about 23 megabytes, and a new one comes out every
+' kept: a run is 41 files and about 45 megabytes, and a new one comes out every
 ' six hours.
 
+IMPORT collections
 IMPORT datetime
 IMPORT errorCode
 IMPORT fs
@@ -65,9 +73,10 @@ LET PUBLISH_DELAY_SECONDS AS Integer = 14400
 ' How many cycles back to look before giving up - eight is two days.
 LET CYCLES_TO_TRY AS Integer = 8
 
-' The grid NOMADS is asked for. The half-degree file is 720 by 361 points and
-' about half a megabyte, which is more detail than the picture can show at a
-' world-sized zoom and enough to hold up when zoomed in.
+' The grid NOMADS is asked for. The half-degree grid is 720 by 361 points and
+' about a megabyte an hour for the four requested fields, which is more detail
+' than the picture can show at a world-sized zoom and enough to hold up when
+' zoomed in.
 LET GRID_NAME AS String = "0p50"
 
 FUNC cycleAt(epochSeconds AS Integer) AS Cycle
@@ -86,11 +95,17 @@ FUNC hourCaption(c AS Cycle, hour AS Integer) AS String
   RETURN "+" & toString(hour) & " h of the " & c.caption & " run"
 END FUNC
 
-' The NOMADS filter URL for one hour of one cycle's 10 m wind. The %2F are
+' The two filter requests that make up one hour: the levels and variables
+' each asks for, as query-string parameters.
+LET WIND_AND_TEMPERATURE AS String = "&lev_10_m_above_ground=on&lev_2_m_above_ground=on&var_UGRD=on&var_VGRD=on&var_TMP=on"
+
+LET PRECIPITATION AS String = "&lev_surface=on&var_PRATE=on"
+
+' The NOMADS filter URL for one request of one hour of one cycle. The %2F are
 ' literal: the CGI's dir parameter carries a path, and it has to arrive
 ' percent-encoded rather than as slashes in the query string.
-FUNC filterUrl(c AS Cycle, hour AS Integer) AS String
-  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & "." & hourTag(hour) & "&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+FUNC filterUrl(c AS Cycle, hour AS Integer, fields AS String) AS String
+  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & "." & hourTag(hour) & fields & "&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
 END FUNC
 
 FUNC cacheDirectory AS String
@@ -104,19 +119,27 @@ FUNC cachePrefix(c AS Cycle) AS String
   RETURN "gfs-" & c.day & "-" & c.hour & "-"
 END FUNC
 
-' Where one hour of a cycle is kept between runs.
-FUNC cachePath(c AS Cycle, hour AS Integer) AS String
-  RETURN fs::pathJoin([cacheDirectory(), cachePrefix(c) & hourTag(hour) & "-10m-" & GRID_NAME & ".grb2"])
+' Every cached file ends with this. It names what the file holds, so a file
+' cached by a build that asked for other fields is never taken for one of these.
+FUNC cacheSuffix AS String
+  RETURN "-wind-temp-rain-" & GRID_NAME & ".grb2"
 END FUNC
 
-' Delete every cached file that is not from cycle c. The program only ever
+' Where one hour of a cycle is kept between runs.
+FUNC cachePath(c AS Cycle, hour AS Integer) AS String
+  RETURN fs::pathJoin([cacheDirectory(), cachePrefix(c) & hourTag(hour) & cacheSuffix()])
+END FUNC
+
+' Delete every cached file that is not one of cycle c's. The program only ever
 ' draws the newest run it can find, so an older run's files are never read
-' again once a newer one has been fetched.
+' again once a newer one has been fetched, and a file holding other fields is
+' never read at all.
 SUB pruneCache(c AS Cycle)
   LET dir AS String = cacheDirectory()
   LET keep AS String = cachePrefix(c)
   FOR EACH name IN fs::listDirectory(dir)
-    IF strings::startsWith(name, "gfs-") AND NOT strings::startsWith(name, keep) THEN fs::deleteFile(fs::pathJoin([dir, name]))
+    LET current AS Boolean = strings::startsWith(name, keep) AND strings::endsWith(name, cacheSuffix())
+    IF strings::startsWith(name, "gfs-") AND NOT current THEN fs::deleteFile(fs::pathJoin([dir, name]))
   NEXT
 END SUB
 
@@ -124,15 +147,23 @@ END SUB
 ' message and how this recognises a real answer.
 LET GRIB_MAGIC AS Integer = 1196575042
 
-' One hour of one cycle, from the cache if it is there and from NOMADS if it is
-' not.
+' One filter request's answer.
 '
 ' The status code is not enough on its own: the filter CGI answers 200 with a
 ' short HTML page when the cycle's directory exists but the requested field is
 ' not in it, which is exactly what a run still being written looks like. So the
-' body is checked for the GRIB magic, and a cached file is only trusted if it
-' starts with it too. The file is written atomically, so a program closed in the
-' middle of the write leaves no half a file to be trusted next time.
+' body is checked for the GRIB magic.
+FUNC download(c AS Cycle, hour AS Integer, fields AS String) AS List OF Byte
+  LET response AS http::Response = http::read(net::toUrl(filterUrl(c, hour, fields)))
+  IF NOT response.ok THEN FAIL error(errorCode::ErrNotFound, "NOMADS answered " & toString(response.status) & " for " & hourCaption(c, hour))
+  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> GRIB_MAGIC THEN FAIL error(errorCode::ErrNotFound, hourCaption(c, hour) & " is not published yet")
+  RETURN response.body
+END FUNC
+
+' One hour of one cycle, from the cache if it is there and from NOMADS if it is
+' not. A cached file is only trusted if it starts with the GRIB magic, and it is
+' written only once both requests have answered, and atomically, so a program
+' closed part of the way through leaves no half an hour to be trusted next time.
 FUNC cycleData(c AS Cycle, hour AS Integer) AS List OF Byte
   LET path AS String = cachePath(c, hour)
   IF fs::fileExists(path) THEN
@@ -140,12 +171,11 @@ FUNC cycleData(c AS Cycle, hour AS Integer) AS List OF Byte
     IF len(cached) > 16 AND beInt(cached, 0, 4) = GRIB_MAGIC THEN RETURN cached
   END IF
 
-  LET response AS http::Response = http::read(net::toUrl(filterUrl(c, hour)))
-  IF NOT response.ok THEN FAIL error(errorCode::ErrNotFound, "NOMADS answered " & toString(response.status) & " for " & hourCaption(c, hour))
-  IF len(response.body) <= 16 OR beInt(response.body, 0, 4) <> GRIB_MAGIC THEN FAIL error(errorCode::ErrNotFound, hourCaption(c, hour) & " is not published yet")
-
-  fs::writeBytesAtomic(path, response.body)
-  RETURN response.body
+  LET weather AS List OF Byte = download(c, hour, WIND_AND_TEMPERATURE)
+  LET rain AS List OF Byte = download(c, hour, PRECIPITATION)
+  LET both AS List OF Byte = collections::append(weather, rain)
+  fs::writeBytesAtomic(path, both)
+  RETURN both
 END FUNC
 
 FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
@@ -156,16 +186,19 @@ FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
   END TRAP
 END FUNC
 
-' The two wind components out of one cycle's file. Discipline 0, category 2 is
-' momentum; parameter 2 is the u component and 3 the v. Surface type 103 is
-' "specified height above ground", and 10 is the metres.
+' The two wind components, temperature and precipitation rate out of one
+' cycle's file. Discipline 0, category 2 is momentum; parameter 2 is the u
+' component and 3 the v. Category 0, parameter 0 is temperature, and category 1,
+' parameter 7 the precipitation rate. Surface type 103 is "specified height
+' above ground"; wind is at 10 metres and temperature at 2 metres. Surface type 1
+' is the ground itself.
 FUNC windsFrom(data AS List OF Byte, c AS Cycle) AS Winds
   LET fields AS List OF Field = decodeFile(data)
-  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), label := "GFS 10 m wind  " & c.caption]
+  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), temperature := pick(fields, 0, 0, 103, 2), precipitation := pick(fields, 1, 7, 1, 0), label := "GFS surface weather  " & c.caption]
 END FUNC
 
-' The most recent GFS 10 m wind analysis this machine can get hold of, and the
-' run it belongs to.
+' The most recent GFS surface analysis this machine can get hold of, and the run
+' it belongs to.
 FUNC loadAnalysis AS Analysis
   LET newest AS Integer = (datetime::now().seconds - PUBLISH_DELAY_SECONDS) / CYCLE_SECONDS
   MUT firstProblem AS String = ""

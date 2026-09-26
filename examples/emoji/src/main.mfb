@@ -2,10 +2,9 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 IMPORT collections
-IMPORT fs
 IMPORT io
 IMPORT math
-IMPORT os
+IMPORT strings
 
 ' Emoji — the two Apple faces 🙂 and 🙁, drawn rather than loaded, on the
 ' Mode.Canvas surface of an --app build. Press any key to switch moods, q to quit.
@@ -223,23 +222,14 @@ END FUNC
 
 ' --- The rest of the window -------------------------------------------------
 
-' The first TrueType font on this platform that is actually installed, or "" when
-' none of the candidates is present.
-'
-' canvas::loadFont names a file — there is no font discovery in the runtime, which
-' is what keeps rendering reproducible — so a portable program carries its own list
-' of well-known paths. Every candidate below is a plain .ttf: loadFont reads
-' TrueType outlines and refuses .ttc collections and .otf/CFF outlines.
-FUNC systemFontPath AS String
-  MUT candidates AS List OF String = []
-  IF os::name() = "macos" THEN
-    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
-  ELSE
-    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
-  END IF
+' The first of these fonts that is installed, or "" when none is. They are the
+' everyday sans-serif faces of macOS, Windows and the common Linux desktops.
+LET PREFERRED_FONTS AS List OF String = ["Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
 
-  FOR EACH path IN candidates
-    IF fs::fileExists(path) THEN RETURN path
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
   NEXT
   RETURN ""
 END FUNC
@@ -311,17 +301,17 @@ LET pollMs AS Integer = 100
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
 
-  LET fontPath AS String = systemFontPath()
-  IF fontPath = "" THEN
-    io::printError("emoji: no TrueType font found in the usual system locations.")
+  LET fontName AS String = systemFontName()
+  IF fontName = "" THEN
+    io::printError("emoji: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
 
   ' The font is a resource: it is released when this binding leaves scope. The
   ' scene never holds it — a Text item carries a canvas::FontRef, which is just the
   ' id the backend knows the font by — so the picture survives the font going away.
-  RES face AS canvas::Font = canvas::loadFont(fontPath) TRAP(e)
-    io::printError("emoji: cannot load " & fontPath & ": " & e.message)
+  RES face AS canvas::Font = canvas::loadSystemFont(fontName) TRAP(e)
+    io::printError("emoji: cannot load " & fontName & ": " & e.message)
     RETURN 1
   END TRAP
 
