@@ -1,0 +1,49 @@
+' bug-697: a diagnostic raised after monomorphization must name an instantiated
+' user generic by its template spelling (`Box OF Integer`) rather than its
+' mangled symbol (`Box$Integer`). Four independent shapes below: a plain
+' instantiation, a UNION instantiation reported by `ir::shape`'s exhaustiveness
+' check, a `List OF` wrapping an instantiation, and a nested instantiation
+' (`Holder OF Holder OF Integer`) that must render fully, never half-mangled.
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+TYPE Holder OF T
+  value AS T
+END TYPE
+
+TYPE Some OF T
+  value AS T
+END TYPE
+
+TYPE None
+  value AS Nothing
+END TYPE
+
+UNION Opt OF T
+  Some OF T
+  None
+END UNION
+
+FUNC matchOpt(o AS Opt OF Integer) AS Integer
+  MATCH o
+    CASE Some(s)
+      RETURN s.value
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET b AS Box OF Integer = Box[1]
+  LET boxMismatch AS Integer = b
+
+  LET x AS Opt OF Integer = Some[1]
+  LET y AS List OF Opt OF Integer = [x]
+  LET listMismatch AS Integer = y
+
+  LET h AS Holder OF Holder OF Integer = Holder[Holder[1]]
+  LET nestedMismatch AS Integer = h
+
+  RETURN matchOpt(x)
+END FUNC

@@ -23,6 +23,16 @@ pub fn monomorphize_project(project_dir: &Path, hir: &HirProject) -> Result<HirP
     if mono.had_error {
         Err(())
     } else {
+        // bug-697: every diagnostic raised by a pass downstream of
+        // monomorphization (`ir::shape`, `ir::verify`, `resolve_augmented`,
+        // `validate_entry_point`) sees only the concrete HIR, whose instantiated
+        // user generics carry mangled nominals (`Box$Integer`). Hand the render
+        // boundary (`rules::show_diagnostic`) the inverse spelling table while
+        // `type_instantiations` is still alive, so it can rewrite a mangled
+        // token back to what the user wrote (`Box OF Integer`) — the only
+        // faithful source, since the mangling is lossy and cannot be parsed
+        // back. Built before `into_project` consumes `mono`.
+        rules::set_template_spellings(mono.template_spellings());
         Ok(mono.into_project())
     }
 }
