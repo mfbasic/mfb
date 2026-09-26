@@ -215,6 +215,87 @@ fn no_hand_picked_vreg() {
     );
 }
 
+/// Every non-test `.rs` line under `src/`, with its repo-relative path and 1-based
+/// line number — the scan the register guards share (comment lines skipped).
+fn emission_lines(manifest: &Path) -> Vec<(String, usize, String)> {
+    let mut out = Vec::new();
+    for path in rs_files(&[manifest.join("src")]) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name == "test_support.rs" || name.ends_with("tests.rs") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read source");
+        let rel = path.strip_prefix(manifest).unwrap().display().to_string();
+        for (line_no, line) in code_above_tests(&src).lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            out.push((rel.clone(), line_no + 1, line.to_string()));
+        }
+    }
+    out
+}
+
+/// A physical register is chosen by the register allocator or by a backend's
+/// selection — never by emission code (bug-721). `abi::Reg` has no conversion from
+/// text; the two typed doors to a physical register, `Reg::physical` and
+/// `CodeInstruction::physical_field`, may therefore be opened only where the
+/// physical file is actually decided: the per-ISA backends (`src/arch/`), the
+/// register allocator (`src/codegen/engine/regalloc/`) and the frame finalizer that
+/// saves the callee-saved registers the coloring used
+/// (`src/codegen/engine/util/vreg_frame.rs`). Anywhere else a register is a minted
+/// vreg, an ABI role, or an `abi.rs` role token.
+#[test]
+fn physical_registers_stay_in_the_backends() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let allowed = |rel: &str| {
+        rel.starts_with("src/arch/")
+            || rel.starts_with("src/codegen/engine/regalloc/")
+            || rel == "src/codegen/engine/util/vreg_frame.rs"
+            // The definitions themselves.
+            || rel == "src/target/shared/abi.rs"
+            || rel == "src/codegen/engine/builder/code_impl.rs"
+    };
+    let offenders: Vec<String> = emission_lines(manifest)
+        .into_iter()
+        .filter(|(rel, _, line)| {
+            !allowed(rel) && (line.contains("Reg::physical(") || line.contains(".physical_field("))
+        })
+        .map(|(rel, no, line)| format!("{rel}:{no}: {}", line.trim()))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "a physical register named outside the backends/allocator (bug-721) — name the \
+         ABI role (`abi::c_arg(n)`, `abi::LOCAL[i]`, …) or mint a vreg; an ABI-mandated \
+         physical set belongs in `src/arch/<isa>/regmodel.rs`:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// Only the minter spells a virtual-register id (bug-721). A `format!("%v…")` /
+/// `format!("%f…")` builds a hand-numbered register exactly as a `"%v9"` literal
+/// does — the form `no_hand_picked_vreg` cannot see — and the typed `abi::Reg`
+/// refuses it at the `abi::` boundary only if it is not smuggled in some other way.
+/// The two renderers in `regalloc/mod.rs` (`vreg_name`/`fp_vreg_name`) are the
+/// single spelling source.
+#[test]
+fn no_constructed_vreg_name() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let offenders: Vec<String> = emission_lines(manifest)
+        .into_iter()
+        .filter(|(rel, _, line)| {
+            rel != "src/codegen/engine/regalloc/mod.rs"
+                && (line.contains("format!(\"%v") || line.contains("format!(\"%f"))
+        })
+        .map(|(rel, no, line)| format!("{rel}:{no}: {}", line.trim()))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "a virtual-register name built by hand (bug-721) — mint one instead:\n{}",
+        offenders.join("\n")
+    );
+}
+
 /// Every `abi_function` builtin member registers its OWN per-member lowering in its
 /// `func_*.rs` (migrate.md §0: "**one** `lower_<name>` … registered as
 /// `Body::abi_function(lower_<name>)`. No `lower_<name>` + `emit_<name>_body`

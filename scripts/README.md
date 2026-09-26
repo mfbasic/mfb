@@ -97,7 +97,7 @@ a `cargo test` target, another script, or a person.
   bookkeeping, a work dir with cleanup, `--box` parsing, `remote_ssh`/`remote_scp`
   (always `BatchMode` + `ConnectTimeout`, overridable with `MFB_SSH_CONNECT_TIMEOUT`),
   a `watchdog`, `win_ship`, `scaffold_project`. Sourced, not executable.
-  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-winapp.sh`, `test-appimage.sh`,
+  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-wintls.sh`, `test-winapp.sh`, `test-appimage.sh`,
   `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-macapp.sh`,
   `linux-runtime-proof.sh`.
 - **remote-common-selftest.sh** — Checks the helpers locally: the watchdog kills and
@@ -150,6 +150,11 @@ a `cargo test` target, another script, or a person.
   at exit; a further run checks that non-ASCII values, file names and arguments
   survive every marshalling direction byte for byte.
   Usage: `bash scripts/test-winleak.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
+- **test-wintls.sh** — Runtime acceptance for the Windows Schannel `tls` backend
+  (bug-721, bug-564): cross-builds every `tests/rt-behavior/tls/*-rt` fixture for
+  `windows-x86_64`, runs it on the Windows box and compares its output and exit code
+  with the fixture's `golden/build.log` run section. Needs outbound HTTPS on the box.
+  Usage: `bash scripts/test-wintls.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
 - **test-winprocess.sh** — Runtime acceptance for the Windows `process` backend on the
   console entry path: argv quoting, environment, working directory and stdin/stdout of
   spawned children, run on the Windows box.

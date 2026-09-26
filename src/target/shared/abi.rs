@@ -1193,13 +1193,13 @@ pub(crate) fn add_stack(imm: usize) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn compare_immediate(
-    lhs: impl Into<Reg>,
-    rhs: impl Into<Reg>,
-) -> CodeInstruction {
+pub(crate) fn compare_immediate(lhs: impl Into<Reg>, rhs: &str) -> CodeInstruction {
+    // `rhs` is the immediate compared against, not a register — `cmp_imm`'s `rhs`
+    // field is the one register-named field that holds text (see
+    // `CodeInstruction::field`).
     CodeInstruction::new("cmp_imm")
         .field("lhs", reg(lhs))
-        .field("rhs", reg(rhs))
+        .field("rhs", rhs)
 }
 
 #[track_caller]
@@ -1909,6 +1909,69 @@ pub(crate) fn float_negate_multiply_sub_d(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every role-token `Reg` this module defines renders to a spelling
+    /// [`role_token`] recognizes, and back to the same `Reg` (bug-721). A token
+    /// missing from `role_token` would make `CodeInstruction::field` refuse its own
+    /// rendered text, and `Reg::from(&operand)` panic on a location that holds it.
+    #[test]
+    fn every_role_token_round_trips() {
+        let mut all: Vec<Reg> = vec![
+            ZERO,
+            LR,
+            ARENA,
+            SYSNR,
+            SYSNR_DARWIN,
+            CLOSURE_ENV,
+            CURRENT_THREAD,
+            MATH_POOL,
+            INCOMING_ARGS_BASE,
+            OUTGOING_ARGS_BASE,
+            stack_pointer(),
+            link_register(),
+            syscall_register(),
+        ];
+        all.extend(SCRATCH);
+        all.extend(FP_SCRATCH);
+        all.extend(VEC_SCRATCH);
+        all.extend(LOCAL);
+        for register in all {
+            let text = register.to_string();
+            assert_eq!(role_token(&text), Some(text.as_str()), "{text} is not a role token");
+            assert_eq!(Reg::from(&register.operand()), register, "{text} does not round-trip");
+        }
+    }
+
+    /// A minted register and an ABI role round-trip through their operand form; text
+    /// that names no role is refused (bug-721).
+    #[test]
+    fn a_register_operand_round_trips_and_text_does_not() {
+        for register in [Reg::test_vreg(7), mfb_arg(2), c_return(0)] {
+            assert_eq!(Reg::from(&register.operand()), register);
+        }
+        for forged in ["%v9", "x9", "rax"] {
+            let refused = std::panic::catch_unwind(|| Reg::from(&Operand::Raw(forged.into())));
+            assert!(refused.is_err(), "`{forged}` became a register");
+        }
+    }
+
+    /// A register-role field refuses text that names no role, whatever it spells
+    /// (bug-721): a hand-picked vreg, a physical register.
+    #[test]
+    fn a_register_field_refuses_text() {
+        for forged in ["%v9", "x9", "rax", "d3"] {
+            let refused = std::panic::catch_unwind(|| {
+                CodeInstruction::new("mov").field("dst", forged).field("src", ZERO)
+            });
+            assert!(refused.is_err(), "register field accepted `{forged}`");
+        }
+        // A role token's own spelling is a register (its rendered form), and a
+        // non-register field takes any text.
+        CodeInstruction::new("mov").field("dst", SP_SPELLING).field("src", ZERO);
+        CodeInstruction::new("label").field("name", "x9");
+        // `cmp_imm`'s `rhs` is the immediate it compares against.
+        compare_immediate(ZERO, "0");
+    }
 
     fn get(inst: &CodeInstruction, key: &str) -> Option<String> {
         inst.fields

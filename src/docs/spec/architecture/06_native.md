@@ -269,6 +269,23 @@ register to a physical
 register, before the peephole pass and `finalize_frame` (which expect physical
 names).[[src/codegen/engine/regalloc/mod.rs:allocate]]
 
+Every virtual-register id comes from one source per compilation: `allocate_register`,
+the standalone helpers' `Vregs::next` and the optimizer's GVN all draw from
+`mint_vreg`, which `lower_module_for_platform` resets at the start of each module, so no
+two minters can produce the same name within a stream and a module always compiles to
+the same ids.[[src/codegen/engine/regalloc/mod.rs:mint_vreg]] [[src/codegen/engine/regalloc/mod.rs:reset_vreg_ids]]
+
+A register operand is a typed `abi::Reg`, never text. It is a minted virtual register,
+an ABI role (`c_arg`, `mfb_return`, …), a role token the ABI module defines (the zero,
+link and stack-pointer registers, the pinned arena and current-thread registers, the
+`SCRATCH`/`LOCAL` hand-allocation banks), or a physical register the allocator or a
+backend chose (`Reg::physical`). It has no conversion from a string, so emission code
+cannot name a register by hand; `CodeInstruction::field` rejects text in a register
+field, and `physical_field` is the backends' post-allocation
+entry.[[src/target/shared/abi.rs:Reg]] [[src/codegen/engine/builder/code_impl.rs:field]] A hand-picked
+name once aliased a minted one and double-freed a 64 KiB block on every Windows
+`tls::connect` (bug-721).
+
 The integer and FP/SIMD classes have separate physical files that never
 interfere, so each is colored by an independent linear-scan pass over its own
 operands.

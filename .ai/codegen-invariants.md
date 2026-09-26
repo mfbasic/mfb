@@ -133,13 +133,42 @@ Why it bites: the caller sizes/copies a record by walking the data region contig
 
 Note `8*i` means records can never be C structs — `SF_INFO.channels` lands at 12 in C, 16 in a record.
 
-## vreg allocation order is load-bearing (don't delete a dead `temporary_vreg()`)
+## Registers are typed values, never text (bug-721)
 
-Deleting dead code in a native codegen builder (`src/target/shared/code/*`) is often NOT byte-identity-neutral, even when the removed value is truly unread.
+A register operand is an `abi::Reg`. It has a private representation and **no
+conversion from `&str`/`String`**, and every register-valued `abi::` constructor
+parameter is `impl Into<Reg>`. The only sources:
 
-`temporary_vreg()` / `allocate_register()` have a side effect: each call advances `next_vreg` and pushes a `vreg_eager` placeholder. So the order and count of vreg allocations determines the emitted register numbers — a documented byte-identity invariant (see the `emit_executable_path_into` doc comment: "invoke this FIRST … so it keeps the exact vreg-allocation order — and therefore the byte-identical output"). Removing an unused vreg allocation shifts `next_vreg` for every subsequent allocation in that function; if the function runs for many fixtures (e.g. `lower_value_inner` runs for every value lowering), it churns essentially ALL `.ncodesum` goldens for a cosmetic gain.
+* a **minted** virtual register — `Vregs::next()` / `CodeBuilder::allocate_register()`
+  (and `temporary_vreg`, `allocate_fp_register`, `temporary_fp_vreg`) return a `Copy`
+  `VirtualRegister`. Every minter draws from ONE per-compilation id source
+  (`regalloc::mint_vreg`, reset per module in `lower_module_for_platform`), so two
+  minters — however nested — never hand out the same name;
+* an **ABI role** — `abi::{mfb_arg, mfb_return, c_arg, c_return, sys_arg}(n)` and the
+  `RESULT_*_REGISTER` / `ARENA_STATE_REGISTER` consts;
+* a **role token** `abi.rs` defines — `ZERO`, `LR`, `ARENA`, `CURRENT_THREAD`,
+  `CLOSURE_ENV`, `SYSNR`, `SCRATCH[i]`, `FP_SCRATCH[i]`, `VEC_SCRATCH[i]`, `LOCAL[i]`, …;
+  their text survives only as `*_SPELLING(S)` for string comparisons;
+* a lowered value's location — `Reg::from(&value.location)`;
+* `Reg::physical(name)` — a register the allocator or a backend chose. Allowed only in
+  `src/arch/`, `src/codegen/engine/regalloc/` and the frame finalizer.
 
-How to apply: when a dead-code removal orphans a scratch vreg, KEEP the allocation to preserve numbering and drop only the now-unused name binding — `let _ = self.temporary_vreg();` with a load-bearing comment (the allocation's side effect is the point). Then PROVE byte-identity by running the full `scripts/artifact-gate.sh` and confirming `0 diff(s)` — a real change would surface as a DIFF on some unrelated fixture. For a removal you intend to shift codegen (e.g. deleting an emitted instruction), do a before/after `.ncode` diff (git-free: revert the one line, rebuild, dump, diff, re-remove) to prove the delta is ONLY the intended op before regenerating the `.ncodesum`. See the artifact-gate and byte-identity notes.
+Why: a register used to be text, and text cannot tell a hand-picked name from a minted
+one. `marshal::emit_free_buffer_guarded`'s literal `"%v9"` was Schannel `tls::connect`'s
+tenth minted vreg, and every Windows TLS connect double-freed a 64 KiB block (bug-721 /
+bug-564); Linux OpenSSL connect's set-nonblocking hook did the same with its SNI scratch.
+
+Enforcement: rustc for the typed surface; `CodeInstruction::field` panics on text in a
+register-role field (`physical_field` is the backends' post-allocation entry); the guards
+`no_hand_picked_vreg`, `no_constructed_vreg_name` and
+`physical_registers_stay_in_the_backends` (`tests/guards/architecture_guards.rs`) cover
+literals, `format!`-built names and the physical door.
+
+Consequences for edits: vreg numbering is per-compilation, so adding or removing a
+`temporary_vreg()` can renumber later functions' vregs and move `.ncodesum` goldens
+through allocation tie-breaks. That is expected churn — regenerate the goldens after
+proving the instruction stream is otherwise unchanged; never keep a dead allocation to
+preserve numbering.
 
 ## Param-passthrough return borrow (elide the deep-copy)
 
@@ -369,7 +398,7 @@ A genuine win requires the READ side to consume the typed `Imm` directly (match 
 
 `CodeInstruction.fields` is `Vec<(&'static str, Operand)>` (`Operand` = `VReg{class,id}` | `Imm(i64)` | `Raw(Box<str>)`, `src/target/shared/code/operand.rs`). `MirInstruction.fields` stays `String`-valued — the `select`/`lower_to_mir` boundary converts via `mir_fields_from_code` / `code_fields_from_mir`. `get()` renders (`Option<String>`); `operand()` returns `&Operand`; `field()` takes `impl Into<Operand>` (`&str`/`&String`/`String`/`&&str` → `Raw`). `Operand: Display + PartialEq<str>` so string-shaped readers keep working; hot reads use `rendered()` (Cow, borrows a `Raw`).
 
-Register operands are stored as `Raw` strings, NOT typed `VReg`/`Phys`. `allocate_register`/`temporary_vreg` return `String` consumed by ~1794 call sites, so typing vregs at their source is out of scope for a single plan — `VReg`/`Phys` are the test-only typed surface. Physical names also stay `Raw` (a `Phys{class,index}` can't render faithfully: `x0`/`rax`/`zero` all = int index 0; `d3`/`v3` alias fp index 3). Immediates ARE typed `Imm` at the `finalize_frame` offset rewrite.
+Minted registers are stored typed (`VReg{class,id}`, from `VirtualRegister`), ABI roles as `Abi{…}`, and role tokens / physical names as `Raw` of their static spelling — but only ever produced from an `abi::Reg` (bug-721, see "Registers are typed values, never text"). A register-role field never receives arbitrary text: `CodeInstruction::field` panics on it. Immediates ARE typed `Imm` at the `finalize_frame` offset rewrite.
 
 The compile is ALLOCATION-BOUND — measured on the real workload (`mfb test tests/acceptance`, 4071 lines, macOS aarch64). Release acceptance 58s, debug 284s, of which codegen+link is 97–99% (front-end ~2s, runtime ~1s — both noise). A counting `GlobalAlloc` shows 808,808,429 heap allocations / 37 GiB churn for that one compile; `sample` puts 74% of release self-time in malloc/free/memmove. It splits by substage (env-gated timers in `macos_aarch64/mod.rs` write_executable): code_emit `code::lower_module` 67% / 566M allocs, encode 23% / 215M allocs, everything else <3%. The `plan+regalloc` LABEL is only 58ms — misleading: `regalloc::allocate` actually runs INSIDE code_emit (called from `builder_registers.rs` + `codegen_utils.rs`), and its hot subtree is `linear_scan::run`→`Vec::clone`→`Box<str>::clone`→malloc. Root cause = the per-operand `Box<str>` (registers stored as `Raw`): production (`allocate_*`/`temporary_vreg`→String, 1825 sites), regalloc cloning it per instruction, and encode's `REG_ARRAY.position` string scans.
 
