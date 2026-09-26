@@ -67,7 +67,8 @@ pub(crate) fn lower_random_bytes(
     let chunk_ok = format!("{symbol}_chunk_ok");
     let done = format!("{symbol}_done");
 
-    // Minted scratch vregs (%v9..%v13), so the shared allocator colors them per-ISA.
+    // Minted scratch vregs (named v9..v13 for history; they are %v0..%v4), so the
+    // shared allocator colors them per-ISA.
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -197,6 +198,7 @@ pub(crate) fn lower_random_bytes(
         Some(COLLECTION_OFFSET),
         abi::mfb_return(1),
         &alloc_fail,
+        &mut vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );

@@ -370,6 +370,10 @@ name = "codegen_owned_drop_free_and_null"
 path = "tests/codegen/codegen_owned_drop_free_and_null.rs"
 
 [[test]]
+name = "app_special_keys"
+path = "tests/codegen/app_special_keys.rs"
+
+[[test]]
 name = "codegen_reduce_concat_fold"
 path = "tests/codegen/codegen_reduce_concat_fold.rs"
 
@@ -514,6 +518,10 @@ path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
 [[test]]
 name = "rt_inplace_failure_atomic"
 path = "tests/runtime/rt_inplace_failure_atomic.rs"
+
+[[test]]
+name = "rt_domain_error_frees_locals"
+path = "tests/runtime/rt_domain_error_frees_locals.rs"
 
 [[test]]
 name = "rt_inplace_sort"
@@ -835,6 +843,14 @@ name = "rt_list_set_widening_linear"
 path = "tests/runtime/rt_list_set_widening_linear.rs"
 
 [[test]]
+name = "rt_list_take_drop_in_place"
+path = "tests/runtime/rt_list_take_drop_in_place.rs"
+
+[[test]]
+name = "rt_self_update_cost"
+path = "tests/runtime/rt_self_update_cost.rs"
+
+[[test]]
 name = "rt_native_float_pow_operator_runtime"
 path = "tests/runtime/rt_native_float_pow_operator_runtime.rs"
 
@@ -879,6 +895,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_arena_large_block_reuse"
+path = "tests/runtime/rt_arena_large_block_reuse.rs"
+
+[[test]]
 name = "rt_datetime_negative_year_render"
 path = "tests/runtime/rt_datetime_negative_year_render.rs"
 
@@ -901,6 +921,10 @@ path = "tests/runtime/rt_debug_soak.rs"
 [[test]]
 name = "rt_debug_report"
 path = "tests/runtime/rt_debug_report.rs"
+
+[[test]]
+name = "rt_debug_report_exit_time"
+path = "tests/runtime/rt_debug_report_exit_time.rs"
 
 [[test]]
 name = "rt_process_detach_preserves_exit_code"

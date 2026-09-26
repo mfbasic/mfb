@@ -1,0 +1,122 @@
+{
+  "project": "tls_write_after_read_closed_raises_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "errorCode", "line": 16 },
+    { "module": "fs", "line": 17 },
+    { "module": "io", "line": 18 },
+    { "module": "net", "line": 19 },
+    { "module": "os", "line": 20 },
+    { "module": "process", "line": 21 },
+    { "module": "tls", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "identity",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dir", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb_tlsrc_" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.pid", "arguments": [] }] } }] }] }, "line": 26 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "fs.directoryExists", "arguments": [{ "kind": "identifier", "value": "dir" }] }, "right": { "kind": "boolean", "value": false } },
+        "line": 27,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectory", "arguments": [{ "kind": "identifier", "value": "dir" }] }, "line": 28 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "gen", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "openssl" }, { "kind": "string", "value": "req" }, { "kind": "string", "value": "-x509" }, { "kind": "string", "value": "-newkey" }, { "kind": "string", "value": "rsa:2048" }, { "kind": "string", "value": "-nodes" }, { "kind": "string", "value": "-days" }, { "kind": "string", "value": "30" }, { "kind": "string", "value": "-subj" }, { "kind": "string", "value": "/CN=localhost" }, { "kind": "string", "value": "-keyout" }, { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "key.pem" }] }] }, { "kind": "string", "value": "-out" }, { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "cert.pem" }] }] }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "rc", "type": "Integer", "value": { "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "gen" }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "dir" }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "drain",
+      "line": 36,
+      "params": [
+      { "name": "conn", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 36 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 37,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "chunk", "type": "List OF Byte", "value": { "kind": "call", "callee": "tls.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "4096" }] }, "line": 38 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "never" }, "line": 40 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 41,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrConnectionClosed" } }] }, "line": 42 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "writeOnce",
+      "line": 46,
+      "params": [
+      { "name": "conn", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 46 },
+      { "name": "text", "type": "String", "default": null, "line": 46 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "identifier", "value": "text" }] }, "line": 47 },
+      { "kind": "return", "value": { "kind": "string", "value": "completed" }, "line": 48 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 49,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrConnectionClosed" } }] }, "line": 50 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 54,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dir", "type": "String", "value": { "kind": "call", "callee": "identity", "arguments": [] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }, { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "cert.pem" }] }] }, { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "dir" }, { "kind": "string", "value": "key.pem" }] }] }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tls.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "peer", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "openssl" }, { "kind": "string", "value": "s_client" }, { "kind": "string", "value": "-connect" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "127.0.0.1:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] } }] }] }, "line": 58 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.closeInput", "arguments": [{ "kind": "identifier", "value": "peer" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read closed=" }, "right": { "kind": "call", "callee": "drain", "arguments": [{ "kind": "identifier", "value": "conn" }] } }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "first write closed=" }, "right": { "kind": "call", "callee": "writeOnce", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "string", "value": "after the close" }] } }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "second write closed=" }, "right": { "kind": "call", "callee": "writeOnce", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "string", "value": "and again" }] } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty write closed=" }, "right": { "kind": "call", "callee": "writeOnce", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "string", "value": "" }] } }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read again closed=" }, "right": { "kind": "call", "callee": "drain", "arguments": [{ "kind": "identifier", "value": "conn" }] } }] }, "line": 66 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 67 }
+      ]
+    }
+    ]
+  }
+  ]
+}

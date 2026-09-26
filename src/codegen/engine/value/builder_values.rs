@@ -34,6 +34,7 @@ impl<'a> CodeBuilder<'a> {
             presentation_mode_offset: None,
             // The mouse-state region is likewise an `abi_function` concern.
             mouse_state_offset: None,
+            input_state_offset: None,
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",

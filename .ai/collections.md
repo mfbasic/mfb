@@ -12,7 +12,7 @@ Collection mutation codegen is rewritten for amortized-O(1) append.
 - **GOTCHA — a fixed-width payload's data capacity is NOT an independent counter** (bug-621). For a fixed-width list element (`list_element_is_fixed_width`) or a map entry whose key and value are both fixed-width, every in-place grow sets `dataCapacity = newCapacity × stride` (`emit_fixed_width_data_capacity`), still clamped to at least the bytes needed. Stepping data on its own step — even on the grows the *count* triggered — froze the reservation at ≈19 bytes per slot whatever the width: a 16 MiB append-built `List OF Byte` peaked at 982 MB RSS, byte-identical to a `List OF Integer`. Only variable-width payloads (whose data need is independent of the count) keep the independent data step. A new grow arm must make the same split; `tests/runtime/rt_list_append_growth_bounds.rs` pins each existing arm against the rule.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
-- Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
+- Removal leaves lazy holes (bug-732), bounded without liveBytes tracking: see "Dead bytes" under In-place mutation.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
 
 
@@ -34,9 +34,49 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   `NirOp::StoreGlobal` lowerings in `engine/control/builder_control.rs` build a
   `SelfUpdateSite` and call `try_inplace_self_update`, which tries each arm; the
   first to accept lowers the statement, and if none does the statement takes the
-  general copying reassignment. **Declining is always correct** — in-place is an
-  implementation strategy the program cannot observe, so an arm that is not sure
-  must decline, having emitted nothing.
+  general copying reassignment. **Declining is correct only where the spec says a
+  copy is required** (the old value is still read — a live snapshot, `FOR EACH`,
+  or a callee that can store to it). In-place `MUT` self-update is a guaranteed
+  cost bound, not an optimization (owner decision, bug-652): an arm that declines
+  anywhere else, or accepts but costs O(size of `x`) where the call adds, removes
+  or moves fewer elements, is a bug. An arm that cannot prove its gates must still
+  decline having emitted nothing (`O-order-1`) — and that decline is then the bug
+  to fix, not a safe default. bug-732 closed the last measured offenders (`mfb
+  spec memory collections`, Self-updates, "Cost", now lists none); pin any new
+  one's fix with a CPU-time scaling test like
+  `tests/runtime/rt_self_update_cost.rs` (equal total work as `R` runs of `n` vs
+  one of `R·n`; wall time is useless on a loaded box — measured 4.61 s wall for
+  0.71 s CPU).
+* **Shrink compaction cost (bug-652, bug-732).** `lower_list_compact_in_place`'s
+  probe and slide walk every entry; that is the call's work for `KeepSource::Marks`
+  (`filter`/`distinct`) and for a range with `start > 0` (every kept element
+  moves), but not for a `start == 0` range. So a range first tries
+  `emit_compact_range_truncate`: `len == count` is a no-op, `len == 0` resets,
+  otherwise it walks the REMOVED entries from the last down, retracting
+  `dataLength` over each payload that ends (aligned) at it and leaving any other
+  (list reordered by `sort`/`prepend`/`insert`/relocating `set`) as dead bytes.
+  The dropped-element (graph-free) pass jumps its index over a range's kept run.
+  `removeAt` likewise shifts only the later entries and retracts or leaves a hole.
+* **Dead bytes: leave them at the removal, reclaim them at every grow — including
+  a COPYING grow (bug-732).** Counting live bytes to decide on a repack is an
+  O(count) walk, which is the whole cost bug-732 removed from removals. It moved
+  to the grows, where the entry copy already costs O(count):
+  `emit_list_reclaim_before_grow` runs at the realloc label of every in-place
+  variable-width grow (`append`, bulk `append`, `insert`/`prepend`, and the
+  record-field forms) and repacks (`emit_repack_list_data`, then retries the room
+  check) when dead > live; `lower_list_insert_collection` (the copying
+  append/insert/prepend, which is also the rebuild at a non-last record field)
+  packs A's live payloads instead of copying its data verbatim when dead > live.
+  **Missing either is unbounded memory, not a slow path**: without the in-place
+  reclaim a pop/insert churn of 64 strings went 1.1 MB → 8.7 MB for 8× the rounds;
+  without the copying pack, `removeAt` in place + `append` rebuilt at a non-last
+  field went 75 KB → 537 KB → 4.2 MB (and each copy copied the growing dead
+  region, so it was quadratic too). **The reclaim's trigger has two traps, both shipped once (bug-732 C6, C7):** (1) never compute `dataLength - live` — `live` counts ENTRY-order alignment pads and an out-of-order region can hold fewer, so it underflows; the map reclaim then "repacked" forever (`list-set-shared-offset-rt` hung). Compare `dataLength > 2 * live` instead. (2) A repack keeps `capacity` and SHRINKS the data region to step(live), while a verbatim grow steps BOTH `capacity` and `dataCapacity` — so a small list whose data keeps overflowing alternated repack/grow and doubled its entry capacity every cycle (two strings: 1 KB → 933 KB for 8× rounds; records 3.1 GB; an insert shape never finished). The list reclaim therefore also repacks on ANY dead bytes while `count < capacity`. `a_small_list_under_length_changing_churn_stays_small` pins it. A NEW path that grows a list's data region,
+  in place or by copying, must do one of the two; `rt_self_update_cost`'s churn
+  test (peak live bytes flat for 8× the rounds) is the instrument, and it goes
+  red only if the churn actually reaches your path — prove it red with the
+  reclaim disabled. A plain copy (`copy_collection_tight`) still carries dead
+  bytes (it does not grow, so it cannot accumulate them).
 * `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
   function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
   from `x`'s block, and `proof` cites the lowering that shows `x` is only read).
@@ -137,7 +177,8 @@ easy to get wrong:
   | `append`, bulk `append` | writes only *past* the live data |
   | `insert`, `prepend` | shift the 40-byte *lookup entries*; new payload goes at the data *tail* |
   | `set` (same-size) | overwrites one payload in place |
-  | **`removeAt`** | **compacts the data region — relocates surviving payloads** |
+  | `removeAt` | shifts the later *entries*; since bug-732 the data region is untouched (a hole, or `dataLength` retracts) |
+  | **a grow that reclaims dead bytes** (bug-732) | **repacks every live payload into a new block** |
 
   Relocating a payload is safe only while nothing refers into it, and for a
   **recursive** element type something used to. `type_participates_in_cycle`
@@ -470,10 +511,11 @@ A call as the written item used to miss the in-place gate too: `static_item_type
 Facts for native map-mutation lowerings (`src/target/shared/code/map_mutate.rs`), from landing in-place `removeKey` (mapchurn churn 161→22 ms, ~7.3×):
 
 - **`emit_collection_payload_matches_value_branch(key_type, "", coll, key_off, key_len, query_key, ARG7, ARG8)`: ARG7 is the on-MATCH label, ARG8 is on-NO-MATCH.** Getting this backwards silently removes/keeps the WRONG entry (a swap made removeKey delete entry 0 regardless of the key — output looked plausible but was wrong). The authority is `lower_map_remove_key`'s scan: it passes `(…, scan_next, scan_keep)` where scan_next (skip/advance) is the removed-key MATCH path and scan_keep (retain) is NO-MATCH. Byte-identical parity vs the `.mfb` out-of-place path is the only real check.
-- **In-place map mutation leaves DEAD DATA SLACK, and that's the accepted pattern — NOT a leak.** `lower_map_set_in_place` already leaves "old value becomes dead slack, tightened on copy" when overwriting a value; an in-place removeKey that compacts only the ENTRY TABLE (shift `[i+1..count)` down one 40-byte slot, COUNT-=1) and leaves the removed key/value bytes as slack is consistent with it. The slack is reachable and reclaimed on the next TIGHT copy (`copy_collection_tight` on bind/return/param) — grow-realloc copies dataLength VERBATIM (keeps slack), tight copy drops it. So no data-tail shift / offset fixup is needed for correctness (though it would reclaim slack eagerly).
-- **The map hash index (open addressing, absolute entry indices, `mod.rs:2407-2703`) cannot be repaired incrementally after a delete** — no DELETED sentinel, probe halts on empty. Any in-place delete must set `BUCKETS_READY=0` (header +4) so the next probe rebuilds. A true O(1) tombstone delete would be a structural project (sentinel + probe + bucket_put + live-count + USED-skip in every `0..count` consumer), out of scope.
+- **In-place map mutation leaves DEAD DATA SLACK, and that's the accepted pattern — NOT a leak.** `lower_map_set_in_place` already leaves "old value becomes dead slack, tightened on copy" when overwriting a value; an in-place removeKey that compacts only the ENTRY TABLE (shift `[i+1..count)` down one 40-byte slot, COUNT-=1) and leaves the removed key/value bytes as slack is consistent with it. No data-tail shift / offset fixup is needed for correctness. The "tight" copy does NOT reclaim it (`copy_collection_tight` drops only the headroom past `dataLength`, not dead bytes inside it — an earlier version of this note said it dropped them; its data copy is `dataLength` bytes verbatim). The GROWS reclaim it — see the bug-733 note below.
+- **The map hash index IS repaired incrementally after a delete (bug-732) — by backward-shift deletion, not a tombstone.** The earlier note here said it could not be ("no DELETED sentinel, probe halts on empty", so every delete set `BUCKETS_READY=0` and the next probe rebuilt the whole index — which made every `set`/`removeKey` loop O(n²)). Linear probing needs no tombstone: after emptying the slot, each later slot of the run moves back into the gap unless its key's home lies cyclically in `(gap, slot]` (`_mfb_rt_map_bucket_delete`). Entries sliding down after the removed one have their bucket values renumbered (`_mfb_rt_map_compact_from`, which hashes each moved key). Order matters: delete the removed entries' buckets FIRST, while every entry still sits where the index says (the delete hashes keys through their entries), mark them `COLLECTION_ENTRY_FLAG_REMOVED`, then compact from the lowest marked index — renumbering in increasing order keeps every bucket value unique. `difference`/`symmetricDifference` use the same claim-then-compact pair over `t`'s hits.
 - Header offsets: BUCKETS_READY +4 (u8), COUNT +8, DATA_LENGTH +24; entry stride 40 (`error_constants.rs:984-1019`). In-place assign hooks live in `builder_inplace_assign.rs`, wired into the `&&`-chain at `builder_control.rs` ~592; keep the `by_ref` + live-FOR-EACH guards (a compaction shift IS observable to a live iterator).
 - Entry-table-only compaction (vs a full data-tail rebuild) is what gave removeKey ~7.3× (churn 161→22ms).
+- **Map dead slack is reclaimed at every in-place map grow (bug-733).** Until then no map grow reclaimed it, so a 64-key map under `set`-new/`removeKey`-oldest churn peaked at 421 KB after 2,000 rounds and 3.3 MB after 16,000. `emit_map_reclaim_before_grow` now calls `_mfb_rt_map_reclaim` at the three grow sites (`lower_map_set_in_place`'s entry grow and value grow, `emit_map_reserve`) and retries the room check when it repacked. Unlike the list repack it ALLOCATES NOTHING: it slides payloads down within the same data region, so the block address, capacity and `dataCapacity` never change — no `InlineGrow`, and a record field's sub-block address is fine. **An allocating version (scratch block, copy back) was tried first and failed `rt_inplace_self_update`'s allocation bound for `remove`/`removeKey`/`symmetricDifference` (e.g. 1,000 extra blocks per 2,000 runs on a 2-element set): a small map reclaims every few statements, so a scratch alloc is a per-statement allocation, which the spec forbids.** Sliding in place requires visiting payloads in increasing offset: keys are always in entry order (written once, at the tail), values too unless an in-place `set` relocated one to the tail; those "out of sequence" values are heap-sorted by offset in the BUCKET REGION (≤ count ≤ capacity of its 2·capacity slots) and merged, after which `BUCKETS_READY = 0`. A transient mark in entry byte 1 (reserved) flags them and is cleared before return; if keys are ever found out of order the helper does nothing (returns 0). A new map grow site must call it too; `rt_self_update_cost::a_churning_map_or_set_does_not_grow_without_bound` is the instrument.
 
 ## Map copy-then-bulk-insert pays grows: presize instead
 

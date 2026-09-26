@@ -459,8 +459,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&vwrite));
 
         // Grow the data region only (capacity unchanged); copy entries + data
-        // verbatim against the capacity-based base, then repoint.
+        // verbatim against the capacity-based base, then repoint. bug-733: first
+        // reclaim dead bytes, and retry the room check if that made room.
         self.emit(abi::label(&vgrow));
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &value_grow)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -768,7 +770,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&write));
 
         // --- Grow: geometric capacity + data, copy entries/data verbatim. ---
+        // bug-733: first reclaim dead bytes, and retry the room check.
         self.emit(abi::label(&grow));
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &not_found)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -1145,12 +1149,204 @@ impl CodeBuilder<'_> {
         })
     }
 
-    /// keep their absolute KEY/VALUE_OFFSETs, so the data region is not moved and no
-    /// offset fixup is needed — the same dead-slack model `set` uses when it
-    /// overwrites a value). Insertion order is preserved (a shift, not a swap). The
-    /// bucket index cannot be repaired incrementally (open addressing over absolute
-    /// entry indices, no DELETED sentinel), so it is invalidated and rebuilt lazily
-    /// on the next probe — unavoidable given the index (plan-86-D1 scout).
+    /// bug-733: the first step of every in-place grow of a `Map`/`Set` — reclaim
+    /// the dead key and value bytes instead of copying them. Calls
+    /// `_mfb_rt_map_reclaim` (see `lower_map_reclaim_helper`, which allocates
+    /// nothing and cannot fail): when it repacked, branch to `retry` (the caller's
+    /// room check, which recomputes from the new `dataLength`); otherwise fall
+    /// through to the grow. `map_slot` may hold a record field's sub-block
+    /// address: the block does not move.
+    pub(crate) fn emit_map_reclaim_before_grow(
+        &mut self,
+        map_slot: usize,
+        map_type: &ParameterType,
+        retry: &str,
+    ) -> Result<(), String> {
+        let (key_type, value_type) = match typed_map_type_parts(map_type) {
+            Some((key, value)) => (key.clone(), value.clone()),
+            None => {
+                let element = crate::codegen::engine::types::typed_set_element_type(map_type)
+                    .cloned()
+                    .ok_or_else(|| format!("native map reclaim of non-map {map_type}"))?;
+                (element, ParameterType::Boolean)
+            }
+        };
+        let key_align = self.collection_payload_alignment(&key_type);
+        let value_align = self.collection_payload_alignment(&value_type);
+        let grow = self.label("map_reclaim_grow");
+        let status = self.temporary_vreg();
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &key_align.to_string(),
+        ));
+        self.emit(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            &value_align.to_string(),
+        ));
+        self.emit(abi::branch_link(MAP_RECLAIM_SYMBOL));
+        self.push_internal_call_relocation(MAP_RECLAIM_SYMBOL);
+        self.emit(abi::move_register(&status, abi::mfb_return(0)));
+        self.emit(abi::compare_immediate(&status, "0"));
+        self.emit(abi::branch_ne(retry));
+        self.emit(abi::label(&grow));
+        Ok(())
+    }
+
+    /// bug-732: the index of the entry of the map in `map_slot` whose key equals
+    /// the one in `key_slot`, into a fresh slot; branches to `not_found` when there
+    /// is none. A probe-eligible key type (`map_key_probe_eligible`) goes through
+    /// the hash index (`emit_map_probe`, which builds it lazily), so the lookup
+    /// costs O(1) on average; any other key type compares entry by entry, which is
+    /// that type's lookup cost everywhere. Writes nothing.
+    pub(crate) fn emit_map_find_index(
+        &mut self,
+        map_slot: usize,
+        key_slot: usize,
+        key_type: &ParameterType,
+        not_found: &str,
+    ) -> Result<usize, String> {
+        let index_slot = self.allocate_stack_object("map_find_index", 8);
+        if Self::map_key_probe_eligible(key_type) {
+            let entry_slot = self.emit_map_probe(map_slot, key_slot, key_type, not_found)?;
+            // index = (entry - (map + HEADER)) / ENTRY_SIZE.
+            let entry = self.temporary_vreg();
+            let base = self.temporary_vreg();
+            let size = self.temporary_vreg();
+            self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
+            self.emit(abi::subtract_registers(&entry, &entry, &base));
+            self.emit(abi::subtract_immediate(
+                &entry,
+                &entry,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::move_immediate(
+                &size,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::unsigned_divide_registers(&entry, &entry, &size));
+            self.emit(abi::store_u64(&entry, abi::stack_pointer(), index_slot));
+            return Ok(index_slot);
+        }
+        let map = self.temporary_vreg();
+        let key = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let key_off = self.temporary_vreg();
+        let key_len = self.temporary_vreg();
+        let scan_loop = self.label("mrk_scan_loop");
+        let scan_match = self.label("mrk_scan_match");
+        let scan_next = self.label("mrk_scan_next");
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&count, &map, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::add_immediate(&entry, &map, COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&scan_loop));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(not_found));
+        self.emit(abi::load_u64(
+            &key_off,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &key_len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        // arg7 = on-MATCH, arg8 = on-NO-MATCH (per `lower_map_remove_key`).
+        self.emit_collection_payload_matches_value_branch(
+            key_type,
+            &ParameterType::named(""),
+            &map,
+            &key_off,
+            &key_len,
+            &key,
+            &scan_match,
+            &scan_next,
+        )?;
+        self.emit(abi::label(&scan_next));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::branch(&scan_loop));
+        // Keys are unique: the first match is the only one.
+        self.emit(abi::label(&scan_match));
+        self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
+        Ok(index_slot)
+    }
+
+    /// bug-732: claim entry `index_slot` of the map in `map_slot` for removal —
+    /// delete its bucket from the hash index while every entry is still where the
+    /// index says (`_mfb_rt_map_bucket_delete`), then mark it
+    /// `COLLECTION_ENTRY_FLAG_REMOVED`. Nothing moves until
+    /// [`Self::emit_map_compact_from`]. A value the entry owns must be freed first.
+    pub(crate) fn emit_map_mark_removed(&mut self, map_slot: usize, index_slot: usize) {
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        self.emit(abi::branch_link(MAP_BUCKET_DELETE_SYMBOL));
+        self.push_internal_call_relocation(MAP_BUCKET_DELETE_SYMBOL);
+        let map = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let flag = self.temporary_vreg();
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&entry, abi::stack_pointer(), index_slot));
+        self.emit(abi::move_immediate(
+            &flag,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&entry, &entry, &flag));
+        self.emit(abi::add_registers(&entry, &entry, &map));
+        self.emit(abi::move_immediate(
+            &flag,
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_REMOVED.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            &flag,
+            &entry,
+            COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
+    }
+
+    /// bug-732: drop the entries [`Self::emit_map_mark_removed`] claimed, from the
+    /// index in `from_slot` (the smallest claimed) on, keeping the survivors'
+    /// order and the hash index (`_mfb_rt_map_compact_from`). Costs the entries
+    /// from `from` to the end — the ones that move — and nothing before.
+    pub(crate) fn emit_map_compact_from(&mut self, map_slot: usize, from_slot: usize) {
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            from_slot,
+        ));
+        self.emit(abi::branch_link(MAP_COMPACT_FROM_SYMBOL));
+        self.push_internal_call_relocation(MAP_COMPACT_FROM_SYMBOL);
+    }
+
+    /// Remove `key` from the map (or element from the set) whose block pointer is
+    /// in `map_slot`, **in place** (plan-86 D1, bug-732). The key is found by
+    /// [`Self::emit_map_find_index`]; a missing key leaves the map unchanged. A
+    /// value that owns a graph is freed (plan-134-H), the entry's bucket is deleted
+    /// from the hash index, and the later entries slide down one slot with their
+    /// buckets renumbered, so insertion order is kept and the index stays built:
+    /// the call costs the lookup plus the entries after the removed one, never a
+    /// rebuild of the index. The removed key and value bytes stay behind in the
+    /// data region as dead slack — the same model `set` uses when it overwrites a
+    /// value — and are dropped by the next tight copy.
+    ///
+    /// Every access to `map_slot` is a load, so a record field's map can be handed
+    /// in as its sub-block address (plan-145-B).
     pub(crate) fn lower_map_remove_key_in_place(
         &mut self,
         map_slot: usize,
@@ -1158,128 +1354,33 @@ impl CodeBuilder<'_> {
         map_type: &ParameterType,
         key_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        let s8 = self.temporary_vreg();
-        let s9 = self.temporary_vreg();
-        let s10 = self.temporary_vreg();
-        let s11 = self.temporary_vreg();
-        let s12 = self.temporary_vreg();
-        let s13 = self.temporary_vreg();
-        let s16 = self.temporary_vreg();
-        let found_slot = self.allocate_stack_object("mrk_found_idx", 8);
-        let flag_slot = self.allocate_stack_object("mrk_found_flag", 8);
-        let scan_loop = self.label("mrk_scan_loop");
-        let scan_match = self.label("mrk_scan_match");
-        let scan_next = self.label("mrk_scan_next");
-        let scan_done = self.label("mrk_scan_done");
-        let shift_loop = self.label("mrk_shift_loop");
-        let shift_done = self.label("mrk_shift_done");
         let done = self.label("mrk_done");
-
-        // found_flag = 0
-        self.emit(abi::move_immediate(&s8, "Integer", "0"));
-        self.emit(abi::store_u64(&s8, abi::stack_pointer(), flag_slot));
-        // scan entries 0..count for the matching key.
-        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&s9, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&s11, "Integer", "0"));
-        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
-        self.emit(abi::label(&scan_loop));
-        self.emit(abi::compare_registers(&s11, &s10));
-        self.emit(abi::branch_ge(&scan_done));
-        self.emit(abi::load_u64(
-            &s13,
-            &s12,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &s16,
-            &s12,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        // arg7 = on-MATCH, arg8 = on-NO-MATCH (per `lower_map_remove_key`).
-        self.emit_collection_payload_matches_value_branch(
-            key_type,
-            &ParameterType::named(""),
-            &s8,
-            &s13,
-            &s16,
-            &s9,
-            &scan_match,
-            &scan_next,
-        )?;
-        self.emit(abi::label(&scan_match));
-        self.emit(abi::store_u64(&s11, abi::stack_pointer(), found_slot));
-        self.emit(abi::move_immediate(&s13, "Integer", "1"));
-        self.emit(abi::store_u64(&s13, abi::stack_pointer(), flag_slot));
-        self.emit(abi::branch(&scan_done)); // keys are unique — first match wins
-        self.emit(abi::label(&scan_next));
-        self.emit(abi::add_immediate(&s11, &s11, 1));
-        self.emit(abi::add_immediate(&s12, &s12, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::branch(&scan_loop));
-        self.emit(abi::label(&scan_done));
-        // If not found, the map is unchanged.
-        self.emit(abi::load_u64(&s8, abi::stack_pointer(), flag_slot));
-        self.emit(abi::compare_immediate(&s8, "0"));
-        self.emit(abi::branch_eq(&done));
+        let found_slot = self.emit_map_find_index(map_slot, key_slot, key_type, &done)?;
         // plan-134-H: the removed entry's value owns a graph nothing else reaches; free it
-        // before the entry shift overwrites its offset. Every register is reloaded below.
+        // before the entry is dropped.
         if let Some((_, value_type)) = typed_map_type_parts(map_type) {
             let value_type = value_type.clone();
             if self.owns_graph(&value_type) {
                 let entry_slot = self.allocate_stack_object("mrk_removed_entry", 8);
-                self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
-                self.emit(abi::load_u64(&s11, abi::stack_pointer(), found_slot));
+                let map = self.temporary_vreg();
+                let entry = self.temporary_vreg();
+                let size = self.temporary_vreg();
+                self.emit(abi::load_u64(&map, abi::stack_pointer(), map_slot));
+                self.emit(abi::load_u64(&entry, abi::stack_pointer(), found_slot));
                 self.emit(abi::move_immediate(
-                    &s13,
+                    &size,
                     "Integer",
                     &COLLECTION_ENTRY_SIZE.to_string(),
                 ));
-                self.emit(abi::multiply_registers(&s16, &s11, &s13));
-                self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
-                self.emit(abi::add_registers(&s12, &s12, &s16));
-                self.emit(abi::store_u64(&s12, abi::stack_pointer(), entry_slot));
+                self.emit(abi::multiply_registers(&entry, &entry, &size));
+                self.emit(abi::add_registers(&entry, &entry, &map));
+                self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
+                self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
                 self.emit_drop_entry_value(map_slot, entry_slot, &value_type)?;
             }
         }
-        // Shift entries [found+1 .. count) down one 40-byte slot.
-        // dst = map + HEADER + found*40 ; src = dst + 40 ; words = (count-1-found)*5.
-        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&s11, abi::stack_pointer(), found_slot));
-        // s12 = dst = map + HEADER + found*40
-        self.emit(abi::move_immediate(
-            &s13,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&s16, &s11, &s13));
-        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&s12, &s12, &s16));
-        // s16 = words = (count - 1 - found) * 5
-        self.emit(abi::subtract_registers(&s16, &s10, &s11));
-        self.emit(abi::subtract_immediate(&s16, &s16, 1));
-        self.emit(abi::move_immediate(&s13, "Integer", "5"));
-        self.emit(abi::multiply_registers(&s16, &s16, &s13));
-        // forward word-copy dst[k] = src[k] where src = dst + 40 (dst < src → safe).
-        self.emit(abi::move_immediate(&s11, "Integer", "0")); // k
-        self.emit(abi::label(&shift_loop));
-        self.emit(abi::compare_registers(&s11, &s16));
-        self.emit(abi::branch_ge(&shift_done));
-        self.emit(abi::shift_left_immediate(&s13, &s11, 3)); // k*8
-        self.emit(abi::add_registers(&s9, &s12, &s13)); // &dst[k]
-        self.emit(abi::load_u64(&s10, &s9, COLLECTION_ENTRY_SIZE)); // src[k] = dst[k]+40
-        self.emit(abi::store_u64(&s10, &s9, 0));
-        self.emit(abi::add_immediate(&s11, &s11, 1));
-        self.emit(abi::branch(&shift_loop));
-        self.emit(abi::label(&shift_done));
-        // count -= 1; BUCKETS_READY = 0.
-        self.emit(abi::load_u64(&s8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::subtract_immediate(&s10, &s10, 1));
-        self.emit(abi::store_u64(&s10, &s8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&s13, "Byte", "0"));
-        self.emit(abi::store_u8(&s13, &s8, COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit_map_mark_removed(map_slot, found_slot);
+        self.emit_map_compact_from(map_slot, found_slot);
         self.emit(abi::label(&done));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));

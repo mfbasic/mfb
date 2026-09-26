@@ -76,8 +76,18 @@ fn frees(plan: &Value, symbol: &str, symbol_name: &str) -> usize {
         .count()
 }
 
+/// The `String` frees on `symbol`'s normal path. An inline raise inside the
+/// statement (an allocation failure, a checked operator) leaves through its own
+/// error exit, which frees the statement's temps INSTEAD of the normal path
+/// (bug-695, as a failing call's exit always did) — those are not extra owners.
 fn string_frees(plan: &Value, symbol: &str) -> usize {
-    frees(plan, symbol, "_mfb_rt_drop_owned_string")
+    let instructions = function(plan, symbol)["instructions"]
+        .as_array()
+        .expect("instructions array");
+    common::outside_inline_error_exits(instructions)
+        .into_iter()
+        .filter(|i| i["target"].as_str() == Some("_mfb_rt_drop_owned_string"))
+        .count()
 }
 
 /// How many arena blocks the concatenations in `symbol` allocate.

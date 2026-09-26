@@ -572,6 +572,7 @@ pub(crate) fn cfdata_to_list(
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     scratch: &str,
+    vregs: &mut Vregs,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -628,6 +629,7 @@ pub(crate) fn cfdata_to_list(
         Some(coll_off),
         abi::mfb_return(1),
         alloc_fail,
+        vregs,
         ins,
         rel,
     );

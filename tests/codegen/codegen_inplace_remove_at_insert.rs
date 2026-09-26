@@ -206,7 +206,10 @@ fn insert_under_a_live_for_each_runs_in_place_on_a_loop_copy() {
 /// Set `remove` had no arm anywhere, which is the whole of its 677× against
 /// c -O0: `collections::remove` on a `Set` already reuses the Map `removeKey`
 /// lowering out of place, so the in-place form is the same reuse of
-/// `lower_map_remove_key_in_place` — entry compaction plus `BUCKETS_READY = 0`.
+/// `lower_map_remove_key_in_place` — since bug-732 a probe for the element, then
+/// an entry compaction that keeps the hash index built. (Its linear scan,
+/// `mrk_scan_loop`, is now emitted only for a key type the probe cannot serve, so
+/// the in-place form is recognised by the lowering's own `mrk_done` label.)
 #[test]
 fn set_remove_on_a_plain_local_mutates_in_place() {
     let plan = ncode(
@@ -227,9 +230,9 @@ fn set_remove_on_a_plain_local_mutates_in_place() {
          END FUNC\n",
     );
     assert!(
-        label_count(&plan, "_mfb_fn_drain", "mrk_scan_loop") >= 1,
+        label_count(&plan, "_mfb_fn_drain", "mrk_done") >= 1,
         "Set `remove` on a uniquely-owned MUT local must delete the entry in \
-         place (`lower_map_remove_key_in_place`, whose scan emits `mrk_scan_loop`), \
+         place (`lower_map_remove_key_in_place`, which emits `mrk_done`), \
          not rebuild the whole set per call"
     );
 }
@@ -263,7 +266,7 @@ fn set_remove_under_a_live_for_each_runs_in_place_on_a_loop_copy() {
         "a `FOR EACH` whose body rewrites its iterable must walk a copy of it"
     );
     assert!(
-        label_count(&plan, "_mfb_fn_walk", "mrk_scan_loop") >= 1,
+        label_count(&plan, "_mfb_fn_walk", "mrk_done") >= 1,
         "with the loop on its own copy, the Set `remove` runs in place"
     );
 }

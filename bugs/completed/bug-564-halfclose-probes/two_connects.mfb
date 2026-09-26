@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT tls
+FUNC main AS Integer
+  RES a = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  io::print("one")
+  RES b = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  io::print("two")
+  RETURN 0
+END FUNC

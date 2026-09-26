@@ -30,7 +30,15 @@ returns an empty list.
 
 The result is a new, independent list of the same type as
 `value`; `value` itself is neither modified nor closed, and its elements
-are copied into the new list rather than shared with `value`."#;
+are copied into the new list rather than shared with `value`.
+
+Assigning straight back to the same `MUT` variable — `list =
+collections::mid(list, start, count)` — is the cheap shape: it cuts the list
+itself down to the slice instead of building a copy, and its cost is the
+elements it removes plus the ones it slides to the front; `list =
+collections::mid(list, 0, len(list))` costs nothing at all. Assigning the result anywhere
+else — `ys = collections::mid(xs, start, count)` — builds a new list and leaves
+`xs` as it was. The result, and any error, is the same either way."#;
 
 const EX_MID: &str = r#"Take two elements from the middle:
 

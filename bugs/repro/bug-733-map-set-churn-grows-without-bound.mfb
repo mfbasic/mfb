@@ -1,0 +1,44 @@
+' bug-733 repro: a Map / Set whose size stays constant under in-place
+' set/removeKey (add/remove) churn grows without bound.
+' Usage: app.out <map|set> <n>   (build with --debug and read peak_live_bytes)
+' Expected: peak_live_bytes the same for n and 8n (the collection never holds
+' more than 65 entries).
+IMPORT io
+IMPORT os
+IMPORT collections
+
+FUNC mapChurn(n AS Integer) AS Integer
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 1 TO n
+    m = collections::set(m, "key-" & toString(i), i)
+    IF i > 64 THEN
+      m = collections::removeKey(m, "key-" & toString(i - 64))
+    END IF
+  NEXT
+  RETURN len(m)
+END FUNC
+
+FUNC setChurn(n AS Integer) AS Integer
+  MUT s AS Set OF Integer = Set OF Integer {}
+  FOR i = 1 TO n
+    s = collections::add(s, i)
+    IF i > 64 THEN
+      s = collections::remove(s, i - 64)
+    END IF
+  NEXT
+  RETURN len(s)
+END FUNC
+
+FUNC main AS Integer
+  LET args = os::args()
+  LET shape = collections::get(args, 0)
+  LET n = toInt(collections::get(args, 1))
+  MUT r AS Integer = 0
+  IF shape = "map" THEN
+    r = mapChurn(n)
+  ELSEIF shape = "set" THEN
+    r = setChurn(n)
+  END IF
+  io::print(shape & " " & toString(r))
+  RETURN 0
+END FUNC

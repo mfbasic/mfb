@@ -24,6 +24,11 @@ loop, appending each result, and stop when that error is raised. `tcp::read` end
 a stream exactly the same way, so a protocol written against one transport reads
 the same on the other.
 
+After a `read` has raised `ErrConnectionClosed`, the TLS socket is finished:
+every later `read` raises the same error at once, and so does every
+`tls::write`, even when the peer is still connected. This part is TLS-only; a
+`tcp` socket can still be written to after its read side has ended.
+
 **There is no `readText`.** A stream read stops wherever the network happened to
 divide the data, which need not be a Unicode-scalar boundary, so a decode at that
 point can split a multi-byte Unicode scalar in half. Assemble the whole message first,

@@ -263,6 +263,21 @@ pub(crate) struct CodeBuilder<'a> {
     /// escaped (§15.6) and must still be closed, and `EXIT`/`CONTINUE` spill no
     /// pending result at all, so a comparison there would read a stale slot.
     pub(crate) escaping_value_slot: Option<usize>,
+    /// bug-695: the shared error-return landing pads of the function being lowered,
+    /// keyed by the cleanup-stack prefix each one drops, mapped to the pad's label.
+    /// An inline raise that leaves the function branches to the pad for the whole
+    /// active stack; the pad drops the innermost cleanup and continues into the pad
+    /// for the next-shorter prefix, and the empty prefix's pad reloads the parked
+    /// `Result` and returns. One pad per distinct prefix instead of the whole walk
+    /// at every raise site ([`Self::emit_inline_error_exit`]).
+    pub(crate) error_return_pads: HashMap<Vec<ErrorReturnPadEntry>, String>,
+    /// bug-695: the pads' code, emitted when first requested (so each drop reads the
+    /// builder state of the point that needed it) but held back and appended after
+    /// the body by [`Self::append_error_return_pads`], deepest prefix first. That
+    /// placement makes every branch into and between pads a FORWARD branch: a
+    /// backward one reads as a loop to the live-range analyses
+    /// (`v128_live_ranges` stretched every vector value across it).
+    pub(crate) error_return_pad_code: Vec<ErrorReturnPad>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
     /// branches to this label instead of returning, leaving the raw `Result` in
     /// the standard tag/value/message registers. Used to make inline conversions
@@ -293,11 +308,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// accept side and the nested union/collection copies leave this false and keep
     /// flagging inline (their source is a transient queue record, already garbage).
     pub(crate) suppress_resource_source_flag: bool,
-    /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
-    /// Set while `emit_error_register_return` is routing an inline failure to the
-    /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM
-    /// fallback re-enters `emit_error_register_return` — which must then return to
-    /// the caller (a plain `return_()`) rather than recursing into the trap route.
+    /// Re-entrancy guard for an inline error's exit route (bug-03, bug-695).
+    /// Set while `emit_error_register_return` is routing an inline failure out —
+    /// to the enclosing trap or, through the scope-drop walk, to the caller. The
+    /// trap route itself builds an `Error` inline, whose OOM fallback re-enters
+    /// `emit_error_register_return` — which must then return to the caller (a
+    /// plain `return_()`) rather than start a second walk over cleanups the first
+    /// is already dropping.
     pub(crate) emitting_error_route: bool,
     /// Re-entrancy guard for the error-block origin funnel (plan-error-block-in-slot
     /// stages 4-5). Set while `emit_park_error_block_from_registers` is building the
@@ -665,6 +682,8 @@ impl<'a> CodeBuilder<'a> {
             cleanup_scope_starts: Vec::new(),
             pending_result_slots: None,
             escaping_value_slot: None,
+            error_return_pads: HashMap::new(),
+            error_return_pad_code: Vec::new(),
             raw_result_capture: None,
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,
@@ -795,7 +814,7 @@ pub(crate) struct LoopLabels {
     pub(crate) temp_depth: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ResourceCleanup {
     pub(crate) name: String,
     pub(crate) symbol: String,
@@ -837,7 +856,7 @@ pub(crate) struct ResourceCleanup {
     pub(crate) owner_flag_slot: Option<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ResourceUnionCleanup {
     pub(crate) name: String,
     /// `(tag, close_symbol)` per active variant; drop reads the union tag and
@@ -869,7 +888,7 @@ pub(crate) struct ResourceUnionCleanup {
 /// element has one registered close op; a resource-union element (bug-429) is
 /// tag-dispatched to its active variant's close op, then its uniform STATE block
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum OwnedListDrop {
     /// A single registered close op applied to each node's record pointer, plus what
     /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
@@ -892,7 +911,7 @@ pub(crate) enum OwnedListDrop {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OwnedListCleanup {
     /// The owning collection binding's name (for transfer-on-return lookup).
     pub(crate) name: String,
@@ -912,7 +931,7 @@ pub(crate) struct OwnedListCleanup {
 /// unaliased, a single `arena_free(ptr, size)` reclaims the whole value; the
 /// size is recomputed from the static type at drop via
 /// `emit_inlined_block_size_from_ptr_slot`.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).
     pub(crate) type_: ParameterType,
@@ -962,7 +981,7 @@ pub(crate) struct OwnedValueCleanup {
 }
 
 /// bug-593: which runtime paths an inline-`TRAP` `Result` wrapper drop releases.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum ResultWrapperDrop {
     /// The payload word at +16 is loaded BY VALUE (`result_payload_is_block` is
     /// false — a resource handle), so nothing can alias into the wrapper on
@@ -1015,12 +1034,33 @@ pub(crate) struct PendingClosure {
     pub(crate) captures: Vec<ParameterType>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ActiveCleanup {
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
     OwnedList(OwnedListCleanup),
     OwnedValue(OwnedValueCleanup),
+}
+
+/// bug-695: one element of an error-return landing pad's key. A drop is fully
+/// determined by its cleanup plus, for a name-addressed cleanup (a resource, a
+/// resource union), the stack slot that name resolves to when the pad is emitted,
+/// so two raise sites may share a pad only when both agree.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ErrorReturnPadEntry {
+    pub(crate) cleanup: ActiveCleanup,
+    pub(crate) local_slot: Option<usize>,
+}
+
+/// bug-695: one error-return landing pad awaiting placement after the body.
+pub(crate) struct ErrorReturnPad {
+    /// The length of the cleanup-stack prefix this pad drops down from.
+    pub(crate) depth: usize,
+    /// The pad's own label (the first instruction of `code`).
+    pub(crate) label: String,
+    /// The pad it continues into, `None` for the empty prefix's (which returns).
+    pub(crate) successor: Option<String>,
+    pub(crate) code: Vec<CodeInstruction>,
 }
 
 #[derive(Clone, Copy)]
@@ -1672,6 +1712,35 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let mouse_state_slots = if uses_mouse { MOUSE_STATE_SLOTS } else { 0 };
+    // bug-699: the input-buffer region — the bytes a stdin subscriber has pulled
+    // but no reader has consumed. A FOURTH conditionally-reserved region, appended
+    // past the mouse-state region for the same reason that one was appended: every
+    // program that does not read through the buffer keeps every existing offset,
+    // entry frame and golden byte-identical. Keyed on the readers that decode
+    // through it (`io::input::INPUT_BUFFER_READERS`), because only a reader that
+    // looks ahead can leave bytes in it; the plain readers then drain it first.
+    let uses_input_buffer = crate::codegen::io::input::program_uses_input_buffer(&runtime_symbols);
+    let input_state_offset = if uses_input_buffer {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base
+                    + link_slot_count
+                    + term_state_slots
+                    + presentation_mode_slots
+                    + mouse_state_slots)
+                    * 8,
+        )
+    } else {
+        None
+    };
+    #[cfg(test)]
+    crate::codegen::io::input::RESERVED_INPUT_STATE_OFFSET
+        .with(|slot| slot.set(input_state_offset));
+    let input_state_slots = if uses_input_buffer {
+        crate::codegen::io::input::INPUT_STATE_SLOTS
+    } else {
+        0
+    };
     // plan-94-A §4.4b: the process-global mouse-mode word. Not part of any arena,
     // because an app backend's mouse handler runs on the UI thread and has no arena
     // state to read — see `MOUSE_MODE_SYMBOL`. Emitted only when the program uses
@@ -1723,7 +1792,8 @@ pub(crate) fn lower_module_for_platform(
         + link_slot_count
         + term_state_slots
         + presentation_mode_slots
-        + mouse_state_slots;
+        + mouse_state_slots
+        + input_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -2231,6 +2301,12 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
         code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
     }
+    // bug-699: the input decoder, for the readers that decode through the input
+    // buffer. Reserved and emitted together, so a program without such a reader
+    // carries neither.
+    if input_state_offset.is_some() {
+        code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
+    }
     // App-mode io members lower their transcript-write / prompt+read / present
     // sequences inline (plan-101 append shape): each io `abi_function` body calls
     // the platform's `emit_app_io_*` to append its GUI sequence directly, and the
@@ -2547,6 +2623,7 @@ pub(crate) fn lower_module_for_platform(
                         term_state_offset,
                         presentation_mode_offset,
                         mouse_state_offset,
+                        input_state_offset,
                         global_slots: arena_global_slots,
                         debug_arena_registry: crate::codegen::debug::feature_active(
                             module,
@@ -2715,6 +2792,33 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_build_buckets_helper());
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
+    }
+    // bug-732/733: the in-place removals' index maintenance and the map dead-byte
+    // reclaim, each emitted only when a lowered function calls it.
+    for (symbol, lower) in [
+        (
+            MAP_BUCKET_DELETE_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_bucket_delete_helper
+                as fn() -> CodeFunction,
+        ),
+        (
+            MAP_COMPACT_FROM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_compact_from_helper,
+        ),
+        (
+            MAP_RECLAIM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_reclaim_helper,
+        ),
+    ] {
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == symbol)
+        });
+        if used {
+            code_functions.push(lower());
+        }
     }
     // plan-118-D: one `construct.T` per record type the census qualified, gated
     // on the relocation like every other internal `bl` target — a type can
@@ -3180,6 +3284,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
                 arena_layout.mouse_state_offset,
+                arena_layout.input_state_offset,
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,

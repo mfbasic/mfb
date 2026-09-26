@@ -29,6 +29,14 @@ nothing you do with the result affects `value`. `value` is not modified.
 `collections::drop` is the complementary operation, returning what `take` leaves
 behind.
 
+Assigning straight back to the same `MUT` variable — `list =
+collections::take(list, n)` — is the cheap shape: it shortens the list itself
+instead of building a copy. `list = collections::take(list, len(list))` costs
+nothing at all, and any trim costs only the elements it removes, so a loop that
+trims a working list this way stays fast as the list grows. Assigning the result
+anywhere else — `ys = collections::take(xs, n)` — builds a new list and leaves
+`xs` as it was. The result is the same either way.
+
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `take` copies a contiguous range and never inspects an element, so
 any list element type is accepted. `count` must be `Integer`."#;

@@ -2090,14 +2090,21 @@ impl CodeBuilder<'_> {
         }
         // Move the window to `block + 8`. The destination is never after the
         // source, so a forward copy reads each byte before it is overwritten.
+        // bug-732: a window that already starts there (`stripSuffix`, a no-match
+        // `stripPrefix`, `trimEnd`, `left`/`mid` from 0) does not move, so the call
+        // costs only the bytes it gives up, not a copy of every byte it keeps.
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
         let count = self.temporary_vreg();
+        let in_place = self.label("inplace_str_window_in_place");
         self.emit(abi::load_u64(&dst, abi::stack_pointer(), block_slot));
         self.emit(abi::add_immediate(&dst, &dst, 8));
         self.emit(abi::load_u64(&src, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::compare_registers(&src, &dst));
+        self.emit(abi::branch_eq(&in_place));
         self.emit(abi::load_u64(&count, abi::stack_pointer(), len_slot));
         self.emit_copy_bytes(&dst, &src, &count, "inplace_str_window_move");
+        self.emit(abi::label(&in_place));
         self.emit_string_set_len(block_slot, shadow.slot, len_slot);
         self.publish_string_shadow(&shadow)?;
         if let Some(local) = self.locals.get_mut(site.name) {

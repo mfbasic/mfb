@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT net
+IMPORT tls
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 0, "C:\\Users\\test\\b564p\\cert.pem", "C:\\Users\\test\\b564p\\key1.pem")
+  LET bound = tls::localAddress(server)
+  io::print("port=" & toString(bound.port))
+  RES conn = tls::accept(server)
+  FOR i = 1 TO 20000
+    tls::write(conn, "small")
+  NEXT
+  io::print("done")
+  RETURN 0
+END FUNC

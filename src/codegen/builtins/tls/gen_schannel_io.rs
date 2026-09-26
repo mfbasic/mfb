@@ -360,6 +360,8 @@ pub(crate) fn lower_tls_write(
     const BUFS: usize = 64; // SecBuffer[4] (64)
     const DESC: usize = 128;
     const ORIGLEN: usize = 144; // original data length (the write result)
+    // bug-564: SENDBUF's byte size, which its release must pass back (bug-560).
+    const SENDLEN: usize = 152;
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
@@ -369,6 +371,8 @@ pub(crate) fn lower_tls_write(
     // protocol failure, not a transport one.
     let send_fail = format!("{symbol}_send_fail");
     let peer_closed = format!("{symbol}_peer_closed");
+    // bug-564: the read already reported the close; nothing exists to release.
+    let peer_gone = format!("{symbol}_peer_gone");
     let timed_out = format!("{symbol}_timed_out");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -380,11 +384,20 @@ pub(crate) fn lower_tls_write(
     // return_register = resource; ARG[1] = data (String/List).
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
+        // Null until allocated, so a guarded release on any exit is safe.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SENDBUF),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
         abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64(&v9, abi::stack_pointer(), STATE),
+        // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
+        // already reported the peer's close. Raise before the send buffer exists,
+        // empty payload included; Schannel would otherwise encrypt and send to a
+        // half-closed peer.
+        abi::load_u64(&v10, &v9, st::PEER_CLOSED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&peer_gone),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD),
     ]);
@@ -418,6 +431,7 @@ pub(crate) fn lower_tls_write(
         abi::load_u32(&v13, &v10, st::TRAILER),
         abi::add_registers(abi::return_register(), &v11, &v12),
         abi::add_registers(abi::return_register(), abi::return_register(), &v13),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), SENDLEN),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
@@ -502,6 +516,22 @@ pub(crate) fn lower_tls_write(
         abi::store_u64(&v11, abi::stack_pointer(), REMAIN),
         abi::branch(&wloop),
         abi::label(&wdone),
+    ]);
+    // bug-564: the send buffer was never released, on any exit: every write
+    // leaked ~16 KiB (20000 small writes peaked at 400 MB on box 2230). The
+    // success path and each exit reached after the allocation release it.
+    let release_sendbuf = |ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>, tag: &str| {
+        crate::codegen::memory::marshal::emit_free_buffer_guarded(
+            symbol,
+            tag,
+            SENDBUF,
+            crate::codegen::memory::marshal::ScratchSize::Slot(SENDLEN),
+            ins,
+            rel,
+        );
+    };
+    release_sendbuf(&mut ins, &mut rel, "wdone_sendbuf");
+    ins.extend([
         // result = original length (saved before the loop clobbered ARG[1]).
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), ORIGLEN),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -540,11 +570,16 @@ pub(crate) fn lower_tls_write(
     ]);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&peer_gone));
+    emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&peer_closed));
+    release_sendbuf(&mut ins, &mut rel, "pc_sendbuf");
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&timed_out));
+    release_sendbuf(&mut ins, &mut rel, "to_sendbuf");
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
+    release_sendbuf(&mut ins, &mut rel, "f_sendbuf");
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);

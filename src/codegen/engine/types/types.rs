@@ -1372,8 +1372,13 @@ pub(crate) struct ArenaLayout {
     /// program uses `enableMouse`/`pollMouse`. Reserved just past the
     /// presentation-mode word, so no existing offset moves.
     pub(crate) mouse_state_offset: Option<usize>,
+    /// bug-699: byte offset of the input-buffer region, when a reader in the
+    /// program decodes through it. Reserved just past the mouse-state region, so
+    /// no existing offset moves.
+    pub(crate) input_state_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state + the app presentation-mode slot + the mouse-state region.
+    /// `term::` state + the app presentation-mode slot + the mouse-state region +
+    /// the input-buffer region.
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,

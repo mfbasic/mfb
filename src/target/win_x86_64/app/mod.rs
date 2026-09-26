@@ -62,14 +62,52 @@ const WNDPROC_SYMBOL: &str = "_mfb_winapp_wndproc";
 const EDITPROC_SYMBOL: &str = "_mfb_winapp_editproc";
 
 // ---- plan-66-J-5 term:: TUI grid (GDI cell grid painted on the main window) ----
-// A fixed 80x25 monospace grid rendered into an off-screen memory DC; term:: ops
-// draw into the memDC and `term::sync` InvalidateRects the main window, whose
-// WndProc BitBlts the memDC to the client area when TUI mode is active. `term::on`
-// hides the transcript EDIT so the grid shows through; `term::off` restores it.
-const TUI_COLS: usize = 80;
-const TUI_ROWS: usize = 25;
+// A monospace grid rendered into an off-screen memory DC; term:: ops draw into the
+// memDC and `term::sync` InvalidateRects the main window, whose WndProc BitBlts the
+// memDC to the client area when TUI mode is active. `term::on` hides the transcript
+// EDIT so the grid shows through; `term::off` restores it.
+//
+// bug-540 WIN-02: the grid follows the window. Its size is two writable globals
+// ([`GRID_COLS_SYM`]/[`GRID_ROWS_SYM`]) that the `WM_SIZE` handler rewrites, and
+// every bound in this file is read from them. The memDC's bitmap is allocated ONCE
+// at the backing maximum below and the globals are the *logical* surface inside it,
+// so a resize never recreates the bitmap under a worker that is drawing into it.
+/// Backing maximum: the bitmap is `TUI_MAX_COLS * TUI_CELL_W` by
+/// `TUI_MAX_ROWS * TUI_CELL_H` pixels (3840x2160, a 4K UHD client), and the logical
+/// surface is clamped to it. Never a bound on a coordinate — only on the size.
+const TUI_MAX_COLS: usize = 480;
+const TUI_MAX_ROWS: usize = 135;
+/// The surface a headless run starts with: there is no window to measure, so the
+/// grid is the classic 80x25 until a scripted resize says otherwise. A windowed run
+/// never sees it — `CreateWindowExW` sends `WM_SIZE` before the worker exists.
+const TUI_HEADLESS_COLS: usize = 80;
+const TUI_HEADLESS_ROWS: usize = 25;
 const TUI_CELL_W: usize = 8; // px per cell (matches the SYSTEM_FIXED_FONT metrics we request)
 const TUI_CELL_H: usize = 16;
+/// bug-540 WIN-02: the live surface size in cells, written only by
+/// [`emit_term_resize`] (the UI thread, or `_main` on the headless path) and read by
+/// every `term::` body on the worker. One aligned word each, so a reader sees an old
+/// or a new value, never a torn one.
+const GRID_COLS_SYM: &str = "_mfb_winapp_tui_cols";
+const GRID_ROWS_SYM: &str = "_mfb_winapp_tui_rows";
+/// bug-540 WIN-03: `term::didResize` as a counter pair, not a flag — the shape
+/// `canvas::didResize` uses (`.ai/canvas-threading.md`, "`canvas::didResize` is a
+/// counter pair"). The resize handler bumps [`TUI_RESIZES_SYM`] on a genuine size
+/// change; the worker's `didResize` compares it with [`TUI_RESIZES_SEEN_SYM`] and
+/// records what it reported. One writer each, so no lock: a read-and-clear flag
+/// shared by two threads would lose a resize landing between the load and the store.
+const TUI_RESIZES_SYM: &str = "_mfb_winapp_tui_resizes";
+const TUI_RESIZES_SEEN_SYM: &str = "_mfb_winapp_tui_resizes_seen";
+/// bug-540 WIN-02: `_mfb_winapp_term_resize(widthPx, heightPx)` — the one handler
+/// both `WM_SIZE` and the headless scripted resize call.
+const TERM_RESIZE_SYMBOL: &str = "_mfb_winapp_term_resize";
+/// `_mfb_winapp_term_scroll()` — the `io::write` grid path's scroll at the bottom.
+const TERM_SCROLL_SYMBOL: &str = "_mfb_winapp_term_scroll";
+/// The scripted `term::` resize variables (owner-approved 2026-09-25): the twin of
+/// [`RESIZE_W_ENV_SYM`]/[`RESIZE_H_ENV_SYM`], in client-area pixels as `WM_SIZE`
+/// delivers them.
+const TERM_RESIZE_W_ENV_SYM: &str = "_mfb_winapp_term_resize_w_env";
+const TERM_RESIZE_H_ENV_SYM: &str = "_mfb_winapp_term_resize_h_env";
 /// Writable u64 globals for the TUI surface, all 0 until `term::on` builds them.
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
 const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
@@ -398,9 +436,19 @@ pub(super) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main(spec.initial_mode, spec.uses_canvas, spec.debug_hooks),
+        emit_main(
+            spec.initial_mode,
+            spec.uses_canvas,
+            spec.uses_term,
+            spec.debug_hooks,
+        ),
         emit_worker(),
-        emit_wndproc(spec.uses_canvas, spec.uses_mouse, spec.uses_window),
+        emit_wndproc(
+            spec.uses_canvas,
+            spec.uses_mouse,
+            spec.uses_window,
+            spec.uses_term,
+        ),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
         // like the wndproc it posts to — whether a program ever enters canvas mode is
         // a runtime question, not a static one.
@@ -418,6 +466,14 @@ pub(super) fn emit_app_program_entry(
     if spec.uses_window {
         functions.push(window::emit_window_sync());
     }
+    // bug-540 WIN-02: the `term::` surface's resize handler, which `WM_SIZE` and the
+    // headless scripted resize both call, and the grid write path's scroll. Gated
+    // like their callers (the grid path exists exactly when `term_state_offset` does,
+    // which is `uses_term`), so a program that never uses `term::` emits none of it.
+    if spec.uses_term {
+        functions.push(emit_term_resize());
+        functions.push(emit_term_scroll());
+    }
     Ok(functions)
 }
 
@@ -425,7 +481,12 @@ pub(super) fn emit_app_program_entry(
 /// stack args [0x20..0x60], WNDCLASSEXW [0x60..0xB0], MSG [0xB0..0xE0],
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
-fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: bool) -> CodeFunction {
+fn emit_main(
+    initial_mode: PresentationMode,
+    uses_canvas: bool,
+    uses_term: bool,
+    debug_hooks: bool,
+) -> CodeFunction {
     const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
@@ -599,7 +660,11 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    // `c_return(0)`: `CreateWindowExW`'s HWND is still in `rax` (the `load_addr`
+    // above writes only ARG[1]). `return_register()` is `rcx` on Win64, which the
+    // call left undefined, so the surviving copy was garbage and a `Console` restore
+    // re-routed io to it (bug-540).
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
 
     // ---- plan-66-J-4 input wiring (GUI path) ----
     // CreatePipe(&hRead, &hWrite, NULL, 0): a byte pipe whose READ end becomes the
@@ -701,12 +766,19 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
         &mut ins,
         &mut rel,
     );
+    // The count is the Win32 call's C result (`rax`), NOT `return_register()` —
+    // on Win64 that is the MFB result `rcx`, which the call leaves undefined
+    // (`.ai/testing-gates.md`, "Win64 codegen invariant"). Reading `rcx` made an
+    // UNSET variable look like a garbage-length string, and the loop below posted
+    // that many `WM_CHAR 0`s into the input pipe: `io::readByte` in a program that
+    // starts in `Console` returned 0 at once, forever (bug-699;
+    // found independently by bug-540).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         INJ_N,
     )); // count
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
     ins.push(abi::label("inject_loop"));
@@ -839,6 +911,13 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
     // symbol, and a program that never imports `canvas` does not emit that data
     // object — an ungated reference fails the build with "relocation target
     // `_mfb_rt_canvas_graphics` is not a data object or defined symbol".
+    // Where the canvas block goes when it has nothing to do: on to the `term::` twin
+    // below when the program has one, else straight to the wait.
+    let after_canvas_resize = if uses_term {
+        "headless_term_resize"
+    } else {
+        "headless_wait_worker"
+    };
     if uses_canvas {
         emit_parse_wide_env(
             RESIZE_W_ENV_SYM,
@@ -849,7 +928,7 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
             &mut rel,
         );
         ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
-        ins.push(abi::branch_le("headless_wait_worker"));
+        ins.push(abi::branch_le(after_canvas_resize));
         emit_parse_wide_env(
             RESIZE_H_ENV_SYM,
             abi::LOCAL[1],
@@ -859,7 +938,7 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
             &mut rel,
         );
         ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
-        ins.push(abi::branch_le("headless_wait_worker"));
+        ins.push(abi::branch_le(after_canvas_resize));
         // Poll until the render loop has completed a frame at the original size.
         ins.push(abi::label("headless_resize_wait"));
         crate::codegen::runtime::canvas::state_base(from, abi::LOCAL[2], &mut ins, &mut rel);
@@ -894,6 +973,73 @@ fn emit_main(initial_mode: PresentationMode, uses_canvas: bool, debug_hooks: boo
             &mut rel,
         );
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+    }
+
+    // ---- bug-540 WIN-02: one scripted `term::` resize, when the env says so ----
+    //
+    // The `term::` twin of the canvas block above (owner-approved 2026-09-25), for
+    // the same reason: a resize is a *window* event, headless has no window, and box
+    // 2230 runs headless — so without this the `WM_SIZE` arm below could be
+    // implemented and never executed. `MFB_WINAPP_TERM_RESIZE_W`/`_H` are the new
+    // client-area size in pixels, what `WM_SIZE` delivers, and they go through the
+    // same [`emit_term_resize`] handler `WM_SIZE` calls.
+    //
+    // It waits for `term::on` to have built the surface first — a resize before then
+    // is not a resize of anything, and the handler would not count it. The wait is a
+    // `WaitForSingleObject` on the worker rather than a `Sleep`, so a program that
+    // never calls `term::on` ends the poll by ending, instead of hanging `_main`.
+    if uses_term {
+        ins.push(abi::label("headless_term_resize"));
+        emit_parse_wide_env(
+            TERM_RESIZE_W_ENV_SYM,
+            abi::LOCAL[0],
+            "hl_trw",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        emit_parse_wide_env(
+            TERM_RESIZE_H_ENV_SYM,
+            abi::LOCAL[1],
+            "hl_trh",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        ins.push(abi::label("headless_term_wait"));
+        load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_ne("headless_term_ready"));
+        // WaitForSingleObject(worker, 20): WAIT_OBJECT_0 (0) = the worker is gone.
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WORKERH,
+        ));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "20"));
+        call_external(from, "WaitForSingleObject", KERNEL32, &mut ins, &mut rel);
+        ins.push(abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            "4294967295",
+        ));
+        ins.push(abi::and_registers(
+            abi::mfb_arg(0),
+            abi::c_return(0),
+            abi::mfb_arg(1),
+        )); // a DWORD
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("main_done"));
+        ins.push(abi::branch("headless_term_wait"));
+        ins.push(abi::label("headless_term_ready"));
+        ins.push(abi::move_register(abi::mfb_arg(0), abi::LOCAL[0]));
+        ins.push(abi::move_register(abi::mfb_arg(1), abi::LOCAL[1]));
+        call_internal(from, TERM_RESIZE_SYMBOL, &mut ins, &mut rel);
     }
 
     ins.push(abi::label("headless_wait_worker"));
@@ -1077,7 +1223,12 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeFunction {
+fn emit_wndproc(
+    uses_canvas: bool,
+    uses_mouse: bool,
+    uses_window: bool,
+    uses_term: bool,
+) -> CodeFunction {
     // Frame (plan-66-J-5 added the WM_PAINT TUI present; plan-98-C Phase 3 the
     // canvas present): shadow[0..0x20], outgoing stack args [0x20..0x60] —
     // `SetDIBitsToDevice` has 8 stack args, the widest call here — saved
@@ -1150,11 +1301,15 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HDC));
-    // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack.
+    // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack. W/H
+    // are the whole backing bitmap, not the live surface (bug-540 WIN-02): the
+    // destination clips to the client, and everything past the live surface is kept
+    // black, so the partial cell at the right and bottom edges paints black rather
+    // than whatever the window held.
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
         "Integer",
-        &(TUI_ROWS * TUI_CELL_H).to_string(),
+        &(TUI_MAX_ROWS * TUI_CELL_H).to_string(),
     ));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // height (5th)
     load_addr(abi::mfb_arg(2), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
@@ -1170,7 +1325,7 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     ins.push(abi::move_immediate(
         abi::mfb_arg(3),
         "Integer",
-        &(TUI_COLS * TUI_CELL_W).to_string(),
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
     )); // width
     call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
     // EndPaint(hwnd, &ps)
@@ -1312,8 +1467,9 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     // `setFrameSize:` and GTK from its `notify::default-width` handler; this is the
     // third.
     //
-    // Gated on a live canvas surface, so in `Console`/`None` the message chains to
-    // `DefWindowProcW` exactly as before and nothing about the TUI path moves.
+    // The canvas half is gated on a live canvas surface, so in `Console`/`None` it
+    // chains to `DefWindowProcW`; the `term::` half (bug-540 WIN-02, first) runs in
+    // every mode, because the term surface's size is the window's.
     //
     // `lParam`'s low word is the client width and its high word the client height —
     // already the client area, so no `GetClientRect` and no frame arithmetic. Both are
@@ -1324,14 +1480,50 @@ fn emit_wndproc(uses_canvas: bool, uses_mouse: bool, uses_window: bool) -> CodeF
     // Arg registers are free to clobber here: every exit from this arm goes to
     // `wnd_default`, which reloads all four from H0..H3.
     ins.push(abi::label("wnd_check_size"));
+    // bug-540 WIN-02: the `term::` surface follows the client area in EVERY mode,
+    // not only while TUI mode is on — the size is the window's, and `term::on`
+    // reports it as it is. Ahead of the canvas half, which only acts in `Canvas`.
+    // `CreateWindowExW` sends one of these before the worker exists, which is what
+    // seeds the size in a windowed run.
+    if uses_term {
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
+        ins.push(abi::branch_ne(if uses_canvas {
+            "wnd_check_display"
+        } else {
+            "wnd_check_char"
+        }));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H3));
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "65535"));
+        ins.push(abi::shift_right_immediate(
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+            16,
+        ));
+        ins.push(abi::and_registers(
+            abi::mfb_arg(1),
+            abi::mfb_arg(1),
+            abi::mfb_arg(2),
+        )); // height = HIWORD(lParam)
+        ins.push(abi::and_registers(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            abi::mfb_arg(2),
+        )); // width = LOWORD(lParam)
+        call_internal(from, TERM_RESIZE_SYMBOL, &mut ins, &mut rel);
+        if !uses_canvas {
+            ins.push(abi::branch("wnd_default"));
+        }
+    }
     // Gated on `uses_canvas` for the same reason the scripted resize in `_main` is:
     // `emit_publish_surface_size` names the graphics-state data object, which a
     // program that never imports `canvas` does not emit. The arm is inert anyway in
     // that case — `CANVAS_HWND_SYM` would be 0 — so what the gate removes is a dead
     // reference, not behaviour.
     if uses_canvas {
-        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
-        ins.push(abi::branch_ne("wnd_check_display"));
+        if !uses_term {
+            ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
+            ins.push(abi::branch_ne("wnd_check_display"));
+        }
         load_addr(abi::SCRATCH[0], CANVAS_HWND_SYM, from, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
         ins.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -1946,9 +2138,14 @@ pub(super) fn emit_app_io_write(
         "Integer",
         "4294967295",
     ));
+    // `c_return(0)` (`rax`), the C result. This read `return_register()` — `rcx` on
+    // Win64, which the call leaves holding garbage — so the count clamped to 32767
+    // and the EDIT was handed the text plus ~32K units of arena garbage; on box 2230
+    // the UI thread spent ~75 s laying it out before a windowed program could exit
+    // (bug-540, found verifying WIN-02). Same family as bug-478.
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         abi::mfb_arg(1),
     )); // low 32 bits
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
@@ -2086,10 +2283,11 @@ pub(super) fn emit_app_io_write(
     ));
     ins.push(abi::return_());
 
-    // --- plan-66-J-5 TUI grid path: draw the string cell-by-cell into the memory DC.
-    // Reached only when TUI mode is active. `\n` advances the row (col=0); `\r`
-    // homes the col; every other byte is drawn (ASCII → the same UTF-16 unit) at the
-    // cursor with the current fg/bg, then the col advances (wrapping at TUI_COLS).
+    // --- plan-66-J-5 TUI grid path: draw the string cluster-by-cluster into the
+    // memory DC. Reached only when TUI mode is active. `\n` advances the row (col=0),
+    // `\r` homes the col, every other cluster is drawn at the cursor with the current
+    // fg/bg; the cursor wraps at the live right edge and the surface scrolls at the
+    // live bottom (bug-540 WIN-02).
     if let Some(tso) = term_state_offset {
         ins.push(abi::label("term_grid_path"));
         load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, symbol, &mut ins, &mut rel);
@@ -2127,6 +2325,12 @@ pub(super) fn emit_app_io_write(
             "term_grid_done",
         );
         ins.push(abi::label("term_grid_done"));
+        // `io::print`/`printError` end their line on the grid exactly as they do in
+        // the transcript and on the console grid (`append_newline`). This path wrote
+        // the text and stopped, so consecutive prints ran together on one row.
+        if newline {
+            emit_win_grid_newline(&mut ins, &mut rel, symbol);
+        }
         invalidate_main(symbol, &mut ins, &mut rel);
         ins.push(abi::move_immediate(
             RESULT_TAG_REGISTER,
@@ -2211,6 +2415,149 @@ const WALK_UCOUNT: usize = 0x88;
 /// Display width of the cluster (1 or 2).
 const WALK_WIDTH: usize = 0x90;
 
+/// `col = 0; row += 1` on the grid cursor globals. Clobbers ARG[0..1].
+fn emit_win_cursor_next_row(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+) {
+    load_addr(abi::mfb_arg(1), TUI_COL_SYM, from, ins, rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0)); // col = 0
+    load_addr(abi::mfb_arg(1), TUI_ROW_SYM, from, ins, rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
+}
+
+/// A newline on the grid: `col = 0`, `row += 1`, scrolling when that leaves the
+/// cursor below the last row. What `\n` does inside `io::write`, and what
+/// `io::print` does after its text — the console grid writer's `handle_nl` and its
+/// `append_newline` tail. Clobbers every caller-saved register.
+fn emit_win_grid_newline(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+) {
+    emit_win_cursor_next_row(ins, rel, from);
+    emit_win_scroll_if_past_bottom(ins, rel, from);
+}
+
+/// Scroll the surface when the cursor is below the last row — a call to
+/// [`emit_term_scroll`]'s out-of-line helper, not the scroll inline.
+///
+/// **Out of line on purpose.** The scroll is a `BitBlt` with five stack arguments,
+/// and the `io::write` body sizes its outgoing-argument area from the widest call
+/// it makes; five stack words there would move every local slot the cluster walk
+/// addresses 32 bytes up — and the walk must be the same instructions, down to the
+/// finalized slot offsets, in `io::write` and `term::drawText` (bug-540 WIN-04).
+/// A `bl` to a helper with its own frame keeps the walk's frame exactly as it was.
+/// Clobbers every caller-saved register; the walk holds nothing in one across it.
+fn emit_win_scroll_if_past_bottom(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+) {
+    call_internal(from, TERM_SCROLL_SYMBOL, ins, rel);
+}
+
+/// `_mfb_winapp_term_scroll()`: when the grid cursor's row is at or past the live
+/// last row, scroll the surface up one row and park the cursor on the last row —
+/// the console grid writer's `emit_scroll_back` step, which `mfb man term moveTo`
+/// documents for `io::write` ("wrapping to column 0 of the next row at the right
+/// edge and scrolling the surface"). This backend had no scroll at all, so text
+/// written past the bottom was stamped below the surface and never seen.
+///
+/// Immediate mode has no cells to shift, so the memDC scrolls itself:
+/// `BitBlt(memDC, 0, 0, W, (rows-1)*16, memDC, 0, 16, SRCCOPY)` moves rows
+/// `1 .. rows-1` up one, and `PatBlt(..., BLACKNESS)` blanks the freed last row,
+/// the blank `term::clear` paints. The width is the bitmap's — past the live
+/// surface it is already black.
+///
+/// Frame: shadow `[0,0x20)`, `BitBlt`'s five stack arguments `[0x20,0x48)` at their
+/// real offsets (a hand-built frame never reaches the finalizer that resolves
+/// `outgoing_stack_arg_store`), the memDC at `0x48`. `0x58 ≡ 8 (mod 16)`: entered at
+/// `rsp % 16 == 8`, so both calls are aligned. Volatile registers only. Called
+/// only from the worker, the one thread that moves the cursor.
+fn emit_term_scroll() -> CodeFunction {
+    const FRAME: usize = 0x58;
+    const MEMDC: usize = 0x48;
+    let from = TERM_SCROLL_SYMBOL;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    load_addr(abi::mfb_arg(1), TUI_ROW_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    emit_win_grid_size(&mut ins, &mut rel, from, abi::mfb_arg(1), GridAxis::Rows);
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_lt("sc_done"));
+    load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("sc_park")); // no surface: nothing to move
+                                         // BitBlt(memDC, 0, 0, W, (rows-1)*16, memDC, 0, 16, SRCCOPY).
+    emit_win_grid_last(&mut ins, &mut rel, from, abi::mfb_arg(0), GridAxis::Rows);
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(0),
+        abi::mfb_arg(0),
+        4,
+    )); // (rows-1) * TUI_CELL_H
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x28)); // hdcSrc (6th)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30)); // xSrc (7th)
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(0),
+        "Integer",
+        &TUI_CELL_H.to_string(),
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x38)); // ySrc (8th)
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", SRCCOPY));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x40)); // rop (9th)
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC)); // hdcDest
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // xDest
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // yDest
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(3),
+        "Integer",
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
+    )); // width
+    call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
+    // PatBlt(memDC, 0, (rows-1)*16, W, 16, BLACKNESS) — the freed last row.
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(0),
+        "Integer",
+        &TUI_CELL_H.to_string(),
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "66")); // BLACKNESS
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x28)); // rop (6th)
+    emit_win_grid_last(&mut ins, &mut rel, from, abi::mfb_arg(2), GridAxis::Rows);
+    ins.push(abi::shift_left_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        4,
+    )); // y
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // x
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(3),
+        "Integer",
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
+    )); // width
+    call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
+    // row = rows - 1
+    ins.push(abi::label("sc_park"));
+    emit_win_grid_last(&mut ins, &mut rel, from, abi::mfb_arg(0), GridAxis::Rows);
+    load_addr(abi::mfb_arg(1), TUI_ROW_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    ins.push(abi::label("sc_done"));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    code_function("winapp.term_scroll", TERM_SCROLL_SYMBOL, ins, rel)
+}
+
 /// bug-540 WIN-04: convert the string at `WALK_STR` to UTF-16 and stamp it into the
 /// memDC at `WALK_MEMDC` one extended cluster at a time — the walk `io::write` and
 /// `term::drawText` share. See [`WinTermWriteMode`] for what differs. The caller
@@ -2250,7 +2597,6 @@ fn emit_win_term_cluster_walk(
     // `Write` only.
     let nl = format!("{tag}_nl");
     let cr = format!("{tag}_cr");
-    let wrap = format!("{tag}_wrap");
     // `DrawText` only.
     let ctrl = format!("{tag}_ctrl");
     let after_stamp = format!("{tag}_after_stamp");
@@ -2313,10 +2659,8 @@ fn emit_win_term_cluster_walk(
             abi::stack_pointer(),
             WALK_DT_COL,
         ));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
+        emit_win_grid_size(ins, rel, symbol, abi::mfb_arg(1), GridAxis::Cols);
+        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_ge(done));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
     }
@@ -2535,13 +2879,6 @@ fn emit_win_term_cluster_walk(
     ins.push(abi::branch(&extend));
     ins.push(abi::label(&extend_done));
     emit_win_wide_width(ins, CPSLOT, WIDTHSLOT, mode.width_tag());
-    ins.push(abi::load_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        WIDTHSLOT,
-    ));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
-    ins.push(abi::branch_ne(&edge_ok));
     if draw_text {
         // Wide-at-edge: a width-2 cluster with only one column left is DROPPED and
         // the run ends — never split across the edge, never wrapped
@@ -2549,13 +2886,18 @@ fn emit_win_term_cluster_walk(
         ins.push(abi::load_u64(
             abi::mfb_arg(0),
             abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
+        ins.push(abi::branch_ne(&edge_ok));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
             WALK_DT_COL,
         ));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
+        emit_win_grid_size(ins, rel, symbol, abi::mfb_arg(1), GridAxis::Cols);
+        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_ge(done));
         ins.push(abi::label(&edge_ok));
         // Left of the surface (a negative start column): advance without stamping.
@@ -2567,21 +2909,37 @@ fn emit_win_term_cluster_walk(
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
         ins.push(abi::branch_lt(&after_stamp));
     } else {
-        // wide-at-edge: a width-2 glyph that would straddle the right edge wraps first.
+        // The console grid writer's order (`term_grid.rs`, the cluster stamp), so
+        // the cursor lands where it does there: wrap LAZILY — a cursor parked past
+        // the right edge wraps when the next cluster arrives, not when the last one
+        // is stamped — then wrap a width-2 cluster that would straddle the edge, then
+        // scroll if the cursor is below the last row. The bounds are the live
+        // surface's (bug-540 WIN-02), and the scroll is what keeps a stamp inside it:
+        // the bitmap behind the surface is larger than the surface.
+        let col_ok = format!("{tag}_col_ok");
+        load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, ins, rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
+        emit_win_grid_size(ins, rel, symbol, abi::mfb_arg(1), GridAxis::Cols);
+        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+        ins.push(abi::branch_lt(&col_ok));
+        emit_win_cursor_next_row(ins, rel, symbol);
+        ins.push(abi::label(&col_ok));
+        ins.push(abi::load_u64(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            WIDTHSLOT,
+        ));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "2"));
+        ins.push(abi::branch_ne(&edge_ok));
         load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, ins, rel);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
         ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
+        emit_win_grid_size(ins, rel, symbol, abi::mfb_arg(1), GridAxis::Cols);
+        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
         ins.push(abi::branch_lt(&edge_ok));
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
+        emit_win_cursor_next_row(ins, rel, symbol);
         ins.push(abi::label(&edge_ok));
+        emit_win_scroll_if_past_bottom(ins, rel, symbol);
     }
     // TextOutW(memDC, col*8, row*16, &wbuf[i], unitCount)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
@@ -2668,7 +3026,8 @@ fn emit_win_term_cluster_walk(
             WALK_DT_COL,
         ));
     } else {
-        // col += width; wrap at TUI_COLS → col=0, row++.
+        // col += width. No wrap here: the next cluster wraps a cursor left past the
+        // edge (above), exactly as the console grid writer does.
         load_addr(abi::mfb_arg(2), TUI_COL_SYM, symbol, ins, rel);
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0));
         ins.push(abi::load_u64(
@@ -2681,28 +3040,11 @@ fn emit_win_term_cluster_walk(
             abi::mfb_arg(0),
             abi::mfb_arg(1),
         ));
-        ins.push(abi::compare_immediate(
-            abi::mfb_arg(0),
-            &TUI_COLS.to_string(),
-        ));
-        ins.push(abi::branch_ge(&wrap));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // col += width
         ins.push(abi::branch(&next));
-        ins.push(abi::label(&wrap));
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(2), 0)); // col = 0
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // row++
-        ins.push(abi::branch(&next));
-        // '\n' → row++, col=0.
+        // '\n' → col=0, row++, scrolling at the bottom.
         ins.push(abi::label(&nl));
-        load_addr(abi::mfb_arg(1), TUI_ROW_SYM, symbol, ins, rel);
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
-        load_addr(abi::mfb_arg(1), TUI_COL_SYM, symbol, ins, rel);
-        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(1), 0));
+        emit_win_grid_newline(ins, rel, symbol);
         ins.push(abi::branch(&next));
         // '\r' → col=0.
         ins.push(abi::label(&cr));
@@ -2795,8 +3137,9 @@ pub(super) fn emit_app_io_is_terminal(
 /// body (falls through to the console ANSI backend).
 ///
 /// plan-70-F Phase 3: the six positioned draw helpers stamp directly into the
-/// persistent memDC (immediate mode). Box/line/fill use Light box-drawing glyphs;
-/// drawText/drawGlyph render through the CJK font at correct width.
+/// persistent memDC (immediate mode). Box/line/fill select their glyphs from the
+/// shared `TERM_*_CODEPOINTS` tables (bug-540 WIN-01); drawText/drawGlyph render
+/// through the CJK font at correct width.
 pub(super) fn emit_app_term_helper(
     call: &str,
     symbol: &str,
@@ -2825,6 +3168,7 @@ pub(super) fn emit_app_term_helper(
         "term.hideCursor" => emit_term_cursor_visible(tso, "0", instructions, relocations),
         "term.sync" => emit_term_sync(symbol, tso, instructions, relocations),
         "term.terminalSize" => emit_term_size(symbol, tso, instructions, relocations),
+        "term.didResize" => emit_term_did_resize(symbol, instructions, relocations),
         "term.drawHLine" => emit_term_draw_line(symbol, tso, true, instructions, relocations),
         "term.drawVLine" => emit_term_draw_line(symbol, tso, false, instructions, relocations),
         "term.drawBox" => emit_term_draw_box(symbol, tso, instructions, relocations),
@@ -2855,21 +3199,67 @@ fn win_normalize_pair(ins: &mut Vec<CodeInstruction>, tag: &str, a_off: usize, b
     ins.push(abi::label(&done));
 }
 
-/// Clamp `reg` in place into `0 ..= max`. The stack-slot form below is the one the
-/// looping emitters use; `term::moveTo` is a leaf that never parks its arguments,
-/// so it clamps the incoming registers directly. Clobbers ARG[2] as scratch.
-fn win_clamp_register(ins: &mut Vec<CodeInstruction>, tag: &str, reg: Operand, max: usize) {
+/// bug-540 WIN-02: one axis of the live surface. Every bound in this file is
+/// `axis - 1` read from the axis's global at the moment it is needed — there is no
+/// compile-time grid size left to clamp against.
+#[derive(Clone, Copy)]
+enum GridAxis {
+    Cols,
+    Rows,
+}
+
+impl GridAxis {
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Cols => GRID_COLS_SYM,
+            Self::Rows => GRID_ROWS_SYM,
+        }
+    }
+}
+
+/// Load the live cell count of `axis` into `reg`.
+fn emit_win_grid_size(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    reg: Operand,
+    axis: GridAxis,
+) {
+    load_addr(reg.clone(), axis.symbol(), from, ins, rel);
+    ins.push(abi::load_u64(reg.clone(), reg, 0));
+}
+
+/// Load the last valid index of `axis` (`size - 1`) into `reg`.
+fn emit_win_grid_last(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    reg: Operand,
+    axis: GridAxis,
+) {
+    emit_win_grid_size(ins, rel, from, reg.clone(), axis);
+    ins.push(abi::subtract_immediate(reg.clone(), reg, 1));
+}
+
+/// Clamp `reg` in place into `0 ..= last(axis)`. The stack-slot form below is the
+/// one the looping emitters use; `term::moveTo` is a leaf that never parks its
+/// arguments, so it clamps the incoming registers directly. Clobbers ARG[2] as
+/// scratch.
+fn win_clamp_register(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    tag: &str,
+    reg: Operand,
+    axis: GridAxis,
+) {
     let lo = format!("{tag}_clo");
     let hi = format!("{tag}_chi");
     ins.push(abi::compare_immediate(reg.clone(), "0"));
     ins.push(abi::branch_ge(&lo));
     ins.push(abi::move_immediate(reg.clone(), "Integer", "0"));
     ins.push(abi::label(&lo));
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(2),
-        "Integer",
-        &max.to_string(),
-    ));
+    emit_win_grid_last(ins, rel, from, abi::mfb_arg(2), axis);
     ins.push(abi::compare_registers(reg.clone(), abi::mfb_arg(2)));
     ins.push(abi::branch_le(&hi));
     ins.push(abi::move_register(reg, abi::mfb_arg(2)));
@@ -2890,13 +3280,17 @@ fn win_clamp_register(ins: &mut Vec<CodeInstruction>, tag: &str, reg: Operand, m
 /// is an unbounded loop: `term::drawHLine(style, 0, 0, 2000000000)` — a legal call
 /// the console backend clamps to the last column — spun two billion calls here.
 ///
-/// `tag` names the generated labels. Clobbers ARG[0..1].
+/// `tag` names the generated labels; `max` is `last(axis)`, read live. Clobbers
+/// ARG[0..1].
+#[allow(clippy::too_many_arguments)] // two stack slots, an axis, and the emit context
 fn win_clip_span(
     ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
     tag: &str,
     lo_off: usize,
     hi_off: usize,
-    max: usize,
+    axis: GridAxis,
     empty: &str,
 ) {
     // No intersection: hi < 0, or lo > max.
@@ -2904,23 +3298,26 @@ fn win_clip_span(
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_lt(empty));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), lo_off));
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(1),
-        "Integer",
-        &max.to_string(),
-    ));
+    emit_win_grid_last(ins, rel, from, abi::mfb_arg(1), axis);
     ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
     ins.push(abi::branch_gt(empty));
     // The intersection is non-empty, so saturating each endpoint is now correct.
-    win_clamp_slot(ins, &format!("{tag}_lo"), lo_off, max);
-    win_clamp_slot(ins, &format!("{tag}_hi"), hi_off, max);
+    win_clamp_slot(ins, rel, from, &format!("{tag}_lo"), lo_off, axis);
+    win_clamp_slot(ins, rel, from, &format!("{tag}_hi"), hi_off, axis);
 }
 
-/// Saturate the stack slot `off` into `0 ..= max`. Only ever reached from
+/// Saturate the stack slot `off` into `0 ..= last(axis)`. Only ever reached from
 /// [`win_clip_span`], which has already established that the span meets the grid —
 /// on its own this would slide a wholly off-grid endpoint onto the rim.
 /// Clobbers ARG[0..1].
-fn win_clamp_slot(ins: &mut Vec<CodeInstruction>, tag: &str, off: usize, max: usize) {
+fn win_clamp_slot(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    tag: &str,
+    off: usize,
+    axis: GridAxis,
+) {
     let lo = format!("{tag}_clo");
     let hi = format!("{tag}_chi");
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
@@ -2928,11 +3325,7 @@ fn win_clamp_slot(ins: &mut Vec<CodeInstruction>, tag: &str, off: usize, max: us
     ins.push(abi::branch_ge(&lo));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     ins.push(abi::label(&lo));
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(1),
-        "Integer",
-        &max.to_string(),
-    ));
+    emit_win_grid_last(ins, rel, from, abi::mfb_arg(1), axis);
     ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
     ins.push(abi::branch_le(&hi));
     ins.push(abi::move_register(abi::mfb_arg(0), abi::mfb_arg(1)));
@@ -2940,21 +3333,24 @@ fn win_clamp_slot(ins: &mut Vec<CodeInstruction>, tag: &str, off: usize, max: us
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
 }
 
-/// Branch to `skip` unless the stack slot `off` holds a value in `0 ..= max`.
+/// Branch to `skip` unless the stack slot `off` holds a value in `0 ..= last(axis)`.
 ///
 /// The console backend draws NOTHING for a line whose fixed coordinate is off the
 /// grid, and skips a box corner whose cell is off the grid, rather than sliding
 /// either onto the edge. This is the test that keeps this backend agreeing.
 /// Clobbers ARG[0..1].
-fn win_guard_on_grid(ins: &mut Vec<CodeInstruction>, off: usize, max: usize, skip: &str) {
+fn win_guard_on_grid(
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    from: &str,
+    off: usize,
+    axis: GridAxis,
+    skip: &str,
+) {
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_lt(skip));
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(1),
-        "Integer",
-        &max.to_string(),
-    ));
+    emit_win_grid_last(ins, rel, from, abi::mfb_arg(1), axis);
     ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
     ins.push(abi::branch_gt(skip));
 }
@@ -3171,8 +3567,8 @@ fn emit_term_draw_glyph_at(
     // point draws nothing either.
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "32"));
     ins.push(abi::branch_lt("dg_done"));
-    win_guard_on_grid(&mut ins, SY, TUI_ROWS - 1, "dg_done");
-    win_guard_on_grid(&mut ins, SX, TUI_COLS - 1, "dg_done");
+    win_guard_on_grid(&mut ins, &mut rel, from, SY, GridAxis::Rows, "dg_done");
+    win_guard_on_grid(&mut ins, &mut rel, from, SX, GridAxis::Cols, "dg_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -3261,9 +3657,10 @@ fn emit_term_draw_glyph_at(
     relocations.extend(rel);
 }
 
-/// plan-70-F: `term::drawHLine`/`drawVLine(style, fixed, a, b)` — stamp a Light
-/// box-drawing run. Args: ARG[0]=style (ignored — Light), ARG[1]=fixed
-/// (row for H / col for V), ARG[2]=a, ARG[3]=b. Clips to the grid.
+/// plan-70-F: `term::drawHLine`/`drawVLine(style, fixed, a, b)` — stamp a
+/// box-drawing run in the style's glyph (bug-540 WIN-01). Args: ARG[0]=`LineStyle`
+/// ordinal, ARG[1]=fixed (row for H / col for V), ARG[2]=a, ARG[3]=b. Clips to the
+/// live grid.
 fn emit_term_draw_line(
     symbol: &str,
     tso: usize,
@@ -3310,14 +3707,16 @@ fn emit_term_draw_line(
     // The span endpoints may be written in either order, and the span is clamped to
     // the grid; a fixed coordinate off the grid draws nothing. Same three rules the
     // console `emit_draw_line` applies — and the clamp is what bounds the loop below.
-    let (fixed_max, span_max) = if horizontal {
-        (TUI_ROWS - 1, TUI_COLS - 1)
+    let (fixed_axis, span_axis) = if horizontal {
+        (GridAxis::Rows, GridAxis::Cols)
     } else {
-        (TUI_COLS - 1, TUI_ROWS - 1)
+        (GridAxis::Cols, GridAxis::Rows)
     };
-    win_guard_on_grid(&mut ins, FIXED, fixed_max, "dln_done");
+    win_guard_on_grid(&mut ins, &mut rel, from, FIXED, fixed_axis, "dln_done");
     win_normalize_pair(&mut ins, "dln", POS, ENDV);
-    win_clip_span(&mut ins, "dln", POS, ENDV, span_max, "dln_done");
+    win_clip_span(
+        &mut ins, &mut rel, from, "dln", POS, ENDV, span_axis, "dln_done",
+    );
     // bug-540 WIN-01: the glyph comes from the shared table, indexed by the style
     // ordinal — not the Light literal this backend used for every style.
     emit_win_select_codepoint(
@@ -3372,12 +3771,9 @@ fn emit_term_draw_line(
 /// V edges, four corners. Args ARG[0]=`LineStyle` ordinal, ARG[1]=rowA,
 /// ARG[2]=columnA, ARG[3]=rowB, and columnB is the 5th (incoming stack) arg — row
 /// before column, like every `term::` position. The corners may be given in either
-/// order and the region is clamped to the grid (see `win_normalize_pair` /
-/// `win_clamp_slot`).
-///
-/// **This backend still ignores the `LineStyle` ordinal** and always draws the
-/// Light glyphs, unlike the console and macOS backends, which select per style.
-/// The same gap applies to `emit_term_draw_line` and `emit_term_fill_rect`.
+/// order and the region is clamped to the live grid (see `win_normalize_pair` /
+/// `win_clamp_slot`). Every glyph comes from the shared `TERM_*_CODEPOINTS` tables
+/// by the `LineStyle` ordinal (bug-540 WIN-01).
 fn emit_term_draw_box(
     symbol: &str,
     tso: usize,
@@ -3434,8 +3830,26 @@ fn emit_term_draw_box(
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), raw));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), keep));
     }
-    win_clip_span(&mut ins, "dbx_x", X1, X2, TUI_COLS - 1, "dbx_done");
-    win_clip_span(&mut ins, "dbx_y", Y1, Y2, TUI_ROWS - 1, "dbx_done");
+    win_clip_span(
+        &mut ins,
+        &mut rel,
+        from,
+        "dbx_x",
+        X1,
+        X2,
+        GridAxis::Cols,
+        "dbx_done",
+    );
+    win_clip_span(
+        &mut ins,
+        &mut rel,
+        from,
+        "dbx_y",
+        Y1,
+        Y2,
+        GridAxis::Rows,
+        "dbx_done",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -3460,7 +3874,14 @@ fn emit_term_draw_box(
     // Top + bottom edges across x1..x2 at y1 / y2. An edge whose row is off the
     // grid is skipped entirely (the clamped X range still bounds the loop).
     for (yslot, cyslot, tag) in [(Y1, CY1, "dbx_top"), (Y2, CY2, "dbx_bot")] {
-        win_guard_on_grid(&mut ins, cyslot, TUI_ROWS - 1, &format!("{tag}_done"));
+        win_guard_on_grid(
+            &mut ins,
+            &mut rel,
+            from,
+            cyslot,
+            GridAxis::Rows,
+            &format!("{tag}_done"),
+        );
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), X1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::label(&format!("{tag}_loop")));
@@ -3478,7 +3899,14 @@ fn emit_term_draw_box(
     // Left + right edges down y1..y2 at x1 / x2. Skipped when the column is off
     // the grid.
     for (xslot, cxslot, tag) in [(X1, CX1, "dbx_left"), (X2, CX2, "dbx_right")] {
-        win_guard_on_grid(&mut ins, cxslot, TUI_COLS - 1, &format!("{tag}_done"));
+        win_guard_on_grid(
+            &mut ins,
+            &mut rel,
+            from,
+            cxslot,
+            GridAxis::Cols,
+            &format!("{tag}_done"),
+        );
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), Y1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::label(&format!("{tag}_loop")));
@@ -3529,8 +3957,8 @@ fn emit_term_draw_box(
         ),
     ] {
         let skip = format!("dbx_c{tag}_skip");
-        win_guard_on_grid(&mut ins, xslot, TUI_COLS - 1, &skip);
-        win_guard_on_grid(&mut ins, yslot, TUI_ROWS - 1, &skip);
+        win_guard_on_grid(&mut ins, &mut rel, from, xslot, GridAxis::Cols, &skip);
+        win_guard_on_grid(&mut ins, &mut rel, from, yslot, GridAxis::Rows, &skip);
         emit_win_select_codepoint(&mut ins, ORD, GLYPH, table, &format!("dbx_c{tag}"));
         win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, yslot, GLYPH, WCH);
         ins.push(abi::label(&skip));
@@ -3549,10 +3977,9 @@ fn emit_term_draw_box(
 }
 
 /// plan-70-F: `term::fillRect(fill, rowA, columnA, rowB, columnB)` — fill the cell
-/// rect with a space in the current bg (the block glyph would ignore bg). Args as
-/// drawBox: row before column, either corner first, region clamped to the grid.
-/// **This backend still ignores the `FillStyle` ordinal**, so every style renders
-/// as the solid background wash rather than the block/shade glyph.
+/// rect with the `FillStyle`'s block/shade glyph from the shared table (bug-540
+/// WIN-01), in the current colours. Args as drawBox: row before column, either
+/// corner first, region clamped to the live grid.
 fn emit_term_fill_rect(
     symbol: &str,
     tso: usize,
@@ -3587,8 +4014,26 @@ fn emit_term_fill_rect(
     // clamp is also what bounds the two nested loops below.
     win_normalize_pair(&mut ins, "dfr_x", X1, X2);
     win_normalize_pair(&mut ins, "dfr_y", Y1, Y2);
-    win_clip_span(&mut ins, "dfr_x", X1, X2, TUI_COLS - 1, "dfr_done");
-    win_clip_span(&mut ins, "dfr_y", Y1, Y2, TUI_ROWS - 1, "dfr_done");
+    win_clip_span(
+        &mut ins,
+        &mut rel,
+        from,
+        "dfr_x",
+        X1,
+        X2,
+        GridAxis::Cols,
+        "dfr_done",
+    );
+    win_clip_span(
+        &mut ins,
+        &mut rel,
+        from,
+        "dfr_y",
+        Y1,
+        Y2,
+        GridAxis::Rows,
+        "dfr_done",
+    );
     // bug-540 WIN-01: the block/shade glyph for the requested `FillStyle`, from the
     // shared table. This backend stamped a space and let the background colour make
     // the region visible, which renders `Filled`, `Light`, `Medium`, `Dark`,
@@ -3684,7 +4129,14 @@ fn emit_term_draw_text_at(
     ));
     // A row off the surface draws nothing (`mfb man term drawText`); the console
     // `emit_draw_text` and macOS `mfbDrawText:` both test it before walking.
-    win_guard_on_grid(&mut ins, WALK_DT_ROW, TUI_ROWS - 1, "dt_done");
+    win_guard_on_grid(
+        &mut ins,
+        &mut rel,
+        from,
+        WALK_DT_ROW,
+        GridAxis::Rows,
+        "dt_done",
+    );
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(
@@ -3733,6 +4185,31 @@ fn emit_term_on(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    // bug-540 WIN-03: no resize is pending on entry to TUI mode. On this backend the
+    // pending resize is the counter pair, not the arena slot reset below (nothing on
+    // Windows latches that one): acknowledging every resize counted so far is the
+    // reset. The size itself is NOT reset — it is the window's, and it survives
+    // `term::off`.
+    //
+    // **First, before the surface is published.** The resize handler only counts a
+    // resize once the memDC exists, so acknowledging before the store below means
+    // every resize it can count lands after the acknowledgement and is reported.
+    // Acknowledging at the end instead swallowed one landing between the memDC store
+    // and the acknowledgement: measured on box 2230, the scripted resize read
+    // `didResize` FALSE with `terminalSize` already at the new size.
+    //
+    // `ARG[1]` holds the acknowledgement's address, as in the `didResize` arm, so
+    // both write the same word the same way.
+    load_addr(abi::mfb_arg(0), TUI_RESIZES_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    load_addr(
+        abi::mfb_arg(1),
+        TUI_RESIZES_SEEN_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
     // Build the surface once (memDC == 0 means not built yet).
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -3758,7 +4235,9 @@ fn emit_term_on(
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
-    // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
+    // bmp = CreateCompatibleBitmap(hdcScreen, W, H) at the backing MAXIMUM, once
+    // (bug-540 WIN-02). The live surface is a logical rectangle inside it, so a
+    // resize on the UI thread never swaps the bitmap under a worker drawing into it.
     ins.push(abi::load_u64(
         abi::mfb_arg(0),
         abi::stack_pointer(),
@@ -3767,12 +4246,12 @@ fn emit_term_on(
     ins.push(abi::move_immediate(
         abi::mfb_arg(1),
         "Integer",
-        &(TUI_COLS * TUI_CELL_W).to_string(),
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
     ));
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
         "Integer",
-        &(TUI_ROWS * TUI_CELL_H).to_string(),
+        &(TUI_MAX_ROWS * TUI_CELL_H).to_string(),
     ));
     call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
     // SelectObject(memDC, bmp) — stage bmp (rax) into ARG[1] before loading memDC.
@@ -3824,11 +4303,12 @@ fn emit_term_on(
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
     ins.push(abi::label("on_have_dc"));
-    // Clear the grid to black: PatBlt(memDC, 0, 0, W, H, BLACKNESS = 0x42).
+    // Clear the grid to black: PatBlt(memDC, 0, 0, W, H, BLACKNESS = 0x42) — the
+    // whole bitmap, so everything outside the live surface starts black.
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
         "Integer",
-        &(TUI_ROWS * TUI_CELL_H).to_string(),
+        &(TUI_MAX_ROWS * TUI_CELL_H).to_string(),
     ));
     ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // height (5th)
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "66")); // BLACKNESS (6th)
@@ -3840,7 +4320,7 @@ fn emit_term_on(
     ins.push(abi::move_immediate(
         abi::mfb_arg(3),
         "Integer",
-        &(TUI_COLS * TUI_CELL_W).to_string(),
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
     ));
     call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
     // cursor = (0, 0); term state: active = 1, fg = white, bg = black.
@@ -3943,10 +4423,11 @@ fn emit_term_clear(
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("clear_done"));
+    // The whole backing bitmap: the live surface and the black margin past it.
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
         "Integer",
-        &(TUI_ROWS * TUI_CELL_H).to_string(),
+        &(TUI_MAX_ROWS * TUI_CELL_H).to_string(),
     ));
     ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "66"));
@@ -3958,7 +4439,7 @@ fn emit_term_clear(
     ins.push(abi::move_immediate(
         abi::mfb_arg(3),
         "Integer",
-        &(TUI_COLS * TUI_CELL_W).to_string(),
+        &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
     ));
     call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
     reset_cursor(from, &mut ins, &mut rel);
@@ -3975,13 +4456,13 @@ fn emit_term_clear(
 
 /// `term::moveTo(row, column)`: set the grid cursor (0-based), no frame/call needed.
 ///
-/// Both coordinates are clamped to the grid — `row` into `0 ..= TUI_ROWS-1`,
-/// `column` into `0 ..= TUI_COLS-1` — which is the contract every other backend
+/// Both coordinates are clamped to the live grid — `row` into `0 ..= rows-1`,
+/// `column` into `0 ..= columns-1` — which is the contract every other backend
 /// already honoured (`emit_move_to` on the console, `emit_app_move_to` on macOS,
 /// `emit_app_term_move_to` on GTK) and the one `mfb man term moveTo` states: "Both
 /// coordinates are clamped at both ends, on every backend." This body used to
 /// store the raw incoming registers, so an out-of-range `moveTo` parked the cursor
-/// off the 80x25 surface and the next `io::write` stamped at a negative or
+/// off the surface and the next `io::write` stamped at a negative or
 /// past-the-edge device coordinate.
 fn emit_term_move_to(
     symbol: &str,
@@ -3998,8 +4479,22 @@ fn emit_term_move_to(
     // cursor and the next `io::write` stamped from there. The done label is
     // introduced with the gate; there was no return path to share before.
     emit_win_term_active_gate(&mut ins, tso, "mt_done");
-    win_clamp_register(&mut ins, "mt_row", abi::mfb_arg(0), TUI_ROWS - 1);
-    win_clamp_register(&mut ins, "mt_col", abi::mfb_arg(1), TUI_COLS - 1);
+    win_clamp_register(
+        &mut ins,
+        &mut rel,
+        from,
+        "mt_row",
+        abi::mfb_arg(0),
+        GridAxis::Rows,
+    );
+    win_clamp_register(
+        &mut ins,
+        &mut rel,
+        from,
+        "mt_col",
+        abi::mfb_arg(1),
+        GridAxis::Cols,
+    );
     load_addr(abi::mfb_arg(2), TUI_ROW_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // row
     load_addr(abi::mfb_arg(2), TUI_COL_SYM, from, &mut ins, &mut rel);
@@ -4380,15 +4875,16 @@ pub(super) fn emit_reconcile_seam(
     relocations.extend(rel);
 }
 
-/// `term::terminalSize()`: return `{ columns, rows }` (the fixed grid dims) as an
-/// arena-allocated 16-byte record. Result value = record ptr, tag = OK.
+/// `term::terminalSize()`: return `{ columns, rows }` — the live surface, which
+/// follows the window (bug-540 WIN-02) — as an arena-allocated 16-byte record.
+/// Result value = record ptr, tag = OK.
 ///
 /// bug-541 GATE-01: while TUI mode is off this **raises** `ErrUnsupported` rather
 /// than reporting a size, which is what `mfb man term terminalSize` promises and
 /// what the console, macOS and GTK bodies all do. It is the one difference in this
 /// bug a correct program can observe: code written as `TRY term::terminalSize()`
 /// with a fallback never took the fallback here, and code using the raise to
-/// detect "TUI not entered" got a plausible-looking 80x25 instead.
+/// detect "TUI not entered" got a plausible-looking size instead.
 fn emit_term_size(
     symbol: &str,
     tso: usize,
@@ -4411,17 +4907,11 @@ fn emit_term_size(
         binding: "internal".to_string(),
         library: None,
     });
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(0),
-        "Integer",
-        &TUI_COLS.to_string(),
-    ));
+    // bug-540 WIN-02: the live surface, as the resize handler last published it.
+    // `ARG[0]` only: the record pointer is in `RET[1]`, which is `ARG[1]` on Win64.
+    emit_win_grid_size(&mut ins, &mut rel, from, abi::mfb_arg(0), GridAxis::Cols);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_return(1), 0)); // columns@0
-    ins.push(abi::move_immediate(
-        abi::mfb_arg(0),
-        "Integer",
-        &TUI_ROWS.to_string(),
-    ));
+    emit_win_grid_size(&mut ins, &mut rel, from, abi::mfb_arg(0), GridAxis::Rows);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_return(1), 8)); // rows@8
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -4453,6 +4943,244 @@ fn emit_term_size(
     ins.push(abi::return_());
     instructions.extend(ins);
     relocations.extend(rel);
+}
+
+/// bug-540 WIN-03: `term::didResize()` — TRUE when the surface changed size since
+/// the last call, and the call acknowledges it.
+///
+/// Windows had no arm, so the call fell through to the console body, which
+/// reads-and-clears the arena term-state flag that only the console present
+/// latches — nothing on Windows ever set it, so this always read FALSE. The resize
+/// is recorded where the resize happens, on the UI thread, as the macOS backend
+/// records it on its own surface state (`TV_DID_RESIZE`); being two threads here,
+/// it is a counter pair rather than a flag (see [`TUI_RESIZES_SYM`]).
+///
+/// Not gated, like every backend's: it reads state only. Before the first
+/// `term::on` both words are 0 — the handler counts only once a surface exists —
+/// so it reads FALSE there, and `term::on` acknowledges everything counted so far.
+/// A leaf; `ARG[1]` holds the acknowledgement's address, the register `term::on`
+/// writes it through.
+fn emit_term_did_resize(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    load_addr(abi::mfb_arg(2), TUI_RESIZES_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0)); // counted
+    load_addr(
+        abi::mfb_arg(1),
+        TUI_RESIZES_SEEN_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(1), 0)); // acknowledged
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
+    ins.push(abi::compare_registers(abi::mfb_arg(2), abi::mfb_arg(3)));
+    ins.push(abi::branch_eq("dr_same"));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // acknowledge
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
+    ins.push(abi::label("dr_same"));
+    ins.push(abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_arg(0)));
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    ins.push(abi::return_());
+    instructions.extend(ins);
+    relocations.extend(rel);
+}
+
+/// bug-540 WIN-02/WIN-03: `_mfb_winapp_term_resize(widthPx, heightPx)` — the one
+/// place the `term::` surface changes size. `WM_SIZE` calls it with the new client
+/// size, and the headless scripted resize (`MFB_WINAPP_TERM_RESIZE_W`/`_H`) calls it
+/// with the scripted one, so the box run executes the production path.
+///
+/// `columns = width / 8`, `rows = height / 16` (the fixed Consolas cell), each at
+/// least 1 — the macOS `setFrameSize:` rule — and at most the backing maximum. A
+/// minimised window reports 0x0 and is ignored, keeping the last real size, as the
+/// canvas half of `WM_SIZE` does. An unchanged size (Windows sends `WM_SIZE` for
+/// restores that change nothing) is not a resize.
+///
+/// On a genuine change it publishes the size, and — once `term::on` has built a
+/// surface; before that there is nothing to have resized — counts the resize for
+/// `term::didResize` and blanks the bitmap outside the overlap of the old and new
+/// surfaces: cells a grow exposes start blank, as the console's resize keeps only
+/// the top-left overlap, and anything past a shrink stays black, which is what
+/// `WM_PAINT` shows past the live surface.
+///
+/// Runs on the UI thread (or `_main`), concurrently with a worker drawing into the
+/// same memDC — the arrangement `WM_PAINT`'s `BitBlt` from it already has. The bitmap
+/// is never replaced, so nothing here can pull it out from under a draw.
+///
+/// Frame: shadow `[0,0x20)`, `PatBlt`'s 5th/6th args `[0x20,0x30)` — written at
+/// their real offsets, since a hand-built frame like this one never passes through
+/// the finalizer that resolves `outgoing_stack_arg_store` — then the new and old
+/// sizes and the memDC. `0x58 ≡ 8 (mod 16)`: entered at `rsp % 16 == 8`, so both
+/// calls are aligned. Only volatile registers (the Win64 argument bank and
+/// `rax`) are used, so neither caller's live nonvolatile values are touched.
+fn emit_term_resize() -> CodeFunction {
+    const FRAME: usize = 0x58;
+    const NEW_COLS: usize = 0x30;
+    const NEW_ROWS: usize = 0x38;
+    const OLD_COLS: usize = 0x40;
+    const OLD_ROWS: usize = 0x48;
+    const MEMDC: usize = 0x50;
+    let from = TERM_RESIZE_SYMBOL;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    // Minimised (or a nonsense size): keep the last real surface.
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_le("tr_done"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), "0"));
+    ins.push(abi::branch_le("tr_done"));
+    // Pixels → cells, clamped to 1 ..= the backing maximum. Shifts, not a divide:
+    // the cell is 8x16, and `div` would write `rdx` (ARG[1] on Win64).
+    for (reg, shift, max, slot, tag) in [
+        (abi::mfb_arg(0), 3u8, TUI_MAX_COLS, NEW_COLS, "tr_cols"),
+        (abi::mfb_arg(1), 4u8, TUI_MAX_ROWS, NEW_ROWS, "tr_rows"),
+    ] {
+        let at_least_one = format!("{tag}_min");
+        let at_most_max = format!("{tag}_max");
+        ins.push(abi::shift_right_immediate(reg.clone(), reg.clone(), shift));
+        ins.push(abi::compare_immediate(reg.clone(), "1"));
+        ins.push(abi::branch_ge(&at_least_one));
+        ins.push(abi::move_immediate(reg.clone(), "Integer", "1"));
+        ins.push(abi::label(&at_least_one));
+        ins.push(abi::compare_immediate(reg.clone(), &max.to_string()));
+        ins.push(abi::branch_le(&at_most_max));
+        ins.push(abi::move_immediate(
+            reg.clone(),
+            "Integer",
+            &max.to_string(),
+        ));
+        ins.push(abi::label(&at_most_max));
+        ins.push(abi::store_u64(reg, abi::stack_pointer(), slot));
+    }
+    // Unchanged → nothing to do.
+    emit_win_grid_size(&mut ins, &mut rel, from, abi::mfb_arg(0), GridAxis::Cols);
+    ins.push(abi::store_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        OLD_COLS,
+    ));
+    emit_win_grid_size(&mut ins, &mut rel, from, abi::mfb_arg(1), GridAxis::Rows);
+    ins.push(abi::store_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        OLD_ROWS,
+    ));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        NEW_COLS,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(2)));
+    ins.push(abi::branch_ne("tr_changed"));
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        NEW_ROWS,
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(2)));
+    ins.push(abi::branch_eq("tr_done"));
+    ins.push(abi::label("tr_changed"));
+    // Publish. Columns first, then rows: a reader between the two stores sees one
+    // axis new and one old, and is told about the resize by `term::didResize` below.
+    for (slot, axis) in [(NEW_COLS, GridAxis::Cols), (NEW_ROWS, GridAxis::Rows)] {
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), slot));
+        load_addr(abi::mfb_arg(1), axis.symbol(), from, &mut ins, &mut rel);
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    }
+    // No surface yet (the `WM_SIZE` `CreateWindowExW` sends, or any resize before
+    // the first `term::on`): the size is recorded, but nothing was resized.
+    load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("tr_done"));
+    // Count it for `term::didResize` — this thread is the counter's only writer.
+    load_addr(abi::mfb_arg(1), TUI_RESIZES_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    // Blank right of min(old, new) columns, then below min(old, new) rows, to the
+    // bitmap's edge: PatBlt(memDC, x, y, W - x, H - y, BLACKNESS).
+    for (old, new, axis_cell, tag) in [
+        (OLD_COLS, NEW_COLS, 3u8, "tr_right"),
+        (OLD_ROWS, NEW_ROWS, 4u8, "tr_below"),
+    ] {
+        let use_new = format!("{tag}_new");
+        let have_min = format!("{tag}_min");
+        ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), old));
+        ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), new));
+        ins.push(abi::compare_registers(abi::mfb_arg(3), abi::mfb_arg(2)));
+        ins.push(abi::branch_lt(&use_new));
+        ins.push(abi::branch(&have_min));
+        ins.push(abi::label(&use_new));
+        ins.push(abi::move_register(abi::mfb_arg(2), abi::mfb_arg(3)));
+        ins.push(abi::label(&have_min));
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(2),
+            abi::mfb_arg(2),
+            axis_cell,
+        )); // the first pixel past the overlap on this axis
+        let (full_w, full_h) = (TUI_MAX_COLS * TUI_CELL_W, TUI_MAX_ROWS * TUI_CELL_H);
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "66")); // BLACKNESS
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x28)); // rop (6th)
+        if axis_cell == 3 {
+            // x = ARG[2]; y = 0; w = W - x; h = H.
+            ins.push(abi::move_immediate(
+                abi::mfb_arg(0),
+                "Integer",
+                &full_h.to_string(),
+            ));
+            ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // height (5th)
+            ins.push(abi::move_immediate(
+                abi::mfb_arg(3),
+                "Integer",
+                &full_w.to_string(),
+            ));
+            ins.push(abi::subtract_registers(
+                abi::mfb_arg(3),
+                abi::mfb_arg(3),
+                abi::mfb_arg(2),
+            )); // width
+            ins.push(abi::move_register(abi::mfb_arg(1), abi::mfb_arg(2))); // x
+            ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // y
+        } else {
+            // x = 0; y = ARG[2]; w = W; h = H - y.
+            ins.push(abi::move_immediate(
+                abi::mfb_arg(0),
+                "Integer",
+                &full_h.to_string(),
+            ));
+            ins.push(abi::subtract_registers(
+                abi::mfb_arg(0),
+                abi::mfb_arg(0),
+                abi::mfb_arg(2),
+            ));
+            ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // height (5th)
+            ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // x
+            ins.push(abi::move_immediate(
+                abi::mfb_arg(3),
+                "Integer",
+                &full_w.to_string(),
+            )); // width
+        }
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
+        call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
+    }
+    ins.push(abi::label("tr_done"));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    code_function("winapp.term_resize", TERM_RESIZE_SYMBOL, ins, rel)
 }
 
 /// Zero the grid cursor row/col globals (uses ARG[0]/ARG[1] as scratch).
@@ -4677,6 +5405,9 @@ fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         utf16z_data_object(HEADLESS_ENV_SYM, "MFB_WINAPP_HEADLESS"),
         utf16z_data_object(RESIZE_W_ENV_SYM, "MFB_CANVAS_RESIZE_W"),
         utf16z_data_object(RESIZE_H_ENV_SYM, "MFB_CANVAS_RESIZE_H"),
+        // bug-540 WIN-02: the scripted `term::` resize's two variable names.
+        utf16z_data_object(TERM_RESIZE_W_ENV_SYM, "MFB_WINAPP_TERM_RESIZE_W"),
+        utf16z_data_object(TERM_RESIZE_H_ENV_SYM, "MFB_WINAPP_TERM_RESIZE_H"),
         CodeDataObject {
             symbol: RESIZE_BUF_SYM.to_string(),
             kind: "raw".to_string(),
@@ -4709,6 +5440,13 @@ fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         writable_qword(TUI_MEMDC_SYM),
         writable_qword(TUI_ROW_SYM),
         writable_qword(TUI_COL_SYM),
+        // bug-540 WIN-02/WIN-03: the live surface size — the headless default until
+        // a `WM_SIZE` or a scripted resize says otherwise — and the resize counter
+        // pair `term::didResize` compares.
+        writable_qword_holding(GRID_COLS_SYM, TUI_HEADLESS_COLS),
+        writable_qword_holding(GRID_ROWS_SYM, TUI_HEADLESS_ROWS),
+        writable_qword(TUI_RESIZES_SYM),
+        writable_qword(TUI_RESIZES_SEEN_SYM),
         // plan-70-F: cached CJK-capable HFONT + its face name.
         writable_qword(TUI_FONT_SYM),
         utf16z_data_object(FONT_NAME_SYM, "Consolas"),
@@ -4726,13 +5464,22 @@ fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
 /// A zero-initialized writable 8-byte global (`kind:"raw"` lands it in the
 /// writable data region per `layout_data_objects`).
 fn writable_qword(symbol: &str) -> CodeDataObject {
+    writable_qword_holding(symbol, 0)
+}
+
+/// A writable 8-byte global whose initial value is `value` (little-endian).
+fn writable_qword_holding(symbol: &str, value: usize) -> CodeDataObject {
     CodeDataObject {
         symbol: symbol.to_string(),
         kind: "raw".to_string(),
         layout: "u64 (writable global)".to_string(),
         align: 8,
         size: 8,
-        value: "0000000000000000".to_string(),
+        value: (value as u64)
+            .to_le_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
     }
 }
 
@@ -4849,7 +5596,7 @@ mod tests {
                 debug,
                 "readback buffer, debug={debug}"
             );
-            let main = emit_main(PresentationMode::Console, true, debug);
+            let main = emit_main(PresentationMode::Console, true, false, debug);
             let reads_dump = main.relocations.iter().any(|r| r.to == DUMP_ENV_SYM);
             assert_eq!(reads_dump, debug, "reader in _main, debug={debug}");
         }
@@ -5490,26 +6237,140 @@ mod canvas_reconcile_tests {
         for uses_canvas in [false, true] {
             for uses_mouse in [false, true] {
                 for uses_window in [false, true] {
-                    let spec = AppEntrySpec {
-                        language_entry_accepts_args: false,
-                        uses_term: false,
-                        initial_mode: PresentationMode::Console,
-                        uses_canvas,
-                        uses_mouse,
-                        uses_window,
-                        debug_hooks: false,
-                    };
-                    out.push(
-                        emit_app_program_entry(&spec, &HashMap::new())
-                            .expect("app entry")
-                            .into_iter()
-                            .find(|f| f.symbol == WNDPROC_SYMBOL)
-                            .expect("WndProc must be emitted"),
-                    );
+                    // bug-540 WIN-02 added the `term::` resize arm.
+                    for uses_term in [false, true] {
+                        let spec = AppEntrySpec {
+                            language_entry_accepts_args: false,
+                            uses_term,
+                            initial_mode: PresentationMode::Console,
+                            uses_canvas,
+                            uses_mouse,
+                            uses_window,
+                            debug_hooks: false,
+                        };
+                        out.push(
+                            emit_app_program_entry(&spec, &HashMap::new())
+                                .expect("app entry")
+                                .into_iter()
+                                .find(|f| f.symbol == WNDPROC_SYMBOL)
+                                .expect("WndProc must be emitted"),
+                        );
+                    }
                 }
             }
         }
         out
+    }
+
+    /// bug-540 WIN-02: `WM_SIZE` and the headless scripted resize reach the SAME
+    /// `term::` resize handler — the box run must execute the production path, not a
+    /// stand-in — and a program without `term::` emits none of it.
+    #[test]
+    fn wm_size_and_the_scripted_hook_share_the_term_resize_handler() {
+        for uses_canvas in [false, true] {
+            let mut spec = spec(PresentationMode::Console);
+            spec.uses_canvas = uses_canvas;
+            spec.uses_term = true;
+            let fns = emit_app_program_entry(&spec, &HashMap::new()).expect("app entry");
+            let find = |symbol: &str| fns.iter().find(|f| f.symbol == symbol).unwrap();
+            assert_eq!(externals(find(WNDPROC_SYMBOL), TERM_RESIZE_SYMBOL), 1);
+            assert_eq!(externals(find(MAIN_SYMBOL), TERM_RESIZE_SYMBOL), 1);
+            for env in [TERM_RESIZE_W_ENV_SYM, TERM_RESIZE_H_ENV_SYM] {
+                assert!(externals(find(MAIN_SYMBOL), env) > 0, "_main reads {env}");
+            }
+            assert!(fns.iter().any(|f| f.symbol == TERM_RESIZE_SYMBOL));
+            // The canvas half of WM_SIZE still runs after the term half.
+            assert_eq!(
+                externals(find(WNDPROC_SYMBOL), CANVAS_SIGNAL_REDRAW_SYMBOL),
+                usize::from(uses_canvas)
+            );
+        }
+        let plain = emit_app_program_entry(&spec(PresentationMode::Console), &HashMap::new())
+            .expect("app entry");
+        assert!(!plain.iter().any(|f| f.symbol == TERM_RESIZE_SYMBOL));
+        assert!(plain.iter().all(|f| externals(f, TERM_RESIZE_SYMBOL) == 0));
+    }
+
+    /// bug-540 WIN-02: the handler is a hand-built frame entered by `call`, so it
+    /// must be `≡ 8 (mod 16)` for its two `PatBlt`s to be aligned; it publishes both
+    /// axes, counts the resize, and consults the memDC before either.
+    #[test]
+    fn the_term_resize_handler_publishes_counts_and_aligns() {
+        let handler = emit_term_resize();
+        let frame = handler
+            .instructions
+            .iter()
+            .find(|i| i.op == CodeOp::SubSp)
+            .and_then(|i| i.get("imm"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .expect("a frame");
+        assert_eq!(frame % 16, 8, "entered at rsp % 16 == 8");
+        assert_eq!(externals(&handler, "PatBlt"), 2);
+        // Each address load is a Hi/Lo relocation pair, hence the dedup.
+        let mut order: Vec<&str> = handler
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|n| [GRID_COLS_SYM, GRID_ROWS_SYM, TUI_MEMDC_SYM, TUI_RESIZES_SYM].contains(n))
+            .collect();
+        order.dedup();
+        assert_eq!(
+            order,
+            vec![
+                GRID_COLS_SYM,
+                GRID_ROWS_SYM,
+                GRID_COLS_SYM,
+                GRID_ROWS_SYM,
+                TUI_MEMDC_SYM,
+                TUI_RESIZES_SYM
+            ],
+            "read the old size, publish the new one, and count only once a surface exists"
+        );
+    }
+
+    /// bug-540: the grid write path's scroll is a hand-built frame entered by `call`
+    /// — `≡ 8 (mod 16)` so `BitBlt`/`PatBlt` are aligned — whose five `BitBlt` stack
+    /// arguments sit at their real offsets above the shadow space, and it only
+    /// scrolls when the cursor is at or past the live last row.
+    #[test]
+    fn the_term_scroll_helper_aligns_and_scrolls_past_the_last_row() {
+        let helper = emit_term_scroll();
+        let frame = helper
+            .instructions
+            .iter()
+            .find(|i| i.op == CodeOp::SubSp)
+            .and_then(|i| i.get("imm"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .expect("a frame");
+        assert_eq!(frame % 16, 8, "entered at rsp % 16 == 8");
+        assert_eq!(externals(&helper, "BitBlt"), 1);
+        assert_eq!(externals(&helper, "PatBlt"), 1);
+        assert!(externals(&helper, GRID_ROWS_SYM) > 0, "the live row count");
+        for offset in [0x20, 0x28, 0x30, 0x38, 0x40] {
+            assert!(
+                helper.instructions.iter().any(|i| i.op == CodeOp::StrU64
+                    && i.get("offset").as_deref() == Some(offset.to_string().as_str())),
+                "BitBlt stack argument at sp+{offset:#x}"
+            );
+        }
+    }
+
+    /// bug-540 WIN-02: the size globals start at the headless default, so a run with
+    /// no window (and no scripted resize) reports 80x25 rather than 0x0.
+    #[test]
+    fn the_surface_size_globals_start_at_the_headless_default() {
+        let objects = app_mode_data_objects("P", false);
+        let value = |symbol: &str| {
+            objects
+                .iter()
+                .find(|d| d.symbol == symbol)
+                .map(|d| d.value.clone())
+                .unwrap_or_else(|| panic!("{symbol} emitted"))
+        };
+        assert_eq!(value(GRID_COLS_SYM), "5000000000000000");
+        assert_eq!(value(GRID_ROWS_SYM), "1900000000000000");
+        assert_eq!(value(TUI_RESIZES_SYM), "0000000000000000");
+        assert_eq!(value(TUI_RESIZES_SEEN_SYM), "0000000000000000");
     }
 
     /// bug-698: WndProc is a Win64 callback, so it owes user32 the nonvolatile bank.

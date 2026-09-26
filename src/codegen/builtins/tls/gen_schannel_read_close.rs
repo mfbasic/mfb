@@ -29,6 +29,7 @@ pub(crate) fn lower_tls_read(
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer");
+    let context_expired = format!("{symbol}_context_expired");
     let timed_out = format!("{symbol}_timed_out");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -61,6 +62,11 @@ pub(crate) fn lower_tls_read(
         abi::load_u64(&v10, &v9, st::LEFT_LEN),
         abi::compare_immediate(&v10, "0"),
         abi::branch_gt(&have),
+        // bug-564: the peer's close_notify was already consumed. Report it again
+        // rather than `recv` on a socket the peer may be holding open.
+        abi::load_u64(&v10, &v9, st::PEER_CLOSED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&peer_closed),
     ]);
     // decrypt loop
     ins.extend([
@@ -100,6 +106,15 @@ pub(crate) fn lower_tls_read(
     ins.extend([
         abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
         abi::branch_eq(&timed_out),
+        // bug-564: a peer that reset or aborted the connection is the peer's
+        // close, as on macOS and Linux, and as `tls::write` on this backend
+        // already classifies the same three codes. It was ErrNetworkFailed.
+        abi::compare_immediate(&v9, "10054"), // WSAECONNRESET
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10053"), // WSAECONNABORTED
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10058"), // WSAESHUTDOWN
+        abi::branch_eq(&peer_closed),
         abi::branch(&fail),
         abi::label(&recv_ok),
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
@@ -140,6 +155,14 @@ pub(crate) fn lower_tls_read(
         // before more application data can be decrypted.
         abi::compare_immediate(&v15, "590625"),
         abi::branch_eq(&format!("{symbol}_reneg")),
+        // bug-564: SEC_I_CONTEXT_EXPIRED is the peer's close_notify. It is a
+        // success status carrying no plaintext, so without this arm the loop
+        // below treated it as an empty record and went back to `recv` -- which
+        // blocks until the peer's FIN, forever against a peer that half-closes
+        // and waits for our close_notify. OpenSSL (`SSL_read` = 0) and
+        // Network.framework (a final, empty receive) both raise here.
+        abi::compare_immediate(&v15, SEC_I_CONTEXT_EXPIRED),
+        abi::branch_eq(&context_expired),
         // buffer [1] = DATA(plaintext). Copy to LEFT, set LEFT_OFF=0, LEFT_LEN=len.
         abi::load_u32(&v10, abi::stack_pointer(), BUFS + 16), // data len
         abi::load_u64(&v11, abi::stack_pointer(), BUFS + 24), // data ptr
@@ -212,7 +235,7 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, &v9, st::LEFT_LEN),
     ]);
-    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &result_alloc_fail, &mut ins, &mut rel);
+    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &result_alloc_fail, &mut vregs, &mut ins, &mut rel);
     // bug-623: OUTBUF (NOUT bytes) was only the copy source for the list; release
     // it, then reload the list from COLL -- `arena_free` clobbers the result bank.
     ins.extend([
@@ -362,7 +385,18 @@ pub(crate) fn lower_tls_read(
         abi::branch(&reneg_isc),
     ]);
 
-    ins.push(abi::label(&peer_closed));
+    // bug-564: every read that reports the close records it, whichever way the
+    // close arrived (close_notify falls through from `context_expired`, the
+    // transport's own end of stream comes from `recv`). A later read raises from
+    // the flag, and since the 2026-09-25 owner decision so does every
+    // `tls::write` (`lower_tls_write`).
+    ins.extend([
+        abi::label(&context_expired),
+        abi::label(&peer_closed),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u64(&v10, &v9, st::PEER_CLOSED),
+    ]);
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
@@ -577,6 +611,11 @@ pub(crate) fn lower_tls_poll(
         abi::load_u64(&v10, &v9, st::LEFT_LEN),
         abi::compare_immediate(&v10, "0"),
         abi::branch_gt(&ready),
+        // bug-564: a read has consumed the peer's close_notify, so the next read
+        // raises at once -- readable, whatever the (possibly still open) socket says.
+        abi::load_u64(&v10, &v9, st::PEER_CLOSED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&ready),
         // Normalize the timeout (net::poll policy): sentinel→-1 (block), <0→invalid,
         // >0→clamp INT_MAX. No external call precedes WSAPoll, so the record pointer in
         // x0 stays live for the fd load below.

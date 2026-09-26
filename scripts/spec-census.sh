@@ -286,7 +286,12 @@ mode_render() {
 	for p in $pkgs; do
 		out=$("$MFB" spec "$p" --all 2>/dev/null)
 		lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
-		leaks=$(printf '%s\n' "$out" | grep -c '\[\[')
+		# A leak is a surviving marker, shaped as `citations` in
+		# src/docs/spec/mod.rs defines one: no space, contains `/`, not a
+		# `[[:class:]]`. A bare `[[` is legitimate text — a nested list literal
+		# (`big::Int[[7, 0], FALSE]`) or an Objective-C send (`[[NSColor
+		# blackColor] set]`) — and must not count.
+		leaks=$(printf '%s\n' "$out" | grep -cE '\[\[([^]: ][^] ]*)?/[^] ]*\]\]')
 		printf '%-18s %8s %7s\n' "$p" "$lines" "$leaks"
 		if [ "$lines" -le 1 ]; then
 			printf '%-18s EMPTY RENDER\n' "$p"

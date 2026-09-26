@@ -2,7 +2,7 @@
 
 MFBASIC values have lexical ownership. Each live value is owned by exactly one binding, container slot, temporary, closure environment, thread message, or return slot. Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
 
-The compiler may choose stack storage, inline storage, heap allocation, or destructive update, but those choices cannot change the ownership behavior described here.
+The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
 ## 14.1 Copy, move, and freeze
 

@@ -73,6 +73,11 @@ pub(crate) struct AbiCtx<'a> {
     /// The mouse-MODE word is deliberately not here: it is process-global
     /// (`MOUSE_MODE_SYMBOL`), because a UI-thread handler has no arena state.
     pub(crate) mouse_state_offset: Option<usize>,
+    /// bug-699: the arena offset of the input-buffer region (the bytes a stdin
+    /// subscriber has pulled but no reader has consumed), or `None` when no reader
+    /// in the program decodes through it — see `io::input::INPUT_BUFFER_READERS`.
+    /// Read by the `io` reader bodies; every other abi body ignores it.
+    pub(crate) input_state_offset: Option<usize>,
     /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
     /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
     /// `thread.start` alone consumes it to size a spawned worker's arena block so its

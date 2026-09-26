@@ -1091,6 +1091,69 @@ END FUNC
 }
 
 #[test]
+fn native_term_mouse_line_read_keeps_the_bytes_after_an_escape() {
+    // bug-699 (found while threading the input buffer through the read path).
+    // `io::readLine` loops back to its per-byte read for every byte of the line,
+    // and that loop head sat BELOW the mouse pump's owed-byte drain. After an
+    // `ESC x` flush — ESC delivered, `x` owed — the next iteration skipped the
+    // drain and read a fresh byte, which re-entered the decoder mid-flush: the
+    // decoder appended it to the old prefix and delivered the ESC again, so the
+    // rest of the line came back as a run of ESCs.
+    //
+    // Measured on the unfixed compiler: `a ESC x b` read back as `97 27 27 27`,
+    // and `a ESC [ Z b` the same. Without `enableMouse` both are exact, which is
+    // the control below.
+    let source = |mouse: bool| {
+        format!(
+            r#"
+IMPORT io
+IMPORT strings
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse({mouse})
+  LET l AS String = io::readLine()
+  term::enableMouse(FALSE)
+  MUT s AS String = ""
+  FOR EACH b IN strings::toBytes(l)
+    s = s & toString(b) & " "
+  NEXT
+  io::printError("LINE:" & s)
+  RETURN 0
+END FUNC
+"#,
+            mouse = if mouse { "TRUE" } else { "FALSE" }
+        )
+    };
+    for mouse in [false, true] {
+        let project = temp_project("native_term_mouse_line_escape", &source(mouse));
+        let executable = build_project(&project);
+        for (input, want) in [
+            (&b"a\x1bxb\n"[..], "LINE:97 27 120 98 "),
+            (b"a\x1b[Zb\n", "LINE:97 27 91 90 98 "),
+            (b"\x1b\x1bq\n", "LINE:27 27 113 "),
+        ] {
+            let output = Command::new(&executable)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    child.stdin.take().expect("stdin").write_all(input)?;
+                    child.wait_with_output()
+                })
+                .expect("run the line reader");
+            let err = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                err.contains(want),
+                "enableMouse({mouse}): readLine of {input:?} must return every byte, \
+                 want {want:?}, got {err:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn native_term_mouse_does_not_echo_during_a_line_read() {
     // `io::input`/`io::readLine` restore the saved cooked line discipline for the
     // duration of their read, which re-enables ECHO. A mouse report arriving in
