@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security+Correctness
 
-Status: Open
+Status: FIXED (cde73a793)
 Regression Test: `examples/ai_chat/tests/pty_repro.py` (does not exist yet — to be added in Phase 1)
 
 `examples/ai_chat` (a multi-session Claude-chat TUI, `examples/ai_chat/src/main.mfb`)
@@ -327,7 +327,7 @@ No other example under `examples/` uses `process::spawn`/`waitFor`/`signal`/
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `examples/ai_chat/tests/pty_repro.py` (stdlib-only `pty`/`select`
+- [x] Add `examples/ai_chat/tests/pty_repro.py` (stdlib-only `pty`/`select`
       harness, following the pattern demonstrated in this bug's reproduction)
       with three sub-tests mirroring (a)/(b)/(c) above, each using its own
       throwaway stub `claude` script written to a temp dir and prepended to
@@ -340,37 +340,50 @@ No other example under `examples/` uses `process::spawn`/`waitFor`/`signal`/
       (c) asserts the stub's logged argv contains a literal `"--"` element
       before the prompt when the prompt starts with `-` — fails today
       (absent).
-- [ ] Confirm the blast-radius audit above (all four call sites, one file) —
+- [x] Confirm the blast-radius audit above (all four call sites, one file) —
       done, see **Blast Radius**.
 
 Acceptance: the three new checks fail for the documented reason; the audit
 list is complete with a verdict per site.
-Commit: —
+Commit: dba77e87d — confirmed RED against current `main.mfb`: (a) neither the
+stub's stderr text nor its exit code appear in the transcript; (b) the process
+does not exit within 10s of confirming close (hangs in the unconditional
+`waitFor`); (c) no `"--"` before the prompt in the stub's logged argv.
 
 ### Phase 2 — the fix
 
-- [ ] `main.mfb:1063–1067`: surface exit code + stderr on a nonzero exit
+- [x] `main.mfb:1063–1067`: surface exit code + stderr on a nonzero exit
       (drain `Stream.StdErr`, add a system-message failure path).
-- [ ] `main.mfb:1116–1117`: replace the unconditional `waitFor` with a bounded
+- [x] `main.mfb:1116–1117`: replace the unconditional `waitFor` with a bounded
       `isRunning`-poll-then-`Signal.Kill`-then-`waitFor` sequence.
-- [ ] `main.mfb:520`: insert `"--"` before `prompt` in the `claudeArgs` argv
+- [x] `main.mfb:520`: insert `"--"` before `prompt` in the `claudeArgs` argv
       list.
 
 Acceptance: the Phase 1 test(s) pass; the contrast cases (successful-turn
 rendering, `spawn`-failure messaging, existing `--resume`/`--model` flags)
 are unchanged; nothing in Non-goals changed.
-Commit: —
+Commit: cde73a793 — (b)'s bounded wait is 20 x 100ms (~2s) of `isRunning`
+polling before escalating to `Signal.Kill`, per the Open Decisions
+recommendation; (a)'s failure message is `"claude exited " & toString(code) &
+": " & stderrText`, mirroring the existing `spawn`-failure phrasing.
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Rebuild the example (`mfb build examples/ai_chat`) and re-run
+- [x] Rebuild the example (`mfb build examples/ai_chat`) and re-run
       `examples/ai_chat/tests/pty_repro.py`; confirm all three sub-tests now
       pass.
-- [ ] Run `scripts/build-examples.sh` to confirm ai_chat still builds cleanly
+- [x] Run `scripts/build-examples.sh` to confirm ai_chat still builds cleanly
       for every registered target (this bug's fix touches only `main.mfb`
       source text, no target-specific codegen, but the script is the
-      project's standard example-wide gate).
-- [ ] Re-run the three verbatim reproductions from **Failing Reproduction**
+      project's standard example-wide gate). **Deviation:** this parallel
+      fix-bug lane's own gate for an `examples/**`-only change is lighter —
+      "every touched example builds" — not the full multi-target
+      `scripts/build-examples.sh` sweep (which cross-builds every example for
+      every registered target and is reserved for the coordinator's own
+      integration pass across six concurrent lanes on one shared machine).
+      Ran the lane's actual gate instead: `mfb build examples/ai_chat` for the
+      native target, green.
+- [x] Re-run the three verbatim reproductions from **Failing Reproduction**
       by hand against the fixed binary and confirm the "Observed" sections no
       longer match (diagnostic now visible for (a), close-with-stuck-child now
       bounded for (b), `"--"` now present before the prompt for (c)).
@@ -382,7 +395,10 @@ message once the child is eventually kill(1)ed by the bounded-wait fix from
 (b) — the two sub-issues share the same underlying primitive
 (`process::isRunning`-bounded control) even though only (b)'s call site
 needed it structurally.
-Commit: —
+Commit: cde73a793 — `examples/ai_chat/tests/pty_repro.py` passes all three
+sub-tests against the rebuilt `ai_chat.out`; native build green (see
+deviation note above for why `scripts/build-examples.sh` itself was not run
+by this lane).
 
 ## Validation Plan
 
@@ -428,3 +444,27 @@ engineering risk is in (b)'s fix (getting the escalation deadline right
 without introducing spurious `Signal.Kill` on children that are simply slow)
 and in not over-reaching into stderr-draining-during-poll, which is
 structurally larger and deferred as a documented Open Decision.
+
+## Corrections
+
+- `examples/ai_chat/tests/pty_repro.py`'s (b) sub-test originally assumed the
+  UI keeps running after a session close (asserting new frames keep
+  appearing) — wrong for this app's default single-session state: closing the
+  app's *only* session also sets `running := FALSE` (`handleModal`'s
+  `len(ns) = 0` case), so the correct observable is the whole process exiting
+  cleanly (printing `"ai_chat: bye."`) within the bounded window, not
+  continued redraws. The test was corrected to assert that instead — this
+  matches the bug doc's own framing ("the process regains control... within a
+  bounded time") more directly than the original draft.
+- (a)'s pipe-full stall (a secondary hypothesis in the original repro, not one
+  of the three phased sub-issues) was not separately re-tested in Phase 3
+  beyond the reasoning already in the Phase 3 Acceptance line: the bounded-wait
+  fix from (b) still gives the user a way out of a stuck turn by closing the
+  session, exactly as that Acceptance line anticipated.
+
+## STATUS: FIXED (cde73a793)
+
+All three sub-issues fixed as designed. One deviation from the plan: Phase 3's
+`scripts/build-examples.sh` step was replaced with this parallel fix-bug
+lane's lighter `examples/**`-only gate (`mfb build examples/ai_chat` for the
+native target) — see the Phase 3 note above.
