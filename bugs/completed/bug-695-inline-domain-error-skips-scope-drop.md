@@ -1,12 +1,27 @@
 # bug-695: an inline domain error that leaves its function skips the scope-drop walk, leaking every owned local
 
-Last updated: 2026-09-24
+## STATUS: FIXED (e1c5d3ac1)
+
+Fixed on `worktree-B-695`: RED test `565e81ea9`, fix `e1c5d3ac1`, test-count
+corrections `bd7f24b56`, goldens `0d143a7c0`. Chose Open Decision (b), shared
+landing pads. Measured per-site walk (a) at +20.84% total instructions over the
+56 byte-identity cover builds (macos-aarch64 + linux-x86_64; `vector` +44%);
+(b) is +2.92% (max `json` +4.92%). Deviations from the design, each recorded
+below under Corrections: the pads are appended after the body rather than
+emitted in place; the function-level `TRAP` route was also leaking the
+statement temps and is fixed too; four owner-counting codegen suites and one
+native-resource close count were corrected with proof.
+
+Reproduction after the fix (macos-aarch64, the doc's own commands): W = a, b,
+c, d each report `alloc_calls 5`, `free_calls 5`, `live_bytes 0`.
+
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Memory-safety (leak)
 
-Status: Open
-Regression Test: none yet — `tests/runtime/rt_domain_error_frees_locals.rs` (Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_domain_error_frees_locals.rs`
 
 When an inline builtin or operator raises — a failing conversion (`toInt`), a
 division by zero, an integer overflow, an index out of range, an allocation
@@ -138,28 +153,38 @@ Recommended: (b) if (a) grows any cover by more than a few percent.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_domain_error_frees_locals.rs`: the four shapes above
+- [x] Add `tests/runtime/rt_domain_error_frees_locals.rs`: the four shapes above
       plus a `List` and a `String` local, a failing `WITH` value, a raise inside
       a `FOR EACH` body and inside a nested block, with pending statement temps
       (`"a" & toString(n) & toString(10 / v)`), each asserting output and no
       leak. Confirm b/d-class cases fail at HEAD.
-- [ ] Audit raise sites reachable during cleanup emission.
+- [x] Audit raise sites reachable during cleanup emission.
 
-Commit: —
+Commit: 565e81ea9
+
+Audit: `emit_resource_cleanup_call`, `emit_resource_union_cleanup_call`,
+`emit_owned_list_drain`, `emit_owned_value_drop` and `emit_pending_temp_free`
+contain no raise site. A failing close is recorded in the cleanup-failure
+ledger, not raised, and a drop allocates nothing, so the walk is also safe on
+an out-of-memory raise. The only re-entry is the trap route's own OOM fallback
+(`route_current_result_to_trap` building an `Error`). It re-enters
+`emit_error_register_return` with `emitting_error_route` set and still returns
+bare. That flag now marks the return route too.
 
 ### Phase 2 — the fix
 
-- [ ] Route the bare return as designed; measure code size on the covers.
+- [x] Route the bare return as designed; measure code size on the covers.
 
-Commit: —
+Commit: e1c5d3ac1
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Regenerate the `.ncode` goldens; confirm the delta is only the added
+- [x] Regenerate the `.ncode` goldens; confirm the delta is only the added
       cleanup at raise sites.
-- [ ] Full suite; re-run the reproduction.
+- [x] Scoped suite (the coordinator runs the full suite after merge); re-run
+      the reproduction.
 
-Commit: —
+Commit: bd7f24b56, 0d143a7c0
 
 ## Validation Plan
 
@@ -172,6 +197,42 @@ Commit: —
 ## Open Decisions
 
 - Per-site walk vs. shared landing pads — decide from the code-size measurement.
+
+## Corrections
+
+1. **The pads go after the body, not at the first site.** The first version
+   emitted a pad in place at its first raise site, and later sites branched
+   back to it. `cargo test --bin mfb`
+   (`cli::build::tests::builtin_codegen_corpora_lower_in_process`) then
+   failed. `mfb build -ncode -target linux-riscv64` of `byte-identity/math`
+   panicked `rv64 v128: function needs 322 concurrent vector slots, exceeding
+   the 127-slot region`, because `v128_live_ranges` reads every backward
+   branch as a loop and stretches each vector value across it. Pads are now
+   emitted into a side buffer when first requested, so each drop reads that
+   point's locals. `append_error_return_pads` (called first in
+   `run_register_allocation`) then appends them deepest-first, so every branch
+   to a pad is forward. Checked over all 5 targets × every cover: 3,619
+   functions, 13,531 pads, 0 backward branches, 0 fall-throughs into a pad.
+2. **The trap route leaked too.** With a function-level `TRAP`, the inline
+   raise ran the trap-route walk but never freed the statement's pending temps
+   (`trappedTemps` case: 25 allocs / 19 frees; the same shape through a failing
+   call, `trappedTempsCall`, is clean). Both routes now go through
+   `emit_call_error_exit`'s temp free.
+3. **Owner-count tests counted error-exit drops as owners.**
+   `codegen_for_each_item_drop`, `codegen_return_interior_temp_drop` and
+   `codegen_string_return_freshness` count static `_mfb_rt_drop_owned_string`
+   sites. At 4ef538bb9 a loop body holding a failing CALL already counts the
+   call exit's drop (String 4 vs Integer 2). So "one site = one owner" only
+   held for bodies with no walking error exit. Only each file's counting helper
+   changed, to skip inline-raise exits (`common::outside_inline_error_exits`).
+   All three still pass unchanged against the 4ef538bb9 compiler.
+   `rt_native_resource_scope_drop::native_resource_closes_on_fail` expected 1
+   closing exit path. The OOM raise while building `error(...)` is a second
+   one, and before this fix it left `db` open. The expected count is now 2,
+   which fails at 4ef538bb9.
+4. **The resource case is part of the regression test.** A `RES` File local
+   leaked its 96 B record plus the handle on an inline raise at 4ef538bb9
+   (`resourceLocal`: 28 allocs / 22 frees).
 
 ## Summary
 

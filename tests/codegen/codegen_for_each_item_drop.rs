@@ -47,13 +47,16 @@ fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("code plan has no function '{symbol}'"))
 }
 
-/// How many owned-`String` drops `symbol` emits — every place that will free a
-/// `String` block.
+/// How many owned-`String` drops `symbol` emits on its normal path — every place
+/// that will free a `String` block there. The loop bodies below hold a checked
+/// `+`, whose error exit drops the live loop item INSTEAD of the normal-path drop
+/// (bug-695); a failing call's exit always did the same. Those are not owners.
 fn string_drops(plan: &Value, symbol: &str) -> usize {
-    function(plan, symbol)["instructions"]
+    let instructions = function(plan, symbol)["instructions"]
         .as_array()
-        .expect("instructions array")
-        .iter()
+        .expect("instructions array");
+    common::outside_inline_error_exits(instructions)
+        .into_iter()
         .filter(|instr| instr["target"].as_str() == Some("_mfb_rt_drop_owned_string"))
         .count()
 }

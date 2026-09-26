@@ -56,13 +56,16 @@ fn pending_temps(plan: &Value, symbol: &str) -> usize {
         .count()
 }
 
-/// How many owned-`String` drops `symbol` emits — the count of places that will
-/// free a `String` block.
+/// How many owned-`String` drops `symbol` emits on its normal path — the count of
+/// places there that will free a `String` block. An inline raise's error exit
+/// frees the statement's temps INSTEAD of the normal path (bug-695, as a failing
+/// call's exit always did), so its frees are not extra owners.
 fn string_drops(plan: &Value, symbol: &str) -> usize {
-    function(plan, symbol)["instructions"]
+    let instructions = function(plan, symbol)["instructions"]
         .as_array()
-        .expect("instructions array")
-        .iter()
+        .expect("instructions array");
+    common::outside_inline_error_exits(instructions)
+        .into_iter()
         .filter(|instr| instr["target"].as_str() == Some("_mfb_rt_drop_owned_string"))
         .count()
 }

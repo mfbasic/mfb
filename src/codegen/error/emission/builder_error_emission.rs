@@ -596,17 +596,21 @@ impl CodeBuilder<'_> {
         // still propagate out (§8.6).
         if let Some(label) = self.raw_result_capture.clone() {
             self.emit(abi::branch(&label));
-        } else if !self.emitting_error_route
-            && matches!(self.error_exit_destination(), ExitDestination::Trap)
-        {
-            // Route this inline failure to the enclosing function-level `TRAP`. The
-            // trap route builds an `Error` inline; its OOM fallback re-enters here
-            // with the guard set, so it returns to the caller instead of recursing.
-            self.emitting_error_route = true;
-            self.emit_current_result_exit(ExitDestination::Trap)?;
-            self.emitting_error_route = false;
-        } else {
+        } else if self.emitting_error_route {
+            // Re-entry from an error route's own OOM fallback (the trap route
+            // builds an `Error` inline): the route that re-entered is already
+            // mid-walk, so running the walk again would double-free. Return.
             self.emit(abi::return_());
+        } else {
+            // bug-695: leave freeing exactly what a failing CALL at this point
+            // frees — the statement's pending temps, then the scope-drop walk for
+            // the destination: the enclosing function-level `TRAP` when one is
+            // active, the caller otherwise (`emit_inline_error_exit`). The guard
+            // marks the route for the re-entry above.
+            self.emitting_error_route = true;
+            let routed = self.emit_inline_error_exit();
+            self.emitting_error_route = false;
+            routed?;
         }
         Ok(())
     }
