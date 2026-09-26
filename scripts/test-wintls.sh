@@ -40,6 +40,12 @@ for fixture in "$ROOT"/tests/rt-behavior/tls/*-rt; do
   golden="$fixture/golden/build.log"
   [ -f "$golden" ] || { fail "$name: no golden/build.log"; continue; }
   # The expected run: everything after the `$ …/build/<exe>` line of the golden.
+  # A fixture whose peer is the `openssl` CLI (a local `tls::listen` + `s_client`)
+  # cannot run on the Windows box, which has no openssl; say so rather than fail.
+  if grep -q '"openssl"' "$fixture"/src/*.mfb; then
+    echo "skip: $name (its peer is the openssl CLI, which the Windows box does not have)"
+    continue
+  fi
   expected="$(awk '/^\$ .*\/build\/[^ ]+$/ { run = 1; next } run' "$golden")"
   [ -n "$expected" ] || { fail "$name: golden has no run section"; continue; }
 
