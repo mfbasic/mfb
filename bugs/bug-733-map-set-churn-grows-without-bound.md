@@ -5,8 +5,10 @@ Effort: large (3h–1d)
 Severity: MEDIUM (memory; output is correct)
 Class: Other (memory / scalability)
 
-Status: Open
-Regression Test: none yet — see Phase 1. Repro: `bugs/repro/bug-733-map-set-churn-grows-without-bound.mfb`
+Status: Open — **2026-09-25: fixed on `worktree-B-732` (Phases 1–2, verified; see
+below). The full suite is still owed (Phase 3).**
+Regression Test: `tests/runtime/rt_self_update_cost.rs`
+(`a_churning_map_or_set_does_not_grow_without_bound`). Repro: `bugs/repro/bug-733-map-set-churn-grows-without-bound.mfb`
 
 Found while fixing bug-732. A `MUT` map that keeps 64 keys — each round `set`s a new
 key and `removeKey`s the oldest — holds 2.2 MB of arena at its peak after 16,000
@@ -98,25 +100,111 @@ This predates bug-732 (plan-86-D1 introduced the slack model, and
 
 ## Fix Design
 
-Not designed. The list fix (bug-732, `emit_list_reclaim_before_grow`) is the model:
+(As filed — see *Corrections* for what shipped.) The list fix (bug-732, `emit_list_reclaim_before_grow`) is the model:
 at a map grow, total the live key and value bytes (an O(count) walk the grow's entry
 copy already costs) and, when the dead bytes outnumber them, repack the entries'
 payloads into the new block in entry order, rewriting both offsets. A repack that
 changes `dataCapacity` moves the bucket region, so it leaves `bucketsReady = 0`, as a
 grow already does.
 
+## Corrections
+
+- **C1 — the reclaim must not allocate.** The first version (commit-free, measured
+  2026-09-25) packed through an arena scratch block and copied back. It fixed the
+  churn (every shape flat) but `rt_inplace_self_update`'s allocation bound failed
+  51 of 231 map/set case/site pairs — `remove` +1,000 blocks per 2,000 runs,
+  `symmetricDifference` +500, `removeKey` +333 — because a small map reclaims every
+  few statements, which makes the scratch a per-statement allocation (the spec's
+  "No per-statement allocation" rule). The shipped helper slides the payloads
+  down in place instead. Doing that safely needs them visited in increasing
+  offset: keys always are in entry order; a value moved to the tail by a growing
+  `set` is not, so those values are heap-sorted by offset in the bucket region and
+  merged in (the index is then rebuilt lazily). If the keys were ever out of order
+  the helper does nothing.
+- **C2 — out-of-order values are a churn shape of their own.** A 64-key
+  `Map OF String TO String` whose values keep outgrowing their slots (no removals)
+  grew 113,072 → 844,176 B at the base for 8× the rounds. It is in the test
+  (`valueChurn`) and is flat after the fix.
+- **C3 — the grow sites.** Besides the two `lower_map_set_in_place` grows, the
+  batch reserve (`emit_map_reserve`, used by `union`, `symmetricDifference`,
+  `merge`) reclaims first too. A record field that is not its record's last
+  inlined field rebuilds by copying (`fieldCopy`), and was already flat at the base.
+
 ## Phases
 
 ### Phase 1 — failing test
-- [ ] A churn test: peak live bytes for 2,000 vs 16,000 rounds of the repro's two
+- [x] A churn test: peak live bytes for 2,000 vs 16,000 rounds of the repro's two
       shapes, as `rt_self_update_cost`'s `a_churning_list_does_not_grow_without_bound`.
+      → `a_churning_map_or_set_does_not_grow_without_bound`, eight shapes over a map
+      or set held at 64 entries: `map` (String keys), `intMap` (fixed-width key and
+      value), `set`, `valueGrow` (alternating value length; a guard), `valueChurn`
+      (values outgrowing their slots), `setAlgebra` (`union` + `difference`),
+      `fieldCopy` (non-last record field) and `fieldLast` (last record field). It
+      fails if any shape's peak grows by more than a quarter.
+      **RED at the base `d92e9d129`** and at this branch before the fix, identical:
+      `CARGO_TARGET_DIR=/tmp/b732-target MFB_TEST_EXE=<base mfb> cargo test --test rt_self_update_cost -- --test-threads=1 --nocapture churning_map`
+      → `map` 421,152 → 3,279,168 B, `intMap` 276,752 → 2,099,792, `set` 276,736 →
+      2,099,776, `valueChurn` 113,072 → 844,176, `setAlgebra` 185,648 → 1,141,296,
+      `fieldLast` 421,264 → 2,186,320; `valueGrow` and `fieldCopy` flat (20,848 and
+      16,048). The documented reason: the fix below only adds the reclaim, and
+      with it every shape is flat.
 Commit: —
 
 ### Phase 2 — fix
-- [ ] Reclaim dead key/value bytes at every map grow; update the spec *Compaction*
+- [x] Reclaim dead key/value bytes at every map grow; update the spec *Compaction*
       and *Map Updates* sections and `.ai/collections.md`.
+      → `_mfb_rt_map_reclaim` (`lower_map_reclaim_helper`, in place, allocates
+      nothing, returns 0/1), called through `emit_map_reclaim_before_grow` at the
+      entry grow and value grow of `lower_map_set_in_place` and at
+      `emit_map_reserve`, each retrying its room check after a repack. No header
+      change: the helper uses the bucket region (sort space) and a reserved entry
+      byte (transient mark, cleared before return). Spec *Compaction*, *Map
+      Updates* and the Self-updates "Cost" bullet; `.ai/collections.md` map notes
+      (including C1). A new unit test (`inplace_compact`,
+      `an_in_place_map_or_set_grow_reclaims_dead_bytes_first`) pins the call at
+      `set`, `add` and `union`. No `mfb man` page states map memory behaviour, so
+      no man change.
+
+**GREEN:** the same command with this branch's release `mfb` → passed; every shape
+flat: `map` 49,440 B, `intMap` 27,920, `set` 14,080, `valueGrow` 20,848,
+`valueChurn` 27,024, `setAlgebra` 14,160, `fieldCopy` 16,048, `fieldLast` 49,552 at
+both 2,000 and 16,000 rounds. `intMap` and `set` allocate 18 / 17 blocks in total
+at both sizes (the reclaim allocates nothing). CPU stays linear: `map` 0.04 →
+0.33 s, `set` 0.03 → 0.27 s, `valueChurn` 0.00 → 0.06 s user for 20,000 → 160,000
+rounds. The repro: `map` 128,000 rounds peaks at the same bytes as 16,000.
+
+Other checks (release `mfb` of this branch):
+- `rt_self_update_cost` — all 11 pass, including the value program's new
+  `mapReclaim` section (a `Map OF String TO Node` with graph-owning values, a
+  `Set OF String` and a `Map OF Integer TO String` with outgrowing values, 600
+  rounds at 8 entries; output identical to the base compiler's) and its `--debug`
+  leak check (`alloc_calls = free_calls`, `live_bytes 0`, no double free).
+- Three fuzz programs (`set`/`removeKey`/`getOr`/`hasKey` over Integer and String
+  keys; `add`/`remove`/`difference`/`symmetricDifference` over Integer and String
+  elements; `set` with growing values + `removeKey`, 3,000–60,000 rounds) print
+  the same as the base compiler on macos-aarch64 and on windows-x86_64 (box 2230);
+  the third, under `--debug`, frees every block. The Linux boxes were down, so
+  x86-64 SysV and riscv64 were compiled only.
+- `rt_inplace_self_update` filtered to the map/set lines
+  (`MFB_SELF_UPDATE_FILTER='collections::removeKey|collections::remove(|collections::difference|collections::symmetricDifference|collections::union|collections::intersection|collections::merge|collections::set(|collections::add(|collections::mapValues'`)
+  → 3 passed (the allocating first version failed 51 pairs here; see C1).
+- `rt_inplace_failure_atomic`, `rt_recursive_value_collection_drops`,
+  `rt_recursive_map_transfer`, `rt_imported_record_map_field_keys`,
+  `rt_merge_fast_path_frees`, `rt_inplace_field_{mixed,loop,nested}`,
+  `rt_inplace_global_record`, `rt_res_state_inplace_mutation`,
+  `codegen_inplace_{record_field,remove_at_insert}`, `inplace_self_update_census`;
+  `cargo test --bin mfb -- inplace_compact self_update map_compact spec
+  citations_resolve` (66); `cargo check --all-targets` clean.
 Commit: —
 
 ### Phase 3 — full validation
 - [ ] Full suite.
+      **Expected golden shifts** (measured on macos-aarch64, byte-identity covers
+      built by this branch against bug-732's end state): **net, tcp, tls, udp**
+      newly shift — each only gains the `_mfb_rt_map_reclaim` helper function and
+      the call in the functions with an in-place map grow — on top of bug-732's
+      set (audio, collections, csv, http, json, regex, strings, term,
+      `syntax/app/app-mouse-surface`, `syntax/app/macos-app-mode-term`), where the
+      map-growing functions also gain the call. The other native-golden fixtures are
+      byte-identical. `.ast`/`.ir` cannot move.
 Commit: —

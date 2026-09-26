@@ -659,7 +659,8 @@ read `byteLength` bytes and hand on the tight form.
     region next grows: every in-place grow of a variable-width list first totals
     the live bytes (the grow already copies every entry) and repacks when the
     dead bytes outnumber them, so a loop that keeps removing and adding stays
-    within a constant factor of its live bytes. See *Compaction*.
+    within a constant factor of its live bytes. A `Map`/`Set` grow does the same
+    for dead key and value bytes. See *Compaction*.
     [[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
 - **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
   codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
@@ -835,7 +836,8 @@ described under [`set`](#set) above. The copying `removeKey` builds a tight
 buffer and leaves `bucketsReady = 0` for a lazy rebuild; the in-place one (a
 self-update) deletes the entry and keeps the index built (see *Self-updates*,
 "Cost", and *Map Hash Index*). The removed key and value bytes stay behind in the
-data region as dead bytes.
+data region as dead bytes until the map's next grow reclaims them (see
+*Compaction*).
 
 ## Compaction
 
@@ -874,10 +876,29 @@ bytes outnumber them, copies only the live payloads, packed in entry order. So a
 loop that removes in place and grows by copying cannot carry dead bytes forward
 either. [[src/codegen/collection/list/list_mutate.rs:lower_list_insert_collection]]
 
+A `Map`/`Set`'s dead key and value bytes are reclaimed the same way: every
+in-place grow of a map or set — a `set`/`add` that needs a new entry or data
+room, a `set` whose value outgrew its slot, and the one-time reserve of a batch
+update (`union`, `symmetricDifference`, `merge`) — first calls
+`_mfb_rt_map_reclaim`. When the dead bytes outnumber the live ones it slides the
+live keys and values, each aligned as the entry writer aligns it, down to the
+front of the data region in place, rewrites their offsets, and the grow's room
+check is retried. It allocates nothing and cannot fail. The block, its capacity
+and its data base stay where they are. Moving in place needs the payloads
+visited in increasing offset: keys are always in entry order, and a value is too
+unless a `set` moved it to the data tail when it outgrew its slot. Such values
+are heap-sorted by offset in the bucket region and merged in; the index is then
+marked not-ready and rebuilt by the next probe. When nothing was out of order,
+the bucket region is untouched and, since the buckets hold entry indices, the
+index stays valid. The repack costs O(count + live), plus O(r log r) for `r`
+moved values, and runs only once as many bytes have died as are live.
+[[src/codegen/collection/map/map_bucket_remove.rs:lower_map_reclaim_helper]]
+[[src/codegen/collection/map/map_mutate.rs:emit_map_reclaim_before_grow]]
+
 A plain value copy (`copy_collection_tight`) copies `dataLength` bytes verbatim,
 so it carries whatever dead bytes its source holds at that moment; it does not
-repack, and it does not grow. A `Map`/`Set`'s dead bytes are not reclaimed by any
-grow. [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+repack, and it does not grow.
+[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
 The only `dataCapacity`/`capacity` slack the layout ever carries is the
 **intentional** headroom of an in-place `MUT` append working buffer (see *Capacity
