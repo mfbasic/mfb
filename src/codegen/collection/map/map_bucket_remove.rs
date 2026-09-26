@@ -452,8 +452,11 @@ const OUT_OF_SEQUENCE_MARK: usize = COLLECTION_ENTRY_OFFSET_FLAGS + 1;
 /// nothing.
 ///
 /// It totals the live bytes — every entry's key then value, each aligned as the
-/// entry writer aligns them — and returns `0` (nothing done) unless the dead bytes
-/// (`dataLength - live`) outnumber them. Otherwise it packs the live payloads to
+/// entry writer aligns them — and returns `0` (nothing done) unless
+/// `dataLength > 2 * live`, i.e. the dead bytes outnumber the live ones. The
+/// packed length is at most `2 * live` (each pad is shorter than the aligned
+/// payload after it), so a repack is never followed by another: every `1` is
+/// progress, and a caller's retry terminates. Otherwise it packs the live payloads to
 /// the front of the data region and returns `1`; the block, its capacity, its data
 /// base and its bucket region do not move.
 ///
@@ -539,10 +542,14 @@ pub(crate) fn lower_map_reclaim_helper() -> CodeFunction {
         abi::add_immediate("%v25", "%v25", 1),
         abi::branch(&l("walk")),
         abi::label(&l("walked")),
-        // dead = dataLength - live; nothing to do unless dead > live.
+        // Nothing to do unless dataLength > 2 * live (dead > live). Not
+        // `dataLength - live`: `live` counts the alignment pads of the ENTRY-order
+        // layout, and a packed map whose moved values sit last needs fewer, so
+        // right after a repack dataLength can be below `live` — the subtraction
+        // underflowed, looked huge, and the grow retried the repack forever.
         abi::load_u64("%v5", "%v20", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::subtract_registers("%v5", "%v5", "%v24"),
-        abi::compare_registers("%v5", "%v24"),
+        abi::add_registers("%v6", "%v24", "%v24"),
+        abi::compare_registers("%v5", "%v6"),
         abi::branch_ls(&l("none")),
         abi::compare_immediate("%v30", "0"),
         abi::branch_eq(&l("sorted")),

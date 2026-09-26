@@ -3343,9 +3343,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&walk));
         self.emit(abi::label(&walked));
         self.emit_align_offset_register(&live, alignment, &scratch);
+        // Pack only when dataLength > 2 * live; `dataLength - live` can underflow
+        // (see `emit_list_reclaim_before_grow`).
         self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::subtract_registers(&scratch, &len, &live));
-        self.emit(abi::compare_registers(&scratch, &live));
+        self.emit(abi::add_registers(&scratch, &live, &live));
+        self.emit(abi::compare_registers(&len, &scratch));
         self.emit(abi::branch_ls(&verbatim));
         self.emit(abi::store_u64(&live, abi::stack_pointer(), length_slot));
         self.emit(abi::move_immediate(&scratch, "Integer", "1"));
@@ -3532,10 +3534,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&walk));
         self.emit(abi::label(&walked));
         self.emit_align_offset_register(&live, alignment, &scratch);
-        // dead = dataLength - live; repack only when dead > live.
+        // Repack when the dead bytes outnumber the live ones (dataLength > 2 *
+        // live) — or, while the entry table still has room, when there are any
+        // dead bytes at all (dataLength > live). The second rule is what keeps the
+        // ENTRY capacity bounded: the verbatim grow steps `capacity` as well as
+        // `dataCapacity`, and a repack sizes the data region from the live bytes
+        // (smaller than before), so a list that keeps overflowing its data while
+        // holding a few elements alternated repack / verbatim grow and doubled
+        // its entry capacity on every verbatim grow — exponential memory for a
+        // list of two strings (bug-732 Correction C7). A data-only overflow over dead bytes is
+        // now always a repack, which keeps `capacity`.
+        //
+        // Both tests compare, never subtract: `live` counts the entry-order
+        // alignment pads, and an out-of-order data region can hold fewer, so
+        // `dataLength - live` can underflow (bug-733's map reclaim looped
+        // forever on exactly that). Right after a repack `dataLength == live`, so
+        // neither test holds and the retry cannot repack again.
+        let any_dead = self.label("list_reclaim_any_dead");
+        let cap = self.temporary_vreg();
         self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::subtract_registers(&len, &len, &live));
-        self.emit(abi::compare_registers(&len, &live));
+        self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::move_register(&scratch, &live));
+        self.emit(abi::compare_registers(&count, &cap));
+        self.emit(abi::branch_lo(&any_dead));
+        self.emit(abi::add_registers(&scratch, &live, &live));
+        self.emit(abi::label(&any_dead));
+        self.emit(abi::compare_registers(&len, &scratch));
         self.emit(abi::branch_ls(&grow));
         self.emit_repack_list_data(
             buffer_slot,
