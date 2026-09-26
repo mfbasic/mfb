@@ -518,10 +518,7 @@ END FUNC
 ' Build the argv for one `claude` turn: the streaming-JSON flags, plus --resume
 ' to continue a conversation and --model when the user picked one.
 FUNC claudeArgs(prompt AS String, resumeId AS String, pickModel AS String) AS List OF String
-  ' "--" ends option parsing before the user's prompt text, so a prompt that
-  ' starts with "-" (e.g. "--dangerously-skip-permissions") can never be read
-  ' as a flag by claude's argv parser (bug-709c).
-  MUT a AS List OF String = ["claude", "-p", "--", prompt, "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+  MUT a AS List OF String = ["claude", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
   IF len(resumeId) > 0 THEN
     a = collections::append(a, "--resume")
     a = collections::append(a, resumeId)
@@ -530,6 +527,16 @@ FUNC claudeArgs(prompt AS String, resumeId AS String, pickModel AS String) AS Li
     a = collections::append(a, "--model")
     a = collections::append(a, pickModel)
   END IF
+  ' "--" ends option parsing right before the user's prompt text, which must
+  ' be the very last argv element -- everything else (including the
+  ' conditional --resume/--model above) has to come BEFORE "--", since claude
+  ' stops treating anything after "--" as a flag at all. This is why "--" and
+  ' prompt are appended last, not built into the literal list up front: a
+  ' prompt starting with "-" (e.g. "--dangerously-skip-permissions") must
+  ' never be read as a flag, but --output-format/--resume/--model must still
+  ' be read as flags (bug-709c).
+  a = collections::append(a, "--")
+  a = collections::append(a, prompt)
   RETURN a
 END FUNC
 
