@@ -330,8 +330,8 @@ fn emit_coordinates(
     ));
     ins.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_x));
     ins.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), off_y));
-    emit_win_grid_size(ins, rel, from, abi::SCRATCH[2].into(), GridAxis::Cols);
-    emit_win_grid_size(ins, rel, from, abi::SCRATCH[3].into(), GridAxis::Rows);
+    emit_win_grid_size(ins, rel, from, abi::SCRATCH[2], GridAxis::Cols);
+    emit_win_grid_size(ins, rel, from, abi::SCRATCH[3], GridAxis::Rows);
     emit_range_check(
         from,
         tag,

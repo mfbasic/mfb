@@ -1129,9 +1129,9 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
     // as before; for kind 2 the kind byte is non-zero so KEY_TYPE needs its own.
     let kind_zero = vregs.next();
     let zero_kind_scratch = if list_block_kind(&ParameterType::Integer) == 0 {
-        scratch.clone()
+        scratch
     } else {
-        kind_zero.clone()
+        kind_zero
     };
     let data_len = vregs.next();
     let entry = vregs.next();

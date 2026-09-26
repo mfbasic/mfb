@@ -99,8 +99,8 @@ impl CodeBuilder<'_> {
             "floor" => {
                 // Arithmetic shift right rounds toward negative infinity.
                 self.emit(abi::arithmetic_shift_right_immediate(
-                    dst.clone(),
-                    src.clone(),
+                    dst,
+                    src,
                     32,
                 ));
             }
@@ -109,8 +109,8 @@ impl CodeBuilder<'_> {
                 let mask = self.allocate_register();
                 let done = self.label("fixed_ceil_done");
                 self.emit(abi::arithmetic_shift_right_immediate(
-                    dst.clone(),
-                    src.clone(),
+                    dst,
+                    src,
                     32,
                 ));
                 self.emit(abi::move_immediate(
@@ -118,10 +118,10 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &FIXED_FRACTION_MASK.to_string(),
                 ));
-                self.emit(abi::and_registers(&frac, src.clone(), &mask));
+                self.emit(abi::and_registers(&frac, src, &mask));
                 self.emit(abi::compare_immediate(&frac, "0"));
                 self.emit(abi::branch_eq(&done));
-                self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
+                self.emit(abi::add_immediate(dst, dst, 1));
                 self.emit(abi::label(&done));
             }
             "round" => {
@@ -134,7 +134,7 @@ impl CodeBuilder<'_> {
                 let done = self.label("fixed_round_done");
                 self.emit(abi::arithmetic_shift_right_immediate(
                     &whole,
-                    src.clone(),
+                    src,
                     32,
                 ));
                 self.emit(abi::move_immediate(
@@ -142,12 +142,12 @@ impl CodeBuilder<'_> {
                     "Integer",
                     &FIXED_FRACTION_MASK.to_string(),
                 ));
-                self.emit(abi::and_registers(&frac, src.clone(), &mask));
+                self.emit(abi::and_registers(&frac, src, &mask));
                 // Ties round away from zero: for negative inputs the fractional
                 // part must strictly exceed 0.5 to round toward zero, so use a
                 // threshold of 0.5 (>=) for non-negative and 0.5+1 (>=) for
                 // negative values.
-                self.emit(abi::compare_immediate(src.clone(), "0"));
+                self.emit(abi::compare_immediate(src, "0"));
                 self.emit(abi::branch_lt(&negative));
                 self.emit(abi::move_immediate(
                     &threshold,
@@ -162,10 +162,10 @@ impl CodeBuilder<'_> {
                     &(FIXED_HALF + 1).to_string(),
                 ));
                 self.emit(abi::label(&compare));
-                self.emit(abi::move_register(dst.clone(), &whole));
+                self.emit(abi::move_register(dst, &whole));
                 self.emit(abi::compare_registers(&frac, &threshold));
                 self.emit(abi::branch_lo(&done));
-                self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
+                self.emit(abi::add_immediate(dst, dst, 1));
                 self.emit(abi::label(&done));
             }
             other => {
@@ -303,21 +303,21 @@ impl CodeBuilder<'_> {
     ) {
         let (dst, a, b, s0, s1): (Reg, Reg, Reg, Reg, Reg) =
             (dst.into(), a.into(), b.into(), s0.into(), s1.into());
-        self.emit(abi::multiply_registers(s0.clone(), a.clone(), b.clone())); // low 64 bits
+        self.emit(abi::multiply_registers(s0, a, b)); // low 64 bits
         self.emit(abi::signed_multiply_high_registers(
-            s1.clone(),
-            a.clone(),
-            b.clone(),
+            s1,
+            a,
+            b,
         )); // high 64 bits
             // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
-        self.emit(abi::shift_left_immediate(s1.clone(), s1.clone(), 32));
-        self.emit(abi::shift_right_immediate(dst.clone(), s0.clone(), 32));
-        self.emit(abi::or_registers(dst.clone(), dst.clone(), s1.clone()));
+        self.emit(abi::shift_left_immediate(s1, s1, 32));
+        self.emit(abi::shift_right_immediate(dst, s0, 32));
+        self.emit(abi::or_registers(dst, dst, s1));
         // Round half up using bit 31 of the low word (the top discarded bit).
-        self.emit(abi::shift_right_immediate(s0.clone(), s0.clone(), 31));
-        self.emit(abi::shift_left_immediate(s0.clone(), s0.clone(), 63));
-        self.emit(abi::shift_right_immediate(s0.clone(), s0.clone(), 63));
-        self.emit(abi::add_registers(dst.clone(), dst.clone(), s0.clone()));
+        self.emit(abi::shift_right_immediate(s0, s0, 31));
+        self.emit(abi::shift_left_immediate(s0, s0, 63));
+        self.emit(abi::shift_right_immediate(s0, s0, 63));
+        self.emit(abi::add_registers(dst, dst, s0));
     }
 
     /// Round-to-nearest Q32.32 multiply that SATURATES rather than wraps: a
@@ -348,7 +348,7 @@ impl CodeBuilder<'_> {
         let in_range = self.label("fixed_mul_sat_in_range");
         let done = self.label("fixed_mul_sat_done");
         // Low and high halves of the 128-bit signed product.
-        self.emit(abi::multiply_registers(&lo, a.clone(), b.clone()));
+        self.emit(abi::multiply_registers(&lo, a, b));
         self.emit(abi::signed_multiply_high_registers(&hi, a, b));
         // The Q32.32 result is bits[95:32] of that product, so it fits a signed
         // 64-bit word exactly when bits[127:95] are all sign bits — that is, when
@@ -581,8 +581,8 @@ impl CodeBuilder<'_> {
         let (dst, angle, negative): (Reg, Reg, Reg) = (dst.into(), angle.into(), negative.into());
         let mask = self.allocate_register();
         self.emit_const_u64(&mask, 1u64 << 28);
-        self.emit(abi::add_registers(dst.clone(), angle, &mask));
-        self.emit(abi::shift_right_immediate(dst.clone(), dst.clone(), 29));
+        self.emit(abi::add_registers(dst, angle, &mask));
+        self.emit(abi::shift_right_immediate(dst, dst, 29));
         self.emit_conditional_negate(dst, negative, &mask);
     }
 
@@ -844,8 +844,8 @@ impl CodeBuilder<'_> {
         let (dst, m, negative): (Reg, Reg, Reg) = (dst.into(), m.into(), negative.into());
         let mask = self.allocate_register();
         self.emit_const_u64(&mask, 1u64 << 30);
-        self.emit(abi::add_registers(dst.clone(), m, &mask));
-        self.emit(abi::shift_right_immediate(dst.clone(), dst.clone(), 31));
+        self.emit(abi::add_registers(dst, m, &mask));
+        self.emit(abi::shift_right_immediate(dst, dst, 31));
         self.emit_conditional_negate(dst, negative, &mask);
     }
 
@@ -858,13 +858,13 @@ impl CodeBuilder<'_> {
         mask: impl Into<Reg>,
     ) {
         let (dst, negative, mask): (Reg, Reg, Reg) = (dst.into(), negative.into(), mask.into());
-        self.emit(abi::subtract_registers(mask.clone(), abi::ZERO, negative));
+        self.emit(abi::subtract_registers(mask, abi::ZERO, negative));
         self.emit(abi::exclusive_or_registers(
-            dst.clone(),
-            dst.clone(),
-            mask.clone(),
+            dst,
+            dst,
+            mask,
         ));
-        self.emit(abi::subtract_registers(dst.clone(), dst, mask));
+        self.emit(abi::subtract_registers(dst, dst, mask));
     }
 
     /// Lower `sin`/`cos` for a `Fixed` argument: the nearest `Fixed` to the true
@@ -1370,10 +1370,10 @@ impl CodeBuilder<'_> {
         let down_loop = self.label("fixed_scale_down");
         let down_done = self.label("fixed_scale_down_done");
         let no_overflow = self.label("fixed_scale_no_overflow");
-        self.emit(abi::compare_immediate(n.clone(), "0"));
+        self.emit(abi::compare_immediate(n, "0"));
         self.emit(abi::branch_lt(&negative));
         // n >= 0: double `count` times, checking for overflow before each shift.
-        self.emit(abi::move_register(&count, n.clone()));
+        self.emit(abi::move_register(&count, n));
         // limit = i64::MAX / 2; if value > limit a doubling would overflow.
         self.emit(abi::move_immediate(
             &limit,
@@ -1383,11 +1383,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&up_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&up_done));
-        self.emit(abi::compare_registers(value.clone(), &limit));
+        self.emit(abi::compare_registers(value, &limit));
         self.emit(abi::branch_le(&no_overflow));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&no_overflow));
-        self.emit(abi::shift_left_immediate(value.clone(), value.clone(), 1));
+        self.emit(abi::shift_left_immediate(value, value, 1));
         self.emit(abi::subtract_immediate(&count, &count, 1));
         self.emit(abi::branch(&up_loop));
         self.emit(abi::label(&up_done));
@@ -1395,13 +1395,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&finish));
         // n < 0: halve `-n` times (arithmetic shift; value is non-negative).
         self.emit(abi::label(&negative));
-        self.emit(abi::subtract_registers(&count, abi::ZERO, n.clone()));
+        self.emit(abi::subtract_registers(&count, abi::ZERO, n));
         self.emit(abi::label(&down_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&down_done));
         self.emit(abi::arithmetic_shift_right_immediate(
-            value.clone(),
-            value.clone(),
+            value,
+            value,
             1,
         ));
         self.emit(abi::subtract_immediate(&count, &count, 1));

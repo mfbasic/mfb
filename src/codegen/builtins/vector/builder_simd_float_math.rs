@@ -2455,7 +2455,7 @@ impl CodeBuilder<'_> {
     /// across the quadrant branch. See `math_pool_base` for the full rationale.
     fn math_pool_base_reg(&mut self) -> Reg {
         if let Some(pinned) = mir::active_backend().register_model().math_pool_base() {
-            return Reg::from(pinned);
+            return pinned;
         }
         if let Some((symbol, reg)) = &self.math_pool_base_vreg {
             if *symbol == self.current_symbol {

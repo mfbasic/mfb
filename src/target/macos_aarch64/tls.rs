@@ -102,7 +102,7 @@ fn record_error_domain(
     skip: &str,
 ) {
     instructions.extend([
-        abi::compare_immediate(err_reg.clone(), "0"),
+        abi::compare_immediate(err_reg, "0"),
         abi::branch_eq(skip),
         abi::load_u64(abi::SCRATCH[3], ctx_reg, CTX_EDOMFN),
         abi::compare_immediate(abi::SCRATCH[3], "0"),

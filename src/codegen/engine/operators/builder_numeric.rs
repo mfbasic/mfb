@@ -320,7 +320,7 @@ impl CodeBuilder<'_> {
                 // `Money DIV …` — routed through the Money dispatcher, which
                 // produces the f64 result (plan-29-E §4.3/§4.5).
                 if left.type_ == ParameterType::Money || right.type_ == ParameterType::Money {
-                    result_location = self.emit_money_binary(op, &left, &right, &register)?.into();
+                    result_location = self.emit_money_binary(op, &left, &right, &register)?;
                 } else {
                     result_location = self.emit_float_binary(op, &left, &right, &register)?;
                 }
@@ -328,7 +328,7 @@ impl CodeBuilder<'_> {
             // A Money result (`M ± M`, `M * k`, `M / k`, `M MOD M`) is settled by
             // the Money dispatcher (plan-29-C/E/F).
             ParameterType::Money => {
-                result_location = self.emit_money_binary(op, &left, &right, &register)?.into();
+                result_location = self.emit_money_binary(op, &left, &right, &register)?;
             }
             other => {
                 return Err(format!(
@@ -383,7 +383,7 @@ impl CodeBuilder<'_> {
         operand: ValueResult,
     ) -> Result<ValueResult, String> {
         let register = self.allocate_register();
-        let mut location = register.clone();
+        let mut location = register;
         match &operand.type_ {
             ParameterType::Byte => {
                 let ok = self.label("byte_unary_ok");
@@ -936,19 +936,19 @@ impl CodeBuilder<'_> {
                     // Proven non-overflowing (`local + 1` under a strict upper
                     // bound): bare add, no flags/check.
                     self.emit(abi::add_registers(
-                        dst.clone(),
+                        dst,
                         &left.location,
                         &right.location,
                     ));
                 } else {
                     self.emit(abi::add_registers_set_flags(
-                        dst.clone(),
+                        dst,
                         &left.location,
                         &right.location,
                     ));
                     self.emit_overflow_if_flags_set()?;
                     if byte_result {
-                        self.emit_byte_upper_bound_check(dst.clone())?;
+                        self.emit_byte_upper_bound_check(dst)?;
                     }
                 }
             }
@@ -959,7 +959,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::compare_registers(&left.location, &right.location));
                     self.emit(abi::branch_lo(&underflow_label));
                     self.emit(abi::subtract_registers(
-                        dst.clone(),
+                        dst,
                         &left.location,
                         &right.location,
                     ));
@@ -970,13 +970,13 @@ impl CodeBuilder<'_> {
                 } else if elide_overflow {
                     // Proven non-overflowing (guard-derived lower bound): bare sub.
                     self.emit(abi::subtract_registers(
-                        dst.clone(),
+                        dst,
                         &left.location,
                         &right.location,
                     ));
                 } else {
                     self.emit(abi::subtract_registers_set_flags(
-                        dst.clone(),
+                        dst,
                         &left.location,
                         &right.location,
                     ));
@@ -984,16 +984,16 @@ impl CodeBuilder<'_> {
                 }
             }
             BinaryOp::Multiply => {
-                self.emit_checked_integer_multiply(dst.clone(), &left.location, &right.location)?;
+                self.emit_checked_integer_multiply(dst, &left.location, &right.location)?;
                 if byte_result {
-                    self.emit_byte_upper_bound_check(dst.clone())?;
+                    self.emit_byte_upper_bound_check(dst)?;
                 }
             }
             BinaryOp::Divide | BinaryOp::IntDiv => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
                 self.emit(abi::signed_divide_registers(
-                    dst.clone(),
+                    dst,
                     &left.location,
                     &right.location,
                 ));
@@ -1008,14 +1008,14 @@ impl CodeBuilder<'_> {
                     &right.location,
                 ));
                 self.emit(abi::multiply_subtract_registers(
-                    dst.clone(),
+                    dst,
                     &quotient,
                     &right.location,
                     &left.location,
                 ));
             }
             BinaryOp::Power => {
-                self.emit_integer_pow(dst.clone(), &left.location, &right.location, byte_result)?
+                self.emit_integer_pow(dst, &left.location, &right.location, byte_result)?
             }
             // The comparison and logical operators never reach an arithmetic
             // emitter: `lower_binary` routes them to their own lowering, and
@@ -1188,7 +1188,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_x_from_d(&b_bits, abi::FP_SCRATCH[1]));
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &result));
-                self.emit(abi::float_move_x_from_d(dst.clone(), abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(dst, abi::FP_SCRATCH[0]));
             }
             BinaryOp::Power => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
@@ -1198,7 +1198,7 @@ impl CodeBuilder<'_> {
                 // is an anonymous intermediate that traps only at the boundary
                 // (plan-17).
                 self.emit_float_pow(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])?;
-                self.emit(abi::float_move_x_from_d(dst.clone(), abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(dst, abi::FP_SCRATCH[0]));
             }
             BinaryOp::Or
             | BinaryOp::Xor
@@ -1358,10 +1358,10 @@ impl CodeBuilder<'_> {
         // reading `left` after `multiply_registers` would see the low product.
         self.emit(abi::signed_multiply_high_registers(
             &high,
-            left.clone(),
-            right.clone(),
+            left,
+            right,
         ));
-        self.emit(abi::multiply_registers(dst.clone(), left, right));
+        self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::arithmetic_shift_right_immediate(&sign, dst, 63));
         self.emit(abi::compare_registers(&high, &sign));
         self.emit(abi::branch_eq(&ok_label));
@@ -1436,48 +1436,48 @@ impl CodeBuilder<'_> {
         let done_label = self.label("pow_done");
         let nonnegative = self.label("pow_nonnegative");
         let remaining = self.allocate_register();
-        self.emit(abi::compare_immediate(exponent.clone(), "0"));
+        self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_ge(&nonnegative));
         self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&nonnegative));
-        self.emit(abi::move_register(&remaining, exponent.clone()));
-        self.emit(abi::move_immediate(dst.clone(), "Integer", "1"));
+        self.emit(abi::move_register(&remaining, exponent));
+        self.emit(abi::move_immediate(dst, "Integer", "1"));
         // Bounded-base fast path (bug-61): a base in {-1, 0, 1} has bounded powers,
         // so the checked-multiply loop below never overflows and would iterate the
         // full exponent (up to i64::MAX) — an effective hang. Resolve those bases
         // in closed form. Any |base| >= 2 falls through to the loop, which still
         // terminates within ~63 iterations via the multiply overflow trap.
         let bounded_zero = self.label("pow_bounded_zero");
-        self.emit(abi::compare_immediate(base.clone(), "1"));
+        self.emit(abi::compare_immediate(base, "1"));
         self.emit(abi::branch_gt(&loop_label)); // base > 1: slow path.
         self.emit(abi::compare_immediate(
-            base.clone(),
+            base,
             &(-1_i64 as u64).to_string(),
         ));
         self.emit(abi::branch_lt(&loop_label)); // base < -1: slow path.
                                                 // base is now one of {-1, 0, 1}; `dst` currently holds 1.
-        self.emit(abi::compare_immediate(base.clone(), "0"));
+        self.emit(abi::compare_immediate(base, "0"));
         self.emit(abi::branch_eq(&bounded_zero));
         self.emit(abi::branch_gt(&done_label)); // base == 1: 1^n == 1.
                                                 // base == -1: 1 for an even exponent, -1 for an odd exponent.
         let parity = self.allocate_register();
         let one_bit = self.allocate_register();
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
-        self.emit(abi::and_registers(&parity, exponent.clone(), &one_bit));
+        self.emit(abi::and_registers(&parity, exponent, &one_bit));
         self.emit(abi::compare_immediate(&parity, "0"));
         self.emit(abi::branch_eq(&done_label)); // even exponent: (-1)^n == 1.
-        self.emit_neg_i64(dst.clone())?; // odd exponent: (-1)^n == -1.
+        self.emit_neg_i64(dst)?; // odd exponent: (-1)^n == -1.
         self.emit(abi::branch(&done_label));
         self.emit(abi::label(&bounded_zero));
         // base == 0: 0^0 == 1 (dst already 1); 0^n == 0 for n > 0.
         self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_eq(&done_label));
-        self.emit(abi::move_immediate(dst.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(dst, "Integer", "0"));
         self.emit(abi::branch(&done_label));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&remaining, "0"));
         self.emit(abi::branch_eq(&done_label));
-        self.emit_checked_integer_multiply(dst.clone(), dst.clone(), base)?;
+        self.emit_checked_integer_multiply(dst, dst, base)?;
         self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
@@ -1510,10 +1510,10 @@ impl CodeBuilder<'_> {
         // and recombine garbage (bug-74).
         self.emit(abi::signed_multiply_high_registers(
             &high,
-            left.clone(),
-            right.clone(),
+            left,
+            right,
         ));
-        self.emit(abi::multiply_registers(dst.clone(), left, right));
+        self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::move_immediate(&max_high, "Integer", "2147483647"));
         self.emit(abi::compare_registers(&high, &max_high));
         self.emit(abi::branch_gt(&overflow));
@@ -1524,9 +1524,9 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_registers(&high, &min_high));
         self.emit(abi::branch_lt(&overflow));
-        self.emit(abi::shift_right_immediate(dst.clone(), dst.clone(), 32));
+        self.emit(abi::shift_right_immediate(dst, dst, 32));
         self.emit(abi::shift_left_immediate(&shifted_high, &high, 32));
-        self.emit(abi::or_registers(dst.clone(), &shifted_high, dst));
+        self.emit(abi::or_registers(dst, &shifted_high, dst));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&overflow));
         self.raise_error_bare("ErrOverflow")?;
@@ -1545,7 +1545,7 @@ impl CodeBuilder<'_> {
         let right = right.into();
         // The working registers are dead once the quotient lands in `dst`.
         let saved_registers = self.next_register;
-        self.emit_nonzero_or_invalid(right.clone())?;
+        self.emit_nonzero_or_invalid(right)?;
         let lhs_abs = self.allocate_register();
         let rhs_abs = self.allocate_register();
         let sign = self.allocate_register();
@@ -1577,7 +1577,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&max_integer, "Integer", "2147483648"));
         self.emit(abi::compare_registers(&integer, &max_integer));
         self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::shift_left_immediate(dst.clone(), &integer, 32));
+        self.emit(abi::shift_left_immediate(dst, &integer, 32));
         self.emit(abi::move_immediate(&fraction, "Integer", "0"));
         self.emit(abi::move_immediate(&counter, "Integer", "32"));
         self.emit(abi::branch(&integer_ok));
@@ -1603,7 +1603,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_start));
 
         self.emit(abi::label(&done));
-        self.emit(abi::or_registers(dst.clone(), dst.clone(), &fraction));
+        self.emit(abi::or_registers(dst, dst, &fraction));
         // `dst` now holds the unsigned magnitude of the quotient in Q32.32. Apply
         // the sign and range-check the signed result the way `emit_fixed_multiply`
         // does, so the representable minimum -2147483648.0 (raw i64::MIN, magnitude
@@ -1618,7 +1618,7 @@ impl CodeBuilder<'_> {
         // magnitude of 2^63 (exactly +2147483648.0) has the top bit set, so it
         // correctly traps here — only the negative form of that magnitude is
         // representable.
-        self.emit(abi::compare_immediate(dst.clone(), "0"));
+        self.emit(abi::compare_immediate(dst, "0"));
         self.emit(abi::branch_ge(&quotient_done));
         self.emit(abi::branch(&magnitude_overflow));
         self.emit(abi::label(&negative));
@@ -1628,7 +1628,7 @@ impl CodeBuilder<'_> {
         //    -2147483648.0, whose raw value is i64::MIN; negating i64::MIN is a
         //    no-op, so keep `dst` unchanged.
         //  - magnitude > 2^63: overflow.
-        self.emit(abi::compare_immediate(dst.clone(), "0"));
+        self.emit(abi::compare_immediate(dst, "0"));
         self.emit(abi::branch_ge(&negate));
         let min_raw = self.allocate_register();
         self.emit(abi::move_immediate(
@@ -1636,7 +1636,7 @@ impl CodeBuilder<'_> {
             "Integer",
             &(i64::MIN as u64).to_string(),
         ));
-        self.emit(abi::compare_registers(dst.clone(), &min_raw));
+        self.emit(abi::compare_registers(dst, &min_raw));
         self.emit(abi::branch_eq(&quotient_done));
         self.emit(abi::label(&magnitude_overflow));
         self.raise_error_bare("ErrOverflow")?;
@@ -1675,13 +1675,13 @@ impl CodeBuilder<'_> {
         let nonnegative = self.label("fixed_pow_nonnegative");
         let loop_label = self.label("fixed_pow_loop");
         let done_label = self.label("fixed_pow_done");
-        self.emit(abi::compare_immediate(exponent.clone(), "0"));
+        self.emit(abi::compare_immediate(exponent, "0"));
         self.emit(abi::branch_ge(&nonnegative));
         self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&nonnegative));
         self.emit(abi::arithmetic_shift_right_immediate(
             &whole,
-            exponent.clone(),
+            exponent,
             32,
         ));
         self.emit(abi::shift_left_immediate(&remaining, &whole, 32));
@@ -1692,7 +1692,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&exponent_is_whole));
         self.emit(abi::move_register(&remaining, &whole));
         self.emit(abi::move_immediate(
-            dst.clone(),
+            dst,
             "Fixed",
             &one_raw.to_string(),
         ));
@@ -1709,9 +1709,9 @@ impl CodeBuilder<'_> {
             "Fixed",
             &neg_one_raw.to_string(),
         ));
-        self.emit(abi::compare_registers(base.clone(), dst.clone()));
+        self.emit(abi::compare_registers(base, dst));
         self.emit(abi::branch_eq(&done_label)); // 1.0^n == 1.0 (dst already 1.0).
-        self.emit(abi::compare_registers(base.clone(), &neg_one_reg));
+        self.emit(abi::compare_registers(base, &neg_one_reg));
         self.emit(abi::branch_ne(&loop_label)); // |base| != 1.0: enter the loop.
                                                 // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
         let parity = self.allocate_register();
@@ -1720,7 +1720,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(&parity, &whole, &one_bit));
         self.emit(abi::compare_immediate(&parity, "0"));
         self.emit(abi::branch_eq(&done_label)); // even exponent: (-1.0)^n == 1.0.
-        self.emit_neg_i64(dst.clone())?; // odd exponent: (-1.0)^n == -1.0.
+        self.emit_neg_i64(dst)?; // odd exponent: (-1.0)^n == -1.0.
         self.emit(abi::branch(&done_label));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(&remaining, "0"));
@@ -1728,9 +1728,9 @@ impl CodeBuilder<'_> {
         // A product that truncates to 0 (any |base| < 1.0, or base == 0.0) stays 0
         // for every remaining multiply, so stop now rather than iterate the whole
         // (possibly enormous) exponent (bug-61). This never changes a result.
-        self.emit(abi::compare_immediate(dst.clone(), "0"));
+        self.emit(abi::compare_immediate(dst, "0"));
         self.emit(abi::branch_eq(&done_label));
-        self.emit_fixed_multiply(dst.clone(), dst, base)?;
+        self.emit_fixed_multiply(dst, dst, base)?;
         self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
@@ -1740,7 +1740,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_abs_i64(&mut self, register: impl Into<abi::Reg>) -> Result<(), String> {
         let register = register.into();
         let positive = self.label("abs_positive");
-        self.emit(abi::compare_immediate(register.clone(), "0"));
+        self.emit(abi::compare_immediate(register, "0"));
         self.emit(abi::branch_ge(&positive));
         self.emit_neg_i64(register)?;
         self.emit(abi::label(&positive));
@@ -1750,7 +1750,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_neg_i64(&mut self, register: impl Into<abi::Reg>) -> Result<(), String> {
         let register = register.into();
         self.emit(abi::subtract_registers(
-            register.clone(),
+            register,
             abi::ZERO,
             register,
         ));
@@ -1776,17 +1776,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::signed_convert_to_float_d(dst, &value.location))
             }
             ParameterType::Fixed => {
-                self.emit(abi::signed_convert_to_float_d(dst.clone(), &value.location));
+                self.emit(abi::signed_convert_to_float_d(dst, &value.location));
                 self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 4_294_967_296.0);
-                self.emit(abi::float_divide_d(dst.clone(), dst, abi::FP_SCRATCH[7]));
+                self.emit(abi::float_divide_d(dst, dst, abi::FP_SCRATCH[7]));
             }
             // Money's f64 value is its raw scaled i64 divided by the base-10 scale
             // (the SCALE cancels in `M / M`; used by the ratio, DIV, and
             // `toFloat(Money)` paths) (plan-29-E §4.3).
             ParameterType::Money => {
-                self.emit(abi::signed_convert_to_float_d(dst.clone(), &value.location));
+                self.emit(abi::signed_convert_to_float_d(dst, &value.location));
                 self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 100_000.0);
-                self.emit(abi::float_divide_d(dst.clone(), dst, abi::FP_SCRATCH[7]));
+                self.emit(abi::float_divide_d(dst, dst, abi::FP_SCRATCH[7]));
             }
             other => {
                 return Err(format!(
@@ -1831,7 +1831,7 @@ impl CodeBuilder<'_> {
     ) {
         let scratch = scratch.into();
         self.emit(abi::move_immediate(
-            scratch.clone(),
+            scratch,
             "Integer",
             &value.to_bits().to_string(),
         ));
@@ -1858,7 +1858,7 @@ impl CodeBuilder<'_> {
         // so no inline result check is emitted here.
         let nonnegative = self.label("float_pow_nonnegative");
         let exponent_whole = self.label("float_pow_whole");
-        self.emit(abi::float_compare_zero_d(exponent.clone()));
+        self.emit(abi::float_compare_zero_d(exponent));
         self.emit(abi::branch_ge(&nonnegative));
         self.raise_error_bare("ErrFloatDomain")?;
         self.emit(abi::label(&nonnegative));
@@ -1881,7 +1881,7 @@ impl CodeBuilder<'_> {
         // and must keep falling through to the domain rejection.
         let biased = self.allocate_register();
         let not_huge = self.label("float_pow_not_huge");
-        self.emit(abi::float_move_x_from_d(&exponent_bits, exponent.clone()));
+        self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
         self.emit(abi::shift_right_immediate(&biased, &exponent_bits, 52));
         self.emit(abi::compare_immediate(&biased, "1075"));
         self.emit(abi::branch_lt(&not_huge));
@@ -1891,7 +1891,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&not_huge));
         self.emit(abi::float_convert_to_signed_x(
             &exponent_int,
-            exponent.clone(),
+            exponent,
         ));
         self.emit(abi::signed_convert_to_float_d(
             abi::FP_SCRATCH[2],
@@ -1911,7 +1911,7 @@ impl CodeBuilder<'_> {
         let base_slot = self.allocate_stack_object("float_pow_base", 8);
         let exp_slot = self.allocate_stack_object("float_pow_exp", 8);
         let base_bits = self.allocate_register();
-        self.emit(abi::float_move_x_from_d(&base_bits, dst.clone()));
+        self.emit(abi::float_move_x_from_d(&base_bits, dst));
         self.emit(abi::store_u64(&base_bits, abi::stack_pointer(), base_slot));
         self.emit(abi::store_u64(
             &exponent_bits,

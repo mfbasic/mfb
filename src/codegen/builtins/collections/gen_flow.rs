@@ -102,12 +102,12 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::load_u64(
             &code_register,
-            location.clone(),
+            location,
             CLOSURE_OFFSET_CODE,
         ));
         self.emit(abi::load_u64(
             &env_register,
-            location.clone(),
+            location,
             CLOSURE_OFFSET_ENV,
         ));
         self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));

@@ -29,14 +29,14 @@ impl CodeBuilder<'_> {
         let bytes: Reg = bytes.into();
         let (length, cursor, byte): (Reg, Reg, Reg) = (length.into(), cursor.into(), byte.into());
         self.emit(abi::label(trim_loop));
-        self.emit(abi::compare_immediate(length.clone(), "1"));
+        self.emit(abi::compare_immediate(length, "1"));
         self.emit(abi::branch_le(trim_done));
-        self.emit(abi::add_registers(cursor.clone(), bytes, length.clone()));
-        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
-        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
-        self.emit(abi::compare_immediate(byte.clone(), "47"));
+        self.emit(abi::add_registers(cursor, bytes, length));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "47"));
         self.emit(abi::branch_ne(trim_done));
-        self.emit(abi::subtract_immediate(length.clone(), length.clone(), 1));
+        self.emit(abi::subtract_immediate(length, length, 1));
         self.emit(abi::branch(trim_loop));
         self.emit(abi::label(trim_done));
     }

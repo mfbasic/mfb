@@ -199,27 +199,27 @@ impl CodeBuilder<'_> {
         let cursor: abi::Reg = cursor.into();
         let byte: abi::Reg = byte.into();
         let negative: abi::Reg = negative.into();
-        self.emit(abi::load_u64(length.clone(), string.clone(), 0));
-        self.emit(abi::compare_immediate(length.clone(), "0"));
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
         self.emit(abi::branch_eq(invalid));
-        self.emit(abi::add_immediate(cursor.clone(), string, 8));
-        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative.clone(), "Integer", "0"));
-        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
-        self.emit(abi::compare_immediate(byte.clone(), "45"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
         self.emit(abi::branch_ne(first_not_minus));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
-        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(sign_done));
         self.emit(abi::label(first_not_minus));
         self.emit(abi::compare_immediate(byte, "43"));
         self.emit(abi::branch_ne(sign_done));
-        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
-        self.emit(abi::add_immediate(cursor.clone(), cursor, 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::label(sign_done));
-        self.emit(abi::compare_registers(index.clone(), length));
+        self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(invalid));
     }
 
@@ -272,9 +272,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(positive));
         self.emit(abi::subtract_registers(
-            result.clone(),
+            result,
             abi::ZERO,
-            acc.clone(),
+            acc,
         ));
         self.emit(abi::branch(done));
         self.emit(abi::label(positive));
@@ -658,8 +658,8 @@ impl CodeBuilder<'_> {
         invalid: &str,
     ) {
         let scratch: abi::Reg = scratch.into();
-        self.emit(abi::move_immediate(scratch.clone(), "Integer", "192")); // 0xC0
-        self.emit(abi::and_registers(scratch.clone(), byte, scratch.clone()));
+        self.emit(abi::move_immediate(scratch, "Integer", "192")); // 0xC0
+        self.emit(abi::and_registers(scratch, byte, scratch));
         self.emit(abi::compare_immediate(scratch, "128")); // 0x80
         self.emit(abi::branch_ne(invalid));
     }
@@ -1256,10 +1256,10 @@ impl CodeBuilder<'_> {
         let overflow = self.label("int_to_fixed_overflow");
         let ok = self.label("int_to_fixed_ok");
         self.emit(abi::move_immediate(&min, "Integer", "18446744071562067968"));
-        self.emit(abi::compare_registers(source.clone(), &min));
+        self.emit(abi::compare_registers(source, &min));
         self.emit(abi::branch_lt(&overflow));
         self.emit(abi::move_immediate(&max, "Integer", "2147483647"));
-        self.emit(abi::compare_registers(source.clone(), &max));
+        self.emit(abi::compare_registers(source, &max));
         self.emit(abi::branch_gt(&overflow));
         self.emit(abi::shift_left_immediate(result, source, 32));
         self.emit(abi::branch(&ok));
@@ -1391,17 +1391,17 @@ impl CodeBuilder<'_> {
         let exponent: abi::Reg = exponent.into();
         let mask: abi::Reg = mask.into();
         self.emit(abi::shift_right_immediate(
-            exponent.clone(),
-            bits.clone(),
+            exponent,
+            bits,
             52,
         ));
-        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
         self.emit(abi::and_registers(
-            exponent.clone(),
-            exponent.clone(),
-            mask.clone(),
+            exponent,
+            exponent,
+            mask,
         ));
-        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
+        self.emit(abi::compare_immediate(exponent, "2047"));
         self.emit(abi::branch_eq(invalid));
         let Some(threshold) = threshold else {
             return;
@@ -1413,17 +1413,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(edge));
         let sign = sign.expect("a range threshold needs the caller's sign register");
         let mantissa = mantissa.expect("a range threshold needs the caller's mantissa register");
-        self.emit(abi::shift_right_immediate(sign.clone(), bits.clone(), 63));
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
         self.emit(abi::compare_immediate(sign, "1"));
         self.emit(abi::branch_eq(edge_sign_ok));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge_sign_ok));
         self.emit(abi::move_immediate(
-            mask.clone(),
+            mask,
             "Integer",
             F64_MANTISSA_MASK,
         ));
-        self.emit(abi::and_registers(mantissa.clone(), bits, mask));
+        self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(overflow));
     }

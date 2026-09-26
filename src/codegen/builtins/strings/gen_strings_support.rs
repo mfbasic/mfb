@@ -121,44 +121,44 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
         self.emit(abi::move_immediate(&tmp, "Integer", "0"));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::store_u64(
-            data_offset.clone(),
-            entry.clone(),
+            data_offset,
+            entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::subtract_registers(
             &tmp,
-            segment_end.clone(),
-            segment_start.clone(),
+            segment_end,
+            segment_start,
         ));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers(&dst, data, data_offset.clone()));
-        self.emit(abi::add_registers(&src, source_data, segment_start.clone()));
+        self.emit(abi::add_registers(&dst, data, data_offset));
+        self.emit(abi::add_registers(&src, source_data, segment_start));
         // plan-86 F2: 8-byte word-copy (+ byte tail) of the segment (tmp bytes);
         // `tmp` is recomputed just below, so its post-copy value does not matter.
         self.emit_block_copy_advance(&dst, &src, &tmp, &byte, "strings_split_copy_segment");
         self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
-        self.emit(abi::add_registers(data_offset.clone(), data_offset, &tmp));
+        self.emit(abi::add_registers(data_offset, data_offset, &tmp));
         self.emit(abi::add_immediate(
-            entry.clone(),
+            entry,
             entry,
             COLLECTION_ENTRY_SIZE,
         ));

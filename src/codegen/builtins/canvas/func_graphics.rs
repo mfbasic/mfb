@@ -55,7 +55,7 @@ pub(crate) fn lower_start_graphics(
     let symbol = builder.current_symbol.clone();
     let fail = builder.label("canvas_graphics_alloc_fail");
     let done = builder.label("canvas_graphics_done");
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_start_graphics(
         &symbol,
         &scratch,
@@ -84,7 +84,7 @@ pub(crate) fn lower_signal_redraw(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_signal_redraw(
         &symbol,
         &scratch,
@@ -106,7 +106,7 @@ pub(crate) fn lower_wait_for_redraw(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_wait_for_redraw(
         &symbol,
         &scratch,
@@ -159,7 +159,7 @@ pub(crate) fn lower_frame_done(
     let renderer = argument_vreg(builder, args, 1, "renderer")?;
     let render_nanos = argument_vreg(builder, args, 2, "renderNanos")?;
     let now = argument_vreg(builder, args, 3, "now")?;
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_frame_done(
         &symbol,
         &scratch,
@@ -185,7 +185,7 @@ pub(crate) fn lower_note_present(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let now = argument_vreg(builder, args, 0, "now")?;
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_note_present(
         &symbol,
         &scratch,
@@ -285,7 +285,7 @@ pub(crate) fn lower_sync_frame(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_sync_frame(
         &symbol,
         &scratch,
@@ -309,7 +309,7 @@ pub(crate) fn lower_set_sync_mode(
         .ok_or_else(|| format!("'{symbol}' expects the flag argument"))?
         .location
         .clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_set_sync_mode(
         &symbol,
         &scratch,
@@ -330,7 +330,7 @@ fn lower_dimension(
     default: usize,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_surface_dimension(
         &symbol,
         &scratch,
@@ -378,7 +378,7 @@ pub(crate) fn lower_display_milli_hz(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_display_milli_hz(
         &symbol,
         &scratch,
@@ -411,7 +411,7 @@ pub(crate) fn lower_set_display_override(
         .ok_or_else(|| format!("'{symbol}' expects the millihertz argument"))?
         .location
         .clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_set_display_override(
         &symbol,
         &scratch,
@@ -452,7 +452,7 @@ pub(crate) fn lower_set_gpu_mode(
         .ok_or_else(|| format!("'{symbol}' expects the flag argument"))?
         .location
         .clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_set_gpu_mode(
         &symbol,
         &scratch,
@@ -470,7 +470,7 @@ pub(crate) fn lower_use_gpu(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_use_gpu(
         &symbol,
         &scratch,

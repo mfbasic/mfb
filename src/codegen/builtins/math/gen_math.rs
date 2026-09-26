@@ -857,14 +857,14 @@ impl CodeBuilder<'_> {
         bits: impl Into<Reg>,
     ) {
         let (exponent, mask, bits): (Reg, Reg, Reg) = (exponent.into(), mask.into(), bits.into());
-        self.emit(abi::shift_right_immediate(exponent.clone(), bits, 52));
-        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
         self.emit(abi::and_registers(
-            exponent.clone(),
-            exponent.clone(),
-            mask.clone(),
+            exponent,
+            exponent,
+            mask,
         ));
-        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
+        self.emit(abi::compare_immediate(exponent, "2047"));
     }
 
     fn emit_float_rounding_integer_range_check(

@@ -59,8 +59,8 @@ impl CodeBuilder<'_> {
         let high = self.temporary_vreg();
         self.emit(abi::unsigned_multiply_high_registers(
             &high,
-            lhs.clone(),
-            rhs.clone(),
+            lhs,
+            rhs,
         ));
         self.emit(abi::compare_immediate(&high, "0"));
         self.emit(abi::branch_ne(overflow));
@@ -79,7 +79,7 @@ impl CodeBuilder<'_> {
     ) {
         let dst = dst.into();
         let rhs = rhs.into();
-        self.emit(abi::add_registers(dst.clone(), lhs, rhs.clone()));
+        self.emit(abi::add_registers(dst, lhs, rhs));
         self.emit(abi::compare_registers(dst, rhs));
         self.emit(abi::branch_lo(overflow));
     }
@@ -95,7 +95,7 @@ impl CodeBuilder<'_> {
     ) {
         let dst = dst.into();
         let src = src.into();
-        self.emit(abi::add_immediate(dst.clone(), src.clone(), immediate));
+        self.emit(abi::add_immediate(dst, src, immediate));
         self.emit(abi::compare_registers(dst, src));
         self.emit(abi::branch_lo(overflow));
     }
@@ -952,26 +952,26 @@ impl CodeBuilder<'_> {
         let source_register = source_register.into();
         let src_null = self.label("error_read_src_null");
         let src_done = self.label("error_read_src_done");
-        self.emit(abi::load_u64(code_register, error_location.clone(), 0));
+        self.emit(abi::load_u64(code_register, error_location, 0));
         self.emit(abi::load_u64(
-            message_register.clone(),
-            error_location.clone(),
+            message_register,
+            error_location,
             8,
         ));
         self.emit(abi::add_registers(
-            message_register.clone(),
-            error_location.clone(),
+            message_register,
+            error_location,
             message_register,
         ));
         self.emit(abi::load_u64(
-            source_register.clone(),
-            error_location.clone(),
+            source_register,
+            error_location,
             16,
         ));
-        self.emit(abi::compare_immediate(source_register.clone(), "0"));
+        self.emit(abi::compare_immediate(source_register, "0"));
         self.emit(abi::branch_eq(&src_null));
         self.emit(abi::add_registers(
-            source_register.clone(),
+            source_register,
             error_location,
             source_register,
         ));

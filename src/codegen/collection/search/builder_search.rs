@@ -69,37 +69,37 @@ impl CodeBuilder<'_> {
         let done = self.label("ascii_ff_done");
         // 0x8080808080808080 — the high bit of every byte.
         self.emit(abi::move_immediate(
-            ascii_mask.clone(),
+            ascii_mask,
             "Integer",
             "9259542123273814144",
         ));
         self.emit(abi::label(&block));
         self.emit(abi::subtract_registers(
-            diff.clone(),
+            diff,
             target,
-            scalar_index.clone(),
+            scalar_index,
         ));
-        self.emit(abi::compare_immediate(diff.clone(), "8"));
+        self.emit(abi::compare_immediate(diff, "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::compare_immediate(remaining.clone(), "8"));
+        self.emit(abi::compare_immediate(remaining, "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::load_u64(word.clone(), cursor.clone(), 0));
+        self.emit(abi::load_u64(word, cursor, 0));
         self.emit(abi::and_registers(
-            word.clone(),
-            word.clone(),
-            ascii_mask.clone(),
+            word,
+            word,
+            ascii_mask,
         ));
-        self.emit(abi::compare_immediate(word.clone(), "0"));
+        self.emit(abi::compare_immediate(word, "0"));
         self.emit(abi::branch_ne(&done));
-        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 8));
+        self.emit(abi::add_immediate(cursor, cursor, 8));
         self.emit(abi::subtract_immediate(
-            remaining.clone(),
-            remaining.clone(),
+            remaining,
+            remaining,
             8,
         ));
         self.emit(abi::add_immediate(
-            scalar_index.clone(),
-            scalar_index.clone(),
+            scalar_index,
+            scalar_index,
             8,
         ));
         self.emit(abi::branch(&block));

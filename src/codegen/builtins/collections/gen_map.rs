@@ -53,18 +53,18 @@ impl CodeBuilder<'_> {
         );
         let entry = entry.into();
         self.emit(abi::load_u64(
-            count.clone(),
-            collection.clone(),
+            count,
+            collection,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::add_immediate(
             entry.clone(),
-            collection.clone(),
+            collection,
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::label(loop_label));
-        self.emit(abi::compare_registers(index.clone(), count.clone()));
+        self.emit(abi::compare_registers(index, count));
         self.emit(abi::branch_ge(not_found));
         self.emit(abi::load_u64(offset, entry.clone(), entry_offset_field));
         self.emit(abi::load_u64(length, entry.clone(), entry_length_field));
@@ -87,7 +87,7 @@ impl CodeBuilder<'_> {
             entry.clone(),
             COLLECTION_ENTRY_SIZE,
         ));
-        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
+        self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::branch(loop_label));
     }
 

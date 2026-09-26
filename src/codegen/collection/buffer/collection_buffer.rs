@@ -97,9 +97,9 @@ impl CodeBuilder<'_> {
         self.emit_write_collection_header_full(
             layout,
             collection,
-            count.clone(),
             count,
-            data_len.clone(),
+            count,
+            data_len,
             data_len,
         );
     }
@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_KIND,
         ));
         self.emit(abi::move_immediate(
@@ -137,7 +137,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_KEY_TYPE,
         ));
         self.emit(abi::move_immediate(
@@ -147,13 +147,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_VALUE_TYPE,
         ));
         self.emit(abi::move_immediate(&scratch22, "Byte", "1"));
         self.emit(abi::store_u8(
             &scratch22,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // Mark the map hash index not-ready (built lazily on first probe); a no-op
@@ -163,22 +163,22 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch22, "Byte", "0"));
         self.emit(abi::store_u8(
             &scratch22,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
         self.emit(abi::store_u64(
             count,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::store_u64(
             capacity,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_CAPACITY,
         ));
         self.emit(abi::store_u64(
             data_len,
-            collection.clone(),
+            collection,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
@@ -208,29 +208,29 @@ impl CodeBuilder<'_> {
         let small = self.label(&format!("{prefix}_double"));
         let init_label = self.label(&format!("{prefix}_init"));
         let after = self.label(&format!("{prefix}_after"));
-        self.emit(abi::compare_immediate(value_reg.clone(), "0"));
+        self.emit(abi::compare_immediate(value_reg, "0"));
         self.emit(abi::branch_eq(&init_label));
         self.emit(abi::move_immediate(
-            scratch.clone(),
+            scratch,
             "Integer",
             &threshold.to_string(),
         ));
-        self.emit(abi::compare_registers(value_reg.clone(), scratch));
+        self.emit(abi::compare_registers(value_reg, scratch));
         self.emit(abi::branch_lo(&small));
         // ×1.5: out = value + value/2.
         self.emit(abi::shift_right_immediate(
-            out_reg.clone(),
-            value_reg.clone(),
+            out_reg,
+            value_reg,
             1,
         ));
         self.emit(abi::add_registers(
-            out_reg.clone(),
-            value_reg.clone(),
-            out_reg.clone(),
+            out_reg,
+            value_reg,
+            out_reg,
         ));
         self.emit(abi::branch(&after));
         self.emit(abi::label(&small));
-        self.emit(abi::shift_left_immediate(out_reg.clone(), value_reg, 1)); // ×2
+        self.emit(abi::shift_left_immediate(out_reg, value_reg, 1)); // ×2
         self.emit(abi::branch(&after));
         self.emit(abi::label(&init_label));
         self.emit(abi::move_immediate(out_reg, "Integer", &init.to_string()));
@@ -257,7 +257,7 @@ impl CodeBuilder<'_> {
     ) {
         let scratch = scratch.into();
         self.emit(abi::move_immediate(
-            scratch.clone(),
+            scratch,
             "Integer",
             &slot_bytes.to_string(),
         ));
@@ -301,10 +301,10 @@ impl CodeBuilder<'_> {
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&span, count.clone(), &entry_size));
+        self.emit(abi::multiply_registers(&span, count, &entry_size));
         // Remember where the destination span starts before the copy advances
         // `dst_entry` past it; the fix-up walks this saved cursor.
-        self.emit(abi::move_register(&saved_dst, dst_entry.clone()));
+        self.emit(abi::move_register(&saved_dst, dst_entry));
         self.emit_block_copy_advance(
             dst_entry,
             src_entry,
@@ -318,7 +318,7 @@ impl CodeBuilder<'_> {
         let fixup_loop = self.label(&format!("{label_prefix}_fixup_loop"));
         let fixup_done = self.label(&format!("{label_prefix}_fixup_done"));
         self.emit(abi::label(&fixup_loop));
-        self.emit(abi::compare_immediate(count.clone(), "0"));
+        self.emit(abi::compare_immediate(count, "0"));
         self.emit(abi::branch_eq(&fixup_done));
         self.emit(abi::load_u64(
             value_offset,
@@ -344,7 +344,7 @@ impl CodeBuilder<'_> {
             &saved_dst,
             COLLECTION_ENTRY_SIZE,
         ));
-        self.emit(abi::subtract_immediate(count.clone(), count, 1));
+        self.emit(abi::subtract_immediate(count, count, 1));
         self.emit(abi::branch(&fixup_loop));
         self.emit(abi::label(&fixup_done));
     }
@@ -375,11 +375,11 @@ impl CodeBuilder<'_> {
         let skip_label = self.label(&format!("{label_prefix}_skip"));
         let done_label = self.label(&format!("{label_prefix}_done"));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate(count.clone(), "0"));
+        self.emit(abi::compare_immediate(count, "0"));
         self.emit(abi::branch_eq(&done_label));
         self.emit(abi::load_u64(
             value_offset,
-            entry_base.clone(),
+            entry_base,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::compare_registers(&value_offset, hole_offset));
@@ -393,16 +393,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(
             value_offset,
-            entry_base.clone(),
+            entry_base,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::label(&skip_label));
         self.emit(abi::add_immediate(
-            entry_base.clone(),
+            entry_base,
             entry_base,
             COLLECTION_ENTRY_SIZE,
         ));
-        self.emit(abi::subtract_immediate(count.clone(), count, 1));
+        self.emit(abi::subtract_immediate(count, count, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
     }
@@ -429,7 +429,7 @@ impl CodeBuilder<'_> {
         let loop_label = self.label(&format!("{label_prefix}_loop"));
         let done = self.label(&format!("{label_prefix}_done"));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate(count.clone(), "0"));
+        self.emit(abi::compare_immediate(count, "0"));
         self.emit(abi::branch_eq(&done));
         self.emit(abi::move_immediate(
             &scratch22,
@@ -438,45 +438,45 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(
             &scratch22,
-            dest_entry.clone(),
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::store_u64(
             &scratch22,
-            dest_entry.clone(),
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch22,
-            dest_entry.clone(),
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::load_u64(
             &scratch22,
-            source_entry.clone(),
+            source_entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
             &scratch23,
-            source_entry.clone(),
+            source_entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::store_u64(
-            dest_data_offset.clone(),
-            dest_entry.clone(),
+            dest_data_offset,
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::store_u64(
             &scratch23,
-            dest_entry.clone(),
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
         self.emit(abi::add_registers(
             &scratch25,
             dest_data,
-            dest_data_offset.clone(),
+            dest_data_offset,
         ));
         self.emit_block_copy_advance(
             &scratch25,
@@ -487,25 +487,25 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::load_u64(
             &scratch23,
-            dest_entry.clone(),
+            dest_entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(
-            dest_data_offset.clone(),
+            dest_data_offset,
             dest_data_offset,
             &scratch23,
         ));
         self.emit(abi::add_immediate(
-            source_entry.clone(),
+            source_entry,
             source_entry,
             COLLECTION_ENTRY_SIZE,
         ));
         self.emit(abi::add_immediate(
-            dest_entry.clone(),
+            dest_entry,
             dest_entry,
             COLLECTION_ENTRY_SIZE,
         ));
-        self.emit(abi::subtract_immediate(count.clone(), count, 1));
+        self.emit(abi::subtract_immediate(count, count, 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done));
         Ok(())

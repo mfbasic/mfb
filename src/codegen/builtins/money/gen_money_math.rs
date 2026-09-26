@@ -64,7 +64,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_registers(&half, abs_divisor, &abs_rem));
 
         // Default: keep the truncated quotient.
-        self.emit(abi::move_register(dst.clone(), quotient.clone()));
+        self.emit(abi::move_register(dst, quotient));
         self.emit(abi::compare_registers(&abs_rem, &half));
         self.emit(abi::branch_lt(&keep)); // |rem| < half  -> below the half, keep
         self.emit(abi::branch_gt(&round_up)); // |rem| > half  -> past the half, round away
@@ -82,7 +82,7 @@ impl CodeBuilder<'_> {
         let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         let parity = self.allocate_register();
-        self.emit(abi::and_registers(&parity, quotient.clone(), &one));
+        self.emit(abi::and_registers(&parity, quotient, &one));
         self.emit(abi::compare_immediate(&parity, "0"));
         self.emit(abi::branch_eq(&keep)); // even quotient -> keep, already even
 
@@ -90,7 +90,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&round_up));
         self.emit(abi::compare_immediate(sign_neg, "0"));
         self.emit(abi::branch_ne(&round_down));
-        self.emit(abi::add_immediate(dst.clone(), quotient.clone(), 1));
+        self.emit(abi::add_immediate(dst, quotient, 1));
         self.emit(abi::branch(&keep));
         self.emit(abi::label(&round_down));
         self.emit(abi::subtract_immediate(dst, quotient, 1));
@@ -117,7 +117,7 @@ impl CodeBuilder<'_> {
         match op {
             // `M ± M` and `M MOD M` are exact integer ops on the raw i64.
             BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Mod => {
-                self.emit_integer_binary(op, left, right, dst.clone(), false)?;
+                self.emit_integer_binary(op, left, right, dst, false)?;
                 Ok(dst)
             }
             BinaryOp::Multiply => {
@@ -164,14 +164,14 @@ impl CodeBuilder<'_> {
         match &scalar.type_ {
             // Exact integer scaling: `raw * k`, overflow-checked.
             ParameterType::Integer | ParameterType::Byte => {
-                self.emit_checked_integer_multiply(dst.clone(), &money.location, &scalar.location)?;
+                self.emit_checked_integer_multiply(dst, &money.location, &scalar.location)?;
                 Ok(dst)
             }
             // Exact binary fixed-point scaling: `raw * fixed_raw / 2^32` is exactly
             // what `emit_fixed_multiply` computes when fed the Money raw as the
             // left operand and the Q32.32 raw as the right (plan-29-F §4.1).
             ParameterType::Fixed => {
-                self.emit_fixed_multiply(dst.clone(), &money.location, &scalar.location)?;
+                self.emit_fixed_multiply(dst, &money.location, &scalar.location)?;
                 Ok(dst)
             }
             // Inexact floating scaling (plan-29-F §4.3).
@@ -239,17 +239,17 @@ impl CodeBuilder<'_> {
                 let div_done = self.label("money_div_scalar_done");
                 self.emit(abi::compare_registers(&scalar.location, &min_divisor));
                 self.emit(abi::branch_ne(&not_min));
-                self.emit(abi::move_register(dst.clone(), &quotient));
+                self.emit(abi::move_register(dst, &quotient));
                 self.emit(abi::branch(&div_done));
                 self.emit(abi::label(&not_min));
-                self.emit_apply_rounding(dst.clone(), &quotient, &remainder, &abs_div, &sign_neg)?;
+                self.emit_apply_rounding(dst, &quotient, &remainder, &abs_div, &sign_neg)?;
                 self.emit(abi::label(&div_done));
                 Ok(dst)
             }
             // `raw * 2^32 / fixed_raw` is exactly `emit_fixed_divide(raw, fixed_raw)`
             // (plan-29-F §4.2); it guards `fixed_raw == 0` → ErrInvalidArgument.
             ParameterType::Fixed => {
-                self.emit_fixed_divide(dst.clone(), &money.location, &scalar.location)?;
+                self.emit_fixed_divide(dst, &money.location, &scalar.location)?;
                 Ok(dst)
             }
             ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, true),
@@ -319,7 +319,7 @@ impl CodeBuilder<'_> {
         } else {
             self.emit(abi::float_multiply_d(&result, &money_d, &fval));
         }
-        self.emit_round_double_to_money_raw(&result, dst.clone())?;
+        self.emit_round_double_to_money_raw(&result, dst)?;
         Ok(dst)
     }
 
@@ -363,7 +363,7 @@ impl CodeBuilder<'_> {
 
         // Range guard: |value| >= 2^63 (or non-finite) overflows the raw i64.
         let magnitude = self.allocate_fp_register();
-        self.emit(abi::float_abs_d(&magnitude, value.clone()));
+        self.emit(abi::float_abs_d(&magnitude, value));
         let limit = self.allocate_fp_register();
         self.emit_f64_const(&limit, &scratch, 9_223_372_036_854_775_808.0);
         self.emit(abi::float_compare_d(&magnitude, &limit));
@@ -374,18 +374,18 @@ impl CodeBuilder<'_> {
 
         // q = trunc(value) toward zero.
         let quotient = self.allocate_register();
-        self.emit(abi::float_convert_to_signed_x(&quotient, value.clone()));
+        self.emit(abi::float_convert_to_signed_x(&quotient, value));
         // frac = value - (q as f64), in (-1, 1); abs_frac = |frac|.
         let q_f = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&q_f, &quotient));
         let frac = self.allocate_fp_register();
-        self.emit(abi::float_subtract_d(&frac, value.clone(), &q_f));
+        self.emit(abi::float_subtract_d(&frac, value, &q_f));
         let abs_frac = self.allocate_fp_register();
         self.emit(abi::float_abs_d(&abs_frac, &frac));
         let half = self.allocate_fp_register();
         self.emit_f64_const(&half, &scratch, 0.5);
 
-        self.emit(abi::move_register(dst.clone(), &quotient)); // default: keep the truncation
+        self.emit(abi::move_register(dst, &quotient)); // default: keep the truncation
         self.emit(abi::float_compare_d(&abs_frac, &half));
         self.emit(abi::branch_mi(&done)); // abs_frac < 0.5 → keep
         self.emit(abi::branch_gt(&round_away)); // abs_frac > 0.5 → round away
@@ -407,12 +407,12 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&round_away));
         // Round the magnitude away from zero: +1 when value >= 0, −1 when value < 0.
-        self.emit(abi::float_compare_zero_d(value.clone()));
+        self.emit(abi::float_compare_zero_d(value));
         self.emit(abi::branch_ge(&round_pos));
-        self.emit(abi::subtract_immediate(dst.clone(), &quotient, 1));
+        self.emit(abi::subtract_immediate(dst, &quotient, 1));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&round_pos));
-        self.emit(abi::add_immediate(dst.clone(), &quotient, 1));
+        self.emit(abi::add_immediate(dst, &quotient, 1));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -651,20 +651,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_subtract_registers(
             &remainder, &quotient, &scale, &raw,
         ));
-        self.emit(abi::move_register(dst.clone(), &quotient));
+        self.emit(abi::move_register(dst, &quotient));
         let done = self.label("math_money_round_done");
         match function {
             "floor" => {
                 // remainder < 0 (raw negative, non-zero frac) → toward -∞.
                 self.emit(abi::compare_immediate(&remainder, "0"));
                 self.emit(abi::branch_ge(&done));
-                self.emit(abi::subtract_immediate(dst.clone(), &quotient, 1));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
             }
             "ceil" => {
                 // remainder > 0 (raw positive, non-zero frac) → toward +∞.
                 self.emit(abi::compare_immediate(&remainder, "0"));
                 self.emit(abi::branch_le(&done));
-                self.emit(abi::add_immediate(dst.clone(), &quotient, 1));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
             }
             "round" => {
                 // half-away: bump the magnitude when 2*|remainder| >= 100000.
@@ -682,10 +682,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_immediate(&remainder, "0"));
                 self.emit(abi::branch_lt(&bump_neg));
                 self.emit(abi::label(&bump_pos));
-                self.emit(abi::add_immediate(dst.clone(), &quotient, 1));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&bump_neg));
-                self.emit(abi::subtract_immediate(dst.clone(), &quotient, 1));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
             }
             _ => unreachable!(),
         }

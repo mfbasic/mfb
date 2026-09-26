@@ -3228,8 +3228,8 @@ fn emit_win_grid_size(
     reg: Reg,
     axis: GridAxis,
 ) {
-    load_addr(reg.clone(), axis.symbol(), from, ins, rel);
-    ins.push(abi::load_u64(reg.clone(), reg, 0));
+    load_addr(reg, axis.symbol(), from, ins, rel);
+    ins.push(abi::load_u64(reg, reg, 0));
 }
 
 /// Load the last valid index of `axis` (`size - 1`) into `reg`.
@@ -3240,8 +3240,8 @@ fn emit_win_grid_last(
     reg: Reg,
     axis: GridAxis,
 ) {
-    emit_win_grid_size(ins, rel, from, reg.clone(), axis);
-    ins.push(abi::subtract_immediate(reg.clone(), reg, 1));
+    emit_win_grid_size(ins, rel, from, reg, axis);
+    ins.push(abi::subtract_immediate(reg, reg, 1));
 }
 
 /// Clamp `reg` in place into `0 ..= last(axis)`. The stack-slot form below is the
@@ -3258,12 +3258,12 @@ fn win_clamp_register(
 ) {
     let lo = format!("{tag}_clo");
     let hi = format!("{tag}_chi");
-    ins.push(abi::compare_immediate(reg.clone(), "0"));
+    ins.push(abi::compare_immediate(reg, "0"));
     ins.push(abi::branch_ge(&lo));
-    ins.push(abi::move_immediate(reg.clone(), "Integer", "0"));
+    ins.push(abi::move_immediate(reg, "Integer", "0"));
     ins.push(abi::label(&lo));
     emit_win_grid_last(ins, rel, from, abi::mfb_arg(2), axis);
-    ins.push(abi::compare_registers(reg.clone(), abi::mfb_arg(2)));
+    ins.push(abi::compare_registers(reg, abi::mfb_arg(2)));
     ins.push(abi::branch_le(&hi));
     ins.push(abi::move_register(reg, abi::mfb_arg(2)));
     ins.push(abi::label(&hi));
@@ -5051,15 +5051,15 @@ fn emit_term_resize() -> CodeFunction {
     ] {
         let at_least_one = format!("{tag}_min");
         let at_most_max = format!("{tag}_max");
-        ins.push(abi::shift_right_immediate(reg.clone(), reg.clone(), shift));
-        ins.push(abi::compare_immediate(reg.clone(), "1"));
+        ins.push(abi::shift_right_immediate(reg, reg, shift));
+        ins.push(abi::compare_immediate(reg, "1"));
         ins.push(abi::branch_ge(&at_least_one));
-        ins.push(abi::move_immediate(reg.clone(), "Integer", "1"));
+        ins.push(abi::move_immediate(reg, "Integer", "1"));
         ins.push(abi::label(&at_least_one));
-        ins.push(abi::compare_immediate(reg.clone(), &max.to_string()));
+        ins.push(abi::compare_immediate(reg, &max.to_string()));
         ins.push(abi::branch_le(&at_most_max));
         ins.push(abi::move_immediate(
-            reg.clone(),
+            reg,
             "Integer",
             &max.to_string(),
         ));

@@ -545,24 +545,24 @@ impl CodeBuilder<'_> {
                 let no_of = self.label("simd_tail_no_overflow");
                 self.emit(abi::compare_registers(&elem, &tmp));
                 self.emit(abi::branch_ne(&no_of));
-                self.emit(abi::move_immediate(err.clone(), "Integer", "1"));
+                self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_of));
                 // abs: negate when negative.
                 let negate = self.label("simd_tail_negate");
                 let stored = self.label("simd_tail_stored");
                 self.emit(abi::compare_immediate(&elem, "0"));
                 self.emit(abi::branch_lt(&negate));
-                self.emit(abi::store_u64(&elem, out_data.clone(), 0));
+                self.emit(abi::store_u64(&elem, out_data, 0));
                 self.emit(abi::branch(&stored));
                 self.emit(abi::label(&negate));
                 self.emit(abi::subtract_registers(&elem, abi::ZERO, &elem));
-                self.emit(abi::store_u64(&elem, out_data.clone(), 0));
+                self.emit(abi::store_u64(&elem, out_data, 0));
                 self.emit(abi::label(&stored));
             }
             SimdUnaryKernel::AbsFloat => {
                 self.emit(abi::move_immediate(&tmp, "Integer", FLOAT_ABS_MASK));
                 self.emit(abi::and_registers(&elem, &elem, &tmp));
-                self.emit(abi::store_u64(&elem, out_data.clone(), 0));
+                self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::SqrtFloat => {
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &elem));
@@ -570,16 +570,16 @@ impl CodeBuilder<'_> {
                 let no_err = self.label("simd_tail_sqrt_ok");
                 // ge 0 is fine; lt 0 (or unordered/NaN) fails the domain.
                 self.emit(abi::branch_ge(&no_err));
-                self.emit(abi::move_immediate(err.clone(), "Integer", "1"));
+                self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_err));
                 self.emit(abi::float_sqrt_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
                 self.emit(abi::float_move_x_from_d(&elem, abi::FP_SCRATCH[0]));
-                self.emit(abi::store_u64(&elem, out_data.clone(), 0));
+                self.emit(abi::store_u64(&elem, out_data, 0));
             }
             SimdUnaryKernel::FloorFloat
             | SimdUnaryKernel::CeilFloat
             | SimdUnaryKernel::RoundFloat => {
-                self.emit_float_to_int_overflow_to_err(&elem, err.clone())?;
+                self.emit_float_to_int_overflow_to_err(&elem, err)?;
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &elem));
                 match kernel {
                     SimdUnaryKernel::FloorFloat => {
@@ -593,7 +593,7 @@ impl CodeBuilder<'_> {
                     }
                     _ => unreachable!(),
                 }
-                self.emit(abi::store_u64(&tmp, out_data.clone(), 0));
+                self.emit(abi::store_u64(&tmp, out_data, 0));
             }
             SimdUnaryKernel::FloorFixed
             | SimdUnaryKernel::CeilFixed
@@ -605,7 +605,7 @@ impl CodeBuilder<'_> {
                     _ => unreachable!(),
                 };
                 self.emit_fixed_rounding_to_integer(function, &elem, &tmp)?;
-                self.emit(abi::store_u64(&tmp, out_data.clone(), 0));
+                self.emit(abi::store_u64(&tmp, out_data, 0));
             }
         }
         Ok(())
@@ -632,7 +632,7 @@ impl CodeBuilder<'_> {
         let edge = self.label("simd_tail_round_edge");
         let overflow = self.label("simd_tail_round_overflow");
 
-        self.emit_float_exponent_classify(&exponent, &mask, bits.clone());
+        self.emit_float_exponent_classify(&exponent, &mask, bits);
         self.emit(abi::branch_eq(&overflow));
         self.emit(abi::compare_immediate(&exponent, "1086"));
         self.emit(abi::branch_lt(&ok));
@@ -642,11 +642,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&edge));
         // exp == 1086 is only representable when it is exactly -2^63 (sign set,
         // zero mantissa); anything else overflows.
-        self.emit(abi::shift_right_immediate(&sign, bits.clone(), 63));
+        self.emit(abi::shift_right_immediate(&sign, bits, 63));
         self.emit(abi::compare_immediate(&sign, "1"));
         self.emit(abi::branch_ne(&overflow));
         self.emit(abi::move_immediate(&mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(&mantissa, bits.clone(), &mask));
+        self.emit(abi::and_registers(&mantissa, bits, &mask));
         self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_eq(&ok));
 
@@ -809,14 +809,14 @@ impl CodeBuilder<'_> {
         let done = self.label("simd_bin_tail_sel_done");
         match kernel {
             SimdBinaryKernel::MinSigned => {
-                self.emit(abi::compare_registers(left.clone(), right.clone()));
+                self.emit(abi::compare_registers(left, right));
                 self.emit(abi::branch_le(&done)); // left <= right → keep left
-                self.emit(abi::move_register(left.clone(), right.clone()));
+                self.emit(abi::move_register(left, right));
             }
             SimdBinaryKernel::MaxSigned => {
-                self.emit(abi::compare_registers(left.clone(), right.clone()));
+                self.emit(abi::compare_registers(left, right));
                 self.emit(abi::branch_ge(&done)); // left >= right → keep left
-                self.emit(abi::move_register(left.clone(), right.clone()));
+                self.emit(abi::move_register(left, right));
             }
             SimdBinaryKernel::MinFloat | SimdBinaryKernel::MaxFloat => {
                 // `fminnm`/`fmaxnm` — the same sign-of-zero-aware instruction the
@@ -827,8 +827,8 @@ impl CodeBuilder<'_> {
                 // finite values a `List OF Float` can hold (NaN/Inf are rejected at
                 // the finiteness boundary) `fminnm`/`fmaxnm` equals the body's
                 // `fmin`/`fmax` exactly.
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], left.clone()));
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], right.clone()));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], left));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], right));
                 if matches!(kernel, SimdBinaryKernel::MinFloat) {
                     self.emit(abi::float_min_d(
                         abi::FP_SCRATCH[0],
@@ -842,7 +842,7 @@ impl CodeBuilder<'_> {
                         abi::FP_SCRATCH[1],
                     ));
                 }
-                self.emit(abi::float_move_x_from_d(left.clone(), abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(left, abi::FP_SCRATCH[0]));
             }
         }
         self.emit(abi::label(&done));
@@ -1026,15 +1026,15 @@ impl CodeBuilder<'_> {
             SimdClampKernel::Signed => {
                 // lane = min(lane, high)
                 let skip_hi = self.label("simd_clamp_tail_skip_hi");
-                self.emit(abi::compare_registers(lane.clone(), high.clone()));
+                self.emit(abi::compare_registers(lane, high));
                 self.emit(abi::branch_le(&skip_hi));
-                self.emit(abi::move_register(lane.clone(), high.clone()));
+                self.emit(abi::move_register(lane, high));
                 self.emit(abi::label(&skip_hi));
                 // lane = max(lane, low)
                 let skip_lo = self.label("simd_clamp_tail_skip_lo");
-                self.emit(abi::compare_registers(lane.clone(), low.clone()));
+                self.emit(abi::compare_registers(lane, low));
                 self.emit(abi::branch_ge(&skip_lo));
-                self.emit(abi::move_register(lane.clone(), low.clone()));
+                self.emit(abi::move_register(lane, low));
                 self.emit(abi::label(&skip_lo));
             }
             SimdClampKernel::Float => {
@@ -1043,20 +1043,20 @@ impl CodeBuilder<'_> {
                 // bit-identical to a body lane on signed zeros. The old
                 // `fsub`+`fcmp #0` lost the sign of a `±0.0` tie (bug-68).
                 // lane = max(min(lane, high), low)
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], lane.clone()));
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], high.clone()));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], lane));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], high));
                 self.emit(abi::float_min_d(
                     abi::FP_SCRATCH[0],
                     abi::FP_SCRATCH[0],
                     abi::FP_SCRATCH[1],
                 )); // min(lane, high)
-                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], low.clone()));
+                self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], low));
                 self.emit(abi::float_max_d(
                     abi::FP_SCRATCH[0],
                     abi::FP_SCRATCH[0],
                     abi::FP_SCRATCH[1],
                 )); // max(.., low)
-                self.emit(abi::float_move_x_from_d(lane.clone(), abi::FP_SCRATCH[0]));
+                self.emit(abi::float_move_x_from_d(lane, abi::FP_SCRATCH[0]));
             }
         }
     }

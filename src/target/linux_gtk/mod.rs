@@ -540,16 +540,16 @@ impl Asm {
                 self.from,
             ));
         }
-        self.local_address(dst.clone(), STATE_SYMBOL);
+        self.local_address(dst, STATE_SYMBOL);
         if offset < 4096 {
-            self.push(abi::add_immediate(dst.clone(), dst, offset));
+            self.push(abi::add_immediate(dst, dst, offset));
         } else {
             self.push(abi::move_immediate(
                 abi::SCRATCH[0],
                 "Integer",
                 &offset.to_string(),
             ));
-            self.push(abi::add_registers(dst.clone(), dst, abi::SCRATCH[0]));
+            self.push(abi::add_registers(dst, dst, abi::SCRATCH[0]));
         }
     }
 

@@ -1507,7 +1507,7 @@ impl CodeBuilder<'_> {
         let count = self.temporary_vreg();
         let src = self.temporary_vreg();
         let left = self.temporary_vreg();
-        let dst = dst.clone();
+        let dst = *dst;
         let outer = self.label("inplace_str_pad_outer");
         let outer_done = self.label("inplace_str_pad_outer_done");
         let inner = self.label("inplace_str_pad_inner");

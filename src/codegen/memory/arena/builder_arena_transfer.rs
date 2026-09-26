@@ -483,12 +483,12 @@ impl CodeBuilder<'_> {
         let rebuild_label = self.label("raw_result_rebuild");
         let err_built_label = self.label("raw_result_err_built");
         self.emit(abi::load_u64(
-            scratch9.clone(),
+            scratch9,
             abi::stack_pointer(),
             tag_slot,
         ));
         self.emit(abi::compare_immediate(
-            scratch9.clone(),
+            scratch9,
             adoptable_error_tag(),
         ));
         self.emit(abi::branch_ne(&rebuild_label));
@@ -529,23 +529,23 @@ impl CodeBuilder<'_> {
                 // this frame allocated from the worker block it was made from.
                 let raw = self.allocate_stack_object("raw_result_message_raw", 8);
                 self.emit(abi::load_u64(
-                    scratch9.clone(),
+                    scratch9,
                     abi::stack_pointer(),
                     message_slot,
                 ));
-                self.emit(abi::store_u64(scratch9.clone(), abi::stack_pointer(), raw));
+                self.emit(abi::store_u64(scratch9, abi::stack_pointer(), raw));
                 message_borrowed_slot = raw;
                 // A propagated worker error: deep-copy its message and origin out of
                 // the thread's block arena (alive until this side lets go of the
                 // handle) into the caller arena. If the helper
                 // raised its own error (source == 0), stamp this inline expression.
                 self.emit(abi::load_u64(
-                    scratch9.clone(),
+                    scratch9,
                     abi::stack_pointer(),
                     message_slot,
                 ));
                 let copied_message =
-                    self.copy_value_to_current_arena(&ParameterType::String, scratch9.clone())?;
+                    self.copy_value_to_current_arena(&ParameterType::String, scratch9)?;
                 self.emit(abi::store_u64(
                     &copied_message,
                     abi::stack_pointer(),
@@ -554,15 +554,15 @@ impl CodeBuilder<'_> {
                 let own = self.label("raw_worker_error_own");
                 let done = self.label("raw_worker_error_done");
                 self.emit(abi::load_u64(
-                    scratch9.clone(),
+                    scratch9,
                     abi::stack_pointer(),
                     source_raw_slot,
                 ));
-                self.emit(abi::compare_immediate(scratch9.clone(), "0"));
+                self.emit(abi::compare_immediate(scratch9, "0"));
                 self.emit(abi::branch_eq(&own));
                 let copied_source = self.copy_value_to_current_arena(
                     &ParameterType::named("ErrorLoc"),
-                    scratch9.clone(),
+                    scratch9,
                 )?;
                 self.emit(abi::store_u64(
                     &copied_source,
@@ -1547,7 +1547,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         self.emit(abi::store_u64(
-            source.clone(),
+            source,
             abi::stack_pointer(),
             source_slot,
         ));
