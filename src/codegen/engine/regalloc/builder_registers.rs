@@ -16,13 +16,12 @@ impl CodeBuilder<'_> {
     pub(crate) fn allocate_register(&mut self) -> VirtualRegister {
         // The one id source every minter shares, so this can never equal a `Vregs`
         // name in the same stream (bug-721).
-        let vreg = regalloc::mint_vreg_id(RegClass::Int);
         // Advance the bump counter: some lowerings advance it as a positional
         // reservation (`while self.next_register <= 12 { … }` in
         // `builder_numeric`), so it must always move or those loops never
         // terminate; coloring ignores the counter.
         self.next_register += 1;
-        VirtualRegister::new(RegClass::Int, vreg)
+        regalloc::mint_vreg(RegClass::Int)
     }
 
     /// Mint a floating-point (`d`-class) virtual register (plan-03 Stage C). The
@@ -30,8 +29,7 @@ impl CodeBuilder<'_> {
     /// chained float arithmetic stays resident in `d`-registers instead of
     /// round-tripping its bit pattern through a GPR.
     pub(crate) fn allocate_fp_register(&mut self) -> VirtualRegister {
-        let vreg = regalloc::mint_vreg_id(RegClass::Fp);
-        VirtualRegister::new(RegClass::Fp, vreg)
+        regalloc::mint_vreg(RegClass::Fp)
     }
 
     /// Color the fully-lowered instruction stream: rewrite every virtual
@@ -197,7 +195,7 @@ impl CodeBuilder<'_> {
     /// length — anything that fits a word. (It was `spill_to_slot`, a name
     /// that asserted a `String` type this helper never checked and that ~4 of its
     /// call sites did not hold.)
-    pub(crate) fn spill_to_slot(&mut self, label: &str, register: impl Into<Operand>) -> usize {
+    pub(crate) fn spill_to_slot(&mut self, label: &str, register: impl Into<abi::Reg>) -> usize {
         let slot = self.allocate_stack_object(label, 8);
         self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
         slot

@@ -52,9 +52,9 @@ pub(crate) fn finalize_frame(
     if has_calls
         && !callee_saved
             .iter()
-            .any(|register| register == abi::link_register())
+            .any(|register| register == abi::LR_SPELLING)
     {
-        callee_saved.push(abi::link_register().to_string());
+        callee_saved.push(abi::LR_SPELLING.to_string());
     }
     // Per-register save-area offsets (bug-124.2). An AArch64 FP/SIMD callee-saved
     // register (`d8`–`d15`) can hold a 128-bit `v128` value live across a call, so
@@ -329,22 +329,25 @@ fn is_simd128_callee_saved(register: &str) -> bool {
             .is_some()
 }
 
-fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_simd128_callee_saved(register) {
+fn save_callee_saved(name: &str, offset: usize) -> CodeInstruction {
+    // A register the coloring chose (bug-721: the one sanctioned physical name).
+    let register = abi::Reg::physical(name);
+    if is_simd128_callee_saved(name) {
         // 128-bit `str q` (AArch64 `str q` / x86-64 `movups`) — a 64-bit store
         // would truncate a `v128` value's high lane (bug-124.2).
         abi::vector_store(register, abi::stack_pointer(), offset)
-    } else if is_fp_register(register) {
+    } else if is_fp_register(name) {
         abi::store_double(register, abi::stack_pointer(), offset)
     } else {
         abi::store_u64(register, abi::stack_pointer(), offset)
     }
 }
 
-fn restore_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_simd128_callee_saved(register) {
+fn restore_callee_saved(name: &str, offset: usize) -> CodeInstruction {
+    let register = abi::Reg::physical(name);
+    if is_simd128_callee_saved(name) {
         abi::vector_load(register, abi::stack_pointer(), offset)
-    } else if is_fp_register(register) {
+    } else if is_fp_register(name) {
         abi::load_double(register, abi::stack_pointer(), offset)
     } else {
         abi::load_u64(register, abi::stack_pointer(), offset)
@@ -548,7 +551,7 @@ fn offset_of(instruction: &CodeInstruction) -> usize {
 fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
     instructions
         .iter()
-        .filter(|instruction| base_of(instruction).as_deref() == Some(abi::OUTGOING_ARGS_BASE))
+        .filter(|instruction| base_of(instruction).as_deref() == Some(abi::OUTGOING_ARGS_SPELLING))
         .map(offset_of)
         .max()
 }
@@ -557,7 +560,7 @@ fn max_outgoing_arg_offset(instructions: &[CodeInstruction]) -> Option<usize> {
 fn has_incoming_stack_args(instructions: &[CodeInstruction]) -> bool {
     instructions
         .iter()
-        .any(|instruction| base_of(instruction).as_deref() == Some(abi::INCOMING_ARGS_BASE))
+        .any(|instruction| base_of(instruction).as_deref() == Some(abi::INCOMING_ARGS_SPELLING))
 }
 
 /// Rewrite the stack-argument sentinel bases (`incoming_args`/`outgoing_args`)
@@ -577,9 +580,9 @@ fn resolve_stack_arg_sentinels(
             Some(base) => base,
             None => continue,
         };
-        let incoming = if base.as_ref() == abi::INCOMING_ARGS_BASE {
+        let incoming = if base.as_ref() == abi::INCOMING_ARGS_SPELLING {
             true
-        } else if base.as_ref() == abi::OUTGOING_ARGS_BASE {
+        } else if base.as_ref() == abi::OUTGOING_ARGS_SPELLING {
             false
         } else {
             continue;
@@ -627,10 +630,8 @@ impl Vregs {
         Vregs
     }
 
-    pub(crate) fn next(&mut self) -> String {
-        crate::codegen::engine::regalloc::vreg_name(crate::codegen::engine::regalloc::mint_vreg_id(
-            crate::target::shared::regmodel::RegClass::Int,
-        ))
+    pub(crate) fn next(&mut self) -> crate::codegen::engine::operand::VirtualRegister {
+        crate::codegen::engine::regalloc::mint_vreg(crate::target::shared::regmodel::RegClass::Int)
     }
 }
 

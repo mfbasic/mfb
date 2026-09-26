@@ -80,6 +80,12 @@ const USE_FIELDS: &[&str] = &[
     "borrow_in",
 ];
 
+/// Whether `name` is one of the fields this analysis treats as a register — the
+/// set `CodeInstruction::field` refuses text for (bug-721).
+pub(crate) fn is_register_field(name: &str) -> bool {
+    DEF_FIELDS.contains(&name) || USE_FIELDS.contains(&name)
+}
+
 /// Per-register-class hooks the allocator core queries: which operand strings are
 /// this class's virtual registers, and which are its physical registers. The Int
 /// class matches `%vN` / `x0`–`x30`; the Fp class matches `%fN` / `d0`–`d31`. A

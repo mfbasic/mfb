@@ -166,9 +166,9 @@ pub(crate) enum Operand {
 }
 
 impl Operand {
-    /// A virtual register of `class` numbered `id`.
-    #[allow(dead_code)] // proven by the corpus test; production writers land in plan-82-B/C
-    pub(crate) fn vreg(class: RegClass, id: u32) -> Self {
+    /// A virtual register of `class` numbered `id`. Engine-private for the same
+    /// reason as [`VirtualRegister::new`] (bug-721).
+    pub(in crate::codegen::engine) fn vreg(class: RegClass, id: u32) -> Self {
         Operand::VReg { class, id }
     }
 
@@ -251,7 +251,10 @@ impl Operand {
     ///
     /// Used by the round-trip corpus test in A; once producers migrate (B) they
     /// build the typed arm directly and this is a convenience for the read side.
-    #[allow(dead_code)] // proven by the corpus test; the read-side consumer lands in plan-78-B/C
+    /// Test-only (bug-721): parsing a `%vN` string back into a register is how a
+    /// hand-written name would get past the minters, so production code has no
+    /// string-to-register path at all.
+    #[cfg(test)]
     pub(crate) fn parse(value: &str) -> Self {
         if let Some(id) = parse_vreg(value) {
             return Operand::vreg(RegClass::Int, id);
@@ -284,9 +287,35 @@ pub(crate) struct VirtualRegister {
 }
 
 impl VirtualRegister {
-    /// A virtual register of `class` numbered `id`.
-    pub(crate) fn new(class: RegClass, id: u32) -> Self {
+    /// A virtual register of `class` numbered `id`. Engine-private (bug-721): the
+    /// only callers are the minters (`regalloc::mint_vreg`), so an id can never be
+    /// chosen by hand — a hand-picked number would alias whatever minted register
+    /// carries it.
+    pub(in crate::codegen::engine) fn new(class: RegClass, id: u32) -> Self {
         Self { class, id }
+    }
+
+    /// The handle for an `Operand::VReg` already in a stream. Not a way to choose an
+    /// id: an `Operand::VReg` exists only because a minter made it
+    /// ([`Operand::vreg`] is engine-private too).
+    pub(crate) fn from_operand(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// A hand-numbered register for a test that builds a stream by hand.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// The register class.
+    pub(crate) fn class(self) -> RegClass {
+        self.class
+    }
+
+    /// The id the allocator interns.
+    pub(crate) fn id(self) -> u32 {
+        self.id
     }
 
     /// The `%vN` (integer) / `%fN` (floating-point) sentinel spelling. Allocates

@@ -3,6 +3,13 @@ use crate::arch::ops::CodeOp;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::json::json_string;
+
+/// Whether `name` is a field the register allocator reads or writes as a register
+/// — its def/use roles (`regalloc::analysis`).
+fn is_register_role(name: &str) -> bool {
+    crate::codegen::engine::regalloc::analysis::is_register_field(name)
+}
+
 impl CodeInstruction {
     #[track_caller]
     pub(crate) fn new(op: &str) -> Self {
@@ -21,7 +28,34 @@ impl CodeInstruction {
     /// `Operand`, or a `&str`/`&String`/`String` that becomes `Operand::Raw`).
     /// plan-78-B stores the typed `Operand` directly; the rendered spelling is
     /// produced on demand by [`Self::get`] / the dump formatters.
+    ///
+    /// A register-role field (the allocator's def/use fields) never takes text
+    /// (bug-721): it takes a [`Reg`](crate::target::shared::abi::Reg) — a minted
+    /// vreg, an ABI role or a role token — and text reaching one here panics
+    /// rather than becoming a hand-picked register. The only text allowed is a
+    /// role token's own spelling, which is what an already-typed token renders as.
+    /// A backend writing a register the allocator or selection chose uses
+    /// [`Self::physical_field`].
+    #[track_caller]
     pub(crate) fn field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
+        let value = value.into();
+        if let Operand::Raw(text) = &value {
+            if is_register_role(name) && crate::target::shared::abi::role_token(text).is_none() {
+                panic!(
+                    "register field `{name}` given the text `{text}`: a register operand is a \
+                     `Reg` — mint a vreg or name an ABI role (bug-721)"
+                );
+            }
+        }
+        self.fields.push((name, value));
+        self
+    }
+
+    /// Append a register-role field holding a register the register allocator or a
+    /// backend's selection chose — post-allocation code only.
+    /// `tests/guards/architecture_guards.rs::physical_registers_stay_in_the_backends`
+    /// confines the callers to `src/arch` and the allocator/frame finalizer.
+    pub(crate) fn physical_field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
         self.fields.push((name, value.into()));
         self
     }

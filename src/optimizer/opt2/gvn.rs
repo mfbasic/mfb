@@ -140,9 +140,8 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
                         None => {
                             // From the shared id source, above every id in this
                             // stream, so no minter can meet it (bug-721).
-                            let fresh = Operand::vreg(
-                                crate::target::shared::regmodel::RegClass::Int,
-                                crate::codegen::engine::regalloc::mint_vreg_id_above(
+                            let fresh = Operand::from(
+                                crate::codegen::engine::regalloc::mint_vreg_above(
                                     crate::target::shared::regmodel::RegClass::Int,
                                     max_vreg,
                                 ),

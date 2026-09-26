@@ -53,7 +53,7 @@ thread_local! {
 }
 
 /// Draw the next unused virtual-register id of `class`.
-pub(crate) fn mint_vreg_id(class: RegClass) -> u32 {
+fn mint_vreg_id(class: RegClass) -> u32 {
     let slot = match class {
         RegClass::Int => 0,
         RegClass::Fp => 1,
@@ -70,7 +70,7 @@ pub(crate) fn mint_vreg_id(class: RegClass) -> u32 {
 /// Draw the next unused id of `class` that is also above `floor` — for a pass
 /// rewriting a stream it did not mint (the optimizer's GVN), which must not reuse
 /// any id already in it. Advances the shared source past `floor`.
-pub(crate) fn mint_vreg_id_above(class: RegClass, floor: u32) -> u32 {
+fn mint_vreg_id_above(class: RegClass, floor: u32) -> u32 {
     let slot = match class {
         RegClass::Int => 0,
         RegClass::Fp => 1,
@@ -81,6 +81,17 @@ pub(crate) fn mint_vreg_id_above(class: RegClass, floor: u32) -> u32 {
         next.set(ids);
     });
     mint_vreg_id(class)
+}
+
+/// Mint a fresh virtual register of `class` — the one way production code obtains
+/// a register it did not get from an ABI role (bug-721).
+pub(crate) fn mint_vreg(class: RegClass) -> VirtualRegister {
+    VirtualRegister::new(class, mint_vreg_id(class))
+}
+
+/// [`mint_vreg`] above every id in a stream the caller did not mint (GVN).
+pub(crate) fn mint_vreg_above(class: RegClass, floor: u32) -> VirtualRegister {
+    VirtualRegister::new(class, mint_vreg_id_above(class, floor))
 }
 
 /// Restart the virtual-register ids. Called once at the start of every module's

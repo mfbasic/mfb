@@ -23,13 +23,13 @@ pub(crate) const RESULT_PROGRAM_EXIT_TAG: &str = "2";
 /// `RESULT_ERR_TAG` and the trap route rebuilds as before — never a stale slot.
 pub(crate) const RESULT_ERR_BLOCK_TAG: &str = "3";
 
-pub(crate) const RESULT_TAG_REGISTER: Operand = abi::mfb_return(0);
-pub(crate) const RESULT_VALUE_REGISTER: Operand = abi::mfb_return(1);
-pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: Operand = abi::mfb_return(2);
+pub(crate) const RESULT_TAG_REGISTER: abi::Reg = abi::mfb_return(0);
+pub(crate) const RESULT_VALUE_REGISTER: abi::Reg = abi::mfb_return(1);
+pub(crate) const RESULT_ERROR_MESSAGE_REGISTER: abi::Reg = abi::mfb_return(2);
 /// Fourth error-result register: pointer to the `ErrorLoc` recording where the
 /// error originated. Carried alongside code (x1) and message (x2) so propagation
 /// preserves the origin and trap materialization can build a 3-field `Error`.
-pub(crate) const RESULT_ERROR_SOURCE_REGISTER: Operand = abi::mfb_return(3);
+pub(crate) const RESULT_ERROR_SOURCE_REGISTER: abi::Reg = abi::mfb_return(3);
 
 /// Byte size of an allocated `Error` record: code(+0), message(+8), source(+16).
 pub(crate) const ERROR_OBJECT_SIZE: usize = 24;
@@ -135,8 +135,8 @@ pub(crate) const CLEANUP_FAILURE_PREFIX_SYMBOL: &str = "_mfb_str_cleanup_failure
 /// token (plan-34-A). Each backend's selection realizes it to a physical
 /// register (AArch64 x19 via `regmodel::ARENA_BASE_REGISTER`, RISC-V s11,
 /// x86-64 r15); shared lowering never spells the AArch64 register number.
-pub(crate) const ARENA_STATE_REGISTER: &str = crate::target::shared::abi::ARENA;
-pub(crate) const CLOSURE_ENV_REGISTER: &str = crate::target::shared::abi::CLOSURE_ENV;
+pub(crate) const ARENA_STATE_REGISTER: crate::target::shared::abi::Reg = crate::target::shared::abi::ARENA;
+pub(crate) const CLOSURE_ENV_REGISTER: crate::target::shared::abi::Reg = crate::target::shared::abi::CLOSURE_ENV;
 
 // ===========================================================================
 // Closures
