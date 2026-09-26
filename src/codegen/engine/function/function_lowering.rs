@@ -875,7 +875,7 @@ pub(crate) fn lower_function(
                 // Typed convention token — a parameter's register location stays
                 // Operand::Abi so it is realized by each backend's typed handler
                 // (never a Raw convention string). plan-85-D Phase 3.
-                abi::argument_register(index)?
+                abi::argument_register(index)?.into()
             } else {
                 // Stack-tail sentinel (bug-08); a Raw marker the prologue interprets.
                 Operand::from(format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT))
@@ -1339,7 +1339,7 @@ pub(crate) fn lower_builtin_function_wrapper(
     let param = CodeParam {
         name: "value".to_string(),
         type_: params[0].name().into_owned(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.into(),
     };
     let mut builder = CodeBuilder::for_synthetic_function(
         symbol,
@@ -1567,7 +1567,7 @@ pub(crate) fn lower_abi_function_helper(
         args.push(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: abi::argument_register(index)?,
+            location: abi::argument_register(index)?.into(),
             text: format!("abiArg{index}"),
         });
     }
@@ -1642,7 +1642,7 @@ pub(crate) fn lower_thread_copy_function(
     let param = CodeParam {
         name: "source".to_string(),
         type_: type_.clone().name().into_owned(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.into(),
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),

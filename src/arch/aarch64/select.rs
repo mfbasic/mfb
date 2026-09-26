@@ -157,14 +157,14 @@ mod tests {
         // %retSys → x0.
         let out = select_aarch64(lower_to_mir(&[
             CodeInstruction::new("mov")
-                .field("dst", abi::mfb_return(0))
-                .field("src", abi::mfb_arg(2)),
+                .physical_field("dst", abi::mfb_return(0))
+                .physical_field("src", abi::mfb_arg(2)),
             CodeInstruction::new("mov")
-                .field("dst", abi::c_return(1))
-                .field("src", abi::sys_arg(3)),
+                .physical_field("dst", abi::c_return(1))
+                .physical_field("src", abi::sys_arg(3)),
             CodeInstruction::new("mov")
-                .field("dst", abi::sys_return())
-                .field("src", abi::c_arg(7)),
+                .physical_field("dst", abi::sys_return())
+                .physical_field("src", abi::c_arg(7)),
         ]));
         let vals = values(&out);
         assert!(
@@ -181,8 +181,8 @@ mod tests {
     fn enabled_selfmove_probe_does_not_mutate_the_selected_stream() {
         std::env::set_var("MFB_BUG387_SELFMOVE", "1");
         let out = select_aarch64(lower_to_mir(&[CodeInstruction::new("mov")
-            .field("dst", "x0")
-            .field("src", "x0")]));
+            .physical_field("dst", "x0")
+            .physical_field("src", "x0")]));
         std::env::remove_var("MFB_BUG387_SELFMOVE");
         assert_eq!(out[0].op, CodeOp::Mov);
         assert_eq!(values(&out), ["x0", "x0"]);

@@ -125,22 +125,13 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
         if !facts.is_derived(block, value) {
             continue;
         }
-        let destination = instructions[i]
-            .operand("dst")
-            .expect("checked just above")
-            .rendered()
-            .into_owned();
         rewrites.push((
             i,
             // Spelled as the unsigned 64-bit pattern, the spelling every
             // other immediate in this seam uses (`emit_integer_pow` writes a
             // negative literal the same way); a bare `-1` is not what the
             // encoders read.
-            Some(abi::move_immediate(
-                &destination,
-                "Integer",
-                &(pinned as u64).to_string(),
-            )),
+            Some(super::constant_into_dst(&instructions[i], pinned as u64)),
             Attribution::Correlated,
         ));
     }
@@ -396,7 +387,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

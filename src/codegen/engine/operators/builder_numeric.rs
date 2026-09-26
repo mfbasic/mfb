@@ -236,10 +236,10 @@ impl CodeBuilder<'_> {
             right_slot,
         ));
         if let Some(fp) = left_resident {
-            self.float_residents.insert(left_register.render(), fp);
+            self.float_residents.insert(left_register.to_string(), fp);
         }
         if let Some(fp) = right_resident {
-            self.float_residents.insert(right_register.render(), fp);
+            self.float_residents.insert(right_register.to_string(), fp);
         }
         let left = ValueResult {
             origin: None,
@@ -259,7 +259,7 @@ impl CodeBuilder<'_> {
         // `emit_float_binary`). This path is reached for `Float` only in the
         // `Integer op Float` case (a float left operand takes the fast path
         // above); the integer/fixed cases always land in `register`.
-        let mut result_location = register.render();
+        let mut result_location: abi::Reg = register.into();
         match &result_type {
             ParameterType::Byte | ParameterType::Integer => {
                 self.emit_integer_binary_checked(
@@ -320,7 +320,7 @@ impl CodeBuilder<'_> {
                 // `Money DIV …` — routed through the Money dispatcher, which
                 // produces the f64 result (plan-29-E §4.3/§4.5).
                 if left.type_ == ParameterType::Money || right.type_ == ParameterType::Money {
-                    result_location = self.emit_money_binary(op, &left, &right, &register)?;
+                    result_location = self.emit_money_binary(op, &left, &right, &register)?.into();
                 } else {
                     result_location = self.emit_float_binary(op, &left, &right, &register)?;
                 }
@@ -328,7 +328,7 @@ impl CodeBuilder<'_> {
             // A Money result (`M ± M`, `M * k`, `M / k`, `M MOD M`) is settled by
             // the Money dispatcher (plan-29-C/E/F).
             ParameterType::Money => {
-                result_location = self.emit_money_binary(op, &left, &right, &register)?;
+                result_location = self.emit_money_binary(op, &left, &right, &register)?.into();
             }
             other => {
                 return Err(format!(
@@ -1117,8 +1117,8 @@ impl CodeBuilder<'_> {
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<abi::Reg>,
-    ) -> Result<String, String> {
-        let dst = dst.into();
+    ) -> Result<abi::Reg, String> {
+        let dst: abi::Reg = dst.into();
         match op {
             // The pure-FP arithmetic ops run on FP virtual registers so a chained
             // operand stays resident in a `d`-register instead of round-tripping
@@ -1163,7 +1163,7 @@ impl CodeBuilder<'_> {
                 // `d`-native model: the FP register *is* the value's home; return
                 // it so consumers stay in the FP domain and the GP shuttle is
                 // never created.
-                return Ok(d_res.render());
+                return Ok(d_res.into());
             }
             BinaryOp::Mod => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
@@ -1218,7 +1218,7 @@ impl CodeBuilder<'_> {
         }
         // `MOD`/`^` leave their result in `dst` (a GPR); they are not on a hot
         // path and stay GP-native.
-        Ok(dst.to_string())
+        Ok(dst)
     }
 
     /// Whether `value` is a `Float` whose canonical home is a `d`-register: its
@@ -1241,13 +1241,13 @@ impl CodeBuilder<'_> {
     /// carrier flip safe — a value that lives only in a `d`-register reaches a GPR
     /// consumer correctly instead of leaking its FP virtual register into a GP
     /// instruction (which would fail to encode rather than silently miscompile).
-    pub(crate) fn float_value_as_gpr(&mut self, value: &ValueResult) -> Result<String, String> {
+    pub(crate) fn float_value_as_gpr(&mut self, value: &ValueResult) -> Result<abi::Reg, String> {
         if Self::float_is_dnative(value) {
             let gpr = self.allocate_register();
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
-            return Ok(gpr.render());
+            return Ok(gpr.into());
         }
-        Ok(value.location.render())
+        Ok(abi::Reg::from(&value.location))
     }
 
     /// Return `value` with its bits in a GPR (plan-01 float-dnative): a `d`-native
@@ -1276,7 +1276,13 @@ impl CodeBuilder<'_> {
     /// by `str d` and later read as `ldr x` (copy/transfer/marshalling) is
     /// unchanged — only the in-flight register class differs (plan-01
     /// float-dnative §1 non-goals).
-    pub(crate) fn store_value_at(&mut self, value: &ValueResult, base: &str, offset: usize) {
+    pub(crate) fn store_value_at(
+        &mut self,
+        value: &ValueResult,
+        base: impl Into<abi::Reg>,
+        offset: usize,
+    ) {
+        let base: abi::Reg = base.into();
         if Self::float_is_dnative(value) {
             self.emit(abi::store_double(&value.location, base, offset));
         } else {
@@ -1288,9 +1294,9 @@ impl CodeBuilder<'_> {
     /// already resident in an FP virtual register (a prior float op's result, or a
     /// `d`-native load) is returned directly with no reload; otherwise a fresh FP
     /// virtual register is loaded (plan-03 Stage C / plan-01 float-dnative).
-    pub(crate) fn operand_as_double(&mut self, value: &ValueResult) -> Result<String, String> {
+    pub(crate) fn operand_as_double(&mut self, value: &ValueResult) -> Result<abi::Reg, String> {
         if Self::float_is_dnative(value) {
-            return Ok(value.location.render());
+            return Ok(abi::Reg::from(&value.location));
         }
         if value.type_ == ParameterType::Float {
             if let Some(resident) = self.float_residents.get(&value.location.render()).cloned() {
@@ -1299,7 +1305,7 @@ impl CodeBuilder<'_> {
         }
         let dst = self.allocate_fp_register();
         self.load_numeric_as_double(&dst, value)?;
-        Ok(dst.render())
+        Ok(dst.into())
     }
 
     pub(crate) fn emit_overflow_if_flags_set(&mut self) -> Result<(), String> {

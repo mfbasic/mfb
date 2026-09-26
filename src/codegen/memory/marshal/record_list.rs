@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn fresh_regs_never_write_a_vreg_the_caller_already_holds() {
         let mut vregs = Vregs::new();
-        let held: Vec<String> = (0..16).map(|_| vregs.next()).collect();
+        let held: Vec<String> = (0..16).map(|_| vregs.next().to_string()).collect();
         let instructions = emit(&MarshalRegs::fresh(&mut vregs));
         for instruction in &instructions {
             if let Some(dst) = instruction.get("dst") {

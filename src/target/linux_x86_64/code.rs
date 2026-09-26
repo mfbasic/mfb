@@ -174,7 +174,7 @@ impl LinuxArch for X86_64 {
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         // mmap(0, size, PROT_RW, MAP_PRIVATE|ANON, -1, 0) — nr 9.

@@ -144,8 +144,8 @@ impl CodeBuilder<'_> {
             bits,
             exponent,
             mask,
-            sign,
-            mantissa,
+            Some(sign.into()),
+            Some(mantissa.into()),
             Some("1086"),
             &ok,
             &check_edge,
@@ -1297,8 +1297,8 @@ impl CodeBuilder<'_> {
             bits,
             exponent,
             mask,
-            sign,
-            mantissa,
+            Some(sign.into()),
+            Some(mantissa.into()),
             Some("1054"),
             &range_ok,
             &edge,
@@ -1367,8 +1367,8 @@ impl CodeBuilder<'_> {
     /// copies it replaced.
     ///
     /// `threshold = None` is the `emit_double_overflow_check` shape: emit just the
-    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`,
-    /// and the three range/edge labels are unused. `threshold = Some(t)` adds the
+    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`
+    /// (`None`), and the three range/edge labels are unused. `threshold = Some(t)` adds the
     /// range check — `< t` → `range_ok`, `> t` → `overflow` — and, for the boundary
     /// exponent `== t`, the edge block that accepts only the exact minimum-magnitude
     /// value (sign set, zero mantissa) and traps everything else to `overflow`.
@@ -1378,8 +1378,8 @@ impl CodeBuilder<'_> {
         bits: impl Into<abi::Reg>,
         exponent: impl Into<abi::Reg>,
         mask: impl Into<abi::Reg>,
-        sign: impl Into<abi::Reg>,
-        mantissa: impl Into<abi::Reg>,
+        sign: Option<abi::Reg>,
+        mantissa: Option<abi::Reg>,
         threshold: Option<&str>,
         range_ok: &str,
         edge: &str,
@@ -1411,8 +1411,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(edge));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge));
-        let sign: abi::Reg = sign.into();
-        let mantissa: abi::Reg = mantissa.into();
+        let sign = sign.expect("a range threshold needs the caller's sign register");
+        let mantissa = mantissa.expect("a range threshold needs the caller's mantissa register");
         self.emit(abi::shift_right_immediate(sign.clone(), bits.clone(), 63));
         self.emit(abi::compare_immediate(sign, "1"));
         self.emit(abi::branch_eq(edge_sign_ok));
@@ -1441,8 +1441,8 @@ impl CodeBuilder<'_> {
             &bits,
             &exponent,
             &mask,
-            "",
-            "",
+            None,
+            None,
             None,
             "",
             "",

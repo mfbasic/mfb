@@ -1217,12 +1217,12 @@ mod tests {
     fn lower_then_select_is_identity() {
         assert_round_trips(&[
             CodeInstruction::new("mov")
-                .field("dst", "%v0")
-                .field("src", "x0"),
+                .physical_field("dst", "%v0")
+                .physical_field("src", "x0"),
             CodeInstruction::new("add")
-                .field("dst", "%v1")
-                .field("lhs", "%v0")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v1")
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("ret"),
         ]);
     }
@@ -1235,8 +1235,8 @@ mod tests {
         // cmp_imm; b.eq (carries the debug `reason` field)
         assert_round_trips(&[
             CodeInstruction::new("cmp_imm")
-                .field("lhs", "x0")
-                .field("rhs", "2"),
+                .physical_field("lhs", "x0")
+                .physical_field("rhs", "2"),
             CodeInstruction::new("b.eq")
                 .field("target", "if_else_0")
                 .field("reason", "ifFalse"),
@@ -1244,34 +1244,34 @@ mod tests {
         // cmp; b.lt (register compare)
         assert_round_trips(&[
             CodeInstruction::new("cmp")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1"),
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("b.lt").field("target", "L0"),
         ]);
         // adds; b.vc (integer add overflow trap)
         assert_round_trips(&[
             CodeInstruction::new("adds")
-                .field("dst", "%v6")
-                .field("lhs", "%v4")
-                .field("rhs", "%v5"),
+                .physical_field("dst", "%v6")
+                .physical_field("lhs", "%v4")
+                .physical_field("rhs", "%v5"),
             CodeInstruction::new("b.vc").field("target", "overflow_ok_2"),
         ]);
         // fcmp_d; b.mi (IEEE float `<`, plan-17) and fcmp_d; b.vs (finiteness)
         assert_round_trips(&[
             CodeInstruction::new("fcmp_d")
-                .field("lhs", "%f0")
-                .field("rhs", "%f1"),
+                .physical_field("lhs", "%f0")
+                .physical_field("rhs", "%f1"),
             CodeInstruction::new("b.mi").field("target", "Lt"),
         ]);
         assert_round_trips(&[
             CodeInstruction::new("fcmp_d")
-                .field("lhs", "%f0")
-                .field("rhs", "%f1"),
+                .physical_field("lhs", "%f0")
+                .physical_field("rhs", "%f1"),
             CodeInstruction::new("b.vs").field("target", "Lnan"),
         ]);
         // fcmp_zero_d; b.ge (compare vs zero)
         assert_round_trips(&[
-            CodeInstruction::new("fcmp_zero_d").field("src", "%f2"),
+            CodeInstruction::new("fcmp_zero_d").physical_field("src", "%f2"),
             CodeInstruction::new("b.ge").field("target", "Lge"),
         ]);
     }
@@ -1281,8 +1281,8 @@ mod tests {
     fn fused_op_carries_operands_and_condition() {
         let mir = lower_to_mir(&[
             CodeInstruction::new("cmp_imm")
-                .field("lhs", "x0")
-                .field("rhs", "255"),
+                .physical_field("lhs", "x0")
+                .physical_field("rhs", "255"),
             CodeInstruction::new("b.hi").field("target", "range_err"),
         ]);
         assert_eq!(mir.len(), 1);
@@ -1354,18 +1354,18 @@ mod tests {
         let original = [
             // lo = a_lo + b_lo, carry → x15
             CodeInstruction::new("add_carry")
-                .field("dst", "x9")
-                .field("carry_out", "x15")
-                .field("lhs", "x13")
-                .field("rhs", "x11")
-                .field("carry_in", "xzr"),
+                .physical_field("dst", "x9")
+                .physical_field("carry_out", "x15")
+                .physical_field("lhs", "x13")
+                .physical_field("rhs", "x11")
+                .physical_field("carry_in", "xzr"),
             // hi = a_hi + b_hi + x15, carry-out discarded
             CodeInstruction::new("add_carry")
-                .field("dst", "x10")
-                .field("carry_out", "xzr")
-                .field("lhs", "x14")
-                .field("rhs", "x12")
-                .field("carry_in", "x15"),
+                .physical_field("dst", "x10")
+                .physical_field("carry_out", "xzr")
+                .physical_field("lhs", "x14")
+                .physical_field("rhs", "x12")
+                .physical_field("carry_in", "x15"),
         ];
         let mir = lower_to_mir(&original);
         assert_eq!(mir.len(), 2);
@@ -1376,12 +1376,12 @@ mod tests {
         // A lone `adds` (no following flag-branch) stays a mirror op.
         let lone_adds = [
             CodeInstruction::new("adds")
-                .field("dst", "x9")
-                .field("lhs", "x9")
-                .field("rhs", "x1"),
+                .physical_field("dst", "x9")
+                .physical_field("lhs", "x9")
+                .physical_field("rhs", "x1"),
             CodeInstruction::new("mov")
-                .field("dst", "x10")
-                .field("src", "x9"),
+                .physical_field("dst", "x10")
+                .physical_field("src", "x9"),
         ];
         let mir = lower_to_mir(&lone_adds);
         assert_eq!(mir[0].op, MirOp::Adds);
@@ -1396,8 +1396,8 @@ mod tests {
     fn multi_branch_compare_fuses_with_share() {
         let original = [
             CodeInstruction::new("cmp")
-                .field("lhs", "x16")
-                .field("rhs", "x11"),
+                .physical_field("lhs", "x16")
+                .physical_field("rhs", "x11"),
             CodeInstruction::new("b.lo").field("target", "less"),
             CodeInstruction::new("b.hi").field("target", "greater"),
         ];
@@ -1429,11 +1429,11 @@ mod tests {
     fn addr_of_fuses_and_expands_identically() {
         let original = [
             CodeInstruction::new("adrp")
-                .field("dst", "x9")
+                .physical_field("dst", "x9")
                 .field("symbol", "str.0"),
             CodeInstruction::new("add_pageoff")
-                .field("dst", "x9")
-                .field("src", "x9")
+                .physical_field("dst", "x9")
+                .physical_field("src", "x9")
                 .field("symbol", "str.0"),
         ];
         let mir = lower_to_mir(&original);
@@ -1465,7 +1465,7 @@ mod tests {
         // Lone adrp followed by an unrelated op.
         let lone = [
             CodeInstruction::new("adrp")
-                .field("dst", "x9")
+                .physical_field("dst", "x9")
                 .field("symbol", "g"),
             CodeInstruction::new("ret"),
         ];
@@ -1475,11 +1475,11 @@ mod tests {
         // add_pageoff on a *different* register than the adrp — not an addr_of.
         let mismatch = [
             CodeInstruction::new("adrp")
-                .field("dst", "x9")
+                .physical_field("dst", "x9")
                 .field("symbol", "g"),
             CodeInstruction::new("add_pageoff")
-                .field("dst", "x10")
-                .field("src", "x10")
+                .physical_field("dst", "x10")
+                .physical_field("src", "x10")
                 .field("symbol", "g"),
         ];
         let mir = lower_to_mir(&mismatch);
@@ -1504,151 +1504,151 @@ mod tests {
         let fixtures: [CodeInstruction; 39] = [
             // — moves & immediates —
             CodeInstruction::new("mov")
-                .field("dst", "%v0")
-                .field("src", "x1"),
+                .physical_field("dst", "%v0")
+                .physical_field("src", "x1"),
             CodeInstruction::new("mov_imm")
-                .field("dst", "%v1")
+                .physical_field("dst", "%v1")
                 .field("value", "4294967296"),
             // — universal ALU (incl. the immediate forms that keep small imms) —
             CodeInstruction::new("add")
-                .field("dst", "%v2")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1"),
+                .physical_field("dst", "%v2")
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("sub")
-                .field("dst", "%v3")
-                .field("lhs", "%v2")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v3")
+                .physical_field("lhs", "%v2")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("mul")
-                .field("dst", "%v4")
-                .field("lhs", "%v2")
-                .field("rhs", "%v3"),
+                .physical_field("dst", "%v4")
+                .physical_field("lhs", "%v2")
+                .physical_field("rhs", "%v3"),
             CodeInstruction::new("and")
-                .field("dst", "%v5")
-                .field("lhs", "%v4")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v5")
+                .physical_field("lhs", "%v4")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("orr")
-                .field("dst", "%v6")
-                .field("lhs", "%v5")
-                .field("rhs", "%v1"),
+                .physical_field("dst", "%v6")
+                .physical_field("lhs", "%v5")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("eor")
-                .field("dst", "%v7")
-                .field("lhs", "%v6")
-                .field("rhs", "%v2"),
+                .physical_field("dst", "%v7")
+                .physical_field("lhs", "%v6")
+                .physical_field("rhs", "%v2"),
             CodeInstruction::new("mvn")
-                .field("dst", "%v8")
-                .field("src", "%v7"),
+                .physical_field("dst", "%v8")
+                .physical_field("src", "%v7"),
             CodeInstruction::new("sdiv")
-                .field("dst", "%v9")
-                .field("lhs", "%v8")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v9")
+                .physical_field("lhs", "%v8")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("udiv")
-                .field("dst", "%v10")
-                .field("lhs", "%v9")
-                .field("rhs", "%v1"),
+                .physical_field("dst", "%v10")
+                .physical_field("lhs", "%v9")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("lslv")
-                .field("dst", "%v11")
-                .field("lhs", "%v10")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v11")
+                .physical_field("lhs", "%v10")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("add_imm")
-                .field("dst", "%v12")
-                .field("src", "%v11")
+                .physical_field("dst", "%v12")
+                .physical_field("src", "%v11")
                 .field("imm", "8"),
             CodeInstruction::new("lsl_imm")
-                .field("dst", "%v13")
-                .field("src", "%v12")
+                .physical_field("dst", "%v13")
+                .physical_field("src", "%v12")
                 .field("shift", "3"),
             // — neutral-renamed "exotic" integer ops (Phase 3) —
             CodeInstruction::new("smulh")
-                .field("dst", "%v14")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1"),
+                .physical_field("dst", "%v14")
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("umulh")
-                .field("dst", "%v15")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1"),
+                .physical_field("dst", "%v15")
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("add_carry")
-                .field("dst", "%v16")
-                .field("carry_out", "%v26")
-                .field("lhs", "%v14")
-                .field("rhs", "%v15")
-                .field("carry_in", "xzr"),
+                .physical_field("dst", "%v16")
+                .physical_field("carry_out", "%v26")
+                .physical_field("lhs", "%v14")
+                .physical_field("rhs", "%v15")
+                .physical_field("carry_in", "xzr"),
             CodeInstruction::new("rorv")
-                .field("dst", "%v17")
-                .field("lhs", "%v16")
-                .field("rhs", "%v0"),
+                .physical_field("dst", "%v17")
+                .physical_field("lhs", "%v16")
+                .physical_field("rhs", "%v0"),
             CodeInstruction::new("rev_x")
-                .field("dst", "%v18")
-                .field("src", "%v17"),
+                .physical_field("dst", "%v18")
+                .physical_field("src", "%v17"),
             CodeInstruction::new("clz")
-                .field("dst", "%v19")
-                .field("src", "%v18"),
+                .physical_field("dst", "%v19")
+                .physical_field("src", "%v18"),
             CodeInstruction::new("msub")
-                .field("dst", "%v20")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1")
-                .field("minuend", "%v2"),
+                .physical_field("dst", "%v20")
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1")
+                .physical_field("minuend", "%v2"),
             // — structural addr_of page pair (Phase 1): fuses to one op —
             CodeInstruction::new("adrp")
-                .field("dst", "%v21")
+                .physical_field("dst", "%v21")
                 .field("symbol", "pool"),
             CodeInstruction::new("add_pageoff")
-                .field("dst", "%v21")
-                .field("src", "%v21")
+                .physical_field("dst", "%v21")
+                .physical_field("src", "%v21")
                 .field("symbol", "pool"),
             // — loads/stores, every width; the u8 store addresses the abstract
             //   arena base (the pinned x19), exercising the plan-00-D rename —
             CodeInstruction::new("ldr_u64")
-                .field("dst", "%v22")
-                .field("base", "%v21")
+                .physical_field("dst", "%v22")
+                .physical_field("base", "%v21")
                 .field("offset", "0"),
             CodeInstruction::new("str_u8")
-                .field("src", "%v22")
-                .field("base", crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER)
+                .physical_field("src", "%v22")
+                .physical_field("base", crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER)
                 .field("offset", "16"),
             CodeInstruction::new("ldr_d")
-                .field("dst", "%f0")
-                .field("base", "%v21")
+                .physical_field("dst", "%f0")
+                .physical_field("base", "%v21")
                 .field("offset", "24"),
             // — scalar float arith + renamed conversions / bit-reinterprets (Phase 4) —
             CodeInstruction::new("fadd_d")
-                .field("dst", "%f1")
-                .field("lhs", "%f0")
-                .field("rhs", "%f0"),
+                .physical_field("dst", "%f1")
+                .physical_field("lhs", "%f0")
+                .physical_field("rhs", "%f0"),
             CodeInstruction::new("fmadd_d")
-                .field("dst", "%f2")
-                .field("lhs", "%f1")
-                .field("rhs", "%f0")
+                .physical_field("dst", "%f2")
+                .physical_field("lhs", "%f1")
+                .physical_field("rhs", "%f0")
                 .field("acc", "%f1"),
             CodeInstruction::new("scvtf_d_from_x")
-                .field("dst", "%f3")
-                .field("src", "%v0"),
+                .physical_field("dst", "%f3")
+                .physical_field("src", "%v0"),
             CodeInstruction::new("fcvtzs_x_from_d")
-                .field("dst", "%v23")
-                .field("src", "%f3"),
+                .physical_field("dst", "%v23")
+                .physical_field("src", "%f3"),
             CodeInstruction::new("fcvtms_x_from_d")
-                .field("dst", "%v24")
-                .field("src", "%f3"),
+                .physical_field("dst", "%v24")
+                .physical_field("src", "%f3"),
             CodeInstruction::new("fmov_d_from_x")
-                .field("dst", "%f4")
-                .field("src", "%v0"),
+                .physical_field("dst", "%f4")
+                .physical_field("src", "%v0"),
             CodeInstruction::new("fmov_x_from_d")
-                .field("dst", "%v25")
-                .field("src", "%f4"),
+                .physical_field("dst", "%v25")
+                .physical_field("src", "%f4"),
             // — NEON `v128` op (plan-00-E): the `fmla_v` MAC neutralizes to
             //   `v128.fma`; no `*_v` NEON mnemonic survives —
             CodeInstruction::new("fmla_v")
-                .field("dst", "%f5")
-                .field("lhs", "%f3")
-                .field("rhs", "%f4"),
+                .physical_field("dst", "%f5")
+                .physical_field("lhs", "%f3")
+                .physical_field("rhs", "%f4"),
             // — machine-y call/syscall vocabulary (plan-00-F): the helpers'
             //   `bl`/`blr`/`svc` neutralize to `call`/`call_indirect`/`syscall` —
             CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
-            CodeInstruction::new("blr").field("register", "x16"),
+            CodeInstruction::new("blr").physical_field("register", "x16"),
             CodeInstruction::new("svc"),
             // — fused flagless control flow (Phases B/C neighbours) —
             CodeInstruction::new("cmp")
-                .field("lhs", "%v0")
-                .field("rhs", "%v1"),
+                .physical_field("lhs", "%v0")
+                .physical_field("rhs", "%v1"),
             CodeInstruction::new("b.lt").field("target", "Lbody"),
         ];
         assert_round_trips(&fixtures);
@@ -1750,12 +1750,12 @@ mod tests {
         let original = [
             // load the free-list head from the arena, store it back via a vreg.
             CodeInstruction::new("ldr_u64")
-                .field("dst", "%v0")
-                .field("base", realization)
+                .physical_field("dst", "%v0")
+                .physical_field("base", realization)
                 .field("offset", "48"),
             CodeInstruction::new("str_u64")
-                .field("src", "%v0")
-                .field("base", realization)
+                .physical_field("src", "%v0")
+                .physical_field("base", realization)
                 .field("offset", "48"),
         ];
         let mir = lower_to_mir(&original);

@@ -10,6 +10,7 @@ use crate::codegen::debug::arena::{
     COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, DEBUG_ARENA_SAMPLE_SYMBOL,
 };
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -51,14 +52,19 @@ fn emit_perf_arena_call(
 /// `k`/`shift`/`sub` are scratch vregs the caller owns; `prefix` makes the two
 /// labels unique within the calling helper.
 fn emit_large_bin_slot(
-    slot: &str,
-    size: &str,
-    k: &str,
-    shift: &str,
-    sub: &str,
+    slot: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
+    k: impl Into<abi::Reg>,
+    shift: impl Into<abi::Reg>,
+    sub: impl Into<abi::Reg>,
     prefix: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let slot: abi::Reg = slot.into();
+    let size: abi::Reg = size.into();
+    let k: abi::Reg = k.into();
+    let shift: abi::Reg = shift.into();
+    let sub: abi::Reg = sub.into();
     let top = format!("{prefix}_top");
     let ready = format!("{prefix}_ready");
     let sub_bits = ARENA_LARGE_BIN_SUBCLASS_BITS;
@@ -95,16 +101,23 @@ fn emit_large_bin_slot(
 /// scratch vregs the caller owns; `prefix` makes the labels unique in the helper.
 #[allow(clippy::too_many_arguments)]
 fn emit_park_chunk(
-    ptr: &str,
-    size: &str,
-    slot: &str,
-    head: &str,
-    k: &str,
-    shift: &str,
-    sub: &str,
+    ptr: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
+    slot: impl Into<abi::Reg>,
+    head: impl Into<abi::Reg>,
+    k: impl Into<abi::Reg>,
+    shift: impl Into<abi::Reg>,
+    sub: impl Into<abi::Reg>,
     prefix: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let ptr: abi::Reg = ptr.into();
+    let size: abi::Reg = size.into();
+    let slot: abi::Reg = slot.into();
+    let head: abi::Reg = head.into();
+    let k: abi::Reg = k.into();
+    let shift: abi::Reg = shift.into();
+    let sub: abi::Reg = sub.into();
     let large = format!("{prefix}_large");
     let done = format!("{prefix}_done");
     instructions.extend([
@@ -141,13 +154,14 @@ fn emit_park_chunk(
 /// is `counter` — bump it and raise `live_bytes`/`peak_live_bytes`. No-op without a
 /// registry slot (a normal build, or an unregistered arena).
 fn emit_debug_alloc_hit(
-    slot: &Option<String>,
+    slot: &Option<VirtualRegister>,
     counter: usize,
-    size: &str,
+    size: impl Into<abi::Reg>,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let size: abi::Reg = size.into();
     if let Some(slot) = slot {
         emit_debug_arena_bump(ARENA_ALLOC_SYMBOL, slot, counter, tag, instructions, vregs);
         emit_debug_arena_live_add(
@@ -271,7 +285,7 @@ pub(crate) fn lower_arena_alloc(
             &mut relocations,
         );
     }
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     instructions.extend([
         // Reject a raw request within ARENA_MIN_CHUNK of u64::MAX before the
         // +15 granule round-up (allocator-02, audit-1 MEM-07): without this
@@ -893,7 +907,7 @@ pub(crate) fn lower_arena_alloc(
     // mmap `map_size` bytes; the result is left in the return register. `map_size`
     // is live across the syscall (read again below for the block header), so the
     // allocator keeps it in a callee-saved register or spills it.
-    platform.emit_arena_map(&map_size, &mut instructions)?;
+    platform.emit_arena_map(map_size.into(), &mut instructions)?;
     let prev_block = vregs.next();
     let usable = vregs.next();
     let ubase = vregs.next();
@@ -1649,7 +1663,7 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
     // plan-130-C: find this arena's registry slot once, then count the call and its
     // normalized size. In a `--debug` build the double-free exits go through a
     // counting stub emitted after the return.
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     if debug_arena {
         let slot = vregs.next();
         emit_debug_arena_slot(
@@ -1873,7 +1887,7 @@ pub(crate) fn lower_arena_destroy(
     let mut relocations = Vec::new();
     // plan-130-C: find this arena's registry slot once; each block it unmaps counts,
     // read before the unmap's argument registers are loaded.
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     if debug_arena {
         let slot = vregs.next();
         emit_debug_arena_slot(

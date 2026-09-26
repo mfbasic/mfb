@@ -314,8 +314,8 @@ mod tests {
     fn and_with_a_mask_bounds_the_result() {
         let masked = transfer(
             &CodeInstruction::new("and")
-                .field("lhs", "%v1")
-                .field("rhs", "%v2"),
+                .physical_field("lhs", "%v1")
+                .physical_field("rhs", "%v2"),
             |field| match field {
                 "rhs" => Known::exact(0xff),
                 _ => Known::UNKNOWN,

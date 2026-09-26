@@ -125,8 +125,8 @@ impl RegisterModel for X86_64RegisterModel {
             RegClass::Fp => "str_q",
         };
         CodeInstruction::new(mnemonic)
-            .field("src", reg)
-            .field("base", "rsp")
+            .physical_field("src", reg)
+            .physical_field("base", "rsp")
             .field("offset", &offset.to_string())
     }
 
@@ -136,15 +136,15 @@ impl RegisterModel for X86_64RegisterModel {
             RegClass::Fp => "ldr_q",
         };
         CodeInstruction::new(mnemonic)
-            .field("dst", reg)
-            .field("base", "rsp")
+            .physical_field("dst", reg)
+            .physical_field("base", "rsp")
             .field("offset", &offset.to_string())
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
         CodeInstruction::new("mov")
-            .field("dst", dst)
-            .field("src", src)
+            .physical_field("dst", dst)
+            .physical_field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {
@@ -174,7 +174,7 @@ impl RegisterModel for X86_64RegisterModel {
         "rbx"
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         // No spare physical to pin (all 16 GPRs are ABI-role, reserved, or in the
         // 4-register allocatable pool) and `x2` is an ABI register remap rewrites
         // per control-flow context — so the base is an allocator-placed vreg.
@@ -270,7 +270,7 @@ impl RegisterModel for Win64RegisterModel {
         X86_64RegisterModel.current_thread()
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         X86_64RegisterModel.math_pool_base()
     }
 

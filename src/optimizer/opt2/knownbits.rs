@@ -164,9 +164,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
     }
     for (i, rewrite) in planned {
         instructions[i] = match rewrite {
-            Rewrite::Constant(dst, value) => {
-                abi::move_immediate(&dst, "Integer", &value.to_string())
-            }
+            Rewrite::Constant(_, value) => super::constant_into_dst(&instructions[i], value),
             Rewrite::Copy(dst, source) => copy_of(dst, source),
         };
     }
@@ -192,7 +190,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

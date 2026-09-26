@@ -25,7 +25,7 @@ fn fresh_encoder() -> Encoder {
 fn bytes(op: &str, fields: &[(&'static str, &str)]) -> Vec<u8> {
     let mut ins = CodeInstruction::new(op);
     for (k, v) in fields {
-        ins = ins.field(k, v);
+        ins = ins.physical_field(k, v);
     }
     let encoded = encode_instruction(&ins).expect("encode");
     let size = instruction_size(&ins).expect("size");
@@ -680,8 +680,8 @@ fn cmp_zero_token_lhs_rejected() {
     // and letting sentinel 16 reach `alu_rr`'s rm would silently encode r8. No
     // producer emits it — reject loudly rather than miscompile.
     let ins = CodeInstruction::new("cmp")
-        .field("lhs", "xzr")
-        .field("rhs", "rax");
+        .physical_field("lhs", "xzr")
+        .physical_field("rhs", "rax");
     let err = enc_err(&ins);
     assert!(err.contains("zero-token lhs"), "got: {err}");
 }
@@ -691,8 +691,8 @@ fn cmp_imm_zero_token_lhs_rejected() {
     // bug-397: a zero-token `lhs` on cmp_imm would encode via enc_alu_imm32's
     // rm=16 as r8. `cmp 0, imm` is degenerate and unproduced — reject loudly.
     let ins = CodeInstruction::new("cmp_imm")
-        .field("lhs", "xzr")
-        .field("rhs", "5");
+        .physical_field("lhs", "xzr")
+        .physical_field("rhs", "5");
     let err = enc_err(&ins);
     assert!(err.contains("zero-token lhs"), "got: {err}");
 }
@@ -717,11 +717,11 @@ fn add_carry_zero_token_lhs_commutes() {
     );
     // Both operands zero → result is carry_in only; unproduced, reject loudly.
     let ins = CodeInstruction::new("add_carry")
-        .field("dst", "rbx")
-        .field("carry_out", "xzr")
-        .field("lhs", "xzr")
-        .field("rhs", "xzr")
-        .field("carry_in", "xzr");
+        .physical_field("dst", "rbx")
+        .physical_field("carry_out", "xzr")
+        .physical_field("lhs", "xzr")
+        .physical_field("rhs", "xzr")
+        .physical_field("carry_in", "xzr");
     let err = enc_err(&ins);
     assert!(err.contains("both operands the zero token"), "got: {err}");
 }
@@ -732,11 +732,11 @@ fn sub_borrow_zero_token_lhs_rejected() {
     // no scratch-free form preserving the borrow flag; sentinel 16 would reach
     // enc_mov as r8. Unproduced — reject loudly.
     let ins = CodeInstruction::new("sub_borrow")
-        .field("dst", "rbx")
-        .field("borrow_out", "xzr")
-        .field("lhs", "xzr")
-        .field("rhs", "rdi")
-        .field("borrow_in", "xzr");
+        .physical_field("dst", "rbx")
+        .physical_field("borrow_out", "xzr")
+        .physical_field("lhs", "xzr")
+        .physical_field("rhs", "rdi")
+        .physical_field("borrow_in", "xzr");
     let err = enc_err(&ins);
     assert!(err.contains("zero-token lhs"), "got: {err}");
 }
@@ -754,7 +754,7 @@ fn enc_err(ins: &CodeInstruction) -> String {
 fn just_bytes(op: &str, fields: &[(&'static str, &str)]) -> Vec<u8> {
     let mut ins = CodeInstruction::new(op);
     for (k, v) in fields {
-        ins = ins.field(k, v);
+        ins = ins.physical_field(k, v);
     }
     let encoded = encode_instruction(&ins).expect("encode");
     let size = instruction_size(&ins).expect("size");
@@ -866,9 +866,9 @@ fn alu_zero_lhs_forms() {
 #[test]
 fn alu_zero_rhs_rejected() {
     let ins = CodeInstruction::new("add")
-        .field("dst", "rax")
-        .field("lhs", "rbx")
-        .field("rhs", "xzr");
+        .physical_field("dst", "rax")
+        .physical_field("lhs", "rbx")
+        .physical_field("rhs", "xzr");
     let err = enc_err(&ins);
     assert!(err.contains("zero-token rhs"), "got: {err}");
 }
@@ -1246,13 +1246,13 @@ fn float_scalar_mem() {
 #[test]
 fn float_mem_bad_offset_errors() {
     let ins = CodeInstruction::new("ldr_d")
-        .field("dst", "xmm0")
-        .field("base", "rbx")
+        .physical_field("dst", "xmm0")
+        .physical_field("base", "rbx")
         .field("offset", "nope");
     assert!(enc_err(&ins).contains("ldr_d"));
     let ins = CodeInstruction::new("str_d")
-        .field("src", "xmm0")
-        .field("base", "rbx")
+        .physical_field("src", "xmm0")
+        .physical_field("base", "rbx")
         .field("offset", "nope");
     assert!(enc_err(&ins).contains("str_d"));
 }
@@ -1280,13 +1280,13 @@ fn v128_load_store_and_bad_offset() {
         [0x45, 0x0F, 0x10, 0x81, 0x00, 0x00, 0x00, 0x00]
     );
     let ins = CodeInstruction::new("ldr_q")
-        .field("dst", "xmm0")
-        .field("base", "rbx")
+        .physical_field("dst", "xmm0")
+        .physical_field("base", "rbx")
         .field("offset", "x");
     assert!(enc_err(&ins).contains("ldr_q"));
     let ins = CodeInstruction::new("str_q")
-        .field("src", "xmm0")
-        .field("base", "rbx")
+        .physical_field("src", "xmm0")
+        .physical_field("base", "rbx")
         .field("offset", "x");
     assert!(enc_err(&ins).contains("str_q"));
 }
@@ -1645,8 +1645,8 @@ fn v128_shifts_dup_extract() {
     );
     // Bad shift errors.
     let ins = CodeInstruction::new("shl_v")
-        .field("dst", "xmm0")
-        .field("src", "xmm0")
+        .physical_field("dst", "xmm0")
+        .physical_field("src", "xmm0")
         .field("shift", "z");
     assert!(encode_instruction(&ins).is_err());
     // dup_v_from_x xmm0, rax : movq xmm0,rax ; punpcklqdq xmm0,xmm0 (broadcast).
@@ -1671,8 +1671,8 @@ fn v128_shifts_dup_extract() {
         [0x66, 0x48, 0x0F, 0x3A, 0x16, 0xC0, 0x01]
     );
     let ins = CodeInstruction::new("umov_x_from_v")
-        .field("dst", "rax")
-        .field("src", "xmm0")
+        .physical_field("dst", "rax")
+        .physical_field("src", "xmm0")
         .field("index", "z");
     assert!(encode_instruction(&ins).is_err());
 }
@@ -1782,8 +1782,8 @@ fn v128_bit_select_fma_convert() {
         ]
     );
     let ins = CodeInstruction::new("sshr_v")
-        .field("dst", "xmm0")
-        .field("src", "xmm1")
+        .physical_field("dst", "xmm0")
+        .physical_field("src", "xmm1")
         .field("shift", "z");
     assert!(encode_instruction(&ins).is_err());
 
@@ -1822,8 +1822,8 @@ fn v128_bit_select_fma_convert() {
     // Past 64 the immediate is malformed and must be rejected, not truncated.
     for op in ["sshr_v", "ushr_v", "shl_v"] {
         let ins = CodeInstruction::new(op)
-            .field("dst", "xmm0")
-            .field("src", "xmm1")
+            .physical_field("dst", "xmm0")
+            .physical_field("src", "xmm1")
             .field("shift", "65");
         assert!(
             encode_instruction(&ins).is_err(),
@@ -1978,13 +1978,13 @@ fn immediate_true_false_and_shift_range() {
     );
     // A shift of 64 is out of range.
     let ins = CodeInstruction::new("lsl_imm")
-        .field("dst", "rax")
-        .field("src", "rax")
+        .physical_field("dst", "rax")
+        .physical_field("src", "rax")
         .field("shift", "64");
     assert!(encode_instruction(&ins).is_err());
     // An invalid immediate is rejected.
     let ins = CodeInstruction::new("mov_imm")
-        .field("dst", "rax")
+        .physical_field("dst", "rax")
         .field("type", "Integer")
         .field("value", "notanumber");
     assert!(encode_instruction(&ins).is_err());
@@ -2002,14 +2002,14 @@ fn imm32_overflow_and_disp32_overflow() {
     // A truly out-of-range immediate errors.
     let huge = (u64::MAX / 2).to_string();
     let ins = CodeInstruction::new("add_imm")
-        .field("dst", "rax")
-        .field("src", "rax")
+        .physical_field("dst", "rax")
+        .physical_field("src", "rax")
         .field("imm", &huge);
     assert!(enc_err(&ins).contains("imm32"));
     // A memory offset exceeding disp32 errors.
     let ins = CodeInstruction::new("ldr_u64")
-        .field("dst", "rax")
-        .field("base", "rbx")
+        .physical_field("dst", "rax")
+        .physical_field("base", "rbx")
         .field("offset", &(u64::from(u32::MAX) + 1).to_string());
     assert!(enc_err(&ins).contains("disp32"));
 }
@@ -2020,13 +2020,13 @@ fn blr_and_unknown_register() {
     assert_eq!(bytes("blr", &[("register", "rcx")]), [0xFF, 0xD1]);
     // An unknown register name errors.
     let ins = CodeInstruction::new("mov")
-        .field("dst", "notareg")
-        .field("src", "rax");
+        .physical_field("dst", "notareg")
+        .physical_field("src", "rax");
     assert!(enc_err(&ins).contains("unknown"));
     // An unknown xmm name errors.
     let ins = CodeInstruction::new("fmov_d_from_d")
-        .field("dst", "xmm99")
-        .field("src", "xmm0");
+        .physical_field("dst", "xmm99")
+        .physical_field("src", "xmm0");
     assert!(enc_err(&ins).contains("xmm"));
 }
 
@@ -2097,8 +2097,8 @@ fn encode_produces_an_image_with_symbols_and_data() {
         vec![
             crate::arch::aarch64::abi::label("entry"),
             CodeInstruction::new("mov")
-                .field("dst", "rax")
-                .field("src", "rbx"),
+                .physical_field("dst", "rax")
+                .physical_field("src", "rbx"),
             CodeInstruction::new("b").field("target", "entry"),
             CodeInstruction::new("ret"),
         ],
@@ -2246,7 +2246,7 @@ fn encoder_data_and_got_relocations() {
     let mut enc = fresh_encoder();
     enc.emit_instruction(
         &CodeInstruction::new("adrp")
-            .field("dst", "rax")
+            .physical_field("dst", "rax")
             .field("symbol", "g"),
     )
     .unwrap();
@@ -2257,7 +2257,7 @@ fn encoder_data_and_got_relocations() {
     enc.imports.insert("g".to_string(), "libc".to_string());
     enc.emit_instruction(
         &CodeInstruction::new("adrp")
-            .field("dst", "rax")
+            .physical_field("dst", "rax")
             .field("symbol", "g"),
     )
     .unwrap();
@@ -2294,7 +2294,7 @@ fn operand_decoding_edge_cases() {
     assert!(shift("64".to_string()).is_err());
     assert!(shift("x".to_string()).is_err());
     // A missing field reports the op name.
-    let ins = CodeInstruction::new("mov").field("dst", "rax");
+    let ins = CodeInstruction::new("mov").physical_field("dst", "rax");
     assert!(enc_err(&ins).contains("missing field"));
 }
 
@@ -2305,9 +2305,9 @@ fn unsupported_op_errors() {
     // exercises the emitter's unsupported-op fallthrough rather than an unknown
     // mnemonic.
     let ins = CodeInstruction::new("sshl_v")
-        .field("dst", "v0")
-        .field("lhs", "v1")
-        .field("rhs", "v2");
+        .physical_field("dst", "v0")
+        .physical_field("lhs", "v1")
+        .physical_field("rhs", "v2");
     let err = match encode_instruction(&ins) {
         Ok(_) => panic!("expected sshl_v to be unsupported"),
         Err(err) => err,
@@ -2321,7 +2321,7 @@ fn unsupported_op_errors() {
 fn enc(op: &str, fields: &[(&'static str, &str)]) -> Vec<u8> {
     let mut ins = CodeInstruction::new(op);
     for (k, v) in fields {
-        ins = ins.field(k, v);
+        ins = ins.physical_field(k, v);
     }
     encode_instruction(&ins).expect("encode").into_bytes()
 }
@@ -3191,9 +3191,9 @@ fn alu3_and_zero_and_error_arms() {
     let _ = enc("add", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rax")]);
     // zero-token rhs is an explicit error.
     let ins = CodeInstruction::new("add")
-        .field("dst", "rax")
-        .field("lhs", "rbx")
-        .field("rhs", "xzr");
+        .physical_field("dst", "rax")
+        .physical_field("lhs", "rbx")
+        .physical_field("rhs", "xzr");
     assert!(encode_instruction(&ins).is_err());
 }
 
@@ -3239,15 +3239,15 @@ fn immediate_and_disp_overflow_errors() {
     // A disp beyond i32 range is rejected.
     let big = (i32::MAX as u64) + 1;
     let ins = CodeInstruction::new("ldr_u64")
-        .field("dst", "rax")
-        .field("base", "rbx")
+        .physical_field("dst", "rax")
+        .physical_field("base", "rbx")
         .field("offset", &big.to_string());
     assert!(encode_instruction(&ins).is_err());
     // An imm beyond imm32 (and beyond sign-extension) is rejected.
     let huge = 0x1_0000_0000u64; // fits neither i32 nor i32-of-i64 sign form
     let ins = CodeInstruction::new("add_imm")
-        .field("dst", "rax")
-        .field("src", "rax")
+        .physical_field("dst", "rax")
+        .physical_field("src", "rax")
         .field("imm", &huge.to_string());
     assert!(encode_instruction(&ins).is_err());
     // A -1-style mask (u64::MAX) is accepted via the sign-extended path:
@@ -3271,7 +3271,7 @@ fn immediate_and_disp_overflow_errors() {
 fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut ins = CodeInstruction::new(op);
     for (k, v) in fields {
-        ins = ins.field(k, v);
+        ins = ins.physical_field(k, v);
     }
     ins
 }
@@ -3461,7 +3461,7 @@ fn fixed_register_aliasing_is_rejected_rather_than_miscompiled() {
     let err = |op: &str, fields: &[(&'static str, &str)]| -> String {
         let mut ins = CodeInstruction::new(op);
         for (k, v) in fields {
-            ins = ins.field(k, v);
+            ins = ins.physical_field(k, v);
         }
         match encode_instruction(&ins) {
             Ok(_) => panic!("{op} must reject this fixed-register aliasing"),
@@ -3875,11 +3875,11 @@ fn sub_borrow_dst_aliases_rhs_with_register_borrow_in_is_rejected() {
     // dst==rhs with a register borrow-in has no scratch-free 2-op form.
     let mut ins = CodeInstruction::new("sub_borrow");
     ins = ins
-        .field("dst", "rbx")
-        .field("borrow_out", "xzr")
-        .field("lhs", "rax")
-        .field("rhs", "rbx")
-        .field("borrow_in", "r10");
+        .physical_field("dst", "rbx")
+        .physical_field("borrow_out", "xzr")
+        .physical_field("lhs", "rax")
+        .physical_field("rhs", "rbx")
+        .physical_field("borrow_in", "r10");
     assert!(enc_err(&ins).contains("dst aliasing rhs"));
 }
 

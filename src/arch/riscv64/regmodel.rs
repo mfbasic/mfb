@@ -132,8 +132,8 @@ impl RegisterModel for Riscv64RegisterModel {
             RegClass::Fp => "str_d",
         };
         CodeInstruction::new(mnemonic)
-            .field("src", reg)
-            .field("base", "sp")
+            .physical_field("src", reg)
+            .physical_field("base", "sp")
             .field("offset", &offset.to_string())
     }
 
@@ -143,8 +143,8 @@ impl RegisterModel for Riscv64RegisterModel {
             RegClass::Fp => "ldr_d",
         };
         CodeInstruction::new(mnemonic)
-            .field("dst", reg)
-            .field("base", "sp")
+            .physical_field("dst", reg)
+            .physical_field("base", "sp")
             .field("offset", &offset.to_string())
     }
 
@@ -156,8 +156,8 @@ impl RegisterModel for Riscv64RegisterModel {
         // allocator calls this for integer moves; FP moves use the class-specific
         // reload/spill. Use the neutral register move.
         CodeInstruction::new("mov")
-            .field("dst", dst)
-            .field("src", src)
+            .physical_field("dst", dst)
+            .physical_field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {
@@ -178,7 +178,7 @@ impl RegisterModel for Riscv64RegisterModel {
         "s2"
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         // No pinned physical for the SIMD-kernel constant-pool base: let the
         // allocator place it as a virtual register (like x86). The rv64 pool is
         // large, so this is cheap.

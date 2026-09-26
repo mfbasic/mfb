@@ -421,18 +421,17 @@ impl CodeBuilder<'_> {
             // A fresh block: the statement registered it as a temp; this store
             // frees it itself, after the copy.
             self.claim_pending_temp(&lowered);
-            (lowered.location.render(), true)
+            (abi::Reg::from(&lowered.location), true)
         } else if snapshot {
             (
-                self.copy_flat_block(field_type, &lowered.location)?
-                    .render(),
+                abi::Reg::from(self.copy_flat_block(field_type, &lowered.location)?),
                 true,
             )
         } else {
-            (lowered.location.render(), false)
+            (abi::Reg::from(&lowered.location), false)
         };
         let slot = self.allocate_stack_object("record_field_overwrite", 8);
-        self.emit(abi::store_u64(source.as_str(), abi::stack_pointer(), slot));
+        self.emit(abi::store_u64(source, abi::stack_pointer(), slot));
         let size_slot = self.allocate_stack_object("record_field_overwrite_size", 8);
         self.emit_inlined_block_size_from_ptr_slot(field_type, slot, size_slot)?;
         Ok(FieldOverwrite::Block {
@@ -467,26 +466,26 @@ impl CodeBuilder<'_> {
         &mut self,
         owner: FieldContainer<'_>,
         path: &[(usize, bool)],
-    ) -> Result<String, String> {
+    ) -> Result<abi::Reg, String> {
         let block = self.emit_field_owner_block(owner)?;
         let mut base = block;
         for (index, pointer) in path {
             let inner = self.allocate_register();
             if *pointer {
-                self.emit(abi::load_u64(&inner, base.as_str(), 8 * index));
+                self.emit(abi::load_u64(&inner, base, 8 * index));
             } else {
                 let offset = self.allocate_register();
-                self.emit(abi::load_u64(&offset, base.as_str(), 8 * index));
-                self.emit(abi::add_registers(&inner, base.as_str(), &offset));
+                self.emit(abi::load_u64(&offset, base, 8 * index));
+                self.emit(abi::add_registers(&inner, base, &offset));
             }
-            base = inner.render();
+            base = inner.into();
         }
         Ok(base)
     }
 
     /// The owner's block pointer, loaded into a register: a record local's slot,
     /// or the `RES` handle's STATE pointer out of its resource record.
-    fn emit_field_owner_block(&mut self, owner: FieldContainer<'_>) -> Result<String, String> {
+    fn emit_field_owner_block(&mut self, owner: FieldContainer<'_>) -> Result<abi::Reg, String> {
         match owner {
             FieldContainer::Record { local } => {
                 let local = self
@@ -501,9 +500,9 @@ impl CodeBuilder<'_> {
                 if by_ref {
                     let parent_block = self.allocate_register();
                     self.emit(abi::load_u64(&parent_block, &block, 0));
-                    return Ok(parent_block.render());
+                    return Ok(parent_block.into());
                 }
-                Ok(block.render())
+                Ok(block.into())
             }
             FieldContainer::State { resource } => {
                 let local = self.locals.get(resource).ok_or_else(|| {
@@ -516,14 +515,14 @@ impl CodeBuilder<'_> {
                 let record = self.emit_resource_record_ptr(&block, &resource_type)?;
                 let state_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
-                Ok(state_ptr.render())
+                Ok(state_ptr.into())
             }
             // plan-145-G: the global's slot.
             FieldContainer::Global { name } => {
                 let address = self.load_global_address(name)?;
                 let block = self.allocate_register();
-                self.emit(abi::load_u64(&block, address.as_str(), 0));
-                Ok(block.render())
+                self.emit(abi::load_u64(&block, address, 0));
+                Ok(block.into())
             }
         }
     }
@@ -1908,7 +1907,7 @@ impl CodeBuilder<'_> {
                                     let slot = self.allocate_stack_object("store_global_strcap", 8);
                                     let address = self.load_global_address(shadow)?;
                                     let spare = self.allocate_register();
-                                    self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                                    self.emit(abi::load_u64(&spare, address, 0));
                                     self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
                                     Some(slot)
                                 }
@@ -1934,7 +1933,7 @@ impl CodeBuilder<'_> {
                             self.store_value_at(&stored, &address, 0);
                             if let Some(shadow) = &capacity_global {
                                 let address = self.load_global_address(shadow)?;
-                                self.emit(abi::store_u64(abi::ZERO, address.as_str(), 0));
+                                self.emit(abi::store_u64(abi::ZERO, address, 0));
                             }
                         } else {
                             let address = self.load_global_address(name)?;
@@ -1967,13 +1966,13 @@ impl CodeBuilder<'_> {
                         // register, not its slot (plan-03 Stage D part 2).
                         if let Some(d) = self.promoted_float_locals.get(name).cloned() {
                             let result = self.lower_value(value)?;
-                            self.update_promoted_float(&d, &result);
+                            self.update_promoted_float(d, &result);
                             // Observation boundary: the promoted accumulator's
                             // `d`-register holds the named local's value after
                             // the update, so check it there — the FP-domain
                             // variant keeps the store-to-slot peephole-foldable
                             // (plan-16/plan-17).
-                            self.observe_promoted_float(value, &d)?;
+                            self.observe_promoted_float(value, d)?;
                             return Ok(());
                         }
                         let (stack_offset, by_ref, local_type) = {
@@ -2226,7 +2225,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 ));
-                                self.store_value_at(&store_value, &slot_pointer.render(), 0);
+                                self.store_value_at(&store_value, &slot_pointer, 0);
                             } else {
                                 self.store_value_at(
                                     &store_value,
@@ -3336,7 +3335,7 @@ impl CodeBuilder<'_> {
             if let Some(local) = self.locals.get_mut(&name) {
                 local.constant = None;
             }
-            self.promoted_float_locals.insert(name.clone(), d.render());
+            self.promoted_float_locals.insert(name.clone(), d.into());
             promoted.push(name);
         }
         Ok(promoted)
@@ -3365,7 +3364,8 @@ impl CodeBuilder<'_> {
     /// Update a promoted float local's resident register from an assignment
     /// result (an FP-resident result is a `d`-to-`d` move; a GPR result is moved
     /// in via `fmov d, x`).
-    pub(crate) fn update_promoted_float(&mut self, d: &str, result: &ValueResult) {
+    pub(crate) fn update_promoted_float(&mut self, d: impl Into<abi::Reg>, result: &ValueResult) {
+        let d: abi::Reg = d.into();
         // A `d`-native result already lives in an FP register: move it `d`-to-`d`
         // (plan-01 float-dnative). Otherwise reuse a recorded FP resident, or
         // shuttle the GPR bits in (`fmov d, x`).

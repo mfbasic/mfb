@@ -43,7 +43,7 @@ fn words(bytes: &[u8]) -> Vec<u32> {
 fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut inst = CodeInstruction::new(op);
     for (k, v) in fields {
-        inst = inst.field(k, v);
+        inst = inst.physical_field(k, v);
     }
     inst
 }

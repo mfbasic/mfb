@@ -67,9 +67,7 @@ pub(super) fn numberable_op(op: CodeOp) -> bool {
 
 /// Build a `mov dst, src` from the two operands.
 pub(super) fn copy_of(dst: Operand, src: Operand) -> CodeInstruction {
-    CodeInstruction::new("mov")
-        .field("dst", dst)
-        .field("src", src)
+    super::rebuilt("mov", vec![("dst", dst), ("src", src)])
 }
 
 /// Run the LVN row over one function's selected stream, in place.
@@ -243,7 +241,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

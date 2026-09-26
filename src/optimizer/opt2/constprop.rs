@@ -142,12 +142,12 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
             })
         };
         match step {
-            Step::Replace(dst, value) => {
-                instructions[i] = abi::move_immediate(&dst, "Integer", &value.to_string());
+            Step::Replace(_, value) => {
+                instructions[i] = super::constant_into_dst(&instructions[i], value);
                 fired += 1;
             }
-            Step::Record(dst, value) if instructions[i].op == CodeOp::Mov => {
-                instructions[i] = abi::move_immediate(&dst, "Integer", &value.to_string());
+            Step::Record(_, value) if instructions[i].op == CodeOp::Mov => {
+                instructions[i] = super::constant_into_dst(&instructions[i], value);
                 fired += 1;
             }
             _ => {}
@@ -165,7 +165,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

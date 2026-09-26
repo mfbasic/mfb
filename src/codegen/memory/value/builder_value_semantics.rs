@@ -21,13 +21,13 @@ impl CodeBuilder<'_> {
         &mut self,
         value_ptr: impl Into<abi::Reg>,
         type_: &ParameterType,
-    ) -> Result<String, String> {
+    ) -> Result<abi::Reg, String> {
         if self.is_resource_union_type(type_) {
             let record = self.allocate_register();
             self.emit(abi::load_u64(&record, value_ptr, 8));
-            Ok(record.render())
+            Ok(record.into())
         } else {
-            Ok(value_ptr.into().render())
+            Ok(value_ptr.into())
         }
     }
 
@@ -1035,7 +1035,7 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code global '{name}' does not resolve"))
     }
 
-    pub(crate) fn load_global_address(&mut self, name: &str) -> Result<String, String> {
+    pub(crate) fn load_global_address(&mut self, name: &str) -> Result<VirtualRegister, String> {
         let global = self.global_value(name)?;
         let register = self.allocate_register();
         self.emit(abi::add_immediate(
@@ -1043,7 +1043,7 @@ impl CodeBuilder<'_> {
             ARENA_STATE_REGISTER,
             global.offset,
         ));
-        Ok(register.render())
+        Ok(register)
     }
 
     pub(crate) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {

@@ -145,13 +145,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// of round-tripping back through a GPR (plan-03 Stage C). Sound because both
     /// names hold the same value and neither vreg is ever redefined; the allocator
     /// keeps the FP vreg live (or spills/reloads it) wherever it is used.
-    pub(crate) float_residents: HashMap<String, String>,
+    pub(crate) float_residents: HashMap<String, abi::Reg>,
     /// Float locals currently promoted to an FP virtual register for the duration
     /// of an enclosing loop (plan-03 Stage D part 2): name -> the `%fN` holding
     /// the live value. While promoted, reads of the local come from this register
     /// and writes update it, instead of round-tripping its stack slot every
     /// iteration; it is loaded once before the loop and stored back once after.
-    pub(crate) promoted_float_locals: HashMap<String, String>,
+    pub(crate) promoted_float_locals: HashMap<String, abi::Reg>,
     /// Locals whose address is taken anywhere in the function (a `LocalRef`).
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
@@ -489,7 +489,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// the `broadcast_*` coefficient loads share one allocator-placed base within
     /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
     /// backends that pin a physical base.
-    pub(crate) math_pool_base_vreg: Option<(String, String)>,
+    pub(crate) math_pool_base_vreg: Option<(String, crate::codegen::engine::operand::VirtualRegister)>,
     /// plan-01-vector: in-flight register-native small-vector values. A
     /// `Float2/3/4` produced by a construction or an inlined op that has not yet
     /// crossed a storage/escape boundary lives here as its N per-lane scalar

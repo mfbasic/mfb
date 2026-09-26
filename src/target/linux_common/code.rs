@@ -114,7 +114,7 @@ pub(crate) trait LinuxArch {
     /// for the asm-generic (aarch64/riscv64) sequence.
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
 
@@ -206,7 +206,7 @@ pub(crate) trait LinuxArch {
 /// backends (Linux's asm-generic syscall table numbers `mmap` 222 and `munmap`
 /// 215 on every ISA that adopted it; x86-64 predates it and uses 9 / 11).
 pub(crate) fn emit_asm_generic_arena_map(
-    size_reg: &str,
+    size_reg: abi::Reg,
     instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> {
     instructions.extend([
@@ -396,12 +396,12 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: abi::Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
-        scratch: [&str; 2],
+        scratch: [abi::Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         let [word, mask] = scratch;
@@ -812,9 +812,9 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: abi::Reg,
+        mask: abi::Reg,
+        expected: abi::Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -1270,10 +1270,10 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: abi::Reg,
+        namelen: abi::Reg,
+        byte: abi::Reg,
+        scratch: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // Linux `struct dirent`: `d_name` at offset 19, NUL-terminated with no
@@ -1319,7 +1319,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         self.arch.emit_arena_map(size_reg, instructions)
@@ -1400,7 +1400,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         &self,
         fd_offset: usize,
         flags_offset: usize,
-        scratch: &str,
+        scratch: abi::Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

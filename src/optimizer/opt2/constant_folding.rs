@@ -50,7 +50,7 @@ pub(crate) fn fold_constants(instructions: &mut [CodeInstruction]) {
                 known.insert(dst, value);
             }
             Step::Replace(dst, value) => {
-                *instruction = abi::move_immediate(&dst, "Integer", &value.to_string());
+                *instruction = super::constant_into_dst(instruction, value);
                 known.insert(dst, value);
                 folded += 1;
             }
@@ -168,7 +168,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

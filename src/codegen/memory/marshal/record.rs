@@ -57,7 +57,7 @@ pub(crate) struct RecordBuildScratch {
 /// overwritten — and a free of that pointer at `done` would release garbage.
 /// [`MarshalRegs::fresh`] makes that collision impossible by construction.
 pub(crate) struct MarshalRegs {
-    regs: [String; 6],
+    regs: [VirtualRegister; 6],
 }
 
 impl MarshalRegs {
@@ -68,8 +68,8 @@ impl MarshalRegs {
         }
     }
 
-    pub(crate) fn r(&self, index: usize) -> &str {
-        &self.regs[index]
+    pub(crate) fn r(&self, index: usize) -> VirtualRegister {
+        self.regs[index]
     }
 }
 
@@ -390,11 +390,14 @@ fn emit_inlined_block_size(
 /// `CodeBuilder::emit_flat_block_size`.
 fn emit_collection_flat_size(
     collection_type: &ParameterType,
-    ptr_reg: &str,
-    out_reg: &str,
-    scratch_reg: &str,
+    ptr_reg: impl Into<abi::Reg>,
+    out_reg: impl Into<abi::Reg>,
+    scratch_reg: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let ptr_reg: abi::Reg = ptr_reg.into();
+    let out_reg: abi::Reg = out_reg.into();
+    let scratch_reg: abi::Reg = scratch_reg.into();
     let element = typed_list_element_type(collection_type)
         .cloned()
         .unwrap_or_else(|| ParameterType::named(""));
@@ -421,13 +424,16 @@ fn emit_collection_flat_size(
 /// writes `regs.r(0)`, `regs.r(1)` and `regs.r(5)`. `tag` disambiguates the loop
 /// labels.
 pub(crate) fn emit_byte_copy(
-    dst_reg: &str,
-    src_reg: &str,
-    len_reg: &str,
+    dst_reg: impl Into<abi::Reg>,
+    src_reg: impl Into<abi::Reg>,
+    len_reg: impl Into<abi::Reg>,
     tag: &str,
     regs: &MarshalRegs,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let dst_reg: abi::Reg = dst_reg.into();
+    let src_reg: abi::Reg = src_reg.into();
+    let len_reg: abi::Reg = len_reg.into();
     let loop_l = format!("{tag}_rcp");
     let done_l = format!("{tag}_rcpd");
     let (index, byte, address) = (regs.r(0), regs.r(1), regs.r(5));
@@ -453,7 +459,9 @@ mod tests {
     impl MarshalRegs {
         pub(crate) fn fixed() -> Self {
             Self {
-                regs: ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"].map(str::to_string),
+                regs: [9, 10, 11, 12, 13, 14].map(|id| {
+                    VirtualRegister::new_for_test(crate::target::shared::regmodel::RegClass::Int, id)
+                }),
             }
         }
     }
@@ -559,7 +567,7 @@ mod tests {
     #[test]
     fn the_fixed_regs_are_the_legacy_names() {
         let regs = MarshalRegs::fixed();
-        let names: Vec<&str> = (0..6).map(|i| regs.r(i)).collect();
+        let names: Vec<String> = (0..6).map(|i| regs.r(i).to_string()).collect();
         assert_eq!(names, ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"]);
     }
 
@@ -568,7 +576,7 @@ mod tests {
     #[test]
     fn fresh_regs_never_write_a_vreg_the_caller_already_holds() {
         let mut vregs = Vregs::new();
-        let held: Vec<String> = (0..16).map(|_| vregs.next()).collect();
+        let held: Vec<String> = (0..16).map(|_| vregs.next().to_string()).collect();
         let regs = MarshalRegs::fresh(&mut vregs);
         let (result, instructions) = build(&[None, Some(SIZE_SLOT), None], &regs);
         result.expect("builds");

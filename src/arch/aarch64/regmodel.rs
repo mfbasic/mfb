@@ -92,7 +92,7 @@ impl RegisterModel for Aarch64RegisterModel {
         }
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         // The SIMD math kernels pin their constant-pool base for the kernel's
         // lifetime: `%mathpool`, realized `x2` — caller-saved scratch below the
         // allocatable file (`x8`+), so the allocator never assigns it and it
@@ -145,25 +145,27 @@ impl RegisterModel for Aarch64RegisterModel {
 
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::store_u64(reg, abi::stack_pointer(), offset),
+            RegClass::Int => abi::store_u64(abi::Reg::physical(reg), abi::stack_pointer(), offset),
             // 128-bit store — a 64-bit `str d` would drop a spilled vector's high
             // lane, corrupting the vector::/math-array kernels. `str q` needs a
             // 16-aligned offset: the slot stride is 16, the spill base is
             // 16-aligned by the callers, and `finalize_frame` shifts by a
             // 16-aligned save area.
-            RegClass::Fp => abi::vector_store(reg, abi::stack_pointer(), offset),
+            RegClass::Fp => {
+                abi::vector_store(abi::Reg::physical(reg), abi::stack_pointer(), offset)
+            }
         }
     }
 
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::load_u64(reg, abi::stack_pointer(), offset),
-            RegClass::Fp => abi::vector_load(reg, abi::stack_pointer(), offset),
+            RegClass::Int => abi::load_u64(abi::Reg::physical(reg), abi::stack_pointer(), offset),
+            RegClass::Fp => abi::vector_load(abi::Reg::physical(reg), abi::stack_pointer(), offset),
         }
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
-        abi::move_register(dst, src)
+        abi::move_register(abi::Reg::physical(dst), abi::Reg::physical(src))
     }
 
     fn arena_base(&self) -> &'static str {

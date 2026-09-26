@@ -78,17 +78,17 @@ pub(crate) fn emit_arena_free(
 #[must_use = "bug-574: a declared scratch block must reach \
               `emit_helper_scratch_release`, or the helper leaks it"]
 pub(crate) struct HelperScratch {
-    pub(crate) pointer: String,
-    pub(crate) size: String,
+    pub(crate) pointer: abi::Reg,
+    pub(crate) size: abi::Reg,
 }
 
 impl HelperScratch {
     /// Name an EXISTING pointer/size vreg pair as a scratch block. The caller is
     /// responsible for nulling both before any branch that can reach `done`.
-    pub(crate) fn new(pointer: &str, size: &str) -> Self {
+    pub(crate) fn new(pointer: impl Into<abi::Reg>, size: impl Into<abi::Reg>) -> Self {
         Self {
-            pointer: pointer.to_string(),
-            size: size.to_string(),
+            pointer: pointer.into(),
+            size: size.into(),
         }
     }
 
@@ -101,25 +101,26 @@ impl HelperScratch {
     /// reading an undefined vreg.
     pub(crate) fn declare(vregs: &mut Vregs, instructions: &mut Vec<CodeInstruction>) -> Self {
         let pointer = vregs.next();
-        Self::declare_for(&pointer, vregs, instructions)
+        Self::declare_for(pointer, vregs, instructions)
     }
 
     /// [`declare`](Self::declare) for a pointer vreg the body already names (the
     /// `cname`/`c_path` the rest of the lowering reads): mint only the size and
     /// null both.
     pub(crate) fn declare_for(
-        pointer: &str,
+        pointer: impl Into<abi::Reg>,
         vregs: &mut Vregs,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Self {
+        let pointer: abi::Reg = pointer.into();
         let size = vregs.next();
         instructions.extend([
             abi::move_immediate(pointer, "Integer", "0"),
             abi::move_immediate(&size, "Integer", "0"),
         ]);
         Self {
-            pointer: pointer.to_string(),
-            size,
+            pointer,
+            size: size.into(),
         }
     }
 }
@@ -154,7 +155,7 @@ pub(crate) fn emit_helper_scratch_release(
     if scratch.is_empty() {
         return;
     }
-    let saved: Vec<String> = (0..4).map(|_| vregs.next()).collect();
+    let saved: Vec<VirtualRegister> = (0..4).map(|_| vregs.next()).collect();
     for (index, slot) in saved.iter().enumerate() {
         instructions.push(abi::move_register(slot, abi::mfb_return(index)));
     }

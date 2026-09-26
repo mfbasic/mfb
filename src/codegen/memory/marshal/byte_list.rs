@@ -13,7 +13,7 @@ use crate::target::shared::abi;
 /// caller's instruction stream, so it must never name a vreg itself: the caller's
 /// `Vregs` numbers from `%v0`, and a fixed `%vN` would be whichever of the
 /// caller's values carries that number (bug-564).
-fn mint<const N: usize>(vregs: &mut Vregs) -> [String; N] {
+fn mint<const N: usize>(vregs: &mut Vregs) -> [VirtualRegister; N] {
     std::array::from_fn(|_| vregs.next())
 }
 #[allow(clippy::too_many_arguments)]
@@ -417,7 +417,7 @@ mod tests {
     fn every_helper_mints_its_vregs_from_the_caller() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let mut vregs = Vregs::new();
-        let held: Vec<String> = (0..32).map(|_| vregs.next()).collect();
+        let held: Vec<String> = (0..32).map(|_| vregs.next().to_string()).collect();
         let mut ins = Vec::new();
         let mut rel = Vec::new();
         emit_read_byte_list("s", "r", 8, 16, 24, "f", &mut vregs, &mut ins, &mut rel);

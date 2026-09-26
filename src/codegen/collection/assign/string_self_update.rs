@@ -604,7 +604,7 @@ impl CodeBuilder<'_> {
                 let slot = self.allocate_stack_object("concat_global_strcap", 8);
                 let address = self.load_global_address(&shadow)?;
                 let spare = self.allocate_register();
-                self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                self.emit(abi::load_u64(&spare, address, 0));
                 self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
                 StringShadow {
                     slot,
@@ -638,7 +638,7 @@ impl CodeBuilder<'_> {
             let spare = self.allocate_register();
             self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow.slot));
             let address = self.load_global_address(hidden)?;
-            self.emit(abi::store_u64(&spare, address.as_str(), 0));
+            self.emit(abi::store_u64(&spare, address, 0));
         }
         Ok(())
     }

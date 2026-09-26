@@ -97,7 +97,7 @@ pub(crate) fn flag_preserving(instruction: &CodeInstruction) -> bool {
     match instruction.op {
         CodeOp::Mov => instruction
             .get("src")
-            .is_some_and(|src| src != crate::target::shared::abi::ZERO),
+            .is_some_and(|src| src != crate::target::shared::abi::ZERO_SPELLING),
         CodeOp::MovImm | CodeOp::Label => true,
         op if is_block_terminator(op) => true,
         op => {

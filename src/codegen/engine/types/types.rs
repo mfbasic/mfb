@@ -638,12 +638,12 @@ pub(crate) trait CodegenPlatform {
     #[allow(clippy::too_many_arguments)]
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: crate::target::shared::abi::Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
-        scratch: [&str; 2],
+        scratch: [crate::target::shared::abi::Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     );
     /// A terminal line-discipline control call (plan-47-G G1 chokepoint). The
@@ -731,9 +731,9 @@ pub(crate) trait CodegenPlatform {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: crate::target::shared::abi::Reg,
+        mask: crate::target::shared::abi::Reg,
+        expected: crate::target::shared::abi::Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -899,10 +899,10 @@ pub(crate) trait CodegenPlatform {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: crate::target::shared::abi::Reg,
+        namelen: crate::target::shared::abi::Reg,
+        byte: crate::target::shared::abi::Reg,
+        scratch: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     );
     fn emit_realpath(
@@ -919,7 +919,7 @@ pub(crate) trait CodegenPlatform {
     /// register) are hardcoded physicals, as a syscall requires.
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
@@ -990,7 +990,7 @@ pub(crate) trait CodegenPlatform {
         &self,
         fd_offset: usize,
         flags_offset: usize,
-        scratch: &str,
+        scratch: crate::target::shared::abi::Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

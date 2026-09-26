@@ -39,6 +39,7 @@ use crate::arch::ops::CodeOp;
 use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::CodeInstruction;
 
@@ -206,10 +207,11 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     if !crate::optimizer::level_enabled(1) {
         return;
     }
-    // slot offset -> register that last stored it (and still holds the value).
-    let mut slots: Vec<(String, String)> = Vec::new();
-    let invalidate_reg = |slots: &mut Vec<(String, String)>, reg: &str| {
-        slots.retain(|(_, src)| src != reg);
+    // slot offset -> register that last stored it (and still holds the value):
+    // its spelling (for the invalidation compare) and its operand (to forward).
+    let mut slots: Vec<(String, String, Operand)> = Vec::new();
+    let invalidate_reg = |slots: &mut Vec<(String, String, Operand)>, reg: &str| {
+        slots.retain(|(_, src, _)| src != reg);
     };
     // Record an 8-byte store of `src` to `[sp + offset]`, first invalidating every
     // slot whose 8-byte range `[o, o+8)` overlaps this store's `[offset, offset+8)`.
@@ -224,9 +226,12 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     // silent stale-forward into a correct invalidation. Non-numeric offsets (which
     // the frame model never produces for sp slots) fall back to exact-string
     // matching so their behaviour is likewise unchanged.
-    let set_slot = |slots: &mut Vec<(String, String)>, offset: &str, src: &str| {
+    let set_slot = |slots: &mut Vec<(String, String, Operand)>,
+                    offset: &str,
+                    src: &str,
+                    operand: Operand| {
         let this = offset.parse::<i64>().ok();
-        slots.retain(|(off, _)| {
+        slots.retain(|(off, _, _)| {
             if off == offset {
                 return false; // exact slot: re-inserted below with the new source
             }
@@ -238,13 +243,13 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                 _ => true,
             }
         });
-        slots.push((offset.to_string(), src.to_string()));
+        slots.push((offset.to_string(), src.to_string(), operand));
     };
-    let slot_reg = |slots: &[(String, String)], offset: &str| -> Option<String> {
+    let slot_reg = |slots: &[(String, String, Operand)], offset: &str| -> Option<(String, Operand)> {
         slots
             .iter()
-            .find(|(off, _)| off == offset)
-            .map(|(_, src)| src.clone())
+            .find(|(off, _, _)| off == offset)
+            .map(|(_, src, operand)| (src.clone(), operand.clone()))
     };
 
     // Indexed on purpose: the body rewrites `instructions[index]` in place while
@@ -255,12 +260,20 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     for index in 0..instructions.len() {
         match classify(&instructions[index], is_x86) {
             Effect::StoreSp { src, offset } => {
-                set_slot(&mut slots, &offset, &src);
+                let operand = instructions[index]
+                    .operand("src")
+                    .cloned()
+                    .expect("a classified sp store has a src");
+                set_slot(&mut slots, &offset, &src, operand);
             }
             Effect::LoadSp { dst, offset } => {
-                if let Some(reg) = slot_reg(&slots, &offset) {
+                if let Some((reg, source)) = slot_reg(&slots, &offset) {
                     if reg != dst {
-                        instructions[index] = abi::move_register(&dst, &reg);
+                        let target = instructions[index]
+                            .operand("dst")
+                            .cloned()
+                            .expect("a classified sp load has a dst");
+                        instructions[index] = super::rebuilt("mov", vec![("dst", target), ("src", source)]);
                         forwarded += 1;
                     }
                 }
@@ -334,20 +347,30 @@ pub(crate) fn remove_fp_shuttles(
             // Result shuttle: fmov xN, dM ; str xN, [base,#off]  ->  str d dM, [base,#off].
             (CodeOp::FMovXFromD, CodeOp::StrU64) => fold_pair(
                 first.get("dst").as_deref(),
-                first.get("src").as_deref(),
+                first.operand("src"),
                 second.get("src").as_deref(),
-                second.get("base").as_deref(),
+                second.operand("base"),
                 second.get("offset").as_deref(),
-                |src, base, off| abi::store_double(src, base, off),
+                |src, base, off| {
+                    super::rebuilt(
+                        "str_d",
+                        vec![("src", src), ("base", base), ("offset", Operand::from(&off.to_string()))],
+                    )
+                },
             ),
             // Operand reload: ldr xN, [base,#off] ; fmov dM, xN  ->  ldr d dM, [base,#off].
             (CodeOp::LdrU64, CodeOp::FMovDFromX) => fold_pair(
                 first.get("dst").as_deref(),
-                second.get("dst").as_deref(),
+                second.operand("dst"),
                 second.get("src").as_deref(),
-                first.get("base").as_deref(),
+                first.operand("base"),
                 first.get("offset").as_deref(),
-                |src, base, off| abi::load_double(src, base, off),
+                |dst, base, off| {
+                    super::rebuilt(
+                        "ldr_d",
+                        vec![("dst", dst), ("base", base), ("offset", Operand::from(&off.to_string()))],
+                    )
+                },
             ),
             _ => None,
         };
@@ -389,19 +412,19 @@ pub(crate) fn remove_fp_shuttles(
 /// or `base` aliases the shuttle GPR (its definition is about to be dropped).
 fn fold_pair(
     gpr: Option<&str>,
-    fpr: Option<&str>,
+    fpr: Option<&Operand>,
     linked: Option<&str>,
-    base: Option<&str>,
+    base: Option<&Operand>,
     offset: Option<&str>,
-    build: impl Fn(&str, &str, usize) -> CodeInstruction,
+    build: impl Fn(Operand, Operand, usize) -> CodeInstruction,
 ) -> Option<(u32, CodeInstruction)> {
     let (gpr, fpr, linked, base, offset) = (gpr?, fpr?, linked?, base?, offset?);
-    if gpr != linked || gpr == base {
+    if gpr != linked || *base == *gpr {
         return None;
     }
     let index = regalloc::int_physical_index(gpr)?;
     let offset: usize = offset.parse().ok()?;
-    Some((index, build(fpr, base, offset)))
+    Some((index, build(fpr.clone(), base.clone(), offset)))
 }
 
 #[cfg(test)]
@@ -438,30 +461,30 @@ mod tests {
         for (what, opaque) in [
             (
                 "a store to sp with no offset",
-                op("str_u64").field("base", "sp"),
+                op("str_u64").physical_field("base", "sp"),
             ),
             (
                 "a load from sp with no dst",
-                op("ldr_u64").field("base", "sp"),
+                op("ldr_u64").physical_field("base", "sp"),
             ),
             (
                 "a multiply with no dst",
-                op("mul").field("lhs", "x1").field("rhs", "x2"),
+                op("mul").physical_field("lhs", "x1").physical_field("rhs", "x2"),
             ),
             (
                 "a float conversion with no dst",
-                op("fcvtzs_x_from_d").field("src", "d1"),
+                op("fcvtzs_x_from_d").physical_field("src", "d1"),
             ),
         ] {
             let mut instructions = vec![
                 op("str_u64")
-                    .field("src", "x8")
-                    .field("base", "sp")
+                    .physical_field("src", "x8")
+                    .physical_field("base", "sp")
                     .field("offset", "16"),
                 opaque,
                 op("ldr_u64")
-                    .field("dst", "x10")
-                    .field("base", "sp")
+                    .physical_field("dst", "x10")
+                    .physical_field("base", "sp")
                     .field("offset", "16"),
                 op("ret"),
             ];
@@ -491,13 +514,13 @@ mod tests {
     fn a_load_with_no_offset_invalidates_only_its_own_register() {
         let mut instructions = vec![
             op("str_u64")
-                .field("src", "x8")
-                .field("base", "sp")
+                .physical_field("src", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "16"),
-            op("ldr_u64").field("base", "sp").field("dst", "x9"),
+            op("ldr_u64").physical_field("base", "sp").physical_field("dst", "x9"),
             op("ldr_u64")
-                .field("dst", "x10")
-                .field("base", "sp")
+                .physical_field("dst", "x10")
+                .physical_field("base", "sp")
                 .field("offset", "16"),
             op("ret"),
         ];
@@ -521,16 +544,16 @@ mod tests {
     fn a_non_numeric_store_offset_is_not_range_compared() {
         let mut instructions = vec![
             op("str_u64")
-                .field("src", "x8")
-                .field("base", "sp")
+                .physical_field("src", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "16"),
             op("str_u64")
-                .field("src", "x9")
-                .field("base", "sp")
+                .physical_field("src", "x9")
+                .physical_field("base", "sp")
                 .field("offset", "#frame_scratch"),
             op("ldr_u64")
-                .field("dst", "x10")
-                .field("base", "sp")
+                .physical_field("dst", "x10")
+                .physical_field("base", "sp")
                 .field("offset", "16"),
             op("ret"),
         ];
@@ -549,17 +572,17 @@ mod tests {
     #[test]
     fn folds_dead_result_and_operand_shuttles() {
         let mut instructions = vec![
-            op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
+            op("fmov_x_from_d").physical_field("dst", "x8").physical_field("src", "d11"),
             op("str_u64")
-                .field("src", "x8")
-                .field("base", "sp")
+                .physical_field("src", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "1120"),
             // x8 redefined here, so it is dead after the store above.
             op("ldr_u64")
-                .field("dst", "x8")
-                .field("base", "sp")
+                .physical_field("dst", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "80"),
-            op("fmov_d_from_x").field("dst", "d9").field("src", "x8"),
+            op("fmov_d_from_x").physical_field("dst", "d9").physical_field("src", "x8"),
             op("ret"),
         ];
         // AArch64 spellings (`x8`, `d9`), so the AArch64 model supplies the
@@ -583,16 +606,16 @@ mod tests {
     #[test]
     fn keeps_shuttle_when_gpr_still_live() {
         let mut instructions = vec![
-            op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
+            op("fmov_x_from_d").physical_field("dst", "x8").physical_field("src", "d11"),
             op("str_u64")
-                .field("src", "x8")
-                .field("base", "sp")
+                .physical_field("src", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "1120"),
             // x8 is read here, so it must survive the store.
             op("add")
-                .field("dst", "x9")
-                .field("lhs", "x8")
-                .field("rhs", "x8"),
+                .physical_field("dst", "x9")
+                .physical_field("lhs", "x8")
+                .physical_field("rhs", "x8"),
             op("ret"),
         ];
         let before = instructions.len();
@@ -614,16 +637,16 @@ mod tests {
     fn forwards_disjoint_full_slot_store() {
         let mut instructions = vec![
             op("str_u64")
-                .field("src", "x10")
-                .field("base", "sp")
+                .physical_field("src", "x10")
+                .physical_field("base", "sp")
                 .field("offset", "8"),
             op("str_u64")
-                .field("src", "x11")
-                .field("base", "sp")
+                .physical_field("src", "x11")
+                .physical_field("base", "sp")
                 .field("offset", "16"),
             op("ldr_u64")
-                .field("dst", "x8")
-                .field("base", "sp")
+                .physical_field("dst", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "8"),
         ];
         forward_stores_to_loads(&mut instructions, false);
@@ -642,18 +665,18 @@ mod tests {
         let stream = || {
             vec![
                 op("str_u64")
-                    .field("src", "rax")
-                    .field("base", "sp")
+                    .physical_field("src", "rax")
+                    .physical_field("base", "sp")
                     .field("offset", "8"),
                 // dst is neither rax nor rdx, so `DefDst` invalidates nothing --
                 // but the x86 expansion clobbers rax regardless.
                 op("udiv")
-                    .field("dst", "r10")
-                    .field("lhs", "r11")
-                    .field("rhs", "r12"),
+                    .physical_field("dst", "r10")
+                    .physical_field("lhs", "r11")
+                    .physical_field("rhs", "r12"),
                 op("ldr_u64")
-                    .field("dst", "r14")
-                    .field("base", "sp")
+                    .physical_field("dst", "r14")
+                    .physical_field("base", "sp")
                     .field("offset", "8"),
             ]
         };
@@ -684,17 +707,17 @@ mod tests {
     fn does_not_forward_partially_overwritten_slot() {
         let mut instructions = vec![
             op("str_u64")
-                .field("src", "x10")
-                .field("base", "sp")
+                .physical_field("src", "x10")
+                .physical_field("base", "sp")
                 .field("offset", "8"),
             // Overlaps bytes 12..16 of the store above (|12 - 8| = 4 < 8).
             op("str_u64")
-                .field("src", "x11")
-                .field("base", "sp")
+                .physical_field("src", "x11")
+                .physical_field("base", "sp")
                 .field("offset", "12"),
             op("ldr_u64")
-                .field("dst", "x8")
-                .field("base", "sp")
+                .physical_field("dst", "x8")
+                .physical_field("base", "sp")
                 .field("offset", "8"),
         ];
         forward_stores_to_loads(&mut instructions, false);

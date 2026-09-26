@@ -419,7 +419,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut ins = CodeInstruction::new(op);
         for (k, v) in fields {
-            ins = ins.field(k, v);
+            ins = ins.physical_field(k, v);
         }
         ins
     }
@@ -727,8 +727,8 @@ mod tests {
         // CALL_ARGS[0]); the old rax-first result bank would give `rax`. If `rax`
         // appeared, the aligned realization was not applied.
         let inst = CodeInstruction::new("mov")
-            .field("dst", abi::mfb_return(0))
-            .field("src", abi::mfb_arg(1));
+            .physical_field("dst", abi::mfb_return(0))
+            .physical_field("src", abi::mfb_arg(1));
         let out = sel(&[inst]);
         let vals = values(&out);
         assert!(
