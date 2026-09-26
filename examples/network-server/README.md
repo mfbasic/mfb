@@ -99,7 +99,7 @@ be told to accept them. `examples/network-client` does that with an explicit
 opt-in:
 
 ```sh
-./build/network-client.out --port 7413 --server-name localhost --allow-self-signed
+./build/network-client.out --server-name localhost --allow-self-signed
 ```
 
 Without that flag the TLS attempt fails, which is the correct default —
