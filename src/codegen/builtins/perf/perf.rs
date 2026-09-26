@@ -88,7 +88,7 @@ const PERF_LOG_LIMIT: usize = PERF_LOG_TABLE_OFFSET + (PERF_LOG_CAPACITY - 1) * 
 // plan-67-E: the median sort scratch — an i64 buffer immediately past the log,
 // sized to hold every sample of a single name (one name owns at most
 // `PERF_LOG_CAPACITY` samples). `perf_done` materializes a name's durations here
-// and insertion-sorts them.
+// and heapsorts them (bug-700).
 const PERF_SORT_OFFSET: usize = PERF_LOG_TABLE_OFFSET + PERF_LOG_CAPACITY * PERF_LOG_ENTRY_SIZE;
 
 // Stack locals. perf_start/perf_end need a 16-byte `timespec`; perf_done assembles
@@ -642,11 +642,12 @@ fn emit_store_elem(
 /// plan-67-E: compute and print one name's six statistic columns —
 /// ` <count> <avg> <median> <min> <max> <sum>\n` — over the flat sample log. One
 /// linear pass accumulates sum/min/max and materializes the name's durations into
-/// the region sort scratch; an insertion sort (Open Decision — simple, exact;
-/// O(n²), upgradeable to heapsort if a profiled program's per-name sample count
-/// makes exit slow) yields the median. `avg` is integer floor; an even count
-/// averages the two middle values. `count` is the name's table-A count (equal to
-/// the number of matching log samples, so the scratch holds exactly `count` items).
+/// the region sort scratch; an in-place heapsort (bug-700 — O(n log n) worst
+/// case, upgraded from the original O(n²) insertion sort once a profiled
+/// program's per-name sample count made exit take tens of seconds) yields the
+/// median. `avg` is integer floor; an even count averages the two middle
+/// values. `count` is the name's table-A count (equal to the number of
+/// matching log samples, so the scratch holds exactly `count` items).
 #[allow(clippy::too_many_arguments)]
 fn emit_write_stats(
     base: &str,
@@ -676,23 +677,41 @@ fn emit_write_stats(
     let one = vregs.next();
     let odd = vregs.next();
     let median = vregs.next();
-    let ai = vregs.next();
-    let aj = vregs.next();
-    let key = vregs.next();
-    let cur = vregs.next();
-    let jp1 = vregs.next();
     let midm1 = vregs.next();
     let va = vregs.next();
     let vb = vregs.next();
+    // Heapsort scratch[0..count] ascending (bug-700: replaces the former O(n²)
+    // insertion sort). `root`/`child` walk the heap; `left`/`right_idx` are the
+    // candidate child indices; `*_val` hold loaded elements for the 3-way
+    // compare-and-swap; `start` drives the heapify build-down, `end` the
+    // extraction countdown; `zero_idx` is the constant index 0 (the heap root).
+    let root = vregs.next();
+    let child = vregs.next();
+    let left = vregs.next();
+    let right_idx = vregs.next();
+    let left_val = vregs.next();
+    let right_val = vregs.next();
+    let root_val = vregs.next();
+    let child_val = vregs.next();
+    let start = vregs.next();
+    let end = vregs.next();
+    let zero_idx = vregs.next();
     let lscan = format!("{symbol}_lscan");
     let lnext = format!("{symbol}_lnext");
     let lscan_done = format!("{symbol}_lsdone");
     let skip_min = format!("{symbol}_skmin");
     let skip_max = format!("{symbol}_skmax");
-    let outer = format!("{symbol}_iso");
-    let inner = format!("{symbol}_isi");
-    let insert = format!("{symbol}_isins");
-    let sorted = format!("{symbol}_isdone");
+    let heapify_top = format!("{symbol}_hfy");
+    let heapify_done = format!("{symbol}_hfyd");
+    let sift1_top = format!("{symbol}_sd1");
+    let sift1_skip_right = format!("{symbol}_sd1sr");
+    let sift1_done = format!("{symbol}_sd1d");
+    let extract_top = format!("{symbol}_ext");
+    let extract_done = format!("{symbol}_extd");
+    let sift2_top = format!("{symbol}_sd2");
+    let sift2_skip_right = format!("{symbol}_sd2sr");
+    let sift2_done = format!("{symbol}_sd2d");
+    let sorted = format!("{symbol}_hsdone");
     let median_odd = format!("{symbol}_modd");
     let median_done = format!("{symbol}_mdone");
 
@@ -735,42 +754,115 @@ fn emit_write_stats(
         abi::branch(&lscan),
         abi::label(&lscan_done),
         abi::unsigned_divide_registers(&avg, &sum, count),
-        // Insertion sort scratch[0..count] ascending.
-        abi::move_immediate(&ai, "Integer", "1"),
-        abi::label(&outer),
-        abi::compare_registers(&ai, count),
-        abi::branch_ge(&sorted),
+        // Heapsort scratch[0..count] ascending (bug-700; O(n log n), was O(n²)).
+        // Phase 1: build a max-heap over scratch[0..count] via iterative
+        // siftDown, from the last parent down to the root.
+        abi::move_immediate(&two, "Integer", "2"),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::move_immediate(&zero_idx, "Integer", "0"),
+        abi::subtract_immediate(&end, count, 1), // end = count - 1 (heap boundary)
+        abi::unsigned_divide_registers(&start, count, &two),
+        abi::subtract_immediate(&start, &start, 1), // start = count/2 - 1
+        abi::label(&heapify_top),
+        abi::compare_immediate(&start, "0"),
+        abi::branch_lt(&heapify_done),
+        abi::move_register(&root, &start),
+        abi::label(&sift1_top),
+        abi::multiply_registers(&left, &root, &two),
+        abi::add_immediate(&left, &left, 1),
+        abi::compare_registers(&left, &end),
+        abi::branch_gt(&sift1_done),
+        abi::move_register(&child, &left),
+        abi::add_immediate(&right_idx, &left, 1),
+        abi::compare_registers(&right_idx, &end),
+        abi::branch_gt(&sift1_skip_right),
     ]);
-    emit_load_elem(&key, &scratch, &ai, &eight, instructions, vregs);
+    emit_load_elem(&left_val, &scratch, &left, &eight, instructions, vregs);
+    emit_load_elem(
+        &right_val,
+        &scratch,
+        &right_idx,
+        &eight,
+        instructions,
+        vregs,
+    );
     instructions.extend([
-        abi::move_register(&aj, &ai),
-        abi::subtract_immediate(&aj, &aj, 1),
-        abi::label(&inner),
-        abi::compare_immediate(&aj, "0"),
-        abi::branch_lt(&insert),
+        abi::compare_registers(&left_val, &right_val),
+        abi::branch_ge(&sift1_skip_right), // left is already the larger (or equal)
+        abi::move_register(&child, &right_idx),
+        abi::label(&sift1_skip_right),
     ]);
-    emit_load_elem(&cur, &scratch, &aj, &eight, instructions, vregs);
+    emit_load_elem(&root_val, &scratch, &root, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &child, &eight, instructions, vregs);
     instructions.extend([
-        abi::compare_registers(&cur, &key),
-        abi::branch_le(&insert),
-        abi::add_immediate(&jp1, &aj, 1),
+        abi::compare_registers(&root_val, &child_val),
+        abi::branch_ge(&sift1_done), // heap property already holds here
     ]);
-    emit_store_elem(&cur, &scratch, &jp1, &eight, instructions, vregs);
+    emit_store_elem(&child_val, &scratch, &root, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &child, &eight, instructions, vregs);
     instructions.extend([
-        abi::subtract_immediate(&aj, &aj, 1),
-        abi::branch(&inner),
-        abi::label(&insert),
-        abi::add_immediate(&jp1, &aj, 1),
+        abi::move_register(&root, &child),
+        abi::branch(&sift1_top),
+        abi::label(&sift1_done),
+        abi::subtract_immediate(&start, &start, 1),
+        abi::branch(&heapify_top),
+        abi::label(&heapify_done),
+        // Phase 2: repeatedly swap the max (root) to the end of the shrinking
+        // heap and sift the new root down. `end` still holds count - 1.
+        abi::label(&extract_top),
+        abi::compare_immediate(&end, "0"),
+        abi::branch_le(&extract_done),
     ]);
-    emit_store_elem(&key, &scratch, &jp1, &eight, instructions, vregs);
+    emit_load_elem(&root_val, &scratch, &zero_idx, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &end, &eight, instructions, vregs);
+    emit_store_elem(&child_val, &scratch, &zero_idx, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &end, &eight, instructions, vregs);
     instructions.extend([
-        abi::add_immediate(&ai, &ai, 1),
-        abi::branch(&outer),
+        abi::subtract_immediate(&end, &end, 1),
+        abi::move_register(&root, &zero_idx),
+        abi::label(&sift2_top),
+        abi::multiply_registers(&left, &root, &two),
+        abi::add_immediate(&left, &left, 1),
+        abi::compare_registers(&left, &end),
+        abi::branch_gt(&sift2_done),
+        abi::move_register(&child, &left),
+        abi::add_immediate(&right_idx, &left, 1),
+        abi::compare_registers(&right_idx, &end),
+        abi::branch_gt(&sift2_skip_right),
+    ]);
+    emit_load_elem(&left_val, &scratch, &left, &eight, instructions, vregs);
+    emit_load_elem(
+        &right_val,
+        &scratch,
+        &right_idx,
+        &eight,
+        instructions,
+        vregs,
+    );
+    instructions.extend([
+        abi::compare_registers(&left_val, &right_val),
+        abi::branch_ge(&sift2_skip_right),
+        abi::move_register(&child, &right_idx),
+        abi::label(&sift2_skip_right),
+    ]);
+    emit_load_elem(&root_val, &scratch, &root, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &child, &eight, instructions, vregs);
+    instructions.extend([
+        abi::compare_registers(&root_val, &child_val),
+        abi::branch_ge(&sift2_done),
+    ]);
+    emit_store_elem(&child_val, &scratch, &root, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &child, &eight, instructions, vregs);
+    instructions.extend([
+        abi::move_register(&root, &child),
+        abi::branch(&sift2_top),
+        abi::label(&sift2_done),
+        abi::branch(&extract_top),
+        abi::label(&extract_done),
         abi::label(&sorted),
         // median = mid element (odd count) or mean of the two middle (even count).
-        abi::move_immediate(&two, "Integer", "2"),
+        // `two`/`one` were already set to 2/1 for the heapsort above.
         abi::unsigned_divide_registers(&mid, count, &two),
-        abi::move_immediate(&one, "Integer", "1"),
         abi::and_registers(&odd, count, &one),
         abi::compare_immediate(&odd, "0"),
         abi::branch_ne(&median_odd),

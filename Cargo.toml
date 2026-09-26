@@ -520,6 +520,10 @@ name = "rt_inplace_failure_atomic"
 path = "tests/runtime/rt_inplace_failure_atomic.rs"
 
 [[test]]
+name = "rt_domain_error_frees_locals"
+path = "tests/runtime/rt_domain_error_frees_locals.rs"
+
+[[test]]
 name = "rt_inplace_sort"
 path = "tests/runtime/rt_inplace_sort.rs"
 
@@ -891,6 +895,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_arena_large_block_reuse"
+path = "tests/runtime/rt_arena_large_block_reuse.rs"
+
+[[test]]
 name = "rt_datetime_negative_year_render"
 path = "tests/runtime/rt_datetime_negative_year_render.rs"
 
@@ -913,6 +921,10 @@ path = "tests/runtime/rt_debug_soak.rs"
 [[test]]
 name = "rt_debug_report"
 path = "tests/runtime/rt_debug_report.rs"
+
+[[test]]
+name = "rt_debug_report_exit_time"
+path = "tests/runtime/rt_debug_report_exit_time.rs"
 
 [[test]]
 name = "rt_process_detach_preserves_exit_code"

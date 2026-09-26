@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/monomorph/diagnostic-template-spelling-invalid
+  28 | 
+  29 | FUNC matchOpt(o AS Opt OF Integer) AS Integer
+  30 |   MATCH o
+     | ^
+tests/syntax/monomorph/diagnostic-template-spelling-invalid/src/main.mfb:30 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on UNION `Opt OF Integer` does not cover None; add unguarded CASE arms or CASE ELSE.
+  37 | FUNC main() AS Integer
+  38 |   LET b AS Box OF Integer = Box[1]
+  39 |   LET boxMismatch AS Integer = b
+     | ^
+tests/syntax/monomorph/diagnostic-template-spelling-invalid/src/main.mfb:39 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `boxMismatch` has initializer type Box OF Integer, expected Integer.
+  41 |   LET x AS Opt OF Integer = Some[1]
+  42 |   LET y AS List OF Opt OF Integer = [x]
+  43 |   LET listMismatch AS Integer = y
+     | ^
+tests/syntax/monomorph/diagnostic-template-spelling-invalid/src/main.mfb:43 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `listMismatch` has initializer type List OF Opt OF Integer, expected Integer.
+  44 | 
+  45 |   LET h AS Holder OF Holder OF Integer = Holder[Holder[1]]
+  46 |   LET nestedMismatch AS Integer = h
+     | ^
+tests/syntax/monomorph/diagnostic-template-spelling-invalid/src/main.mfb:46 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `nestedMismatch` has initializer type Holder OF Holder OF Integer, expected Integer.
+[exit 1]

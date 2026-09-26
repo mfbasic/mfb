@@ -61,15 +61,6 @@ pub(crate) struct MarshalRegs {
 }
 
 impl MarshalRegs {
-    /// The `%v9`..`%v14` this marshaller has always written. Kept for its existing
-    /// callers (`crypto::generate`'s record builds), which spill every live value to
-    /// frame slots first; a new caller uses [`MarshalRegs::fresh`].
-    pub(crate) fn fixed() -> Self {
-        Self {
-            regs: ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"].map(str::to_string),
-        }
-    }
-
     /// Six vregs no other part of the helper has been given.
     pub(crate) fn fresh(vregs: &mut Vregs) -> Self {
         Self {
@@ -91,8 +82,8 @@ impl MarshalRegs {
 /// block-relative offset. Every other field slot holds the scalar value or
 /// pointer, written inline at `8 * index`.
 ///
-/// Branches to `alloc_fail` on allocation failure. Writes the fixed
-/// [`MarshalRegs`] plus the four `scratch` slots. Mirrors
+/// Branches to `alloc_fail` on allocation failure. Writes fresh [`MarshalRegs`]
+/// minted from `vregs` plus the four `scratch` slots. Mirrors
 /// `CodeBuilder::emit_build_inlined_record`. A record with an inlined nested
 /// **record** field needs its size from the caller: see
 /// [`emit_build_inlined_record_sized`].
@@ -106,6 +97,7 @@ pub(crate) fn emit_build_inlined_record(
     scratch: &RecordBuildScratch,
     result_reg: impl Into<Operand>,
     alloc_fail: &str,
+    vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -117,7 +109,7 @@ pub(crate) fn emit_build_inlined_record(
         field_slots,
         &vec![None; field_slots.len()],
         scratch,
-        &MarshalRegs::fixed(),
+        &MarshalRegs::fresh(vregs),
         result_reg,
         alloc_fail,
         instructions,
@@ -456,6 +448,16 @@ pub(crate) fn emit_byte_copy(
 
 #[cfg(test)]
 mod tests {
+    // The legacy `%v9`..`%v14` names, now only a deterministic fixture for the
+    // tests here and in `record_list.rs`. Production callers mint fresh ones.
+    impl MarshalRegs {
+        pub(crate) fn fixed() -> Self {
+            Self {
+                regs: ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"].map(str::to_string),
+            }
+        }
+    }
+
     use super::*;
     use crate::arch::ops::CodeOp;
     use crate::codegen::engine::mir;
@@ -551,8 +553,9 @@ mod tests {
         assert!(error.contains("is not inlined"), "{error}");
     }
 
-    /// The fixed set is exactly what `crypto::generate`'s record builds have always
-    /// been emitted with; changing it moves their byte-identity goldens.
+    /// The fixed set is the deterministic fixture these tests build with. It was
+    /// `crypto::generate`'s production register set until bug-564 moved every caller
+    /// to [`MarshalRegs::fresh`] (a fixed `%vN` aliases the caller's own vreg).
     #[test]
     fn the_fixed_regs_are_the_legacy_names() {
         let regs = MarshalRegs::fixed();

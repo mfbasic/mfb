@@ -84,7 +84,7 @@ Sections print in the order of the compiler's feature registry,
 | | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), `thread_block` (a thread's control-block arena, registered just before its `worker`), or `graphics` (a canvas program's graphics thread), numbered in registration order |
 | | `arena.<n>.maps`, `.mapped_bytes`, `.unmaps`, `.unmapped_bytes` | blocks the arena mapped from the OS and returned to it, and their bytes |
 | | `arena.<n>.alloc_calls`, `.alloc_bytes` | allocation calls and the bytes requested, after size and alignment rounding |
-| | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | which path served each allocation: a small-size bin, a split of the current carve chunk, an exact-size large bin, a free-list walk, or a newly mapped block; the five always add up to `alloc_calls` |
+| | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | which path served each allocation: a small-size bin, a split of the current carve chunk, a large-bin size class (a large request, or a small one taking a large chunk as its carve chunk), a free-list walk, or a newly mapped block; the five always add up to `alloc_calls` |
 | | `arena.<n>.free_calls`, `.free_bytes` | free calls and their bytes, including frees that were skipped |
 | | `arena.<n>.double_free_skips` | frees skipped because the chunk was already free |
 | | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |

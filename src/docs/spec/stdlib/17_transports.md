@@ -85,8 +85,53 @@ either guess or raise on valid traffic. `encoding::utf8Decode` does the decoding
 once the caller has assembled a whole message. `write` is not symmetric — the
 sender always knows what it has — so it takes a `String` as a second overload.
 
-An empty read (`[]`) marks end of stream: the peer closed. It is not an error and
-not a timeout.
+End of stream is a raise, not a value: once the peer has closed, `read` raises
+`ErrConnectionClosed`, and a `read` that returns always holds at least one byte
+(`rt-behavior/tcp/tcp-read-eof-raises-rt`, `rt-behavior/tls/tls-read-eof-raises-rt`).
+
+On `tls` three events are the peer's close, and every backend reports all three as
+`ErrConnectionClosed`: a `close_notify` (whether or not the peer also closes its
+socket), the transport's end of stream without one, and a reset. How each backend
+recognises them:
+
+| backend | `ErrConnectionClosed` when |
+|---|---|
+| OpenSSL | `SSL_read` returns 0; or fails with `SSL_ERROR_SYSCALL` (5), `SSL_ERROR_ZERO_RETURN` (6), or `SSL_ERROR_SSL` (1) whose `ERR_peek_last_error` reason is `SSL_R_UNEXPECTED_EOF_WHILE_READING` (294, OpenSSL 3.x). Any other `SSL_ERROR_SSL` stays `ErrTlsFailed`. |
+| Schannel | `DecryptMessage` returns `SEC_I_CONTEXT_EXPIRED` (a success status with no plaintext); `recv` returns 0; or `recv` fails with `WSAECONNRESET`, `WSAECONNABORTED` or `WSAESHUTDOWN`. |
+| Network.framework | the receive completes with no content, or the connection is already `failed`/`cancelled`. |
+
+[[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_read_openssl]]
+[[src/codegen/builtins/tls/gen_schannel.rs:SEC_I_CONTEXT_EXPIRED]]
+[[src/codegen/builtins/tls/gen_schannel_read_close.rs:lower_tls_read]]
+[[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_read_macos]]
+
+A `tls` read that has raised `ErrConnectionClosed` leaves the socket finished in
+both directions. Every later `read` raises it again without touching the transport
+(Schannel would otherwise `recv` on a socket a half-closed peer holds open), and
+every later `write` raises it before creating, encrypting or sending anything,
+empty payload included, even when the peer is still connected and reading. The
+state is a sticky per-socket flag, set on the read's `ErrConnectionClosed` exit
+and checked first in `write`:
+
+| backend | flag | carried by `thread::transfer` as |
+|---|---|---|
+| OpenSSL | record word `TLS_OFFSET_PEER_CLOSED` (48), zeroed by `connect` and `accept` | a declared `Verbatim` live slot |
+| Schannel | `st::PEER_CLOSED` in the state block, inside the header both constructors zero | part of the copied state block |
+| Network.framework | `CTX_RXEOF` in the `calloc`'d connection ctx, set with `stlr`, loaded with `ldar` | the ctx pointer |
+
+[[src/codegen/builtins/tls/gen_shared.rs:TLS_OFFSET_PEER_CLOSED]]
+[[src/codegen/builtins/tls/gen_schannel.rs:PEER_CLOSED]]
+[[src/codegen/builtins/tls/gen_macos/mod.rs:CTX_RXEOF]]
+[[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_write_openssl]]
+[[src/codegen/builtins/tls/gen_schannel_io.rs:lower_tls_write]]
+[[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_write_macos]]
+
+Without the flag the three backends would all accept such a write: a half-closed
+peer (TLS 1.3 permits one) is still reading, so the bytes are delivered. The rule
+is a product decision that the error is the same on every target, pinned by
+`rt-behavior/tls/tls-write-after-read-closed-raises-rt`. It is `tls` only: a
+`tcp::write` after `tcp::read` has reported end of stream is handed to the
+kernel as usual.
 
 A write to a peer that has gone away raises `ErrConnectionClosed` — the same
 code both `read` calls carry at end of stream, on `tcp` and on `tls` alike, and

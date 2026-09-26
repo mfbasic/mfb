@@ -854,18 +854,37 @@ pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
 pub(crate) const ARENA_OUT_PTR_OFFSET: usize = ARENA_CARVE_SIZE_OFFSET + 8;
 pub(crate) const ARENA_OUT_FILLED_OFFSET: usize = ARENA_OUT_PTR_OFFSET + 8;
 pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
-/// Segregated large-block bins (plan-25-A): `ARENA_LARGE_BIN_COUNT` singly linked
-/// bin heads, hashed by the chunk's exact byte size, for chunks *larger* than
+/// Segregated large-block bins (plan-25-A, re-indexed by bug-690):
+/// `ARENA_LARGE_BIN_COUNT` singly linked bin heads for chunks *larger* than
 /// `ARENA_QUICK_BIN_MAX` (which the 128 direct-indexed quick bins cannot cover
-/// without a bin per 16-byte class). A large free pushes its chunk onto
-/// `large_bin[(size >> 4) & (COUNT - 1)]` in O(1); a same-size large alloc scans
-/// that one short bin list for an *exact*-size node and pops it in O(1)
-/// amortized — so repetitive large-list churn (the benchmark's poison: a
-/// 1000-element `List` frees ~40 KB per op) never walks the address-ordered
-/// free-list. Bin nodes reuse the `FreeNode {next@0, size@8}` overlay; the count
-/// is a power of two so the index is a mask, not a modulo. Appended after the
+/// without a bin per 16-byte class). The bins are log2 SIZE CLASSES, each power of
+/// two split into `2^ARENA_LARGE_BIN_SUBCLASS_BITS` linear sub-classes
+/// (`arena.rs:emit_large_bin_slot`); chunks of `ARENA_LARGE_BIN_TOP_SIZE` and up
+/// share the last class. A large free pushes its chunk onto its class in O(1). A
+/// large alloc takes the best fit among the first `ARENA_LARGE_BIN_SCAN_LIMIT`
+/// nodes of its own class (an exact size wins at once, so repetitive large-list
+/// churn still pops the chunk it just freed), else the head of the next non-empty
+/// higher class, whose every chunk fits; the chunk is split and the remainder
+/// re-parked. So a freed large block is reused by any request it fits, not only by
+/// one of exactly its size — the exact-size hash this replaced stranded every
+/// block whose size never recurred (bug-690). Bin nodes reuse the
+/// `FreeNode {next@0, size@8}` overlay; the slots are appended after the
 /// stdout-buffer words so every historical offset is unchanged.
 pub(crate) const ARENA_LARGE_BIN_COUNT: usize = 64;
+/// log2 of the linear sub-classes per power of two in the large bins (bug-690).
+pub(crate) const ARENA_LARGE_BIN_SUBCLASS_BITS: u32 = 2;
+/// The smallest size that lands in the last large-bin class: the 64 classes cover
+/// `ARENA_QUICK_BIN_MAX` up to here at 4 per power of two (2 KiB → 128 MiB).
+pub(crate) const ARENA_LARGE_BIN_TOP_SIZE: u64 =
+    ARENA_QUICK_BIN_MAX << (ARENA_LARGE_BIN_COUNT >> ARENA_LARGE_BIN_SUBCLASS_BITS);
+/// How many nodes of its own class a large allocation inspects before it takes
+/// the best fit seen or moves up a class. The bound keeps a large allocation O(1)
+/// however many chunks one class holds (bug-690).
+pub(crate) const ARENA_LARGE_BIN_SCAN_LIMIT: u64 = 16;
+/// The largest piece of a parked large chunk a SMALL request takes as its
+/// designated victim when nothing else is free (bug-690); the rest of the chunk is
+/// re-parked for the large requests that freed it. A multiple of 16.
+pub(crate) const ARENA_LARGE_DV_MAX: u64 = 64 * 1024;
 pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
 /// Per-thread rv64 `v128` scalarization slot region (bug-122). RV64GC has no
 /// 128-bit registers, so the neutral `v128` ops (the transcendental/`vector::`
@@ -930,7 +949,23 @@ pub(crate) const ARENA_STDIN_LOCAL_BUF_OFFSET: usize = ARENA_CURRENT_ERROR_OFFSE
 pub(crate) const ARENA_STDIN_LOCAL_FILLED_OFFSET: usize = ARENA_STDIN_LOCAL_BUF_OFFSET + 8;
 pub(crate) const ARENA_STDIN_LOCAL_POS_OFFSET: usize = ARENA_STDIN_LOCAL_FILLED_OFFSET + 8;
 pub(crate) const ARENA_STDIN_SUBSCRIBER_OFFSET: usize = ARENA_STDIN_LOCAL_POS_OFFSET + 8;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_STDIN_SUBSCRIBER_OFFSET + 8;
+/// Large-bin flush credit (bug-690), a signed word: the bytes freed onto the large
+/// bins since the last `arena_flush_coalesce`, minus
+/// `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` for every chunk that flush sorted. A large
+/// request that finds no fit anywhere flushes (coalesces every parked chunk) before
+/// it maps only while this is positive, so each flush's O(M log M) sort is paid for
+/// by the large bytes freed before the next one can run — amortized O(log M) per
+/// `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` freed bytes, which is what plan-64 A1's
+/// ungated big-request flush was not. Zero-initialized by the whole-
+/// `ARENA_STATE_SIZE` clear. Past rv64's 12-bit `addi` immediate, so accesses
+/// compute the address in a register.
+pub(crate) const ARENA_LARGE_FLUSH_CREDIT_OFFSET: usize = ARENA_STDIN_SUBSCRIBER_OFFSET + 8;
+/// Large bytes that must be freed per chunk the previous flush sorted before a
+/// big request may flush again (bug-690). A power of two (the flush multiplies by
+/// shifting). At 256, the flush's sort costs at most about `log2(M) / 256` steps per
+/// freed byte — below the entropy scrub `arena_free` already spends on every byte.
+pub(crate) const ARENA_LARGE_FLUSH_BYTES_PER_CHUNK: u64 = 256;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_LARGE_FLUSH_CREDIT_OFFSET + 8;
 
 /// Capacity of the per-thread lazily-allocated stdin local copy buffer, in bytes.
 pub(crate) const STDIN_LOCAL_BUFFER_CAPACITY: u64 = 4096;
@@ -1042,18 +1077,18 @@ pub(crate) const ARENA_MIN_CHUNK: u64 = 16;
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
 /// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
-/// to the per-arena free-list (entropy-scrub then coalescing insert). Never
-/// unmaps; memory returns to the OS only at `arena_destroy`.
+/// to the per-arena allocator (park on its quick bin or large-bin size class, then
+/// entropy-scrub). Never unmaps; memory returns to the OS only at `arena_destroy`.
 pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
 /// `arena_insert_free(x0 = ptr, x1 = size)` — the address-ordered coalescing
 /// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
 /// free-list surgery; does not scrub (callers fill first when required).
 pub(crate) const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
 /// `arena_flush_coalesce()` — plan-64 A1. The flush-before-grow path: gather every
-/// parked quick-bin chunk plus the address-ordered list into one chain, sort it by
-/// address in a single in-place merge sort, coalesce physically-adjacent chunks in
-/// one linear pass, then re-park (≤ QUICK_BIN_MAX → exact bin, larger → the rebuilt
-/// address-ordered list). Replaces the old per-chunk `arena_insert_free` drain,
+/// parked quick-bin and large-bin chunk plus the address-ordered list into one
+/// chain, sort it by address in a single in-place merge sort, coalesce
+/// physically-adjacent chunks in one linear pass, then re-park (≤ QUICK_BIN_MAX →
+/// exact bin, larger → its large-bin size class, bug-690). Replaces the old per-chunk `arena_insert_free` drain,
 /// whose each-insert-is-O(list) walk made a flush of M parked chunks O(M²) — the
 /// arena mixed-transient-churn quadratic. Coalescing is address-exact, so even a
 /// sort defect can only under-coalesce (a memory shortfall), never overlap live

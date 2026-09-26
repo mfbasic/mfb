@@ -14,7 +14,7 @@ layer, not merely the first chunk. The socket must still be open.
 
 The bytes are taken from the list in order, starting at its first element. An
 empty `bytes` list is a no-op: nothing is sent and the call succeeds without
-touching the TLS layer. The function reads from the existing list buffer and
+touching the TLS layer, unless the peer's close has already been read (below). The function reads from the existing list buffer and
 keeps nothing of its own; it has no side effects beyond the bytes it sends
 and does not close the socket.
 
@@ -29,7 +29,14 @@ Writing to a socket whose peer has already gone away raises
 `TRAP` around the write is what a server uses to survive a client that
 disconnects. As on a plain socket it is not reported on the *first* such write —
 that one is accepted locally, and a later write in the same loop is the one that
-raises."#;
+raises.
+
+Once `tls::read` on this socket has raised `ErrConnectionClosed`, the connection
+is finished in both directions: every later `write` raises `ErrConnectionClosed`
+at once and sends nothing, including an empty one and including the first. That
+holds even when the peer has only announced that it is done and is still
+connected, and it is the same on every platform. Stop writing when a read
+reports the close; `tls::close` is still yours to call."#;
 const EX: &str = r#"Send a raw request over a connected TLS socket:
 
 ```
@@ -94,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "bytes",
-                        desc: "The application data to send, in order. The entire list is written before the call returns. An empty list sends nothing and succeeds.",
+                        desc: "The application data to send, in order. The entire list is written before the call returns. An empty list sends nothing and succeeds, unless a read has already reported the peer's close.",
                         aliases: &[],
                         ty: ParameterType::ListOf(Box::new(ParameterType::Byte)),
                         default: DefaultValue::None,

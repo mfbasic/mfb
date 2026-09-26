@@ -1,26 +1,32 @@
 # bug-564: `tls` acceptance fixtures flake under a loaded full run — two sightings, neither reproducible
 
-Last updated: 2026-09-12
+Last updated: 2026-09-25
 Effort: small
 Severity: **MEDIUM** — use-after-munmap in the `tls::close` path on macOS, reachable
 by any program that closes a TLS socket shortly before exiting.
 Class: Runtime / teardown
 
-Status: **Sighting 1 FIXED. Sighting 2 FIXED — landed on main in `8dbefee94`**
-(`fd8ba0620`, `d474a4830`, `c60873a7e`, `c39e7177a`, `9ab9a10ae`; merged-tree unit
-suite 4145 passed, both macOS tls runtime tests passed). The encoder gained store-release and load-acquire. The handlers
-publish the domain before the gate with `stlr`, and `tls::write` loads the gate
-with `ldar`. See "Sighting 2: FIXED". **One finding stays OPEN**, and it is not
-the ordering race: on macOS a `tls::write` after `tls::read` has reported the peer's
-close never raises. It fails the same way on the pre-fix compiler. **Decided 2026-09-12:**
-it must raise `ErrConnectionClosed` like every other platform (not started). See
-"OPEN: a write after `tls::read` has already reported the close never raises".
+Status: **FIXED.** Sighting 1 and sighting 2 were fixed on 2026-09-12 and landed on main
+in `8dbefee94` (`fd8ba0620`, `d474a4830`, `c60873a7e`, `c39e7177a`, `9ab9a10ae`). The
+finding that stayed OPEN ("a write after `tls::read` has already reported the close
+never raises on macOS") was re-measured on 2026-09-25 and is a **false premise**. The
+write is delivered, every byte of it, to a peer that is still alive in its
+bidirectional shutdown, and Linux/OpenSSL and Windows/Schannel do exactly the same. On
+2026-09-25 the owner then **decided the rule** (Option 2): once `tls::read` has reported
+the peer's close, every later `tls::write` raises `ErrConnectionClosed` on every target.
+That is sub-issue D, fixed in `cc5acf00d`. Measuring the finding turned up three real defects, all fixed on `worktree-B-564`:
+a macOS `tls::write` payload leak, a Schannel `tls::read` that hung at a peer's
+`close_notify`, and a Windows crash on the second `tls::connect` of a process. See
+"Investigation, 2026-09-25" and the STATUS block at the end.
 Regression Test: `codegen::builtins::tls::gen_macos::tests::close_drains_to_cancelled`
 (sighting 1). For sighting 2:
 `codegen::builtins::tls::gen_macos::tests::{trampolines_publish_the_error_domain_before_the_gate,
 write_loads_its_gates_by_load_acquire}` and
 `arch::aarch64::encode::tests::encodes_load_acquire_store_release`, with the
-positive runtime pin `rt_macos_tls_write_after_clean_close`.
+positive runtime pin `rt_macos_tls_write_after_clean_close`. For the 2026-09-25 fixes:
+`gen_macos::tests::write_checks_the_terminal_state_before_creating_its_content`,
+`gen_schannel::schannel_tests::{a_close_notify_ends_the_read_and_stays_ended,
+connect_keeps_its_host_scratch_pointer_intact_to_the_release}`.
 
 ## The sighting
 
@@ -667,7 +673,7 @@ fixture lines (`cert`, `empty`, `deadline`) held in all 1,200 runs.
   includes `artifact_gate_all`, the three new pins, the positive runtime pin and
   `rt_macos_tls_write_capacity`.
 
-### OPEN: a write after `tls::read` has already reported the close never raises
+### OPEN (2026-09-12) → FALSE PREMISE (2026-09-25): a write after `tls::read` has already reported the close never raises
 
 This is a separate defect, and it is not the ordering race. It turned up while
 building the positive pin and was measured on BOTH compilers.
@@ -691,6 +697,12 @@ So Network.framework completes `nw_connection_send` with a null error once the
 receive side has delivered the peer's close, and the macOS `tls::write` never
 learns the peer is gone. That breaks `mfb spec stdlib transports` §17 for this
 sequence.
+
+**SUPERSEDED 2026-09-25, see "Sub-issue D".** The 2026-09-12 decision below assumed a
+platform difference that measurement showed does not exist. The owner replaced it with
+Option 2: after `tls::read` has reported the peer's close, every `tls::write` raises
+`ErrConnectionClosed` immediately, on every target ("all errors in all targets should be
+the same").
 
 **DECIDED 2026-09-12 (owner): raise like every other platform.** "All functions work the
 same on all platforms." After the peer's close has been observed, a later `tls::write` on
@@ -723,7 +735,7 @@ own, for the reason in "Why this is BLOCKED rather than fixed".
   store CTX_EDOM (index 15) BEFORE the gate at offset 16 (indices [6])"). It is
   GREEN with the reorder (`-- tls::`, 32 passed, exit 0). When option (1) lands,
   the test should also assert that the gate store is the release-store op.
-* **The instrument**, `bugs/bug-564-s2-instrument/{interpose3.c,loop.sh}`. To
+* **The instrument**, `bugs/completed/bug-564-s2-instrument/{interpose3.c,loop.sh}`. To
   replay the matched pair:
   `clang -dynamiclib -O1 -o interpose3.dylib interpose3.c`, then
   `B564_DYLIB=$PWD/interpose3.dylib B564_LOG=1 ./loop.sh <fixture.out> 600 8 <outdir>`
@@ -748,3 +760,236 @@ Not run on the reorder: `scripts/test-accept.sh` over `*tls*`, the `rt_*tls*`
 integration tests, and `.ncodesum` regeneration. The reorder moves the
 macos-aarch64 `tls`/`http`/`resource-xfer-slots` sums, and those belong to
 whichever branch lands option (1).
+
+---
+
+# Investigation, 2026-09-25: the OPEN finding
+
+Instruments: `bugs/completed/bug-564-halfclose-probes/`. `drive.py` is the macOS/Linux
+driver. It starts a server built from one of the `.mfb` files (cert paths baked to
+`/tmp/b564p`), runs `openssl s_client -msg` through a byte-counting TCP relay,
+releases the server's write, and prints what the server said, how many bytes the relay
+carried server→client after the close, and whether s_client was still alive after
+the writes. `drive.ps1` is the Windows twin with a .NET `SslStream` peer
+(`ShutdownAsync` = close_notify, then read to EOF). `probe.c` is a
+`DYLD_INSERT_LIBRARIES` interposer that wraps the Network.framework state, receive
+and send completion blocks and logs what each is handed. `dbg.ps1` is a
+Win32-debug-API harness, compiled by PowerShell `Add-Type` on the box, that prints
+the registers and stack at an access violation (box 2230 has no debugger).
+
+## It reproduces, but only in one shape
+
+`read_then_write.mfb`: `tls::read` until it raises, then 2000 writes of 64 KiB.
+Main `4ef538bb9`:
+
+| host | shape | server output | measured |
+|---|---|---|---|
+| macOS | write released as soon as the read raised (`now`) | `after=COMPLETED writes=2000`, 3/3 | 0.13 s |
+| macOS | write released after s_client exited (`exit`) | `after code=77070004 writes=1`, 3/3 | |
+
+The first repro attempt was the committed runtime test extended with a read-first
+case. It waited for s_client to exit before releasing the write, and it PASSED
+(`after=TRUE`). The defect needs the `now` shape.
+
+## What Network.framework hands over (probe.c, `now` shape)
+
+    state=3 ...
+    recv size=6 complete=0 final=1 err=N
+    recv size=0 complete=1 final=1 err=N      <- the peer's close
+    send#1 .. send#2000 err=N
+    state=5                                   <- our own close, at exit
+
+The receive completion is the only signal. Every send completes with no error, and
+the connection stays `ready`.
+
+## The premise is false: the bytes are delivered
+
+The 2026-09-12 note concluded "nothing was transmitted" from a `netstat` taken after
+the server process had exited. The relay measures it directly. Main's compiler, `now`
+shape:
+
+| host | backend | relayed server→client after the read raised | s_client alive after the writes |
+|---|---|---|---|
+| macOS | Network.framework | **131,248,024 B** (2000 × 65,536 + TLS framing), 2/2 | yes |
+| Linux box 2226 | OpenSSL 3.0.20 | **131,248,024 B**, 2/2 | yes |
+| Windows box 2230 | Schannel (TLS 1.2) | peer read **131,072,000 B** of plaintext (after fix 2 below) | yes |
+
+After sending close_notify, s_client (like .NET `ShutdownAsync`) waits in a
+bidirectional shutdown and reads until our close_notify arrives. The writes go to a
+live, reading peer, which is a TLS half-close. All three backends behave identically,
+and Linux had the same `after=COMPLETED writes=2000` all along; nobody had run it.
+Once the peer's socket is really gone (`exit` shape), all three raise
+`ErrConnectionClosed` within a few writes (macOS `writes=0..6`, Linux `writes=0..34`,
+Windows `writes=0`).
+
+So the 2026-09-12 owner decision ("raise like every other platform") rested on a
+platform difference that does not exist. A `CTX_RXEOF` "raise after a read saw the
+close" flag was written and measured, and then **reverted**. It would have made macOS
+the only platform that refuses to write to a half-closed peer. Whether ALL platforms
+should refuse is a new design question for the owner (TLS 1.2 says respond to
+close_notify with close_notify and discard pending writes; TLS 1.3 permits the
+half-close). It is not a bug in any backend.
+
+The same program also printed `again code=77070004 poll=TRUE` on all three after the
+fixes: a second read after the close raises, and `poll` reports readable
+(`read_twice_poll_write.mfb`).
+
+## Three real defects found while measuring it (all fixed)
+
+1. **macOS: every write to a failed connection leaked its payload.**
+   `gen_macos/client.rs:lower_tls_write_macos` ran the terminal-state guard after
+   `dispatch_data_create`, and `write_classify` never releases the content.
+   `failed_write_leak.mfb` (TRAP 2000 failing 64 KiB writes): peak RSS 134 MB on main,
+   9 MB fixed (`/usr/bin/time -l`).
+2. **Windows: `tls::read` hung at a peer's close_notify.** `DecryptMessage` returns
+   `SEC_I_CONTEXT_EXPIRED` (0x00090317), a success status carrying no plaintext, and
+   `gen_schannel_read_close.rs:lower_tls_read` looped back to a `recv` that only the
+   peer's FIN ends. Against the `drive.ps1` peer the read never returned (killed after
+   10 s). Fixed: route it to `ErrConnectionClosed`, and record it in
+   `st::PEER_CLOSED` so later reads raise and `poll` reports readable. `mfb spec stdlib
+   transports` also said "An empty read (`[]`) marks end of stream ... not an error",
+   which contradicted its own next paragraph and bug-465. Corrected.
+3. **Windows: the second `tls::connect` in a process crashed (0xC0000005).**
+   Pre-existing on main. `rt-behavior/tls/tls-poll-rt` stopped before `loop=`, and
+   `tls-poll-list-rt` printed nothing. Minimal: `two_connects.mfb`. `dbg.ps1` at the
+   fault: in `_mfb_arena_alloc`'s large-bin scan (rcx=0x10000, rdx=2, i.e. the second
+   connect's wide server name), the node read was `r10=0x382E382E382E38`, the ASCII of
+   `"8.8.8.8"`. Cause: `memory/marshal/byte_list.rs:emit_free_buffer_guarded` staged its
+   pointer in a hard-coded `%v9`, and Schannel `lower_tls_connect` (vregs minted from
+   `%v0`) had its host-string `HelperScratch` pointer in that same `%v9`. The
+   success-path free of the 64 KiB wide name overwrote the scratch pointer, `done` freed
+   the 64 KiB block again as 8 bytes, and the next connect's host string was carved out
+   of a block still linked in large bin 0. Fixed: the helper stages in the free's own
+   argument registers and names no vreg.
+   **Follow-up (`753391711`): the rest of the class.** Every other helper in
+   `marshal/byte_list.rs` (`emit_read_byte_list`, `emit_build_byte_list`,
+   `emit_zero_guarded`, `emit_free_byte_list_guarded`) and the record marshaller's
+   `MarshalRegs::fixed()` also named hard-coded `%v9`..`%v17`, and were safe only
+   because no current caller kept a value live in that range across them. All of
+   them now take the caller's `&mut Vregs` and mint their scratch. Every caller is
+   threaded: crypto `sign`/`verify`/`generate`/`randomBytes`, `gen_cert::cfdata_to_list`,
+   `big::toBytes`, Schannel `tls::read`. Pins:
+   `marshal::byte_list::tests::no_marshal_helper_names_a_fixed_vreg` (a source scan of
+   `byte_list.rs`/`record.rs`/`record_list.rs`, RED at `fc65db399` with 133 names) and
+   `every_helper_mints_its_vregs_from_the_caller` (behavioural; mutation-checked).
+   (Not a stale golden: cmd's `prog & echo %ERRORLEVEL%` expands before `prog` runs, so it
+   prints `[exit 0]` for a crash. Use PowerShell's `$LASTEXITCODE`.)
+
+## Sub-issue D (owner decision 2026-09-25): a write after the read reported the close
+
+**Decision (owner, 2026-09-25, replaces 2026-09-12):** "all errors in all targets should
+be the same." Once `tls::read` has raised `ErrConnectionClosed` on a socket, every later
+`tls::write` on it raises `ErrConnectionClosed` at once, before sending or allocating
+anything, on macOS, Linux and Windows. That includes the first write, an empty write, and
+a peer that is still connected (a TLS half-close).
+
+**RED**, with the `8c0a94828` compiler (the branch tip before this change) and the new
+fixture `tests/rt-behavior/tls/tls-write-after-read-closed-raises-rt`: the peer is
+`openssl s_client` with stdin closed, so it sends close_notify and stays connected. On
+Windows 2230, which has no openssl, the same program runs against a .NET `SslStream` peer
+that calls `ShutdownAsync` (`bugs/completed/bug-564-halfclose-probes/`). 3/3 on each target:
+
+    read closed=TRUE first write closed=completed second write closed=completed
+    empty write closed=completed read again closed=TRUE
+
+No backend already behaved this way.
+
+**Fix** (`cc5acf00d`): a sticky per-socket flag, set on read's `ErrConnectionClosed`
+exit and checked first in `write`. On macOS it is `CTX_RXEOF` (ctx +128), stored with
+`stlr` and loaded with `ldar`. On OpenSSL it is `TLS_OFFSET_PEER_CLOSED` (record +48):
+zeroed by `connect` and `accept`, and a declared `Verbatim` live slot so
+`thread::transfer` carries it. On Schannel it is `st::PEER_CLOSED`, now set at the
+common exit. The flag is set by `tls::read` on the thread that owns the socket, not by a
+Network.framework handler. The release/acquire pair keeps it ordered like the handler
+gates anyway, as the decision asked.
+
+**GREEN** on the final build, 3/3 on each target: every line `closed=TRUE`. Codegen pins:
+`{gen_macos::tests, gen_openssl::error_path_release_tests, schannel_tests}::a_read_that_reports_the_close_makes_every_later_write_raise`,
+all RED before and GREEN after.
+
+**Found while doing it, fixed in the same commit:**
+* **Schannel `tls::write` leaked its send buffer on every call** (header + max message
+  + trailer, ~16 KiB, never released on any exit). 20000 five-byte writes to a live
+  peer peaked at 400 MB working set on 2230; the fix peaks at 9 MB.
+  Pin: `write_releases_its_send_buffer_on_every_exit_after_allocating_it`.
+* **A read after the peer reset gave three different errors.** macOS
+  `ErrConnectionClosed`, Linux `ErrTlsFailed` (77070008, also after a plain FIN without
+  close_notify: OpenSSL 3 reports SSL_ERROR_SSL / `SSL_R_UNEXPECTED_EOF_WHILE_READING`),
+  Windows `ErrNetworkFailed` (77070003 on WSAECONNRESET). All three now give
+  77070004, measured. Positive control: a forged TLS record still raises `ErrTlsFailed`
+  on Linux. Pins: `read_names_a_departed_peer_connection_closed`,
+  `read_names_a_reset_peer_connection_closed`.
+
+**Not changed, on purpose:** `tcp::write` after `tcp::read` has reported end of stream
+is still handed to the kernel. A plaintext half-close is ordinary TCP, and the decision
+is about `tls`. Measured: the write completes and the peer receives it. The man page
+and §17 say so explicitly.
+
+**Docs:** `mfb man tls write` and `mfb man tls read` (census: 0 banned memory words,
+0 internals), and `mfb spec stdlib transports` §17 (two backend tables; citations and
+links census clean).
+
+## Phases
+
+- [x] Reproduce the OPEN finding and establish its mechanism. It reproduces only in
+  the `now` shape, and the mechanism is a live half-closed peer, not a dropped write.
+  Recorded above; no code change. The `CTX_RXEOF` attempt was reverted before commit.
+- [x] Fix 1, macOS write guard before the content.
+  Commit: `af430af78`
+- [x] Fix 2, Schannel read ends at close_notify and stays ended; spec §17 corrected.
+  Commit: `c366f7c0b`
+- [x] Fix 3, `emit_free_buffer_guarded` names no vreg (Windows second connect).
+  Commit: `97afb6768`
+- [x] Follow-up: every marshal helper mints its vregs from the caller's `Vregs`.
+  Commit: `753391711`
+- [x] Sub-issue D: write after a reported close raises on every target, plus the
+  Schannel send-buffer leak and the read-after-reset classification found with it.
+  Commit: `cc5acf00d`
+- [x] Archive the doc and probes, and correct the stale "never raises" comment in
+  `tests/net/rt_macos_tls_write_after_clean_close.rs`.
+  Commit: this commit (see `git log -1 -- bugs/completed/bug-564-tls-poll-rt-teardown-segfault.md`)
+
+## Verification (worktree-B-564)
+
+All pins were RED on main's code, and each failed on its own assertion:
+`write_checks_the_terminal_state_before_creating_its_content` ("guard (index 159)
+must run before dispatch_data_create (116)"),
+`a_close_notify_ends_the_read_and_stays_ended` ("missing a SEC_I_CONTEXT_EXPIRED
+arm"), and `connect_keeps_its_host_scratch_pointer_intact_to_the_release` (9 writers
+of `%v9`, 7 of them the helper's loads). The first two were run in a detached main
+worktree with only the test (plus the two constants) applied.
+
+- `cargo test --release --bin mfb -- tls crypto marshal resource::tests spec`:
+  132 passed, 0 failed.
+- `cargo test --release --no-fail-fast --test rt_macos_tls_write_after_clean_close
+  --test rt_macos_tls_write_capacity --test rt_double_close_is_refused --test
+  rt_tls_listener_local_address --test rt_tls_listener_thread_transfer --test
+  rt_tls_connect_allow_self_signed --test rt_macos_d4_union_state_tls`: 15 passed, 0 failed.
+- `scripts/test-accept.sh target/release/mfb /tmp/b564-accept-actual '*tls*' 'http*'
+  'resource-xfer-slots'`: 38 tests passed.
+- Windows 2230: `tls-poll-rt`, `tls-poll-list-rt`, `tls-read-eof-raises-rt` and
+  `crypto-ec-valid` match their goldens line for line; Linux 2226: `crypto-ec-valid` matches.
+- Goldens: the full `artifact-gate.sh all` found exactly the predicted set, and every
+  diff was localized per function against main's compiler. No function appeared or
+  vanished; see the three commit messages. 13 `.ncodesum` rewritten, then `artifact-gate [all]: 1528 tests, 1707 build(s), 2158 golden(s) checked, 0 diff(s)`.
+- Follow-up `753391711`: `cargo test --release --bin mfb -- marshal tls crypto big`
+  101 passed, 0 failed. `rt_big_int` 16, the four `rt_crypto_*_interop` 9, and the tls
+  `rt_*` 8, all passed. `test-accept.sh` over `*crypto*` `*tls*` `http*`
+  `resource-xfer-slots` `*big*`: 61 passed. The full gate showed exactly 12 diffs, each
+  confined to the changed callers' functions; after regen the scoped gates
+  crypto/tls/http/resource-xfer-slots each report 0 diffs. crypto-ec-valid matches its
+  golden on 2230 and 2226, and tls-poll-rt/tls-poll-list-rt/tls-read-eof-raises-rt match
+  theirs on 2230.
+- Sub-issue D `cc5acf00d`: `cargo test --release --bin mfb -- tls crypto http marshal
+  resource::tests spec` 141 passed, 0 failed. The seven tls `rt_*` targets gave
+  5/1/1/1/4/2/1 passed. `test-accept.sh … '*tls*' 'http*'` passed 38 tests, including the
+  new fixture. Scoped artifact gates `tls`/`http`/`resource-xfer-slots`/`crypto` report 0
+  diffs after regenerating 15 `.ncodesum`. On 2230, tls-poll-rt, tls-poll-list-rt and
+  tls-read-eof-raises-rt match their goldens.
+- The full `cargo test` suite was NOT run on this branch, on the coordinator's
+  instruction: it runs once after the parallel bug branches merge.
+
+STATUS: FIXED (`af430af78`, `c366f7c0b`, `97afb6768`, `753391711`, `cc5acf00d`). The OPEN
+finding's premise (a macOS-only difference) was false: the delivery to a half-closed
+peer was the same on all three backends. The owner then chose Option 2 on 2026-09-25,
+and sub-issue D implements it on every target.

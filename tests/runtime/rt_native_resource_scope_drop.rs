@@ -239,7 +239,10 @@ fn native_resource_closes_on_fail() {
         \x20 END TRAP\n\
          END FUNC\n",
         "_mfb_fn_dropIt",
-        1,
+        // Two exit paths: the `FAIL`, and the out-of-memory raise while building
+        // the `error(...)` record, which closes `db` too since bug-695 (before it,
+        // that exit returned leaving the handle open).
+        2,
     );
 }
 

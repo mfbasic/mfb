@@ -1,12 +1,80 @@
 # bug-690: the arena never reuses a freed large block unless the next request is the exact same size, so an animation whose scene size varies maps memory without bound
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Other (memory: unbounded address-space growth with no leaked live data)
 
-Status: Open
-Regression Test: none yet — `tests/runtime/rt_arena_large_block_reuse.rs` (Phase 1)
+Status: Fixed (worktree-B-690; see STATUS block)
+Regression Test: `tests/runtime/rt_arena_large_block_reuse.rs` (console varying-vs-fixed, climbing length, canvas worker + graphics arenas)
+
+## STATUS: FIXED (ef4a8f0db)
+
+Reproduced exactly as documented at main `4ef538bb9` (console: 507 maps /
+11,202,560 B varying vs 9 / 159,744 B fixed; canvas doc program: worker
+2,676,719,616 B mapped for 47.6 MB peak live, graphics 183,549,952 B for
+30.3 MB). Mechanism confirmed: `arena.rs:lower_arena_alloc`
+`arena_alloc_large_bin` scanned only for an exact-size node, and
+`lower_arena_free` `arena_free_large_bin` hashed by exact size; no large-bin
+drain existed anywhere (the Phase 2 bullet about "`lower_arena_flush_coalesce`'s
+large-bin drain" was a false premise — the flush never gathered the large bins).
+
+What landed (all in `src/codegen/memory/arena/arena.rs` +
+`error_constants.rs`), deviating from the doc's design 1 in three measured ways:
+
+1. **Design 1 as written** — 64 log2 size classes (4 per power of two,
+   `emit_large_bin_slot`), best fit among 16 nodes of the own class (exact wins),
+   else the head of the next non-empty higher class, split + re-park. Alone it left
+   the console repro at 2,154,496 B (15× fixed): splits only shrink chunks.
+2. **Design 2 was needed**, gated differently than proposed. The flush now also
+   gathers the large bins and re-parks large runs by class. A big miss flushes only
+   while a new arena-state word `ARENA_LARGE_FLUSH_CREDIT_OFFSET` (appended at
+   +3768; state 3768 → 3776 B; no existing offset moved) is positive: large frees
+   add their bytes, each flush resets it to −256 B per chunk it sorted. The
+   doc's "parked > mapped/2" / bytes-left-parked gate was measured too
+   conservative (console stuck at 466,944 B, 3.4×).
+3. **Climb slack** (not in the doc): mapped blocks never merge, so a request
+   climbing a little past what it freed maps afresh every step. A big grow with a
+   chunk parked in its own class or the one below maps `size/4` extra. Without it
+   the canvas test's worker arena ended at 157 MB for 26 MB live (6×).
+
+Also: a small request that finds nothing else takes at most 64 KiB
+(`ARENA_LARGE_DV_MAX`) of the smallest parked large chunk as its designated
+victim, re-parking the rest.
+
+Results (macos-aarch64, `--debug` counters):
+
+| case | before | after |
+| --- | --- | --- |
+| console varying / fixed | 11,202,560 / 159,744 B | 139,264 / 139,264 B |
+| climbing copy, 1.36 MB peak | 678,772,736 B | 3,506,176 B |
+| doc canvas program, worker | 2,676,719,616 B (47.6 MB peak) | 107,753,472 B (57.9 MB peak) |
+| doc canvas program, graphics | 183,549,952 B (30.3 MB peak) | 41,480,192 B (30.2 MB peak) |
+| doc canvas RSS 10 s → 20 s (release) | 1,085 → 2,135 MB | 144 → 144 MB |
+
+Cross-target runtime: console + climb programs give identical counters on
+windows-x86_64 (box 2230) and linux-aarch64 glibc (box 2226). linux-x86_64 and
+linux-riscv64 were not run (boxes 2227/2228/2229/2232 refused ssh; docker could
+not start an emulated container) — covered by the byte gate only.
+
+Timing: whole-benchmark total unchanged (3,658 vs 3,663 ms, sum of per-row min
+medians over 3 base / 2 fixed `--run 5` runs); `arena` group unchanged; the
+mixed-churn repro flat at ~76 ms/repeat on both. `list (Fixed) mid` measured
++20–25% and `string slice` +10%, `reduce`/`reduceRight` −19%. Isolated: `take`
+with the identical 4,048-byte alloc/free pair and identical path counters was
+unchanged; the `mid` loop's machine code and addresses were identical; an
+unrelated later edit to `arena_alloc` moved `mid` from ~800 to 707 µs (base
+673). Recorded as a layout-sensitive microbenchmark shift, not an allocator
+cost — see `.ai/codegen-invariants.md`.
+
+`examples/wind`: 10 minutes at a flat 286 MB RSS with the fix — but the base
+compiler's wind was also flat (311 → 320 MB over 90 s) on this host, so the run
+did not reproduce the growth and is not evidence either way.
+
+Goldens: `scripts/regen-native-goldens.sh` rewrote 230, 166 changed (157
+`.ncodesum`, 7 `.ncode`, 2 `.mir`); per-function diff of every raw `.ncode`:
+only the entry (`_main` / `_mfb_macapp_program`) and the four arena helpers.
+`artifact-gate.sh all`: 0 diffs at main and on the branch (2,158 goldens).
 
 A program that frees and reallocates blocks larger than `ARENA_QUICK_BIN_MAX`
 (2048 bytes) keeps mapping new memory whenever the sizes don't repeat exactly.
@@ -304,55 +372,56 @@ may any golden that embeds allocator instructions. Regenerate through
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_arena_large_block_reuse.rs`: build the console
+- [x] Add `tests/runtime/rt_arena_large_block_reuse.rs`: build the console
       reproduction with `tests/common/debug_report.rs:build_debug`, run the
       varying and fixed variants, and assert
       `mapped_bytes(varying) ≤ 2 × mapped_bytes(fixed)`. Confirm it fails today
       (11.2 MB vs 0.16 MB).
-- [ ] Add an `--app` canvas case (`common::build_app_debug`, headless) that
+- [x] Add an `--app` canvas case (`common::build_app_debug`, headless) that
       presents a varying-count scene for N frames and asserts
       `mapped_bytes ≤ 4 × peak_live_bytes` for both arenas. Confirm it fails.
-- [ ] Record baseline timings for the plan-25-A / plan-64 benchmark rows and
+- [x] Record baseline timings for the plan-25-A / plan-64 benchmark rows and
       the mixed-churn repro in `.ai/codegen-invariants.md`, for Phase 3 to
       compare against.
 
 Acceptance: both new tests fail for the documented reason; baselines are
-written into this file.
-Commit: —
+written into this file (STATUS block).
+Commit: cc428d877 (also a climbing-length case; all three RED at 4ef538bb9)
 
 ### Phase 2 — the fix
 
-- [ ] Implement design 1 in `lower_arena_alloc` / `lower_arena_free`
+- [x] Implement design 1 in `lower_arena_alloc` / `lower_arena_free`
       (`src/codegen/memory/arena/arena.rs`) and the bin constants
       (`error_constants.rs`). Keep the arena-state size and offsets if the
       class count fits in the existing 64 slots; otherwise append, never
       reorder (see the `ARENA_LARGE_BIN_BASE_OFFSET` comment).
-- [ ] Decide, from the Phase 1 measurements, whether design 2 is needed as
+- [x] Decide, from the Phase 1 measurements, whether design 2 is needed as
       well.
-- [ ] Update `lower_arena_flush_coalesce`'s large-bin drain to match the new
+- [x] Update `lower_arena_flush_coalesce`'s large-bin drain to match the new
       bin index.
-- [ ] Correct the comments that describe exact-size-only reuse.
+- [x] Correct the comments that describe exact-size-only reuse.
 
 Acceptance: the Phase 1 tests pass; the contrast cases still behave as
-documented; nothing in Non-goals changed.
-Commit: —
+documented; nothing in Non-goals changed (one word appended to the arena
+state, no offset moved).
+Commit: ef4a8f0db (design 1 + a credit-gated design 2 + climb slack), 29bcf52ff (fmt)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate `.ncodesum` goldens through `scripts/artifact-gate.sh`; the
+- [x] Regenerate `.ncodesum` goldens through `scripts/artifact-gate.sh`; the
       delta must be only the allocator's code.
-- [ ] Re-run the plan-25-A / plan-64 benchmark rows and the mixed-churn repro
+- [x] Re-run the plan-25-A / plan-64 benchmark rows and the mixed-churn repro
       against the Phase 1 baselines; no time regression.
-- [ ] Full suite (`cargo test`, acceptance gates per `.ai/testing-gates.md`).
-- [ ] `examples/wind` for 10 minutes with RSS sampled: flat after the forecast
+- [x] Full suite — per coordinator instruction only the touched area was run on this branch (artifact-gate all + arena/runtime/canvas test binaries); the coordinator runs the full suite after merge.
+- [x] `examples/wind` for 10 minutes (flat, but not discriminating here — see STATUS) with RSS sampled: flat after the forecast
       loads.
-- [ ] Update `mfb spec memory arenas` to describe the new large-bin policy.
+- [x] Update `mfb spec memory arenas` to describe the new large-bin policy.
       Update `.ai/codegen-invariants.md`: record the fix, and note whether the
       mixed-churn entry changed.
 
 Acceptance: full suite green; the golden delta is exactly the allocator; the
 reproductions pass; no benchmark regression.
-Commit: —
+Commit: 04383c0ee (goldens)
 
 ## Validation Plan
 

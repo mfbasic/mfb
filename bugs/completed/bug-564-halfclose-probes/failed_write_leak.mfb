@@ -1,0 +1,41 @@
+IMPORT errorCode
+IMPORT io
+IMPORT net
+IMPORT strings
+IMPORT tls
+
+FUNC readUntilClosed(RES conn AS tls::Socket) AS String
+  WHILE TRUE
+    LET chunk AS List OF Byte = tls::read(conn, 4096)
+  END WHILE
+  RETURN "drained=NEVER"
+  TRAP(err)
+    RETURN "drained code=" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC tryWrite(RES conn AS tls::Socket, chunk AS String) AS Boolean
+  tls::write(conn, chunk)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrConnectionClosed
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES s = tls::listen("127.0.0.1", 0, "/tmp/b564p/cert.pem", "/tmp/b564p/key.pem")
+  LET at AS net::Address = tls::localAddress(s)
+  io::print("port=" & toString(at.port))
+  RES conn = tls::accept(s)
+  io::print(readUntilClosed(conn))
+  LET go AS String = io::input()
+  LET chunk AS String = strings::repeat("x", 65536)
+  MUT raised = 0
+  FOR i = 1 TO 2000
+    IF tryWrite(conn, chunk) THEN
+      raised = raised + 1
+    END IF
+  NEXT
+  io::print("raisedClosed=" & toString(raised))
+  RETURN 0
+END FUNC
