@@ -466,6 +466,9 @@ const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
 /// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
 /// rebuilding the window. Only reconcile-built (None-start) windows use it.
 const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
+/// bug-699: the `MFBTextView` class a `None`-start bootstrap registers, stashed
+/// for the reconcile's builder to instantiate on the first `setMode(Console)`.
+const RECONCILE_TV_CLASS_KEY: &str = "_mfb_macapp_reconcile_tv_class_key";
 // plan-98-A Phase 3: the `Mode.Canvas` arm of the reconcile. Canvas swaps the
 // window's content view for a bare layer-backed `NSView` — a substitute for the
 // transcript / TermView, not a second window — so plan-98-E can later attach a
@@ -1318,7 +1321,11 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
+    for key in [
+        RECONCILE_TV_KEY,
+        RECONCILE_TV_CLASS_KEY,
+        CANVAS_VIEW_ASSOC_KEY,
+    ] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),

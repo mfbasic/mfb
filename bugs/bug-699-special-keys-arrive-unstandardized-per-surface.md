@@ -8,8 +8,8 @@ Class: Correctness
 Status: Open — **redesigned 2026-09-25 (owner).** Originally "special keys arrive
 unstandardised per surface"; the owner widened it into one uniform `io` keyboard-input
 surface, and folded in plan-69 (`term::` key down/up, deleted — see "plan-69").
-Phases 1 and 2 are done (2026-09-25); the two Open details carry recommendations
-**awaiting owner**; Phases 3–7 remain.
+Phases 1 and 2 are done (2026-09-25); the Open details were settled by the owner
+(2026-09-25, Decision 9); Phases 3–7 remain.
 Regression Test: `tests/codegen/app_special_keys.rs` (`cargo test --test
 app_special_keys`; the Phase 3 cases are `#[ignore]`d until then), the decoder corpus
 and reader tests (`cargo test --bin mfb codegen::io::input`), and
@@ -129,6 +129,14 @@ References:
 7. **Removed, in one break:** `io::readChar`, `io::readByte`, `io::pollInput`. Every
    caller migrates in the same change (Blast Radius). No deprecated aliases.
    `pollInput`'s job is `timeoutMs = 0` on the reader the program actually uses.
+9. **Settled from Phase 1 (owner, 2026-09-25).** (a) `io::readLine`/`io::input` keep
+   raising `ErrEncoding` on invalid UTF-8 — they read data, where a dropped byte
+   would be a silently shortened line; only the keystroke readers drop. (b)
+   `io::input([prompt], [timeoutMs])` keeps its signature; its man page points a
+   timed read without a prompt at `io::readLine(timeoutMs)`. (c) `term::on` pushes
+   kitty's alternate-keys `0b100` and associated-text `0b10000` flags as well, so a
+   shifted or layout-dependent key's text arrives from the terminal rather than being
+   guessed.
 8. **plan-69 is deleted** and rolled into this bug: its `term::Key` /
    `term::getKeyDown` / `term::getKeyUp` design is replaced by `io::readKey` and
    `KeyEvent`.
@@ -319,7 +327,9 @@ decoder. Keys are left to every program.
 - **Kitty lifecycle.** `term::on` detects support without hanging (the kitty query
   `CSI ? u` followed by Primary Device Attributes `CSI c`, which every terminal
   answers; only a DA reply means unsupported), pushes the progressive-enhancement
-  flags (disambiguate, report event types, report all keys as escape codes), and
+  flags (disambiguate `0b1`, report event types `0b10`, report alternate keys
+  `0b100`, report all keys as escape codes `0b1000`, report associated text
+  `0b10000` — owner, 2026-09-25, Decision 9), and
   `term::off` and the terminal-restore exit path pop them.
 - **The six readers** behave per the Decisions on every surface, with the timeout
   convention.
@@ -346,7 +356,8 @@ decoder. Keys are left to every program.
 - Whether `io::readLine` / `io::input` also drop invalid bytes instead of raising
   `ErrEncoding` (Decision 2 was made for `readScalar`/`readGrapheme`). Consistency
   argues yes; raise it with the owner before changing it.
-  **Recommendation (awaiting owner): keep `ErrEncoding` on `readLine`/`input`.** A
+  **Settled by the owner, 2026-09-25 (Decision 9): keep `ErrEncoding` on
+  `readLine`/`input`.** The recommendation it confirmed: A
   line reader is the data reader: it is what reads a piped or redirected file, where
   an ill-formed byte means the input is not the text the program expects, and
   dropping it would hand back a silently shortened line that looks valid. The
@@ -362,7 +373,7 @@ decoder. Keys are left to every program.
   skip a parameter before a later named one, so `io::input(timeoutMs := 5000)` is
   rejected (`TYPE_CALL_ARITY_MISMATCH`), and the only spellings are
   `io::input("", 5000)` and `io::input(prompt := "", timeoutMs := 5000)`.
-  Recommendation (awaiting owner): keep the signature as decided, and have the man
+  **Settled by the owner, 2026-09-25 (Decision 9):** keep the signature as decided, and have the man
   page point a caller who wants a timeout without a prompt at `io::readLine(5000)`,
   which is exactly that call (`input` differs only by writing its prompt). No new
   overload is needed.**
@@ -512,8 +523,11 @@ keeps the old readers working.
       their abandonment at `FINAL`; invalid UTF-8 per the maximal-subpart rule;
       combining, ZWJ, flag and Hangul clusters, a cluster ending at a control or a
       sequence, the 128-byte cap at its exact edge; CR, LF, CR LF, CR CR LF, LF CR.
-- [ ] Settle the Open details with the owner. — Recommendations recorded under
-      "Open detail", **awaiting owner**. They affect only Phase 4.
+- [x] Settle the Open details with the owner. — Settled 2026-09-25, recorded as
+      Decision 9 and under "Open detail": line readers keep `ErrEncoding`; `input`
+      keeps its signature and its man page points a prompt-less timed read at
+      `io::readLine(timeoutMs)`; Phase 5 also pushes alternate keys and associated
+      text.
 
 Acceptance: the new tests fail for the documented reason; the matrix is measured on
 three platforms. **Met, with the two UNMEASURED gaps above** (Linux x86_64; Windows
@@ -607,8 +621,9 @@ Commit: —
 
 ### Phase 5: kitty in `term::on` / `term::off`
 
-- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on`, pop in `term::off`
-      and the exit-path restore.
+- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on` — disambiguate,
+      event types, alternate keys, all keys as escape codes, associated text
+      (`CSI > 31 u`; Decision 9) — pop in `term::off` and the exit-path restore.
 - [ ] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
       `NotSupported` elsewhere; `readScalar`/`readGrapheme`/`readLine` see plain text
       either way.
@@ -650,10 +665,10 @@ Recorded where they bite; none changes a Decision.
   with no text (`Shift+a` is `CSI 97;2u`), so on a non-US layout the decoder cannot
   know what Shift typed. It falls back to the kitty alternate-key subfield when
   present, else to ASCII upper case (corpus: "kitty Shift+a without text is A") —
-  right on a US layout only. Recommendation (awaiting owner, Phase 5): also push
-  report-associated-text `0b10000` (and alternate keys `0b100`), and have Phase 3
-  inject the associated text (`CSI 97;2;65u`), so the fallback never runs on our own
-  surfaces.
+  right on a US layout only. **Settled by the owner (Decision 9):** Phase 5 also
+  pushes alternate keys `0b100` and associated text `0b10000`, so the fallback
+  never runs under a kitty terminal. Phase 3's injection should carry the associated
+  text the same way (`CSI 97;2;65u`).
 - **Alt+letter's text.** The decoder gives `ESC a` (a terminal's Meta-sends-Escape)
   and kitty `CSI 97;3u` the same token: `Unicode`, grapheme `"a"`, Alt, text `"a"` —
   so `readScalar` returns `a` for Alt+a on every surface, and never an ESC it did
@@ -691,9 +706,8 @@ Recorded where they bite; none changes a Decision.
    exact. Fixed by the same change that threads the input buffer (the loop head now
    sits above every pre-read stage); test
    `native_term_mouse_line_read_keeps_the_bytes_after_an_escape`.
-2. **NOT fixed (Phase 3 territory, out of this assignment's scope) — macOS: a
-   program that calls `app::setMode` never registers `MFBTextView keyDown:` or the
-   `TermView` class.** Both are created only by the `Console`-start branch of
+2. **FIXED here — macOS: a program that calls `app::setMode` never registered
+   `MFBTextView keyDown:` or the `TermView` class.** Both are created only by the `Console`-start branch of
    `emit_main_bootstrap` (`src/target/macos_aarch64/app/bootstrap.rs`); a `None`-start
    program's first `setMode(Console)` builds a plain non-editable `NSTextView`
    (`emit_reconcile_build_helper`), and nothing registers `TermView`. Found by the
@@ -702,8 +716,29 @@ Recorded where they bite; none changes a Decision.
    15.7.7, base compiler, keys by `CGEventPostToPid`):** a program that calls
    `app::setMode(app::Mode.Console)` and then loops on `io::readByte` receives
    nothing for `a`, `b`, `q` and never exits; the same program without the
-   `setMode` line prints `97 98` and exits on `q`. Whether `term::on` in such a
-   program fails is not measured.
+   `setMode` line prints `97 98` and exits on `q`; a Canvas → Console → Canvas
+   program received nothing on any surface.
+   **Fix** (registration only; the bytes the handlers write are untouched, Phase 3's):
+   the `MFBTextView` class, the `TermView` surface and the input-line buffer are now
+   built by helpers both start modes call (`emit_textview_class`,
+   `emit_termview_surface`, `emit_input_line_buffer`; the Console-start path emits
+   exactly what it did). A `None` start stashes the class under
+   `RECONCILE_TV_CLASS_KEY`; `emit_reconcile_build_helper` instantiates it and also
+   records the view as what `term::off` swaps back; the `Console` reconcile makes it
+   first responder. **RED → GREEN:**
+   `app_special_keys::macos_a_mode_switching_program_registers_every_key_down_handler`
+   (RED: only the canvas `keyDown:` found; GREEN), and by hand with
+   `CGEventPostToPid` on the fixed compiler: `setMode(Console)` + reads → `97 98`,
+   then `term::on` → `99`, after `term::off` → `100`; Canvas → Console → Canvas →
+   `97 98 99` (base: nothing). `cargo test --bin mfb macos_aarch64` 39 passed;
+   `cargo test --release --test cli_app_canvas_mode` 11 passed.
+   **Goldens that move (expected, regenerate on merge):** only the two `setMode`
+   fixtures' macOS app code —
+   `tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.macos-aarch64.app.ncodesum`
+   and `tests/syntax/app/app-window-surface/golden/app_window_surface.macos-aarch64.app.ncodesum`
+   (checked by rebuilding every native golden of those two plus
+   `macos-app-mode-io`/`-term`: every other one identical; both are identical
+   on the base compiler).
 3. **NOT fixed (measured by the Phase 1 agent on 2230, not in this assignment's
    scope) — Windows `--app`: a program that never calls `app::setMode` gets `0` from
    `io::readByte` immediately and forever, before any key.** Adding an explicit
@@ -723,8 +758,8 @@ Recorded where they bite; none changes a Decision.
 
 ## Open Decisions
 
-All design decisions were taken by the owner on 2026-09-25 (see "Decisions"). The two
-Open details under Goal remain for Phase 1.
+All design decisions were taken by the owner on 2026-09-25 (see "Decisions", including
+Decision 9, which settled the two Open details and the Phase 5 flag set).
 
 ## Summary
 

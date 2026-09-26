@@ -457,6 +457,40 @@ fn macos_every_surface_registers_a_key_down_handler_that_the_model_drives() {
     }
 }
 
+/// bug-699 (found by this harness): a program that calls `app::setMode` starts
+/// windowless, and the bootstrap built the transcript's `MFBTextView` class and
+/// the TUI's `TermView` only on the `Console`-start path — so after
+/// `setMode(Console)` the window took no keys at all (measured on macOS 15.7.7:
+/// nothing delivered, while the same program without `setMode` got every key),
+/// and `term::on` had no TermView to show. A mode-switching program must register
+/// the same `keyDown:` handlers a Console-start one does.
+#[test]
+fn macos_a_mode_switching_program_registers_every_key_down_handler() {
+    let surfaces = mac_surfaces_in(ncode_of("macos-aarch64", PROGRAM));
+    for imp in [
+        "_mfb_macapp_key_down",
+        "_mfb_macapp_term_keyDown",
+        "_mfb_macapp_canvas_keyDown",
+    ] {
+        let surface = surfaces
+            .iter()
+            .find(|s| s.key_down == imp)
+            .unwrap_or_else(|| {
+                panic!(
+                    "a setMode program registers no keyDown: whose IMP is {imp}; found {:?}",
+                    surfaces.iter().map(|s| &s.key_down).collect::<Vec<_>>()
+                )
+            });
+        let bytes = run_mac(surface.ncode, imp, &MacKey::letter_a(), appkit::KEY_DOWN);
+        assert_injects(
+            &format!("macOS {} ({imp})", surface.class),
+            "a",
+            &bytes,
+            b"a",
+        );
+    }
+}
+
 #[test]
 #[ignore = "bug-699 Phase 3: macOS keyDown: writes the AppKit private-use code point verbatim"]
 fn macos_left_injects_kitty_left() {
