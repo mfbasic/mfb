@@ -134,6 +134,19 @@ grow already does.
   `merge`) reclaims first too. A record field that is not its record's last
   inlined field rebuilds by copying (`fieldCopy`), and was already flat at the base.
 
+- **C4 — the reclaim trigger underflowed (found at integration, 2026-09-26;
+  fixed in `3a7232241`, test `a3518ffba`; Status stays FIXED).** The helper
+  decided with `dataLength - live > live`. `live` counts entry-order alignment
+  pads; once moved values are packed last, a map needs fewer, so after a repack
+  `dataLength < live`, the subtraction wrapped, and the helper kept repacking and
+  returning 1 — the grow retried forever. `list-set-shared-offset-rt` (a
+  `Map OF Integer TO String` whose values keep outgrowing their slots) hung at
+  `2c228550a`. Now `dataLength > 2 * live`; the packed length is at most
+  `2 * live`, so a repack is never followed by another.
+  `a_map_reclaim_terminates_when_moved_values_pack_tighter` pins it (RED: did not
+  finish in 30 s). No earlier churn shape combined 8-byte keys with relocated
+  values. See bug-732 C6/C7 for the list half found by the same audit.
+
 ## Phases
 
 ### Phase 1 — failing test

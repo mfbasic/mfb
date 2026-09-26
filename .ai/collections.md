@@ -71,7 +71,7 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   reclaim a pop/insert churn of 64 strings went 1.1 MB → 8.7 MB for 8× the rounds;
   without the copying pack, `removeAt` in place + `append` rebuilt at a non-last
   field went 75 KB → 537 KB → 4.2 MB (and each copy copied the growing dead
-  region, so it was quadratic too). A NEW path that grows a list's data region,
+  region, so it was quadratic too). **The reclaim's trigger has two traps, both shipped once (bug-732 C6, C7):** (1) never compute `dataLength - live` — `live` counts ENTRY-order alignment pads and an out-of-order region can hold fewer, so it underflows; the map reclaim then "repacked" forever (`list-set-shared-offset-rt` hung). Compare `dataLength > 2 * live` instead. (2) A repack keeps `capacity` and SHRINKS the data region to step(live), while a verbatim grow steps BOTH `capacity` and `dataCapacity` — so a small list whose data keeps overflowing alternated repack/grow and doubled its entry capacity every cycle (two strings: 1 KB → 933 KB for 8× rounds; records 3.1 GB; an insert shape never finished). The list reclaim therefore also repacks on ANY dead bytes while `count < capacity`. `a_small_list_under_length_changing_churn_stays_small` pins it. A NEW path that grows a list's data region,
   in place or by copying, must do one of the two; `rt_self_update_cost`'s churn
   test (peak live bytes flat for 8× the rounds) is the instrument, and it goes
   red only if the churn actually reaches your path — prove it red with the

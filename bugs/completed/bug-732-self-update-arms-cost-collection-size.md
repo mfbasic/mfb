@@ -184,6 +184,43 @@ the RED runs below; none was a false premise. What the work added:
   `removeAt`, `insert` and `replace` said "there is no cheap in-place shape … every
   call copies the list", false since plan-121-B/plan-142: corrected.
 
+- **C6 / C7 — two regressions found at integration (2026-09-26), fixed in
+  `3a7232241` (tests `a3518ffba`); Status stays FIXED.** Acceptance fixture
+  `rt-behavior/collections/list-set-shared-offset-rt` spun >120 s CPU at
+  `2c228550a` (0.21 s on main). Bisected across this bug's commits with the
+  release compilers kept per step: the bug-732 end state (`/tmp/b732-cur2-mfb`)
+  ran it in time, the first bug-733 build hung — the fixture's
+  `Map OF Integer TO String` whose values keep outgrowing their slots.
+  - **C6 (bug-733's reclaim):** the trigger `dataLength - live > live`
+    underflowed. `live` counts entry-order alignment pads; a packed map with its
+    moved values last needs fewer, so right after a repack `dataLength < live`,
+    the subtraction wrapped, and the helper repacked and returned 1 forever. Now
+    `dataLength > 2 * live`, which a packed map can never satisfy.
+  - **C7 (this bug's list reclaim), found by the audit the coordinator asked for:**
+    a repack keeps `capacity` and sizes the data from the live bytes, a verbatim
+    grow steps `capacity` and `dataCapacity`. A list holding a few elements whose
+    payloads keep changing length alternated the two and doubled its entry
+    capacity each cycle — exponential memory: a two-`String` list under `set` +
+    `append` + `removeAt(0)` peaked at 933,568 B after 1,200 rounds (1,088 B after
+    150), a record list at 3.1 GB, and an `insert` shape never finished. The list
+    reclaim now also repacks on any dead bytes while `count < capacity`. The
+    shape exists at the base `d92e9d129` too for `set` + `prepend` + `take`
+    (bug-652's out-of-order compaction repacks the same way): 20 rounds took
+    10 s there.
+  - **Why no earlier test caught them:** the churn tests used `String` keys
+    (alignment 1, so pads never differed) or values that only grew in place, and
+    their lists held 64 elements of fixed-length payloads, where the repack /
+    grow alternation never set in within 16,000 rounds. The new tests use 8-byte
+    keys with relocated values, and two-element lists with lengths that rise and
+    fall. The audit also ran a 30,000-round fuzz over `Map OF Integer TO String`,
+    `Map OF String TO Rec`, `Map OF Float TO Integer`, `Map OF Integer TO Rec` and
+    record/`String` lists with every mutation: output identical to the base where
+    the base finishes (the base runs out of memory on the 12,000-round list part),
+    `--debug` frees every block, and CPU fell from 2.24 s to 0.16 s against
+    `2c228550a`.
+  - Map grows keep their `dataCapacity` across the in-place reclaim, so they do
+    not have C7's alternation; the churn test stays flat.
+
 ## Phases
 
 ### Phase 1 — failing tests

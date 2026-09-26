@@ -657,8 +657,8 @@ read `byteLength` bytes and hand on the tight form.
     [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim_window]]
   - Dead bytes left by an in-place removal cost nothing until the list's data
     region next grows: every in-place grow of a variable-width list first totals
-    the live bytes (the grow already copies every entry) and repacks when the
-    dead bytes outnumber them, so a loop that keeps removing and adding stays
+    the live bytes (the grow already copies every entry) and repacks over them
+    (see *Compaction* for the exact rule), so a loop that keeps removing and adding stays
     within a constant factor of its live bytes. A `Map`/`Set` grow does the same
     for dead key and value bytes. See *Compaction*.
     [[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
@@ -862,11 +862,19 @@ step of the live bytes plus the pending write plus `count`. It runs when a `set`
 tail write does not fit `dataCapacity`, when an out-of-order shrinking
 compaction leaves more dead bytes than live ones, and at the start of every other
 in-place grow of the data region (`append`, bulk `append`, `insert`, `prepend`,
-and their record-field forms) when the dead bytes outnumber the live ones — the
-grow first totals the live bytes, an O(count) walk its own entry copy already
-pays for. Every verbatim grow therefore starts from at most as many dead bytes as
-live ones, and the data capacity stays within a constant factor of the live
-bytes. [[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
+and their record-field forms) — the grow first totals the live bytes, an
+O(count) walk its own entry copy already pays for, and repacks when
+`dataLength > 2 * live`, or, while the entry table still has a free slot, when
+`dataLength > live` (any dead bytes at all). The second rule matters because a
+verbatim grow steps the entry `capacity` along with `dataCapacity` while a repack
+keeps `capacity` and sizes the data from the live bytes: without it, a list that
+holds a few elements but keeps overflowing its data alternated repack and
+verbatim grow and doubled its entry capacity every time. With it, a data-only
+overflow over dead bytes is always a repack; `capacity` grows only when the
+entries are full, and the data capacity stays within a constant factor of the
+live bytes. Both tests compare, never subtract (`live` counts entry-order
+alignment pads, which an out-of-order data region can undercut), and right after
+a repack neither holds, so the retried grow cannot repack again. [[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
 [[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
 
 The copying `insert`/`append`/`prepend` (`lower_list_insert_collection`, also
@@ -880,7 +888,7 @@ A `Map`/`Set`'s dead key and value bytes are reclaimed the same way: every
 in-place grow of a map or set — a `set`/`add` that needs a new entry or data
 room, a `set` whose value outgrew its slot, and the one-time reserve of a batch
 update (`union`, `symmetricDifference`, `merge`) — first calls
-`_mfb_rt_map_reclaim`. When the dead bytes outnumber the live ones it slides the
+`_mfb_rt_map_reclaim`. When `dataLength > 2 * live` it slides the
 live keys and values, each aligned as the entry writer aligns it, down to the
 front of the data region in place, rewrites their offsets, and the grow's room
 check is retried. It allocates nothing and cannot fail. The block, its capacity
@@ -891,7 +899,13 @@ are heap-sorted by offset in the bucket region and merged in; the index is then
 marked not-ready and rebuilt by the next probe. When nothing was out of order,
 the bucket region is untouched and, since the buckets hold entry indices, the
 index stays valid. The repack costs O(count + live), plus O(r log r) for `r`
-moved values, and runs only once as many bytes have died as are live.
+moved values, and runs only once as many bytes have died as are live. The test
+compares rather than subtracting `dataLength - live`: a packed map whose moved
+values sit last needs fewer alignment pads than the entry-order `live` counts, so
+after a repack `dataLength` can be below `live`, and the subtraction underflowed
+into a repack that repeated forever. The packed length is at most `2 * live`, so a
+repack is never followed by another. Unlike a list repack the map reclaim does
+not shrink `dataCapacity`, so a map grow that follows it cannot cycle.
 [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_reclaim_helper]]
 [[src/codegen/collection/map/map_mutate.rs:emit_map_reclaim_before_grow]]
 
