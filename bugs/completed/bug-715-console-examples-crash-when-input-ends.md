@@ -1,14 +1,15 @@
 # bug-715: console examples exit 255 with a raw error code when stdin ends early
 
-Last updated: 2026-09-25
+STATUS: FIXED (cab39baef)
+
+Last updated: 2026-09-26
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: piped-stdin runs of each affected example asserting exit
-status and stderr text (see "Validation Plan"); examples have no test
-harness today
+Status: Closed
+Regression Test: `tools/example-eof-probe/probe.py` — piped-stdin runs of each
+affected example asserting exit status and stderr text.
 
 Four examples call `io::input`/`io::readChar` without a `TRAP`, at least
 once, on a path reachable during normal use (a name prompt, a menu choice, a
@@ -260,8 +261,8 @@ enclosing function) is `TRAP`ped:
 - **Already guarded — unaffected:** `examples/snake/src/main.mfb`,
   `examples/life/src/main.mfb` (function-level `TRAP` + terminal-restore,
   the contrast pattern above); `examples/ai_chat/src/main.mfb`,
-  `examples/browser/app/src/main.mfb`, `examples/bugs/tui/src/main.mfb`,
-  `examples/bugs/canvas/src/main.mfb` (each has a `getChar` wrapping
+  `examples/browser/app/src/main.mfb`, `examples/swat/tui/src/main.mfb`,
+  `examples/swat/canvas/src/main.mfb` (each has a `getChar` wrapping
   `io::readChar() TRAP(e) ... RECOVER "" END TRAP`, so `ErrEndOfFile` is
   caught at the point of the read and turned into `""`, which each
   program's own key-decoding logic already treats as "no more input" — not
@@ -347,7 +348,7 @@ Decision rather than folded into the required fix.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Commit piped-stdin probes for all four examples (recommended:
+- [x] Commit piped-stdin probes for all four examples (recommended:
       `tools/example-eof-probe/` per the `scripts/`-vs-`tools/` split in
       `AGENTS.md`, since this is a reusable check across every example with
       a read call, not a one-off) asserting: exit code is not 255, stderr
@@ -355,34 +356,34 @@ Decision rather than folded into the required fix.
       `wide-demo`/`hangman` — the terminal-restore sequence (`?1049l`)
       appears *before* the example's error message in the byte stream.
       Confirm all four probes fail today, reproduced above.
-- [ ] Complete the Blast Radius audit above with a verdict per of the 14
+- [x] Complete the Blast Radius audit above with a verdict per of the 14
       files (done above).
 
 Acceptance: all four new probes fail for the documented reason; the audit
 has a verdict per file.
-Commit: —
+Commit: cab39baef
 
 ### Phase 2 — the fix
 
-- [ ] `examples/hello_input/src/main.mfb`, `examples/audio/src/main.mfb`:
+- [x] `examples/hello_input/src/main.mfb`, `examples/audio/src/main.mfb`:
       wrap `main` in a function-level `TRAP` reporting a clean message and
       returning a defined exit code.
-- [ ] `examples/wide-demo/src/main.mfb`, `examples/hangman/src/main.mfb`:
+- [x] `examples/wide-demo/src/main.mfb`, `examples/hangman/src/main.mfb`:
       same, plus restoring the terminal (`term::off()`) before reporting.
 
 Acceptance: the Phase 1 probes pass for all four examples; each example's
 happy path (full input available) is unchanged.
-Commit: —
+Commit: cab39baef
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `bash scripts/build-examples.sh` exits 0.
-- [ ] Re-run the Phase 1 probes against the rebuilt examples; re-run each
+- [x] `bash scripts/build-examples.sh` exits 0.
+- [x] Re-run the Phase 1 probes against the rebuilt examples; re-run each
       example's happy-path input by hand to confirm no regression.
 
 Acceptance: full examples build passes; all four probes pass; happy paths
 unchanged.
-Commit: —
+Commit: cab39baef
 
 ## Validation Plan
 

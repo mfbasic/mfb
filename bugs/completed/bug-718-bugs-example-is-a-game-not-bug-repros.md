@@ -1,12 +1,17 @@
 # bug-718: `examples/bugs/{tui,canvas}` names a swat-the-bug game like a bug-repro folder, and paces frames with `io::pollInput` instead of `canvas::waitFrame`
 
-Last updated: 2026-09-25
+STATUS: FIXED (bc72387da)
+
+Last updated: 2026-09-26
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other
 
-Status: Open
-Regression Test: none yet — Phase 1 adds a naming-convention grep guard (see Phases)
+Status: Closed
+Regression Test: `tests/guards/example_project_names.rs` (`cargo test --test
+example_project_names`) — a repo-wide census, not a grep script; confirmed
+failing against the pre-rename `examples/bugs/{tui,canvas}` (both named
+`"bugs"`).
 
 `examples/bugs/tui` and `examples/bugs/canvas` are not bug reproductions. They
 are two editions (terminal and canvas) of a mouse-driven "swat the bug"
@@ -299,14 +304,14 @@ directory tree or the build manifest.
 
 ### Phase 1 — audit + failing check (no behavior change)
 
-- [ ] Add a repo consistency check (e.g. a `scripts/` script or a
+- [x] Add a repo consistency check (e.g. a `scripts/` script or a
       `cargo test` under `tests/`) asserting every `examples/<dir>/project.json`
       `name` matches `<dir>` (or a documented multi-project exception list for
       cases like `browser/{dom,fetch,display,app}` that intentionally differ).
       Confirm it fails today specifically on `examples/bugs/tui` and
       `examples/bugs/canvas` (`name: "bugs"` != dir `tui`/`canvas`, and dir
       `bugs` itself carries no game signal).
-- [ ] Read each hit in `bugs/completed/bug-669-*.md`,
+- [x] Read each hit in `bugs/completed/bug-669-*.md`,
       `bugs/completed/bug-670-*.md`, and
       `planning/completed/plan-155-C-canvas-wait-frame.md` to classify: cites
       the current game (needs path update) vs. an unrelated/historical
@@ -314,41 +319,41 @@ directory tree or the build manifest.
 
 Acceptance: the new check fails today, naming both bogus projects; the three
 completed-doc citations each have a recorded verdict.
-Commit: —
+Commit: bc72387da
 
 ### Phase 2 — the rename and pacing fix
 
-- [ ] `git mv examples/bugs examples/swat` (or the chosen name), preserving
+- [x] `git mv examples/bugs examples/swat` (or the chosen name), preserving
       history.
-- [ ] Update `examples/swat/tui/project.json` and
+- [x] Update `examples/swat/tui/project.json` and
       `examples/swat/canvas/project.json` `name` fields to distinct,
       descriptive names.
-- [ ] Replace `examples/swat/canvas/src/main.mfb`'s `ready(frameDelayMs())`
+- [x] Replace `examples/swat/canvas/src/main.mfb`'s `ready(frameDelayMs())`
       main-loop gate with `canvas::waitFrame()`, matching
       `examples/water/src/main.mfb:344` / `examples/wind/src/main.mfb:486`.
-- [ ] Update `bugs/bug-699-special-keys-arrive-unstandardized-per-surface.md:340-341`
+- [x] Update `bugs/bug-699-special-keys-arrive-unstandardized-per-surface.md:340-341`
       migration-table rows to the new path/names.
-- [ ] Update any completed-doc citation from Phase 1 that was verdicted
+- [x] Update any completed-doc citation from Phase 1 that was verdicted
       "needs path update."
 
 Acceptance: the Phase 1 consistency check passes; the canvas edition builds
 and runs with `canvas::waitFrame` pacing; bug-699's table cites the new path;
 no game mechanic/visual/timing changed (diff review against Non-goals).
-Commit: —
+Commit: bc72387da
 
 ### Phase 3 — validation
 
-- [ ] `target/release/mfb build examples/swat/tui` and
+- [x] `target/release/mfb build examples/swat/tui` and
       `target/release/mfb build examples/swat/canvas` — both succeed.
-- [ ] `scripts/build-examples.sh` — full run succeeds (confirms the dynamic
+- [x] `scripts/build-examples.sh` — full run succeeds (confirms the dynamic
       discovery picks up the new path with no script edit, per the Phase-1
       audit above).
-- [ ] Manual play-through of both editions (mouse clicks, pause/resume/quit,
+- [x] Manual play-through of both editions (mouse clicks, pause/resume/quit,
       at least one level-up) to confirm mechanics are unchanged.
 
 Acceptance: both builds succeed; `scripts/build-examples.sh` exits 0; a
 play-through confirms no mechanic/visual regression.
-Commit: —
+Commit: bc72387da
 
 ## Validation Plan
 
@@ -364,11 +369,40 @@ Commit: —
 ## Open Decisions
 
 - Final name: `examples/swat` (recommended, matches the game's core verb) vs.
-  `examples/bug-swat` vs. `examples/swatter` — pick at Phase 2 start; does not
-  block the audit in Phase 1.
+  `examples/bug-swat` vs. `examples/swatter` — **resolved: `examples/swat`.**
 - Per-edition project names: `swat-tui`/`swat-canvas` (recommended, mirrors
   the directory) vs. `tui`/`canvas` alone (ambiguous against other examples
-  that use bare surface names) — pick at Phase 2 start.
+  that use bare surface names) — **resolved: `swat-tui`/`swat-canvas`**, added
+  to `tests/guards/example_project_names.rs`'s documented exception list
+  (alongside `examples/browser/app` and `examples/yaml-json`, which already
+  had their own name-vs-directory exceptions).
+
+Phase 1 completed-doc citation verdicts (per file):
+
+- `bugs/completed/bug-669-mouse-decoder-holds-lone-escape-and-drops-owed-bytes.md`,
+  `bugs/completed/bug-670-metal-text-run-draws-every-glyph-with-the-last-glyphs-bitmap.md`
+  — both closed (`Status: Closed`) docs citing `examples/bugs/{tui,canvas}` as
+  the manual-QA/validation path used *at the time each bug was fixed*
+  (2026-09-21-ish); neither asserts today's path. Left as-is: a historical
+  record, per this doc's own Fix Design guidance.
+- `planning/completed/plan-155-C-canvas-wait-frame.md` — cites
+  `examples/bugs/canvas` inside a dated "Measured populations" audit table
+  (`os::sleep` users at the time `canvas::waitFrame` was introduced), showing
+  `bugs/canvas` was *not* among the `os::sleep` users then — a historical
+  snapshot, not a live claim about today's pacing mechanism. Left as-is.
+- `bugs/bug-699-special-keys-arrive-unstandardized-per-surface.md` — **not**
+  historical (open, in-flight); its two `bugs/canvas`/`bugs/tui` prose
+  mentions (its Blast Radius section had been rewritten from a table to prose
+  since this doc's citation was written, so the "lines 340-341" table citation
+  above is itself stale) were updated to `swat/canvas`/`swat/tui` in the same
+  commit as the rename (`bc72387da`).
+- Other open bug docs citing `examples/bugs` (`bug-712`, `bug-716`, `bug-717`,
+  `bug-720`) are **not** updated by this change — they are other lanes' live,
+  in-progress work in this same parallel run; touching them risked colliding
+  with concurrent edits and was out of this lane's assigned scope. Their
+  citations are now stale pointers to a path that no longer exists; whoever
+  lands each of those bugs (or a follow-up sweep) needs to repoint them to
+  `examples/swat/{tui,canvas}`.
 
 ## Summary
 

@@ -1,13 +1,15 @@
 # bug-703: snake (and life) advance their simulation only on an idle input tick, so continuous input freezes movement and two turns in one tick can reverse into the neck
 
-Last updated: 2026-09-25
+STATUS: FIXED (f9c2d75f4)
+
+Last updated: 2026-09-26
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/examples/snake_life_advance_under_input.rs` (proposed, Phase 1 — no such
-test exists today; see Validation Plan)
+Status: Closed
+Regression Test: `tools/pty-probe/snake_life_advance_under_input.py` (a shared
+pty-driving tool, not a `tests/examples/rs` integration test — see Open Decisions).
 
 `examples/snake/src/main.mfb`'s main loop polls for a key with `io::pollInput` and
 branches on whether one arrived: the `IF ready(...) THEN` side only updates the
@@ -52,8 +54,8 @@ References:
   sibling examples that already use this fix's shape: they drain input in an inner
   `DO WHILE pending(0)` loop, then call `stepWater`/`stepSwarm` unconditionally
   every outer-loop iteration using `canvas::getFrameStats().dt`, never gated by
-  whether a key arrived. `examples/bugs/tui/src/main.mfb:373-410` and
-  `examples/bugs/canvas/src/main.mfb` (same shape) advance grass growth and the
+  whether a key arrived. `examples/swat/tui/src/main.mfb:373-410` and
+  `examples/swat/canvas/src/main.mfb` (same shape) advance grass growth and the
   bug's schedule by comparing `nowMs()` to stored deadlines, also unconditionally.
   These are the working contrast cases this bug's fix should match.
 - `mfb man datetime monotonicNanos` — confirms `datetime::monotonicNanos() AS
@@ -374,10 +376,10 @@ loop:
   outer-loop pass using `canvas::getFrameStats().dt` — the step is never inside
   an `IF ready(...)`/`ELSE` split at all. This is the shape this bug's fix
   should copy.
-- `examples/bugs/tui/src/main.mfb:main` and `examples/bugs/canvas/src/main.mfb:main`
+- `examples/swat/tui/src/main.mfb:main` and `examples/swat/canvas/src/main.mfb:main`
   — unaffected: grass growth and the bug's appear/flee schedule are advanced by
   comparing `nowMs()` to stored `nextGrassAt`/`bugEventAt` deadlines
-  unconditionally each pass (lines ~373-410 in `bugs/tui`); `IF ready(...) THEN`
+  unconditionally each pass (lines ~373-410 in `swat/tui`); `IF ready(...) THEN`
   there only handles keys (quit/pause/restart), matching the water/wind shape,
   not snake/life's.
 - `examples/ai_chat/src/main.mfb:main` and `examples/browser/app/src/main.mfb:main`
@@ -420,51 +422,51 @@ how many keys are drained per tick.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Commit `/tmp/snake_probe2.py` and `/tmp/life_probe.py` (or an equivalent)
+- [x] Commit `/tmp/snake_probe2.py` and `/tmp/life_probe.py` (or an equivalent)
       as a runtime test, per the project's test conventions for example
       programs — see Validation Plan for the proposed location.
-- [ ] Confirm the failing tests fail against current `snake.out`/`life.out`
+- [x] Confirm the failing tests fail against current `snake.out`/`life.out`
       (already demonstrated manually above; wire the same assertions into the
       committed test).
-- [ ] Blast-radius audit above is complete with a verdict per site (done in
+- [x] Blast-radius audit above is complete with a verdict per site (done in
       this document).
 
 Acceptance: the new test(s) fail for the documented reason (head/gen frozen
 during continuous input; reversal ends the game); the audit list has a verdict
 per site.
-Commit: —
+Commit: f9c2d75f4
 
 ### Phase 2 — the fix
 
-- [ ] `examples/snake/src/main.mfb`: replace the `IF ready(...) THEN /
+- [x] `examples/snake/src/main.mfb`: replace the `IF ready(...) THEN /
       ELSEIF` split with an input poll (short fixed wait) plus an independent
       `datetime::monotonicNanos()`-gated step, so `stepSnake` and the
       collision check run on cadence regardless of input.
-- [ ] `examples/snake/src/main.mfb:directionFor` / `main`: add `lastMovedDir`,
+- [x] `examples/snake/src/main.mfb:directionFor` / `main`: add `lastMovedDir`,
       set only when a move actually happens; validate new turns against it
       instead of against `dir`.
-- [ ] `examples/life/src/main.mfb`: same timer decoupling for `stepGrid`/`gen`.
+- [x] `examples/life/src/main.mfb`: same timer decoupling for `stepGrid`/`gen`.
 
 Acceptance: the Phase 1 test(s) pass; `dungeon`, `water`, `wind`,
-`bugs/tui`, `bugs/canvas`, `ai_chat`, `browser` behavior is unchanged (Non-goals);
+`swat/tui`, `swat/canvas`, `ai_chat`, `browser` behavior is unchanged (Non-goals);
 holding a key no longer freezes the head or the generation counter; two turns in
 one tick no longer produce a reversal `directionFor` would reject one at a time.
-Commit: —
+Commit: f9c2d75f4
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] No goldens are shifted by this fix (examples have none); nothing to
+- [x] No goldens are shifted by this fix (examples have none); nothing to
       regenerate.
-- [ ] `bash scripts/build-examples.sh` — builds every example (including snake
+- [x] `bash scripts/build-examples.sh` — builds every example (including snake
       and life) for every supported target into `target/examples/`; confirms
       the fix compiles on every target, not just macOS aarch64.
-- [ ] Re-run both pty reproductions end-to-end against the fixed binaries and
+- [x] Re-run both pty reproductions end-to-end against the fixed binaries and
       confirm the head/`gen` no longer freeze and the reversal no longer ends
       the game (10 repeats of the reversal case, given its timing sensitivity).
 
 Acceptance: `scripts/build-examples.sh` exits 0; the reproduction no longer
 fails on macOS aarch64 (the only host available in this session).
-Commit: —
+Commit: f9c2d75f4
 
 ## Validation Plan
 
@@ -494,12 +496,18 @@ Commit: —
 
 - Exact poll-wait duration once stepping is on its own timer (e.g. a short
   fixed `io::pollInput(10)` regardless of how much of `frameDelayMs()` remains,
-  vs. computing the remaining time until `nextStepAt` each pass) — recommend
-  the latter (matches `water`/`wind`'s `pending(0)` + unconditional step shape
-  most closely) but either avoids the bug; deferred to the Phase 2 implementer.
+  vs. computing the remaining time until `nextStepAt` each pass) — **resolved:
+  computed the remaining time each pass** (matches `water`/`wind`'s
+  `pending(0)` + unconditional step shape most closely).
 - Whether `tests/examples/` should gain a small pty-driving helper shared by
-  future example probes, or each test rolls its own — deferred to Phase 1
-  once the existing `tests/` harness conventions are surveyed.
+  future example probes, or each test rolls its own — **resolved (per the
+  fix-bug lane's shared instructions for this run): a shared pty-driving tool
+  under `tools/pty-probe/`, not a `tests/examples/*.rs` integration test.**
+  `tools/pty-probe/pty_probe.py` is shared with bug-708's regression probe
+  (`tools/pty-probe/life_quit_no_return.py`); the proposed
+  `tests/examples/snake_life_advance_under_input.rs` name in this doc's
+  original Regression Test line was never created — the landed regression
+  test is `tools/pty-probe/snake_life_advance_under_input.py`.
 
 ## Summary
 
@@ -507,7 +515,7 @@ The engineering risk is entirely in Phase 2: decoupling "did input arrive" from
 "is it time to step" in two small terminal-UI loops, and re-pointing
 `directionFor`'s reference from a same-tick mutable `dir` to a separately-
 tracked last-moved direction. Nothing about the fix changes controls, visuals,
-or any other example — `water`/`wind`/`bugs/tui`/`bugs/canvas` already use the
+or any other example — `water`/`wind`/`swat/tui`/`swat/canvas` already use the
 correct shape and are left untouched. The audit and the reproduction are both
 complete and were independently confirmed live in this session (not inferred
 from reading the source), including one false lead (raw-escape-byte offset

@@ -1,14 +1,18 @@
 # bug-713: `examples/dungeon` quits on any non-UTF-8 input byte
 
-Last updated: 2026-09-25
+STATUS: FIXED (ed374ac1a)
+
+Last updated: 2026-09-26
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: a console-mode probe reusing dungeon's `getChar`/`ready`/
-`readKey` verbatim (see "Validation Plan"); dungeon itself has no test
-harness (it is a `--app` canvas program)
+Status: Closed
+Regression Test: `tools/dungeon-key-probe/probe.py` — builds a console-mode
+driver against a byte-for-byte copy of the real
+`examples/dungeon/src/input.mfb` (split out of `main.mfb` by this fix so the
+probe can reuse the actual file instead of a hand-maintained duplicate;
+dungeon itself has no test harness, being a `--app` canvas program).
 
 `examples/dungeon` is a canvas app that reads keys through three small
 functions in `examples/dungeon/src/main.mfb`: `getChar` (wraps
@@ -227,12 +231,12 @@ above; `readKey` calls only those two, not `io::readChar`/`io::pollInput`
 directly. No other file in `examples/dungeon` touches input.
 
 Sibling examples with the same blanket-`RECOVER` shape on `getChar`
-(`grep -n "io::readChar() TRAP(e)" examples/*/src/main.mfb examples/bugs/*/src/main.mfb`,
+(`grep -n "io::readChar() TRAP(e)" examples/*/src/main.mfb examples/swat/*/src/main.mfb`,
 2026-09-25): `examples/snake/src/main.mfb:getChar`,
 `examples/ai_chat/src/main.mfb:getChar`,
 `examples/browser/app/src/main.mfb:getChar`,
-`examples/bugs/tui/src/main.mfb:getChar`,
-`examples/bugs/canvas/src/main.mfb:getChar`, and
+`examples/swat/tui/src/main.mfb:getChar`,
+`examples/swat/canvas/src/main.mfb:getChar`, and
 `examples/wind`'s own `Thread`-safe variants where applicable — all `RECOVER
 ""` unconditionally, same latent hazard as dungeon (a bad byte reads as EOF
 and quits the program). **Latent, same hazard, NOT observed to fail — out of
@@ -314,25 +318,30 @@ one-line note but not blocking this fix.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Commit the `/tmp/bug713` driver (verbatim `getChar`/`ready`/`readKey`
+- [x] Commit the `/tmp/bug713` driver (verbatim `getChar`/`ready`/`readKey`
       copy) as the regression probe — recommended home:
       `tools/dungeon-key-probe/` per the `scripts/`-vs-`tools/` split in
       `AGENTS.md` (a reusable probe, not a one-off), with a README.
       Confirm it fails today (`readKey()` returns `"EOF"` for a leading
       `0xFF` byte) — reproduced above.
-- [ ] Confirm whether `io::pollInput()` can raise `ErrEncoding` (read its
+- [x] Confirm whether `io::pollInput()` can raise `ErrEncoding` (read its
       registry descriptor / lowering, or probe it directly) to settle
       whether `ready` needs the same fix.
-- [ ] Settle the `getChar`/`readKey` sentinel design (Fix Design) and record
+- [x] Settle the `getChar`/`readKey` sentinel design (Fix Design) and record
       the decision here.
 
 Acceptance: the probe fails for the documented reason; the `pollInput`
 question is answered; the sentinel design is chosen.
-Commit: —
+
+`io::pollInput`'s registry descriptor (`src/codegen/builtins/io/func_poll_input.rs:386`)
+declares `errors: vec![]` — it never raises `ErrEncoding` (it only tests
+readiness; it never decodes a byte), so `ready`'s existing blanket
+`RECOVER FALSE` is not the same defect and needs no change here.
+Commit: ed374ac1a
 
 ### Phase 2 — the fix
 
-- [ ] `examples/dungeon/src/main.mfb`: add `IMPORT errorCode`; rewrite
+- [x] `examples/dungeon/src/main.mfb`: add `IMPORT errorCode`; rewrite
       `getChar` (and `ready`, if Phase 1 found it needs it) to distinguish
       `ErrEndOfFile` from `ErrEncoding` from everything else, per the chosen
       sentinel design; adjust `readKey` accordingly so a bad byte is dropped
@@ -341,17 +350,17 @@ Commit: —
 Acceptance: the Phase 1 probe (rebuilt against the fixed functions) shows
 `readKey()` skipping the `0xFF` byte and returning the next real key instead
 of `"EOF"`; true EOF (empty stdin) still returns `"EOF"`.
-Commit: —
+Commit: ed374ac1a
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `bash scripts/build-examples.sh` exits 0.
-- [ ] Re-run the probe with: a clean UTF-8 stream (unchanged), a leading bad
+- [x] `bash scripts/build-examples.sh` exits 0.
+- [x] Re-run the probe with: a clean UTF-8 stream (unchanged), a leading bad
       byte (now recovers), and empty stdin (still `"EOF"`).
 
 Acceptance: full examples build passes; all three probe cases behave as
 documented.
-Commit: —
+Commit: ed374ac1a
 
 ## Validation Plan
 
@@ -366,8 +375,11 @@ Commit: —
 ## Open Decisions
 
 - The `getChar`/`readKey` sentinel design for "bad byte, keep going" vs.
-  "true EOF" (Fix Design) — implementer decides in Phase 1 and records the
-  choice here before Phase 2.
+  "true EOF" (Fix Design) — **resolved: `getChar` returns `"\u{FFFD}"` as a
+  private sentinel (`badByteSentinel()`) that `readKey` drops and re-reads
+  past, and that never escapes to `commandFor`** — the design the doc's own
+  Non-goals section flagged as forbidden *if let through to the caller as a
+  key*; here it never leaves `readKey`.
 - Whether to also fix the five sibling examples with the identical blanket-
   `RECOVER` shape (Blast Radius) now or leave them for bug-699's Phase 6
   migration — recommended: leave them, since bug-699 deletes this whole
