@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
+use crate::target::shared::abi::Reg;
 use crate::codegen::engine::mir::MirPlan;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
@@ -75,12 +76,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
-        scratch: [&str; 2],
+        scratch: [Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         let [word, mask] = scratch;
@@ -498,9 +499,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: Reg,
+        mask: Reg,
+        expected: Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -848,10 +849,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        _byte: &str,
-        _scratch: &str,
+        nameptr: Reg,
+        namelen: Reg,
+        _byte: Reg,
+        _scratch: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // macOS `struct dirent`: `d_namlen` (a real length field) at offset 18,
@@ -883,7 +884,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         instructions.extend([
@@ -983,7 +984,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         fd_offset: usize,
         flags_offset: usize,
-        scratch: &str,
+        scratch: Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

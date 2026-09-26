@@ -399,8 +399,8 @@ fn emit_range_check(
     from: &str,
     tag: &str,
     axis: &str,
-    value: impl Into<Operand> + Copy,
-    limit: impl Into<Operand> + Copy,
+    value: impl Into<Reg> + Copy,
+    limit: impl Into<Reg> + Copy,
     done: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {

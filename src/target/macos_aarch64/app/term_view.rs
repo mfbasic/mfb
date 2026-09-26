@@ -58,7 +58,7 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // app
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", INPUT_LINE_KEY);
+    asm.local_address(abi::c_arg(1), INPUT_LINE_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // input line buffer
     asm.load_selector(SEL_TEXT_STORAGE.0);
@@ -66,7 +66,7 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // text storage
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", INPUT_MODE_KEY);
+    asm.local_address(abi::c_arg(1), INPUT_MODE_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // input mode
 
@@ -103,7 +103,7 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     // clear the buffer.
     asm.push(abi::label("kd_commit"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
     asm.load_selector(SEL_UTF8_STRING.0);
@@ -206,7 +206,7 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     // with no transcript echo and no line buffering.
     asm.push(abi::label("kd_raw"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
     asm.load_selector(SEL_UTF8_STRING.0);
@@ -437,7 +437,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     let off_ulkey = 192;
     let off_removeobj_sel = 200;
     let off_pass = 208;
-    let saved: [(&str, usize); 10] = [
+    let saved: [(Reg, usize); 10] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
         (abi::LOCAL[2], 24),
@@ -471,7 +471,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     }
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (self in x0)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // state (or nil)
 
@@ -544,7 +544,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // (the row counter is set further down).
     asm.external_data(abi::LOCAL[4], CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
-    asm.local_address("x2", STR_MENLO_FONT.0);
+    asm.local_address(abi::c_arg(2), STR_MENLO_FONT.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // Menlo name NSString
@@ -568,7 +568,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // attrs = [NSMutableDictionary dictionary]; [attrs setObject:font forKey:NSFontAttributeName]
     // (the foreground colour key is set per cell below).
     asm.load_selector(SEL_DICTIONARY.0);
-    asm.external_data("x0", CLASS_NS_MUTABLE_DICTIONARY, LIB_FOUNDATION);
+    asm.external_data(abi::c_arg(0), CLASS_NS_MUTABLE_DICTIONARY, LIB_FOUNDATION);
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[8], abi::c_arg(0))); // attrs dict (temp in x27)
     asm.load_selector(SEL_SET_OBJECT_FOR_KEY.0);
@@ -578,7 +578,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_setobj_sel,
     ));
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[6])); // font
-    asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(abi::c_arg(3), NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[8]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -594,7 +594,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         abi::stack_pointer(),
         off_swc_sel,
     ));
-    asm.external_data("x3", NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(abi::c_arg(3), NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::store_u64(
         abi::c_arg(3),
@@ -605,7 +605,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     // Bold/underline attribute values + keys (set/removed per cell below).
     // numberBold = [NSNumber numberWithDouble:-3.0]  (negative stroke width = faux bold)
     asm.load_selector(SEL_NUMBER_WITH_DOUBLE.0);
-    asm.external_data("x0", CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.external_data(abi::c_arg(0), CLASS_NS_NUMBER, LIB_FOUNDATION);
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "3"));
     asm.push(abi::signed_convert_to_float_d(
         abi::FP_SCRATCH[0],
@@ -620,7 +620,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     ));
     // numberUnderline = [NSNumber numberWithInt:1]  (NSUnderlineStyleSingle)
     asm.load_selector(SEL_NUMBER_WITH_INT.0);
-    asm.external_data("x0", CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.external_data(abi::c_arg(0), CLASS_NS_NUMBER, LIB_FOUNDATION);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::store_u64(
@@ -629,14 +629,14 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_numul,
     ));
     // stroke-width + underline-style attribute keys (NSString globals).
-    asm.external_data("x3", NS_STROKE_WIDTH_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(abi::c_arg(3), NS_STROKE_WIDTH_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::store_u64(
         abi::c_arg(3),
         abi::stack_pointer(),
         off_strokekey,
     ));
-    asm.external_data("x3", NS_UNDERLINE_STYLE_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(abi::c_arg(3), NS_UNDERLINE_STYLE_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::store_u64(
         abi::c_arg(3),
@@ -645,7 +645,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     ));
     asm.load_selector(SEL_REMOVE_OBJECT_FOR_KEY.0);
     asm.push(abi::store_u64(
-        "x1",
+        abi::c_arg(1),
         abi::stack_pointer(),
         off_removeobj_sel,
     ));
@@ -941,7 +941,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         abi::stack_pointer(),
         off_swc_sel,
     ));
-    asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.external_data(abi::c_arg(0), CLASS_NS_STRING, LIB_FOUNDATION);
     asm.push(abi::move_register(abi::c_arg(2), abi::SCRATCH[2])); // units buffer
     asm.push(abi::move_register(abi::c_arg(3), abi::SCRATCH[4])); // unit count
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -1004,7 +1004,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         abi::stack_pointer(),
         off_swc_sel,
     ));
-    asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.external_data(abi::c_arg(0), CLASS_NS_STRING, LIB_FOUNDATION);
     asm.push(abi::add_immediate(
         abi::c_arg(2),
         abi::stack_pointer(),
@@ -1126,7 +1126,7 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
     // state = calloc(1, TV_STATE_SIZE) — zero-initialized grid state struct.
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
     asm.push(abi::move_immediate(
-        "x1",
+        abi::c_arg(1),
         "Integer",
         &TV_STATE_SIZE.to_string(),
     ));
@@ -1141,7 +1141,7 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
     // name = [NSString stringWithUTF8String:"Menlo-Regular"]
     asm.external_data(abi::LOCAL[3], CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
-    asm.local_address("x2", STR_MENLO_FONT.0);
+    asm.local_address(abi::c_arg(2), STR_MENLO_FONT.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // Menlo name NSString
@@ -1286,7 +1286,7 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
         TV_ROWS_OFFSET,
     ));
     asm.push(abi::multiply_registers(
-        "x0",
+        abi::c_arg(0),
         abi::SCRATCH[0],
         abi::SCRATCH[1],
     ));
@@ -1315,12 +1315,12 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
         TV_ROWS_OFFSET,
     ));
     asm.push(abi::multiply_registers(
-        "x0",
+        abi::c_arg(0),
         abi::SCRATCH[0],
         abi::SCRATCH[1],
     ));
     asm.push(abi::move_immediate(
-        "x1",
+        abi::c_arg(1),
         "Integer",
         &APP_POOL_BYTES_PER_CELL.to_string(),
     ));
@@ -1348,7 +1348,7 @@ pub(super) fn emit_term_init_helper() -> CodeFunction {
 
     // objc_setAssociatedObject(termView, &TVSTATE_KEY, state, ASSIGN)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -1393,7 +1393,7 @@ pub(super) fn emit_term_clear_helper() -> CodeFunction {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
 
     // state = objc_getAssociatedObject(termView, &TVSTATE_KEY)  (x0 = termView)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // state struct ptr
     asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
@@ -1492,7 +1492,7 @@ pub(super) fn emit_term_present_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // self
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
@@ -1717,7 +1717,7 @@ pub(super) fn emit_term_draw_line_helper() -> CodeFunction {
     }
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (x0 = self)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(state, abi::c_arg(0)));
     asm.push(abi::compare_immediate(state, "0"));
@@ -1839,17 +1839,17 @@ pub(super) fn emit_term_draw_line_helper() -> CodeFunction {
 /// `x10..x17`) the stampers clobber. No objc calls run inside the stampers, so the
 /// scratch is stable across the whole draw.
 struct AppStampCtx {
-    state: &'static str,
-    cells: &'static str,
-    rows: &'static str,
-    cols: &'static str,
-    lo: &'static str,
-    hi: &'static str,
-    pos: &'static str,
-    idx: &'static str,
-    cell: &'static str,
-    tmp: &'static str,
-    attr: &'static str,
+    state: Reg,
+    cells: Reg,
+    rows: Reg,
+    cols: Reg,
+    lo: Reg,
+    hi: Reg,
+    pos: Reg,
+    idx: Reg,
+    cell: Reg,
+    tmp: Reg,
+    attr: Reg,
 }
 
 /// Emit A's charwidth lookup: `out` = display width (1 or 2) of scalar `cp`, via the
@@ -1858,7 +1858,7 @@ struct AppStampCtx {
 /// the two internal labels unique. The `_mfb_unicode_*` relocations these
 /// `local_address` loads emit are exactly what make the shared build embed the ~1.5 MB
 /// property table (mod.rs `references_unicode_table`) — call ONLY under `uses_term`.
-fn app_emit_charwidth(asm: &mut Asm, cp: &str, out: &str, s1: &str, s2: &str, s3: &str, tag: &str) {
+fn app_emit_charwidth(asm: &mut Asm, cp: Reg, out: Reg, s1: Reg, s2: Reg, s3: Reg, tag: &str) {
     let lookup = format!("{tag}_lookup");
     let done = format!("{tag}_done");
     asm.push(abi::move_immediate(out, "Integer", "1114112")); // 0x110000
@@ -1906,7 +1906,7 @@ fn app_emit_charwidth(asm: &mut Asm, cp: &str, out: &str, s1: &str, s2: &str, s3
 /// that had been a wide primary (stored width 2) resets it, or the presenter/drawRect
 /// would still treat the cell as 2 columns. Wide (width-2) stamps overwrite the byte
 /// afterwards via `app_stamp_cell_wide`.
-fn app_stamp_attrs(asm: &mut Asm, ctx: &AppStampCtx, glyph: &str) {
+fn app_stamp_attrs(asm: &mut Asm, ctx: &AppStampCtx, glyph: Reg) {
     asm.push(abi::store_u32(glyph, ctx.cell, CELL_GLYPH_OFFSET));
     asm.push(abi::load_u64(ctx.attr, ctx.state, TV_CUR_FG_OFFSET));
     asm.push(abi::store_u32(ctx.attr, ctx.cell, CELL_FG_OFFSET));
@@ -1930,10 +1930,10 @@ fn app_stamp_run(
     asm: &mut Asm,
     ctx: &AppStampCtx,
     is_horizontal: bool,
-    fixed: &str,
-    ea: &str,
-    eb: &str,
-    glyph: &str,
+    fixed: Reg,
+    ea: Reg,
+    eb: Reg,
+    glyph: Reg,
     tag: &str,
     skip: &str,
 ) {
@@ -1997,9 +1997,9 @@ fn app_stamp_run(
 fn app_stamp_cell(
     asm: &mut Asm,
     ctx: &AppStampCtx,
-    row: &str,
-    col: &str,
-    glyph: &str,
+    row: Reg,
+    col: Reg,
+    glyph: Reg,
     tag: &str,
     skip: &str,
 ) {
@@ -2025,7 +2025,7 @@ fn app_stamp_cell(
 /// primary clears the trail to its right (space glyph, width 1, attributes kept).
 /// `(row,col)` must already be on the grid. Clobbers `ctx.idx`/`ctx.cell`/`ctx.tmp`.
 /// Mirrors the console C `emit_clear_wide_pair`.
-fn app_clear_wide_pair(asm: &mut Asm, ctx: &AppStampCtx, row: &str, col: &str, tag: &str) {
+fn app_clear_wide_pair(asm: &mut Asm, ctx: &AppStampCtx, row: Reg, col: Reg, tag: &str) {
     let not_trail = format!("{tag}_not_trail");
     let done = format!("{tag}_done");
     asm.push(abi::multiply_registers(ctx.idx, row, ctx.cols));
@@ -2073,10 +2073,10 @@ fn app_clear_wide_pair(asm: &mut Asm, ctx: &AppStampCtx, row: &str, col: &str, t
 fn app_stamp_cluster(
     asm: &mut Asm,
     ctx: &AppStampCtx,
-    row: &str,
-    col: &str,
-    glyph: &str,
-    w: &str,
+    row: Reg,
+    col: Reg,
+    glyph: Reg,
+    w: Reg,
     tag: &str,
     skip: &str,
 ) {
@@ -2157,7 +2157,7 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
         tmp: abi::SCRATCH[6],
         attr: abi::SCRATCH[7],
     };
-    let saved: [(&str, usize); 8] = [
+    let saved: [(Reg, usize); 8] = [
         (state, 8),
         (cells, 16),
         (rows, 24),
@@ -2180,7 +2180,7 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
     }
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (x0 = self)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(state, abi::c_arg(0)));
     asm.push(abi::compare_immediate(state, "0"));
@@ -2213,7 +2213,7 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
 
     // Four edges: top/bottom use the H glyph, left/right the V glyph. Each edge's
     // glyph is loaded into `glyph` (SCRATCH[0]) just before it is stamped.
-    let edges: [(bool, &str, &str, &str, usize, &str); 4] = [
+    let edges: [(bool, Reg, Reg, Reg, usize, &str); 4] = [
         (true, ylo, xlo, xhi, TV_BOX_HG_OFFSET, "db_e0"),
         (true, yhi, xlo, xhi, TV_BOX_HG_OFFSET, "db_e1"),
         (false, xlo, ylo, yhi, TV_BOX_VG_OFFSET, "db_e2"),
@@ -2226,7 +2226,7 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
         asm.push(abi::label(&skip));
     }
     // Four corners on top of the edges.
-    let corners: [(&str, &str, usize, &str); 4] = [
+    let corners: [(Reg, Reg, usize, &str); 4] = [
         (ylo, xlo, TV_BOX_CTL_OFFSET, "db_ctl"),
         (ylo, xhi, TV_BOX_CTR_OFFSET, "db_ctr"),
         (yhi, xlo, TV_BOX_CBL_OFFSET, "db_cbl"),
@@ -2296,7 +2296,7 @@ pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
         tmp: abi::SCRATCH[6],
         attr: abi::SCRATCH[7],
     };
-    let saved: [(&str, usize); 8] = [
+    let saved: [(Reg, usize); 8] = [
         (state, 8),
         (cells, 16),
         (rows, 24),
@@ -2318,7 +2318,7 @@ pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
 
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(state, abi::c_arg(0)));
     asm.push(abi::compare_immediate(state, "0"));
@@ -2425,7 +2425,7 @@ pub(super) fn emit_term_draw_glyph_helper(uses_term: bool) -> CodeFunction {
         tmp: abi::SCRATCH[6],
         attr: abi::SCRATCH[7],
     };
-    let saved: [(&str, usize); 6] = [
+    let saved: [(Reg, usize); 6] = [
         (state, 8),
         (cells, 16),
         (rows, 24),
@@ -2443,7 +2443,7 @@ pub(super) fn emit_term_draw_glyph_helper(uses_term: bool) -> CodeFunction {
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(state, abi::c_arg(0)));
     asm.push(abi::compare_immediate(state, "0"));
@@ -2526,7 +2526,7 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     let width = abi::SCRATCH[7]; // display-width scratch for the stamp / column advance
     let y = abi::SCRATCH[8]; // row, reloaded from state right before each stamp
     let (off_l, off_base, off_clamped, off_w) = (80usize, 88usize, 96usize, 104usize);
-    let saved: [(&str, usize); 9] = [
+    let saved: [(Reg, usize); 9] = [
         (selfv, 8),
         (strv, 16),
         (state, 24),
@@ -2549,7 +2549,7 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     }
     asm.push(abi::move_register(selfv, abi::c_arg(0)));
     asm.push(abi::move_register(strv, abi::c_arg(2)));
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.push(abi::move_register(abi::c_arg(0), selfv));
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(state, abi::c_arg(0)));
@@ -2835,7 +2835,7 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
     // memmove(cells, cells + rowBytes, (rows-1)*rowBytes)
     asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::LOCAL[2], 1));
     asm.push(abi::multiply_registers(
-        "x2",
+        abi::c_arg(2),
         abi::SCRATCH[0],
         abi::LOCAL[0],
     )); // len
@@ -2868,7 +2868,7 @@ pub(super) fn emit_term_scroll_helper() -> CodeFunction {
     // memmove(pool, pool + poolRowBytes, (rows-1)*poolRowBytes)
     asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::LOCAL[2], 1));
     asm.push(abi::multiply_registers(
-        "x2",
+        abi::c_arg(2),
         abi::SCRATCH[0],
         abi::LOCAL[4],
     ));
@@ -2965,7 +2965,7 @@ pub(super) fn emit_term_write_string_helper(uses_term: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(2))); // str
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY)
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
     asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
@@ -3663,11 +3663,11 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // app
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", INPUT_LINE_KEY);
+    asm.local_address(abi::c_arg(1), INPUT_LINE_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // input line buffer
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", INPUT_MODE_KEY);
+    asm.local_address(abi::c_arg(1), INPUT_MODE_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // input mode
 
@@ -3705,7 +3705,7 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     // Commit: deliver the buffered line + newline to the pipe; echo a newline.
     asm.push(abi::label("tkd_commit"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
     asm.load_selector(SEL_UTF8_STRING.0);
@@ -3785,7 +3785,7 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     // Raw read mode: write this key's UTF-8 to the input pipe; no echo/buffering.
     asm.push(abi::label("tkd_raw"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
     asm.load_selector(SEL_UTF8_STRING.0);
@@ -3857,7 +3857,7 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
     let (off_super_recv, off_super_cls) = (96, 104);
     let (off_min_rows, off_min_cols) = (112, 120);
     let (off_old_pool, off_new_pool) = (128, 136);
-    let saved: [(&str, usize); 9] = [
+    let saved: [(Reg, usize); 9] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
         (abi::LOCAL[2], 24),
@@ -3906,7 +3906,7 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
     ));
     asm.load_selector(SEL_SET_FRAME_SIZE.0); // sel -> x1 (clobbers x0)
     asm.push(abi::add_immediate(
-        "x0",
+        abi::c_arg(0),
         abi::stack_pointer(),
         off_super_recv,
     )); // &super
@@ -3924,7 +3924,7 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
 
     // state = objc_getAssociatedObject(self, &TVSTATE_KEY); nil -> no grid yet.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), TVSTATE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
@@ -4043,7 +4043,7 @@ pub(super) fn emit_term_set_frame_size_helper() -> CodeFunction {
         abi::LOCAL[6],
     ));
     asm.push(abi::move_immediate(
-        "x1",
+        abi::c_arg(1),
         "Integer",
         &APP_POOL_BYTES_PER_CELL.to_string(),
     ));

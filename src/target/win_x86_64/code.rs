@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
+use crate::target::shared::abi::Reg;
 use crate::arch::x86_64::backend::WIN64_BACKEND;
 use crate::codegen::engine::mir::MirPlan;
 use crate::codegen::engine::operand::Operand;
@@ -220,7 +221,7 @@ fn emit_free_marshal_slot(
 /// Load the capacity of the marshalling buffer at `sp + slot`, in bytes, into
 /// `dst` (never `ARG[0]`): its header's block size less the header.
 fn emit_marshal_capacity(
-    dst: impl Into<Operand>,
+    dst: impl Into<Reg>,
     slot: usize,
     instructions: &mut Vec<CodeInstruction>,
 ) {
@@ -740,9 +741,9 @@ fn emit_final_path_call(
 /// leaving every other code unit unchanged — a case-insensitive comparison of two
 /// Windows path components. `n` disambiguates the skip label across call sites.
 /// plan-66-E.
-fn emit_ascii_fold(reg: impl Into<Operand>, n: usize, instructions: &mut Vec<CodeInstruction>) {
+fn emit_ascii_fold(reg: impl Into<Reg>, n: usize, instructions: &mut Vec<CodeInstruction>) {
     let reg = reg.into();
-    let skip = format!("fold_skip_{}_{n}", reg.render());
+    let skip = format!("fold_skip_{reg}_{n}");
     instructions.extend([
         abi::compare_immediate(&reg, "65"), // 'A'
         abi::branch_lt(&skip),
@@ -1229,7 +1230,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         // VirtualAlloc(NULL, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE).
@@ -1443,7 +1444,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_lib_get_sym(
         &self,
-        handle_reg: &str,
+        handle_reg: Reg,
         symbol_symbol: &str,
         from: &str,
         _platform_imports: &HashMap<String, String>,
@@ -3726,12 +3727,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
-        _scratch: [&str; 2],
+        _scratch: [Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // Windows has no `struct termios`: emit_terminal_control_call(GetAttrs)
@@ -3853,9 +3854,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        _expected: &str,
+        mode: Reg,
+        mask: Reg,
+        _expected: Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -3885,10 +3886,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: Reg,
+        namelen: Reg,
+        byte: Reg,
+        scratch: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // `emit_readdir` returns the DIR* (or 0 at end) and leaves the entry's
@@ -3975,7 +3976,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         fd_offset: usize,
         _flags_offset: usize,
-        _scratch: &str,
+        _scratch: Reg,
         from: &str,
         _platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

@@ -18,7 +18,7 @@ use super::*;
 ///
 /// No calls, so it uses caller-saved scratch (x11/x12) only; `len` must be a
 /// register that survives the caller's own calls.
-fn emit_utf8_decode_at(asm: &mut Asm, glyph: &str, ptr: &str, len: &str, index: &str, count: &str) {
+fn emit_utf8_decode_at(asm: &mut Asm, glyph: Reg, ptr: Reg, len: Reg, index: Reg, count: Reg) {
     // Length from the lead byte: <0xC0 -> 1, <0xE0 -> 2, <0xF0 -> 3, else 4.
     asm.push(abi::move_immediate(len, "Integer", "1"));
     asm.push(abi::compare_immediate(glyph, "192"));
@@ -64,12 +64,12 @@ fn emit_utf8_decode_at(asm: &mut Asm, glyph: &str, ptr: &str, len: &str, index: 
 /// the app uses `term::` (the writer gates on `uses_term`).
 fn emit_gtk_charwidth(
     asm: &mut Asm,
-    packed: &str,
-    len: &str,
-    out: &str,
-    s1: &str,
-    s2: &str,
-    s3: &str,
+    packed: Reg,
+    len: Reg,
+    out: Reg,
+    s1: Reg,
+    s2: Reg,
+    s3: Reg,
     tag: &str,
 ) {
     use crate::codegen::error::constants::UNICODE_PROPERTIES_SYMBOL;
@@ -176,7 +176,7 @@ fn emit_gtk_charwidth(
 /// the slot and its CHAR word becomes `GTK_POOL_TAG`; a cluster that would exceed the
 /// slot drops the tail (rare, long ZWJ). Uses caller-saved x11-x17; preserves
 /// `mark`/`marklen`/`charoff` and the callee-saved loop registers.
-fn emit_gtk_pool_append(asm: &mut Asm, charoff: &str, mark: &str, marklen: &str, tag: &str) {
+fn emit_gtk_pool_append(asm: &mut Asm, charoff: Reg, mark: Reg, marklen: Reg, tag: &str) {
     let pooled = format!("{tag}_pooled");
     let bl = format!("{tag}_bl");
     let write = format!("{tag}_write");
@@ -257,7 +257,7 @@ fn emit_gtk_pool_append(asm: &mut Asm, charoff: &str, mark: &str, marklen: &str,
 
 /// Emit `cairo_set_source_rgb(cr, r/255, g/255, b/255)` from a packed RGB value in
 /// `packed` (low 24 bits). Clobbers x0/x9-x13 and d0-d3.
-fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
+fn emit_cairo_color(asm: &mut Asm, cr: Reg, packed: Reg) {
     asm.push(abi::move_register(abi::c_arg(0), cr));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "255")); // mask + divisor
     asm.push(abi::and_registers(abi::SCRATCH[1], packed, abi::SCRATCH[0])); // r = packed & 0xFF
@@ -727,7 +727,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
 
 /// `dst (d-reg) = index * cellSize` as a double, where the cell size (px) is read
 /// from the runtime-state field `cell_off`. Clobbers x9.
-fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell_off: usize) {
+fn emit_cell_dim_to_d(asm: &mut Asm, dst: Reg, index: Reg, cell_off: usize) {
     asm.load_state(abi::SCRATCH[0], cell_off);
     asm.push(abi::multiply_registers(
         abi::SCRATCH[0],
@@ -738,13 +738,13 @@ fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell_off: usize) {
 }
 
 /// `dst (d-reg) = the cell size (px) at runtime-state field `cell_off`.
-fn emit_cell_to_d(asm: &mut Asm, dst: &str, cell_off: usize) {
+fn emit_cell_to_d(asm: &mut Asm, dst: Reg, cell_off: usize) {
     asm.load_state(abi::SCRATCH[0], cell_off);
     asm.push(abi::signed_convert_to_float_d(dst, abi::SCRATCH[0]));
 }
 
 /// `dst (d-reg) = constant` as a double.
-fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
+fn emit_const_to_d(asm: &mut Asm, dst: Reg, value: usize) {
     asm.push(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
@@ -755,7 +755,7 @@ fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
 
 /// Fill a 2px-tall rect at the bottom of cell (col,row) in the current source color
 /// (used for the underline run and the cursor caret).
-fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
+fn emit_term_cell_rect(asm: &mut Asm, cr: Reg, col: Reg, row: Reg) {
     asm.push(abi::move_register(abi::c_arg(0), cr));
     emit_cell_dim_to_d(asm, abi::FP_SCRATCH[0], col, ST_TERM_CELL_W); // x = col*cellW
                                                                       // Load cellH before forming row+1 in x9 (load_state clobbers x9).
@@ -1002,7 +1002,7 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
 }
 
 /// Clamp `reg = max(reg, low)` (clobbers x9). `tag` makes the label unique.
-fn emit_clamp_low(asm: &mut Asm, reg: &str, low: usize, tag: &str) {
+fn emit_clamp_low(asm: &mut Asm, reg: Reg, low: usize, tag: &str) {
     let label = format!("clamp_{tag}");
     asm.push(abi::compare_immediate(reg, &low.to_string()));
     asm.push(abi::branch_ge(&label));
@@ -1011,7 +1011,7 @@ fn emit_clamp_low(asm: &mut Asm, reg: &str, low: usize, tag: &str) {
 }
 
 /// Clamp `reg` to `[low, high]`. `tag` makes the labels unique within a function.
-fn emit_clamp_range(asm: &mut Asm, reg: &str, low: usize, high: usize, tag: &str) {
+fn emit_clamp_range(asm: &mut Asm, reg: Reg, low: usize, high: usize, tag: &str) {
     let lo = format!("clo_{tag}");
     let hi = format!("chi_{tag}");
     asm.push(abi::compare_immediate(reg, &high.to_string()));
@@ -1759,7 +1759,7 @@ fn pack_codepoint(codepoint: u32) -> u32 {
 /// to entry 0 for an out-of-range ordinal — the GTK twin of the console
 /// `emit_select_glyph` and the macOS `emit_app_select_unichar`, reading the SAME
 /// `TERM_*_CODEPOINTS` tables so the three backends cannot drift on a style.
-fn emit_select_packed_glyph(asm: &mut Asm, ord: &str, dst: &str, table: &[u32], tag: &str) {
+fn emit_select_packed_glyph(asm: &mut Asm, ord: Reg, dst: Reg, table: &[u32], tag: &str) {
     let done = format!("{tag}_done");
     asm.push(abi::move_immediate(
         dst,
@@ -2129,7 +2129,7 @@ pub(super) fn emit_term_box_helper() -> Result<CodeFunction, String> {
     // Four edges: top and bottom horizontal runs, left and right vertical runs.
     // The glyph is re-selected per edge rather than parked, so the body needs five
     // callee-saved locals instead of eleven.
-    let edges: [(bool, &str, &str, &str, &[u32; 7], &str); 4] = [
+    let edges: [(bool, Reg, Reg, Reg, &[u32; 7], &str); 4] = [
         (
             true,
             row_lo,
@@ -2177,7 +2177,7 @@ pub(super) fn emit_term_box_helper() -> Result<CodeFunction, String> {
         asm.call_internal(TERM_RUN_SYMBOL);
     }
     // Four corners on top of the edges, each bounds-checked by the stamp helper.
-    let corners: [(&str, &str, &[u32; 7], &str); 4] = [
+    let corners: [(Reg, Reg, &[u32; 7], &str); 4] = [
         (
             row_lo,
             col_lo,

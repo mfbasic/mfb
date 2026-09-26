@@ -33,6 +33,7 @@ use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 /// Term-state slot holding the console grid header-block base pointer (0 = off).
@@ -140,7 +141,7 @@ const DEFAULT_COLS: &str = "80";
 
 /// Emit an append of `bytes` (a fixed ASCII/escape run) into the buffer at
 /// cursor `buf`, advancing `buf` by `bytes.len()`. `scratch` is a throwaway vreg.
-fn append_const(buf: &str, bytes: &[u8], scratch: &str, instrs: &mut Vec<CodeInstruction>) {
+fn append_const(buf: Reg, bytes: &[u8], scratch: Reg, instrs: &mut Vec<CodeInstruction>) {
     for byte in bytes {
         instrs.push(abi::move_immediate(scratch, "Integer", &byte.to_string()));
         instrs.push(abi::store_u8(scratch, buf, 0));
@@ -153,23 +154,23 @@ fn append_const(buf: &str, bytes: &[u8], scratch: &str, instrs: &mut Vec<CodeIns
 /// them and none holds a value across a call to another. Minting them once (rather
 /// than per call) keeps the present's register count flat however many appends it
 /// makes.
-struct AppendScratch<'a> {
+struct AppendScratch {
     /// `append_decimal`: quotient, constant 10, digit cursor, divide result,
     /// remainder digit, digit-region end, copied byte.
-    q: &'a str,
-    ten: &'a str,
-    tp: &'a str,
-    d: &'a str,
-    r: &'a str,
-    e: &'a str,
-    c: &'a str,
+    q: Reg,
+    ten: Reg,
+    tp: Reg,
+    d: Reg,
+    r: Reg,
+    e: Reg,
+    c: Reg,
     /// `append_rgb`: the channel being appended and the 0xFF mask.
-    ch: &'a str,
-    ch_mask: &'a str,
+    ch: Reg,
+    ch_mask: Reg,
     /// `append_glyph`: the byte being appended, the blank's space, the 0xFF mask.
-    glyph_byte: &'a str,
-    glyph_space: &'a str,
-    glyph_mask: &'a str,
+    glyph_byte: Reg,
+    glyph_space: Reg,
+    glyph_mask: Reg,
 }
 
 /// Append the unsigned decimal text of `val` into `buf`, advancing `buf`. Digits
@@ -177,8 +178,8 @@ struct AppendScratch<'a> {
 /// `[tmp_start, tmp_end)` (no call happens, so the region is stable), then copied
 /// forward into the buffer. `tag` makes the loop labels unique.
 fn append_decimal(
-    buf: &str,
-    val: &str,
+    buf: Reg,
+    val: Reg,
     tmp_end: usize,
     tag: &str,
     scratch: &AppendScratch,
@@ -230,8 +231,8 @@ fn append_decimal(
 /// Append the three decimal channels of a packed `r|g<<8|b<<16` colour separated
 /// by `;` (the tail of an SGR truecolor sequence, without the leading prefix).
 fn append_rgb(
-    buf: &str,
-    packed: &str,
+    buf: Reg,
+    packed: Reg,
     tmp_end: usize,
     tag: &str,
     scratch: &AppendScratch,
@@ -257,8 +258,8 @@ fn append_rgb(
 /// Append the glyph's raw UTF-8 bytes (packed little-endian in `glyph`), or a
 /// single space when the cell is blank (glyph 0). Stops at the first zero byte.
 fn append_glyph(
-    buf: &str,
-    glyph: &str,
+    buf: Reg,
+    glyph: Reg,
     tag: &str,
     scratch: &AppendScratch,
     instrs: &mut Vec<CodeInstruction>,
@@ -310,13 +311,13 @@ fn append_glyph(
 /// cell count, the copy source/destination cursors, the word being moved, and the
 /// word counter.
 #[derive(Clone, Copy)]
-struct ScrollScratch<'a> {
-    ncells: &'a str,
-    moved: &'a str,
-    src: &'a str,
-    dst: &'a str,
-    word: &'a str,
-    cnt: &'a str,
+struct ScrollScratch {
+    ncells: Reg,
+    moved: Reg,
+    src: Reg,
+    dst: Reg,
+    word: Reg,
+    cnt: Reg,
 }
 
 /// Scroll the back buffer up one row: shift rows 1..rows into 0..rows-1 and blank
@@ -333,9 +334,9 @@ struct ScrollScratch<'a> {
 /// more: every one of them is rewritten before it is next read at each scroll
 /// point.
 fn emit_scroll_back(
-    back: &str,
-    rows: &str,
-    cols: &str,
+    back: Reg,
+    rows: Reg,
+    cols: Reg,
     scratch: &ScrollScratch,
     tag: &str,
     instrs: &mut Vec<CodeInstruction>,
@@ -451,15 +452,15 @@ pub(crate) fn emit_grid_alloc(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let rowsv: &str = &vregs.next();
-    let colsv: &str = &vregs.next();
-    let t: &str = &vregs.next();
-    let m: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let wc: &str = &vregs.next();
-    let zp: &str = &vregs.next();
-    let zero: &str = &vregs.next();
-    let one: &str = &vregs.next();
+    let rowsv: Reg = vregs.next().into();
+    let colsv: Reg = vregs.next().into();
+    let t: Reg = vregs.next().into();
+    let m: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let wc: Reg = vregs.next().into();
+    let zp: Reg = vregs.next().into();
+    let zero: Reg = vregs.next().into();
+    let one: Reg = vregs.next().into();
     let size_fail = format!("{symbol}_ga_sizefail");
     let size_ok = format!("{symbol}_ga_sizeok");
     let zloop = format!("{symbol}_ga_zloop");
@@ -550,12 +551,12 @@ pub(crate) fn emit_grid_free(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) {
-    let gp: &str = &vregs.next();
-    let rowsv: &str = &vregs.next();
-    let colsv: &str = &vregs.next();
-    let t: &str = &vregs.next();
-    let m: &str = &vregs.next();
-    let zero: &str = &vregs.next();
+    let gp: Reg = vregs.next().into();
+    let rowsv: Reg = vregs.next().into();
+    let colsv: Reg = vregs.next().into();
+    let t: Reg = vregs.next().into();
+    let m: Reg = vregs.next().into();
+    let zero: Reg = vregs.next().into();
     let skip = format!("{symbol}_gf_skip");
     instrs.extend([
         abi::load_u64(
@@ -600,56 +601,57 @@ pub(crate) fn emit_grid_free(
 pub(crate) fn emit_grid_write(
     symbol: &str,
     term_state_offset: usize,
-    strobj: &str,
+    strobj: impl Into<Reg>,
     append_newline: bool,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) {
-    let gp: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let row: &str = &vregs.next();
-    let col: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
-    let ptr: &str = &vregs.next();
-    let rem: &str = &vregs.next();
-    let b0: &str = &vregs.next();
-    let len: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
-    let t: &str = &vregs.next();
-    let idx: &str = &vregs.next();
-    let cell: &str = &vregs.next();
+    let strobj: Reg = strobj.into();
+    let gp: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let row: Reg = vregs.next().into();
+    let col: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
+    let ptr: Reg = vregs.next().into();
+    let rem: Reg = vregs.next().into();
+    let b0: Reg = vregs.next().into();
+    let len: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
+    let t: Reg = vregs.next().into();
+    let idx: Reg = vregs.next().into();
+    let cell: Reg = vregs.next().into();
     // plan-70-B width path: codepoint decode + charwidth lookup + wide handling.
-    let cp: &str = &vregs.next();
-    let width: &str = &vregs.next();
-    let sa: &str = &vregs.next();
-    let sb: &str = &vregs.next();
-    let trail: &str = &vregs.next();
+    let cp: Reg = vregs.next().into();
+    let width: Reg = vregs.next().into();
+    let sa: Reg = vregs.next().into();
+    let sb: Reg = vregs.next().into();
+    let trail: Reg = vregs.next().into();
     // plan-70-B Phase 2 cluster walk + EGC pool.
-    let prop: &str = &vregs.next();
-    let state_bc: &str = &vregs.next();
-    let state_icb: &str = &vregs.next();
-    let clen: &str = &vregs.next(); // total cluster byte length
-    let pptr: &str = &vregs.next(); // peek: pointer at ptr + clen
-    let pb0: &str = &vregs.next(); // peek: lead byte
-    let plen: &str = &vregs.next(); // peek: scalar byte length
-    let pcp: &str = &vregs.next(); // peek: codepoint
-    let pprop: &str = &vregs.next(); // peek: property ptr
-    let pbc: &str = &vregs.next(); // peek: boundclass
-    let picb: &str = &vregs.next(); // peek: indic-conjunct-break
-    let pwidth: &str = &vregs.next(); // peek: charwidth
-    let sc: &str = &vregs.next(); // scratch
-    let sd: &str = &vregs.next(); // scratch
-    let sd2: &str = &vregs.next(); // scratch byte
-    let cellidx: &str = &vregs.next(); // linear cell index (row*cols+col) for the pool slot
-    let ncells: &str = &vregs.next();
-    let poolbase: &str = &vregs.next();
-    let poolslot: &str = &vregs.next();
+    let prop: Reg = vregs.next().into();
+    let state_bc: Reg = vregs.next().into();
+    let state_icb: Reg = vregs.next().into();
+    let clen: Reg = vregs.next().into(); // total cluster byte length
+    let pptr: Reg = vregs.next().into(); // peek: pointer at ptr + clen
+    let pb0: Reg = vregs.next().into(); // peek: lead byte
+    let plen: Reg = vregs.next().into(); // peek: scalar byte length
+    let pcp: Reg = vregs.next().into(); // peek: codepoint
+    let pprop: Reg = vregs.next().into(); // peek: property ptr
+    let pbc: Reg = vregs.next().into(); // peek: boundclass
+    let picb: Reg = vregs.next().into(); // peek: indic-conjunct-break
+    let pwidth: Reg = vregs.next().into(); // peek: charwidth
+    let sc: Reg = vregs.next().into(); // scratch
+    let sd: Reg = vregs.next().into(); // scratch
+    let sd2: Reg = vregs.next().into(); // scratch byte
+    let cellidx: Reg = vregs.next().into(); // linear cell index (row*cols+col) for the pool slot
+    let ncells: Reg = vregs.next().into();
+    let poolbase: Reg = vregs.next().into();
+    let poolslot: Reg = vregs.next().into();
     // The scroll's scratch is this writer's per-glyph scratch: at every scroll
     // point (after the cluster is measured, at `\n`, and at the newline tail) each
     // of these is rewritten before it is next read.
@@ -1067,29 +1069,29 @@ pub(crate) fn emit_grid_resize(
     const S_OLDC: usize = 40;
     const S_OLDGP: usize = 48;
     let sp = abi::stack_pointer();
-    let newr: &str = &vregs.next();
-    let newc: &str = &vregs.next();
-    let oldr: &str = &vregs.next();
-    let oldc: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let ng: &str = &vregs.next();
-    let t: &str = &vregs.next();
-    let m: &str = &vregs.next();
-    let wc: &str = &vregs.next();
-    let zp: &str = &vregs.next();
-    let zero: &str = &vregs.next();
-    let minr: &str = &vregs.next();
-    let minc: &str = &vregs.next();
-    let rr: &str = &vregs.next();
-    let ob: &str = &vregs.next();
-    let nb: &str = &vregs.next();
-    let cc: &str = &vregs.next();
-    let sptr: &str = &vregs.next();
-    let dptr: &str = &vregs.next();
-    let word: &str = &vregs.next();
+    let newr: Reg = vregs.next().into();
+    let newc: Reg = vregs.next().into();
+    let oldr: Reg = vregs.next().into();
+    let oldc: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let ng: Reg = vregs.next().into();
+    let t: Reg = vregs.next().into();
+    let m: Reg = vregs.next().into();
+    let wc: Reg = vregs.next().into();
+    let zp: Reg = vregs.next().into();
+    let zero: Reg = vregs.next().into();
+    let minr: Reg = vregs.next().into();
+    let minc: Reg = vregs.next().into();
+    let rr: Reg = vregs.next().into();
+    let ob: Reg = vregs.next().into();
+    let nb: Reg = vregs.next().into();
+    let cc: Reg = vregs.next().into();
+    let sptr: Reg = vregs.next().into();
+    let dptr: Reg = vregs.next().into();
+    let word: Reg = vregs.next().into();
     // plan-70-B Phase 2: pool-slot copy across the reflow.
-    let opb: &str = &vregs.next();
-    let npb: &str = &vregs.next();
+    let opb: Reg = vregs.next().into();
+    let npb: Reg = vregs.next().into();
     let prloop = format!("{symbol}_rz_prloop");
     let prdone = format!("{symbol}_rz_prdone");
     let pcloop = format!("{symbol}_rz_pcloop");
@@ -1340,52 +1342,52 @@ pub(crate) fn emit_grid_present(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let dirty: &str = &vregs.next();
-    let ncells: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let front: &str = &vregs.next();
-    let outbuf: &str = &vregs.next();
-    let buf: &str = &vregs.next();
-    let idx: &str = &vregs.next();
-    let row: &str = &vregs.next();
-    let col: &str = &vregs.next();
-    let off: &str = &vregs.next();
-    let bc: &str = &vregs.next();
-    let fc: &str = &vregs.next();
-    let last_valid: &str = &vregs.next();
-    let last_row: &str = &vregs.next();
-    let last_col: &str = &vregs.next();
-    let last_fg: &str = &vregs.next();
-    let last_bg: &str = &vregs.next();
-    let last_bold: &str = &vregs.next();
-    let last_un: &str = &vregs.next();
-    let cfg: &str = &vregs.next();
-    let cbg: &str = &vregs.next();
-    let cbold: &str = &vregs.next();
-    let cun: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
-    let a0: &str = &vregs.next();
-    let b0: &str = &vregs.next();
-    let tmp: &str = &vregs.next();
-    let rowp1: &str = &vregs.next();
-    let colp1: &str = &vregs.next();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let dirty: Reg = vregs.next().into();
+    let ncells: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let front: Reg = vregs.next().into();
+    let outbuf: Reg = vregs.next().into();
+    let buf: Reg = vregs.next().into();
+    let idx: Reg = vregs.next().into();
+    let row: Reg = vregs.next().into();
+    let col: Reg = vregs.next().into();
+    let off: Reg = vregs.next().into();
+    let bc: Reg = vregs.next().into();
+    let fc: Reg = vregs.next().into();
+    let last_valid: Reg = vregs.next().into();
+    let last_row: Reg = vregs.next().into();
+    let last_col: Reg = vregs.next().into();
+    let last_fg: Reg = vregs.next().into();
+    let last_bg: Reg = vregs.next().into();
+    let last_bold: Reg = vregs.next().into();
+    let last_un: Reg = vregs.next().into();
+    let cfg: Reg = vregs.next().into();
+    let cbg: Reg = vregs.next().into();
+    let cbold: Reg = vregs.next().into();
+    let cun: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
+    let a0: Reg = vregs.next().into();
+    let b0: Reg = vregs.next().into();
+    let tmp: Reg = vregs.next().into();
+    let rowp1: Reg = vregs.next().into();
+    let colp1: Reg = vregs.next().into();
     // bug-314 H3: the present-write loop's cursor / remaining / result.
-    let wcur: &str = &vregs.next();
-    let wrem: &str = &vregs.next();
-    let wres: &str = &vregs.next();
+    let wcur: Reg = vregs.next().into();
+    let wrem: Reg = vregs.next().into();
+    let wres: Reg = vregs.next().into();
     // plan-70-B: this cell's stored display width, for the cursor-advance model.
-    let cwidth: &str = &vregs.next();
+    let cwidth: Reg = vregs.next().into();
     // plan-70-B Phase 2: pooled-cluster emission.
-    let pe_len: &str = &vregs.next();
-    let pe_base: &str = &vregs.next();
-    let pe_slot: &str = &vregs.next();
-    let pe_i: &str = &vregs.next();
-    let pe_byte: &str = &vregs.next();
-    let pe_sc: &str = &vregs.next();
-    let pe_dst: &str = &vregs.next();
+    let pe_len: Reg = vregs.next().into();
+    let pe_base: Reg = vregs.next().into();
+    let pe_slot: Reg = vregs.next().into();
+    let pe_i: Reg = vregs.next().into();
+    let pe_byte: Reg = vregs.next().into();
+    let pe_sc: Reg = vregs.next().into();
+    let pe_dst: Reg = vregs.next().into();
     // The append helpers' scratch. The decimal formatter's first three share the
     // pooled-cluster copy's byte/scratch/destination vregs: the copy and each
     // decimal append run at different points of a cell's emission, and neither
@@ -1394,15 +1396,15 @@ pub(crate) fn emit_grid_present(
         q: pe_byte,
         ten: pe_sc,
         tp: pe_dst,
-        d: &vregs.next(),
-        r: &vregs.next(),
-        e: &vregs.next(),
-        c: &vregs.next(),
-        ch: &vregs.next(),
-        ch_mask: &vregs.next(),
-        glyph_byte: &vregs.next(),
-        glyph_space: &vregs.next(),
-        glyph_mask: &vregs.next(),
+        d: vregs.next().into(),
+        r: vregs.next().into(),
+        e: vregs.next().into(),
+        c: vregs.next().into(),
+        ch: vregs.next().into(),
+        ch_mask: vregs.next().into(),
+        glyph_byte: vregs.next().into(),
+        glyph_space: vregs.next().into(),
+        glyph_mask: vregs.next().into(),
     };
 
     let done_ok = format!("{symbol}_pr_ok");

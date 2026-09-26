@@ -10,7 +10,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
@@ -20,6 +19,7 @@ use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::term::grid as term_grid;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // Frame layout. `LOCALS_SIZE` is the size of this locals region, which
@@ -173,7 +173,7 @@ fn data_reloc(from: &str, symbol: &str, kind: RelocIntent) -> CodeRelocation {
 fn load_data_address(
     from: &str,
     symbol: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -223,7 +223,7 @@ fn emit_write_const(ctx: &mut EmitCtx, data_symbol: &str, len: usize) -> Result<
 fn emit_gate_inactive(
     term_state_offset: usize,
     target: &str,
-    scratch: &str,
+    scratch: Reg,
     instructions: &mut Vec<CodeInstruction>,
 ) {
     instructions.push(abi::load_u64(
@@ -489,7 +489,7 @@ fn emit_on(
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
-    let v9 = vregs.next();
+    let v9: Reg = vregs.next().into();
 
     // plan-35-B: allocate the console shadow-grid header block sized to the
     // terminal *before* marking TUI mode active, so a program never sees
@@ -623,10 +623,10 @@ fn emit_off(
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
-    let v9 = vregs.next();
+    let v9: Reg = vregs.next().into();
 
     let inactive = format!("{symbol}_inactive");
-    emit_gate_inactive(term_state_offset, &inactive, &v9, ctx.instructions);
+    emit_gate_inactive(term_state_offset, &inactive, v9, ctx.instructions);
     // plan-35-C: present the final frame before restoring the user's screen, so
     // the last frame the program drew is shown. Reuse the `term::sync` helper as
     // the present routine (force-emitted whenever `term::` is used).
@@ -748,7 +748,7 @@ fn emit_did_resize(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let v9 = vregs.next();
+    let v9: Reg = vregs.next().into();
     instructions.push(abi::load_u64(
         RESULT_VALUE_REGISTER,
         ARENA_STATE_REGISTER,
@@ -802,7 +802,7 @@ fn emit_enable_mouse(
     let disable = format!("{symbol}_mouse_disable");
 
     // The argument is the `Boolean` in the MFB argument register.
-    let enabled = vregs.next();
+    let enabled: Reg = vregs.next().into();
     ctx.instructions
         .push(abi::move_register(&enabled, abi::mfb_arg(0)));
     ctx.instructions.push(abi::compare_immediate(&enabled, "0"));
@@ -856,8 +856,8 @@ fn emit_mouse_withdraw(
     let symbol = ctx.symbol;
     let skip = format!("{symbol}_mouse_withdraw_skip");
 
-    let addr = vregs.next();
-    let mode = vregs.next();
+    let addr: Reg = vregs.next().into();
+    let mode: Reg = vregs.next().into();
     push_symbol_address(
         symbol,
         MOUSE_MODE_SYMBOL,
@@ -913,8 +913,8 @@ pub(crate) fn emit_mouse_tracking_window(
     let tag = if resume { "resume" } else { "suspend" };
     let skip = format!("{symbol}_mouse_{tag}_skip");
 
-    let addr = vregs.next();
-    let mode = vregs.next();
+    let addr: Reg = vregs.next().into();
+    let mode: Reg = vregs.next().into();
     push_symbol_address(
         symbol,
         MOUSE_MODE_SYMBOL,
@@ -928,9 +928,9 @@ pub(crate) fn emit_mouse_tracking_window(
     // Distinct vregs from `emit_console_raw_line_mode`'s `%v20…%v22`: that call
     // has finished restoring by the time this one runs, but reusing its parking
     // slots would make the two impossible to reorder safely later.
-    let saved_tag = vregs.next();
-    let saved_value = vregs.next();
-    let saved_message = vregs.next();
+    let saved_tag: Reg = vregs.next().into();
+    let saved_value: Reg = vregs.next().into();
+    let saved_message: Reg = vregs.next().into();
     if preserve_result {
         ctx.instructions.extend([
             abi::move_register(&saved_tag, RESULT_TAG_REGISTER),
@@ -963,8 +963,8 @@ pub(crate) fn emit_mouse_tracking_window(
 /// already makes.
 pub(crate) fn emit_store_mouse_mode(ctx: &mut EmitCtx, value: u64, vregs: &mut Vregs) {
     let symbol = ctx.symbol;
-    let addr = vregs.next();
-    let word = vregs.next();
+    let addr: Reg = vregs.next().into();
+    let word: Reg = vregs.next().into();
     push_symbol_address(
         symbol,
         MOUSE_MODE_SYMBOL,
@@ -1014,7 +1014,7 @@ pub(crate) fn emit_mouse_inject(
     if ctx.platform.family() == PlatformFamily::Windows {
         return Ok(());
     }
-    let name = vregs.next();
+    let name: Reg = vregs.next().into();
     push_symbol_address(
         symbol,
         MOUSE_INJECT_ENV_SYMBOL,
@@ -1033,7 +1033,7 @@ pub(crate) fn emit_mouse_inject(
         ctx.instructions,
         ctx.relocations,
     )?;
-    let text = vregs.next();
+    let text: Reg = vregs.next().into();
     ctx.instructions
         .push(abi::move_register(&text, abi::c_return(0)));
     ctx.instructions.push(abi::compare_immediate(&text, "0"));
@@ -1041,10 +1041,10 @@ pub(crate) fn emit_mouse_inject(
 
     // Walk the NUL-terminated value one byte at a time, exactly as the read path
     // will, so the same state machine sees the same sequence of bytes.
-    let cursor = vregs.next();
-    let byte = vregs.next();
-    let action = vregs.next();
-    let out_byte = vregs.next();
+    let cursor: Reg = vregs.next().into();
+    let byte: Reg = vregs.next().into();
+    let action: Reg = vregs.next().into();
+    let out_byte: Reg = vregs.next().into();
     ctx.instructions.extend([
         abi::move_register(&cursor, &text),
         abi::label(&loop_head),
@@ -1127,10 +1127,10 @@ fn emit_poll_mouse(
         abi::label(&alloc_ok),
     ]);
 
-    let rec = vregs.next();
-    let value = vregs.next();
-    let bit = vregs.next();
-    let mods = vregs.next();
+    let rec: Reg = vregs.next().into();
+    let value: Reg = vregs.next().into();
+    let bit: Reg = vregs.next().into();
+    let mods: Reg = vregs.next().into();
     ctx.instructions
         .push(abi::move_register(&rec, RESULT_VALUE_REGISTER));
 
@@ -1195,12 +1195,12 @@ fn emit_set_color(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let v9 = vregs.next();
-    let v10 = vregs.next();
-    let v11 = vregs.next();
-    let v12 = vregs.next();
+    let v9: Reg = vregs.next().into();
+    let v10: Reg = vregs.next().into();
+    let v11: Reg = vregs.next().into();
+    let v12: Reg = vregs.next().into();
     let inactive = format!("{symbol}_inactive");
-    emit_gate_inactive(term_state_offset, &inactive, &v9, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, v9, instructions);
     // plan-122-F: the single MFB argument is a `color::Color` RECORD POINTER, in
     // `c_arg(0)` (established by reading this file's own pre-change unpacking, which
     // took its three `Byte` channels from `c_arg(0..2)` — NOT `return_register()`,
@@ -1246,9 +1246,9 @@ fn emit_set_attr(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let v9 = vregs.next();
+    let v9: Reg = vregs.next().into();
     let inactive = format!("{symbol}_inactive");
-    emit_gate_inactive(term_state_offset, &inactive, &v9, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, v9, instructions);
     instructions.push(abi::move_register(&v9, abi::c_arg(0)));
     instructions.push(abi::store_u64(&v9, ARENA_STATE_REGISTER, state_offset));
     instructions.push(abi::label(&inactive));
@@ -1268,9 +1268,9 @@ fn emit_set_cursor_visible(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let v9 = vregs.next();
+    let v9: Reg = vregs.next().into();
     let inactive = format!("{symbol}_inactive");
-    emit_gate_inactive(term_state_offset, &inactive, &v9, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, v9, instructions);
     instructions.push(abi::move_immediate(&v9, "Integer", value));
     instructions.push(abi::store_u64(
         &v9,
@@ -1296,15 +1296,15 @@ fn emit_clear_grid(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let gp = vregs.next();
-    let words = vregs.next();
-    let cols = vregs.next();
-    let cursor = vregs.next();
-    let zero = vregs.next();
+    let gp: Reg = vregs.next().into();
+    let words: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let cursor: Reg = vregs.next().into();
+    let zero: Reg = vregs.next().into();
     let inactive = format!("{symbol}_inactive");
     let clr = format!("{symbol}_clr_loop");
     let clr_done = format!("{symbol}_clr_done");
-    emit_gate_inactive(term_state_offset, &inactive, &gp, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, gp, instructions);
     instructions.extend([
         abi::load_u64(
             &gp,
@@ -1349,17 +1349,17 @@ fn emit_move_to(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let gp = vregs.next();
-    let rows = vregs.next();
-    let cols = vregs.next();
-    let row = vregs.next();
-    let col = vregs.next();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let row: Reg = vregs.next().into();
+    let col: Reg = vregs.next().into();
     let inactive = format!("{symbol}_inactive");
     let row_lo = format!("{symbol}_row_lo");
     let col_lo = format!("{symbol}_col_lo");
     let row_hi = format!("{symbol}_row_hi");
     let col_hi = format!("{symbol}_col_hi");
-    emit_gate_inactive(term_state_offset, &inactive, &gp, instructions);
+    emit_gate_inactive(term_state_offset, &inactive, gp, instructions);
     instructions.extend([
         abi::load_u64(
             &gp,
@@ -1419,8 +1419,8 @@ fn packed_glyph(codepoint: u32) -> u32 {
 /// `LineStyle` code-point table. Ordinal 0 is the fall-through default, so an
 /// out-of-range ordinal can never strand `dst`. `tag` uniquifies the labels.
 fn emit_select_glyph(
-    ord: &str,
-    dst: &str,
+    ord: Reg,
+    dst: Reg,
     table: &[u32],
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -1449,20 +1449,20 @@ fn emit_select_glyph(
 /// attribute registers the current fg/bg/bold/underline; the remaining fields are
 /// scratch the stampers clobber, which the caller must keep disjoint from any
 /// value that must stay live across a stamp (e.g. the normalised box extents).
-struct StampCtx<'a> {
-    rows: &'a str,
-    cols: &'a str,
-    back: &'a str,
-    fg: &'a str,
-    bg: &'a str,
-    bold: &'a str,
-    un: &'a str,
-    lo: &'a str,
-    hi: &'a str,
-    idx: &'a str,
-    cell: &'a str,
-    pos: &'a str,
-    tmp: &'a str,
+struct StampCtx {
+    rows: Reg,
+    cols: Reg,
+    back: Reg,
+    fg: Reg,
+    bg: Reg,
+    bold: Reg,
+    un: Reg,
+    lo: Reg,
+    hi: Reg,
+    idx: Reg,
+    cell: Reg,
+    pos: Reg,
+    tmp: Reg,
 }
 
 /// Stamp `glyph` (with the ctx attributes) across a clamped run. `fixed` is the
@@ -1477,10 +1477,10 @@ struct StampCtx<'a> {
 fn emit_stamp_run(
     ctx: &StampCtx,
     is_horizontal: bool,
-    fixed: &str,
-    ea: &str,
-    eb: &str,
-    glyph: &str,
+    fixed: Reg,
+    ea: Reg,
+    eb: Reg,
+    glyph: Reg,
     tag: &str,
     skip: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -1571,8 +1571,8 @@ fn emit_stamp_run(
 /// cell address is already in `ctx.cell`; `lo` is a spent span bound).
 fn emit_clear_wide_pair(
     ctx: &StampCtx,
-    cell: &str,
-    col: &str,
+    cell: Reg,
+    col: Reg,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
@@ -1614,10 +1614,10 @@ fn emit_clear_wide_pair(
 /// by the caller after the call). Used for `drawBox` corners.
 fn emit_stamp_cell(
     ctx: &StampCtx,
-    row: &str,
-    col: &str,
-    glyph: &str,
-    width: &str,
+    row: Reg,
+    col: Reg,
+    glyph: Reg,
+    width: Reg,
     tag: &str,
     skip: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -1657,14 +1657,14 @@ fn emit_stamp_cell(
 #[allow(clippy::too_many_arguments)]
 fn emit_load_grid(
     term_state_offset: usize,
-    gp: &str,
-    rows: &str,
-    cols: &str,
-    back: &str,
-    fg: &str,
-    bg: &str,
-    bold: &str,
-    un: &str,
+    gp: Reg,
+    rows: Reg,
+    cols: Reg,
+    back: Reg,
+    fg: Reg,
+    bg: Reg,
+    bold: Reg,
+    un: Reg,
     inactive: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
@@ -1725,19 +1725,19 @@ fn emit_draw_line(
     vregs: &mut Vregs,
 ) {
     let inactive = format!("{symbol}_inactive");
-    let ord: &str = &vregs.next();
-    let fixed: &str = &vregs.next();
-    let ea: &str = &vregs.next();
-    let eb: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
+    let ord: Reg = vregs.next().into();
+    let fixed: Reg = vregs.next().into();
+    let ea: Reg = vregs.next().into();
+    let eb: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
     let ctx = StampCtx {
         rows,
         cols,
@@ -1746,12 +1746,12 @@ fn emit_draw_line(
         bg,
         bold,
         un,
-        lo: &vregs.next(),
-        hi: &vregs.next(),
-        idx: &vregs.next(),
-        cell: &vregs.next(),
-        pos: &vregs.next(),
-        tmp: &vregs.next(),
+        lo: vregs.next().into(),
+        hi: vregs.next().into(),
+        idx: vregs.next().into(),
+        cell: vregs.next().into(),
+        pos: vregs.next().into(),
+        tmp: vregs.next().into(),
     };
 
     emit_gate_inactive(term_state_offset, &inactive, ord, instructions);
@@ -1826,29 +1826,29 @@ fn emit_draw_box(
     vregs: &mut Vregs,
 ) {
     let inactive = format!("{symbol}_inactive");
-    let ord: &str = &vregs.next();
-    let ax1: &str = &vregs.next();
-    let ay1: &str = &vregs.next();
-    let ax2: &str = &vregs.next();
-    let ay2: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
-    let xlo: &str = &vregs.next();
-    let xhi: &str = &vregs.next();
-    let ylo: &str = &vregs.next();
-    let yhi: &str = &vregs.next();
-    let hglyph: &str = &vregs.next();
-    let vglyph: &str = &vregs.next();
-    let ctl: &str = &vregs.next();
-    let ctr: &str = &vregs.next();
-    let cbl: &str = &vregs.next();
-    let cbr: &str = &vregs.next();
+    let ord: Reg = vregs.next().into();
+    let ax1: Reg = vregs.next().into();
+    let ay1: Reg = vregs.next().into();
+    let ax2: Reg = vregs.next().into();
+    let ay2: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
+    let xlo: Reg = vregs.next().into();
+    let xhi: Reg = vregs.next().into();
+    let ylo: Reg = vregs.next().into();
+    let yhi: Reg = vregs.next().into();
+    let hglyph: Reg = vregs.next().into();
+    let vglyph: Reg = vregs.next().into();
+    let ctl: Reg = vregs.next().into();
+    let ctr: Reg = vregs.next().into();
+    let cbl: Reg = vregs.next().into();
+    let cbr: Reg = vregs.next().into();
     let ctx = StampCtx {
         rows,
         cols,
@@ -1857,12 +1857,12 @@ fn emit_draw_box(
         bg,
         bold,
         un,
-        lo: &vregs.next(),
-        hi: &vregs.next(),
-        idx: &vregs.next(),
-        cell: &vregs.next(),
-        pos: &vregs.next(),
-        tmp: &vregs.next(),
+        lo: vregs.next().into(),
+        hi: vregs.next().into(),
+        idx: vregs.next().into(),
+        cell: vregs.next().into(),
+        pos: vregs.next().into(),
+        tmp: vregs.next().into(),
     };
 
     emit_gate_inactive(term_state_offset, &inactive, ord, instructions);
@@ -1954,7 +1954,7 @@ fn emit_draw_box(
     );
     // Four edges (each clamped/skipped independently), then four corners on top.
     // top: row ylo, cols xlo..xhi ; bottom: row yhi.
-    let edges: &[(bool, &str, &str, &str, &str, &str)] = &[
+    let edges: &[(bool, Reg, Reg, Reg, Reg, &str)] = &[
         (true, ylo, xlo, xhi, hglyph, "e0"),
         (true, yhi, xlo, xhi, hglyph, "e1"),
         (false, xlo, ylo, yhi, vglyph, "e2"),
@@ -1965,17 +1965,17 @@ fn emit_draw_box(
         emit_stamp_run(
             &ctx,
             *is_h,
-            fixed,
-            ea,
-            eb,
-            glyph,
+            *fixed,
+            *ea,
+            *eb,
+            *glyph,
             &format!("{symbol}_box_{tag}"),
             &skip,
             instructions,
         );
         instructions.push(abi::label(&skip));
     }
-    let corners: &[(&str, &str, &str, &str)] = &[
+    let corners: &[(Reg, Reg, Reg, &str)] = &[
         (ylo, xlo, ctl, "cTL"),
         (ylo, xhi, ctr, "cTR"),
         (yhi, xlo, cbl, "cBL"),
@@ -1985,7 +1985,7 @@ fn emit_draw_box(
     instructions.push(abi::move_immediate(ctx.tmp, "Integer", "1"));
     for (row, col, glyph, tag) in corners {
         let skip = format!("{symbol}_box_{tag}_skip");
-        emit_stamp_cell(&ctx, row, col, glyph, ctx.tmp, &skip, &skip, instructions);
+        emit_stamp_cell(&ctx, *row, *col, *glyph, ctx.tmp, &skip, &skip, instructions);
         instructions.push(abi::label(&skip));
     }
     instructions.push(abi::label(&inactive));
@@ -2010,25 +2010,25 @@ fn emit_fill_rect(
     vregs: &mut Vregs,
 ) {
     let inactive = format!("{symbol}_inactive");
-    let ord: &str = &vregs.next();
-    let ax1: &str = &vregs.next();
-    let ay1: &str = &vregs.next();
-    let ax2: &str = &vregs.next();
-    let ay2: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
-    let xlo: &str = &vregs.next();
-    let xhi: &str = &vregs.next();
-    let ylo: &str = &vregs.next();
-    let yhi: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
-    let row: &str = &vregs.next();
+    let ord: Reg = vregs.next().into();
+    let ax1: Reg = vregs.next().into();
+    let ay1: Reg = vregs.next().into();
+    let ax2: Reg = vregs.next().into();
+    let ay2: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
+    let xlo: Reg = vregs.next().into();
+    let xhi: Reg = vregs.next().into();
+    let ylo: Reg = vregs.next().into();
+    let yhi: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
+    let row: Reg = vregs.next().into();
     let ctx = StampCtx {
         rows,
         cols,
@@ -2037,12 +2037,12 @@ fn emit_fill_rect(
         bg,
         bold,
         un,
-        lo: &vregs.next(),
-        hi: &vregs.next(),
-        idx: &vregs.next(),
-        cell: &vregs.next(),
-        pos: &vregs.next(),
-        tmp: &vregs.next(),
+        lo: vregs.next().into(),
+        hi: vregs.next().into(),
+        idx: vregs.next().into(),
+        cell: vregs.next().into(),
+        pos: vregs.next().into(),
+        tmp: vregs.next().into(),
     };
 
     emit_gate_inactive(term_state_offset, &inactive, ord, instructions);
@@ -2148,11 +2148,11 @@ fn emit_fill_rect(
 /// (the caller guards control code points); an out-of-range value still produces a
 /// well-formed 4-byte pack rather than corrupting anything.
 pub(crate) fn emit_encode_utf8(
-    cp: &str,
-    glyph: &str,
-    b: &str,
-    sh: &str,
-    mask: &str,
+    cp: Reg,
+    glyph: Reg,
+    b: Reg,
+    sh: Reg,
+    mask: Reg,
     tag: &str,
     instrs: &mut Vec<CodeInstruction>,
 ) {
@@ -2239,18 +2239,18 @@ fn emit_draw_glyph(
     vregs: &mut Vregs,
 ) {
     let inactive = format!("{symbol}_inactive");
-    let x: &str = &vregs.next();
-    let y: &str = &vregs.next();
-    let cp: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
+    let x: Reg = vregs.next().into();
+    let y: Reg = vregs.next().into();
+    let cp: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
     let ctx = StampCtx {
         rows,
         cols,
@@ -2259,25 +2259,25 @@ fn emit_draw_glyph(
         bg,
         bold,
         un,
-        lo: &vregs.next(),
-        hi: &vregs.next(),
-        idx: &vregs.next(),
-        cell: &vregs.next(),
-        pos: &vregs.next(),
-        tmp: &vregs.next(),
+        lo: vregs.next().into(),
+        hi: vregs.next().into(),
+        idx: vregs.next().into(),
+        cell: vregs.next().into(),
+        pos: vregs.next().into(),
+        tmp: vregs.next().into(),
     };
     // `emit_encode_utf8` scratch.
-    let enc_b: &str = &vregs.next();
-    let enc_sh: &str = &vregs.next();
-    let enc_mask: &str = &vregs.next();
+    let enc_b: Reg = vregs.next().into();
+    let enc_sh: Reg = vregs.next().into();
+    let enc_mask: Reg = vregs.next().into();
     // plan-70-C width path.
-    let width: &str = &vregs.next();
-    let prop: &str = &vregs.next();
-    let wa: &str = &vregs.next();
-    let wb: &str = &vregs.next();
-    let wc: &str = &vregs.next();
-    let trailc: &str = &vregs.next();
-    let trailglyph: &str = &vregs.next();
+    let width: Reg = vregs.next().into();
+    let prop: Reg = vregs.next().into();
+    let wa: Reg = vregs.next().into();
+    let wb: Reg = vregs.next().into();
+    let wc: Reg = vregs.next().into();
+    let trailc: Reg = vregs.next().into();
+    let trailglyph: Reg = vregs.next().into();
     let after_trail = format!("{symbol}_dg_aftertrail");
     let w_have = format!("{symbol}_dg_whave");
 
@@ -2391,24 +2391,24 @@ fn emit_draw_text(
     vregs: &mut Vregs,
 ) {
     let inactive = format!("{symbol}_inactive");
-    let x: &str = &vregs.next();
-    let y: &str = &vregs.next();
-    let strobj: &str = &vregs.next();
-    let gp: &str = &vregs.next();
-    let rows: &str = &vregs.next();
-    let cols: &str = &vregs.next();
-    let back: &str = &vregs.next();
-    let fg: &str = &vregs.next();
-    let bg: &str = &vregs.next();
-    let bold: &str = &vregs.next();
-    let un: &str = &vregs.next();
-    let ptr: &str = &vregs.next();
-    let rem: &str = &vregs.next();
-    let col: &str = &vregs.next();
-    let b0: &str = &vregs.next();
-    let len: &str = &vregs.next();
-    let glyph: &str = &vregs.next();
-    let t: &str = &vregs.next();
+    let x: Reg = vregs.next().into();
+    let y: Reg = vregs.next().into();
+    let strobj: Reg = vregs.next().into();
+    let gp: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
+    let back: Reg = vregs.next().into();
+    let fg: Reg = vregs.next().into();
+    let bg: Reg = vregs.next().into();
+    let bold: Reg = vregs.next().into();
+    let un: Reg = vregs.next().into();
+    let ptr: Reg = vregs.next().into();
+    let rem: Reg = vregs.next().into();
+    let col: Reg = vregs.next().into();
+    let b0: Reg = vregs.next().into();
+    let len: Reg = vregs.next().into();
+    let glyph: Reg = vregs.next().into();
+    let t: Reg = vregs.next().into();
     let ctx = StampCtx {
         rows,
         cols,
@@ -2417,37 +2417,37 @@ fn emit_draw_text(
         bg,
         bold,
         un,
-        lo: &vregs.next(),
-        hi: &vregs.next(),
-        idx: &vregs.next(),
-        cell: &vregs.next(),
-        pos: &vregs.next(),
-        tmp: &vregs.next(),
+        lo: vregs.next().into(),
+        hi: vregs.next().into(),
+        idx: vregs.next().into(),
+        cell: vregs.next().into(),
+        pos: vregs.next().into(),
+        tmp: vregs.next().into(),
     };
     // plan-70-C cluster walk + EGC pool + wide handling (mirrors emit_grid_write).
-    let cp: &str = &vregs.next();
-    let width: &str = &vregs.next();
-    let prop: &str = &vregs.next();
-    let sbc: &str = &vregs.next();
-    let sicb: &str = &vregs.next();
-    let clen: &str = &vregs.next();
-    let pptr: &str = &vregs.next();
-    let pb0: &str = &vregs.next();
-    let plen: &str = &vregs.next();
-    let pcp: &str = &vregs.next();
-    let pprop: &str = &vregs.next();
-    let pbc: &str = &vregs.next();
-    let picb: &str = &vregs.next();
-    let pwidth: &str = &vregs.next();
-    let sa: &str = &vregs.next();
-    let sb: &str = &vregs.next();
-    let sc: &str = &vregs.next();
-    let sd: &str = &vregs.next();
-    let poolbase: &str = &vregs.next();
-    let poolslot: &str = &vregs.next();
-    let ncells: &str = &vregs.next();
-    let trailc: &str = &vregs.next();
-    let trailg: &str = &vregs.next();
+    let cp: Reg = vregs.next().into();
+    let width: Reg = vregs.next().into();
+    let prop: Reg = vregs.next().into();
+    let sbc: Reg = vregs.next().into();
+    let sicb: Reg = vregs.next().into();
+    let clen: Reg = vregs.next().into();
+    let pptr: Reg = vregs.next().into();
+    let pb0: Reg = vregs.next().into();
+    let plen: Reg = vregs.next().into();
+    let pcp: Reg = vregs.next().into();
+    let pprop: Reg = vregs.next().into();
+    let pbc: Reg = vregs.next().into();
+    let picb: Reg = vregs.next().into();
+    let pwidth: Reg = vregs.next().into();
+    let sa: Reg = vregs.next().into();
+    let sb: Reg = vregs.next().into();
+    let sc: Reg = vregs.next().into();
+    let sd: Reg = vregs.next().into();
+    let poolbase: Reg = vregs.next().into();
+    let poolslot: Reg = vregs.next().into();
+    let ncells: Reg = vregs.next().into();
+    let trailc: Reg = vregs.next().into();
+    let trailg: Reg = vregs.next().into();
     let loop_top = format!("{symbol}_dt_loop");
     let advance = format!("{symbol}_dt_adv");
     let skip_ctrl = format!("{symbol}_dt_ctrl");
@@ -2777,18 +2777,18 @@ fn emit_get_color(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) {
-    let rec = vregs.next();
-    let packed = vregs.next();
-    let mask = vregs.next();
-    let channel = vregs.next();
-    let shifted = vregs.next();
+    let rec: Reg = vregs.next().into();
+    let packed: Reg = vregs.next().into();
+    let mask: Reg = vregs.next().into();
+    let channel: Reg = vregs.next().into();
+    let shifted: Reg = vregs.next().into();
     let inert = format!("{symbol}_inert");
     let have_src = format!("{symbol}_have_src");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let alloc_error = format!("{symbol}_alloc_error");
     // Determine the source packed value: state when active, the inert default
     // otherwise (§4.2.1). Park it in the scratch arg slot.
-    emit_gate_inactive(term_state_offset, &inert, &rec, instructions);
+    emit_gate_inactive(term_state_offset, &inert, rec, instructions);
     instructions.push(abi::load_u64(&packed, ARENA_STATE_REGISTER, state_offset));
     instructions.push(abi::branch(&have_src));
     instructions.push(abi::label(&inert));
@@ -2843,9 +2843,9 @@ fn emit_get_attr(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let active = vregs.next();
+    let active: Reg = vregs.next().into();
     let inert = format!("term_get_attr_inert_{state_offset}");
-    emit_gate_inactive(term_state_offset, &inert, &active, instructions);
+    emit_gate_inactive(term_state_offset, &inert, active, instructions);
     instructions.push(abi::load_u64(
         RESULT_VALUE_REGISTER,
         ARENA_STATE_REGISTER,
@@ -2875,9 +2875,9 @@ fn emit_terminal_size(
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
-    let active_flag = vregs.next();
-    let rows = vregs.next();
-    let cols = vregs.next();
+    let active_flag: Reg = vregs.next().into();
+    let rows: Reg = vregs.next().into();
+    let cols: Reg = vregs.next().into();
 
     let unsupported = format!("{symbol}_unsupported");
     let active = format!("{symbol}_active");

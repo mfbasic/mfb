@@ -1198,7 +1198,7 @@ pub(super) fn emit_finish_helper(debug: bool) -> Result<CodeFunction, String> {
 /// Format the unsigned exit code in `code` (0..255) as decimal ASCII at the pointer
 /// in `dst`, advancing `dst` past the digits (leading zeros suppressed). Mirrors the
 /// macOS `emit_format_exit_code`; uses only caller-saved scratch, performs no calls.
-fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
+fn emit_format_exit_code(asm: &mut Asm, code: Reg, dst: Reg) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
     asm.push(abi::move_register(abi::SCRATCH[0], code)); // n
                                                          // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
@@ -1659,7 +1659,7 @@ pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
 /// Mask a C `int` return to its 32 bits: the ABI leaves the upper half of the 64-bit
 /// return register unspecified. A refresh rate is never negative, so zero-extension
 /// is the right widening.
-fn emit_int_return_to_u64(asm: &mut Asm, dst: &str) {
+fn emit_int_return_to_u64(asm: &mut Asm, dst: Reg) {
     asm.push(abi::move_immediate(
         abi::SCRATCH[1],
         "Integer",
