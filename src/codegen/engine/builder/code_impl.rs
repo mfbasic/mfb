@@ -4,10 +4,12 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::json::json_string;
 
-/// Whether `name` is a field the register allocator reads or writes as a register
-/// — its def/use roles (`regalloc::analysis`).
-fn is_register_role(name: &str) -> bool {
-    crate::codegen::engine::regalloc::analysis::is_register_field(name)
+/// Whether field `name` of an `op` instruction holds a register — the register
+/// allocator's def/use roles (`regalloc::analysis`), except `cmp_imm`'s `rhs`, which is
+/// the immediate it compares against.
+fn is_register_role(op: CodeOp, name: &str) -> bool {
+    !(op == CodeOp::CmpImm && name == "rhs")
+        && crate::codegen::engine::regalloc::analysis::is_register_field(name)
 }
 
 impl CodeInstruction {
@@ -40,7 +42,9 @@ impl CodeInstruction {
     pub(crate) fn field(mut self, name: &'static str, value: impl Into<Operand>) -> Self {
         let value = value.into();
         if let Operand::Raw(text) = &value {
-            if is_register_role(name) && crate::target::shared::abi::role_token(text).is_none() {
+            if is_register_role(self.op, name)
+                && crate::target::shared::abi::role_token(text).is_none()
+            {
                 panic!(
                     "register field `{name}` given the text `{text}`: a register operand is a \
                      `Reg` — mint a vreg or name an ABI role (bug-721)"

@@ -1193,13 +1193,13 @@ pub(crate) fn add_stack(imm: usize) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn compare_immediate(
-    lhs: impl Into<Reg>,
-    rhs: impl Into<Reg>,
-) -> CodeInstruction {
+pub(crate) fn compare_immediate(lhs: impl Into<Reg>, rhs: &str) -> CodeInstruction {
+    // `rhs` is the immediate compared against, not a register — `cmp_imm`'s `rhs`
+    // field is the one register-named field that holds text (see
+    // `CodeInstruction::field`).
     CodeInstruction::new("cmp_imm")
         .field("lhs", reg(lhs))
-        .field("rhs", reg(rhs))
+        .field("rhs", rhs)
 }
 
 #[track_caller]
@@ -1969,6 +1969,8 @@ mod tests {
         // non-register field takes any text.
         CodeInstruction::new("mov").field("dst", SP_SPELLING).field("src", ZERO);
         CodeInstruction::new("label").field("name", "x9");
+        // `cmp_imm`'s `rhs` is the immediate it compares against.
+        compare_immediate(ZERO, "0");
     }
 
     fn get(inst: &CodeInstruction, key: &str) -> Option<String> {
