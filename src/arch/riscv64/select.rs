@@ -71,6 +71,21 @@ fn field_value(fields: &[(&'static str, Operand)], name: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The typed operand of a named register field (an empty operand if absent).
+///
+/// bug-738: a register operand must stay typed through selection — rendering a
+/// convention token (`Operand::Abi`, e.g. `%retMFB0`) to text strands it, because
+/// `remap_riscv_abi` realizes only the typed form and the encoder then rejects the
+/// literal token. Use this, not [`field_value`], for any register the selector
+/// re-emits (the fused path's `get_op` in [`expand_fused`] is the same rule).
+fn field_operand(fields: &[(&'static str, Operand)], name: &str) -> Operand {
+    fields
+        .iter()
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| Operand::from(""))
+}
+
 /// Build a `CodeInstruction` from a mnemonic and `(field, value)` pairs.
 fn ci(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut inst = CodeInstruction::new(mnemonic);
@@ -394,12 +409,14 @@ fn flag_rhs_address(dst: &str) -> Vec<CodeInstruction> {
 /// bug-381: spill a bare compare's rhs *value* to the per-thread snapshot word.
 /// Uses `t0` as the address scratch (reserved lowering scratch, free at a bare
 /// compare); `rhs` is never `t0`, so the store is safe.
-fn store_flag_rhs(rhs: &str) -> Vec<CodeInstruction> {
+fn store_flag_rhs(rhs: &Operand) -> Vec<CodeInstruction> {
     let mut out = flag_rhs_address(T0);
-    out.push(ci(
-        "str_u64",
-        &[("src", rhs), ("base", T0), ("offset", "0")],
-    ));
+    out.push(
+        CodeInstruction::new("str_u64")
+            .physical_field("src", rhs)
+            .physical_field("base", T0)
+            .physical_field("offset", "0"),
+    );
     out
 }
 
@@ -413,6 +430,14 @@ fn load_flag_rhs(dst: &str) -> Vec<CodeInstruction> {
         &[("dst", dst), ("base", dst), ("offset", "0")],
     ));
     out
+}
+
+/// Save a bare compare's lhs into the flag register `gp`, keeping the operand
+/// typed so a convention token realizes to its `aN` home (bug-738).
+fn snapshot_lhs(lhs: &Operand) -> CodeInstruction {
+    CodeInstruction::new("mov")
+        .physical_field("dst", GP)
+        .physical_field("src", lhs)
 }
 
 /// Select neutral MIR into RV64GC machine ops (plan-99).
@@ -488,23 +513,25 @@ pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
         // nothing yet — the following standalone branch reconstructs it.
         match instruction.op.to_code() {
             Some(CodeOp::Cmp) => {
-                let lhs = field_value(&instruction.fields, "lhs");
-                let rhs = field_value(&instruction.fields, "rhs");
+                // Both operands are registers: keep them typed (bug-738).
+                let lhs = field_operand(&instruction.fields, "lhs");
+                let rhs = field_operand(&instruction.fields, "rhs");
                 // Snapshot BOTH compared values at the compare (bug-381): lhs into
                 // the reserved `gp`, rhs into the per-thread snapshot word. Keeping
                 // the rhs by register name (the plan-99 original) stranded the
                 // branch when the allocator reloaded that register in the span; the
                 // by-value snapshots survive any intervening spill/reload or
                 // redefinition of the original operands.
-                out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
+                out.push(snapshot_lhs(&lhs));
                 out.extend(store_flag_rhs(&rhs));
                 pending = Some(FlagRhs::Reg);
                 continue;
             }
             Some(CodeOp::CmpImm) => {
-                let lhs = field_value(&instruction.fields, "lhs");
+                // The lhs is a register (typed, bug-738); the rhs an immediate.
+                let lhs = field_operand(&instruction.fields, "lhs");
                 let rhs = field_value(&instruction.fields, "rhs");
-                out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
+                out.push(snapshot_lhs(&lhs));
                 pending = Some(if rhs == "0" {
                     FlagRhs::Zero
                 } else {
@@ -1202,6 +1229,47 @@ mod tests {
         assert_eq!(br.get("lhs").as_deref(), Some("gp"));
         assert_eq!(br.get("rhs").as_deref(), Some("zero"));
         assert!(!out.iter().any(|i| i.op == CodeOp::MovImm));
+    }
+
+    /// bug-738: a bare compare whose operand is a typed convention token
+    /// (`Operand::Abi`, e.g. `emit_stdin_next_byte`'s trailing
+    /// `cmp_imm %retMFB0, 0`) must keep that operand typed through the `gp`
+    /// snapshot and the rhs spill, so `remap_riscv_abi` realizes it to its `aN`
+    /// home. Rendered to text it reached the encoder as the literal
+    /// `%retMFB0` and the whole build failed.
+    #[test]
+    fn bare_compare_on_abi_tokens_realizes_them() {
+        use crate::target::shared::abi;
+        let out = sel(&[
+            CodeInstruction::new("cmp_imm")
+                .physical_field("lhs", abi::mfb_return(0))
+                .field("rhs", "0"),
+            build("mov", &[("dst", "x12"), ("src", "x13")]),
+            build("b.eq", &[("target", "L")]),
+            CodeInstruction::new("cmp")
+                .physical_field("lhs", abi::c_return(1))
+                .physical_field("rhs", abi::mfb_arg(2)),
+            build("mov", &[("dst", "x12"), ("src", "x13")]),
+            build("b.lt", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        let vals = values(&out);
+        assert!(
+            !vals.iter().any(|v| v.starts_with('%')),
+            "an ABI token survived selection unrealized: {vals:?}"
+        );
+        let snapshots: Vec<String> = out
+            .iter()
+            .filter(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp"))
+            .filter_map(|i| i.get("src"))
+            .collect();
+        assert_eq!(snapshots, ["a0", "a1"], "gp snapshots the realized lhs");
+        let spilled: Vec<String> = out
+            .iter()
+            .filter(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t0"))
+            .filter_map(|i| i.get("src"))
+            .collect();
+        assert_eq!(spilled, ["a2"], "the rhs snapshot stores the realized rhs");
     }
 
     #[test]

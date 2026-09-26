@@ -265,11 +265,17 @@ RISC-V has no condition flags, so every compare-and-branch is self-contained.
   [[src/arch/riscv64/select.rs:expand_fused]]
 - A bare (non-fused) integer compare whose flag-reading branch is not adjacent
   (fusion missed it) is handled specially: the compare snapshots its left operand
-  into `gp` — a register the codegen never otherwise uses and which survives across
-  calls — and keeps the right operand by name; the later standalone branch
-  re-derives a native `rv.br` from that saved state. The saved compare is
-  invalidated by an intervening label or a redefinition of the right-operand
-  register. [[src/arch/riscv64/select.rs:select_riscv64]]
+  **value** into `gp` — a register the codegen never otherwise uses — and a register
+  right operand's value into a reserved per-thread memory word off the arena base
+  (an immediate right operand is kept as the immediate); the later standalone
+  branch reloads that word into `t0` and re-derives a native `rv.br` from the saved
+  values, so a redefinition or spill/reload of either original operand register in
+  between cannot disturb it. The saved compare is invalidated by an intervening
+  label or call. Both snapshots keep the operand **typed**, so a convention token
+  (e.g. the MFB return register) is realized by the ABI remap below like any other
+  operand; rendering it to text left the literal token for the encoder to reject.
+  [[src/arch/riscv64/select.rs:select_riscv64]] [[src/arch/riscv64/select.rs:snapshot_lhs]]
+  [[src/arch/riscv64/select.rs:store_flag_rhs]] [[src/arch/riscv64/select.rs:load_flag_rhs]]
 - **`addr_of`** expands to the `auipc; addi` pair (the `adrp`+`add_pageoff` ops the
   encoder realizes PC-relative), so a re-lowering pass re-fuses it and the
   expansion is a fixed point. [[src/arch/riscv64/select.rs:select_riscv64]]

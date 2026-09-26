@@ -327,6 +327,32 @@ mod tests {
         );
     }
 
+    /// bug-738: a console program that reads stdin while the terminal mouse is in
+    /// use lowers the mouse pump, whose `emit_stdin_next_byte` leaves a bare
+    /// `cmp_imm %retMFB0, 0` for a non-adjacent branch. That program must encode
+    /// on riscv64 — it used to fail with `unknown rv64 integer register
+    /// '%retMFB0'` (`examples/swat/tui`). One read builtin per program, because
+    /// each lowers its own pump.
+    #[test]
+    fn mouse_aware_stdin_reads_encode() {
+        for read in [
+            "LET c AS String = io::readChar()",
+            "LET l AS String = io::readLine()",
+            "LET b AS Boolean = io::pollInput(3)",
+        ] {
+            let src = format!(
+                "IMPORT io\nIMPORT term\n\nFUNC main AS Integer\n  term::enableMouse(TRUE)\n  {read}\n  RETURN 0\nEND FUNC\n"
+            );
+            let mut plan =
+                crate::testutil::code_for_src_on(&src, crate::testutil::CodeTarget::LinuxRiscv64);
+            let encoded = arch::riscv64::encode::relax_rv64_branches(&mut plan)
+                .and_then(|()| arch::riscv64::encode::encode(&plan));
+            if let Err(err) = encoded {
+                panic!("`{read}` with the mouse enabled does not encode on riscv64: {err}");
+            }
+        }
+    }
+
     /// The companion fact: `supports_app_mode()` stays false, which is what makes
     /// the CLI reject `--app` before it ever gets here (defense layer 2).
     #[test]
