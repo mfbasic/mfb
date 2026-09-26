@@ -49,9 +49,9 @@ impl CodeBuilder<'_> {
     /// `rhs`.
     pub(crate) fn emit_checked_size_multiply(
         &mut self,
-        product: impl Into<Operand>,
-        lhs: impl Into<Operand>,
-        rhs: impl Into<Operand>,
+        product: impl Into<abi::Reg>,
+        lhs: impl Into<abi::Reg>,
+        rhs: impl Into<abi::Reg>,
         overflow: &str,
     ) {
         let lhs = lhs.into();
@@ -72,9 +72,9 @@ impl CodeBuilder<'_> {
     /// test compares the sum against `rhs`).
     pub(crate) fn emit_checked_size_add(
         &mut self,
-        dst: impl Into<Operand>,
-        lhs: impl Into<Operand>,
-        rhs: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        lhs: impl Into<abi::Reg>,
+        rhs: impl Into<abi::Reg>,
         overflow: &str,
     ) {
         let dst = dst.into();
@@ -88,8 +88,8 @@ impl CodeBuilder<'_> {
     /// on unsigned wrap. `dst` must not alias `src`.
     pub(crate) fn emit_checked_size_add_immediate(
         &mut self,
-        dst: impl Into<Operand>,
-        src: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        src: impl Into<abi::Reg>,
         immediate: usize,
         overflow: &str,
     ) {
@@ -106,8 +106,8 @@ impl CodeBuilder<'_> {
     /// (null load) instead of letting the heap corruption propagate silently.
     pub(crate) fn emit_write_cursor_assert(
         &mut self,
-        cursor: impl Into<Operand>,
-        expected: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        expected: impl Into<abi::Reg>,
         tag: &str,
     ) {
         let ok = self.label(&format!("{tag}_write_assert_ok"));
@@ -516,7 +516,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_error_register_return(
         &mut self,
-        code_register: impl Into<Operand>,
+        code_register: impl Into<abi::Reg>,
         message: &str,
     ) -> Result<(), String> {
         // plan-64-I: inside an inline `TRAP` whose error is provably unused
@@ -640,7 +640,7 @@ impl CodeBuilder<'_> {
             if value.type_ == ParameterType::Nothing {
                 let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
-                Operand::from(register.render())
+                Operand::from(register)
             } else if !already_standalone
                 && self.inline_collection_payload_size(&value.type_).is_some()
             {
@@ -657,7 +657,7 @@ impl CodeBuilder<'_> {
         } else {
             let register = self.allocate_register();
             self.emit(abi::move_immediate(&register, "Integer", "0"));
-            Operand::from(register.render())
+            Operand::from(register)
         };
         let message_register = self.allocate_register();
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
@@ -700,7 +700,7 @@ impl CodeBuilder<'_> {
 
     /// Park an owned Error block base in the current-error slot so the catching
     /// trap route ADOPTS it (design "b"); pair with `RESULT_ERR_BLOCK_TAG`.
-    pub(crate) fn emit_store_current_error(&mut self, base_register: impl Into<Operand>) {
+    pub(crate) fn emit_store_current_error(&mut self, base_register: impl Into<abi::Reg>) {
         let addr = self.current_error_slot_address();
         self.emit(abi::store_u64(base_register, &addr, 0));
     }
@@ -910,9 +910,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn store_pending_error_registers(
         &mut self,
-        code_register: impl Into<Operand>,
-        message_register: impl Into<Operand>,
-        source_register: impl Into<Operand>,
+        code_register: impl Into<abi::Reg>,
+        message_register: impl Into<abi::Reg>,
+        source_register: impl Into<abi::Reg>,
         tag: &str,
     ) {
         let slots = self.ensure_pending_result_slots();
@@ -943,10 +943,10 @@ impl CodeBuilder<'_> {
     /// `error_location` is preserved.
     pub(crate) fn emit_load_error_fields(
         &mut self,
-        error_location: impl Into<Operand>,
-        code_register: impl Into<Operand>,
-        message_register: impl Into<Operand>,
-        source_register: impl Into<Operand>,
+        error_location: impl Into<abi::Reg>,
+        code_register: impl Into<abi::Reg>,
+        message_register: impl Into<abi::Reg>,
+        source_register: impl Into<abi::Reg>,
     ) {
         let error_location = error_location.into();
         let message_register = message_register.into();

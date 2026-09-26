@@ -1857,7 +1857,7 @@ impl CodeBuilder<'_> {
                                 ValueResult {
                                     origin: None,
                                     type_: ParameterType::String,
-                                    location: Operand::from(copied.render()),
+                                    location: Operand::from(copied),
                                     text: default.text,
                                 }
                             } else {
@@ -1927,7 +1927,7 @@ impl CodeBuilder<'_> {
                             let stored = ValueResult {
                                 origin: None,
                                 type_: result.type_.clone(),
-                                location: Operand::from(new_ptr.render()),
+                                location: Operand::from(new_ptr),
                                 text: String::new(),
                             };
                             let address = self.load_global_address(name)?;
@@ -2210,7 +2210,7 @@ impl CodeBuilder<'_> {
                                 ValueResult {
                                     origin: None,
                                     type_: result.type_.clone(),
-                                    location: Operand::from(register.render()),
+                                    location: Operand::from(register),
                                     text: String::new(),
                                 }
                             } else {
@@ -2533,7 +2533,7 @@ impl CodeBuilder<'_> {
                             let case_matched = ValueResult {
                                 origin: None,
                                 type_: matched.type_.clone(),
-                                location: Operand::from(matched_register.render()),
+                                location: Operand::from(matched_register),
                                 text: matched.text.clone(),
                             };
                             let next_label = self.label("match_next");
@@ -2875,7 +2875,7 @@ impl CodeBuilder<'_> {
         self.drop_pending_temps_to(watermark)?;
         let reloaded = self.allocate_register();
         self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
-        Ok(Operand::from(reloaded.render()))
+        Ok(Operand::from(reloaded))
     }
 
     fn lower_loop_body(&mut self, body: &[NirOp]) -> Result<(), String> {

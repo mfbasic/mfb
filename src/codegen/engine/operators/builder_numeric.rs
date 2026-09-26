@@ -69,7 +69,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} AND {})", left.text, right.text),
         })
     }
@@ -94,7 +94,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} OR {})", left.text, right.text),
         })
     }
@@ -146,7 +146,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({left_text} XOR {right_text})"),
         })
     }
@@ -244,13 +244,13 @@ impl CodeBuilder<'_> {
         let left = ValueResult {
             origin: None,
             type_: left.type_,
-            location: Operand::from(left_register.render()),
+            location: Operand::from(left_register),
             text: left_text,
         };
         let right = ValueResult {
             origin: None,
             type_: right.type_,
-            location: Operand::from(right_register.render()),
+            location: Operand::from(right_register),
             text: right_text,
         };
         let register = self.allocate_register();
@@ -303,13 +303,13 @@ impl CodeBuilder<'_> {
                     let left = ValueResult {
                         origin: None,
                         type_: ParameterType::Fixed,
-                        location: Operand::from(left_fixed.render()),
+                        location: Operand::from(left_fixed),
                         text: left.text.clone(),
                     };
                     let right = ValueResult {
                         origin: None,
                         type_: ParameterType::Fixed,
-                        location: Operand::from(right_fixed.render()),
+                        location: Operand::from(right_fixed),
                         text: right.text.clone(),
                     };
                     self.emit_fixed_binary(op, &left, &right, &register)?;
@@ -435,7 +435,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: operand.type_,
-            location: Operand::from(location.render()),
+            location: Operand::from(location),
             text: format!("(-{})", operand.text),
         })
     }
@@ -488,13 +488,13 @@ impl CodeBuilder<'_> {
             let left = ValueResult {
                 origin: None,
                 type_: left.type_,
-                location: Operand::from(left_register.render()),
+                location: Operand::from(left_register),
                 text: left.text,
             };
             let right = ValueResult {
                 origin: None,
                 type_: right.type_,
-                location: Operand::from(right_register.render()),
+                location: Operand::from(right_register),
                 text: right.text,
             };
             return self.lower_string_comparison_binary(op, &left, &right);
@@ -527,13 +527,13 @@ impl CodeBuilder<'_> {
             let left = ValueResult {
                 origin: None,
                 type_: left.type_,
-                location: Operand::from(left_register.render()),
+                location: Operand::from(left_register),
                 text: left.text,
             };
             let right = ValueResult {
                 origin: None,
                 type_: right.type_,
-                location: Operand::from(right_register.render()),
+                location: Operand::from(right_register),
                 text: right.text,
             };
             return self.lower_numeric_comparison_binary(op, &left, &right);
@@ -607,7 +607,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Boolean,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: format!("({} {} {})", left.text, op.name(), right.text),
             });
         }
@@ -669,7 +669,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
@@ -709,13 +709,13 @@ impl CodeBuilder<'_> {
         let left = ValueResult {
             origin: None,
             type_: left.type_.clone(),
-            location: Operand::from(left_register.render()),
+            location: Operand::from(left_register),
             text: left.text.clone(),
         };
         let right = ValueResult {
             origin: None,
             type_: right.type_.clone(),
-            location: Operand::from(right_register.render()),
+            location: Operand::from(right_register),
             text: right.text.clone(),
         };
 
@@ -810,7 +810,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
@@ -909,7 +909,7 @@ impl CodeBuilder<'_> {
         op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
         byte_result: bool,
     ) -> Result<(), String> {
         self.emit_integer_binary_checked(op, left, right, dst, byte_result, false)
@@ -925,7 +925,7 @@ impl CodeBuilder<'_> {
         op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
         byte_result: bool,
         elide_overflow: bool,
     ) -> Result<(), String> {
@@ -1044,7 +1044,7 @@ impl CodeBuilder<'_> {
         op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         match op {
@@ -1116,7 +1116,7 @@ impl CodeBuilder<'_> {
         op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
     ) -> Result<String, String> {
         let dst = dst.into();
         match op {
@@ -1263,7 +1263,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: value.type_,
-                location: Operand::from(gpr.render()),
+                location: Operand::from(gpr),
                 text: value.text,
             });
         }
@@ -1312,9 +1312,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_checked_integer_add(
         &mut self,
-        dst: impl Into<Operand>,
-        lhs: impl Into<Operand>,
-        rhs: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        lhs: impl Into<abi::Reg>,
+        rhs: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         self.emit(abi::add_registers_set_flags(dst, lhs, rhs));
         self.emit_overflow_if_flags_set()
@@ -1322,7 +1322,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_byte_upper_bound_check(
         &mut self,
-        value: impl Into<Operand>,
+        value: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let overflow_label = self.label("byte_overflow");
         let ok_label = self.label("byte_ok");
@@ -1337,9 +1337,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_checked_integer_multiply(
         &mut self,
-        dst: impl Into<Operand>,
-        left: impl Into<Operand>,
-        right: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         let left = left.into();
@@ -1366,7 +1366,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_nonzero_or_invalid(
         &mut self,
-        value: impl Into<Operand>,
+        value: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let ok_label = self.label("nonzero");
         self.emit(abi::compare_immediate(value, "0"));
@@ -1378,8 +1378,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_integer_division_overflow_check(
         &mut self,
-        left: impl Into<Operand>,
-        right: impl Into<Operand>,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let min = self.allocate_register();
         let minus_one = self.allocate_register();
@@ -1403,7 +1403,7 @@ impl CodeBuilder<'_> {
 
     fn emit_min_i64_negation_check(
         &mut self,
-        value: impl Into<Operand>,
+        value: impl Into<abi::Reg>,
         label_prefix: &str,
     ) -> Result<(), String> {
         let min = self.allocate_register();
@@ -1418,9 +1418,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_integer_pow(
         &mut self,
-        dst: impl Into<Operand>,
-        base: impl Into<Operand>,
-        exponent: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        base: impl Into<abi::Reg>,
+        exponent: impl Into<abi::Reg>,
         byte_result: bool,
     ) -> Result<(), String> {
         let dst = dst.into();
@@ -1483,9 +1483,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_fixed_multiply(
         &mut self,
-        dst: impl Into<Operand>,
-        left: impl Into<Operand>,
-        right: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         let left = left.into();
@@ -1531,9 +1531,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_fixed_divide(
         &mut self,
-        dst: impl Into<Operand>,
-        left: impl Into<Operand>,
-        right: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         let right = right.into();
@@ -1656,9 +1656,9 @@ impl CodeBuilder<'_> {
     /// extraction spans both, so they stay separate.
     pub(crate) fn emit_fixed_pow(
         &mut self,
-        dst: impl Into<Operand>,
-        base: impl Into<Operand>,
-        exponent: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        base: impl Into<abi::Reg>,
+        exponent: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         let base = base.into();
@@ -1731,7 +1731,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(crate) fn emit_abs_i64(&mut self, register: impl Into<Operand>) -> Result<(), String> {
+    pub(crate) fn emit_abs_i64(&mut self, register: impl Into<abi::Reg>) -> Result<(), String> {
         let register = register.into();
         let positive = self.label("abs_positive");
         self.emit(abi::compare_immediate(register.clone(), "0"));
@@ -1741,7 +1741,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(crate) fn emit_neg_i64(&mut self, register: impl Into<Operand>) -> Result<(), String> {
+    pub(crate) fn emit_neg_i64(&mut self, register: impl Into<abi::Reg>) -> Result<(), String> {
         let register = register.into();
         self.emit(abi::subtract_registers(
             register.clone(),
@@ -1753,7 +1753,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn load_numeric_as_double(
         &mut self,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
         value: &ValueResult,
     ) -> Result<(), String> {
         let dst = dst.into();
@@ -1793,7 +1793,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn load_numeric_as_fixed(
         &mut self,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
         value: &ValueResult,
     ) -> Result<(), String> {
         let dst = dst.into();
@@ -1819,8 +1819,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_f64_const(
         &mut self,
-        dst: impl Into<Operand>,
-        scratch: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        scratch: impl Into<abi::Reg>,
         value: f64,
     ) {
         let scratch = scratch.into();
@@ -1834,8 +1834,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_float_pow(
         &mut self,
-        dst: impl Into<Operand>,
-        exponent: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        exponent: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let dst = dst.into();
         let exponent = exponent.into();

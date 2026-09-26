@@ -486,7 +486,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -605,7 +605,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -766,12 +766,12 @@ impl CodeBuilder<'_> {
         self.mark_runtime_helper_result_fresh(
             target,
             result_type,
-            Operand::from(register.render()),
+            Operand::from(register),
         );
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }

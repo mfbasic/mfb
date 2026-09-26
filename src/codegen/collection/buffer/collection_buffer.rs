@@ -47,7 +47,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result.type_,
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: String::new(),
         })
     }
@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
         let threaded = ValueResult {
             origin: None,
             type_: type_.clone(),
-            location: Operand::from(keep.render()),
+            location: Operand::from(keep),
             text: String::new(),
         };
         self.free_intermediate_collection(slot, type_, threaded)?;
@@ -88,9 +88,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_write_list_header_from_registers(
         &mut self,
         layout: &CollectionTypeLayout,
-        collection: impl Into<Operand>,
-        count: impl Into<Operand>,
-        data_len: impl Into<Operand>,
+        collection: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
+        data_len: impl Into<abi::Reg>,
     ) {
         let count = count.into();
         let data_len = data_len.into();
@@ -112,11 +112,11 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_write_collection_header_full(
         &mut self,
         layout: &CollectionTypeLayout,
-        collection: impl Into<Operand>,
-        count: impl Into<Operand>,
-        capacity: impl Into<Operand>,
-        data_len: impl Into<Operand>,
-        data_cap: impl Into<Operand>,
+        collection: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
+        capacity: impl Into<abi::Reg>,
+        data_len: impl Into<abi::Reg>,
+        data_cap: impl Into<abi::Reg>,
     ) {
         let collection = collection.into();
         let scratch22 = self.temporary_vreg();
@@ -195,9 +195,9 @@ impl CodeBuilder<'_> {
     /// must be three distinct registers; `value_reg` is preserved.
     pub(crate) fn emit_geometric_step(
         &mut self,
-        value_reg: impl Into<Operand>,
-        out_reg: impl Into<Operand>,
-        scratch: impl Into<Operand>,
+        value_reg: impl Into<abi::Reg>,
+        out_reg: impl Into<abi::Reg>,
+        scratch: impl Into<abi::Reg>,
         init: usize,
         threshold: usize,
         prefix: &str,
@@ -249,9 +249,9 @@ impl CodeBuilder<'_> {
     /// and a data grow are one event and the reservation stays geometric.
     pub(crate) fn emit_fixed_width_data_capacity(
         &mut self,
-        new_capacity: impl Into<Operand>,
-        out: impl Into<Operand>,
-        scratch: impl Into<Operand>,
+        new_capacity: impl Into<abi::Reg>,
+        out: impl Into<abi::Reg>,
+        scratch: impl Into<abi::Reg>,
         slot_bytes: usize,
         overflow: &str,
     ) {
@@ -281,10 +281,10 @@ impl CodeBuilder<'_> {
     /// (plan-25-B).
     pub(crate) fn emit_bulk_copy_entries_shift(
         &mut self,
-        src_entry: impl Into<Operand>,
-        dst_entry: impl Into<Operand>,
-        count: impl Into<Operand>,
-        delta: Option<(impl Into<Operand>, bool)>,
+        src_entry: impl Into<abi::Reg>,
+        dst_entry: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
+        delta: Option<(impl Into<abi::Reg>, bool)>,
         label_prefix: &str,
     ) {
         let dst_entry = dst_entry.into();
@@ -362,10 +362,10 @@ impl CodeBuilder<'_> {
     /// and `count` are clobbered.
     pub(crate) fn emit_offset_compaction_fixup(
         &mut self,
-        entry_base: impl Into<Operand>,
-        count: impl Into<Operand>,
-        hole_offset: impl Into<Operand>,
-        hole_len: impl Into<Operand>,
+        entry_base: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
+        hole_offset: impl Into<abi::Reg>,
+        hole_len: impl Into<abi::Reg>,
         label_prefix: &str,
     ) {
         let entry_base = entry_base.into();
@@ -410,12 +410,12 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_copy_collection_entries(
         &mut self,
-        source_entry: impl Into<Operand>,
-        source_data: impl Into<Operand>,
-        dest_entry: impl Into<Operand>,
-        dest_data: impl Into<Operand>,
-        dest_data_offset: impl Into<Operand>,
-        count: impl Into<Operand>,
+        source_entry: impl Into<abi::Reg>,
+        source_data: impl Into<abi::Reg>,
+        dest_entry: impl Into<abi::Reg>,
+        dest_data: impl Into<abi::Reg>,
+        dest_data_offset: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
         label_prefix: &str,
     ) -> Result<(), String> {
         let source_entry = source_entry.into();

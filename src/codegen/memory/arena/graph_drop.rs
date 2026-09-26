@@ -397,7 +397,7 @@ impl CodeBuilder<'_> {
     fn emit_graph_drop_edge(
         &mut self,
         type_: &ParameterType,
-        edge: impl Into<Operand>,
+        edge: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         if self.graph_copy_walker.is_none() {
             return Err("graph drop edge emitted outside the walker".to_string());
@@ -422,7 +422,7 @@ impl CodeBuilder<'_> {
     fn emit_graph_drop_record_edges(
         &mut self,
         type_: &ParameterType,
-        base: impl Into<Operand>,
+        base: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let edges = self.record_pointer_edges(type_)?;
         let base_slot = self.allocate_stack_object("graph_drop_record_base", 8);
@@ -441,7 +441,7 @@ impl CodeBuilder<'_> {
     fn emit_graph_drop_union_edges(
         &mut self,
         type_: &ParameterType,
-        base: impl Into<Operand>,
+        base: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let variants = self.union_variants_by_tag(&type_.without_state())?;
         let base_slot = self.allocate_stack_object("graph_drop_union_base", 8);

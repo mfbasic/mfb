@@ -908,7 +908,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
         let value_slot = self.spill_to_slot("inplace_str_grow_value", &value_result.location);
@@ -1283,7 +1283,7 @@ impl CodeBuilder<'_> {
         let pad_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(pad_ptr.render()),
+            location: Operand::from(pad_ptr),
             text: String::new(),
         };
         self.emit(abi::load_u64(&pad_ptr, abi::stack_pointer(), pad_slot));
@@ -1295,7 +1295,7 @@ impl CodeBuilder<'_> {
         let value_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(value_ptr.render()),
+            location: Operand::from(value_ptr),
             text: String::new(),
         };
         self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
@@ -1873,7 +1873,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
 
@@ -2072,7 +2072,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
         let (ptr, len) = self.emit_string_window(kind, &value_result, &rest)?;

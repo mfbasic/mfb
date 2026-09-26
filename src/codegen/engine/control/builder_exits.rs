@@ -391,7 +391,7 @@ impl CodeBuilder<'_> {
                     ValueResult {
                         origin: None,
                         type_: lowered.type_,
-                        location: Operand::from(copied.render()),
+                        location: Operand::from(copied),
                         text: lowered.text,
                     },
                     true,
@@ -426,7 +426,7 @@ impl CodeBuilder<'_> {
                     ValueResult {
                         origin: None,
                         type_: lowered.type_,
-                        location: Operand::from(copied.render()),
+                        location: Operand::from(copied),
                         text: lowered.text,
                     },
                     true,
@@ -502,7 +502,7 @@ impl CodeBuilder<'_> {
                 ValueResult {
                     origin: None,
                     type_: lowered.type_,
-                    location: Operand::from(copied.render()),
+                    location: Operand::from(copied),
                     text: lowered.text,
                 },
                 true,

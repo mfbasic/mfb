@@ -129,7 +129,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_graph_copy_push(
         &mut self,
         kind: usize,
-        child: impl Into<Operand>,
+        child: impl Into<abi::Reg>,
         destination: Option<(usize, usize)>,
     ) -> Result<(), String> {
         let stack_slot = self

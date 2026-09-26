@@ -472,7 +472,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("list update {list_type} over {element_type}"),
         })
     }
@@ -929,7 +929,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("append in place {list_type} over {element_type}"),
         })
     }
@@ -2581,7 +2581,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
     }
@@ -3293,7 +3293,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{prefix} in place {list_type} over {element_type}"),
         })
     }
@@ -4226,7 +4226,7 @@ impl CodeBuilder<'_> {
         let threaded = ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(keep.render()),
+            location: Operand::from(keep),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(singleton_slot, list_type, threaded)?;
@@ -4243,7 +4243,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("set in place {list_type} over {element_type}"),
         })
     }
@@ -4538,7 +4538,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })
     }

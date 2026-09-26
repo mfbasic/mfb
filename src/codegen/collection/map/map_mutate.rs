@@ -1144,7 +1144,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: map_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("map set in place {map_type}"),
         })
     }
@@ -1387,7 +1387,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: map_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("removeKey_in_place({map_type}, {key_type})"),
         })
     }

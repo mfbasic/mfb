@@ -57,16 +57,16 @@ impl CodeBuilder<'_> {
     /// four hand-written copies in `lower_find`/`lower_mid` it replaced.
     pub(crate) fn emit_scalar_skip_continuations(
         &mut self,
-        cursor: impl Into<Operand>,
-        remaining: impl Into<Operand>,
-        byte: impl Into<Operand>,
-        mask: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        remaining: impl Into<abi::Reg>,
+        byte: impl Into<abi::Reg>,
+        mask: impl Into<abi::Reg>,
         continue_label: &str,
         advanced_label: &str,
     ) {
-        let cursor: Operand = cursor.into();
-        let remaining: Operand = remaining.into();
-        let byte: Operand = byte.into();
+        let cursor: abi::Reg = cursor.into();
+        let remaining: abi::Reg = remaining.into();
+        let byte: abi::Reg = byte.into();
         self.emit(abi::label(continue_label));
         self.emit(abi::compare_immediate(remaining.clone(), "0"));
         self.emit(abi::branch_eq(advanced_label));
@@ -92,23 +92,23 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_scalar_count_loop(
         &mut self,
-        base: impl Into<Operand>,
-        index: impl Into<Operand>,
-        count: impl Into<Operand>,
-        addr: impl Into<Operand>,
-        byte: impl Into<Operand>,
-        mask: impl Into<Operand>,
-        length: impl Into<Operand>,
+        base: impl Into<abi::Reg>,
+        index: impl Into<abi::Reg>,
+        count: impl Into<abi::Reg>,
+        addr: impl Into<abi::Reg>,
+        byte: impl Into<abi::Reg>,
+        mask: impl Into<abi::Reg>,
+        length: impl Into<abi::Reg>,
         loop_label: &str,
         not_cont: &str,
         after: &str,
         done: &str,
     ) {
-        let index: Operand = index.into();
-        let count: Operand = count.into();
-        let addr: Operand = addr.into();
-        let byte: Operand = byte.into();
-        let mask: Operand = mask.into();
+        let index: abi::Reg = index.into();
+        let count: abi::Reg = count.into();
+        let addr: abi::Reg = addr.into();
+        let byte: abi::Reg = byte.into();
+        let mask: abi::Reg = mask.into();
         self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
         self.emit(abi::move_immediate(count.clone(), "Integer", "0"));
         self.emit(abi::move_immediate(
@@ -133,8 +133,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(done));
     }
 
-    pub(crate) fn emit_load_data_address(&mut self, register: impl Into<Operand>, symbol: &str) {
-        let register: Operand = register.into();
+    pub(crate) fn emit_load_data_address(&mut self, register: impl Into<abi::Reg>, symbol: &str) {
+        let register: abi::Reg = register.into();
         self.emit(abi::load_page_address(register.clone(), symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -173,9 +173,9 @@ impl CodeBuilder<'_> {
     /// decode exactly as before.
     pub(crate) fn emit_utf8_decode_next(
         &mut self,
-        cursor: impl Into<Operand>,
-        codepoint: impl Into<Operand>,
-        width: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        codepoint: impl Into<abi::Reg>,
+        width: impl Into<abi::Reg>,
     ) {
         let check_two = self.label("utf8_decode_check_two");
         let check_three = self.label("utf8_decode_check_three");
@@ -201,9 +201,9 @@ impl CodeBuilder<'_> {
         let byte3 = &byte3;
         let masked = &masked;
         let mask = &mask;
-        let cursor: Operand = cursor.into();
-        let codepoint: Operand = codepoint.into();
-        let width: Operand = width.into();
+        let cursor: abi::Reg = cursor.into();
+        let codepoint: abi::Reg = codepoint.into();
+        let width: abi::Reg = width.into();
 
         self.emit(abi::load_u8(codepoint.clone(), cursor.clone(), 0));
         self.emit(abi::compare_immediate(codepoint.clone(), "128"));
@@ -368,15 +368,15 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_unicode_property_lookup(
         &mut self,
-        codepoint: impl Into<Operand>,
-        property: impl Into<Operand>,
+        codepoint: impl Into<abi::Reg>,
+        property: impl Into<abi::Reg>,
     ) {
         let index = self.temporary_vreg();
         let table = self.temporary_vreg();
         let index = &index;
         let table = &table;
-        let codepoint: Operand = codepoint.into();
-        let property: Operand = property.into();
+        let codepoint: abi::Reg = codepoint.into();
+        let property: abi::Reg = property.into();
         self.emit(abi::shift_right_immediate(index, codepoint.clone(), 8));
         self.emit(abi::shift_left_immediate(index, index, 1));
         self.emit_load_data_address(table, UNICODE_STAGE1_SYMBOL);
@@ -416,15 +416,15 @@ impl CodeBuilder<'_> {
     /// return this pointer to the arena.
     pub(crate) fn emit_unicode_range_lookup(
         &mut self,
-        codepoint: impl Into<Operand>,
-        output: impl Into<Operand>,
+        codepoint: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
         runs_symbol: &str,
         names_symbol: &str,
         runs: usize,
         name_stride: usize,
     ) {
-        let codepoint: Operand = codepoint.into();
-        let output: Operand = output.into();
+        let codepoint: abi::Reg = codepoint.into();
+        let output: abi::Reg = output.into();
         let low = self.temporary_vreg();
         let high = self.temporary_vreg();
         let mid = self.temporary_vreg();
@@ -503,7 +503,7 @@ impl CodeBuilder<'_> {
         let codepoint = args[0].location.clone();
         self.emit_unicode_range_lookup(
             codepoint,
-            result.render(),
+            result,
             runs_symbol,
             names_symbol,
             table.runs.len(),
@@ -512,15 +512,15 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: crate::types::ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: call.to_string(),
         })
     }
 
     pub(crate) fn emit_unicode_property_boundclass(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit(abi::load_u16(
             output,
@@ -531,8 +531,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_unicode_property_u16(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
         offset: usize,
     ) {
         self.emit(abi::load_u16(output, property, offset));
@@ -540,40 +540,40 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_unicode_property_combining_class(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMBINING_CLASS);
     }
 
     pub(crate) fn emit_unicode_property_comb_index(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMB_INDEX);
     }
 
     pub(crate) fn emit_unicode_property_comb_length(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_COMB_LENGTH);
     }
 
     pub(crate) fn emit_unicode_property_flags(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit_unicode_property_u16(property, output, UNICODE_PROPERTY_OFFSET_FLAGS);
     }
 
     pub(crate) fn emit_unicode_property_indic_conjunct_break(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         self.emit(abi::load_u16(
             output,
@@ -590,12 +590,12 @@ impl CodeBuilder<'_> {
     /// (plan-70-B..F) consume.
     pub(crate) fn emit_unicode_property_charwidth(
         &mut self,
-        property: impl Into<Operand>,
-        output: impl Into<Operand>,
+        property: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
     ) {
         let mask = self.temporary_vreg();
         let mask = &mask;
-        let output: Operand = output.into();
+        let output: abi::Reg = output.into();
         self.emit(abi::load_u16(
             output.clone(),
             property,
@@ -612,8 +612,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_utf8_encoded_width(
         &mut self,
-        codepoint: impl Into<Operand>,
-        width: impl Into<Operand>,
+        codepoint: impl Into<abi::Reg>,
+        width: impl Into<abi::Reg>,
     ) {
         let two = self.label("utf8_width_two");
         let three = self.label("utf8_width_three");
@@ -621,8 +621,8 @@ impl CodeBuilder<'_> {
         let done = self.label("utf8_width_done");
         let limit = self.temporary_vreg();
         let limit = &limit;
-        let codepoint: Operand = codepoint.into();
-        let width: Operand = width.into();
+        let codepoint: abi::Reg = codepoint.into();
+        let width: abi::Reg = width.into();
 
         self.emit(abi::compare_immediate(codepoint.clone(), "128"));
         self.emit(abi::branch_ge(&two));
@@ -646,8 +646,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_utf8_encode_next(
         &mut self,
-        cursor: impl Into<Operand>,
-        codepoint: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        codepoint: impl Into<abi::Reg>,
     ) {
         let two = self.label("utf8_encode_two");
         let three = self.label("utf8_encode_three");
@@ -657,8 +657,8 @@ impl CodeBuilder<'_> {
         let mask = self.temporary_vreg();
         let byte = &byte;
         let mask = &mask;
-        let cursor: Operand = cursor.into();
-        let codepoint: Operand = codepoint.into();
+        let cursor: abi::Reg = cursor.into();
+        let codepoint: abi::Reg = codepoint.into();
 
         self.emit(abi::compare_immediate(codepoint.clone(), "128"));
         self.emit(abi::branch_ge(&two));
@@ -731,12 +731,12 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_unicode_u32_mapping_lookup(
         &mut self,
-        codepoint: impl Into<Operand>,
+        codepoint: impl Into<abi::Reg>,
         entries_symbol: &str,
         entry_count: usize,
         sequences_symbol: &str,
-        sequence_ptr: impl Into<Operand>,
-        sequence_length: impl Into<Operand>,
+        sequence_ptr: impl Into<abi::Reg>,
+        sequence_length: impl Into<abi::Reg>,
     ) {
         let loop_label = self.label("unicode_mapping_lookup_loop");
         let move_left = self.label("unicode_mapping_lookup_left");
@@ -756,8 +756,8 @@ impl CodeBuilder<'_> {
         let offset = &offset_v;
         let entry_ptr = &entry_ptr_v;
         let field = &field_v;
-        let sequence_ptr: Operand = sequence_ptr.into();
-        let sequence_length: Operand = sequence_length.into();
+        let sequence_ptr: abi::Reg = sequence_ptr.into();
+        let sequence_length: abi::Reg = sequence_length.into();
 
         self.emit(abi::move_immediate(lo, "Integer", "0"));
         self.emit(abi::move_immediate(hi, "Integer", &entry_count.to_string()));
@@ -821,9 +821,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_hangul_composition_attempt(
         &mut self,
-        starter: impl Into<Operand>,
-        current: impl Into<Operand>,
-        output: impl Into<Operand>,
+        starter: impl Into<abi::Reg>,
+        current: impl Into<abi::Reg>,
+        output: impl Into<abi::Reg>,
         found_label: &str,
         fallback_label: &str,
     ) {
@@ -837,9 +837,9 @@ impl CodeBuilder<'_> {
         // register is silently clobbered — a layout-sensitive miscompile.
         let v_index = self.temporary_vreg();
         let v_index = &v_index;
-        let starter: Operand = starter.into();
-        let current: Operand = current.into();
-        let output: Operand = output.into();
+        let starter: abi::Reg = starter.into();
+        let current: abi::Reg = current.into();
+        let output: abi::Reg = output.into();
 
         self.emit(abi::move_immediate(base, "Integer", "4352"));
         self.emit(abi::compare_registers(starter.clone(), base));
@@ -896,10 +896,10 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_grapheme_break_branch(
         &mut self,
-        state_bc: impl Into<Operand>,
-        state_icb: impl Into<Operand>,
-        current_bc: impl Into<Operand>,
-        current_icb: impl Into<Operand>,
+        state_bc: impl Into<abi::Reg>,
+        state_icb: impl Into<abi::Reg>,
+        current_bc: impl Into<abi::Reg>,
+        current_icb: impl Into<abi::Reg>,
         break_label: &str,
         no_break_label: &str,
     ) {
@@ -917,8 +917,8 @@ impl CodeBuilder<'_> {
         let gb11_check = self.label("grapheme_gb11_check");
         let gb1213_check = self.label("grapheme_gb1213_check");
         let gb9c_break = self.label("grapheme_gb9c_break");
-        let state_bc: Operand = state_bc.into();
-        let current_bc: Operand = current_bc.into();
+        let state_bc: abi::Reg = state_bc.into();
+        let current_bc: abi::Reg = current_bc.into();
 
         self.emit(abi::compare_immediate(
             state_bc.clone(),
@@ -1090,10 +1090,10 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_grapheme_state_update(
         &mut self,
-        state_bc: impl Into<Operand>,
-        state_icb: impl Into<Operand>,
-        current_bc: impl Into<Operand>,
-        current_icb: impl Into<Operand>,
+        state_bc: impl Into<abi::Reg>,
+        state_icb: impl Into<abi::Reg>,
+        current_bc: impl Into<abi::Reg>,
+        current_icb: impl Into<abi::Reg>,
     ) {
         let icb_consonant = self.label("grapheme_icb_consonant");
         let icb_existing_consonant = self.label("grapheme_icb_existing_consonant");
@@ -1107,10 +1107,10 @@ impl CodeBuilder<'_> {
         let bc_extpic_zwj = self.label("grapheme_bc_extpic_zwj");
         let bc_set_current = self.label("grapheme_bc_set_current");
         let bc_done = self.label("grapheme_bc_done");
-        let state_bc: Operand = state_bc.into();
-        let state_icb: Operand = state_icb.into();
-        let current_bc: Operand = current_bc.into();
-        let current_icb: Operand = current_icb.into();
+        let state_bc: abi::Reg = state_bc.into();
+        let state_icb: abi::Reg = state_icb.into();
+        let current_bc: abi::Reg = current_bc.into();
+        let current_icb: abi::Reg = current_icb.into();
 
         self.emit(abi::compare_immediate(
             current_icb.clone(),
@@ -1206,9 +1206,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_string_byte_range_equal_branch(
         &mut self,
-        left_data: impl Into<Operand>,
-        right_data: impl Into<Operand>,
-        length: impl Into<Operand>,
+        left_data: impl Into<abi::Reg>,
+        right_data: impl Into<abi::Reg>,
+        length: impl Into<abi::Reg>,
         equal_label: &str,
         not_equal_label: &str,
     ) {
@@ -1246,9 +1246,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_unicode_whitespace_branch(
         &mut self,
-        cursor: impl Into<Operand>,
-        remaining: impl Into<Operand>,
-        width: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        remaining: impl Into<abi::Reg>,
+        width: impl Into<abi::Reg>,
         whitespace_label: &str,
         not_whitespace_label: &str,
     ) {
@@ -1259,9 +1259,9 @@ impl CodeBuilder<'_> {
         // register pressure — a layout-sensitive miscompile.
         let cont = self.temporary_vreg();
         let cont = &cont;
-        let cursor: Operand = cursor.into();
-        let remaining: Operand = remaining.into();
-        let width: Operand = width.into();
+        let cursor: abi::Reg = cursor.into();
+        let remaining: abi::Reg = remaining.into();
+        let width: abi::Reg = width.into();
         let check_c2 = self.label("unicode_ws_check_c2");
         let check_e1 = self.label("unicode_ws_check_e1");
         let check_e2 = self.label("unicode_ws_check_e2");
@@ -1392,10 +1392,11 @@ impl CodeBuilder<'_> {
 pub(crate) fn emit_load_data_address_free(
     from: &str,
     symbol: &str,
-    register: &str,
+    register: impl Into<abi::Reg>,
     instrs: &mut Vec<CodeInstruction>,
     relocs: &mut Vec<CodeRelocation>,
 ) {
+    let register: abi::Reg = register.into();
     instrs.push(abi::load_page_address(register, symbol));
     relocs.push(CodeRelocation {
         from: from.to_string(),
@@ -1422,14 +1423,20 @@ pub(crate) fn emit_load_data_address_free(
 /// width lookup after the raw bytes were packed into the cell glyph.
 pub(crate) fn emit_utf8_codepoint_by_len(
     label_prefix: &str,
-    ptr: &str,
-    len: &str,
-    lead: &str,
-    codepoint: &str,
-    byte: &str,
-    mask: &str,
+    ptr: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
+    lead: impl Into<abi::Reg>,
+    codepoint: impl Into<abi::Reg>,
+    byte: impl Into<abi::Reg>,
+    mask: impl Into<abi::Reg>,
     instrs: &mut Vec<CodeInstruction>,
 ) {
+    let ptr: abi::Reg = ptr.into();
+    let len: abi::Reg = len.into();
+    let lead: abi::Reg = lead.into();
+    let codepoint: abi::Reg = codepoint.into();
+    let byte: abi::Reg = byte.into();
+    let mask: abi::Reg = mask.into();
     let do2 = format!("{label_prefix}_cp2");
     let do3 = format!("{label_prefix}_cp3");
     let done = format!("{label_prefix}_cpdone");
@@ -1493,12 +1500,15 @@ pub(crate) fn emit_utf8_codepoint_by_len(
 pub(crate) fn emit_unicode_property_ptr_free(
     from: &str,
     label_prefix: &str,
-    codepoint: &str,
-    prop_out: &str,
-    scratch: &str,
+    codepoint: impl Into<abi::Reg>,
+    prop_out: impl Into<abi::Reg>,
+    scratch: impl Into<abi::Reg>,
     instrs: &mut Vec<CodeInstruction>,
     relocs: &mut Vec<CodeRelocation>,
 ) {
+    let codepoint: abi::Reg = codepoint.into();
+    let prop_out: abi::Reg = prop_out.into();
+    let scratch: abi::Reg = scratch.into();
     let in_range = format!("{label_prefix}_pp_in");
     let done = format!("{label_prefix}_pp_done");
     instrs.push(abi::move_immediate(scratch, "Integer", "1114112"));
@@ -1538,13 +1548,18 @@ pub(crate) fn emit_unicode_property_ptr_free(
 /// 20), and charwidth (`(flags@16 >> 4) & 3`) from `prop` into the three outputs.
 /// `scratch` is a caller-owned throwaway vreg. plan-70-B Phase 2 cluster walk.
 pub(crate) fn emit_read_boundclass_icb_charwidth_free(
-    prop: &str,
-    bc_out: &str,
-    icb_out: &str,
-    width_out: &str,
-    scratch: &str,
+    prop: impl Into<abi::Reg>,
+    bc_out: impl Into<abi::Reg>,
+    icb_out: impl Into<abi::Reg>,
+    width_out: impl Into<abi::Reg>,
+    scratch: impl Into<abi::Reg>,
     instrs: &mut Vec<CodeInstruction>,
 ) {
+    let prop: abi::Reg = prop.into();
+    let bc_out: abi::Reg = bc_out.into();
+    let icb_out: abi::Reg = icb_out.into();
+    let width_out: abi::Reg = width_out.into();
+    let scratch: abi::Reg = scratch.into();
     instrs.push(abi::load_u16(
         bc_out,
         prop,
@@ -1572,14 +1587,18 @@ pub(crate) fn emit_read_boundclass_icb_charwidth_free(
 /// from `label_prefix`; no scratch. plan-70-B Phase 2.
 pub(crate) fn emit_grapheme_break_branch_free(
     label_prefix: &str,
-    state_bc: &str,
-    state_icb: &str,
-    current_bc: &str,
-    current_icb: &str,
+    state_bc: impl Into<abi::Reg>,
+    state_icb: impl Into<abi::Reg>,
+    current_bc: impl Into<abi::Reg>,
+    current_icb: impl Into<abi::Reg>,
     break_label: &str,
     no_break_label: &str,
     instrs: &mut Vec<CodeInstruction>,
 ) {
+    let state_bc: abi::Reg = state_bc.into();
+    let state_icb: abi::Reg = state_icb.into();
+    let current_bc: abi::Reg = current_bc.into();
+    let current_icb: abi::Reg = current_icb.into();
     let no_break = format!("{label_prefix}_gnb");
     let maybe_break = format!("{label_prefix}_gmb");
     let gb3_not_cr = format!("{label_prefix}_g3");
@@ -1714,12 +1733,16 @@ pub(crate) fn emit_grapheme_break_branch_free(
 /// the current scalar (`current_bc`/`current_icb`). plan-70-B Phase 2.
 pub(crate) fn emit_grapheme_state_update_free(
     label_prefix: &str,
-    state_bc: &str,
-    state_icb: &str,
-    current_bc: &str,
-    current_icb: &str,
+    state_bc: impl Into<abi::Reg>,
+    state_icb: impl Into<abi::Reg>,
+    current_bc: impl Into<abi::Reg>,
+    current_icb: impl Into<abi::Reg>,
     instrs: &mut Vec<CodeInstruction>,
 ) {
+    let state_bc: abi::Reg = state_bc.into();
+    let state_icb: abi::Reg = state_icb.into();
+    let current_bc: abi::Reg = current_bc.into();
+    let current_icb: abi::Reg = current_icb.into();
     let icb_consonant = format!("{label_prefix}_uc");
     let icb_existing_consonant = format!("{label_prefix}_uec");
     let icb_existing_extend = format!("{label_prefix}_uee");

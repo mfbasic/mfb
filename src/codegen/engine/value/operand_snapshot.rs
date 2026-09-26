@@ -220,7 +220,7 @@ impl CodeBuilder<'_> {
         // borrowed view — this one is known to be arena-fresh.
         let slot = self.allocate_stack_object("operand_snapshot", 8);
         self.emit(abi::store_u64(&copied, abi::stack_pointer(), slot));
-        let location = Operand::from(copied.render());
+        let location = Operand::from(copied);
         self.pending_temp_frees.push(PendingTemp {
             type_: result.type_.clone(),
             slot,

@@ -81,8 +81,8 @@ pub(crate) fn lower_validate_utf8_helper() -> CodeFunction {
 fn emit_validate_utf8(
     symbol: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(0/1)`) or a legacy `&str`.
-    ptr: impl Into<Operand>,
-    len: impl Into<Operand>,
+    ptr: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
     error_label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,

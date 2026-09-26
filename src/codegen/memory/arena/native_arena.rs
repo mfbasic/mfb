@@ -10,7 +10,7 @@ use crate::target::shared::abi;
 pub(crate) fn emit_data_address(
     from: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(1)`) or a legacy `&str`.
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
     data_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,

@@ -116,7 +116,7 @@ pub(crate) fn emit_build_byte_list(
     src_off: usize,
     len_off: usize,
     coll_off: Option<usize>,
-    block: impl Into<Operand>,
+    block: impl Into<abi::Reg>,
     alloc_fail: &str,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,

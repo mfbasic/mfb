@@ -413,7 +413,7 @@ impl CodeBuilder<'_> {
         ValueResult {
             origin: None,
             type_: ParameterType::result_of(success),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text,
         }
     }
@@ -464,7 +464,7 @@ impl CodeBuilder<'_> {
         &mut self,
         // Reuse the caller's scratch vreg (rather than allocating a fresh one) so
         // this stays a pure extraction of the code it replaced.
-        scratch9: impl Into<Operand>,
+        scratch9: impl Into<abi::Reg>,
         tag_slot: usize,
         value_slot: usize,
         message_slot: usize,
@@ -689,7 +689,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn copy_value_to_current_arena(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
         // `List OF Node`) is a pointer-linked graph; copying it inline would make
@@ -710,7 +710,7 @@ impl CodeBuilder<'_> {
     fn emit_thread_copy_call(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let symbol = thread_copy_symbol(type_);
         self.emit(abi::move_register(abi::c_arg(0), source));
@@ -725,7 +725,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_thread_copy_real(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         match type_ {
             // bug-656: `self.is_enum_type(__t)` is in this arm because an enum IS a
@@ -853,7 +853,7 @@ impl CodeBuilder<'_> {
     fn copy_record_to_current_arena(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
@@ -935,7 +935,7 @@ impl CodeBuilder<'_> {
     fn copy_resource_to_current_arena(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_resource_source", 8);
         let result_slot = self.allocate_stack_object("thread_copy_resource_result", 8);
@@ -1443,7 +1443,7 @@ impl CodeBuilder<'_> {
     fn copy_union_to_current_arena(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_union_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_union_size", 8);
@@ -1531,7 +1531,7 @@ impl CodeBuilder<'_> {
     fn copy_collection_to_current_arena(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let source = source.into();
         // A collection with only inline payloads is a flat, pointer-free block:
@@ -1706,7 +1706,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: result.origin,
             type_: result.type_,
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: result.text,
         })
     }
@@ -1925,8 +1925,8 @@ impl CodeBuilder<'_> {
     fn copy_record_fields_into_existing(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
-        destination: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
+        destination: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let edges = self.record_pointer_edges(type_)?;
         let source_slot = self.allocate_stack_object("thread_copy_record_inline_source", 8);
@@ -1970,8 +1970,8 @@ impl CodeBuilder<'_> {
     fn copy_union_fields_into_existing(
         &mut self,
         type_: &ParameterType,
-        source: impl Into<Operand>,
-        destination: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
+        destination: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         // A transferred stateful union is spelled `Stream STATE Cursor`; the union
         // set and variant map key on the bare name (plan-75 gap 3). Its `STATE T`

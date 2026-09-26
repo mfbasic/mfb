@@ -67,7 +67,7 @@ pub(crate) fn emit_build_record_list(
     count_slot: usize,
     scratch: &RecordListScratch,
     regs: &MarshalRegs,
-    result_reg: impl Into<Operand>,
+    result_reg: impl Into<abi::Reg>,
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -236,7 +236,7 @@ pub(crate) fn emit_build_record_list(
 /// Load the pair array's word at `pairs[index] + field` (`0` = pointer, `8` = size)
 /// into `dst`. Writes `regs.r(0)`/`regs.r(1)`; `dst` may be an ABI register.
 fn emit_pair_field(
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
     pairs_slot: usize,
     index_slot: usize,
     field: usize,

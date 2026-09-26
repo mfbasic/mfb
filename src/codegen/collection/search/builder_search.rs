@@ -51,13 +51,13 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_ascii_scalar_fastforward(
         &mut self,
-        cursor: impl Into<Operand>,
-        remaining: impl Into<Operand>,
-        scalar_index: impl Into<Operand>,
-        target: impl Into<Operand>,
-        diff: impl Into<Operand>,
-        word: impl Into<Operand>,
-        ascii_mask: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        remaining: impl Into<abi::Reg>,
+        scalar_index: impl Into<abi::Reg>,
+        target: impl Into<abi::Reg>,
+        diff: impl Into<abi::Reg>,
+        word: impl Into<abi::Reg>,
+        ascii_mask: impl Into<abi::Reg>,
     ) {
         let cursor = cursor.into();
         let remaining = remaining.into();
@@ -372,7 +372,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "find(String, String)".to_string(),
         })
     }
@@ -503,7 +503,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("find({list_type}, {element_type})"),
         })
     }
@@ -685,7 +685,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
         })
     }
@@ -1015,11 +1015,11 @@ impl CodeBuilder<'_> {
 
         // bug-536 shape B: `result_slot` holds this lowering's own
         // `emit_arena_alloc_call` block, with the selected span copied into it.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "mid(String, Integer, Integer)".to_string(),
         })
     }
@@ -1401,7 +1401,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })
     }
