@@ -148,13 +148,13 @@ plan-138-A (`planning/completed/plan-138-A-xml-tree-builder-and-reader.md`):
   documents the segregated quick/large bins that replaced the quadratic insert,
   and a probe allocated and freed 1,000,000 records in 0.35 s.
 
-What is still true, and is the real reason to keep a work-stack here, is that
-rebuilding a shared list of subtrees is quadratic: self-assigning a
-`List OF <recursive union>` through `collections::take`/`drop` deep-copies every
-element it returns (21.96 s versus 0.02 s for `append` at 8,000 nodes — see
-`bugs/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
-A builder that appends to a frame-local list instead handles 100,000 nodes in
-about 0.3 s.
+Rebuilding a shared list of subtrees used to be quadratic too: self-assigning a
+`List OF <recursive union>` through `collections::take`/`drop` deep-copied every
+element it returned (21.96 s versus 0.02 s for `append` at 8,000 nodes). That is
+fixed — a `MUT` self-update now costs only the elements it removes or moves, so
+`wideTake` at 100,000 nodes runs in 0.07 s, the same as `append` (see
+`bugs/completed/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
+A builder that appends to a frame-local list handles 100,000 nodes in about 0.3 s.
 
 ## CSS
 

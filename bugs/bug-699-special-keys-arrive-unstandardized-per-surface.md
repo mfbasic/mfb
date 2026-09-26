@@ -8,7 +8,7 @@ Class: Correctness
 Status: Open — **redesigned 2026-09-25 (owner).** Originally "special keys arrive
 unstandardised per surface"; the owner widened it into one uniform `io` keyboard-input
 surface, and folded in plan-69 (`term::` key down/up, deleted — see "plan-69").
-Phases 1 and 2 are done (2026-09-25); the Open details were settled by the owner
+Phases 1 and 2 are done (2026-09-25; landed on `main` via `800a1b966`, full suite green there); the Open details were settled by the owner
 (2026-09-25, Decision 9); Phases 3–7 remain.
 Regression Test: `tests/codegen/app_special_keys.rs` (`cargo test --test
 app_special_keys`; the Phase 3 cases are `#[ignore]`d until then), the decoder corpus
@@ -532,7 +532,7 @@ keeps the old readers working.
 Acceptance: the new tests fail for the documented reason; the matrix is measured on
 three platforms. **Met, with the two UNMEASURED gaps above** (Linux x86_64; Windows
 real-input delivery).
-Commit: —
+Commit: e11e4f0e2 (Phase 1), 85a4a77f4 (owner answers; macOS setMode key handlers), dbf7cbd98 (Windows MFB_WINAPP_INPUT zeros)
 
 ### Phase 2: input buffer + decoder (runtime; readers unchanged)
 
@@ -589,7 +589,7 @@ Acceptance: full suite golden-identical; the corpus passes. **Met for the scoped
 gates run** (io/thread/term + the three app fixtures, 0 diffs; the full suite and
 `artifact-gate all` were not run in this phase by instruction — no golden is
 expected to move, since nothing is emitted in any program without the switch).
-Commit: —
+Commit: 4e70277e0
 
 ### Phase 3: `--app` injection and key release
 
