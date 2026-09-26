@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Security+Correctness
 
-Status: FIXED (cde73a793)
+Status: FIXED (4f44f9ecd)
 Regression Test: `examples/ai_chat/tests/pty_repro.py` (does not exist yet — to be added in Phase 1)
 
 `examples/ai_chat` (a multi-session Claude-chat TUI, `examples/ai_chat/src/main.mfb`)
@@ -366,6 +366,8 @@ Commit: cde73a793 — (b)'s bounded wait is 20 x 100ms (~2s) of `isRunning`
 polling before escalating to `Signal.Kill`, per the Open Decisions
 recommendation; (a)'s failure message is `"claude exited " & toString(code) &
 ": " & stderrText`, mirroring the existing `spawn`-failure phrasing.
+**(c)'s argv ordering in this commit was wrong — see Corrections and
+`4f44f9ecd` below.**
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -461,10 +463,43 @@ structurally larger and deferred as a documented Open Decision.
   beyond the reasoning already in the Phase 3 Acceptance line: the bounded-wait
   fix from (b) still gives the user a way out of a stuck turn by closing the
   session, exactly as that Acceptance line anticipated.
+- **(c)'s fix in `cde73a793` was itself wrong and broke every real `claude`
+  call — caught by review, fixed in `4f44f9ecd`.** `cde73a793` put `"--"` and
+  `prompt` FIRST in `claudeArgs`'s literal list: `["claude", "-p", "--",
+  prompt, "--output-format", "stream-json", ...]`, with `--resume`/`--model`
+  appended after that. Since `"--"` ends option parsing for *everything*
+  after it, `--output-format`, `--include-partial-messages`, `--verbose`, and
+  the conditional `--resume`/`--model` all stopped being flags and became
+  extra prompt text to the real CLI — no `--output-format stream-json` means
+  the stream-JSON parser gets nothing at all. The Phase 1 test didn't catch
+  this because it only checked that a literal `"--"` appeared somewhere
+  before the prompt in a *single*, flag-free invocation; it never checked
+  that `"--"` was the LAST thing before the prompt, and never exercised a
+  second turn with `--resume` set (the case where a naively-appended
+  conditional flag after the prompt fails). Fixed by emitting every flag
+  first (including the conditional `--resume`/`--model`), then appending
+  `"--"` and `prompt` as the final two argv elements. `pty_repro.py`'s (c)
+  sub-test was rewritten to drive two turns in one session and assert:
+  `"--"` and the prompt are the last two argv elements, `--output-format`
+  appears before `"--"`, and (turn 2) `--resume` appears before `"--"` too.
+  Confirmed RED against `cde73a793` and GREEN against `4f44f9ecd` (RED
+  confirmed in a detached `git worktree add --detach`, never via the shared
+  stash stack, per this lane's instructions).
+- While chasing this, `pty_repro.py`'s cleanup paths were hardened: three
+  call sites did an unconditional blocking `os.waitpid(pid, 0)`, which can
+  park for minutes on a heavily loaded shared machine (observed directly: a
+  machine-wide load average of ~47 from five other concurrent fix-bug lanes)
+  waiting to reap an already-`SIGKILL`ed child. Replaced with a bounded
+  `WNOHANG`-polling `reap_bounded()` so the test can never hang past a fixed
+  budget regardless of host load — not a behavior change, a robustness fix
+  to the test harness itself.
 
-## STATUS: FIXED (cde73a793)
+## STATUS: FIXED (4f44f9ecd)
 
-All three sub-issues fixed as designed. One deviation from the plan: Phase 3's
-`scripts/build-examples.sh` step was replaced with this parallel fix-bug
-lane's lighter `examples/**`-only gate (`mfb build examples/ai_chat` for the
-native target) — see the Phase 3 note above.
+All three sub-issues fixed as designed, with one review-caught regression in
+(c)'s argv ordering corrected afterward (see Corrections above) — the
+original `cde73a793` STATUS commit did not survive review intact. One
+deviation from the plan otherwise: Phase 3's `scripts/build-examples.sh` step
+was replaced with this parallel fix-bug lane's lighter `examples/**`-only
+gate (`mfb build examples/ai_chat` for the native target) — see the Phase 3
+note above.
