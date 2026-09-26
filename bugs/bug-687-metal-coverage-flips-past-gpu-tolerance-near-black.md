@@ -13,14 +13,16 @@ arithmetic (see "Phase 1 results"). **V5 chosen (owner, 2026-09-25)**: carry eac
 vertex at double-float precision and evaluate the polygon distance and the inverse
 transform in double-float in both shaders. **Phase 2 done (2026-09-25)**: the four rows
 pass on Metal and on Vulkan (2226, 2230), every existing GPU row still passes; see
-"Phase 2 results". **Not fixed "for every scene"**: Phase 3's probes show circles,
-ellipses, lines, arcs, polylines, a polygon's non-grid stroke half-width and a non-grid
-group offset still flip past `GPU_DEFAULT` near black, on Metal and Vulkan, before and
-after this change. That is every other SDF, so it goes back to the owner (see "Phase 3").
-Not archived.
-Regression Test: `tests/canvas/rt_canvas_metal.rs` (the four `*over_black*` rows) and the
-`star251x97`, `star301x97`, `star301x2`, `polygonsblack` rows of
-`scripts/test-canvas-gpu-rows.sh` — RED at `4ef538bb9`, GREEN on this branch
+"Phase 2 results". **Scope narrowed (owner, 2026-09-25): bug-687 lands with the
+filled-polygon fix.** The other shape kinds Phase 3 measured are filed as **bug-735**:
+circles, ellipses, lines, arcs, polylines, a non-grid stroke half-width, and a non-grid
+group offset. Only the coordinator's full-suite gate and the `Commit:` lines remain
+open. Not archived.
+Regression Test: `tests/canvas/rt_canvas_metal.rs` (the six `*over_black*` rows) and the
+`star251x97`, `star301x97`, `star301x2`, `polygonsblack`, `smallpolysblack`,
+`rectsblack` rows of `scripts/test-canvas-gpu-rows.sh`. The first four and
+`smallpolysblack` are RED before this bug's shader work and GREEN on this branch;
+`rectsblack` is a guard, GREEN both sides.
 
 Found while fixing bug-686. A polygon drawn on Metal differs from the software oracle by
 more than `Tolerance::GPU_DEFAULT` allows (`max_channel_delta: 2`) on a handful of dark,
@@ -82,9 +84,15 @@ disagree at some boundary.
 
 ## Goal
 
-A Metal frame agrees with the software oracle under a contract that an fp32 GPU can
+~~A Metal frame agrees with the software oracle under a contract that an fp32 GPU can
 actually meet, for every scene, so an oracle test passes or fails for the right reason
-rather than for where an edge happens to land.
+rather than for where an edge happens to land.~~
+
+**Narrowed 2026-09-25 (owner): filled polygons.** A filled polygon (untransformed or
+transformed) agrees with the software oracle within `GPU_DEFAULT` over black on Metal
+and Vulkan, whatever its edge count and wherever its edges land. Every other shape kind,
+and a polygon's non-grid stroke half-width or group offset, is **bug-735**
+(`bugs/bug-735-gpu-shapes-other-than-filled-polygons-flip-coverage-near-black.md`).
 
 ## Fix Design (options — decide before implementing)
 
@@ -381,6 +389,15 @@ step near black. Neither is in any row here.
 
 Commit: —
 
+### Landing
+
+- [x] Guard rows (`small_polygons_on_black`, `rectangles_on_black`) on Metal and Vulkan.
+- [x] bug-734 (2230 race row) fixed on this branch; bug-735 filed for the other kinds.
+- [ ] Full suite (`cargo test --release --no-fail-fast`, including `artifact_gate_all`)
+      and the `app-mouse-surface` sentinel regenerated with proof — the coordinator's.
+
+Commit: —
+
 ### Phase 3: the other shapes (coordinator, 2026-09-25)
 
 Probes: `/tmp/b687-limits/gen.py <kind>` builds 140 items of one kind on a 60-px grid,
@@ -425,8 +442,9 @@ Findings:
 
   That is a new block layout, a new offset transport, and double-float in every shader
   arm. It is not a residual of the polygon change. **Stopped here for an owner
-  decision**, as the task required. The choices are unchanged from Fix Design: extend
-  V5 to every kind (large; ellipses and arcs are the risk), or options 1 or 3 for the
-  kinds V5 does not cover.
+  decision**, as the task required.
+- **Owner decision (2026-09-25):** bug-687 lands with the filled-polygon fix. The rest is
+  filed as **bug-735**, with this table, the mechanism, the V5-extension cost outline and
+  the probe generator inlined as its reproduction.
 - The tripping kinds were not added as rows. They would be RED on every backend today;
   the probes above are the reproduction.
