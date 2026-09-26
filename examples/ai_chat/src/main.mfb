@@ -1,6 +1,7 @@
 IMPORT term
 IMPORT color
 IMPORT io
+IMPORT os
 IMPORT process
 IMPORT json
 IMPORT strings
@@ -517,7 +518,10 @@ END FUNC
 ' Build the argv for one `claude` turn: the streaming-JSON flags, plus --resume
 ' to continue a conversation and --model when the user picked one.
 FUNC claudeArgs(prompt AS String, resumeId AS String, pickModel AS String) AS List OF String
-  MUT a AS List OF String = ["claude", "-p", prompt, "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+  ' "--" ends option parsing before the user's prompt text, so a prompt that
+  ' starts with "-" (e.g. "--dangerously-skip-permissions") can never be read
+  ' as a flag by claude's argv parser (bug-709c).
+  MUT a AS List OF String = ["claude", "-p", "--", prompt, "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
   IF len(resumeId) > 0 THEN
     a = collections::append(a, "--resume")
     a = collections::append(a, resumeId)
@@ -1062,7 +1066,29 @@ FUNC main() AS Integer
 
       IF finished THEN
         LET code AS Integer = process::waitFor(p)
-        IF sidx >= 0 THEN sessions = finishSession(sessions, sidx)
+        IF sidx >= 0 THEN
+          IF code <> 0 THEN
+            ' A nonzero exit means the turn failed; drain StdErr (bounded, same
+            ' ErrResourceClosed-catching pattern the StdOut drain above uses) and
+            ' surface the exit code plus whatever diagnostic text claude wrote,
+            ' instead of silently collapsing to "(no response)" (bug-709a).
+            MUT stderrText AS String = ""
+            MUT errGuard AS Integer = 0
+            DO WHILE errGuard < 500
+              errGuard = errGuard + 1
+              LET eline AS String = process::receive(p, process::Stream.StdErr) TRAP(ee)
+                EXIT DO
+              END TRAP
+              stderrText = stderrText & eline & "\n"
+            LOOP
+            LET detail AS String = strings::trim(stderrText)
+            MUT failMsg AS String = "claude exited " & toString(code)
+            IF len(detail) > 0 THEN failMsg = failMsg & ": " & detail
+            sessions = failTurn(sessions, sidx, failMsg)
+          ELSE
+            sessions = finishSession(sessions, sidx)
+          END IF
+        END IF
         kids = collections::removeKey(kids, id)
       END IF
     NEXT
@@ -1114,6 +1140,19 @@ FUNC main() AS Integer
         IF collections::hasKey(kids, it.sessionId) THEN
           RES doomed = collections::get(kids, it.sessionId)
           process::signal(doomed, process::Signal.Terminate)
+          ' process::waitFor has no timeout, and a child that traps/ignores
+          ' SIGTERM would otherwise block this single-threaded UI forever
+          ' (bug-709b). Poll process::isRunning (non-blocking) for a bounded
+          ' window instead; escalate to Signal.Kill (not trappable on Unix) if
+          ' the child is still alive once the window elapses, then reap it.
+          MUT stopGuard AS Integer = 0
+          DO WHILE process::isRunning(doomed) AND stopGuard < 20
+            stopGuard = stopGuard + 1
+            os::sleep(100)
+          LOOP
+          IF process::isRunning(doomed) THEN
+            process::signal(doomed, process::Signal.Kill)
+          END IF
           LET dc AS Integer = process::waitFor(doomed)
           kids = collections::removeKey(kids, it.sessionId)
         END IF
