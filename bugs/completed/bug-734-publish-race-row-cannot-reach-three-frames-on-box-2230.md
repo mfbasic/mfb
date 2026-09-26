@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (test gate that cannot pass on its designated box)
 
-Status: Fixed (owner-directed, 2026-09-25) — see STATUS; archive after the coordinator merges
+Status: FIXED (`800a1b966`, 2026-09-25) — history: see STATUS; archive after the coordinator merges
 Regression Test: `scripts/test-canvas-gpu-rows.sh --target windows-x86_64 --rows race`; `tests/canvas/rt_canvas_geo_native.rs::a_frame_never_draws_one_scenes_geometry_for_anothers_items`
 
 The `race` row of `scripts/test-canvas-gpu-rows.sh` runs
@@ -18,7 +18,9 @@ at `main` HEAD (`4df37a4fe`), so it is **not** caused by bug-687, which found it
 race row renders at least 3 frames that overlap the worker's publishes. It then passes
 or fails on `geoVerifyMismatches` alone, with the "≥ 3 frames" requirement unchanged.
 
-## STATUS: FIXED (commit: see below)
+## STATUS: FIXED (`1f8a7f56f`, landed via `800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`).
 
 The shared scene's worker keeps publishing past 60 until the graphics thread reports
 3 drawn frames (`canvas::getFrameStats().frames`), with a 20,000-publish cap. The
@@ -180,4 +182,4 @@ On a fast renderer the loop still ends at 60 publishes: the frames come from the
 window as before. The Metal counts are higher than the earlier 6-9 because that probe
 ran without `MFB_CANVAS_GPU=1`.
 
-Commit: —
+Commit: 87765a763 (filed), 1f8a7f56f (fix)

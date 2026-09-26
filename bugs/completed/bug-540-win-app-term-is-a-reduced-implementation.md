@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **all five sub-issues fixed on `worktree-B-540` (WIN-02/WIN-03
+Status: FIXED (`800a1b966`, 2026-09-25) — history: **all five sub-issues fixed on `worktree-B-540` (WIN-02/WIN-03
 landed 2026-09-25, runtime-verified headless on box 2230)**; the full-suite gate,
 golden regeneration and `Commit:` lines are the coordinator's
 Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (nine cases: WIN-01,
@@ -94,6 +94,10 @@ The GTK fix does, however, supply a worked precedent for **WIN-01** and
   same move; if it does not, WIN-04 and its `io::write` twin should be fixed
   together rather than separately.
 
+
+## STATUS: FIXED (`800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`). Deviation: the windowed-exit stall found while verifying (Win32 results read from `rcx`) was fixed here too; bug-699 found and fixed the same site independently.
 
 ## USER DECISION (2026-09-25) — approved; WIN-02/WIN-03 are unblocked
 
@@ -396,7 +400,7 @@ Confirm the delta is confined to the Windows app bodies.
 
 Acceptance: met for WIN-01 and WIN-05. WIN-02/03/04 keep an OPEN Phase 1 item —
 the scripted-resize hook (see "What landed") — which is why they did not land.
-Commit: —
+Commit: a1a59234e, b7096a1b4 (WIN-02/03 + c_return RED); WIN-01/04/05 landed earlier
 
 ### Phase 2 — the fix
 
@@ -481,7 +485,7 @@ hard stop hides it. Even when run, that case proves the body executes, not which
 cell a cluster lands in — the GDI grid has no readback.
 
 Acceptance: met for WIN-01 and WIN-05.
-Commit: —
+Commit: 5a8cbc162 (WIN-02/03), 7ba5893fe (Win32 results from c_return), 1e27955f8 (man/spec), cc0defd7b + 4c3d693c6 (evidence)
 
 ### WIN-02 / WIN-03 landed (2026-09-25)
 
@@ -644,7 +648,7 @@ all of them. Not regenerated.
       documents the live surface, the backing maximum, the handler, the counter pair,
       the headless hook and the write path's scroll. `cargo test --release --bin mfb spec`
       passes.
-- [ ] WIN-02/03 full suite (coordinator): `cargo test --release --no-fail-fast`,
+- [x] WIN-02/03 full suite (coordinator): `cargo test --release --no-fail-fast`,
       `scripts/test-accept.sh`, `scripts/artifact-gate.sh all` + regenerate the five
       Windows app `.ncodesum` listed above.
 - [x] `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`,
@@ -653,7 +657,7 @@ all of them. Not regenerated.
       scripted-hook prerequisite above.
 
 Acceptance: met for WIN-01 and WIN-05.
-Commit: —
+Commit: 82f1a43bb, 800a1b966 (goldens + full suite)
 
 ## Validation Plan
 

@@ -5,7 +5,7 @@ Effort: medium (1-3d)
 Severity: MEDIUM
 Class: Correctness (GPU/oracle agreement)
 
-Status: Open — **option 2 chosen (owner, 2026-09-25)**: emulate more precision in the
+Status: FIXED (`800a1b966`, 2026-09-25) — history: **option 2 chosen (owner, 2026-09-25)**: emulate more precision in the
 shader; the comparison instrument and `GPU_DEFAULT` stay as they are. **STOPPED at the
 Phase 1 model gate (2026-09-25): option 2 as designed does not reach `GPU_DEFAULT` on the
 {301/97} row** — the residual is the 16.16 narrowing of the vertices, not shader
@@ -29,6 +29,10 @@ more than `Tolerance::GPU_DEFAULT` allows (`max_channel_delta: 2`) on a handful 
 antialiased edge pixels. It is **pre-existing**: it reproduces at `42cea38df`, before any
 bug-686 change, on a polygon under the old 256-edge cap, and it does not depend on the
 edge count, the band index, or any cap.
+
+## STATUS: FIXED (`800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`). Scope narrowed by the owner to filled polygons; every other shape kind is bug-735 (open).
 
 ## Failing Reproduction
 
@@ -387,16 +391,16 @@ still reach the shader as 16.16, and a `PolyLine`'s distance is still fp32. A st
 half-width is not a multiple of 2^-16, or a group at a non-16.16 offset, can still flip a
 step near black. Neither is in any row here.
 
-Commit: —
+Commit: 92649bd1f, f3e7ed29d (rows, RED), 8158a9524 (V5 decision), b5e8b9aae + 01d791117 (V5 shaders), ed51c2327 + 42731364b (spec), e8df49119, 9171a9d6c, 6ac70ee4c, fe022d6ef, ef9a9b8f2 (narrowed; bug-735 filed in a9c1e22f1)
 
 ### Landing
 
 - [x] Guard rows (`small_polygons_on_black`, `rectangles_on_black`) on Metal and Vulkan.
 - [x] bug-734 (2230 race row) fixed on this branch; bug-735 filed for the other kinds.
-- [ ] Full suite (`cargo test --release --no-fail-fast`, including `artifact_gate_all`)
+- [x] Full suite (`cargo test --release --no-fail-fast`, including `artifact_gate_all`)
       and the `app-mouse-surface` sentinel regenerated with proof — the coordinator's.
 
-Commit: —
+Commit: 800a1b966 (goldens + full suite)
 
 ### Phase 3: the other shapes (coordinator, 2026-09-25)
 

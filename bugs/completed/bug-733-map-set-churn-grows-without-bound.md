@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM (memory; output is correct)
 Class: Other (memory / scalability)
 
-Status: Open — **2026-09-25: fixed on `worktree-B-732` (Phases 1–2, verified; see
+Status: FIXED (`800a1b966`, 2026-09-25) — history: **2026-09-25: fixed on `worktree-B-732` (Phases 1–2, verified; see
 below). The full suite is still owed (Phase 3).**
 Regression Test: `tests/runtime/rt_self_update_cost.rs`
 (`a_churning_map_or_set_does_not_grow_without_bound`). Repro: `bugs/repro/bug-733-map-set-churn-grows-without-bound.mfb`
@@ -28,6 +28,10 @@ References:
   reclaimed by any grow"; *Map Updates*).
 - `.ai/collections.md`, "In-place map mutation: branch arg order, dead slack,
   BUCKETS_READY".
+
+## STATUS: FIXED (`800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`).
 
 ## Failing Reproduction
 
@@ -148,7 +152,7 @@ grow already does.
       `fieldLast` 421,264 → 2,186,320; `valueGrow` and `fieldCopy` flat (20,848 and
       16,048). The documented reason: the fix below only adds the reclaim, and
       with it every shape is flat.
-Commit: —
+Commit: bade50f47 (filed), 32888428d (RED test)
 
 ### Phase 2 — fix
 - [x] Reclaim dead key/value bytes at every map grow; update the spec *Compaction*
@@ -195,10 +199,10 @@ Other checks (release `mfb` of this branch):
   `codegen_inplace_{record_field,remove_at_insert}`, `inplace_self_update_census`;
   `cargo test --bin mfb -- inplace_compact self_update map_compact spec
   citations_resolve` (66); `cargo check --all-targets` clean.
-Commit: —
+Commit: 8e260af26 (fix), 5c3804b48 (spec, .ai, doc)
 
 ### Phase 3 — full validation
-- [ ] Full suite.
+- [x] Full suite.
       **Expected golden shifts** (measured on macos-aarch64, byte-identity covers
       built by this branch against bug-732's end state): **net, tcp, tls, udp**
       newly shift — each only gains the `_mfb_rt_map_reclaim` helper function and
@@ -207,4 +211,4 @@ Commit: —
       `syntax/app/app-mouse-surface`, `syntax/app/macos-app-mode-term`), where the
       map-growing functions also gain the call. The other native-golden fixtures are
       byte-identical. `.ast`/`.ir` cannot move.
-Commit: —
+Commit: 800a1b966 (goldens + full suite)

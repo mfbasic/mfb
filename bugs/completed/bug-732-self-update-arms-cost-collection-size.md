@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM (performance; output is correct)
 Class: Other (performance / scalability)
 
-Status: Open — **2026-09-25: all six findings fixed on `worktree-B-732` (Phases 1–2
+Status: FIXED (`800a1b966`, 2026-09-25) — history: **2026-09-25: all six findings fixed on `worktree-B-732` (Phases 1–2
 landed, re-measured linear; see the table under Phase 2). The full suite is still
 owed (Phase 3).** One pre-existing memory bug found on the way is filed as bug-733.
 Regression Test: `tests/runtime/rt_self_update_cost.rs`. Repro: `bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb`
@@ -30,6 +30,10 @@ References:
 - `./mfb spec memory collections` (Self-updates, "Cost") — lists each of these as a
   current exception to the bound.
 - `src/codegen/collection/assign/self_update.rs` — `SELF_UPDATE_TABLE`.
+
+## STATUS: FIXED (`800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`).
 
 ## Failing Reproduction
 
@@ -208,7 +212,7 @@ the RED runs below; none was a false premise. What the work added:
       itself fails (its retained strings change length): replaced by shapes whose
       base peaks are flat. The final churn test is green at the base and was
       proved load-bearing against the fix with its reclaim disabled (see C1/C2).
-Commit: —
+Commit: 4cf153c2c
 
 ### Phase 2 — fixes
 - [x] Finding 5 — `try_inplace_string_window_assign` skips the move when the
@@ -296,10 +300,10 @@ Other checks (all against the release `mfb` of this branch):
   `self-update-grow-valid`, `strings-empty-needle-rt`,
   `strings-artifact-coverage-rt`, `func_typename_builtin_calls` and
   `astrings/tier-b-transforms-rt` match their golden run output.
-Commit: —
+Commit: 3bc7e42d2, 54db20195, e255cdf35, 472dfe4b9, 0d9548bec, fcb06fe1d, 880ea7499, 33f8681f1, 17657bdb9, 601da4ab0
 
 ### Phase 3 — full validation
-- [ ] Full suite.
+- [x] Full suite.
       **Expected golden shifts** (measured on macos-aarch64 by building every
       `tests/byte-identity/*` cover and every other fixture with a native golden,
       base vs this branch; every changed function carries a bug-732 marker
@@ -316,7 +320,7 @@ Commit: —
       `MFB_SELF_UPDATE_FILTER='collections::removeAt|collections::removeKey|collections::remove(|collections::difference|collections::symmetricDifference|collections::take|collections::drop|collections::mid|collections::append|collections::insert|collections::prepend|collections::intersection|collections::union|collections::set(|collections::add(|strings::stripSuffix|strings::stripPrefix|strings::trim|strings::left|strings::right|strings::mid(value AS String' … cargo test --test rt_inplace_self_update`
       → 3 passed (1,359 s; the field-kind test runs every field kind). The rest of
       the matrix is left to the full suite. `cargo check --all-targets` is clean.
-Commit: —
+Commit: 82f1a43bb, 800a1b966 (goldens + full suite)
 
 ## Summary
 

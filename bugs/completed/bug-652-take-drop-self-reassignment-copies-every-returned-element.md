@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM (performance; output is correct — but see "In-place is required")
 Class: Performance / scalability
 
-Status: Open — **rescoped 2026-09-25.** The original defect (no in-place arm, a fresh
+Status: FIXED (`800a1b966`, 2026-09-25) — history: **rescoped 2026-09-25.** The original defect (no in-place arm, a fresh
 copy plus a per-element graph deep copy) was fixed by plan-142-B (`a70924e35`,
 2026-09-21) and the flat `List OF Integer` case is now linear. What remains is the
 variable-width compaction's cost: it is O(count) per call even when it removes nothing.
@@ -55,6 +55,10 @@ References:
   choose … destructive update") — the sentences Phase 2 turns into a guarantee.
 - `planning/completed/plan-142-B-shrink-arms.md` (`a70924e35`) — the in-place filter/take/drop/mid/
   distinct arms that fixed the original report.
+
+## STATUS: FIXED (`800a1b966`)
+
+Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`). Deviation: the out-of-order truncation residual (Correction C1) was fixed under bug-732 finding 6.
 
 ## Failing Reproduction
 
@@ -431,7 +435,7 @@ Not an offender under the rule: a non-probe-eligible key type makes Map/Set look
 linear (`mapset_loop`). That cost belongs to the lookup, not to an arm.
 
 Acceptance: the scaling test fails at HEAD; the guards pass at HEAD. ✓ (above)
-Commit: —
+Commit: 318e39df6 (tests, audit), fbe234fad + 9a0b7c781 (follow-up renumbered bug-703 → bug-732)
 
 ### Phase 2 — the fix
 
@@ -512,7 +516,7 @@ Other checks:
   2h50m. I killed it so the box was not held any longer, and the two suites queued
   after it never ran. All three are left to the coordinator's full suite.
 
-Commit: —
+Commit: 75afcd29f (fix), b206b839c (spec, .ai/collections.md, man)
 
 ### Phase 3 — full validation
 
@@ -534,7 +538,7 @@ Commit: —
       from 42.14 / 24.47 s. The HEAD tree on this box measured `wideTake` at 0.21 s real
       for 8,000 and 7.23 s real for 32,000. (The 8,000 `wideAppend` 0.16 s real is a
       first-launch cost; user is 0.00.)
-- [ ] Full suite; `.ncode` deltas confined to the compaction sites.
+- [x] Full suite; `.ncode` deltas confined to the compaction sites.
       Left for the coordinator. **Expected golden shift: none (prediction, from a
       grep).** The change emits new code only for a *variable-width* `take`/`drop`/`mid`
       self-update: the `compact_range_*` block before the probe, plus
@@ -555,7 +559,7 @@ Commit: —
       `mfb spec language collections` and `mfb spec language memory-semantics` render
       with 0 leaked `[[`.
 
-Commit: —
+Commit: 82f1a43bb, 800a1b966 (goldens + full suite)
 
 ## Validation Plan
 
