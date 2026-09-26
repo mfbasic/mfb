@@ -328,12 +328,43 @@ since it was written, re-confirmed before Phase 2:
 - `network-server`'s default port (7000) matches what this doc already
   recorded; `network-client`'s new README cites it directly rather than
   duplicating the number without attribution.
-- `audio` was re-verified against a fresh worktree (this fix's own): its
-  `jzaun#libsnd` package and `mfb.lock` are git-ignored, so a fresh checkout
-  needs `mfb pkg install`/a copied lock before it builds — not a behavior
-  change, just how a fresh clone differs from the already-resolved main
-  checkout the original investigation used. The "no `--unsigned` needed"
-  finding held once the package was present.
+- `audio`'s `jzaun#libsnd` package and `mfb.lock` are git-ignored, so a fresh
+  checkout needs an install step before it builds. See Correction below —
+  the first pass here got the exact step wrong.
+
+### Correction (post-review)
+
+The first version of `examples/audio/README.md` claimed "a plain `mfb build
+examples/audio` resolves and builds" based on a build run in a worktree
+where `examples/audio/packages/` and `mfb.lock` had already been copied over
+from the main checkout by hand — not a real fresh-clone test. Review caught
+this: a genuinely fresh `git worktree add --detach` checkout has neither
+file (both are `.gitignore`d — `examples/**/packages/` and
+`examples/**/*.lock`), and `mfb build examples/audio` there fails with
+`IMPORT_PACKAGE_NOT_INSTALLED`.
+
+Re-verified from two independent fresh detached worktrees (`git worktree add
+--detach <tmp> worktree-B-720`, no prior `packages/`/`mfb.lock` present): the
+correct sequence is `mfb pkg update`, run **inside** `examples/audio` (it
+takes no project-path argument — `mfb pkg update <path>` errors with "failed
+to read './project.json'"), then `mfb build examples/audio` from the repo
+root as before. `mfb pkg update` needs network access to the package
+registry: it resolved `libsnd 1.5.0` and downloaded its 7 vendor libraries
+both times. `mfb pkg install [path]` (the other candidate) is for
+re-installing from an *existing* `mfb.lock` by hash and does not resolve a
+new one, so it does not help a first-time fresh checkout.
+`examples/audio/README.md` now documents this exact two-step sequence and
+notes that a checkout where the package was already resolved (e.g. this
+repo's own long-lived working tree) can skip straight to `mfb build`.
+
+Checked every other README the same way (fresh detached worktree, run the
+documented commands verbatim): `examples/browser`'s existing
+`dom`→`fetch`/`display`→`app` package-build sequence and
+`examples/yaml-json`'s package-then-build sequence both work unmodified from
+a fresh checkout (their local `.mfp` packages build from source with `mfb
+build`, no registry step, no `--unsigned` needed). No other new README in
+this fix depends on git-ignored build state — `audio` was the only
+`"packages"` declaration among them.
 
 ### Phase 1 — failing check + audit (no behavior change)
 

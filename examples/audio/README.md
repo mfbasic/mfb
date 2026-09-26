@@ -7,9 +7,21 @@ recordings, on the output device you pick.
 
 ## Build and run
 
+The `libsnd` package (see Dependency, below) is not tracked in git — `mfb
+pkg update` resolves and downloads it, writing `examples/audio/mfb.lock` and
+`examples/audio/packages/`. On a fresh checkout this step needs network
+access to the package registry:
+
 ```sh
+(cd examples/audio && mfb pkg update)
 mfb build examples/audio
 ```
+
+A checkout that already has `examples/audio/mfb.lock` and
+`examples/audio/packages/libsnd.mfp` (e.g. this repo's own working tree,
+where the package was resolved once already) can skip straight to `mfb build
+examples/audio` — `mfb build` only complains about a missing package, it
+does not resolve one itself.
 
 - macOS / Linux — `./examples/audio/build/audio.out`
 
@@ -34,10 +46,14 @@ exit.
 ## Dependency: the `libsnd` package
 
 `project.json` declares a pinned registry package, `jzaun#libsnd` version
-1.5.0. It resolves to a signed source (`mfb build` reports `uses libsnd -
-[Verified]`) and ships its own per-target `libsndfile` dynamic libraries
-vendored under `packages/libsnd.vendor/` once the package is installed — a
-plain `mfb build examples/audio` resolves and builds with no `--unsigned`
-flag needed. The vendor tree covers macOS (aarch64) and Linux
-(aarch64/riscv64/x86_64, glibc and musl); there is no `.dll`, so a Windows
-cross-build has not been confirmed to work.
+1.5.0. It resolves to a signed source (`mfb pkg update`/`mfb build` report
+`uses libsnd - [Verified]`) and ships its own per-target `libsndfile`
+dynamic libraries vendored under `packages/libsnd.vendor/` once installed —
+no `--unsigned` flag is ever needed for it. The vendor tree covers macOS
+(aarch64) and Linux (aarch64/riscv64/x86_64, glibc and musl); there is no
+`.dll`, so a Windows cross-build has not been confirmed to work.
+
+Verified end to end from a fresh detached worktree (no prior `mfb.lock` or
+`packages/`): `(cd examples/audio && mfb pkg update)` resolved and
+downloaded `libsnd 1.5.0` plus its 7 vendor libraries, then `mfb build
+examples/audio` built and ran cleanly.
