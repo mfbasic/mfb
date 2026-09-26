@@ -192,6 +192,13 @@ pub(crate) fn register(r: &mut Registry) {
                 what: "SSL* (libssl malloc heap)",
             },
             ResourceLiveSlot {
+                offset: gen_shared::TLS_OFFSET_PEER_CLOSED,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::OpenSsl,
+                what: "peer-closed flag (0/1): set once tls::read has reported the peer's \
+                       close, after which every tls::write raises ErrConnectionClosed",
+            },
+            ResourceLiveSlot {
                 offset: gen_shared::TLS_SCHANNEL_OFFSET_BLOCK,
                 transfer: SlotTransfer::ArenaBlock {
                     size: gen_schannel::SOCKET_BLOCK_SIZE,

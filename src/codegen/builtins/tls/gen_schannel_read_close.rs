@@ -106,6 +106,15 @@ pub(crate) fn lower_tls_read(
     ins.extend([
         abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
         abi::branch_eq(&timed_out),
+        // bug-564: a peer that reset or aborted the connection is the peer's
+        // close, as on macOS and Linux, and as `tls::write` on this backend
+        // already classifies the same three codes. It was ErrNetworkFailed.
+        abi::compare_immediate(&v9, "10054"), // WSAECONNRESET
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10053"), // WSAECONNABORTED
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v9, "10058"), // WSAESHUTDOWN
+        abi::branch_eq(&peer_closed),
         abi::branch(&fail),
         abi::label(&recv_ok),
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
@@ -376,12 +385,17 @@ pub(crate) fn lower_tls_read(
         abi::branch(&reneg_isc),
     ]);
 
+    // bug-564: every read that reports the close records it, whichever way the
+    // close arrived (close_notify falls through from `context_expired`, the
+    // transport's own end of stream comes from `recv`). A later read raises from
+    // the flag, and since the 2026-09-25 owner decision so does every
+    // `tls::write` (`lower_tls_write`).
     ins.extend([
         abi::label(&context_expired),
+        abi::label(&peer_closed),
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
         abi::move_immediate(&v10, "Integer", "1"),
         abi::store_u64(&v10, &v9, st::PEER_CLOSED),
-        abi::label(&peer_closed),
     ]);
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));

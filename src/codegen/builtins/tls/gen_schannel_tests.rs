@@ -197,11 +197,21 @@ fn a_close_notify_ends_the_read_and_stays_ended() {
         label_at(&ins, "t_read_context_expired"),
         label_at(&ins, "t_read_peer"),
     );
+    // The record is made at the COMMON `peer` exit, which the close_notify arm
+    // falls into: since the 2026-09-25 owner decision, every read that raises
+    // ErrConnectionClosed (close_notify, or the transport's own end of stream)
+    // must leave the flag set for `tls::write`, not only the close_notify one.
     assert!(
         expired < peer
-            && ins[expired..peer].iter().any(|i| i.op == CodeOp::StrU64
-                && i.get("offset").as_deref() == Some(&peer_closed)),
-        "the close_notify exit must record PEER_CLOSED and fall into ErrConnectionClosed"
+            && ins[expired + 1..peer].iter().all(|i| i.op != CodeOp::Label)
+            && ins[peer + 1..]
+                .iter()
+                .take_while(|i| i.op != CodeOp::Label)
+                .any(|i| i.op == CodeOp::StrU64
+                    && i.get("offset").as_deref() == Some(&peer_closed)
+                    && i.get("src").as_deref() != Some(abi::ZERO)),
+        "the close_notify exit must fall into the ErrConnectionClosed exit, which records \
+         PEER_CLOSED for every read that reports the close"
     );
     let sticky = position(&ins, "a PEER_CLOSED check at read entry", &|i| {
         i.op == CodeOp::LdrU64 && i.get("offset").as_deref() == Some(&peer_closed)
@@ -303,6 +313,132 @@ fn connect_keeps_its_host_scratch_pointer_intact_to_the_release() {
             "(address={address}) the host scratch pointer {freed} may be written only by its \
              null-init and its allocation capture, or the release frees whatever overwrote \
              it; writers: {writers:?}"
+        );
+    }
+}
+
+// bug-564 (owner decision 2026-09-25): once `tls::read` has reported the peer's
+// close, every later `tls::write` raises `ErrConnectionClosed` on every target.
+// Schannel's write checks the state block's PEER_CLOSED before any call, so it
+// neither allocates its send buffer nor encrypts. It raises through an exit of
+// its own, because the send-failure exit runs after the buffer exists.
+#[test]
+fn a_read_that_reports_the_close_makes_every_later_write_raise() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let peer_closed = st::PEER_CLOSED.to_string();
+    for text in [false, true] {
+        let (ins, _rel, _s) = lower_tls_write("t_write", &imports, &TestPlatform, text)
+            .expect("lower schannel tls::write");
+        let check = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::LdrU64 && i.get("offset").as_deref() == Some(&peer_closed)
+            })
+            .unwrap_or_else(|| panic!("tls::write (text={text}) must read PEER_CLOSED"));
+        let target = ins[check..(check + 4).min(ins.len())]
+            .iter()
+            .find(|i| i.op == CodeOp::BranchNe)
+            .and_then(|i| i.get("target"))
+            .unwrap_or_else(|| panic!("tls::write (text={text}): a set flag must branch away"));
+        let exit = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some(target.as_str())
+            })
+            .expect("the flag's exit exists");
+        let raises_closed = ins[exit + 1..]
+            .iter()
+            .take_while(|i| i.op != CodeOp::Label)
+            .any(|i| {
+                i.op == CodeOp::BranchLink || i.op == CodeOp::Branch || i.op == CodeOp::MovImm
+            });
+        assert!(
+            raises_closed,
+            "tls::write (text={text}): the flag's exit must raise"
+        );
+        let first_call = ins
+            .iter()
+            .position(|i| matches!(i.op, CodeOp::BranchLink | CodeOp::BranchLinkRegister))
+            .expect("tls::write calls something");
+        assert!(
+            check < first_call,
+            "tls::write (text={text}): the PEER_CLOSED check (index {check}) must precede the \
+             first call ({first_call}), so no send buffer is allocated"
+        );
+    }
+}
+
+// bug-564 (found on box 2230 while pinning the write rule): Schannel
+// `tls::write` allocated its send buffer (stream header + max message + trailer,
+// about 16 KiB) on every call and never released it, on success or failure. 20000
+// five-byte writes to a live peer reached a 400 MB peak working set. Every exit
+// reached after the allocation must release it; the exits before it must not.
+#[test]
+fn write_releases_its_send_buffer_on_every_exit_after_allocating_it() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, _rel, _s) = lower_tls_write("t_write", &imports, &TestPlatform, text)
+            .expect("lower schannel tls::write");
+        let frees_in = |label: &str| {
+            let at = ins
+                .iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("missing label {label}"));
+            ins[at + 1..]
+                .iter()
+                .take_while(|i| {
+                    i.op != CodeOp::Label
+                        || i.get("name").is_some_and(|n| n.contains("buf_free_skip"))
+                })
+                .any(|i| {
+                    i.op == CodeOp::BranchLink
+                        && i.get("target").as_deref()
+                            == Some(crate::codegen::error::constants::ARENA_FREE_SYMBOL)
+                })
+        };
+        for exit in [
+            "t_write_wdone",
+            "t_write_peer_closed",
+            "t_write_timed_out",
+            "t_write_fail",
+        ] {
+            assert!(
+                frees_in(exit),
+                "tls::write (text={text}): `{exit}` runs after the send buffer exists and must release it"
+            );
+        }
+        for exit in ["t_write_closed", "t_write_peer_gone", "t_write_alloc_fail"] {
+            assert!(
+                !frees_in(exit),
+                "tls::write (text={text}): `{exit}` runs before the send buffer exists"
+            );
+        }
+    }
+}
+
+// bug-564 (found while pinning the write rule, owner rule "all errors in all
+// targets should be the same"): a peer that resets the connection made the
+// Schannel `tls::read` raise ErrNetworkFailed ("failed before a connection was
+// established"), where macOS raises ErrConnectionClosed for the same event and
+// the write side on this backend already maps the same Winsock codes to it.
+#[test]
+fn read_names_a_reset_peer_connection_closed() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _s) =
+        lower_tls_read("t_read", &imports, &TestPlatform).expect("lower schannel tls::read");
+    for code in ["10054", "10053", "10058"] {
+        let routed = ins.windows(2).any(|w| {
+            w[0].op == CodeOp::CmpImm
+                && w[0].get("rhs").as_deref() == Some(code)
+                && w[1].op == CodeOp::BranchEq
+                && w[1].get("target").as_deref() == Some("t_read_peer")
+        });
+        assert!(
+            routed,
+            "Winsock {code} after recv must raise ErrConnectionClosed"
         );
     }
 }

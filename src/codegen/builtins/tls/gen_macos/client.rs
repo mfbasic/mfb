@@ -1376,7 +1376,16 @@ pub(crate) fn lower_tls_read_macos(
         abi::branch(&done),
     ]);
 
-    ins.push(abi::label(&peer_closed));
+    // bug-564: this read has reported the peer's close, so every later
+    // `tls::write` must raise (see `CTX_RXEOF`). Both routes here (a final empty
+    // receive, a terminal state) load CTX into the frame first.
+    ins.extend([
+        abi::label(&peer_closed),
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::add_immediate(&v9, &v9, CTX_RXEOF),
+        abi::store_release_u64(&v10, &v9),
+    ]);
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
@@ -1448,6 +1457,14 @@ pub(crate) fn lower_tls_write_macos(
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
         abi::load_u64(&v9, abi::return_register(), REC_CTX),
         abi::store_u64(&v9, abi::stack_pointer(), CTX),
+        // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
+        // already reported the peer's close. Raise before anything is created
+        // or sent, empty payload included. Network.framework would take the
+        // bytes of a half-closed peer, and the other backends refuse them too.
+        abi::add_immediate(&v10, &v9, CTX_RXEOF),
+        abi::load_acquire_u64(&v10, &v10),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&peer_closed),
     ]);
     // bug-497 / bug-508: one payload view for every backend — the text form
     // as before, the byte form after a header check (`push_write_payload_view`).
