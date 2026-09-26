@@ -1,11 +1,13 @@
 # bug-698: 79 built-in members outside `fs` omit error codes their lowering raises
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (documentation correctness)
 
-Status: Open
+Status: Open — **decided 2026-09-25 (owner): every function must list every error it can
+produce.** That includes `ErrOutOfMemory` on every member that can raise it, and the
+`Body::Mfb` members' `FAIL` codes. Land after bug-702 and bug-701, which change raise sets.
 Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1)
 
 bug-694 found that every `fs` descriptor declared `errors: vec![]`, so no `fs`
@@ -132,8 +134,12 @@ raised by a shared emitter. bug-694 added the lowering sweep for `fs` only
 - `term`, `crypto`, `canvas` (7), `app` (2): unmeasured — Phase 1 makes them
   lower, then measures.
 - `Body::Mfb` members (MFBASIC-source bodies) raise through `FAIL`, not a native
-  lowering, so the sweep does not see them. Phase 1 decides whether their raise
-  sets need a separate guard.
+  lowering, so the sweep does not see them. Under the owner decision they are in
+  scope: Phase 1 adds a guard that derives their raise set (their own `FAIL`s plus
+  what the members they call can raise) and compares it to the descriptor.
+- **Ordering.** bug-702 (a moved handle may raise `ErrResourceMoved`) and bug-701
+  (`fs` codes unified across hosts) change raise sets. Land them first, or this bug's
+  tables are rewritten twice.
 - `fs`, `tls`, `udp`, `net`, `datetime`: clean (the sweep reports no undeclared
   code; `fs` since bug-694).
 
@@ -143,10 +149,11 @@ raised by a shared emitter. bug-694 added the lowering sweep for `fs` only
    parameterize the sweep by package and keep the callee classification
    (`RAISES_NOTHING` / `PROPAGATING`) per package, failing on an unclassified
    internal callee.
-2. Decide the `ErrOutOfMemory` policy once: 130 descriptors declare it today and
-   31 of their pages mention it in prose (measured in bug-694). Recommended:
-   declare it wherever the lowering can raise it (the table must equal the raise
-   set) and let one short prose clause cover it, as bug-694 did for `fs`.
+2. `ErrOutOfMemory` policy — **decided 2026-09-25 (owner): declare it wherever the
+   lowering can raise it.** The table must equal the raise set; no "any call may run
+   out of memory" convention replaces it. One short prose clause covers it on the
+   page, as bug-694 did for `fs`. (130 descriptors declare it today and 31 of their
+   pages mention it in prose, measured in bug-694.)
 3. Fill each descriptor from the sweep's report and align each page's prose.
 
 ## Phases
@@ -155,6 +162,7 @@ raised by a shared emitter. bug-694 added the lowering sweep for `fs` only
 
 - [ ] Extend the sweep to every package; make `term`/`crypto`/`canvas`/`app`
       lower in the harness.
+- [ ] Add the `Body::Mfb` guard (see Blast Radius).
 - [ ] Record the complete per-member list here.
 
 Acceptance: the guard fails listing exactly the measured members.
@@ -184,8 +192,9 @@ Commit: —
 
 ## Open Decisions
 
-- `ErrOutOfMemory` on every allocating member (recommended) vs. a documented
-  "any call may run out of memory" convention with the code left off tables.
+- ~~`ErrOutOfMemory` on every allocating member vs. a documented "any call may run
+  out of memory" convention?~~ **Decided 2026-09-25 (owner): every function lists
+  every error it can produce**, `ErrOutOfMemory` included.
 
 ## Summary
 
