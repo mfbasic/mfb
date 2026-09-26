@@ -975,6 +975,96 @@ FUNC main AS Integer
 END FUNC
 "#;
 
+/// A map with 8-byte-aligned `Integer` keys whose `String` values keep outgrowing
+/// their slots (the shape of `rt-behavior/collections/list-set-shared-offset-rt`).
+const MAP_MOVED_VALUES_PROGRAM: &str = r#"IMPORT io
+IMPORT collections
+
+' bug-733 regression: values that outgrow their slots in a map with 8-byte
+' aligned keys. The in-place reclaim packs payloads in offset order (moved
+' values last), which needs fewer alignment pads than the entry-order total it
+' compares against, so dataLength - live underflowed and the reclaim repeated
+' forever.
+FUNC main AS Integer
+  MUT m AS Map OF Integer TO String = Map OF Integer TO String {}
+  FOR i = 0 TO 39
+    m = collections::set(m, i, "")
+  NEXT
+  FOR k = 0 TO 1999
+    LET row AS Integer = (k * 17 + k / 3) MOD 40
+    m = collections::set(m, row, collections::getOr(m, row, "") & "ab")
+  NEXT
+  MUT total AS Integer = 0
+  FOR EACH k IN collections::keys(m)
+    total = total + len(collections::get(m, k))
+  NEXT
+  io::print("map grow " & toString(len(m)) & " " & toString(total))
+  RETURN 0
+END FUNC
+"#;
+
+/// A two-element list whose elements keep changing length (a `set` that moves a
+/// longer payload to the data tail, or leaves a hole) while an element is added
+/// and one removed every round — `String` and record elements, through `append`,
+/// `prepend` and `insert`, and `removeAt` and `take`.
+const SMALL_CHURN_PROGRAM: &str = r#"IMPORT io
+IMPORT os
+IMPORT collections
+IMPORT strings
+
+TYPE Rec
+  n AS Integer
+  s AS String
+END TYPE
+
+FUNC lcg(x AS Integer) AS Integer
+  RETURN (x * 1103515245 + 12345) MOD 2147483648
+END FUNC
+
+FUNC main AS Integer
+  LET shape = collections::get(os::args(), 0)
+  LET n = toInt(collections::get(os::args(), 1))
+  MUT x AS List OF Rec = [Rec[n := 1, s := ""], Rec[n := 2, s := ""]]
+  MUT y AS List OF String = ["", ""]
+  MUT r AS Integer = 5
+  FOR i = 1 TO n
+    r = lcg(r)
+    LET k = r MOD 2
+    LET text = strings::repeat("z", (r / 101) MOD 23)
+    IF shape = "strAppendRemoveFirst" THEN
+      y = collections::set(y, k, text)
+      y = collections::append(y, "p")
+      y = collections::removeAt(y, 0)
+    ELSEIF shape = "recAppendRemoveFirst" THEN
+      x = collections::set(x, k, Rec[n := i, s := text])
+      x = collections::append(x, Rec[n := i, s := "p"])
+      x = collections::removeAt(x, 0)
+    ELSEIF shape = "recPrependRemoveLast" THEN
+      x = collections::set(x, k, Rec[n := i, s := text])
+      x = collections::prepend(x, Rec[n := i, s := "p"])
+      x = collections::removeAt(x, len(x) - 1)
+    ELSEIF shape = "recPrependPop" THEN
+      x = collections::set(x, k, Rec[n := i, s := text])
+      x = collections::prepend(x, Rec[n := i, s := "p"])
+      x = collections::take(x, len(x) - 1)
+    ELSEIF shape = "recInsertRemoveLast" THEN
+      x = collections::set(x, k, Rec[n := i, s := text])
+      x = collections::insert(x, 1, Rec[n := i, s := "p"])
+      x = collections::removeAt(x, len(x) - 1)
+    END IF
+  NEXT
+  MUT total AS Integer = 0
+  FOR EACH e IN x
+    total = total + len(e.s)
+  NEXT
+  FOR EACH e IN y
+    total = total + len(e)
+  NEXT
+  io::print(shape & " " & toString(len(x) + len(y)) & " " & toString(total))
+  RETURN 0
+END FUNC
+"#;
+
 fn scale_exe() -> &'static PathBuf {
     static EXE: OnceLock<PathBuf> = OnceLock::new();
     EXE.get_or_init(|| {
@@ -1296,6 +1386,93 @@ fn a_churning_map_or_set_does_not_grow_without_bound() {
         grew.is_empty(),
         "bug-733: peak live bytes grew for 8x the rounds of a map/set that never holds \
          more than 65 entries: {grew:?}"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// The reclaim must terminate and report the right values when moved values
+/// leave the packed layout with fewer alignment pads than the entry-order live
+/// total (bug-733's first reclaim computed `dataLength - live`, which then
+/// underflowed, and the grow retried the repack forever — the program hung).
+#[test]
+fn a_map_reclaim_terminates_when_moved_values_pack_tighter() {
+    let project = common::temp_project("b733_moved", MAP_MOVED_VALUES_PROGRAM);
+    let exe = common::build_project(&project);
+    let (status, stdout) = common::run_bounded(
+        &exe,
+        std::time::Duration::from_secs(30),
+        "bug-733: the map reclaim repeated forever",
+    );
+    assert!(status.success(), "the program failed: {stdout}");
+    assert_eq!(stdout, "map grow 40 4000\n");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// Run `exe args` with a deadline; return its stderr, or panic naming a hang.
+fn run_with_deadline(exe: &Path, args: &[String], seconds: u64) -> (String, String) {
+    let mut child = Command::new(exe)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run the program");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    loop {
+        if child.try_wait().expect("poll the program").is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{args:?} did not finish within {seconds}s");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().expect("collect the output");
+    assert!(output.status.success(), "{args:?} failed");
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// bug-732 C7: a list that keeps a few elements whose payloads keep changing length
+/// must stay small. Every in-place grow of the data region stepped the ENTRY
+/// capacity too, and the dead-byte reclaim (bug-732) repacked into a data region
+/// sized from the live bytes without shrinking the entries — so a list of two
+/// strings alternated repack and grow and doubled its entry capacity on every
+/// grow: 1 KB after 150 rounds, 933 KB after 1,200 (3.1 GB for records, and an
+/// `insert` shape that never finished).
+#[test]
+fn a_small_list_under_length_changing_churn_stays_small() {
+    let project = common::temp_project("b732_small", SMALL_CHURN_PROGRAM);
+    let exe = common::debug_report::build_debug_project("b732_small", &project);
+    let mut grew = Vec::new();
+    for shape in [
+        "strAppendRemoveFirst",
+        "recAppendRemoveFirst",
+        "recPrependRemoveLast",
+        "recPrependPop",
+        "recInsertRemoveLast",
+    ] {
+        let peak = |n: u64| {
+            let (stdout, stderr) = run_with_deadline(&exe, &[shape.to_string(), n.to_string()], 60);
+            assert!(
+                stdout.starts_with(&format!("{shape} 4 ")),
+                "{shape} {n}: wrong element count: {stdout}"
+            );
+            counter(&stderr, "arena.0.peak_live_bytes ")
+        };
+        let small = peak(150);
+        let large = peak(1_200);
+        eprintln!("{shape}: peak_live_bytes {small} at 150, {large} at 1200");
+        if large > small + small / 4 {
+            grew.push(format!("{shape}: {small} -> {large}"));
+        }
+    }
+    assert!(
+        grew.is_empty(),
+        "bug-732 C7: a list holding two elements grew with the rounds: {grew:?}"
     );
     let _ = std::fs::remove_dir_all(&project);
 }
