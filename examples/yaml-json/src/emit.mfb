@@ -44,6 +44,20 @@ FUNC isReservedWord(text AS String) AS Boolean
   END MATCH
 END FUNC
 
+' TRUE when a scalar's code point cannot appear literally in a YAML plain or
+' block scalar under a conforming YAML 1.1 *or* 1.2 reader: the ASCII C0
+' controls and DEL (`\x00`-`\x1F`, `\x7F`), the C1 controls (`\x80`-`\x9F`,
+' which also covers NEL `\x85`) -- unreadable to a conforming reader
+' regardless of quoting -- and LINE SEPARATOR / PARAGRAPH SEPARATOR
+' (` `/` `), which YAML 1.1 treats as line breaks (NEL is a line
+' break under 1.1 too, hence the C1 range covering it).
+FUNC isUnsafeControlOrLineBreak(code AS Integer) AS Boolean
+  IF code < 32 OR code = 127 THEN RETURN TRUE
+  IF code >= 128 AND code <= 159 THEN RETURN TRUE
+  IF code = 8232 OR code = 8233 THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
 ' TRUE when `text` may be written without quotes.
 '
 ' Deliberately conservative: it demands a letter, `_` or `/` first, which alone
@@ -62,18 +76,58 @@ FUNC isPlainSafe(text AS String) AS Boolean
   IF strings::endsWith(text, ":") THEN RETURN FALSE
   IF strings::endsWith(text, " ") THEN RETURN FALSE
   FOR EACH scalar IN scalars
-    IF toInt(scalar) < 32 OR toInt(scalar) = 127 THEN RETURN FALSE
+    IF isUnsafeControlOrLineBreak(toInt(scalar)) THEN RETURN FALSE
   NEXT
   RETURN TRUE
+END FUNC
+
+' One hex digit, lowercase, for 0 <= d <= 15.
+FUNC hexDigit(d AS Integer) AS String
+  RETURN strings::mid("0123456789abcdef", d, 1)
+END FUNC
+
+' code, as exactly 4 lowercase hex digits (a JSON/YAML `\uXXXX` escape body).
+FUNC hex4(code AS Integer) AS String
+  MUT n AS Integer = code
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  DO WHILE i < 4
+    out = hexDigit(n MOD 16) & out
+    n = n / 16
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' `json::stringify`'s escaping is JSON-conformant, which does not require
+' escaping the C1 controls, NEL, LINE SEPARATOR, or PARAGRAPH SEPARATOR (JSON
+' permits any of them literally in a string) -- so a quoted scalar containing
+' one still reaches the YAML output raw. Post-process the already-quoted
+' string (scalar by scalar, so this never touches an escape sequence
+' `json::stringify` already wrote) and replace each with a `\uXXXX` escape,
+' which is valid inside both a JSON and a YAML double-quoted scalar.
+FUNC escapeUnsafeForYaml(jsonQuoted AS String) AS String
+  MUT out AS String = ""
+  FOR EACH scalar IN strings::toScalars(jsonQuoted)
+    LET code AS Integer = toInt(scalar)
+    IF (code >= 128 AND code <= 159) OR code = 8232 OR code = 8233 THEN
+      out = out & "\\u" & hex4(code)
+    ELSE
+      out = out & strings::fromScalars([scalar])
+    END IF
+  NEXT
+  RETURN out
 END FUNC
 
 ' Render `text` as a double-quoted YAML scalar. YAML's double-quoted escapes are
 ' JSON's plus a few more, so JSON's own string serializer produces a valid one --
 ' and it is the serializer that already agrees with `yaml::parse`'s escape
-' decoding.
+' decoding. The C1 controls, NEL, LINE SEPARATOR, and PARAGRAPH SEPARATOR are
+' the exception: JSON does not require escaping them, so they are escaped here
+' as a post-processing pass over `json::stringify`'s output.
 FUNC quoteScalar(text AS String) AS String
   LET value AS json::Json = json::JsonStr[text]
-  RETURN json::stringify(value)
+  RETURN escapeUnsafeForYaml(json::stringify(value))
 END FUNC
 
 ' TRUE when `text` can be written as a literal (`|`) block scalar: it has more
@@ -85,7 +139,7 @@ FUNC isBlockSafe(text AS String) AS Boolean
   IF NOT strings::contains(text, "\n") THEN RETURN FALSE
   FOR EACH scalar IN strings::toScalars(text)
     LET code AS Integer = toInt(scalar)
-    IF code <> 10 AND (code < 32 OR code = 127) THEN RETURN FALSE
+    IF code <> 10 AND isUnsafeControlOrLineBreak(code) THEN RETURN FALSE
   NEXT
   MUT body AS String = text
   IF strings::endsWith(body, "\n") THEN
@@ -212,12 +266,15 @@ END FUNC
 ' the node itself -- it has to be indented past it -- so a document that IS one
 ' gets its content indented by two here. Everywhere else the enclosing `key:` or
 ' `- ` has already supplied that indentation.
+' No trailing "\n" here: the only caller, `jsonToYaml` (main.mfb), passes this
+' straight to `io::print`, which appends its own trailing line feed -- adding
+' one here too doubled every `to-yaml` output's trailing newline (bug-710b).
 PUBLIC FUNC toYaml(value AS json::Json) AS String
   MATCH value
     CASE json::JsonStr(s)
-      IF isBlockSafe(s.value) THEN RETURN blockScalar(s.value, 2) & "\n"
-      RETURN emitBlock(value, 0) & "\n"
+      IF isBlockSafe(s.value) THEN RETURN blockScalar(s.value, 2)
+      RETURN emitBlock(value, 0)
     CASE ELSE
-      RETURN emitBlock(value, 0) & "\n"
+      RETURN emitBlock(value, 0)
   END MATCH
 END FUNC

@@ -1,0 +1,63 @@
+' browser-fetch-probe — standalone driver, imports the built `fetch` package
+' directly (no TUI needed) and exercises the two bug-706 sub-issues:
+'
+'   1. fetchStyles's drive loop must give up on a stalled stylesheet within a
+'      bounded time instead of busy-spinning forever.
+'   2. resolveLocation/resolveHref must resolve five href shapes exactly per
+'      RFC 3986 §5.3 (leading-scheme absolute, network-path, root-relative,
+'      query-only, fragment-only, "../"-relative, plain-relative).
+'
+' Run via tools/browser-fetch-probe/run.sh, which builds the fetch/dom
+' packages, starts the two throwaway local servers sub-issue 1 needs, runs
+' this binary, and checks its output. This binary itself never starts a
+' server — run.sh owns that so the probe stays a pure MFBASIC driver.
+
+IMPORT collections
+IMPORT datetime
+IMPORT fetch
+IMPORT io
+IMPORT os
+IMPORT thread
+
+' Sub-issue 2 — resolveHref, the five inputs from bug-706's Failing
+' Reproduction. Printed as "label|actual" lines; run.sh compares each against
+' its RFC-3986-correct expected value.
+SUB checkResolveHref()
+  LET base AS String = "http://example.com/a/b/page.html?old=1"
+  io::print("resolve|a|" & fetch::resolveHref(base, "/redirect?next=http://evil.example/x"))
+  io::print("resolve|a2|" & fetch::resolveHref(base, "search?next=http://evil.example/x"))
+  io::print("resolve|b1|" & fetch::resolveHref(base, "?new=2"))
+  io::print("resolve|b2|" & fetch::resolveHref(base, "#section"))
+  io::print("resolve|c|" & fetch::resolveHref(base, "../up.html"))
+  io::print("resolve|plain|" & fetch::resolveHref(base, "other.html"))
+END SUB
+
+' Sub-issue 1 — fetch a page whose one stylesheet stalls forever (a "black
+' hole" server that accepts and never writes/closes, per bug-706's Failing
+' Reproduction). Prints the elapsed wall-clock time and the LoadResult's
+' fields; run.sh asserts the elapsed time is bounded and CPU time stayed low
+' (proving no busy-spin) via `time`/`ps`, since MFBASIC has no CPU-time
+' builtin to check that from inside the probe itself.
+SUB checkSpin(pageUrl AS String)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  RES t AS Thread OF String TO fetch::LoadResult = thread::start(fetch::fetch, pageUrl)
+  LET r AS fetch::LoadResult = thread::waitFor(t)
+  LET elapsedMs AS Integer = (datetime::monotonicNanos() - t0) / 1000000
+  io::print("spin|ok=" & toString(r.ok) & "|filesLoaded=" & toString(r.filesLoaded) & "|filesTotal=" & toString(r.filesTotal) & "|elapsedMs=" & toString(elapsedMs))
+END SUB
+
+SUB main()
+  LET args AS List OF String = os::args()
+  IF len(args) < 1 THEN
+    io::print("usage: probe.out resolve | probe.out spin <page-url>")
+    EXIT SUB
+  END IF
+  LET mode AS String = collections::get(args, 0)
+  IF mode = "resolve" THEN
+    checkResolveHref()
+  ELSEIF mode = "spin" THEN
+    checkSpin(collections::get(args, 1))
+  ELSE
+    io::print("unknown mode: " & mode)
+  END IF
+END SUB

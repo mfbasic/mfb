@@ -1,0 +1,182 @@
+' water-collision-bench - regression + benchmark for bug-717.
+'
+' bug-717: examples/water/src/shapes.mfb:contactWith paid two trig calls
+' (cos/sin of the shape's angle) before any cheap reject, on every one of up
+' to POOL_SIZE * shapeCount * SUBSTEPS calls a frame, and a star shape paid
+' 40 more inside starContact, recomputing its ten corners from scratch on
+' every call. The fix adds an exact bounding-radius reject before the trig
+' (contactWith), and a per-shape-per-frame cache of cos/sin and a star's
+' corners that stepWater's hot path reads instead of recomputing
+' (contactWithCached/rebuildShapeCache/starContactCached, all in the real
+' examples/water/src/shapes.mfb, which run.sh stages into this probe's
+' scratch build fresh on every run — not a copy committed here).
+'
+' This tool has two jobs:
+'
+'   Correctness: contactWith's return value must be bit-for-bit unchanged by
+'   the fix, and contactWithCached must return exactly what contactWith
+'   does for the same shape and point. oracleContactWith below is the
+'   pre-fix contactWith body verbatim (unconditional trig, no bounding
+'   radius) - an independent re-implementation to check both the fixed
+'   contactWith and contactWithCached against, across every shape kind, several
+'   scales and angles, and a grid of points spanning well outside each
+'   shape's reach to well inside it.
+'
+'   Performance: reproduces this bug's own benchmark shape (a large batch of
+'   contact tests against the same set of shapes) timed against the oracle
+'   path (no bounding radius, no cache) and the fixed cached path, and prints
+'   both. Informational only - wall-clock timing on a shared machine is
+'   noisy (the bug doc measured a 1.8x spread within one variant), so this
+'   does not assert a speedup ratio, only that both paths still agree.
+'
+' Usage: water-collision-bench.out (no arguments; prints PASS/FAIL to stdout)
+
+IMPORT collections
+IMPORT datetime
+IMPORT io
+IMPORT math
+
+' ---------------------------------------------------------------------------
+' FROZEN ORACLE - deliberately never updated. This is the pre-fix contactWith,
+' verbatim (bug-717's Root Cause quotes this exact body - unconditional
+' cos/sin, no bounding-radius reject). It exists to answer one fixed
+' question - "does the real, current contactWith/contactWithCached still
+' agree with the pre-fix behavior" - not to track shapes.mfb, so unlike this
+' probe's staged copy of shapes.mfb it is correct for it to never change.
+' Reuses rectangleContact/triangleContact/circleContact/ellipseContact/
+' starContact from the real (staged) shapes.mfb unchanged - none of those
+' four kind-tests or starContact were touched by the fix, only contactWith's
+' approach to reaching them, and the new cached siblings.
+' ---------------------------------------------------------------------------
+FUNC oracleContactWith(s AS Shape, px AS Float, py AS Float, reach AS Float) AS Contact
+  LET dx AS Float = px - s.x
+  LET dy AS Float = py - s.y
+  LET c AS Float = math::cos(s.angle)
+  LET n AS Float = math::sin(s.angle)
+  LET lx AS Float = c * dx + n * dy
+  LET ly AS Float = c * dy - n * dx
+
+  MUT inFrame AS Contact = NO_CONTACT
+  MATCH s.kind
+    CASE ShapeKind.Rectangle : inFrame = rectangleContact(lx, ly, RECT_HALF_WIDTH * s.scale + reach, RECT_HALF_HEIGHT * s.scale + reach)
+    CASE ShapeKind.Triangle : inFrame = triangleContact(lx, ly, s.scale, reach)
+    CASE ShapeKind.Circle : inFrame = circleContact(lx, ly, CIRCLE_RADIUS * s.scale + reach)
+    CASE ShapeKind.Ellipse : inFrame = ellipseContact(lx, ly, ELLIPSE_RADIUS_X * s.scale + reach, ELLIPSE_RADIUS_Y * s.scale + reach)
+    CASE ShapeKind.Star : inFrame = starContact(lx, ly, s.scale, reach)
+  END MATCH
+  IF NOT inFrame.hit THEN RETURN NO_CONTACT
+
+  RETURN Contact[hit := TRUE, x := s.x + c * inFrame.x - n * inFrame.y, y := s.y + n * inFrame.x + c * inFrame.y, nx := c * inFrame.nx - n * inFrame.ny, ny := n * inFrame.nx + c * inFrame.ny]
+END FUNC
+
+FUNC sameContact(a AS Contact, b AS Contact) AS Boolean
+  IF a.hit <> b.hit THEN RETURN FALSE
+  IF NOT a.hit THEN RETURN TRUE
+  RETURN a.x = b.x AND a.y = b.y AND a.nx = b.nx AND a.ny = b.ny
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Build every kind at a few scales and angles, all centred at the same point
+' so the test grid of points below exercises near/at/far-outside the surface
+' identically for each.
+' ---------------------------------------------------------------------------
+FUNC buildShapes AS Nothing
+  LET kinds AS List OF ShapeKind = [ShapeKind.Rectangle, ShapeKind.Triangle, ShapeKind.Circle, ShapeKind.Ellipse, ShapeKind.Star]
+  LET scales AS List OF Float = [0.4, 1.0, 3.0]
+  LET angles AS List OF Float = [0.0, 0.5, 1.9, -2.3]
+
+  FOR EACH kind IN kinds
+    FOR EACH scale IN scales
+      FOR EACH angle IN angles
+        LET i AS Integer = addShape(kind, 200.0, 150.0)
+        shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := angle, scale := scale })
+      NEXT
+    NEXT
+  NEXT
+END FUNC
+
+FUNC main AS Integer
+  buildShapes()
+  rebuildShapeCache()
+
+  LET offsets AS List OF Float = [-150.0, -80.0, -40.0, -10.0, 0.0, 10.0, 40.0, 80.0, 150.0]
+  LET reach AS Float = 4.0
+
+  MUT tested AS Integer = 0
+  MUT mismatches AS Integer = 0
+  MUT hits AS Integer = 0
+
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    FOR EACH ox IN offsets
+      FOR EACH oy IN offsets
+        LET px AS Float = s.x + ox
+        LET py AS Float = s.y + oy
+
+        LET oracle AS Contact = oracleContactWith(s, px, py, reach)
+        LET fixed AS Contact = contactWith(s, px, py, reach)
+        LET cached AS Contact = contactWithCached(i, px, py, reach)
+
+        tested = tested + 1
+        IF oracle.hit THEN hits = hits + 1
+
+        IF NOT sameContact(oracle, fixed) THEN
+          io::print("MISMATCH (contactWith) shape=" & toString(i) & " kind=" & toString(s.kind) & " px=" & toString(px) & " py=" & toString(py))
+          mismatches = mismatches + 1
+        END IF
+        IF NOT sameContact(oracle, cached) THEN
+          io::print("MISMATCH (contactWithCached) shape=" & toString(i) & " kind=" & toString(s.kind) & " px=" & toString(px) & " py=" & toString(py))
+          mismatches = mismatches + 1
+        END IF
+      NEXT
+    NEXT
+  NEXT
+
+  io::print("shapes: " & toString(len(shapes)))
+  io::print("points tested per shape: " & toString(len(offsets) * len(offsets)))
+  io::print("total comparisons: " & toString(tested))
+  io::print("contacts found (oracle): " & toString(hits))
+  io::print("mismatches: " & toString(mismatches))
+
+  ' Informational timing: the oracle path (unconditional trig, no cache) vs
+  ' the fixed cached path, over several repeats of the same comparison grid.
+  ' Not asserted - see the file header on why.
+  LET repeats AS Integer = 40
+  LET oracleStart AS Integer = datetime::monotonicNanos()
+  FOR r = 1 TO repeats
+    FOR i = 0 TO len(shapes) - 1
+      LET s AS Shape = collections::get(shapes, i)
+      FOR EACH ox IN offsets
+        FOR EACH oy IN offsets
+          LET c AS Contact = oracleContactWith(s, s.x + ox, s.y + oy, reach)
+        NEXT
+      NEXT
+    NEXT
+  NEXT
+  LET oracleNanos AS Integer = datetime::monotonicNanos() - oracleStart
+
+  LET cachedStart AS Integer = datetime::monotonicNanos()
+  FOR r = 1 TO repeats
+    rebuildShapeCache()
+    FOR i = 0 TO len(shapes) - 1
+      LET s AS Shape = collections::get(shapes, i)
+      FOR EACH ox IN offsets
+        FOR EACH oy IN offsets
+          LET c AS Contact = contactWithCached(i, s.x + ox, s.y + oy, reach)
+        NEXT
+      NEXT
+    NEXT
+  NEXT
+  LET cachedNanos AS Integer = datetime::monotonicNanos() - cachedStart
+
+  io::print("oracle path elapsed ms: " & toString(toFloat(oracleNanos) / 1000000.0))
+  io::print("fixed cached path elapsed ms: " & toString(toFloat(cachedNanos) / 1000000.0))
+
+  IF mismatches > 0 THEN
+    io::print("FAIL: water-collision-bench found a mismatch between the fixed path and the oracle")
+    RETURN 1
+  END IF
+
+  io::print("PASS: water-collision-bench — contactWith and contactWithCached agree with the pre-fix oracle on every shape and point tested")
+  RETURN 0
+END FUNC

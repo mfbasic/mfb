@@ -1,0 +1,32 @@
+{
+  "name": "browser-fetch-probe",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Standalone driver for bug-706: imports the built browser/fetch package directly and exercises fetchStyles's drive-loop deadline and resolveLocation/resolveHref's RFC 3986 resolution, without the browser's TUI.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "app",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "fetch",
+      "version": "=0.1.0",
+      "source": "file:packages/fetch.mfp",
+      "direct": true,
+      "requiredBy": []
+    },
+    {
+      "name": "dom",
+      "version": "=0.1.0",
+      "source": "file:packages/dom.mfp",
+      "direct": true,
+      "requiredBy": ["fetch"]
+    }
+  ]
+}

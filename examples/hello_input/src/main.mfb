@@ -26,4 +26,9 @@ FUNC main AS Integer
   LOOP UNTIL key = "q" OR key = "Q"
 
   RETURN 0
+
+  TRAP(e)
+    io::printError("hello_input: " & e.message)
+    RETURN 1
+  END TRAP
 END FUNC

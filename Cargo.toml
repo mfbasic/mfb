@@ -492,6 +492,10 @@ name = "architecture_guards"
 path = "tests/guards/architecture_guards.rs"
 
 [[test]]
+name = "example_project_names"
+path = "tests/guards/example_project_names.rs"
+
+[[test]]
 name = "no_operator_strings"
 path = "tests/guards/no_operator_strings.rs"
 

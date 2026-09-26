@@ -128,4 +128,10 @@ SUB main()
   LOOP UNTIL useIn = "Q" OR useIn = "q"
 
   io::print("Done")
+  EXIT SUB
+
+  TRAP(e)
+    io::printError("audio: " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
 END SUB

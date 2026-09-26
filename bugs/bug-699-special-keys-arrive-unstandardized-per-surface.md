@@ -23,7 +23,7 @@ What an arrow key or Delete produces depends on the input surface the program ru
   `ESC [ D`), and emulators disagree on details (`ESC O A` vs `ESC [ A` by cursor-key
   mode; Home as `ESC [ H`, `ESC [ 1 ~` or `ESC O H`; Backspace `0x7F` or `0x08`). The
   six examples that handle arrows (`snake`, `dungeon`, `wind`, `browser`,
-  `bugs/canvas`, `bugs/tui`) decode that shape by hand.
+  `swat/canvas`, `swat/tui`) decode that shape by hand.
 - **`--app` build on macOS** (canvas, TermView raw, transcript): the runtime
   writes the raw `NSEvent characters` to the input pipe. Arrows arrive as AppKit
   private-use code points (U+F700–F703), forward-delete as U+F728, and Backspace
@@ -409,7 +409,7 @@ Found with `grep -rlE 'u\{1B\}|"UP"' examples`, a search for key handlers under
   `readChar` 18 files, `readByte` 5, `pollInput` 15; `grep -rlE
   "io::(readChar|readByte|pollInput)\b" src --include='*.rs'` — 21 Rust files (man
   examples, descriptors, tests). The six hand-rolled decoders (`snake`, `dungeon`,
-  `wind`, `browser`, `bugs/canvas`, `bugs/tui`) move to `readKey`.
+  `wind`, `browser`, `swat/canvas`, `swat/tui`) move to `readKey`.
 - **Docs:** `src/docs/spec/app/03_console-io.md`, the io/term spec sections, `mfb man
   io` and `mfb man term` (`on`/`off` mention kitty in developer terms), the narrative
   guides that mention the removed readers (`grep -rn "readChar\|readByte\|pollInput"
