@@ -10,7 +10,7 @@ copy plus a per-element graph deep copy) was fixed by plan-142-B (`a70924e35`,
 2026-09-21) and the flat `List OF Integer` case is now linear. What remains is the
 variable-width compaction's cost: it is O(count) per call even when it removes nothing.
 **2026-09-25:** Phases 1–2 landed on `worktree-B-652`, along with the Phase 3 re-measure
-(linear). The full suite is still owed. The other audit offenders are filed as bug-703.
+(linear). The full suite is still owed. The other audit offenders are filed as bug-732.
 Regression Test: `tests/runtime/rt_list_take_drop_in_place.rs`. Repro: `bugs/repro/bug-652-take-drop-variable-width-compaction.mfb`
 
 `pending = collections::take(pending, len(pending))` and
@@ -344,10 +344,10 @@ front, keep a long tail) the repro does not exercise.
     `append`.
 
   Otherwise it falls through, having written nothing, to the unchanged general path.
-  Measured residual, with the bug-703 repro on the fixed compiler: `popSorted` (sort
+  Measured residual, with the bug-732 repro on the fixed compiler: `popSorted` (sort
   once, then `x = take(x, len(x) - 1)` until empty) goes from 0.04 s to 0.72 s user
   for 4n (×18). `popAppended`, the same pops without the sort, is linear. Filed as
-  **bug-703** finding 6. The spec lists it as a current exception.
+  **bug-732** finding 6. The spec lists it as a current exception.
 
 ## Phases
 
@@ -395,13 +395,13 @@ front, keep a long tail) the repro does not exercise.
       the call's work, not to the collection's size. Record the table here; fix or file
       each offender. → The table is below. Five offenders were found, plus this bug's
       own out-of-order residual (see Corrections). They are too large for this bug, so
-      they are filed as **bug-703** with a measured repro
-      (`bugs/repro/bug-703-self-update-arms-cost-collection-size.mfb`).
+      they are filed as **bug-732** with a measured repro
+      (`bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb`).
 
 #### Audit — `SELF_UPDATE_TABLE` `Arm` rows (2026-09-25)
 
 A read-only audit of each arm's lowering produced this table. Each offender was then
-spot-checked by grepping its named loop label, and measured with the bug-703 repro
+spot-checked by grepping its named loop label, and measured with the bug-732 repro
 (user CPU seconds, n → 4n).
 
 | ArmId (rows) | Inherent work | Emitted cost | Verdict |
@@ -410,20 +410,20 @@ spot-checked by grepping its named loop label, and measured with the bug-703 rep
 | BulkAppend | size of the RHS | copies the RHS; geometric realloc | OK |
 | Set | 1 element | same-size overwrite O(1); a length change relocates to the tail, with a geometric repack on overflow | OK (amortized) |
 | SetAdd | 1 element | hash probe, then bucket put | OK |
-| SetRemove, RemoveKey | 1 element | `mrk_scan_loop` linear, `mrk_shift_loop` suffix, `BUCKETS_READY = 0` (next probe rebuilds the index) | **OFFENDER** → bug-703 (×18 / ×20) |
+| SetRemove, RemoveKey | 1 element | `mrk_scan_loop` linear, `mrk_shift_loop` suffix, `BUCKETS_READY = 0` (next probe rebuilds the index) | **OFFENDER** → bug-732 (×18 / ×20) |
 | Prepend | moves n | shifts all entries | OK (moved) |
-| RemoveAt | moves the suffix | kind2 suffix only; variable-width `remove_inplace_fix_loop` over **all** entries | **OFFENDER** (var-width) → bug-703 (×15) |
+| RemoveAt | moves the suffix | kind2 suffix only; variable-width `remove_inplace_fix_loop` over **all** entries | **OFFENDER** (var-width) → bug-732 (×15) |
 | Insert | moves count − i | shifts the tail | OK |
 | Concat | size of the RHS | copies the RHS into spare capacity; geometric regrow | OK |
 | Filter, Distinct | tests all | mark pass plus Marks compaction | OK |
-| Take, Drop, Mid | removed + moved | variable-width: probe + slide over all entries | **this bug** (fixed in Phase 2; out-of-order truncation → bug-703) |
+| Take, Drop, Mid | removed + moved | variable-width: probe + slide over all entries | **this bug** (fixed in Phase 2; out-of-order truncation → bug-732) |
 | Replace, Transform, Math, MapValues, Intersection | tests all | one walk | OK |
 | Sort, SortBy | n log n | merge sort plus permute | OK |
 | Union, Merge | size of t / n | walks only the argument; geometric reserve | OK |
-| Difference | ≤ size of t | marks **all of s**, `mcompact_loop` over s | **OFFENDER** → bug-703 (×18) |
-| SymmetricDifference | size of t | marks t **and all of s**, compacts s | **OFFENDER** → bug-703 (×18) |
+| Difference | ≤ size of t | marks **all of s**, `mcompact_loop` over s | **OFFENDER** → bug-732 (×18) |
+| SymmetricDifference | size of t | marks t **and all of s**, compacts s | **OFFENDER** → bug-732 (×18) |
 | StrIdentity | 0 | nothing | OK |
-| StrWindow (13 rows) | removed bytes | always `inplace_str_window_move` of the whole window, even when it does not move | **OFFENDER** for `stripSuffix`, no-match `stripPrefix`, `trimEnd` → bug-703 (`stripSuffix` ×15) |
+| StrWindow (13 rows) | removed bytes | always `inplace_str_window_move` of the whole window, even when it does not move | **OFFENDER** for `stripSuffix`, no-match `stripPrefix`, `trimEnd` → bug-732 (`stripSuffix` ×15) |
 | StrGrow | added (+ moved) | geometric reserve | OK |
 | StrRewrite | tests all | build in scratch, copy back | OK |
 
@@ -468,7 +468,7 @@ Commit: —
       `mfb spec memory collections`. §14's opening paragraph is aligned with it.
       `memory/05_collections.md` Self-updates gains a **Cost** bullet with the
       take/drop/mid cost model. It also lists the forms not yet within the bound
-      (bug-703's six findings), as the as-is rule requires. Every claim is cited
+      (bug-732's six findings), as the as-is rule requires. Every claim is cited
       (`try_inplace_self_update`, `emit_compact_range_truncate`,
       `lower_list_compact_in_place`, `emit_offset_compaction_fixup`,
       `lower_map_remove_key_in_place`, `try_inplace_filter_set`,

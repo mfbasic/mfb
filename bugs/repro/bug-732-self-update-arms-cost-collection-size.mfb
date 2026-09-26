@@ -1,4 +1,4 @@
-' bug-703 repro: in-place self-updates whose cost is O(size of x) per call
+' bug-732 repro: in-place self-updates whose cost is O(size of x) per call
 ' where the call adds, removes or moves O(1) elements, so each loop is O(n^2).
 ' Usage: app.out <shape> <n>
 '   shapes: append (linear contrast) removeAtLast removeKey setRemove

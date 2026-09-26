@@ -1,4 +1,4 @@
-# bug-703: six in-place self-updates cost the size of the collection, not the work they do, so build loops that use them are O(n²)
+# bug-732: six in-place self-updates cost the size of the collection, not the work they do, so build loops that use them are O(n²)
 
 Last updated: 2026-09-25
 Effort: large (3h–1d)
@@ -6,7 +6,7 @@ Severity: MEDIUM (performance; output is correct)
 Class: Other (performance / scalability)
 
 Status: Open
-Regression Test: none yet — see Phase 1. Repro: `bugs/repro/bug-703-self-update-arms-cost-collection-size.mfb`
+Regression Test: none yet — see Phase 1. Repro: `bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb`
 
 Found by bug-652's Phase 1 audit of `SELF_UPDATE_TABLE`. bug-652 records the owner's
 rule (2026-09-25): a `MUT` self-update `x = f(x, …)` must cost time proportional to
@@ -33,9 +33,9 @@ References:
 
 ```
 CARGO_TARGET_DIR=/tmp/b652-target cargo build --release --bin mfb
-mfb init /tmp/b703 && cp bugs/repro/bug-703-self-update-arms-cost-collection-size.mfb /tmp/b703/src/main.mfb
-cd /tmp/b703 && mfb build
-/usr/bin/time -p ./build/b703.out <shape> <n>
+mfb init /tmp/b732 && cp bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb /tmp/b732/src/main.mfb
+cd /tmp/b732 && mfb build
+/usr/bin/time -p ./build/b732.out <shape> <n>
 ```
 
 Measured on `worktree-B-652` with the bug-652 fix applied, 2026-09-25. The table
