@@ -528,12 +528,13 @@ impl CodeBuilder<'_> {
     /// * **A truncation** (`start == 0`): the kept entries and payloads stay where
     ///   they are, so only `count` and `dataLength` change. Walking the removed
     ///   entries from the last one down, each payload that ends (aligned) at the
-    ///   current `dataLength` is the data tail and gives its bytes back. When every
-    ///   removed payload does, no kept payload lies past the retracted end, and the
-    ///   list stays as tight as it was. When one does not — the payloads are out of
-    ///   entry order (a `prepend`, `insert`, `sort` or relocating `set` put a kept
-    ///   payload after it) — nothing has been written yet, and the general path,
-    ///   which accounts for the dead bytes that leaves, takes over.
+    ///   current `dataLength` is the data tail and gives its bytes back. A removed
+    ///   payload that is not the tail — the payloads are out of entry order after
+    ///   a `prepend`, `insert`, `sort` or relocating `set` — stays behind as dead
+    ///   bytes (bug-732). Counting the live bytes here to decide whether to repack
+    ///   walked every kept entry, O(count) per pop; instead the next grow of the
+    ///   data region does that count, once, and reclaims the dead bytes when they
+    ///   outnumber the live ones (`emit_list_reclaim_before_grow`).
     ///
     /// A range with `start > 0` moves every kept element, so the general path's
     /// walk is already the call's own work.
@@ -604,9 +605,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&end, &end, &off));
         self.emit_align_offset_register(&end, alignment, &scratch);
         // Bytes after this payload (beyond its alignment padding) belong to
-        // something else: not the tail.
+        // something else: not the tail. bug-732: its bytes stay behind as dead
+        // space (the next grow reclaims them) and the walk goes on.
         self.emit(abi::compare_registers(&end, &data_length));
-        self.emit(abi::branch_lt(&general));
+        self.emit(abi::branch_lt(&retract_min));
         // Only ever retract: a zero-length payload may carry any offset.
         self.emit(abi::compare_registers(&off, &data_length));
         self.emit(abi::branch_ge(&retract_min));
