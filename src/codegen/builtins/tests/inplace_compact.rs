@@ -302,3 +302,30 @@ fn an_entry_list_grow_reclaims_dead_bytes_and_a_fixed_width_grow_does_not() {
         }
     }
 }
+
+/// bug-732: the copying `append`/`insert`/`prepend` of an entry list first totals
+/// the source's live bytes and, when an in-place removal left more dead bytes
+/// than that, copies only the live payloads — so a loop that removes in place and
+/// grows by copying (a record field that is not its record's last inlined field)
+/// cannot carry dead bytes forward without bound. A fixed-width list has none.
+#[test]
+fn a_copying_list_insert_drops_dead_bytes_only_for_an_entry_list() {
+    for (element, init, item, packs) in [
+        ("String", "[\"a\"]", "\"b\"", true),
+        ("Integer", "[1]", "2", false),
+    ] {
+        let stems = label_stems(&program(
+            element,
+            init,
+            "",
+            &format!("LET y = collections::insert(x, 0, {item})\n    io::print(toString(len(y)))"),
+        ));
+        for label in ["list_packed_walk", "list_insert_pack_loop"] {
+            assert_eq!(
+                stems.contains(label),
+                packs,
+                "a copying insert into a List OF {element} (`{label}`): {stems:?}"
+            );
+        }
+    }
+}

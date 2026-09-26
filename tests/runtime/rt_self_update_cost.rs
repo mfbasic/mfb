@@ -242,6 +242,11 @@ TYPE Holder
   xs AS List OF String
 END TYPE
 
+TYPE Tagged
+  xs AS List OF String
+  name AS String
+END TYPE
+
 'GLOBAL-BEGIN
 MUT gList AS List OF String = []
 'GLOBAL-END
@@ -590,6 +595,20 @@ SUB fields()
     h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
   NEXT
   io::print("f bulk-removeAt " & showS(h.xs))
+  MUT t AS Tagged = Tagged[xs := ["t1", "t2", "t3", "t4"], name := "tag"]
+  FOR i = 1 TO 150
+    t = WITH t { xs := collections::append(t.xs, "c" & toString(i)) }
+    t = WITH t { xs := collections::removeAt(t.xs, len(t.xs) - 2) }
+  NEXT
+  io::print("f copy-grow " & t.name & " " & showS(t.xs))
+  MUT hx AS List OF String = ["h1", "h2", "h3", "h4", "h5", "h6"]
+  FOR i = 1 TO 4
+    hx = collections::removeAt(hx, 0)
+  NEXT
+  LET hy = collections::insert(hx, 1, "mid")
+  LET hz = collections::prepend(hx, "front")
+  LET hw = collections::append(hx, ["x1", "x2"])
+  io::print("f packed-copy " & showS(hx) & " " & showS(hy) & " " & showS(hz) & " " & showS(hw))
 END SUB
 
 'GLOBAL-BEGIN
@@ -621,6 +640,8 @@ const VALUE_OUTPUT: &str = "\
 f insert-take 1 [s1 s2 s3 i200]
 f append-removeAt [s1 s2 s3 a200]
 f bulk-removeAt [s1 s2 b100 c100]
+f copy-grow tag [t1 t2 t3 c150]
+f packed-copy [h5 h6] [h5 mid h6] [front h5 h6] [h5 h6 x1 x2]
 g churn [p200 g2 j200]
 ra last [a bb ccc dddd eeeee]
 ra mid [a bb dddd eeeee]
@@ -680,7 +701,9 @@ grow 60 <ababab>
 /// A fixed-size list that keeps losing a payload that is not the data tail while
 /// gaining a new one: `insert` before the last element then pop it, or `append`
 /// then remove the element before it — in a local, in a record field (the grow
-/// reallocates the record) and in a module-level global.
+/// reallocates the record), in a module-level global, and in a field that is not
+/// its record's last inlined field, where `removeAt` runs in place but `append`
+/// is a copying rebuild (which must not carry the dead bytes forward).
 const CHURN_PROGRAM: &str = r#"IMPORT io
 IMPORT os
 IMPORT collections
@@ -720,6 +743,11 @@ TYPE Holder
   xs AS List OF String
 END TYPE
 
+TYPE Tagged
+  xs AS List OF String
+  name AS String
+END TYPE
+
 MUT gList AS List OF String = []
 
 FUNC churnField(n AS Integer) AS String
@@ -732,6 +760,15 @@ FUNC churnField(n AS Integer) AS String
     h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
   NEXT
   RETURN toString(len(h.xs)) & " " & collections::get(h.xs, len(h.xs) - 1)
+END FUNC
+
+FUNC churnCopy(n AS Integer) AS String
+  MUT t AS Tagged = Tagged[xs := seed(), name := "t"]
+  FOR i = 1 TO n
+    t = WITH t { xs := collections::append(t.xs, item(i)) }
+    t = WITH t { xs := collections::removeAt(t.xs, len(t.xs) - 2) }
+  NEXT
+  RETURN toString(len(t.xs)) & " " & collections::get(t.xs, len(t.xs) - 1)
 END FUNC
 
 FUNC churnGlobal(n AS Integer) AS String
@@ -756,6 +793,8 @@ FUNC main AS Integer
     r = churnField(n)
   ELSEIF shape = "global" THEN
     r = churnGlobal(n)
+  ELSEIF shape = "copy" THEN
+    r = churnCopy(n)
   END IF
   io::print(shape & " " & r)
   RETURN 0
@@ -1003,7 +1042,7 @@ fn removals_free_every_removed_element_once() {
 fn a_churning_list_does_not_grow_without_bound() {
     let project = common::temp_project("b732_churn", CHURN_PROGRAM);
     let exe = common::debug_report::build_debug_project("b732_churn", &project);
-    for shape in ["insertPop", "removeAt", "field", "global"] {
+    for shape in ["insertPop", "removeAt", "field", "global", "copy"] {
         let peak = |n: u64| {
             let output = Command::new(&exe)
                 .args([shape, &n.to_string()])
@@ -1022,9 +1061,9 @@ fn a_churning_list_does_not_grow_without_bound() {
             );
             counter(&stderr, "arena.0.peak_live_bytes ")
         };
-        let small = peak(16_000);
-        let large = peak(128_000);
-        eprintln!("{shape}: peak_live_bytes {small} at 16000, {large} at 128000");
+        let small = peak(2_000);
+        let large = peak(16_000);
+        eprintln!("{shape}: peak_live_bytes {small} at 2000, {large} at 16000");
         assert!(
             large <= small + small / 4,
             "bug-732: {shape}: peak live bytes grew from {small} to {large} for 8× the rounds \

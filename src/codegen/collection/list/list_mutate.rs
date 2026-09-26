@@ -20,6 +20,14 @@ pub(crate) enum SpliceAt {
     At(usize),
 }
 
+/// bug-732: the frame slots [`CodeBuilder::emit_list_packed_length`] fills — the
+/// data length a copy of the list carries, and whether it packs (1) or copies
+/// verbatim (0).
+pub(crate) struct PackedLength {
+    length_slot: usize,
+    packs_slot: usize,
+}
+
 impl CodeBuilder<'_> {
     /// Insert collection `B` (insert_slot) into list `A` (base_slot) at
     /// `index_slot` using the offset-stable scheme (plan-01 §4.1): copy `A`'s and
@@ -92,17 +100,39 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&valid_start));
         self.emit(abi::compare_registers(&scratch10, &scratch11));
         self.emit(abi::branch_gt(&invalid));
+        // bug-732: how many of A's data bytes the result carries — all of them, or
+        // only the live ones when A's dead bytes (left by in-place removals)
+        // outnumber them. Kind 2 has no dead bytes and keeps its instructions.
+        let packed_a = if entry_stride != 0 {
+            Some(self.emit_list_packed_length(base_slot, element_type))
+        } else {
+            None
+        };
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::load_u64(
             &scratch12,
             &scratch9,
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
+        match &packed_a {
+            Some(packed) => self.emit(abi::load_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                packed.length_slot,
+            )),
+            None => self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )),
+        }
         // bug-175 E: pad A's data length up to the element alignment so B's data
         // region — and this reserved allocation size — start on an aligned
         // boundary (consistent with the header write and the data/entry copies).
@@ -169,11 +199,18 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
+        match &packed_a {
+            Some(packed) => self.emit(abi::load_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                packed.length_slot,
+            )),
+            None => self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )),
+        }
         // bug-175 E: the stored dataLength must include the pad between A's and B's
         // data regions so it matches the reserved size and the aligned copy dst.
         if value_alignment > 1 {
@@ -270,15 +307,32 @@ impl CodeBuilder<'_> {
             // sat behind `entry_stride != 0`, unreachable inside this branch, so it ran
             // `n + m` iterations per call and wrote nothing into the block.
         } else {
+            let packed = packed_a
+                .as_ref()
+                .ok_or("native list insert: an entry list lost its packed length")?;
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
+            // bug-732: a packed A is laid out by the pass after the entry splice;
+            // the cursor then skips its (live) length.
+            let a_verbatim = self.label("list_insert_dataA_verbatim");
+            let a_placed = self.label("list_insert_dataA_placed");
             self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data base
-            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data base
             self.emit(abi::load_u64(
                 &scratch14,
-                &scratch8,
-                COLLECTION_OFFSET_DATA_LENGTH,
+                abi::stack_pointer(),
+                packed.length_slot,
             ));
+            self.emit(abi::load_u64(
+                &scratch16,
+                abi::stack_pointer(),
+                packed.packs_slot,
+            ));
+            self.emit(abi::compare_immediate(&scratch16, "0"));
+            self.emit(abi::branch_eq(&a_verbatim));
+            self.emit(abi::add_registers(&scratch17, &scratch17, &scratch14));
+            self.emit(abi::branch(&a_placed));
+            self.emit(abi::label(&a_verbatim));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data base
             self.emit_block_copy_advance(
                 &scratch17,
                 &scratch20,
@@ -286,6 +340,7 @@ impl CodeBuilder<'_> {
                 &scratch22,
                 "list_insert_dataA",
             );
+            self.emit(abi::label(&a_placed));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
             self.emit_collection_data_pointer_for(&scratch20, &scratch9, &element_type); // B data base
             self.emit(abi::load_u64(
@@ -347,11 +402,10 @@ impl CodeBuilder<'_> {
                 &scratch9,
                 COLLECTION_OFFSET_COUNT,
             )); // remaining B entries
-            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
             self.emit(abi::load_u64(
                 &scratch14,
-                &scratch8,
-                COLLECTION_OFFSET_DATA_LENGTH,
+                abi::stack_pointer(),
+                packed.length_slot,
             )); // dataLen_A shift
                 // Bulk-copy the `count_B` inserted entries verbatim, then shift each
                 // valueOffset up by dataLen_A — their payloads now sit after A's data
@@ -396,6 +450,14 @@ impl CodeBuilder<'_> {
                 &scratch21,
                 &scratch22,
                 "list_insert_tail",
+            );
+            self.emit_list_insert_pack_a(
+                base_slot,
+                index_slot,
+                insert_slot,
+                result_slot,
+                packed,
+                element_type,
             );
         }
         self.emit(abi::branch(&done));
@@ -3232,6 +3294,160 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text: format!("{prefix} in place {list_type} over {element_type}"),
         })
+    }
+
+    /// bug-732: the data length a copy of the entry list in `list_slot` needs —
+    /// its `dataLength`, or, when its dead bytes (left by in-place removals)
+    /// outnumber its live ones, the aligned end of its live payloads packed in
+    /// entry order. Walks the entries once, which the copy's own entry copy
+    /// already costs.
+    fn emit_list_packed_length(
+        &mut self,
+        list_slot: usize,
+        element_type: &ParameterType,
+    ) -> PackedLength {
+        let alignment = self.list_element_padding_alignment(element_type);
+        let stride = list_entry_stride(element_type);
+        let length_slot = self.allocate_stack_object("list_packed_length", 8);
+        let packs_slot = self.allocate_stack_object("list_packed_packs", 8);
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let live = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let walk = self.label("list_packed_walk");
+        let walked = self.label("list_packed_walked");
+        let verbatim = self.label("list_packed_verbatim");
+        let decided = self.label("list_packed_decided");
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), list_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&live, "Integer", "0"));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        self.emit(abi::load_u64(
+            &len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(&live, &live, &len));
+        self.emit(abi::add_immediate(&entry, &entry, stride));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::subtract_registers(&scratch, &len, &live));
+        self.emit(abi::compare_registers(&scratch, &live));
+        self.emit(abi::branch_ls(&verbatim));
+        self.emit(abi::store_u64(&live, abi::stack_pointer(), length_slot));
+        self.emit(abi::move_immediate(&scratch, "Integer", "1"));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), packs_slot));
+        self.emit(abi::branch(&decided));
+        self.emit(abi::label(&verbatim));
+        self.emit(abi::store_u64(&len, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), packs_slot));
+        self.emit(abi::label(&decided));
+        PackedLength {
+            length_slot,
+            packs_slot,
+        }
+    }
+
+    /// bug-732: when [`Self::emit_list_packed_length`] chose to pack A, copy A's
+    /// payloads into the result `lower_list_insert_collection` built, one per A
+    /// entry in A's order (the result's entries `[0, index)` then
+    /// `[index + count_B, count)`), packed from data offset 0, rewriting each
+    /// entry's `valueOffset`. The entries still hold A's offsets, which locate
+    /// the payloads in A.
+    fn emit_list_insert_pack_a(
+        &mut self,
+        base_slot: usize,
+        index_slot: usize,
+        insert_slot: usize,
+        result_slot: usize,
+        packed: &PackedLength,
+        element_type: &ParameterType,
+    ) {
+        let alignment = self.list_element_padding_alignment(element_type);
+        let stride = list_entry_stride(element_type);
+        let top = self.label("list_insert_pack_loop");
+        let copy = self.label("list_insert_pack_copy");
+        let advance = self.label("list_insert_pack_next");
+        let done = self.label("list_insert_pack_done");
+        let a = self.temporary_vreg();
+        let nb = self.temporary_vreg();
+        let src_data = self.temporary_vreg();
+        let dst_data = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        let gap_start = self.temporary_vreg();
+        let gap_end = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let off = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &scratch,
+            abi::stack_pointer(),
+            packed.packs_slot,
+        ));
+        self.emit(abi::compare_immediate(&scratch, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::load_u64(&a, abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer_for(&src_data, &a, element_type);
+        self.emit_collection_data_pointer_for(&dst_data, &nb, element_type);
+        self.emit(abi::load_u64(&total, &nb, COLLECTION_OFFSET_COUNT));
+        // B's entries sit at [index, index + count_B): not A's, skipped.
+        self.emit(abi::load_u64(&gap_start, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), insert_slot));
+        self.emit(abi::load_u64(&gap_end, &scratch, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers(&gap_end, &gap_end, &gap_start));
+        self.emit(abi::add_immediate(&entry, &nb, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&cursor, "Integer", "0"));
+        self.emit(abi::label(&top));
+        self.emit(abi::compare_registers(&index, &total));
+        self.emit(abi::branch_ge(&done));
+        self.emit(abi::compare_registers(&index, &gap_start));
+        self.emit(abi::branch_lt(&copy));
+        self.emit(abi::compare_registers(&index, &gap_end));
+        self.emit(abi::branch_lt(&advance));
+        self.emit(abi::label(&copy));
+        self.emit_align_offset_register(&cursor, alignment, &scratch);
+        self.emit(abi::load_u64(
+            &off,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &cursor,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers(&src, &src_data, &off));
+        self.emit(abi::add_registers(&dst, &dst_data, &cursor));
+        self.emit(abi::add_registers(&cursor, &cursor, &len));
+        self.emit_block_copy_advance(&dst, &src, &len, &scratch, "list_insert_pack_payload");
+        self.emit(abi::label(&advance));
+        self.emit(abi::add_immediate(&entry, &entry, stride));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&top));
+        self.emit(abi::label(&done));
     }
 
     /// bug-732: the bytes a bulk append writes into the list — the RHS's data
