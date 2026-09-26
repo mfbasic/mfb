@@ -624,7 +624,34 @@ SUB globals()
 END SUB
 'GLOBAL-END
 
+SUB mapReclaim()
+  MUT m AS Map OF String TO Node = Map OF String TO Node {}
+  MUT s AS Set OF String = Set OF String {}
+  MUT w AS Map OF Integer TO String = Map OF Integer TO String {}
+  FOR i = 1 TO 600
+    m = collections::set(m, "k" & toString(i), el("n" & toString(i)))
+    s = collections::add(s, "e" & toString(i))
+    w = collections::set(w, i, strings::repeat("w", i MOD 13))
+    IF i > 8 THEN
+      m = collections::removeKey(m, "k" & toString(i - 8))
+      s = collections::remove(s, "e" & toString(i - 8))
+      w = collections::removeKey(w, i - 8)
+    END IF
+    IF i MOD 5 = 0 THEN
+      w = collections::set(w, i - 1, strings::repeat("long", 5))
+    END IF
+  NEXT
+  MUT ws AS List OF String = []
+  FOR EACH k IN collections::keys(w)
+    ws = collections::append(ws, toString(k) & ":" & collections::get(w, k))
+  NEXT
+  io::print("mr map " & showMN(m))
+  io::print("mr set " & strings::join(collections::toList(s), " ") & " " & toString(collections::contains(s, "e600")) & toString(collections::contains(s, "e592")))
+  io::print("mr int " & strings::join(ws, " ") & " " & toString(collections::hasKey(w, 592)))
+END SUB
+
 SUB main()
+  mapReclaim()
   fields()
   globals() 'GLOBAL-CALL
   removeAtStrings()
@@ -637,6 +664,9 @@ END SUB
 "#;
 
 const VALUE_OUTPUT: &str = "\
+mr map {k593=[n593/1] k594=[n594/1] k595=[n595/1] k596=[n596/1] k597=[n597/1] k598=[n598/1] k599=[n599/1] k600=[n600/1]}
+mr set e593 e594 e595 e596 e597 e598 e599 e600 TRUEFALSE
+mr int 593:wwwwwwww 594:longlonglonglonglong 595:wwwwwwwwww 596:wwwwwwwwwww 597:wwwwwwwwwwww 598: 599:longlonglonglonglong 600:ww FALSE
 f insert-take 1 [s1 s2 s3 i200]
 f append-removeAt [s1 s2 s3 a200]
 f bulk-removeAt [s1 s2 b100 c100]
@@ -795,6 +825,150 @@ FUNC main AS Integer
     r = churnGlobal(n)
   ELSEIF shape = "copy" THEN
     r = churnCopy(n)
+  END IF
+  io::print(shape & " " & r)
+  RETURN 0
+END FUNC
+"#;
+
+/// bug-733: a `Map`/`Set` that keeps 64 entries while it keeps adding new keys and
+/// removing old ones — through `set`/`removeKey`, `add`/`remove`, `union`/
+/// `difference`, values that outgrow their slots (`valueChurn`: each is moved to
+/// the data tail, out of entry order), and a record field (last inlined field: in
+/// place; not last: rebuilt by copying).
+const MAP_CHURN_PROGRAM: &str = r#"IMPORT io
+IMPORT os
+IMPORT collections
+IMPORT strings
+
+TYPE Bag
+  m AS Map OF String TO Integer
+  name AS String
+END TYPE
+
+TYPE Tail
+  tag AS Integer
+  m AS Map OF String TO String
+END TYPE
+
+FUNC key(i AS Integer) AS String
+  RETURN "key-" & toString(100000 + i MOD 90000)
+END FUNC
+
+FUNC mapChurn(n AS Integer) AS String
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 1 TO n
+    m = collections::set(m, key(i), i)
+    IF i > 64 THEN
+      m = collections::removeKey(m, key(i - 64))
+    END IF
+  NEXT
+  RETURN toString(len(m)) & " " & toString(collections::get(m, key(n)))
+END FUNC
+
+FUNC intMapChurn(n AS Integer) AS String
+  MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+  FOR i = 1 TO n
+    m = collections::set(m, i, i * 2)
+    IF i > 64 THEN
+      m = collections::removeKey(m, i - 64)
+    END IF
+  NEXT
+  RETURN toString(len(m)) & " " & toString(collections::get(m, n))
+END FUNC
+
+FUNC setChurn(n AS Integer) AS String
+  MUT s AS Set OF Integer = Set OF Integer {}
+  FOR i = 1 TO n
+    s = collections::add(s, i)
+    IF i > 64 THEN
+      s = collections::remove(s, i - 64)
+    END IF
+  NEXT
+  RETURN toString(len(s)) & " " & toString(collections::contains(s, n))
+END FUNC
+
+FUNC valueGrow(n AS Integer) AS String
+  MUT m AS Map OF String TO String = Map OF String TO String {}
+  FOR k = 1 TO 64
+    m = collections::set(m, key(k), "v")
+  NEXT
+  FOR i = 1 TO n
+    LET k = key(1 + i MOD 64)
+    IF i MOD 2 = 0 THEN
+      m = collections::set(m, k, "a longer value " & toString(i))
+    ELSE
+      m = collections::set(m, k, "v")
+    END IF
+  NEXT
+  RETURN toString(len(m)) & " " & collections::get(m, key(1 + n MOD 64))
+END FUNC
+
+FUNC valueChurn(n AS Integer) AS String
+  MUT m AS Map OF String TO String = Map OF String TO String {}
+  FOR k = 1 TO 64
+    m = collections::set(m, key(k), "v")
+  NEXT
+  FOR i = 1 TO n
+    m = collections::set(m, key(1 + i MOD 64), strings::repeat("v", (i * 7) MOD 97))
+  NEXT
+  RETURN toString(len(m)) & " " & collections::get(m, key(1 + n MOD 64))
+END FUNC
+
+FUNC setAlgebra(n AS Integer) AS String
+  MUT s AS Set OF String = Set OF String {}
+  FOR i = 1 TO n
+    s = collections::union(s, Set OF String {key(i), key(i + 1)})
+    IF i > 64 THEN
+      s = collections::difference(s, Set OF String {key(i - 64)})
+    END IF
+  NEXT
+  RETURN toString(len(s)) & " " & toString(collections::contains(s, key(n + 1)))
+END FUNC
+
+FUNC fieldCopy(n AS Integer) AS String
+  MUT b AS Bag = Bag[m := Map OF String TO Integer {}, name := "bag"]
+  FOR i = 1 TO n
+    b = WITH b { m := collections::set(b.m, key(i), i) }
+    IF i > 64 THEN
+      b = WITH b { m := collections::removeKey(b.m, key(i - 64)) }
+    END IF
+  NEXT
+  RETURN toString(len(b.m)) & " " & toString(collections::get(b.m, key(n)))
+END FUNC
+
+FUNC fieldLast(n AS Integer) AS String
+  MUT t AS Tail = Tail[tag := 1, m := Map OF String TO String {}]
+  FOR i = 1 TO n
+    t = WITH t { m := collections::set(t.m, key(i), "value " & toString(i)) }
+    IF i > 64 THEN
+      t = WITH t { m := collections::removeKey(t.m, key(i - 64)) }
+    END IF
+  NEXT
+  RETURN toString(len(t.m)) & " " & collections::get(t.m, key(n))
+END FUNC
+
+FUNC main AS Integer
+  LET args = os::args()
+  LET shape = collections::get(args, 0)
+  LET n = toInt(collections::get(args, 1))
+  MUT r AS String = "?"
+  IF shape = "map" THEN
+    r = mapChurn(n)
+  ELSEIF shape = "intMap" THEN
+    r = intMapChurn(n)
+  ELSEIF shape = "set" THEN
+    r = setChurn(n)
+  ELSEIF shape = "valueGrow" THEN
+    r = valueGrow(n)
+  ELSEIF shape = "valueChurn" THEN
+    r = valueChurn(n)
+  ELSEIF shape = "setAlgebra" THEN
+    r = setAlgebra(n)
+  ELSEIF shape = "fieldCopy" THEN
+    r = fieldCopy(n)
+  ELSEIF shape = "fieldLast" THEN
+    r = fieldLast(n)
   END IF
   io::print(shape & " " & r)
   RETURN 0
@@ -1070,5 +1244,58 @@ fn a_churning_list_does_not_grow_without_bound() {
              of a list that never holds more than 65 elements"
         );
     }
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// bug-733: a map or set whose size stays at 64 entries under churn must not
+/// grow: its peak live bytes are the same after 8× the rounds. In-place removals
+/// leave the removed key/value bytes as dead slack, and before bug-733 no map grow
+/// reclaimed them — `map` peaked at 421 KB after 2,000 rounds and 3.3 MB after
+/// 16,000.
+#[test]
+fn a_churning_map_or_set_does_not_grow_without_bound() {
+    let project = common::temp_project("b733_churn", MAP_CHURN_PROGRAM);
+    let exe = common::debug_report::build_debug_project("b733_churn", &project);
+    let mut grew = Vec::new();
+    for shape in [
+        "map",
+        "intMap",
+        "set",
+        "valueGrow",
+        "valueChurn",
+        "setAlgebra",
+        "fieldCopy",
+        "fieldLast",
+    ] {
+        let peak = |n: u64| {
+            let output = Command::new(&exe)
+                .args([shape, &n.to_string()])
+                .output()
+                .expect("run the program");
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            assert!(
+                output.status.success(),
+                "{shape} {n} failed:\n{stdout}\n{stderr}"
+            );
+            let size = if shape == "setAlgebra" { 65 } else { 64 };
+            assert!(
+                stdout.starts_with(&format!("{shape} {size} ")),
+                "{shape} {n}: wrong entry count: {stdout}"
+            );
+            counter(&stderr, "arena.0.peak_live_bytes ")
+        };
+        let small = peak(2_000);
+        let large = peak(16_000);
+        eprintln!("{shape}: peak_live_bytes {small} at 2000, {large} at 16000");
+        if large > small + small / 4 {
+            grew.push(format!("{shape}: {small} -> {large}"));
+        }
+    }
+    assert!(
+        grew.is_empty(),
+        "bug-733: peak live bytes grew for 8x the rounds of a map/set that never holds \
+         more than 65 entries: {grew:?}"
+    );
     let _ = std::fs::remove_dir_all(&project);
 }
