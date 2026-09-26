@@ -119,6 +119,23 @@ SUB moveShape(i AS Integer, x AS Float, y AS Float)
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { x := x, y := y })
 END SUB
 
+' Hold every object's centre inside the current play area - the same bound a
+' drag already clamps to (main.mfb's mouse-drag handler). Called unconditionally
+' every frame (main.mfb, beside pipeWithin), not only on a resize: an object
+' that is never moved back inside a shrunk play area sits at an x the toolbar
+' now covers, and a click there is decided by onToolbar before shapeAt ever
+' runs (bug-716) - it becomes permanently unselectable. Matching pipeWithin's
+' own every-frame pattern keeps this invariant - no object ever sits under the
+' toolbar - true regardless of what causes a shape's position to change.
+SUB clampShapes(play AS Float, height AS Float)
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    LET x AS Float = math::clamp(s.x, 0.0, play)
+    LET y AS Float = math::clamp(s.y, 0.0, height)
+    IF x <> s.x OR y <> s.y THEN shapes = collections::set(shapes, i, WITH s { x := x, y := y })
+  NEXT
+END SUB
+
 SUB rotateShape(i AS Integer, turns AS Float)
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := collections::get(shapes, i).angle + turns * ROTATE_STEP })
 END SUB
