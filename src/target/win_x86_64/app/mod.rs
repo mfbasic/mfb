@@ -660,7 +660,11 @@ fn emit_main(
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    // `c_return(0)`: `CreateWindowExW`'s HWND is still in `rax` (the `load_addr`
+    // above writes only ARG[1]). `return_register()` is `rcx` on Win64, which the
+    // call left undefined, so the surviving copy was garbage and a `Console` restore
+    // re-routed io to it (bug-540).
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
 
     // ---- plan-66-J-4 input wiring (GUI path) ----
     // CreatePipe(&hRead, &hWrite, NULL, 0): a byte pipe whose READ end becomes the
@@ -762,12 +766,15 @@ fn emit_main(
         &mut ins,
         &mut rel,
     );
+    // The count is `GetEnvironmentVariableW`'s C result (`rax`); `return_register()`
+    // is `rcx` on Win64 and was garbage, so with `MFB_WINAPP_INPUT` unset the
+    // injection loop could post a garbage number of `WM_CHAR`s (bug-540).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         INJ_N,
     )); // count
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
     ins.push(abi::label("inject_loop"));
@@ -2127,9 +2134,14 @@ pub(super) fn emit_app_io_write(
         "Integer",
         "4294967295",
     ));
+    // `c_return(0)` (`rax`), the C result. This read `return_register()` — `rcx` on
+    // Win64, which the call leaves holding garbage — so the count clamped to 32767
+    // and the EDIT was handed the text plus ~32K units of arena garbage; on box 2230
+    // the UI thread spent ~75 s laying it out before a windowed program could exit
+    // (bug-540, found verifying WIN-02). Same family as bug-478.
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         abi::mfb_arg(1),
     )); // low 32 bits
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
