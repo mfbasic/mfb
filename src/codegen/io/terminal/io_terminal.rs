@@ -29,11 +29,12 @@ pub(crate) fn emit_configure_stdin_terminal(
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
     slots: &TerminalModeSlots,
-    base_register: &str,
+    base_register: impl Into<abi::Reg>,
     disable_echo: bool,
     disable_canonical: bool,
     error_label: &str,
 ) -> Result<(), String> {
+    let base_register: abi::Reg = base_register.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

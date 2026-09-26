@@ -60,7 +60,8 @@ pub(crate) fn emit_branch_if_buffered(
 /// Drop the oldest `count` bytes from the buffer (`count` <= the length): shift
 /// the rest to the front and shorten it. The buffer is small and a token is a
 /// handful of bytes, so a copy is cheaper to get right than a ring's wrap.
-pub(crate) fn emit_consume(count: &str, state_offset: usize, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+pub(crate) fn emit_consume(count: impl Into<abi::Reg>, state_offset: usize, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+    let count: abi::Reg = count.into();
     let symbol = ctx.symbol;
     let tag = ctx.instructions.len();
     let copy = format!("{symbol}_input_consume_copy_{tag}");

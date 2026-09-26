@@ -1978,9 +1978,10 @@ fn emit_ring_push(
     scratch: &GraphicsScratch,
     head: usize,
     ring: usize,
-    value: &str,
+    value: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let value: abi::Reg = value.into();
     instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
     instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
     instructions.push(abi::add_registers(
@@ -2782,12 +2783,15 @@ pub(crate) fn emit_surface_dimension(
 /// the new size unused until something else asked for a frame.
 pub(crate) fn emit_publish_surface_size(
     symbol: &str,
-    base: &str,
-    width: &str,
-    height: &str,
+    base: impl Into<abi::Reg>,
+    width: impl Into<abi::Reg>,
+    height: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let base: abi::Reg = base.into();
+    let height: abi::Reg = height.into();
+    let width: abi::Reg = width.into();
     let unchanged = format!("{symbol}_resize_same");
     state_base(symbol, base, instructions, relocations);
     // Count the resize only when the size actually changed. Every platform re-publishes

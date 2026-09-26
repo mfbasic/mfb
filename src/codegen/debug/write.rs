@@ -87,12 +87,14 @@ pub(super) fn emit_debug_constant_line(
 /// there. `value` is read through a copy and survives; `label` keeps this call's
 /// labels distinct.
 pub(super) fn emit_prepend_decimal(
-    value: &str,
-    cursor: &str,
+    value: impl Into<abi::Reg>,
+    cursor: impl Into<abi::Reg>,
     label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let cursor: abi::Reg = cursor.into();
+    let value: abi::Reg = value.into();
     let remaining = vregs.next();
     let ten = vregs.next();
     let quotient = vregs.next();
@@ -117,12 +119,14 @@ pub(super) fn emit_prepend_decimal(
 /// is in `object` (length at `[object+0]`, bytes from `object+8`), copying its bytes
 /// there. `label` keeps this call's labels distinct.
 pub(super) fn emit_prepend_object(
-    object: &str,
-    cursor: &str,
+    object: impl Into<abi::Reg>,
+    cursor: impl Into<abi::Reg>,
     label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let cursor: abi::Reg = cursor.into();
+    let object: abi::Reg = object.into();
     let length = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
@@ -151,13 +155,14 @@ pub(super) fn emit_prepend_object(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_write_window(
     from: &str,
-    cursor: &str,
+    cursor: impl Into<abi::Reg>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let cursor: abi::Reg = cursor.into();
     let end = vregs.next();
     instructions.extend([
         abi::add_immediate(&end, abi::stack_pointer(), DEBUG_LINE_BUFFER_SIZE),

@@ -62,11 +62,12 @@ pub(crate) fn emit_monotonic_nanos(
 
 /// `clock_gettime(CLOCK_MONOTONIC, &ts)` → `ts.tv_sec * 1e9 + ts.tv_nsec`.
 fn emit_posix_clock_nanos(
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: abi::Reg = dst.into();
     let clock_id = match ctx.platform.family() {
         PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
         PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
@@ -109,11 +110,12 @@ fn emit_posix_clock_nanos(
 /// overflows `u64` within about 21 seconds at a 10 MHz frequency. Lifted from
 /// `datetime::monotonicNanos`, minus its overflow branches (see the module doc).
 fn emit_windows_qpc_nanos(
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: abi::Reg = dst.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

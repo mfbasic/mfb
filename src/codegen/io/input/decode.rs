@@ -127,7 +127,8 @@ impl Dec<'_> {
     fn push(&mut self, instruction: CodeInstruction) {
         self.ins.push(instruction);
     }
-    fn imm(&mut self, dst: &str, value: u64) {
+    fn imm(&mut self, dst: impl Into<abi::Reg>, value: u64) {
+        let dst: abi::Reg = dst.into();
         self.push(abi::move_immediate(dst, "Integer", &value.to_string()));
     }
     fn at(&mut self, name: &str) {
@@ -137,31 +138,39 @@ impl Dec<'_> {
         self.push(abi::branch(name));
     }
     /// `if reg == value goto target`.
-    fn beq(&mut self, reg: &str, value: u64, target: &str) {
+    fn beq(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_eq(target));
     }
-    fn bne(&mut self, reg: &str, value: u64, target: &str) {
+    fn bne(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_ne(target));
     }
     /// Unsigned `if reg < value goto target`.
-    fn blo(&mut self, reg: &str, value: u64, target: &str) {
+    fn blo(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_lo(target));
     }
     /// Unsigned `if reg > value goto target`.
-    fn bhi(&mut self, reg: &str, value: u64, target: &str) {
+    fn bhi(&mut self, reg: impl Into<abi::Reg>, value: u64, target: &str) {
+        let reg: abi::Reg = reg.into();
         self.push(abi::compare_immediate(reg, &value.to_string()));
         self.push(abi::branch_hi(target));
     }
     /// Unsigned `if a >= b goto target` (the vocabulary has no `hs`).
-    fn bge_u(&mut self, a: &str, b: &str, target: &str) {
+    fn bge_u(&mut self, a: impl Into<abi::Reg>, b: impl Into<abi::Reg>, target: &str) {
+        let a: abi::Reg = a.into();
+        let b: abi::Reg = b.into();
         self.push(abi::compare_registers(b, a));
         self.push(abi::branch_ls(target));
     }
     /// `dst = buf[index]`.
-    fn byte_at(&mut self, dst: &str, index: &str) {
+    fn byte_at(&mut self, dst: impl Into<abi::Reg>, index: impl Into<abi::Reg>) {
+        let dst: abi::Reg = dst.into();
+        let index: abi::Reg = index.into();
         let addr = self.r();
         let buf = self.buf.clone();
         self.push(abi::add_registers(&addr, &buf, index));
@@ -178,7 +187,8 @@ impl Dec<'_> {
     }
     /// Store one byte of the grapheme at `out + TOKEN_GRAPHEME + glen` and
     /// advance `glen`.
-    fn append_grapheme_byte(&mut self, byte: &str) {
+    fn append_grapheme_byte(&mut self, byte: impl Into<abi::Reg>) {
+        let byte: abi::Reg = byte.into();
         let addr = self.r();
         let (out, glen) = (self.out.clone(), self.glen.clone());
         self.push(abi::add_registers(&addr, &out, &glen));
@@ -424,13 +434,16 @@ fn emit_c0(d: &mut Dec, b0: &str, exits: &Exits) {
 /// ill-formed subpart's length in `bad`, or `truncated`.
 fn emit_scalar_len(
     d: &mut Dec,
-    pos: &str,
-    slen: &str,
-    bad: &str,
+    pos: impl Into<abi::Reg>,
+    slen: impl Into<abi::Reg>,
+    bad: impl Into<abi::Reg>,
     ok: &str,
     invalid: &str,
     truncated: &str,
 ) {
+    let bad: abi::Reg = bad.into();
+    let pos: abi::Reg = pos.into();
+    let slen: abi::Reg = slen.into();
     let lead = d.r();
     d.byte_at(&lead, pos);
     let (n, lo, hi) = (d.r(), d.r(), d.r());
@@ -523,7 +536,8 @@ fn emit_scalar_len(
 }
 
 /// Copy `count` bytes from `buf[from]` onto the grapheme.
-fn emit_copy_to_grapheme(d: &mut Dec, from: &str, count: &str) {
+fn emit_copy_to_grapheme(d: &mut Dec, from: impl Into<abi::Reg>, count: &str) {
+    let from: abi::Reg = from.into();
     let i = d.r();
     d.imm(&i, 0);
     let top = d.label("copy_top");
@@ -541,7 +555,8 @@ fn emit_copy_to_grapheme(d: &mut Dec, from: &str, count: &str) {
 }
 
 /// The code point of the valid scalar of `slen` bytes at `buf[pos]`.
-fn emit_codepoint(d: &mut Dec, pos: &str, slen: &str, cp: &str) {
+fn emit_codepoint(d: &mut Dec, pos: impl Into<abi::Reg>, slen: &str, cp: &str) {
+    let pos: abi::Reg = pos.into();
     let ptr = d.r();
     let buf = d.buf.clone();
     d.push(abi::add_registers(&ptr, &buf, pos));
@@ -651,7 +666,9 @@ fn emit_alt_introducer(d: &mut Dec, c: u8, exits: &Exits) {
 }
 
 /// `mods = modifier_bits(parameter)` (`NONE` counts as 1).
-fn emit_modifier_bits(d: &mut Dec, parameter: &str, mods: &str) {
+fn emit_modifier_bits(d: &mut Dec, parameter: impl Into<abi::Reg>, mods: impl Into<abi::Reg>) {
+    let mods: abi::Reg = mods.into();
+    let parameter: abi::Reg = parameter.into();
     let (bits, t, m) = (d.r(), d.r(), d.r());
     let none = d.label("mods_none");
     let have = d.label("mods_have");
@@ -830,7 +847,8 @@ struct Params {
 /// Parse `buf[from..to)` as `;`-separated fields of `:`-separated decimals.
 /// The third field's code points are encoded onto the grapheme as they are read
 /// (kitty's associated text), up to the cap.
-fn emit_parse_params(d: &mut Dec, from: &str, to: &str) -> Params {
+fn emit_parse_params(d: &mut Dec, from: impl Into<abi::Reg>, to: &str) -> Params {
+    let from: abi::Reg = from.into();
     let params = Params {
         f00: d.r(),
         f01: d.r(),
@@ -910,10 +928,11 @@ fn emit_store_param(
     params: &Params,
     fi: &str,
     si: &str,
-    acc: &str,
+    acc: impl Into<abi::Reg>,
     has: &str,
     text_full: &str,
 ) {
+    let acc: abi::Reg = acc.into();
     let value = d.r();
     let have = d.label("sp_have");
     let chosen = d.label("sp_chosen");
@@ -975,7 +994,8 @@ fn emit_store_param(
 
 /// Append the UTF-8 of `cp` to the grapheme; `bad` when it is not a scalar
 /// value, `full` (when given) when it would carry the grapheme past the cap.
-fn emit_encode_utf8(d: &mut Dec, cp: &str, bad: &str, full: Option<&str>) {
+fn emit_encode_utf8(d: &mut Dec, cp: impl Into<abi::Reg>, bad: &str, full: Option<&str>) {
+    let cp: abi::Reg = cp.into();
     let n = d.r();
     let (l1, l2, l3, l4, sized) = (
         d.label("enc_l1"),
@@ -1044,7 +1064,9 @@ fn emit_encode_utf8(d: &mut Dec, cp: &str, bad: &str, full: Option<&str>) {
 }
 
 /// `event` from a CSI's `:event` subfield; `invalid` for an undefined one.
-fn emit_event(d: &mut Dec, subfield: &str, event: &str, invalid: &str) {
+fn emit_event(d: &mut Dec, subfield: impl Into<abi::Reg>, event: impl Into<abi::Reg>, invalid: &str) {
+    let event: abi::Reg = event.into();
+    let subfield: abi::Reg = subfield.into();
     let (t, done) = (d.r(), d.label("ev_done"));
     let evdef = d.evdef.clone();
     d.push(abi::move_register(event, &evdef));
@@ -1182,7 +1204,9 @@ fn emit_csi_final(d: &mut Dec, fin: &str, params: &Params, exits: &Exits) {
 
 /// A token for the key whose kitty/xterm code is `code` (`shifted` is the
 /// alternate-key subfield, or `NONE`).
-fn emit_code_token(d: &mut Dec, code: &str, shifted: &str, exits: &Exits) {
+fn emit_code_token(d: &mut Dec, code: impl Into<abi::Reg>, shifted: impl Into<abi::Reg>, exits: &Exits) {
+    let code: abi::Reg = code.into();
+    let shifted: abi::Reg = shifted.into();
     let key = d.key.clone();
     let glen = d.glen.clone();
     d.imm(&glen, 0);

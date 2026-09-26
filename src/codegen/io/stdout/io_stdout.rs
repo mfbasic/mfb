@@ -242,12 +242,14 @@ pub(crate) struct BufferSink<'a> {
 pub(crate) fn emit_append_to_buffer(
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
-    src: &str,
-    len: &str,
+    src: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
     tag: &str,
     write_error: &str,
     s: &BufferSink,
 ) -> Result<(), String> {
+    let len: abi::Reg = len.into();
+    let src: abi::Reg = src.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

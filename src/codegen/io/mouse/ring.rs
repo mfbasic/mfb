@@ -50,7 +50,10 @@ pub(crate) struct MouseEventRegs<'a> {
 /// `slot = ring + (cursor % CAPACITY) * SLOT_BYTES`. The capacity is a power of
 /// two, so the modulo is a mask — which matters because this runs inside the
 /// per-byte stdin read path.
-fn emit_slot_address(dst: &str, ring: &str, cursor: &str, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+fn emit_slot_address(dst: impl Into<abi::Reg>, ring: impl Into<abi::Reg>, cursor: impl Into<abi::Reg>, ctx: &mut EmitCtx, vregs: &mut Vregs) {
+    let cursor: abi::Reg = cursor.into();
+    let dst: abi::Reg = dst.into();
+    let ring: abi::Reg = ring.into();
     debug_assert!(
         MOUSE_RING_CAPACITY.is_power_of_two(),
         "the slot index masks rather than divides; a non-power-of-two capacity \

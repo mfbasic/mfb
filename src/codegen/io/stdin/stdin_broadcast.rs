@@ -79,11 +79,13 @@ pub(crate) fn push_log_address(
 /// rv64's 12-bit `addi` immediate, so their address is computed in a register rather
 /// than used as a load/store displacement (mirrors `current_error_slot_address`).
 pub(crate) fn field_addr(
-    dst: &str,
-    base_register: &str,
+    dst: impl Into<abi::Reg>,
+    base_register: impl Into<abi::Reg>,
     offset: usize,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let base_register: abi::Reg = base_register.into();
+    let dst: abi::Reg = dst.into();
     instructions.push(abi::move_immediate(dst, "Integer", &offset.to_string()));
     instructions.push(abi::add_registers(dst, base_register, dst));
 }

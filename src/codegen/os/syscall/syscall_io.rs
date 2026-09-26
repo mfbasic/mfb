@@ -273,12 +273,14 @@ pub(crate) fn emit_transfer_loop_tail_epipe(
     ctx: &mut EmitCtx,
     ret: impl Into<Operand>,
     raw_return: bool,
-    cursor: &str,
-    remaining: &str,
+    cursor: impl Into<abi::Reg>,
+    remaining: impl Into<abi::Reg>,
     loop_label: &str,
     epipe_label: Option<&str>,
     error_label: &str,
 ) -> Result<(), String> {
+    let cursor: abi::Reg = cursor.into();
+    let remaining: abi::Reg = remaining.into();
     let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
