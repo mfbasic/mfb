@@ -160,6 +160,13 @@ SUB stepWater(dt AS Float, width AS Float, height AS Float)
   LET h AS Float = dt / toFloat(SUBSTEPS)
   LET count AS Integer = shapeCount()
 
+  ' Every shape's angle and scale are already settled for this frame (the
+  ' caller runs spinShapes before stepWater), so cos(angle)/sin(angle) - and a
+  ' star's ten corner coordinates - are the same for every drop x substep this
+  ' call is about to test against a given shape. Cache them once here instead
+  ' of inside every one of up to POOL_SIZE * count * SUBSTEPS contact tests.
+  rebuildShapeCache()
+
   FOR i = 0 TO POOL_SIZE - 1
     IF NOT collections::get(dropOut, i) THEN CONTINUE FOR
 
@@ -179,7 +186,7 @@ SUB stepWater(dt AS Float, width AS Float, height AS Float)
       y = y + vy * h
 
       FOR k = 0 TO count - 1
-        LET contact AS Contact = contactWith(collections::get(shapes, k), x, y, DROP_RADIUS)
+        LET contact AS Contact = contactWithCached(k, x, y, DROP_RADIUS)
         IF NOT contact.hit THEN CONTINUE FOR
         x = contact.x
         y = contact.y

@@ -177,6 +177,34 @@ FUNC signOf(v AS Float) AS Float
   RETURN 1.0
 END FUNC
 
+' The farthest any point of a kind's outline (at this scale) ever gets from
+' its centre - an exact upper bound, never an approximation. A point farther
+' than this plus reach cannot be in contact, whatever the shape's angle, so
+' this is what lets a caller reject a distant drop before rotating into the
+' shape's frame at all (the rotation is what needs the trig).
+'
+' Rectangle: the corner, at the half-diagonal. Triangle: the farther of the
+' two base corners and the apex - TRIANGLE_ABOVE is less than the base
+' corner's own distance (60 < sqrt(70^2+30^2) =~ 76.16), so the base corner is
+' the true bound; using the apex alone would be an unsound shortcut that
+' could miss a real contact near a base corner. Ellipse: its own longer
+' radius. Circle and star: their own radius.
+FUNC maxRadiusOf(kind AS ShapeKind, scale AS Float) AS Float
+  MATCH kind
+    CASE ShapeKind.Rectangle
+      LET hx AS Float = RECT_HALF_WIDTH * scale
+      LET hy AS Float = RECT_HALF_HEIGHT * scale
+      RETURN math::sqrt(hx * hx + hy * hy)
+    CASE ShapeKind.Triangle
+      LET half AS Float = TRIANGLE_HALF_BASE * scale
+      LET below AS Float = TRIANGLE_BELOW * scale
+      RETURN math::sqrt(half * half + below * below)
+    CASE ShapeKind.Circle : RETURN CIRCLE_RADIUS * scale
+    CASE ShapeKind.Ellipse : RETURN math::max(ELLIPSE_RADIUS_X, ELLIPSE_RADIUS_Y) * scale
+    CASE ShapeKind.Star : RETURN STAR_OUTER * scale
+  END MATCH
+END FUNC
+
 ' Where the point (px, py) meets object s, if it is within `reach` of it.
 '
 ' The point is turned into the object's frame by rotating it back through the
@@ -186,6 +214,13 @@ END FUNC
 FUNC contactWith(s AS Shape, px AS Float, py AS Float, reach AS Float) AS Contact
   LET dx AS Float = px - s.x
   LET dy AS Float = py - s.y
+
+  ' The distance from the centre does not depend on the shape's rotation, so
+  ' this rejects a point nowhere near the shape before ever computing
+  ' cos(angle)/sin(angle) - the two trig calls the rotation below needs.
+  LET bound AS Float = maxRadiusOf(s.kind, s.scale) + reach
+  IF dx * dx + dy * dy >= bound * bound THEN RETURN NO_CONTACT
+
   LET c AS Float = math::cos(s.angle)
   LET n AS Float = math::sin(s.angle)
   LET lx AS Float = c * dx + n * dy
@@ -377,6 +412,151 @@ FUNC starContact(lx AS Float, ly AS Float, scale AS Float, reach AS Float) AS Co
     END IF
   END IF
   RETURN Contact[hit := TRUE, x := qx + nx * reach, y := qy + ny * reach, nx := nx, ny := ny]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Cached collision test - the hot path
+' ---------------------------------------------------------------------------
+'
+' stepWater tests every drop against every shape, every substep - up to
+' POOL_SIZE * shapeCount * SUBSTEPS calls a frame. A shape's angle and scale
+' do not change during that (spinShapes has already run for the frame before
+' stepWater is called), so cos(angle)/sin(angle) - and, for a star, its ten
+' corner coordinates - are the same for every one of those calls against a
+' given shape. rebuildShapeCache computes each shape's once, and
+' contactWithCached (stepWater's only caller) reads them back by index
+' instead of recomputing trig on every call.
+'
+' contactWith itself is untouched by this cache - shapeAt (one call per mouse
+' click) keeps calling it exactly as before - so nothing here can change what
+' contactWith returns for any input.
+
+MUT shapeCos AS List OF Float = []
+MUT shapeSin AS List OF Float = []
+
+' Every shape's ten corner coordinates, scaled, flattened at
+' i * (STAR_POINTS * 2) + k. Filled with 0.0 for a non-star shape, which
+' starContactCached never reads (only star-kind shapes call it).
+MUT starCornerXs AS List OF Float = []
+MUT starCornerYs AS List OF Float = []
+
+' Recompute every shape's cached angle/scale-derived quantities. Called once
+' at the top of stepWater, after spinShapes has updated every spinning
+' shape's angle for the frame.
+SUB rebuildShapeCache
+  LET corners AS Integer = STAR_POINTS * 2
+  MUT cosList AS List OF Float = []
+  MUT sinList AS List OF Float = []
+  MUT cxList AS List OF Float = []
+  MUT cyList AS List OF Float = []
+
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    cosList = collections::append(cosList, math::cos(s.angle))
+    sinList = collections::append(sinList, math::sin(s.angle))
+
+    FOR k = 0 TO corners - 1
+      IF s.kind = ShapeKind.Star THEN
+        cxList = collections::append(cxList, starCornerX(k) * s.scale)
+        cyList = collections::append(cyList, starCornerY(k) * s.scale)
+      ELSE
+        cxList = collections::append(cxList, 0.0)
+        cyList = collections::append(cyList, 0.0)
+      END IF
+    NEXT
+  NEXT
+
+  shapeCos = cosList
+  shapeSin = sinList
+  starCornerXs = cxList
+  starCornerYs = cyList
+END SUB
+
+' starContact, reading corner k of shape i's cache instead of recomputing
+' STAR_POINTS * 2 * 2 trig calls on every invocation. Otherwise identical.
+FUNC starContactCached(lx AS Float, ly AS Float, i AS Integer, scale AS Float, reach AS Float) AS Contact
+  LET far AS Float = STAR_OUTER * scale + reach
+  IF lx * lx + ly * ly >= far * far THEN RETURN NO_CONTACT
+
+  LET corners AS Integer = STAR_POINTS * 2
+  LET base AS Integer = i * corners
+  MUT inside AS Boolean = FALSE
+  MUT best AS Float = -1.0
+  MUT qx AS Float = 0.0
+  MUT qy AS Float = 0.0
+  MUT ex AS Float = 0.0
+  MUT ey AS Float = 0.0
+  FOR k = 0 TO corners - 1
+    LET ax AS Float = collections::get(starCornerXs, base + k)
+    LET ay AS Float = collections::get(starCornerYs, base + k)
+    LET bx AS Float = collections::get(starCornerXs, base + ((k + 1) MOD corners))
+    LET by AS Float = collections::get(starCornerYs, base + ((k + 1) MOD corners))
+
+    ' A line out from the point to the right crosses the outline an odd
+    ' number of times when the point is inside.
+    IF (ay > ly) <> (by > ly) THEN
+      IF lx < ax + (ly - ay) / (by - ay) * (bx - ax) THEN inside = NOT inside
+    END IF
+
+    ' The nearest place on this edge.
+    LET dx AS Float = bx - ax
+    LET dy AS Float = by - ay
+    LET t AS Float = math::clamp(((lx - ax) * dx + (ly - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+    LET px AS Float = ax + t * dx
+    LET py AS Float = ay + t * dy
+    LET d2 AS Float = (lx - px) * (lx - px) + (ly - py) * (ly - py)
+    IF best < 0.0 OR d2 < best THEN
+      best = d2
+      qx = px
+      qy = py
+      ex = dx
+      ey = dy
+    END IF
+  NEXT
+
+  LET edge AS Float = math::sqrt(ex * ex + ey * ey)
+  MUT nx AS Float = ey / edge
+  MUT ny AS Float = -ex / edge
+  IF NOT inside THEN
+    LET d AS Float = math::sqrt(best)
+    IF d >= reach THEN RETURN NO_CONTACT
+    IF d > 0.000001 THEN
+      nx = (lx - qx) / d
+      ny = (ly - qy) / d
+    END IF
+  END IF
+  RETURN Contact[hit := TRUE, x := qx + nx * reach, y := qy + ny * reach, nx := nx, ny := ny]
+END FUNC
+
+' contactWith, reading shape i's cached cos(angle)/sin(angle) (and, for a
+' star, its cached corners via starContactCached) instead of recomputing
+' them. stepWater's only caller: same bounding-radius reject, same per-kind
+' tests, same combining math, identical results to contactWith for the same
+' shape and inputs - only the trig is not repeated.
+FUNC contactWithCached(i AS Integer, px AS Float, py AS Float, reach AS Float) AS Contact
+  LET s AS Shape = collections::get(shapes, i)
+  LET dx AS Float = px - s.x
+  LET dy AS Float = py - s.y
+
+  LET bound AS Float = maxRadiusOf(s.kind, s.scale) + reach
+  IF dx * dx + dy * dy >= bound * bound THEN RETURN NO_CONTACT
+
+  LET c AS Float = collections::get(shapeCos, i)
+  LET n AS Float = collections::get(shapeSin, i)
+  LET lx AS Float = c * dx + n * dy
+  LET ly AS Float = c * dy - n * dx
+
+  MUT inFrame AS Contact = NO_CONTACT
+  MATCH s.kind
+    CASE ShapeKind.Rectangle : inFrame = rectangleContact(lx, ly, RECT_HALF_WIDTH * s.scale + reach, RECT_HALF_HEIGHT * s.scale + reach)
+    CASE ShapeKind.Triangle : inFrame = triangleContact(lx, ly, s.scale, reach)
+    CASE ShapeKind.Circle : inFrame = circleContact(lx, ly, CIRCLE_RADIUS * s.scale + reach)
+    CASE ShapeKind.Ellipse : inFrame = ellipseContact(lx, ly, ELLIPSE_RADIUS_X * s.scale + reach, ELLIPSE_RADIUS_Y * s.scale + reach)
+    CASE ShapeKind.Star : inFrame = starContactCached(lx, ly, i, s.scale, reach)
+  END MATCH
+  IF NOT inFrame.hit THEN RETURN NO_CONTACT
+
+  RETURN Contact[hit := TRUE, x := s.x + c * inFrame.x - n * inFrame.y, y := s.y + n * inFrame.x + c * inFrame.y, nx := c * inFrame.nx - n * inFrame.ny, ny := n * inFrame.nx + c * inFrame.ny]
 END FUNC
 
 ' ---------------------------------------------------------------------------
