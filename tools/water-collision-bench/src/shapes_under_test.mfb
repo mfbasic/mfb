@@ -1,0 +1,559 @@
+' shapes - the objects the water falls on.
+'
+' An object is a rectangle, a triangle, a circle, an ellipse or a star, placed
+' by its centre, turned by an angle and sized by a scale. Objects never move on
+' their own, except to spin once a key has set them spinning: the water bounces
+' off them, and only the mouse and the keys move, turn, size or remove them.
+'
+' Everything that asks where an object's surface is - the water, and the mouse -
+' asks the same question: given a point, is it within `reach` of the object, and
+' if it is, where is the nearest place `reach` outside the surface, and which way
+' does the surface face there? The question is answered in the object's own
+' frame, where a rectangle is axis-aligned and an ellipse's radii lie along the
+' axes, and the answer is turned back into the window's frame. The object's scale
+' is applied to its sizes rather than to the point, so `reach` stays in pixels
+' whatever size the object is.
+
+IMPORT collections
+IMPORT math
+
+ENUM ShapeKind
+  Rectangle, Triangle, Circle, Ellipse, Star
+END ENUM
+
+TYPE Shape
+  kind AS ShapeKind
+  x AS Float           ' the centre, in window pixels
+  y AS Float
+  angle AS Float       ' radians, clockwise from +X
+  scale AS Float
+  spin AS Float        ' radians per second, clockwise positive; 0 when still
+END TYPE
+
+' Where a point meets an object's surface: the place `reach` outside the surface
+' nearest the point, and the outward direction of the surface there. When `hit`
+' is FALSE the point was out of reach and the rest means nothing.
+TYPE Contact
+  hit AS Boolean
+  x AS Float
+  y AS Float
+  nx AS Float
+  ny AS Float
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Sizes
+' ---------------------------------------------------------------------------
+
+' The sizes of each kind at scale 1, in pixels.
+LET RECT_HALF_WIDTH AS Float = 70.0
+LET RECT_HALF_HEIGHT AS Float = 18.0
+
+' The triangle is drawn about its centroid, so it turns about the middle of its
+' mass rather than about the middle of its base.
+LET TRIANGLE_HALF_BASE AS Float = 70.0
+LET TRIANGLE_BELOW AS Float = 30.0     ' from the centroid down to the base
+LET TRIANGLE_ABOVE AS Float = 60.0     ' from the centroid up to the apex
+
+LET CIRCLE_RADIUS AS Float = 45.0
+
+LET ELLIPSE_RADIUS_X AS Float = 75.0
+LET ELLIPSE_RADIUS_Y AS Float = 32.0
+
+' A five-pointed star, one point straight up: its points are STAR_OUTER from the
+' centre and the corners between them STAR_INNER.
+LET STAR_POINTS AS Integer = 5
+LET STAR_OUTER AS Float = 60.0
+LET STAR_INNER AS Float = 25.0
+
+' The range the scale keys hold an object to.
+LET MIN_SCALE AS Float = 0.4
+LET MAX_SCALE AS Float = 3.0
+
+' How far one press of a rotate key turns an object, and what one press of a
+' scale key multiplies its size by.
+LET ROTATE_STEP AS Float = 0.1309      ' 7.5 degrees
+LET SCALE_STEP AS Float = 1.1
+
+' How fast a spinning object turns: a quarter turn a second.
+LET SPIN_SPEED AS Float = 1.5708
+
+' The widest an object of each kind is at scale 1 - what the toolbar sizes its
+' icons by.
+FUNC widestOf(kind AS ShapeKind) AS Float
+  MATCH kind
+    CASE ShapeKind.Rectangle : RETURN RECT_HALF_WIDTH * 2.0
+    CASE ShapeKind.Triangle : RETURN TRIANGLE_HALF_BASE * 2.0
+    CASE ShapeKind.Circle : RETURN CIRCLE_RADIUS * 2.0
+    CASE ShapeKind.Ellipse : RETURN ELLIPSE_RADIUS_X * 2.0
+      ' The two points either side of the top one are the widest.
+    CASE ShapeKind.Star : RETURN STAR_OUTER * 2.0 * math::sin(math::pi * 0.4)
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The objects
+' ---------------------------------------------------------------------------
+
+' Every object in the window, the last drawn on top - which is also the order a
+' click looks through them in, from the end.
+MUT shapes AS List OF Shape = []
+
+FUNC shapeCount AS Integer
+  RETURN len(shapes)
+END FUNC
+
+' Add an object and say where it went in the list.
+FUNC addShape(kind AS ShapeKind, x AS Float, y AS Float) AS Integer
+  shapes = collections::append(shapes, Shape[kind := kind, x := x, y := y, angle := 0.0, scale := 1.0, spin := 0.0])
+  RETURN len(shapes) - 1
+END FUNC
+
+SUB removeShape(i AS Integer)
+  shapes = collections::removeAt(shapes, i)
+END SUB
+
+SUB moveShape(i AS Integer, x AS Float, y AS Float)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { x := x, y := y })
+END SUB
+
+SUB rotateShape(i AS Integer, turns AS Float)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := collections::get(shapes, i).angle + turns * ROTATE_STEP })
+END SUB
+
+' Set an object spinning in a direction (-1 anticlockwise, 1 clockwise), or
+' stop it when it is already spinning that way.
+SUB toggleSpin(i AS Integer, direction AS Float)
+  LET s AS Shape = collections::get(shapes, i)
+  MUT spin AS Float = direction * SPIN_SPEED
+  IF s.spin * direction > 0.0 THEN spin = 0.0
+  shapes = collections::set(shapes, i, WITH s { spin := spin })
+END SUB
+
+SUB stopSpin(i AS Integer)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { spin := 0.0 })
+END SUB
+
+' Turn every spinning object by how far it spins in `seconds`.
+SUB spinShapes(seconds AS Float)
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    IF s.spin <> 0.0 THEN shapes = collections::set(shapes, i, WITH s { angle := s.angle + s.spin * seconds })
+  NEXT
+END SUB
+
+SUB scaleShape(i AS Integer, steps AS Float)
+  LET scale AS Float = math::clamp(collections::get(shapes, i).scale * math::pow(SCALE_STEP, steps), MIN_SCALE, MAX_SCALE)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { scale := scale })
+END SUB
+
+FUNC shapeX(i AS Integer) AS Float
+  RETURN collections::get(shapes, i).x
+END FUNC
+
+FUNC shapeY(i AS Integer) AS Float
+  RETURN collections::get(shapes, i).y
+END FUNC
+
+' The topmost object under a point, or -1 when there is none. A few pixels of
+' slack make a thin rectangle turned edge-on still possible to pick up.
+FUNC shapeAt(x AS Float, y AS Float) AS Integer
+  FOR i = len(shapes) - 1 TO 0 STEP -1
+    IF contactWith(collections::get(shapes, i), x, y, 3.0).hit THEN RETURN i
+  NEXT
+  RETURN -1
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Contact
+' ---------------------------------------------------------------------------
+
+LET NO_CONTACT AS Contact = Contact[hit := FALSE, x := 0.0, y := 0.0, nx := 0.0, ny := 0.0]
+
+FUNC signOf(v AS Float) AS Float
+  IF v < 0.0 THEN RETURN -1.0
+  RETURN 1.0
+END FUNC
+
+' The farthest any point of a kind's outline (at this scale) ever gets from
+' its centre - an exact upper bound, never an approximation. A point farther
+' than this plus reach cannot be in contact, whatever the shape's angle, so
+' this is what lets a caller reject a distant drop before rotating into the
+' shape's frame at all (the rotation is what needs the trig).
+'
+' Rectangle: the corner, at the half-diagonal. Triangle: the farther of the
+' two base corners and the apex - TRIANGLE_ABOVE is less than the base
+' corner's own distance (60 < sqrt(70^2+30^2) =~ 76.16), so the base corner is
+' the true bound; using the apex alone would be an unsound shortcut that
+' could miss a real contact near a base corner. Ellipse: its own longer
+' radius. Circle and star: their own radius.
+FUNC maxRadiusOf(kind AS ShapeKind, scale AS Float) AS Float
+  MATCH kind
+    CASE ShapeKind.Rectangle
+      LET hx AS Float = RECT_HALF_WIDTH * scale
+      LET hy AS Float = RECT_HALF_HEIGHT * scale
+      RETURN math::sqrt(hx * hx + hy * hy)
+    CASE ShapeKind.Triangle
+      LET half AS Float = TRIANGLE_HALF_BASE * scale
+      LET below AS Float = TRIANGLE_BELOW * scale
+      RETURN math::sqrt(half * half + below * below)
+    CASE ShapeKind.Circle : RETURN CIRCLE_RADIUS * scale
+    CASE ShapeKind.Ellipse : RETURN math::max(ELLIPSE_RADIUS_X, ELLIPSE_RADIUS_Y) * scale
+    CASE ShapeKind.Star : RETURN STAR_OUTER * scale
+  END MATCH
+END FUNC
+
+' Where the point (px, py) meets object s, if it is within `reach` of it.
+'
+' The point is turned into the object's frame by rotating it back through the
+' object's angle, tested there by the kind's own rule, and the contact is turned
+' forward again. canvas turns a shape clockwise by `angle` with
+' x' = cos*x - sin*y, y' = sin*x + cos*y, so the way back is the transpose.
+FUNC contactWith(s AS Shape, px AS Float, py AS Float, reach AS Float) AS Contact
+  LET dx AS Float = px - s.x
+  LET dy AS Float = py - s.y
+
+  ' The distance from the centre does not depend on the shape's rotation, so
+  ' this rejects a point nowhere near the shape before ever computing
+  ' cos(angle)/sin(angle) - the two trig calls the rotation below needs.
+  LET bound AS Float = maxRadiusOf(s.kind, s.scale) + reach
+  IF dx * dx + dy * dy >= bound * bound THEN RETURN NO_CONTACT
+
+  LET c AS Float = math::cos(s.angle)
+  LET n AS Float = math::sin(s.angle)
+  LET lx AS Float = c * dx + n * dy
+  LET ly AS Float = c * dy - n * dx
+
+  MUT inFrame AS Contact = NO_CONTACT
+  MATCH s.kind
+    CASE ShapeKind.Rectangle : inFrame = rectangleContact(lx, ly, RECT_HALF_WIDTH * s.scale + reach, RECT_HALF_HEIGHT * s.scale + reach)
+    CASE ShapeKind.Triangle : inFrame = triangleContact(lx, ly, s.scale, reach)
+    CASE ShapeKind.Circle : inFrame = circleContact(lx, ly, CIRCLE_RADIUS * s.scale + reach)
+    CASE ShapeKind.Ellipse : inFrame = ellipseContact(lx, ly, ELLIPSE_RADIUS_X * s.scale + reach, ELLIPSE_RADIUS_Y * s.scale + reach)
+    CASE ShapeKind.Star : inFrame = starContact(lx, ly, s.scale, reach)
+  END MATCH
+  IF NOT inFrame.hit THEN RETURN NO_CONTACT
+
+  RETURN Contact[hit := TRUE, x := s.x + c * inFrame.x - n * inFrame.y, y := s.y + n * inFrame.x + c * inFrame.y, nx := c * inFrame.nx - n * inFrame.ny, ny := n * inFrame.nx + c * inFrame.ny]
+END FUNC
+
+' An axis-aligned box of half-sizes hx by hy (already grown by the reach). A
+' point inside it leaves through whichever side is nearest.
+FUNC rectangleContact(lx AS Float, ly AS Float, hx AS Float, hy AS Float) AS Contact
+  LET ax AS Float = math::abs(lx)
+  LET ay AS Float = math::abs(ly)
+  IF ax >= hx OR ay >= hy THEN RETURN NO_CONTACT
+
+  IF hx - ax < hy - ay THEN
+    LET side AS Float = signOf(lx)
+    RETURN Contact[hit := TRUE, x := side * hx, y := ly, nx := side, ny := 0.0]
+  END IF
+  LET side AS Float = signOf(ly)
+  RETURN Contact[hit := TRUE, x := lx, y := side * hy, nx := 0.0, ny := side]
+END FUNC
+
+' A circle of radius r (already grown by the reach). A point at the very centre
+' has no direction of its own, and is sent out through the top.
+FUNC circleContact(lx AS Float, ly AS Float, r AS Float) AS Contact
+  LET d2 AS Float = lx * lx + ly * ly
+  IF d2 >= r * r THEN RETURN NO_CONTACT
+  IF d2 < 0.000001 THEN RETURN Contact[hit := TRUE, x := 0.0, y := -r, nx := 0.0, ny := -1.0]
+  LET d AS Float = math::sqrt(d2)
+  RETURN Contact[hit := TRUE, x := lx / d * r, y := ly / d * r, nx := lx / d, ny := ly / d]
+END FUNC
+
+' An ellipse of radii a and b (already grown by the reach).
+'
+' The surface's direction is the gradient of (x/a)^2 + (y/b)^2, which is not the
+' direction from the centre: on the flat top of a wide ellipse it points
+' straight up even well away from the middle, and that is what makes water run
+' off an ellipse the way it runs off a slope. The point is carried out to the
+' surface along the line from the centre, which is close enough for a drop a few
+' pixels inside.
+FUNC ellipseContact(lx AS Float, ly AS Float, a AS Float, b AS Float) AS Contact
+  LET f AS Float = (lx / a) * (lx / a) + (ly / b) * (ly / b)
+  IF f >= 1.0 THEN RETURN NO_CONTACT
+  IF f < 0.000001 THEN RETURN Contact[hit := TRUE, x := 0.0, y := -b, nx := 0.0, ny := -1.0]
+
+  LET gx AS Float = lx / (a * a)
+  LET gy AS Float = ly / (b * b)
+  LET g AS Float = math::sqrt(gx * gx + gy * gy)
+  LET out AS Float = 1.0 / math::sqrt(f)
+  RETURN Contact[hit := TRUE, x := lx * out, y := ly * out, nx := gx / g, ny := gy / g]
+END FUNC
+
+' How far outside one edge of the triangle the point is - negative inside - for
+' the edge through (ax, ay) whose outward direction is (nx, ny).
+FUNC outside(lx AS Float, ly AS Float, ax AS Float, ay AS Float, nx AS Float, ny AS Float) AS Float
+  RETURN nx * (lx - ax) + ny * (ly - ay)
+END FUNC
+
+' The triangle: a base below the centroid and an apex above it.
+'
+' A point is inside a convex shape when it is inside every edge, and it leaves
+' through the edge it is nearest to leaving - the one it is least far inside.
+' Growing each edge outward by the reach rounds nothing off at the corners, so a
+' drop meets the corners a little early; at a drop's size that does not show.
+FUNC triangleContact(lx AS Float, ly AS Float, scale AS Float, reach AS Float) AS Contact
+  LET half AS Float = TRIANGLE_HALF_BASE * scale
+  LET below AS Float = TRIANGLE_BELOW * scale
+  LET above AS Float = TRIANGLE_ABOVE * scale
+
+  ' The two sloping edges run from the ends of the base up to the apex. Their
+  ' outward directions are the edge turned a quarter, which does not depend on
+  ' the scale because scaling keeps the slope.
+  LET rise AS Float = TRIANGLE_BELOW + TRIANGLE_ABOVE
+  LET slope AS Float = math::sqrt(rise * rise + TRIANGLE_HALF_BASE * TRIANGLE_HALF_BASE)
+  LET sideX AS Float = rise / slope
+  LET sideY AS Float = -TRIANGLE_HALF_BASE / slope
+
+  LET base AS Float = outside(lx, ly, 0.0, below, 0.0, 1.0)
+  LET right AS Float = outside(lx, ly, half, below, sideX, sideY)
+  LET left AS Float = outside(lx, ly, -half, below, -sideX, sideY)
+
+  MUT nearest AS Float = base
+  MUT nx AS Float = 0.0
+  MUT ny AS Float = 1.0
+  IF right > nearest THEN
+    nearest = right
+    nx = sideX
+    ny = sideY
+  END IF
+  IF left > nearest THEN
+    nearest = left
+    nx = -sideX
+    ny = sideY
+  END IF
+  IF nearest >= reach THEN RETURN NO_CONTACT
+
+  LET push AS Float = reach - nearest
+  RETURN Contact[hit := TRUE, x := lx + nx * push, y := ly + ny * push, nx := nx, ny := ny]
+END FUNC
+
+' Corner k of the star at scale 1, in its own frame: the even corners are the
+' points, starting with the top one, and the odd corners lie between them.
+FUNC starCornerX(k AS Integer) AS Float
+  RETURN starRadius(k) * math::cos(starAngle(k))
+END FUNC
+
+FUNC starCornerY(k AS Integer) AS Float
+  RETURN starRadius(k) * math::sin(starAngle(k))
+END FUNC
+
+FUNC starAngle(k AS Integer) AS Float
+  RETURN -math::pi / 2.0 + toFloat(k) * math::pi / toFloat(STAR_POINTS)
+END FUNC
+
+FUNC starRadius(k AS Integer) AS Float
+  IF k MOD 2 = 0 THEN RETURN STAR_OUTER
+  RETURN STAR_INNER
+END FUNC
+
+' The star.
+'
+' A star is not convex, so the triangle's rule - inside every edge - does not
+' hold for it. Instead the point is measured against the nearest place on the
+' star's outline. Inside the star, it leaves through that place, facing the way
+' that edge faces. Outside, within `reach`, it is pushed straight away from that
+' place, which rounds off the points the way a drop's own roundness would.
+'
+' The corners run clockwise on screen, which is anticlockwise in the frame's
+' own terms, so an edge's outward direction is the edge turned (ey, -ex).
+FUNC starContact(lx AS Float, ly AS Float, scale AS Float, reach AS Float) AS Contact
+  LET far AS Float = STAR_OUTER * scale + reach
+  IF lx * lx + ly * ly >= far * far THEN RETURN NO_CONTACT
+
+  LET corners AS Integer = STAR_POINTS * 2
+  MUT inside AS Boolean = FALSE
+  MUT best AS Float = -1.0
+  MUT qx AS Float = 0.0
+  MUT qy AS Float = 0.0
+  MUT ex AS Float = 0.0
+  MUT ey AS Float = 0.0
+  FOR k = 0 TO corners - 1
+    LET ax AS Float = starCornerX(k) * scale
+    LET ay AS Float = starCornerY(k) * scale
+    LET bx AS Float = starCornerX((k + 1) MOD corners) * scale
+    LET by AS Float = starCornerY((k + 1) MOD corners) * scale
+
+    ' A line out from the point to the right crosses the outline an odd
+    ' number of times when the point is inside.
+    IF (ay > ly) <> (by > ly) THEN
+      IF lx < ax + (ly - ay) / (by - ay) * (bx - ax) THEN inside = NOT inside
+    END IF
+
+    ' The nearest place on this edge.
+    LET dx AS Float = bx - ax
+    LET dy AS Float = by - ay
+    LET t AS Float = math::clamp(((lx - ax) * dx + (ly - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+    LET px AS Float = ax + t * dx
+    LET py AS Float = ay + t * dy
+    LET d2 AS Float = (lx - px) * (lx - px) + (ly - py) * (ly - py)
+    IF best < 0.0 OR d2 < best THEN
+      best = d2
+      qx = px
+      qy = py
+      ex = dx
+      ey = dy
+    END IF
+  NEXT
+
+  LET edge AS Float = math::sqrt(ex * ex + ey * ey)
+  MUT nx AS Float = ey / edge
+  MUT ny AS Float = -ex / edge
+  IF NOT inside THEN
+    LET d AS Float = math::sqrt(best)
+    IF d >= reach THEN RETURN NO_CONTACT
+    IF d > 0.000001 THEN
+      nx = (lx - qx) / d
+      ny = (ly - qy) / d
+    END IF
+  END IF
+  RETURN Contact[hit := TRUE, x := qx + nx * reach, y := qy + ny * reach, nx := nx, ny := ny]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Cached collision test - the hot path
+' ---------------------------------------------------------------------------
+'
+' stepWater tests every drop against every shape, every substep - up to
+' POOL_SIZE * shapeCount * SUBSTEPS calls a frame. A shape's angle and scale
+' do not change during that (spinShapes has already run for the frame before
+' stepWater is called), so cos(angle)/sin(angle) - and, for a star, its ten
+' corner coordinates - are the same for every one of those calls against a
+' given shape. rebuildShapeCache computes each shape's once, and
+' contactWithCached (stepWater's only caller) reads them back by index
+' instead of recomputing trig on every call.
+'
+' contactWith itself is untouched by this cache - shapeAt (one call per mouse
+' click) keeps calling it exactly as before - so nothing here can change what
+' contactWith returns for any input.
+
+MUT shapeCos AS List OF Float = []
+MUT shapeSin AS List OF Float = []
+
+' Every shape's ten corner coordinates, scaled, flattened at
+' i * (STAR_POINTS * 2) + k. Filled with 0.0 for a non-star shape, which
+' starContactCached never reads (only star-kind shapes call it).
+MUT starCornerXs AS List OF Float = []
+MUT starCornerYs AS List OF Float = []
+
+' Recompute every shape's cached angle/scale-derived quantities. Called once
+' at the top of stepWater, after spinShapes has updated every spinning
+' shape's angle for the frame.
+SUB rebuildShapeCache
+  LET corners AS Integer = STAR_POINTS * 2
+  MUT cosList AS List OF Float = []
+  MUT sinList AS List OF Float = []
+  MUT cxList AS List OF Float = []
+  MUT cyList AS List OF Float = []
+
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    cosList = collections::append(cosList, math::cos(s.angle))
+    sinList = collections::append(sinList, math::sin(s.angle))
+
+    FOR k = 0 TO corners - 1
+      IF s.kind = ShapeKind.Star THEN
+        cxList = collections::append(cxList, starCornerX(k) * s.scale)
+        cyList = collections::append(cyList, starCornerY(k) * s.scale)
+      ELSE
+        cxList = collections::append(cxList, 0.0)
+        cyList = collections::append(cyList, 0.0)
+      END IF
+    NEXT
+  NEXT
+
+  shapeCos = cosList
+  shapeSin = sinList
+  starCornerXs = cxList
+  starCornerYs = cyList
+END SUB
+
+' starContact, reading corner k of shape i's cache instead of recomputing
+' STAR_POINTS * 2 * 2 trig calls on every invocation. Otherwise identical.
+FUNC starContactCached(lx AS Float, ly AS Float, i AS Integer, scale AS Float, reach AS Float) AS Contact
+  LET far AS Float = STAR_OUTER * scale + reach
+  IF lx * lx + ly * ly >= far * far THEN RETURN NO_CONTACT
+
+  LET corners AS Integer = STAR_POINTS * 2
+  LET base AS Integer = i * corners
+  MUT inside AS Boolean = FALSE
+  MUT best AS Float = -1.0
+  MUT qx AS Float = 0.0
+  MUT qy AS Float = 0.0
+  MUT ex AS Float = 0.0
+  MUT ey AS Float = 0.0
+  FOR k = 0 TO corners - 1
+    LET ax AS Float = collections::get(starCornerXs, base + k)
+    LET ay AS Float = collections::get(starCornerYs, base + k)
+    LET bx AS Float = collections::get(starCornerXs, base + ((k + 1) MOD corners))
+    LET by AS Float = collections::get(starCornerYs, base + ((k + 1) MOD corners))
+
+    ' A line out from the point to the right crosses the outline an odd
+    ' number of times when the point is inside.
+    IF (ay > ly) <> (by > ly) THEN
+      IF lx < ax + (ly - ay) / (by - ay) * (bx - ax) THEN inside = NOT inside
+    END IF
+
+    ' The nearest place on this edge.
+    LET dx AS Float = bx - ax
+    LET dy AS Float = by - ay
+    LET t AS Float = math::clamp(((lx - ax) * dx + (ly - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+    LET px AS Float = ax + t * dx
+    LET py AS Float = ay + t * dy
+    LET d2 AS Float = (lx - px) * (lx - px) + (ly - py) * (ly - py)
+    IF best < 0.0 OR d2 < best THEN
+      best = d2
+      qx = px
+      qy = py
+      ex = dx
+      ey = dy
+    END IF
+  NEXT
+
+  LET edge AS Float = math::sqrt(ex * ex + ey * ey)
+  MUT nx AS Float = ey / edge
+  MUT ny AS Float = -ex / edge
+  IF NOT inside THEN
+    LET d AS Float = math::sqrt(best)
+    IF d >= reach THEN RETURN NO_CONTACT
+    IF d > 0.000001 THEN
+      nx = (lx - qx) / d
+      ny = (ly - qy) / d
+    END IF
+  END IF
+  RETURN Contact[hit := TRUE, x := qx + nx * reach, y := qy + ny * reach, nx := nx, ny := ny]
+END FUNC
+
+' contactWith, reading shape i's cached cos(angle)/sin(angle) (and, for a
+' star, its cached corners via starContactCached) instead of recomputing
+' them. stepWater's only caller: same bounding-radius reject, same per-kind
+' tests, same combining math, identical results to contactWith for the same
+' shape and inputs - only the trig is not repeated.
+FUNC contactWithCached(i AS Integer, px AS Float, py AS Float, reach AS Float) AS Contact
+  LET s AS Shape = collections::get(shapes, i)
+  LET dx AS Float = px - s.x
+  LET dy AS Float = py - s.y
+
+  LET bound AS Float = maxRadiusOf(s.kind, s.scale) + reach
+  IF dx * dx + dy * dy >= bound * bound THEN RETURN NO_CONTACT
+
+  LET c AS Float = collections::get(shapeCos, i)
+  LET n AS Float = collections::get(shapeSin, i)
+  LET lx AS Float = c * dx + n * dy
+  LET ly AS Float = c * dy - n * dx
+
+  MUT inFrame AS Contact = NO_CONTACT
+  MATCH s.kind
+    CASE ShapeKind.Rectangle : inFrame = rectangleContact(lx, ly, RECT_HALF_WIDTH * s.scale + reach, RECT_HALF_HEIGHT * s.scale + reach)
+    CASE ShapeKind.Triangle : inFrame = triangleContact(lx, ly, s.scale, reach)
+    CASE ShapeKind.Circle : inFrame = circleContact(lx, ly, CIRCLE_RADIUS * s.scale + reach)
+    CASE ShapeKind.Ellipse : inFrame = ellipseContact(lx, ly, ELLIPSE_RADIUS_X * s.scale + reach, ELLIPSE_RADIUS_Y * s.scale + reach)
+    CASE ShapeKind.Star : inFrame = starContactCached(lx, ly, i, s.scale, reach)
+  END MATCH
+  IF NOT inFrame.hit THEN RETURN NO_CONTACT
+
+  RETURN Contact[hit := TRUE, x := s.x + c * inFrame.x - n * inFrame.y, y := s.y + n * inFrame.x + c * inFrame.y, nx := c * inFrame.nx - n * inFrame.ny, ny := n * inFrame.nx + c * inFrame.ny]
+END FUNC
+
