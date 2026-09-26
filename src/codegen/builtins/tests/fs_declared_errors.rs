@@ -97,6 +97,10 @@ const RAISES_NOTHING: &[(&str, &str)] = &[
         "_mfb_rt_park_error",
         "parks an error the caller already raised",
     ),
+    (
+        crate::codegen::builtins::fs::gen_classify::FS_PATH_CLASS_SYMBOL,
+        "returns a path class in x0; the caller's host-error mapping raises (bug-701)",
+    ),
 ];
 
 /// Internal callees whose own raises reach the caller's Result, and how to lower
@@ -399,30 +403,39 @@ fn windows_canonicalization_resolves_through_an_open_handle() {
 /// platform family. POSIX errnos differ between Linux and macOS; Windows reports
 /// `GetLastError` codes, a different numbering altogether.
 fn host_codes(family: PlatformFamily, reason: &str) -> Option<&'static [&'static str]> {
+    // bug-701: one mapping for every member (`emit_fs_host_error_mapping`). The
+    // `classify_*` labels ask `_mfb_rt_fs_path_class` which condition the host
+    // meant where its code names two.
     let codes: &'static [&'static str] = match (family, reason) {
-        // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
-        (PlatformFamily::Windows, "not_found" | "path_not_found") => &["2", "3"],
-        // ERROR_ACCESS_DENIED
-        (PlatformFamily::Windows, "access_denied") => &["5"],
+        // ERROR_FILE_NOT_FOUND; ERROR_PATH_NOT_FOUND when there is no path to ask
+        (PlatformFamily::Windows, "path_not_found") => &["2", "3"],
+        // ERROR_PATH_NOT_FOUND: a missing parent, a file used as a directory, or
+        // an over-long name
+        (PlatformFamily::Windows, "classify_missing") => &["3"],
+        // ERROR_ACCESS_DENIED: a refusal, or a directory where a file is required
+        (PlatformFamily::Windows, "access_denied" | "classify_directory") => &["5"],
         // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
         (PlatformFamily::Windows, "already_exists") => &["80", "183"],
         // ERROR_DIR_NOT_EMPTY
         (PlatformFamily::Windows, "not_empty") => &["145"],
-        // ERROR_INVALID_NAME, ERROR_FILENAME_EXCED_RANGE
-        (PlatformFamily::Windows, "invalid_path") => &["123", "206"],
+        // ERROR_INVALID_NAME, ERROR_FILENAME_EXCED_RANGE, ERROR_DIRECTORY,
+        // ERROR_CANT_RESOLVE_FILENAME
+        (PlatformFamily::Windows, "invalid_path") => &["123", "206", "267", "1921"],
         // ENOENT
-        (_, "not_found" | "path_not_found") => &["2"],
-        // EACCES, and ELOOP from a no-follow open
-        (PlatformFamily::Linux, "access_denied") => &["13", "40"],
-        (_, "access_denied") => &["13", "62"],
+        (_, "path_not_found") => &["2"],
+        // EACCES, EPERM, and ELOOP from a no-follow open
+        (PlatformFamily::Linux, "access_denied") => &["13", "1", "40"],
+        (_, "access_denied") => &["13", "1", "62"],
+        // EPERM from `unlink`: macOS's answer for a directory
+        (_, "classify_directory") => &["1"],
         // EEXIST
         (_, "already_exists") => &["17"],
-        // ENOTEMPTY
-        (PlatformFamily::Linux, "not_empty") => &["39"],
-        (_, "not_empty") => &["66"],
-        // ENOTDIR, ENAMETOOLONG, EILSEQ, ELOOP
-        (PlatformFamily::Linux, "invalid_path") => &["20", "36", "84", "40"],
-        (_, "invalid_path") => &["20", "63", "92", "62"],
+        // ENOTEMPTY, and the EEXIST POSIX allows `rmdir` to give for it
+        (PlatformFamily::Linux, "not_empty") => &["39", "17"],
+        (_, "not_empty") => &["66", "17"],
+        // ENOTDIR, EISDIR, ENAMETOOLONG, EILSEQ, ELOOP
+        (PlatformFamily::Linux, "invalid_path") => &["20", "21", "36", "84", "40"],
+        (_, "invalid_path") => &["20", "21", "63", "92", "62"],
         _ => return None,
     };
     Some(codes)

@@ -25,6 +25,7 @@ use crate::codegen::registry::{
 
 pub(crate) mod gen_atomic_write;
 pub(crate) mod gen_canonical;
+pub(crate) mod gen_classify;
 pub(crate) mod gen_directory;
 pub(crate) mod gen_exists;
 pub(crate) mod gen_handle;

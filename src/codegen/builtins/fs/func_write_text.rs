@@ -64,14 +64,12 @@ through leaves the file truncated and partially written. For an all-or-nothing
 replacement, use `fs::writeTextAtomic`.
 
 An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
-the file cannot be opened the error says why: `ErrNotFound` if a directory in
-`path` does not exist, `ErrAccessDenied` if permission is refused, and
-`ErrWriteFailed` for any other refusal — including `path` naming a directory,
-which Windows reports as `ErrAccessDenied`. A failed write, flush to disk or
-close also raises `ErrWriteFailed`. `ErrOutOfMemory` means the program ran out
-of memory. The table also lists `ErrAlreadyExists` because every `fs` function
-that takes a path reports host refusals through one shared set of errors;
-replacing a file never produces it."#;
+the file cannot be opened the error says why: `ErrPathNotFound` if a directory
+in `path` does not exist, `ErrAccessDenied` if permission is refused, and
+`ErrInvalidPath` if `path` cannot name a file — it names a directory, a name in
+it is too long, or a file is used as a directory. Any other refusal, and a
+failed write, flush to disk or close, raises `ErrWriteFailed`. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Write text to a file:
 
 ```
@@ -130,8 +128,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
-                "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
             ],
             body: Body::abi_function(lower_fs_write_text),
         }],

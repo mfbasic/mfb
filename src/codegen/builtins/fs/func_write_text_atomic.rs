@@ -74,12 +74,12 @@ raw-bytes equivalent of this function, use `fs::writeBytesAtomic`.
 
 An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
 the temporary file cannot be created, or cannot be renamed over `path`, the
-error says why: `ErrNotFound` if the containing directory does not exist,
-`ErrAccessDenied` if permission is refused, `ErrAlreadyExists` if no unused
-temporary name could be found, and `ErrWriteFailed` for any other refusal —
-including `path` naming a directory, which Windows reports as `ErrAccessDenied`.
-A failed write, flush to disk or close of the temporary file also raises
-`ErrWriteFailed`. `ErrOutOfMemory` means the program ran out of memory."#;
+error says why: `ErrPathNotFound` if the containing directory does not exist,
+`ErrAccessDenied` if permission is refused, and `ErrInvalidPath` if `path`
+cannot name a file — it names a directory, a name in it is too long, or a file
+is used as a directory. Any other refusal, and a failed write, flush to disk or
+close of the temporary file, raises `ErrWriteFailed`. `ErrOutOfMemory` means the
+program ran out of memory."#;
 const EX: &str = r#"Atomically write text to a file:
 
 ```
@@ -139,8 +139,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
-                "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
             ],
             body: Body::abi_function(lower_fs_write_text_atomic),
         }],

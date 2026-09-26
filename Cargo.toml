@@ -739,6 +739,10 @@ name = "rt_fs_closed_handle_guards"
 path = "tests/runtime/rt_fs_closed_handle_guards.rs"
 
 [[test]]
+name = "rt_fs_host_error_classification"
+path = "tests/runtime/rt_fs_host_error_classification.rs"
+
+[[test]]
 name = "rt_moved_handle_guards"
 path = "tests/runtime/rt_moved_handle_guards.rs"
 

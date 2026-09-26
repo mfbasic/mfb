@@ -41,6 +41,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     let fd = vregs.next();
     let len0 = vregs.next();
     let path_size = vregs.next();
+    let temp_len = vregs.next();
     let mut instructions = vec![
         // bug-574: `path` is the C-string this helper builds for its own `open`,
         // never handed back (it returns a `File` record, a second allocation), so
@@ -48,6 +49,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         // without allocating — the empty-dir rejection just below and
         // `alloc_error` — free nothing.
         abi::move_immediate(&path, "Integer", "0"),
+        abi::move_immediate(&temp_len, "Integer", "0"),
         abi::move_immediate(&path_size, "Integer", "0"),
         abi::move_register(&dir, abi::return_register()),
         abi::load_u64(&len0, &dir, 0),
@@ -127,6 +129,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         ]);
     }
     instructions.extend([
+        abi::subtract_registers(&temp_len, &cursor, &path),
         abi::store_u8(abi::ZERO, &cursor, 0),
         abi::move_register(abi::return_register(), &path),
         abi::move_immediate(
@@ -207,10 +210,18 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(
+    // Classified against the temp file's own name: a `dir` that is a regular
+    // file then reads as a file used as a directory. A failed random draw
+    // reaches here with `temp_len` still 0, and keeps the host code's plain
+    // meaning.
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::CreateNew,
+        false,
+        Some(FsPathArg::Bytes((&path).into(), (&temp_len).into())),
+        FsFallback::Write,
         &mut instructions,
         &mut relocations,
         &done,
