@@ -6,7 +6,7 @@
 ' field. Once that is on screen, a worker thread fetches the next five days of
 ' the same run's forecast, and when the last of it is in, the forecast plays:
 ' the wind under the tracers changes hour by hour along a tracker at the bottom
-' of the window. Nothing is bundled but the coastline.
+' of the window. Nothing is bundled but the land-and-lake map resource.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/wind
@@ -32,7 +32,7 @@
 '   fetch.mfb     which GFS cycle to ask NOMADS for, and the on-disk cache
 '   forecast.mfb  the worker thread that fetches the five-day forecast
 '   earth.mfb     the Equal Earth projection, and the window onto it
-'   land.mfb      the coastline resource, and the blue-and-green underlay
+'   land.mfb      the land-and-lake resource, and the map underlay
 '   flow.mfb      sampling the field, and the swarm of tracers over it
 '   temperature.mfb  the animated temperature raster
 '   timeline.mfb  the play/stop button and the tracker
