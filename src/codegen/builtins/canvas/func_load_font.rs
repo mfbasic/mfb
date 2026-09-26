@@ -322,8 +322,8 @@ pub(crate) fn lower_font_from_bytes(
     // the renderer only ever has the integer `canvas::fontHandle` reads out of the font.
     super::gen_font_table::emit_register_font(
         builder,
-        &Operand::from(record.to_string()),
-        &Operand::from(value.to_string()),
+        &Operand::from(record),
+        &Operand::from(value),
     );
 
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &record));

@@ -71,7 +71,7 @@ pub(crate) fn lower_destroy_font(
     // handle indirection is that a scene never has to care.
     let handle = builder.temporary_vreg();
     builder.emit(abi::load_u64(&handle, &record, RESOURCE_OFFSET_HANDLE));
-    super::gen_font_table::emit_unregister_font(builder, &Operand::from(handle.to_string()));
+    super::gen_font_table::emit_unregister_font(builder, &Operand::from(handle));
 
     let flag = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&flag, "Integer", "1"));

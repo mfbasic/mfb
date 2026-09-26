@@ -1014,11 +1014,13 @@ mod tests {
         };
         // dst = %v5 (def), lhs = x9 (physical use), rhs = %v5 (use), plus an
         // fp register the Int pass must ignore in both forms.
+        // The raw (text) form, as selection leaves it — built through the backends'
+        // `physical_field` (bug-721: `field` refuses text in a register field).
         let raw = CodeInstruction::new("add")
-            .field("dst", "%v5")
-            .field("lhs", "x9")
-            .field("rhs", "%v5")
-            .field("src", "d3");
+            .physical_field("dst", "%v5")
+            .physical_field("lhs", "x9")
+            .physical_field("rhs", "%v5")
+            .physical_field("src", "d3");
         let typed = CodeInstruction::new("add")
             .field("dst", Operand::vreg(RegClass::Int, 5))
             .field("lhs", Operand::phys(RegClass::Int, 9, "x9"))

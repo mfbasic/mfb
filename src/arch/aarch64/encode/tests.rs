@@ -273,7 +273,7 @@ fn encodes_load_acquire_store_release() {
     // offset form for either instruction, so the base is a register alone.
     let op = |mnemonic: &str, rt_field: &'static str, rt: &str, base: &str| {
         CodeInstruction::new(mnemonic)
-            .field(rt_field, rt)
+            .physical_field(rt_field, rt)
             .physical_field("base", base)
     };
     for (instruction, word, spelling) in [
@@ -694,7 +694,7 @@ fn unaligned_memory_offsets_error() {
     let mut enc = fresh_encoder();
     let bad = |op: &str, field: &'static str, r: &str| {
         CodeInstruction::new(op)
-            .field(field, r)
+            .physical_field(field, r)
             .physical_field("base", "x1")
             .field("offset", "3")
     };
@@ -1283,7 +1283,7 @@ fn sizing_covers_immediate_and_memory_paths() {
         ("str_q", "src", "v0"),
     ] {
         let inst = CodeInstruction::new(op)
-            .field(field, r)
+            .physical_field(field, r)
             .physical_field("base", "x1")
             .field("offset", "0");
         assert_eq!(instruction_size(&inst).unwrap(), 4);

@@ -582,8 +582,10 @@ mod tests {
         // rendered `String`. A `&str` producer yields `Raw`; a typed immediate
         // yields `Imm`; `operand()` returns the typed value and `get()` renders
         // both back to the identical string (byte-identity).
+        // `dst` holds a register, so its raw text goes through the backends'
+        // `physical_field` (bug-721: `field` refuses text in a register field).
         let inst = CodeInstruction::new("mov")
-            .field("dst", "x0")
+            .physical_field("dst", "x0")
             .field("value", Operand::imm(42));
         assert_eq!(inst.operand("dst"), Some(&Operand::Raw("x0".into())));
         assert_eq!(inst.operand("value"), Some(&Operand::Imm(42)));

@@ -37,8 +37,20 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
                 .find(|(key, _)| *key == "symbol")
                 .map(|(_, value)| value.clone())
                 .expect("addr_of carries a symbol field");
-            out.push(abi::load_page_address(&dst, &symbol.render()));
-            out.push(abi::add_page_offset(&dst, &dst, &symbol.render()));
+            // The expansion passes the stream's own `dst` operand through unchanged
+            // (it may be minted text from MIR or a realized physical register).
+            let symbol = symbol.render();
+            out.push(
+                CodeInstruction::new("adrp")
+                    .physical_field("dst", dst.clone())
+                    .field("symbol", symbol.as_str()),
+            );
+            out.push(
+                CodeInstruction::new("add_pageoff")
+                    .physical_field("dst", dst.clone())
+                    .physical_field("src", dst)
+                    .field("symbol", symbol.as_str()),
+            );
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {

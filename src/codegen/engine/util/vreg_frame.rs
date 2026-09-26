@@ -329,9 +329,18 @@ fn is_simd128_callee_saved(register: &str) -> bool {
             .is_some()
 }
 
+/// A register the frame saves: one the coloring chose, or the link register (the
+/// neutral `lr` token, which each backend realizes) when the body makes calls.
+fn saved_register(name: &str) -> abi::Reg {
+    if name == abi::LR_SPELLING {
+        abi::LR
+    } else {
+        abi::Reg::physical(name)
+    }
+}
+
 fn save_callee_saved(name: &str, offset: usize) -> CodeInstruction {
-    // A register the coloring chose (bug-721: the one sanctioned physical name).
-    let register = abi::Reg::physical(name);
+    let register = saved_register(name);
     if is_simd128_callee_saved(name) {
         // 128-bit `str q` (AArch64 `str q` / x86-64 `movups`) — a 64-bit store
         // would truncate a `v128` value's high lane (bug-124.2).
@@ -344,7 +353,7 @@ fn save_callee_saved(name: &str, offset: usize) -> CodeInstruction {
 }
 
 fn restore_callee_saved(name: &str, offset: usize) -> CodeInstruction {
-    let register = abi::Reg::physical(name);
+    let register = saved_register(name);
     if is_simd128_callee_saved(name) {
         abi::vector_load(register, abi::stack_pointer(), offset)
     } else if is_fp_register(name) {

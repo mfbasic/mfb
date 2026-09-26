@@ -185,7 +185,7 @@ fn lower_body(
         .iter()
         .map(|param| ValueResult {
             type_: param.ty.clone(),
-            location: Operand::from(vregs.next().to_string().as_str()),
+            location: Operand::from(vregs.next()),
             text: param.name.to_string(),
             origin: None,
         })
