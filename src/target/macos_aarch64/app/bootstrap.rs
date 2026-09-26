@@ -2530,8 +2530,8 @@ mod tests {
                 (Some(v), Some(reg)) if v == "255" => reg,
                 _ => return false,
             };
-            field(&w[1], "dst").as_deref() == Some(abi::SCRATCH[0])
-                && field(&w[1], "lhs").as_deref() == Some(abi::SCRATCH[0])
+            field(&w[1], "dst").as_deref() == Some(abi::SCRATCH_SPELLINGS[0])
+                && field(&w[1], "lhs").as_deref() == Some(abi::SCRATCH_SPELLINGS[0])
                 && field(&w[1], "rhs") == Some(mask_reg)
         });
         assert!(

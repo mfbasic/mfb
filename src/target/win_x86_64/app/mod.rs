@@ -28,7 +28,6 @@ pub(crate) use window::{emit_window_sync_seam, window_data_objects};
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::abi::Reg;
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
@@ -51,6 +50,7 @@ use crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_CURSOR_VISIBLE_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_FG_OFFSET;
 use crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET;
+use crate::target::shared::abi::Reg;
 
 const KERNEL32: &str = "kernel32.dll";
 const USER32: &str = "user32.dll";
@@ -5877,7 +5877,9 @@ mod tests {
         emit_app_io_write("_test_io", false, false, None, &mut ins, &mut _rel);
         let nul_idx = ins
             .iter()
-            .position(|i| i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO))
+            .position(|i| {
+                i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+            })
             .expect("transcript path NUL-terminates wbuf via a str_u16 of the zero register");
         let clamped = ins[..nul_idx]
             .iter()
@@ -6397,7 +6399,11 @@ mod canvas_reconcile_tests {
                 .filter_map(|i| i.get("src"))
                 .collect();
             assert_eq!(
-                saved, win64_nonvolatile().iter().map(ToString::to_string).collect::<Vec<_>>(),
+                saved,
+                win64_nonvolatile()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
                 "the prologue must save the whole nonvolatile bank"
             );
             let returns = ins.iter().filter(|i| i.op == CodeOp::Ret).count();
@@ -6410,7 +6416,11 @@ mod canvas_reconcile_tests {
                     .filter_map(|i| i.get("dst"))
                     .collect();
                 assert_eq!(
-                    reloaded, win64_nonvolatile().iter().map(ToString::to_string).collect::<Vec<_>>(),
+                    reloaded,
+                    win64_nonvolatile()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>(),
                     "every return must reload the nonvolatile bank"
                 );
             }

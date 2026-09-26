@@ -21,10 +21,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::abi::Reg;
 use crate::arch::x86_64::backend::WIN64_BACKEND;
 use crate::codegen::engine::mir::MirPlan;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFunction;
@@ -34,6 +32,7 @@ use crate::codegen::engine::types::FsPathOperation;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::codegen::engine::types::ProgramEntrySpec;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 use crate::target::win_x86_64::app;
@@ -2602,7 +2601,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: Reg,
         _platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -4234,8 +4233,8 @@ mod c_result_tests {
         .expect("seam emits");
         instructions.iter().any(|ins| {
             ins.op == CodeOp::Mov
-                && ins.get("dst").as_deref() == Some(abi::return_register().render().as_str())
-                && ins.get("src").as_deref() == Some(abi::c_return(0).render().as_str())
+                && ins.get("dst").as_deref() == Some(abi::return_register().to_string().as_str())
+                && ins.get("src").as_deref() == Some(abi::c_return(0).to_string().as_str())
         })
     }
 
@@ -4374,7 +4373,7 @@ mod fionbio_tests {
                 .iter()
                 .find(|ins| {
                     ins.op == CodeOp::MovImm
-                        && ins.get("dst").as_deref() == Some(abi::mfb_arg(1).render().as_str())
+                        && ins.get("dst").as_deref() == Some(abi::mfb_arg(1).to_string().as_str())
                 })
                 .and_then(|ins| ins.get("value"))
                 .expect("emit_ioctl_fionbio must move the FIONBIO cmd into ARG[1]");

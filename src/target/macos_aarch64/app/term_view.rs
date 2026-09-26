@@ -594,7 +594,11 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         abi::stack_pointer(),
         off_swc_sel,
     ));
-    asm.external_data(abi::c_arg(3), NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(
+        abi::c_arg(3),
+        NS_FOREGROUND_COLOR_ATTRIBUTE_NAME,
+        LIB_APPKIT,
+    );
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::store_u64(
         abi::c_arg(3),

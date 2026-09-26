@@ -35,7 +35,6 @@ use term_draw::*;
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::abi::Reg;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
@@ -45,6 +44,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::PresentationMode;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 
 // --- Emitted symbols -------------------------------------------------------
 
@@ -929,11 +929,7 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         abi::store_u64(saved[1], abi::stack_pointer(), 8),
         abi::store_u64(saved[2], abi::stack_pointer(), 16),
         abi::store_u64(saved[3], abi::stack_pointer(), 24),
-        abi::exclusive_or_registers(
-            saved[3],
-            saved[3],
-            saved[3],
-        ),
+        abi::exclusive_or_registers(saved[3], saved[3], saved[3]),
     ];
     instructions.splice(entry_at..entry_at, prologue);
     let mut index = entry_at + 6;

@@ -36,7 +36,6 @@ use bootstrap::*;
 use term_view::*;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::abi::Reg;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFrame;
@@ -45,6 +44,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::PresentationMode;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_macapp_worker";
@@ -1062,11 +1062,7 @@ fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: Reg, cstr_symbol: &str)
 /// the call). The raw-register form stays for the standalone app bodies
 /// (bootstrap / term_view / term-setter helpers), whose native goldens it keeps
 /// byte-identical.
-fn build_nsstring_from_cstring_vreg(
-    asm: &mut Asm,
-    class_tmp: impl Into<Reg>,
-    cstr_symbol: &str,
-) {
+fn build_nsstring_from_cstring_vreg(asm: &mut Asm, class_tmp: impl Into<Reg>, cstr_symbol: &str) {
     let class_tmp = class_tmp.into();
     asm.external_data(&class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
@@ -1380,7 +1376,10 @@ mod release_tests {
         let func = bootstrap::emit_reconcile_canvas_helper(true, false);
         let local = |name: Option<String>| -> Option<&'static str> {
             let name = name?;
-            abi::LOCAL.iter().find(|l| **l == name.as_str()).copied()
+            abi::LOCAL_SPELLINGS
+                .iter()
+                .find(|l| **l == name.as_str())
+                .copied()
         };
         let written: BTreeSet<&str> = func
             .instructions
@@ -1391,8 +1390,9 @@ mod release_tests {
         // Only stack traffic counts. A `str` of a LOCAL into a *global* is this helper
         // publishing a value, not preserving its caller's register — counting those was
         // enough to make an earlier version of this test pass with the saves deleted.
-        let on_stack =
-            |ins: &CodeInstruction| ins.get("base").as_deref() == Some(abi::stack_pointer());
+        let on_stack = |ins: &CodeInstruction| {
+            ins.get("base").as_deref() == Some(abi::stack_pointer().to_string().as_str())
+        };
         let saved: BTreeSet<&str> = func
             .instructions
             .iter()

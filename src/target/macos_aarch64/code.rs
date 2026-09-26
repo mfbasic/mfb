@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::abi::Reg;
 use crate::codegen::engine::mir::MirPlan;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFunction;
@@ -13,6 +11,7 @@ use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::codegen::engine::types::ProgramEntrySpec;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -611,7 +610,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,

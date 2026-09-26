@@ -1985,7 +1985,16 @@ fn emit_draw_box(
     instructions.push(abi::move_immediate(ctx.tmp, "Integer", "1"));
     for (row, col, glyph, tag) in corners {
         let skip = format!("{symbol}_box_{tag}_skip");
-        emit_stamp_cell(&ctx, *row, *col, *glyph, ctx.tmp, &skip, &skip, instructions);
+        emit_stamp_cell(
+            &ctx,
+            *row,
+            *col,
+            *glyph,
+            ctx.tmp,
+            &skip,
+            &skip,
+            instructions,
+        );
         instructions.push(abi::label(&skip));
     }
     instructions.push(abi::label(&inactive));

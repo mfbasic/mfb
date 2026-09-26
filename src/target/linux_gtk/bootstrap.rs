@@ -1882,7 +1882,7 @@ mod tests {
                 let cmp = &pair[0];
                 let br = &pair[1];
                 cmp.op == CodeOp::CmpImm
-                    && cmp.get("lhs").as_deref() == Some(abi::SCRATCH[0])
+                    && cmp.get("lhs").as_deref() == Some(abi::SCRATCH_SPELLINGS[0])
                     && cmp.get("rhs").as_deref() == Some(expected_bound.as_str())
                     && br.op == CodeOp::BranchHi
                     && br.get("target").as_deref() == Some("ignore")
@@ -1902,7 +1902,7 @@ mod tests {
             CodeOp::LdrU64,
             "guard must follow the ST_LINE_LEN load"
         );
-        assert_eq!(ldr.get("dst").as_deref(), Some(abi::SCRATCH[0]));
+        assert_eq!(ldr.get("dst").as_deref(), Some(abi::SCRATCH_SPELLINGS[0]));
         assert_eq!(
             ldr.get("offset").as_deref(),
             Some(ST_LINE_LEN.to_string().as_str())
