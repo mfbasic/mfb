@@ -34,6 +34,8 @@ edge count, the band index, or any cap.
 
 Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`). Scope narrowed by the owner to filled polygons; every other shape kind is bug-735 (open).
 
+Re-verified after the bug-732/733 reclaim follow-up (`3a7232241`, goldens `596d1300e`): `cargo test --release --no-fail-fast` 242 binaries / 6200 passed / 0 failed / 24 ignored; `scripts/test-accept.sh` 1556 passed, 0 mismatches; `scripts/artifact-gate.sh all` 0 diffs / 2160.
+
 ## Failing Reproduction
 
 A single self-intersecting star polygon, filled `rgb(250, 250, 120)` on the default black

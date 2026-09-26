@@ -99,6 +99,8 @@ The GTK fix does, however, supply a worked precedent for **WIN-01** and
 
 Landed on `main` by merging the combined `/fix-bug` integration branch; full suite green on the integration branch at `800a1b966` (bug-652/732/733/540/699/687/734 + main `f332f61a3`): `cargo test --release --no-fail-fast` — 242 test binaries, 6198 passed, 0 failed, 24 ignored, `artifact_gate_all` ok; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs / 2160 goldens after regenerating the 72 `.ncode(sum)` goldens the fixes moved (`82f1a43bb`, `800a1b966`), classified against detached `main` (0 diffs / 2160 at both `4df37a4fe` and `f332f61a3`). Deviation: the windowed-exit stall found while verifying (Win32 results read from `rcx`) was fixed here too; bug-699 found and fixed the same site independently.
 
+Re-verified after the bug-732/733 reclaim follow-up (`3a7232241`, goldens `596d1300e`): `cargo test --release --no-fail-fast` 242 binaries / 6200 passed / 0 failed / 24 ignored; `scripts/test-accept.sh` 1556 passed, 0 mismatches; `scripts/artifact-gate.sh all` 0 diffs / 2160.
+
 ## USER DECISION (2026-09-25) — approved; WIN-02/WIN-03 are unblocked
 
 Ruling: **the scripted `term::` resize hook is approved, and the terminal must work
