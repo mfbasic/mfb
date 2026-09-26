@@ -153,3 +153,62 @@ fn write_classifies_the_winsock_error_behind_a_failed_send() {
         }
     }
 }
+
+// bug-721: every successful Schannel `tls::connect` freed its 64 KiB server-name
+// buffer twice. The host C-string scratch that `socket_connect` hands `getaddrinfo`
+// is released at `done` through its pointer vreg — and the `SNAMEW`/STATE/record
+// frees on the way there (`marshal::emit_free_buffer_guarded`) loaded their block
+// into a hand-numbered `"%v9"`, which was the SAME vreg: `Vregs` mints from `%v0`
+// and the scratch pointer was the tenth. So the release freed the already-freed
+// server-name buffer again, at the host string's size, parking one block in a
+// large bin and a quick bin at once; the next small allocation handed it out and
+// the next walk of that large bin faulted (examples/wind on a Windows PC).
+//
+// The release's pointer must be written by nothing but its null-init and the
+// allocation that fills it. Execution proof is Windows-only (box 2230).
+#[test]
+fn connect_host_scratch_is_written_only_by_its_allocation() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    // The Windows platform: the connect restores the socket's blocking mode, a seam
+    // `TestPlatform` refuses (plan-47-I). It resolves every OS call through the import
+    // map, so declare each import the lowering asks for until it lowers.
+    let windows = crate::target::win_x86_64::code::Platform;
+    let mut imports = HashMap::new();
+    let (ins, _rel, _slots) = loop {
+        match lower_tls_connect("t_connect", &imports, &windows, false) {
+            Ok(parts) => break parts,
+            Err(e) => {
+                let symbol = e
+                    .split("requires ")
+                    .nth(1)
+                    .and_then(|rest| rest.strip_suffix(" import"))
+                    .unwrap_or_else(|| panic!("lower schannel tls::connect: {e}"));
+                assert!(
+                    imports.insert(symbol.to_string(), "test.dll".to_string()).is_none(),
+                    "lower schannel tls::connect keeps asking for {symbol}"
+                );
+            }
+        }
+    };
+    let done = ins
+        .iter()
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_connect_done"))
+        .expect("missing label t_connect_done");
+    let arg0 = abi::c_arg(0).to_string();
+    let pointer = ins[done..]
+        .iter()
+        .find(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some(arg0.as_str()))
+        .and_then(|i| i.get("src"))
+        .expect("the scratch release stages its pointer in c_arg(0)");
+    let writers: Vec<String> = ins
+        .iter()
+        .filter(|i| i.get("dst").as_deref() == Some(pointer.as_str()))
+        .map(|i| format!("{:?} {:?}", i.op, i.get("src")))
+        .collect();
+    assert_eq!(
+        writers.len(),
+        2,
+        "bug-721: the host scratch pointer {pointer} must be written only by its null-init \
+         and its allocation, but is written by {writers:?}"
+    );
+}

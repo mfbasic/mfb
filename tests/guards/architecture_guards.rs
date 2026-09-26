@@ -10,12 +10,17 @@
 //!     hand-picked-physical-register class a source lint on top of the
 //!     authoritative runtime guard `regalloc::find_physical_operand`.
 //!
-//!  2. `builtins_no_hand_picked_vreg` — bans hand-*numbered* virtual registers
-//!     (`"%v9"`, `"%f3"`) in `src/codegen/builtins`. These are legal (they pass
-//!     the physical guard) but they are hand-allocated register identities, the
-//!     exact style the minting migration (`temporary_vreg()` /
-//!     `allocate_register()`) replaced. The migration is complete, so the count
-//!     is a hard floor of 0: any new hand-numbered `"%vN"` fails the test.
+//!  2. `no_hand_picked_vreg` — bans hand-*numbered* virtual registers (`"%v9"`,
+//!     `"%f3"`) anywhere in `src/`. These pass the physical guard, but they are
+//!     hand-allocated register identities, and one that shares a function with
+//!     MINTED vregs aliases them: `Vregs` and `allocate_register()` both count up
+//!     from `%v0`, so a helper's literal `"%v9"` IS the caller's tenth minted vreg.
+//!     bug-721 was exactly that — `marshal::emit_free_buffer_guarded`'s `"%v9"`
+//!     overwrote Schannel `tls::connect`'s host-scratch pointer, and the connect
+//!     double-freed a 64 KiB block. This guard used to scan only
+//!     `src/codegen/builtins`, so a builtin reached the banned style through one
+//!     call into `src/codegen/memory/marshal`. The count is a hard floor of 0 over
+//!     the whole tree: any hand-numbered `"%vN"` fails the test.
 //!
 //! Both live in `tests/` (an integration-test crate) rather than inside the
 //! compiler's module tree, so neither the scan roots nor the self-exemption need
@@ -168,9 +173,11 @@ fn count_hand_picked_vregs(line: &str) -> usize {
 }
 
 #[test]
-fn builtins_no_hand_picked_vreg() {
+fn no_hand_picked_vreg() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let roots = [manifest.join("src/codegen/builtins")];
+    // The whole compiler, not one tier: a hand-numbered helper anywhere is reachable
+    // from a minting caller anywhere (bug-721).
+    let roots = [manifest.join("src")];
 
     let mut count = 0usize;
     let mut sample: Vec<String> = Vec::new();
@@ -194,17 +201,16 @@ fn builtins_no_hand_picked_vreg() {
             }
         }
     }
-    // The migration is complete: every native OS-seam helper mints its scratch
-    // through `Vregs::next()` (standalone helpers) or `temporary_vreg()` /
-    // `allocate_register()` (CodeBuilder value lowerings), so the allocator owns
-    // placement. This is a hard floor of 0 — any new hand-numbered `"%vN"`
-    // reopens the class and fails here.
+    // Every helper mints its scratch through `Vregs::next()` (standalone helpers) or
+    // `temporary_vreg()` / `allocate_register()` (CodeBuilder value lowerings), so
+    // the allocator owns placement and no name can alias another. This is a hard
+    // floor of 0 — any new hand-numbered `"%vN"` reopens the class and fails here.
     assert_eq!(
         count, 0,
-        "hand-picked virtual-register literals in src/codegen/builtins: {count} \
+        "hand-picked virtual-register literals in src/: {count} \
          (must be 0). New hand-numbered `\"%vN\"` are banned —\n \
-         Mint via temporary_vreg()/temporary_fp_vreg()/allocate_register()/allocate_fp_register() so the \
-         allocator owns placement. See builder_registers.rs. First offenders:\n{}",
+         Mint via Vregs::next()/temporary_vreg()/temporary_fp_vreg()/allocate_register()/allocate_fp_register() \
+         so the allocator owns placement. See builder_registers.rs. First offenders:\n{}",
         sample.join("\n")
     );
 }
