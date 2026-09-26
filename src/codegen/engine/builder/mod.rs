@@ -2721,6 +2721,29 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
+    // bug-732: the in-place removals' index maintenance, each emitted only when a
+    // lowered function calls it.
+    for (symbol, lower) in [
+        (
+            MAP_BUCKET_DELETE_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_bucket_delete_helper
+                as fn() -> CodeFunction,
+        ),
+        (
+            MAP_COMPACT_FROM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_compact_from_helper,
+        ),
+    ] {
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == symbol)
+        });
+        if used {
+            code_functions.push(lower());
+        }
+    }
     // plan-118-D: one `construct.T` per record type the census qualified, gated
     // on the relocation like every other internal `bl` target — a type can
     // qualify on site count and still have every site fold away.

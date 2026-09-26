@@ -1338,6 +1338,10 @@ pub(crate) const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
 pub(crate) const COLLECTION_ENTRY_FLAG_USED: usize = 1;
+/// bug-732: a `Map`/`Set` entry an in-place removal has claimed. Transient: it
+/// is written only between a removal marking the entry and the same statement's
+/// `_mfb_rt_map_compact_from` dropping it, so no value ever holds one.
+pub(crate) const COLLECTION_ENTRY_FLAG_REMOVED: usize = 2;
 
 // Map hash index (plan-02 Phase 6). A `Map` reserves a bucket array of
 // `2*capacity` u64 entries **after** the data region (so the capacity-based data
@@ -1355,6 +1359,11 @@ pub(crate) const MAP_BUCKET_SIZE: usize = 8;
 pub(crate) const MAP_BUILD_BUCKETS_SYMBOL: &str = "_mfb_rt_map_build_buckets";
 pub(crate) const MAP_BUCKET_PUT_SYMBOL: &str = "_mfb_rt_map_bucket_put";
 pub(crate) const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
+/// bug-732: backward-shift delete one entry's bucket (`map`, `index`).
+pub(crate) const MAP_BUCKET_DELETE_SYMBOL: &str = "_mfb_rt_map_bucket_delete";
+/// bug-732: drop the entries marked `COLLECTION_ENTRY_FLAG_REMOVED` from index
+/// `from` on, renumbering the moved survivors' buckets (`map`, `from`).
+pub(crate) const MAP_COMPACT_FROM_SYMBOL: &str = "_mfb_rt_map_compact_from";
 /// plan-118-C: the shared two-operand `String` concatenation. Takes the two
 /// operand block pointers, returns the new block pointer, or **0** when the
 /// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the

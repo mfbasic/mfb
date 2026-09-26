@@ -87,7 +87,9 @@ fn remove_key_on_a_record_field_mutates_in_place() {
         ),
     );
     assert!(
-        label_count(&plan, "_mfb_fn_drain", "mrk_scan") >= 1,
+        // `mrk_done`: `lower_map_remove_key_in_place`'s own label (bug-732 replaced
+        // its `mrk_scan` loop with a probe for an `Integer` key).
+        label_count(&plan, "_mfb_fn_drain", "mrk_done") >= 1,
         "removeKey on a record field must reach `lower_map_remove_key_in_place`, \
          not rebuild the record and copy the map"
     );
