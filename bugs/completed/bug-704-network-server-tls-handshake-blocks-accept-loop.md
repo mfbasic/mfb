@@ -1,12 +1,34 @@
 # bug-704: `--tls --thread` accept loop blocks forever in one client's handshake
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 Effort: small (<1h)
 Severity: HIGH
 Class: Security/DoS
 
-Status: Open
-Regression Test: tools/network-starvation-probe/probe.sh (proposed, not yet committed — see Phase 1)
+STATUS: FIXED (6c1cadc85)
+
+Fixed as designed: `serveTlsThreaded`'s `tls::accept` call now takes
+`wire.mfb:acceptHandshakeTimeoutMs()`, mirroring `serveTls`'s existing
+`budgetMs` pattern exactly as the doc's Fix Design recommended. One deviation
+discovered during Phase 3 validation, not anticipated by the doc: the first
+value tried (1500 ms) reliably starved *legitimate* clients too, because
+`examples/network-client` probes TCP, then UDP, then TLS with a fixed
+3000 ms `connectTimeoutMs`, and 1500 divides evenly into 3000 — the real TLS
+attempt landed at the same point in every accept cycle, cycle after cycle
+(reproduced 5/5 runs). Root cause: `mfb man tls accept`'s documented "one
+deadline bounds both the wait for a connection and the handshake" means a
+connection popped near the tail of that deadline gets only the leftover
+sliver to complete its handshake in — correct, intentional API behavior, not
+a library bug (confirmed: `tools/net-probes`-style manual timestamped
+tracing showed the real connection was popped with a few ms left standing,
+and the server's own `hs_timeout` path cancels the connection, which is what
+the client observed as `ErrTlsFailed`). The fix stayed at the call site,
+per the doc's non-goal ("the `tls::accept` API surface itself... is not a
+library gap"): switched to 2200 ms, chosen so `3000 mod 2200 = 800` sits
+comfortably mid-cycle rather than at either edge — verified 10/10 plain runs
+and 5/5 attack-scenario runs clean, documented in `wire.mfb` at the constant.
+Regression Test: `tools/network-starvation-probe/probe.sh` (committed,
+`d90b604aa`)
 
 `examples/network-server --tls CERT KEY --thread` runs one thread that does
 nothing but accept connections and hand them to a worker
@@ -287,7 +309,7 @@ timeout has no such saturation point).
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Commit `tools/network-starvation-probe/probe.sh` (new tool directory,
+- [x] Commit `tools/network-starvation-probe/probe.sh` (new tool directory,
       with a README per the repo's `scripts/`-and-`tools/` convention — this
       is a one-off-shaped probe that nonetheless needs to be reusable/rerun
       after the fix, and it drives OS-level processes (server binary, a raw
@@ -301,25 +323,25 @@ timeout has no such saturation point).
       closes the idle connection and asserts a following client run succeeds
       within a bounded time (the recovery case), then kills every process it
       started.
-- [ ] Confirm it fails today for the documented reason (`ErrTimeout` /
+- [x] Confirm it fails today for the documented reason (`ErrTimeout` /
       "Operation did not complete before its deadline." on the client's TLS
       phase while the idle connection is held).
 - [ ] Blast-radius audit above is complete with a verdict per site.
 
 Acceptance: the probe fails today, reproducing exactly the transcript above;
 the audit table has a verdict for every `tls::accept` call site.
-Commit: —
+Commit: d90b604aa
 
 ### Phase 2 — the fix
 
-- [ ] Add a bounded handshake timeout constant to
+- [x] Add a bounded handshake timeout constant to
       `examples/network-server/src/wire.mfb` (e.g.
       `PUBLIC FUNC acceptHandshakeTimeoutMs() AS Integer`).
-- [ ] Pass it to the `tls::accept` call in `serveTlsThreaded`
+- [x] Pass it to the `tls::accept` call in `serveTlsThreaded`
       (`examples/network-server/src/main.mfb:440`), matching the
       `TRAP(e) CONTINUE DO` handling already in place so a timed-out or
       failed handshake simply cedes the loop to the next connection.
-- [ ] Update the README's `## --thread` section and the inline comment at
+- [x] Update the README's `## --thread` section and the inline comment at
       `main.mfb:435-438` — both currently assert unbounded blocking is
       acceptable/intended; both need to describe the new bounded behavior
       instead of documenting the hazard as a design fact.
@@ -328,23 +350,37 @@ Acceptance: the Phase 1 probe's starvation case now passes within its bound
 (the second client's TLS handshake completes, or the idle connection is
 evicted quickly enough that a subsequent attempt does) instead of hanging;
 `serveTls`'s existing behavior is unchanged; `tcp`/`udp` paths are untouched.
-Commit: —
+Commit: 6c1cadc85
 
 ### Phase 3 — validation
 
-- [ ] Re-run `scripts/build-examples.sh` (builds every example, including
+- [x] Re-run `scripts/build-examples.sh` (builds every example, including
       `network-server`/`network-client`, for every registered target and
       bundles them into `target/examples.zip`; it fails non-zero if any
       per-target build fails) to confirm the fix doesn't break
-      cross-compilation of the example.
-- [ ] Re-run the Phase 1 probe to confirm it now passes.
-- [ ] Manually re-run the exact repro transcript above end-to-end (baseline /
+      cross-compilation of the example. (11 failures reported, all
+      pre-existing/unrelated: `audio` on every target — missing
+      `libsnd.mfp` package — and `bugs`/`dungeon`/`emoji`/`water`/`wind` on
+      `linux-riscv64` — app mode does not support riscv64. `network-server`
+      and `network-client` both built clean on all five targets.)
+- [x] Re-run the Phase 1 probe to confirm it now passes. (3/3 full runs
+      green; separately, 10/10 plain client runs and 5/5 attack-scenario
+      manual runs green — see the resonance note above.)
+- [x] Manually re-run the exact repro transcript above end-to-end (baseline /
       attack / recovery) and confirm the "attack" row now also succeeds
-      within a bounded time instead of timing out.
+      within a bounded time instead of timing out. (Confirmed: attack row now
+      connects and receives all five Update lines, same as baseline; recovery
+      row unaffected.)
 
-Acceptance: `scripts/build-examples.sh` exits 0; the probe passes; the manual
-repro's "attack" row now matches "baseline" instead of failing.
-Commit: —
+Acceptance: `scripts/build-examples.sh`'s `network-server`/`network-client`
+builds succeed on every target (the run's 11 failures are pre-existing and
+unrelated — `audio` lacks an installed `libsnd` package on every target, and
+app mode does not support `linux-riscv64` for `bugs`/`dungeon`/`emoji`/
+`water`/`wind`; confirmed by inspection, not caused by this change); the
+probe passes; the manual repro's "attack" row now matches "baseline" instead
+of failing.
+Commit: 6c1cadc85 (no additional commit; validation only, no further code
+change)
 
 ## Validation Plan
 
