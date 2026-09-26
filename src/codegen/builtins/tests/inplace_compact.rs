@@ -329,3 +329,29 @@ fn a_copying_list_insert_drops_dead_bytes_only_for_an_entry_list() {
         }
     }
 }
+
+/// bug-733: every in-place map/set grow first offers the dead key/value bytes to
+/// `_mfb_rt_map_reclaim` (`map_reclaim_grow` is where it falls through to the
+/// grow) — the single-key `set`/`add` grows and the batch reserve alike.
+#[test]
+fn an_in_place_map_or_set_grow_reclaims_dead_bytes_first() {
+    for statement in [
+        "m = collections::set(m, i, i)",
+        "s = collections::add(s, i)",
+        "s = collections::union(s, t)",
+    ] {
+        let source = format!(
+            "IMPORT collections\nIMPORT io\n\nFUNC main() AS Integer\n  \
+             MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {{}}\n  \
+             MUT s AS Set OF Integer = Set OF Integer {{}}\n  \
+             LET t AS Set OF Integer = Set OF Integer {{ 7, 8 }}\n  \
+             FOR i = 1 TO 3\n    {statement}\n  NEXT\n  \
+             io::print(toString(len(m) + len(s)))\n  RETURN 0\nEND FUNC\n"
+        );
+        let stems = label_stems(&source);
+        assert!(
+            stems.contains("map_reclaim_grow"),
+            "`{statement}` must reclaim dead bytes before it grows: {stems:?}"
+        );
+    }
+}

@@ -2721,8 +2721,8 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
-    // bug-732: the in-place removals' index maintenance, each emitted only when a
-    // lowered function calls it.
+    // bug-732/733: the in-place removals' index maintenance and the map dead-byte
+    // reclaim, each emitted only when a lowered function calls it.
     for (symbol, lower) in [
         (
             MAP_BUCKET_DELETE_SYMBOL,
@@ -2732,6 +2732,10 @@ pub(crate) fn lower_module_for_platform(
         (
             MAP_COMPACT_FROM_SYMBOL,
             crate::codegen::collection::map::map_bucket_remove::lower_map_compact_from_helper,
+        ),
+        (
+            MAP_RECLAIM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_reclaim_helper,
         ),
     ] {
         let used = code_functions.iter().any(|function| {

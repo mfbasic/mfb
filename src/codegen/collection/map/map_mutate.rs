@@ -459,8 +459,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&vwrite));
 
         // Grow the data region only (capacity unchanged); copy entries + data
-        // verbatim against the capacity-based base, then repoint.
+        // verbatim against the capacity-based base, then repoint. bug-733: first
+        // reclaim dead bytes, and retry the room check if that made room.
         self.emit(abi::label(&vgrow));
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &value_grow)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -768,7 +770,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&write));
 
         // --- Grow: geometric capacity + data, copy entries/data verbatim. ---
+        // bug-733: first reclaim dead bytes, and retry the room check.
         self.emit(abi::label(&grow));
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &not_found)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -1143,6 +1147,52 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
         })
+    }
+
+    /// bug-733: the first step of every in-place grow of a `Map`/`Set` — reclaim
+    /// the dead key and value bytes instead of copying them. Calls
+    /// `_mfb_rt_map_reclaim` (see `lower_map_reclaim_helper`, which allocates
+    /// nothing and cannot fail): when it repacked, branch to `retry` (the caller's
+    /// room check, which recomputes from the new `dataLength`); otherwise fall
+    /// through to the grow. `map_slot` may hold a record field's sub-block
+    /// address: the block does not move.
+    pub(crate) fn emit_map_reclaim_before_grow(
+        &mut self,
+        map_slot: usize,
+        map_type: &ParameterType,
+        retry: &str,
+    ) -> Result<(), String> {
+        let (key_type, value_type) = match typed_map_type_parts(map_type) {
+            Some((key, value)) => (key.clone(), value.clone()),
+            None => {
+                let element = crate::codegen::engine::types::typed_set_element_type(map_type)
+                    .cloned()
+                    .ok_or_else(|| format!("native map reclaim of non-map {map_type}"))?;
+                (element, ParameterType::Boolean)
+            }
+        };
+        let key_align = self.collection_payload_alignment(&key_type);
+        let value_align = self.collection_payload_alignment(&value_type);
+        let grow = self.label("map_reclaim_grow");
+        let status = self.temporary_vreg();
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &key_align.to_string(),
+        ));
+        self.emit(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            &value_align.to_string(),
+        ));
+        self.emit(abi::branch_link(MAP_RECLAIM_SYMBOL));
+        self.push_internal_call_relocation(MAP_RECLAIM_SYMBOL);
+        self.emit(abi::move_register(&status, abi::mfb_return(0)));
+        self.emit(abi::compare_immediate(&status, "0"));
+        self.emit(abi::branch_ne(retry));
+        self.emit(abi::label(&grow));
+        Ok(())
     }
 
     /// bug-732: the index of the entry of the map in `map_slot` whose key equals

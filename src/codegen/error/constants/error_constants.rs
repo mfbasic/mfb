@@ -1364,6 +1364,9 @@ pub(crate) const MAP_BUCKET_DELETE_SYMBOL: &str = "_mfb_rt_map_bucket_delete";
 /// bug-732: drop the entries marked `COLLECTION_ENTRY_FLAG_REMOVED` from index
 /// `from` on, renumbering the moved survivors' buckets (`map`, `from`).
 pub(crate) const MAP_COMPACT_FROM_SYMBOL: &str = "_mfb_rt_map_compact_from";
+/// bug-733: pack a map's live key/value payloads in place when its dead bytes
+/// outnumber them (`map`, `keyAlign`, `valueAlign`) -> 0 nothing done, 1 repacked.
+pub(crate) const MAP_RECLAIM_SYMBOL: &str = "_mfb_rt_map_reclaim";
 /// plan-118-C: the shared two-operand `String` concatenation. Takes the two
 /// operand block pointers, returns the new block pointer, or **0** when the
 /// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the
