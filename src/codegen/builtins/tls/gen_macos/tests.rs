@@ -548,8 +548,8 @@ fn accept_stores_zero_queue_slot() {
     // loaded queue exists by checking the record store uses the zero register.
     let stores_zero_queue = ins.iter().any(|i| {
         i.op == CodeOp::StrU64
-            && i.get("src").as_deref() == Some(abi::ZERO)
-            && i.get("base").as_deref() == Some(abi::mfb_return(1).render().as_str())
+            && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+            && i.get("base").as_deref() == Some(abi::mfb_return(1).to_string().as_str())
             && i.get("offset").as_deref() == Some(&REC_QUEUE.to_string())
     });
     assert!(
@@ -716,8 +716,8 @@ fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
     for slot in CLEANUP_SLOTS {
         let zeroed = ins[..first_fail].iter().any(|i| {
             i.get("offset").as_deref() == Some(slot)
-                && i.get("src").as_deref() == Some(abi::ZERO)
-                && i.get("base").as_deref() == Some(abi::stack_pointer())
+                && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+                && i.get("base").as_deref() == Some(abi::SP_SPELLING)
         });
         assert!(
             zeroed,
@@ -891,7 +891,7 @@ fn trampolines_publish_the_error_domain_before_the_gate() {
                 .iter()
                 .find(|f| f.symbol == symbol)
                 .unwrap_or_else(|| panic!("{symbol} is emitted (server={server})"));
-            let stores_to = |off: usize| ctx_stores(&f.instructions, abi::LOCAL[0], off);
+            let stores_to = |off: usize| ctx_stores(&f.instructions, abi::LOCAL_SPELLINGS[0], off);
             let edom = stores_to(CTX_EDOM);
             assert_eq!(edom.len(), 1, "{symbol} stores CTX_EDOM exactly once");
             let edom = edom[0].0;

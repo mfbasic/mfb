@@ -342,12 +342,12 @@ pub(crate) fn lower_strings_case_map_out(
     // bug-536 shape B: the case-mapped output is this lowering's own
     // `emit_arena_alloc_call` block (`result_slot`), written by the pass above —
     // never the input's storage.
-    builder.mark_fresh_string(Operand::from(result.render()));
+    builder.mark_fresh_string(Operand::from(result));
     Ok((
         ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: map.name().to_string(),
         },
         length_slot,

@@ -70,7 +70,7 @@ pub(crate) fn lower_did_resize(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().into());
     emit_did_resize(
         &symbol,
         &scratch,

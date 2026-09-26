@@ -8,6 +8,7 @@
 //! all `use super::gen_read_family::…`).
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::MOUSE_MODE_SYMBOL;
@@ -209,13 +210,13 @@ pub(crate) fn emit_stdin_byte_read(
 /// read and across the decoder, so a name collision with a caller's temporary
 /// would be a silent wrong-byte bug rather than a compile error.
 struct PumpVregs {
-    saved_count: String,
-    byte: String,
-    action: String,
-    out_byte: String,
-    mode: String,
-    mode_addr: String,
-    have: String,
+    saved_count: VirtualRegister,
+    byte: VirtualRegister,
+    action: VirtualRegister,
+    out_byte: VirtualRegister,
+    mode: VirtualRegister,
+    mode_addr: VirtualRegister,
+    have: VirtualRegister,
 }
 
 impl PumpVregs {
@@ -318,7 +319,7 @@ fn emit_pump_escape_wait(
 
     mouse_decode::emit_branch_unless_prefix_held(read_label, pump.state_offset, ctx, vregs);
     if !app_mode {
-        let names: Vec<String> = (0..8).map(|_| vregs.next()).collect();
+        let names: Vec<VirtualRegister> = (0..8).map(|_| vregs.next()).collect();
         let regs = PollReadyRegs {
             addr: &names[0],
             local_pos: &names[1],

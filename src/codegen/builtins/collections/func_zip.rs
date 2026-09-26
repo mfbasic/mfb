@@ -395,7 +395,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("zip({list_type})"),
         })
     }
@@ -538,7 +538,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("zip({list_type} String)"),
         })
     }

@@ -36,7 +36,7 @@ fn available_returns_frames_not_bytes() {
         .expect("lower audio::available");
     let scales_result = ins.iter().any(|i| {
         i.op == CodeOp::Mul
-            && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER.render().as_str())
+            && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER.to_string().as_str())
     });
     assert!(
         !scales_result,
@@ -127,7 +127,7 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
         CodeOp::LdrU64,
         "the widen starts by loading the record"
     );
-    assert_eq!(ins[0].get("base").as_deref(), Some(abi::stack_pointer()));
+    assert_eq!(ins[0].get("base").as_deref(), Some(abi::SP_SPELLING));
     assert_eq!(
         ins[0].get("offset").as_deref(),
         Some(DEVID_OFF.to_string().as_str())

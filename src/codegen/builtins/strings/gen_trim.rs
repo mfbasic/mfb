@@ -216,7 +216,7 @@ pub(crate) fn lower_strings_trim(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.trim".to_string(),
     })
 }

@@ -4,6 +4,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 /// Signed 64-bit minimum, written as its unsigned bit pattern (`abs`/`neg`
 /// overflow sentinel for Integer and Fixed lanes).
@@ -130,10 +131,11 @@ impl CodeBuilder<'_> {
     /// untouched. The flag is taken here, so exactly one driver consumes it.
     pub(crate) fn emit_alloc_result_list(
         &mut self,
-        count: impl Into<Operand>,
+        count: impl Into<Reg>,
         type_code: &str,
         label_prefix: &str,
     ) -> Result<VirtualRegister, String> {
+        let count: Reg = count.into();
         if self.simd_result_into.take().is_some() {
             let need_slot = self.allocate_stack_object("simd_into_need", 8);
             let need = self.temporary_vreg();
@@ -283,7 +285,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -327,7 +329,8 @@ impl CodeBuilder<'_> {
     /// Materialize `value` into a GPR and broadcast it into both `.2d` lanes of
     /// the given vector register. Uses the caller-saved scratch `x0` (free: the
     /// loop runs after the only call), so it does not consume a loop register.
-    fn broadcast_const(&mut self, vreg: &str, value: &str) -> Result<(), String> {
+    fn broadcast_const(&mut self, vreg: impl Into<Reg>, value: &str) -> Result<(), String> {
+        let vreg: Reg = vreg.into();
         let tmp = self.allocate_register();
         self.emit(abi::move_immediate(&tmp, "Integer", value));
         self.emit(abi::vector_dup_from_x(vreg, &tmp));
@@ -525,12 +528,12 @@ impl CodeBuilder<'_> {
     fn emit_simd_unary_scalar(
         &mut self,
         kernel: SimdUnaryKernel,
-        in_data: impl Into<Operand>,
-        out_data: impl Into<Operand>,
-        err: impl Into<Operand>,
+        in_data: impl Into<Reg>,
+        out_data: impl Into<Reg>,
+        err: impl Into<Reg>,
     ) -> Result<(), String> {
-        let out_data = out_data.into();
-        let err = err.into();
+        let (in_data, out_data): (Reg, Reg) = (in_data.into(), out_data.into());
+        let err: Reg = err.into();
         // Per-element scratch, allocator-placed (plan-34-B Phase 3): `elem` is the
         // loaded lane, `tmp` the transform temporary / convert destination.
         let elem = self.allocate_register();
@@ -615,10 +618,10 @@ impl CodeBuilder<'_> {
     /// and is not exactly `-2^63`.
     fn emit_float_to_int_overflow_to_err(
         &mut self,
-        bits: impl Into<Operand>,
-        err: impl Into<Operand>,
+        bits: impl Into<Reg>,
+        err: impl Into<Reg>,
     ) -> Result<(), String> {
-        let bits = bits.into();
+        let (bits, err): (Reg, Reg) = (bits.into(), err.into());
         // Allocator-placed scratch (plan-34-B Phase 3); `bits` is the caller's
         // element vreg, `err` its error accumulator.
         let exponent = self.allocate_register();
@@ -738,7 +741,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -799,11 +802,10 @@ impl CodeBuilder<'_> {
     fn emit_simd_binary_scalar(
         &mut self,
         kernel: SimdBinaryKernel,
-        left: impl Into<Operand>,
-        right: impl Into<Operand>,
+        left: impl Into<Reg>,
+        right: impl Into<Reg>,
     ) {
-        let left = left.into();
-        let right = right.into();
+        let (left, right): (Reg, Reg) = (left.into(), right.into());
         let done = self.label("simd_bin_tail_sel_done");
         match kernel {
             SimdBinaryKernel::MinSigned => {
@@ -954,7 +956,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -1015,13 +1017,11 @@ impl CodeBuilder<'_> {
     fn emit_simd_clamp_scalar(
         &mut self,
         kernel: SimdClampKernel,
-        lane: impl Into<Operand>,
-        low: impl Into<Operand>,
-        high: impl Into<Operand>,
+        lane: impl Into<Reg>,
+        low: impl Into<Reg>,
+        high: impl Into<Reg>,
     ) {
-        let lane = lane.into();
-        let low = low.into();
-        let high = high.into();
+        let (lane, low, high): (Reg, Reg, Reg) = (lane.into(), low.into(), high.into());
         match kernel {
             SimdClampKernel::Signed => {
                 // lane = min(lane, high)

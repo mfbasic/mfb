@@ -14,19 +14,21 @@ use super::gen_shared::{
 };
 use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 /// The captured `relative` argument: the `String` block pointer, its byte length,
 /// and its data pointer (`block + 8`). A `String` block is
 /// `[8-byte length][bytes][NUL]`.
 pub(crate) struct RelativeArg {
-    pub(crate) len: String,
-    pub(crate) data: String,
+    pub(crate) len: VirtualRegister,
+    pub(crate) data: VirtualRegister,
 }
 
 /// Capture the incoming `String` argument (ARG 0) into vregs. Call it FIRST: the
@@ -143,8 +145,8 @@ pub(crate) fn emit_validate_relative(
 pub(crate) fn emit_join_result(
     symbol: &str,
     label_prefix: &str,
-    base_ptr: &str,
-    base_len: &str,
+    base_ptr: impl Into<Reg>,
+    base_len: impl Into<Reg>,
     suffix: &[u8],
     arg: &RelativeArg,
     alloc_error: &str,
@@ -153,12 +155,13 @@ pub(crate) fn emit_join_result(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let (base_ptr, base_len): (Reg, Reg) = (base_ptr.into(), base_len.into());
     let base_len = &if suffix.is_empty() {
         emit_root_elided_len(
             label_prefix,
             base_ptr,
             base_len,
-            Some(&arg.len),
+            Some(Reg::from(arg.len)),
             vregs,
             instructions,
         )
@@ -240,12 +243,13 @@ pub(crate) fn emit_join_result(
 /// when something follows), or `None` when a non-empty `suffix` always does.
 fn emit_root_elided_len(
     label_prefix: &str,
-    base_ptr: &str,
-    base_len: &str,
-    follows: Option<&str>,
+    base_ptr: impl Into<Reg>,
+    base_len: impl Into<Reg>,
+    follows: Option<Reg>,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
-) -> String {
+) -> VirtualRegister {
+    let (base_ptr, base_len): (Reg, Reg) = (base_ptr.into(), base_len.into());
     let eff = vregs.next();
     let byte = vregs.next();
     let keep = format!("{label_prefix}_root_keep");
@@ -295,8 +299,8 @@ pub(crate) fn emit_path_error_tails(
 /// caller copies them (via [`emit_join_result`]) while still holding whatever keeps
 /// them valid (the env/pwd lock on POSIX).
 pub(crate) struct BaseBytes {
-    pub(crate) ptr: String,
-    pub(crate) len: String,
+    pub(crate) ptr: VirtualRegister,
+    pub(crate) len: VirtualRegister,
 }
 
 /// Frame locals the POSIX lookups use: a NUL-terminated variable name
@@ -328,10 +332,11 @@ fn emit_name_arg(name: &str, vregs: &mut Vregs, instructions: &mut Vec<CodeInstr
 /// Measure a NUL-terminated C string at `ptr` into a fresh length vreg.
 fn emit_cstr_len(
     label_prefix: &str,
-    ptr: &str,
+    ptr: impl Into<Reg>,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
-) -> String {
+) -> VirtualRegister {
+    let ptr: Reg = ptr.into();
     let len = vregs.next();
     let cursor = vregs.next();
     let byte = vregs.next();
@@ -547,8 +552,13 @@ impl HostDir {
 /// fresh `String` ([`emit_join_result`]); the internal `*Base` helper the in-place
 /// arm calls writes it into a caller buffer ([`emit_into_result`]).
 enum Sink {
-    Join { arg: RelativeArg },
-    Into { dst: String, cap: String },
+    Join {
+        arg: RelativeArg,
+    },
+    Into {
+        dst: VirtualRegister,
+        cap: VirtualRegister,
+    },
 }
 
 /// The `*Base` helper's result (plan-157-B §4.4): `base ++ suffix` written to
@@ -557,21 +567,30 @@ enum Sink {
 #[allow(clippy::too_many_arguments)]
 fn emit_into_result(
     label_prefix: &str,
-    base_ptr: &str,
-    base_len: &str,
+    base_ptr: impl Into<Reg>,
+    base_len: impl Into<Reg>,
     suffix: &[u8],
-    dst: &str,
-    cap: &str,
+    dst: impl Into<Reg>,
+    cap: impl Into<Reg>,
     done: &str,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (base_ptr, base_len, dst, cap): (Reg, Reg, Reg, Reg) =
+        (base_ptr.into(), base_len.into(), dst.into(), cap.into());
     // With nothing after it the root stays `/`; the arm then joins a value onto
     // it without a second `/` (`GrowKind::HostPath`), matching the copying call.
-    let base_len = &if suffix.is_empty() {
-        base_len.to_string()
+    let base_len = if suffix.is_empty() {
+        base_len
     } else {
-        emit_root_elided_len(label_prefix, base_ptr, base_len, None, vregs, instructions)
+        Reg::from(emit_root_elided_len(
+            label_prefix,
+            base_ptr,
+            base_len,
+            None,
+            vregs,
+            instructions,
+        ))
     };
     let total = vregs.next();
     let out = vregs.next();
@@ -996,14 +1015,15 @@ fn emit_windows_known_folder_into(
     symbol: &str,
     query: &str,
     suffix: &[u8],
-    dst: &str,
-    cap: &str,
+    dst: impl Into<Reg>,
+    cap: impl Into<Reg>,
     fail: &str,
     done: &str,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let (dst, cap): (Reg, Reg) = (dst.into(), cap.into());
     let hook_cap = vregs.next();
     let folder_len = vregs.next();
     let total = vregs.next();

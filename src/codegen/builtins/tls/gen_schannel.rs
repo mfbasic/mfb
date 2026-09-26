@@ -15,7 +15,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -32,6 +31,7 @@ use super::gen_shared::{
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 
@@ -136,11 +136,12 @@ pub(crate) const SOCKET_BLOCK_SIZE: usize = st::SIZE;
 /// literal, so it is built in `%v14` by shift+add and sign-extended to match the
 /// sign-extended status register.
 fn branch_if_incomplete(
-    status: &str,
+    status: impl Into<Reg>,
     target: &str,
     ins: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let status: Reg = status.into();
     let v14 = vregs.next();
     ins.extend([
         abi::move_immediate(&v14, "Integer", "32777"), // 0x8009
@@ -186,11 +187,12 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
 
 fn wide_addr(
     from: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<Reg>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
+    let dst: Reg = dst.into();
     crate::codegen::memory::arena::emit_data_address(from, dst, &sym(id), ins, rel);
 }
 

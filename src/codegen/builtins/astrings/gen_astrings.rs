@@ -68,7 +68,7 @@ impl CodeBuilder<'_> {
         let record = ValueResult {
             origin: None,
             type_: ParameterType::named("AttributedString"),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("astrings::fromString({})", text.text),
         };
         // bug-625: the record holds a byte copy of the empty list, and the list was built
@@ -106,7 +106,7 @@ impl CodeBuilder<'_> {
         ));
         let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
-        let record_op = Operand::from(record.render());
+        let record_op = Operand::from(record);
         let spans_alias = self.emit_attributed_string_field_ptr(&record_op, 1)?;
         let copied = self.copy_value_to_current_arena(
             &ParameterType::list_of(ParameterType::named("AttrSpan")),
@@ -115,7 +115,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::named("AttrSpan"))),
-            location: Operand::from(copied.render()),
+            location: Operand::from(copied),
             text: format!("astrings::readSpans({})", value.text),
         })
     }
@@ -134,7 +134,7 @@ impl CodeBuilder<'_> {
         ));
         let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
-        let record_op = Operand::from(record.render());
+        let record_op = Operand::from(record);
         let text_ptr = self.emit_attributed_string_field_ptr(&record_op, 0)?;
 
         let length = self.temporary_vreg();
@@ -167,7 +167,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(count.render()),
+            location: Operand::from(count),
             text: format!("astrings::scalarLen({})", value.text),
         })
     }
@@ -184,7 +184,7 @@ impl CodeBuilder<'_> {
         ));
         let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
-        let record_op = Operand::from(record.render());
+        let record_op = Operand::from(record);
         let text_alias = self.emit_attributed_string_field_ptr(&record_op, 0)?;
         let text_slot = self.allocate_stack_object("astrings_write_spans_text", 8);
         self.emit(abi::store_u64(&text_alias, abi::stack_pointer(), text_slot));
@@ -211,7 +211,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::named("AttributedString"),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("astrings::writeSpans({}, {})", value.text, spans.text),
         })
     }

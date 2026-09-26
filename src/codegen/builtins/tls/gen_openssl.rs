@@ -3425,7 +3425,7 @@ mod error_path_release_tests {
             .any(|i| {
                 i.op == CodeOp::StrU64
                     && off_record(i)
-                    && i.get("src").as_deref() != Some(abi::ZERO)
+                    && i.get("src").as_deref() != Some(abi::ZERO_SPELLING)
             });
         assert!(
             sets,
@@ -3461,7 +3461,7 @@ mod error_path_release_tests {
             ins.iter().any(|i| {
                 i.op == CodeOp::StrU64
                     && off_record(i)
-                    && i.get("src").as_deref() == Some(abi::ZERO)
+                    && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
             })
         };
         let (ins, _rel, _s) =

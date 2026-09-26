@@ -49,6 +49,7 @@ use crate::codegen::os::syscall::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::{
@@ -1224,8 +1225,9 @@ fn emit_monotonic_nanos(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
-    dst: &str,
+    dst: impl Into<Reg>,
 ) -> Result<(), String> {
+    let dst: Reg = dst.into();
     let sec = vregs.next();
     let nsec = vregs.next();
     let scale = vregs.next();
@@ -1260,11 +1262,12 @@ fn emit_monotonic_nanos(
 fn emit_icmp_checksum(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
-    pkt: &str,
+    pkt: impl Into<Reg>,
     sum_loop: &str,
     sum_done: &str,
     sum_odd: &str,
 ) {
+    let pkt: Reg = pkt.into();
     let cursor = vregs.next();
     let remaining = vregs.next();
     let sum = vregs.next();

@@ -16,9 +16,9 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 /// Pixel width. The tail starts at 32, immediately after the canonical header.
 ///
@@ -63,9 +63,10 @@ pub(crate) const BYTES_PER_PIXEL: usize = 4;
 /// refuse every operation with no extra code.
 pub(crate) fn emit_closed_guard(
     builder: &mut CodeBuilder,
-    record: impl Into<Operand>,
+    record: impl Into<Reg>,
     closed_label: &str,
 ) {
+    let record: Reg = record.into();
     let flags = builder.temporary_vreg();
     builder.emit(abi::load_u64(&flags, record, RESOURCE_OFFSET_CLOSED));
     builder.emit(abi::compare_immediate(&flags, "0"));

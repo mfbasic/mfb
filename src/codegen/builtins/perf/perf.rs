@@ -40,6 +40,7 @@ use crate::codegen::memory::data::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 // A generous fixed 16 MiB private-anon reservation for the perf tables. On
 // exhaustion plan-67-D's perf_end drops the sample and bumps a visible `overflow`
 // counter (never a silent cap). `MAP_ANON` pages arrive zeroed, so the
@@ -446,7 +447,7 @@ pub(crate) fn lower_perf_helper(
 /// clobbers `ARG[0]`/`ARG[1]` + x0–x17 via the libc call; the caller keeps its
 /// live state in vregs (spilled across the call). Reused by perf_end (plan-67-D).
 fn emit_read_monotonic_nanos(
-    dst: &str,
+    dst: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -454,6 +455,7 @@ fn emit_read_monotonic_nanos(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: Reg = dst.into();
     let sec = vregs.next();
     let nsec = vregs.next();
     let billion = vregs.next();
@@ -488,12 +490,13 @@ fn emit_read_monotonic_nanos(
 /// bytes from `object+8`) in front of `cursor`, moving `cursor` back by that length.
 /// `label` names this copy loop's labels.
 fn emit_prepend_string(
-    object: &str,
-    cursor: &str,
+    object: impl Into<Reg>,
+    cursor: impl Into<Reg>,
     label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (object, cursor): (Reg, Reg) = (object.into(), cursor.into());
     let length = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
@@ -527,9 +530,9 @@ fn emit_prepend_string(
 /// labels distinct.
 #[allow(clippy::too_many_arguments)]
 fn emit_perf_line(
-    name: Option<&str>,
+    name: Option<Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<Reg>,
     tag: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -538,6 +541,7 @@ fn emit_perf_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let value: Reg = value.into();
     let remaining = vregs.next();
     let cursor = vregs.next();
     let ten = vregs.next();
@@ -607,13 +611,15 @@ fn emit_perf_line(
 /// Load `scratch[idx]` (i64) into `dst`; `idx`/`scratch` are registers, `eight`
 /// holds the element stride 8. plan-67-E median scratch addressing.
 fn emit_load_elem(
-    dst: &str,
-    scratch: &str,
-    idx: &str,
-    eight: &str,
+    dst: impl Into<Reg>,
+    scratch: impl Into<Reg>,
+    idx: impl Into<Reg>,
+    eight: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (dst, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (dst.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),
@@ -624,13 +630,15 @@ fn emit_load_elem(
 
 /// Store `src` (i64) to `scratch[idx]`.
 fn emit_store_elem(
-    src: &str,
-    scratch: &str,
-    idx: &str,
-    eight: &str,
+    src: impl Into<Reg>,
+    scratch: impl Into<Reg>,
+    idx: impl Into<Reg>,
+    eight: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (src, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (src.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),
@@ -650,9 +658,9 @@ fn emit_store_elem(
 /// matching log samples, so the scratch holds exactly `count` items).
 #[allow(clippy::too_many_arguments)]
 fn emit_write_stats(
-    base: &str,
-    name: &str,
-    count: &str,
+    base: impl Into<Reg>,
+    name: impl Into<Reg>,
+    count: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -660,6 +668,8 @@ fn emit_write_stats(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let name: Reg = name.into();
+    let (base, count): (Reg, Reg) = (base.into(), count.into());
     let sum = vregs.next();
     let min = vregs.next();
     let max = vregs.next();
@@ -882,11 +892,11 @@ fn emit_write_stats(
     // One report line per statistic: `perf.<name>.<stat> <value>`.
     for (suffix, stat, tag) in [
         (PERF_KEY_COUNT_SYMBOL, count, "c"),
-        (PERF_KEY_AVG_SYMBOL, avg.as_str(), "av"),
-        (PERF_KEY_MEDIAN_SYMBOL, median.as_str(), "md"),
-        (PERF_KEY_MIN_SYMBOL, min.as_str(), "mn"),
-        (PERF_KEY_MAX_SYMBOL, max.as_str(), "mx"),
-        (PERF_KEY_SUM_SYMBOL, sum.as_str(), "sm"),
+        (PERF_KEY_AVG_SYMBOL, Reg::from(avg), "av"),
+        (PERF_KEY_MEDIAN_SYMBOL, Reg::from(median), "md"),
+        (PERF_KEY_MIN_SYMBOL, Reg::from(min), "mn"),
+        (PERF_KEY_MAX_SYMBOL, Reg::from(max), "mx"),
+        (PERF_KEY_SUM_SYMBOL, Reg::from(sum), "sm"),
     ] {
         emit_perf_line(
             Some(name),
@@ -912,7 +922,7 @@ fn emit_counter_row(
     name_symbol: &str,
     counter_offset: usize,
     tag: &str,
-    base: &str,
+    base: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -920,6 +930,7 @@ fn emit_counter_row(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let base: Reg = base.into();
     let value = vregs.next();
     let skip = format!("{symbol}_{tag}_skip");
     instructions.extend([

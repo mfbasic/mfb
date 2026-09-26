@@ -259,7 +259,7 @@ impl CodeBuilder<'_> {
         let block = ValueResult {
             origin: None,
             type_: value.type_,
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: value.text,
         };
         // The materialized block is a fresh, freeable-flat arena block — register

@@ -22,6 +22,7 @@ use crate::codegen::os::syscall::*;
 use crate::codegen::registry::AbiCtx;
 use crate::codegen::term::grid as term_grid;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 /// Shared `abi_function` body for `io::{print,write,printError,writeError}`,
@@ -326,13 +327,14 @@ pub(crate) fn lower_write_family(
 #[allow(clippy::too_many_arguments)]
 fn emit_append_to_stdout_buffer(
     ctx: &mut EmitCtx,
-    src: &str,
-    len: &str,
+    src: impl Into<Reg>,
+    len: impl Into<Reg>,
     tag: &str,
     epipe_label: Option<&str>,
     write_error: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let (src, len): (Reg, Reg) = (src.into(), len.into());
     let cap = OUT_BUFFER_CAPACITY.to_string();
     let v0 = vregs.next();
     let v1 = vregs.next();
@@ -352,15 +354,15 @@ fn emit_append_to_stdout_buffer(
         cap: &cap,
         prefix: "buf",
         v: [
-            v0.as_str(),
-            v1.as_str(),
-            v2.as_str(),
-            v3.as_str(),
-            v4.as_str(),
-            v5.as_str(),
-            v6.as_str(),
-            v7.as_str(),
-            v8.as_str(),
+            v0.into(),
+            v1.into(),
+            v2.into(),
+            v3.into(),
+            v4.into(),
+            v5.into(),
+            v6.into(),
+            v7.into(),
+            v8.into(),
         ],
         fd: None,
         epipe_label,

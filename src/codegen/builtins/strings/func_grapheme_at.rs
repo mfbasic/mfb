@@ -151,7 +151,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.graphemeAt".to_string(),
     })
 }

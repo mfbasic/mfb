@@ -444,7 +444,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                Operand::from(z.render())
+                Operand::from(z)
             },
             text: String::new(),
         };
@@ -461,7 +461,7 @@ impl CodeBuilder<'_> {
             location: {
                 let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                Operand::from(z.render())
+                Operand::from(z)
             },
             text: String::new(),
         };

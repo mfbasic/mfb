@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 // --- Core Audio constants (verified against CoreAudio/AudioHardware.h) --------
 pub(crate) const SYS_OBJECT: &str = "1"; // kAudioObjectSystemObject
@@ -611,10 +612,11 @@ pub(crate) fn emit_id_matches(
     field: usize,
     symbol: &str,
     tag: &str,
-    record: &str,
+    record: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let record: Reg = record.into();
     let v13 = vregs.next();
     let v14 = vregs.next();
     let v16 = vregs.next();

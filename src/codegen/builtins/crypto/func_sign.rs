@@ -34,6 +34,7 @@ use crate::codegen::memory::marshal::{
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // The `Certificate` ordinals, framework/library paths, dlsym-name and PKCS#8-template
@@ -442,10 +443,11 @@ fn lx_free_guarded(
     raw_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     let skip = format!("{symbol}_{tag}_nofree");
     ins.extend([
         abi::load_u64(scratch, abi::stack_pointer(), obj_off),
@@ -553,7 +555,7 @@ fn emit_linux_sign(
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate(&v9, (point_len + field_len).to_string()),
+        abi::compare_immediate(&v9, &(point_len + field_len).to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
 
@@ -917,12 +919,13 @@ fn emit_linux_sign(
 /// `[dst]`, advancing `dst` past the written bytes.
 fn win_der_encode_int(
     sc: &Sc,
-    src: &str,
-    dst: &str,
+    src: impl Into<Reg>,
+    dst: impl Into<Reg>,
     field: usize,
     tag: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let (src, dst): (Reg, Reg) = (src.into(), dst.into());
     let skip = format!("{tag}_lz");
     let skip_done = format!("{tag}_lzd");
     let no_pad = format!("{tag}_np");
@@ -1251,7 +1254,7 @@ fn emit_windows_sign(
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
         abi::load_u64(&sc.v9, abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate(&sc.v9, priv_raw.to_string()),
+        abi::compare_immediate(&sc.v9, &priv_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     // Allocate the CNG blob + rs + der buffers.

@@ -1,9 +1,11 @@
 // --- codegen tier imports (migration) ---
 use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 /// Emit the platform acquisition of the running executable's absolute path into
 /// the function frame (plan-55-B §4.1). macOS uses `_NSGetExecutablePath(buf,
 /// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`; Windows
@@ -26,7 +28,7 @@ pub(crate) fn emit_executable_path_into(
     ctx: &mut EmitCtx,
     fail: &str,
     vregs: &mut Vregs,
-) -> Result<(String, Option<String>), String> {
+) -> Result<(VirtualRegister, Option<VirtualRegister>), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -174,12 +176,13 @@ pub(crate) fn resource_base_offset(
 /// Branch to `bad_arg` when the just-ended path component is exactly `.` or `..`
 /// (all dots, length 1 or 2), else to `ok` (plan-55-B §4.4 step 1).
 pub(crate) fn emit_reject_dot_component(
-    comp_len: &str,
-    comp_all_dots: &str,
+    comp_len: impl Into<Reg>,
+    comp_all_dots: impl Into<Reg>,
     bad_arg: &str,
     ok: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (comp_len, comp_all_dots): (Reg, Reg) = (comp_len.into(), comp_all_dots.into());
     instructions.extend([
         // Not all-dots → fine.
         abi::compare_immediate(comp_all_dots, "0"),

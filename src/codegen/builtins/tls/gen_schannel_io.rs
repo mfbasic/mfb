@@ -305,7 +305,7 @@ mod verify_hostname_tests {
             .iter()
             .position(|i| {
                 i.op == CodeOp::LdrU64
-                    && i.get("base").as_deref() == Some(abi::stack_pointer())
+                    && i.get("base").as_deref() == Some(abi::SP_SPELLING)
                     && i.get("offset").as_deref() == Some(SNAMEW_OFF.to_string().as_str())
             })
             .expect("emit_verify_hostname must load the wide server-name pointer");
@@ -602,7 +602,7 @@ mod write_payload_tests {
     fn payload_loads(text: bool) -> Vec<(String, String)> {
         let (ins, _rel, _frame) = lower_tls_write("t_w", &HashMap::new(), &TestPlatform, text)
             .expect("lower schannel tls write");
-        let payload = abi::c_arg(1).render();
+        let payload = abi::c_arg(1).to_string();
         ins.iter()
             .filter(|i| i.get("base").as_deref() == Some(payload.as_str()))
             .map(|i| {

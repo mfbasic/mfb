@@ -18,6 +18,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 // The shared Windows spawn tail (plan-119-A)
@@ -1263,7 +1264,7 @@ pub(crate) fn emit_win_spawn_tail(
 pub(crate) fn emit_write_all(
     symbol: &str,
     tag: &str,
-    sp: &str,
+    sp: impl Into<Reg>,
     fd_slot: usize,
     src_slot: usize,
     rem_slot: usize,
@@ -1274,6 +1275,7 @@ pub(crate) fn emit_write_all(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let sp: Reg = sp.into();
     let loop_l = format!("{symbol}_{tag}_loop");
     let progress = format!("{symbol}_{tag}_progress");
     let done = format!("{symbol}_{tag}_done");

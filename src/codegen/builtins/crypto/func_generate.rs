@@ -27,6 +27,7 @@ use crate::codegen::memory::marshal::{
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // The `Certificate` ordinals, framework/library paths, dlsym-name data objects, and
@@ -136,10 +137,11 @@ fn emit_macos_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
+    v9: impl Into<Reg>,
     vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let v9: Reg = v9.into();
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let load_fail = format!("{symbol}_load_fail");
@@ -578,14 +580,16 @@ fn emit_linux_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
+    v9: impl Into<Reg>,
+    v10: impl Into<Reg>,
+    v11: impl Into<Reg>,
+    v12: impl Into<Reg>,
+    v13: impl Into<Reg>,
     vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let load_fail = format!("{symbol}_load_fail");
@@ -1015,7 +1019,7 @@ fn emit_linux_ec(
     let cleanup = |ins: &mut Vec<CodeInstruction>,
                    rel: &mut Vec<CodeRelocation>,
                    tag: &str,
-                   v9: &str,
+                   v9: Reg,
                    vregs: &mut Vregs| {
         let skip_pk = format!("{symbol}_{tag}_nopk");
         let skip_ec = format!("{symbol}_{tag}_noec");
@@ -1214,14 +1218,16 @@ fn emit_windows_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
+    v9: impl Into<Reg>,
+    v10: impl Into<Reg>,
+    v11: impl Into<Reg>,
+    v12: impl Into<Reg>,
+    v13: impl Into<Reg>,
     vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let fail = format!("{symbol}_wfail");
@@ -1674,7 +1680,7 @@ pub(crate) fn lower_generate(
             let p384 = format!("{symbol}_p384");
             let p521 = format!("{symbol}_p521");
             let have = format!("{symbol}_have_params");
-            let set = |ins: &mut Vec<CodeInstruction>, v9: &str, bits: &str, plen: &str| {
+            let set = |ins: &mut Vec<CodeInstruction>, v9: Reg, bits: &str, plen: &str| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", bits),
                     abi::store_u64(v9, abi::stack_pointer(), NUMVAL),
@@ -1698,11 +1704,11 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&ed448),
             ]);
             // P-256 (ordinal 0) falls through here.
-            set(&mut builder.instructions, &v9, "256", "65");
+            set(&mut builder.instructions, Reg::from(v9), "256", "65");
             builder.instructions.push(abi::label(&p384));
-            set(&mut builder.instructions, &v9, "384", "97");
+            set(&mut builder.instructions, Reg::from(v9), "384", "97");
             builder.instructions.push(abi::label(&p521));
-            set(&mut builder.instructions, &v9, "521", "133");
+            set(&mut builder.instructions, Reg::from(v9), "521", "133");
             builder.instructions.push(abi::label(&have));
             emit_macos_ec(builder, ctx, &symbol, &v9, &mut vregs, &done)?;
         }
@@ -1715,7 +1721,7 @@ pub(crate) fn lower_generate(
             let sym_owned = symbol.clone();
             let set = |ins: &mut Vec<CodeInstruction>,
                        rel: &mut Vec<CodeRelocation>,
-                       v9: &str,
+                       v9: Reg,
                        c: &OsslCurve| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", c.nid),
@@ -1753,21 +1759,21 @@ pub(crate) fn lower_generate(
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[0],
             );
             builder.instructions.push(abi::label(&lp384));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[1],
             );
             builder.instructions.push(abi::label(&lp521));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[2],
             );
             builder.instructions.push(abi::label(&have));
@@ -1784,7 +1790,7 @@ pub(crate) fn lower_generate(
             let sym_owned = symbol.clone();
             let set = |ins: &mut Vec<CodeInstruction>,
                        rel: &mut Vec<CodeRelocation>,
-                       v9: &str,
+                       v9: Reg,
                        c: &WinCurve| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", &c.field_len.to_string()),
@@ -1816,21 +1822,21 @@ pub(crate) fn lower_generate(
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[0],
             );
             builder.instructions.push(abi::label(&wp384));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[1],
             );
             builder.instructions.push(abi::label(&wp521));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[2],
             );
             builder.instructions.push(abi::label(&have));

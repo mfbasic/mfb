@@ -155,7 +155,7 @@ pub(crate) fn lower_strings_left_right(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: label.to_string(),
     })
 }
