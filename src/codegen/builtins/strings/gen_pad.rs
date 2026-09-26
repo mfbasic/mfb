@@ -231,7 +231,7 @@ pub(crate) fn lower_strings_pad(
         // default-padChar branch qualifies; the 3-argument branch spills the
         // CALLER's padChar, which this scope does not own.
         builder.register_fresh_string_temp(Operand::from(space));
-        builder.spill_to_slot("strings_pad_char", &space.render())
+        builder.spill_to_slot("strings_pad_char", &space)
     };
     let measure = pad_measure(
         builder,

@@ -15,7 +15,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;

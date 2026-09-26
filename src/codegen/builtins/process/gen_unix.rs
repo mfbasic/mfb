@@ -211,7 +211,15 @@ pub(crate) fn emit_copy_to_cstring(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let (src, len, out, sp, dp, cnt, byte): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (src.into(), len.into(), out.into(), sp.into(), dp.into(), cnt.into(), byte.into());
+    let (src, len, out, sp, dp, cnt, byte): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (
+        src.into(),
+        len.into(),
+        out.into(),
+        sp.into(),
+        dp.into(),
+        cnt.into(),
+        byte.into(),
+    );
     instructions.extend([
         abi::add_immediate(abi::return_register(), len, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),

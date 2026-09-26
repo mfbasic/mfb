@@ -301,7 +301,8 @@ impl CodeBuilder<'_> {
         s0: impl Into<Reg>,
         s1: impl Into<Reg>,
     ) {
-        let (dst, a, b, s0, s1): (Reg, Reg, Reg, Reg, Reg) = (dst.into(), a.into(), b.into(), s0.into(), s1.into());
+        let (dst, a, b, s0, s1): (Reg, Reg, Reg, Reg, Reg) =
+            (dst.into(), a.into(), b.into(), s0.into(), s1.into());
         self.emit(abi::multiply_registers(s0.clone(), a.clone(), b.clone())); // low 64 bits
         self.emit(abi::signed_multiply_high_registers(
             s1.clone(),

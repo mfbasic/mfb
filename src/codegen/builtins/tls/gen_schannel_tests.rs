@@ -209,7 +209,7 @@ fn a_close_notify_ends_the_read_and_stays_ended() {
                 .take_while(|i| i.op != CodeOp::Label)
                 .any(|i| i.op == CodeOp::StrU64
                     && i.get("offset").as_deref() == Some(&peer_closed)
-                    && i.get("src").as_deref() != Some(abi::ZERO)),
+                    && i.get("src").as_deref() != Some(abi::ZERO_SPELLING)),
         "the close_notify exit must fall into the ErrConnectionClosed exit, which records \
          PEER_CLOSED for every read that reports the close"
     );

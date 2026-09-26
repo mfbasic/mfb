@@ -1,11 +1,11 @@
 // --- codegen tier imports (migration) ---
 use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
-use crate::codegen::engine::operand::VirtualRegister;
 /// Emit the platform acquisition of the running executable's absolute path into
 /// the function frame (plan-55-B §4.1). macOS uses `_NSGetExecutablePath(buf,
 /// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`; Windows

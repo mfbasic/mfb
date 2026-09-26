@@ -204,7 +204,15 @@ pub(crate) fn emit_spill_take_chunk(
     miss: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
-    let (buf, dst, count, t0, t1, t2, t3): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (buf.into(), dst.into(), count.into(), t0.into(), t1.into(), t2.into(), t3.into());
+    let (buf, dst, count, t0, t1, t2, t3): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (
+        buf.into(),
+        dst.into(),
+        count.into(),
+        t0.into(),
+        t1.into(),
+        t2.into(),
+        t3.into(),
+    );
     let clamped = format!("{symbol}_{tag}_spill_clamped");
     let copy_loop = format!("{symbol}_{tag}_spill_copy");
     let copy_done = format!("{symbol}_{tag}_spill_copied");

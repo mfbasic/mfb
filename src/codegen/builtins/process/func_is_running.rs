@@ -17,7 +17,6 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 use super::gen_shared::*;

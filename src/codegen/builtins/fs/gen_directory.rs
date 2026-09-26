@@ -694,7 +694,8 @@ fn emit_windows_create_directories_start(
     instructions: &mut Vec<CodeInstruction>,
 ) {
     let cstring: Reg = cstring.into();
-    let (cursor, byte, components): (Reg, Reg, Reg) = (cursor.into(), byte.into(), components.into());
+    let (cursor, byte, components): (Reg, Reg, Reg) =
+        (cursor.into(), byte.into(), components.into());
     let not_drive = format!("{symbol}_win_not_drive");
     let unc = format!("{symbol}_win_unc");
     let skip_sep = format!("{symbol}_win_skip_sep");

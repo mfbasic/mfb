@@ -330,7 +330,14 @@ pub(crate) fn emit_copy_counted(
     uniq: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
-    let (src_base, len, dst, src_cursor, index, byte): (Reg, Reg, Reg, Reg, Reg, Reg) = (src_base.into(), len.into(), dst.into(), src_cursor.into(), index.into(), byte.into());
+    let (src_base, len, dst, src_cursor, index, byte): (Reg, Reg, Reg, Reg, Reg, Reg) = (
+        src_base.into(),
+        len.into(),
+        dst.into(),
+        src_cursor.into(),
+        index.into(),
+        byte.into(),
+    );
     let loop_label = format!("{uniq}_loop");
     let done_label = format!("{uniq}_done");
     instructions.extend([

@@ -7,8 +7,8 @@ use crate::codegen::engine::util::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
-use crate::types::ParameterType;
 use crate::target::shared::abi::Reg;
+use crate::types::ParameterType;
 
 fn store_cstr(ins: &mut Vec<CodeInstruction>, offset: usize, text: &str) {
     for (index, byte) in text

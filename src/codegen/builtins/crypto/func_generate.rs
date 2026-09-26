@@ -588,7 +588,8 @@ fn emit_linux_ec(
     vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
-    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) = (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let load_fail = format!("{symbol}_load_fail");
@@ -1225,7 +1226,8 @@ fn emit_windows_ec(
     vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
-    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) = (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let fail = format!("{symbol}_wfail");

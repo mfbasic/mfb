@@ -1172,7 +1172,13 @@ fn emit_append_to_line_accumulator(
     tag: &str,
     alloc_error: &str,
 ) {
-    let (temp, temp_cap, line_len, src, count): (Reg, Reg, Reg, Reg, Reg) = (temp.into(), temp_cap.into(), line_len.into(), src.into(), count.into());
+    let (temp, temp_cap, line_len, src, count): (Reg, Reg, Reg, Reg, Reg) = (
+        temp.into(),
+        temp_cap.into(),
+        line_len.into(),
+        src.into(),
+        count.into(),
+    );
     let fits = format!("{symbol}_acc_{tag}_fits");
     let cap_ok = format!("{symbol}_acc_{tag}_cap_ok");
     let grow_copy = format!("{symbol}_acc_{tag}_grow_copy");

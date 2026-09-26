@@ -9,7 +9,12 @@ use crate::target::shared::abi::Reg;
 /// scratch is freshly generated. The increment is added with explicit-carry
 /// `add_carry` (the carry is a vreg value, not the flags register — plan-00-G §4),
 /// so the chain survives register allocation.
-fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, vregs: &mut Vregs, lo: impl Into<Reg>, hi: impl Into<Reg>) {
+fn emit_pcg_step(
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+    lo: impl Into<Reg>,
+    hi: impl Into<Reg>,
+) {
     let (lo, hi): (Reg, Reg) = (lo.into(), hi.into());
     let mult_lo = vregs.next();
     let prod_lo = vregs.next();

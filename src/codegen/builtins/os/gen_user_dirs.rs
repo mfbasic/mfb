@@ -504,7 +504,12 @@ pub(crate) fn emit_linux_user_dirs_documents(
 }
 
 /// Store `bytes` at `out`, advancing it.
-fn store_bytes(bytes: &[u8], out: impl Into<Reg>, scratch: impl Into<Reg>, instructions: &mut Vec<CodeInstruction>) {
+fn store_bytes(
+    bytes: &[u8],
+    out: impl Into<Reg>,
+    scratch: impl Into<Reg>,
+    instructions: &mut Vec<CodeInstruction>,
+) {
     let (out, scratch): (Reg, Reg) = (out.into(), scratch.into());
     for &b in bytes {
         super::gen_shared::emit_store_byte_advance(b, out, scratch, instructions);

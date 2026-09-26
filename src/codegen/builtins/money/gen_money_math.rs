@@ -17,7 +17,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -45,7 +44,13 @@ impl CodeBuilder<'_> {
         abs_divisor: impl Into<Reg>,
         sign_neg: impl Into<Reg>,
     ) -> Result<(), String> {
-        let (dst, quotient, remainder, abs_divisor, sign_neg): (Reg, Reg, Reg, Reg, Reg) = (dst.into(), quotient.into(), remainder.into(), abs_divisor.into(), sign_neg.into());
+        let (dst, quotient, remainder, abs_divisor, sign_neg): (Reg, Reg, Reg, Reg, Reg) = (
+            dst.into(),
+            quotient.into(),
+            remainder.into(),
+            abs_divisor.into(),
+            sign_neg.into(),
+        );
         let round_up = self.label("money_round_up");
         let round_down = self.label("money_round_down");
         let keep = self.label("money_round_keep");
@@ -257,11 +262,7 @@ impl CodeBuilder<'_> {
     /// `Money / Money → Float` (plan-29-E §4.3): the value ratio `raw_a / raw_b`
     /// (the SCALE cancels). Divide-by-zero follows Float rules (±Inf/NaN caught at
     /// the observation boundary), so no pre-check.
-    fn emit_money_ratio(
-        &mut self,
-        left: &ValueResult,
-        right: &ValueResult,
-    ) -> Result<Reg, String> {
+    fn emit_money_ratio(&mut self, left: &ValueResult, right: &ValueResult) -> Result<Reg, String> {
         let da = self.allocate_fp_register();
         let db = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&da, &left.location));

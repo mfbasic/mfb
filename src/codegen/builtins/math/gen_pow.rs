@@ -231,14 +231,7 @@ impl CodeBuilder<'_> {
         let xu_o: Reg = self.allocate_register().into();
         let smask_o: Reg = self.allocate_register().into();
         let nexp_o: Reg = self.allocate_register().into();
-        let (xs, xm, xt, xu, smask, nexp) = (
-            xs_o,
-            xm_o,
-            xt_o,
-            xu_o,
-            smask_o,
-            nexp_o,
-        );
+        let (xs, xm, xt, xu, smask, nexp) = (xs_o, xm_o, xt_o, xu_o, smask_o, nexp_o);
 
         let end = self.label("pow_end");
         let ret_nan = self.label("pow_ret_nan");

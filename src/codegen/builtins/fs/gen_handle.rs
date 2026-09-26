@@ -9,8 +9,8 @@ use crate::codegen::io::stdout::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
-use std::collections::HashMap;
 use crate::target::shared::abi::Reg;
+use std::collections::HashMap;
 
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer
 /// to its fd. `x0 = File*`. No-op when the handle is unbuffered (`BUF_ENABLED == 0`)

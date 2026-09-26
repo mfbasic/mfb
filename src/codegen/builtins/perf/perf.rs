@@ -618,7 +618,8 @@ fn emit_load_elem(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let (dst, scratch, idx, eight): (Reg, Reg, Reg, Reg) = (dst.into(), scratch.into(), idx.into(), eight.into());
+    let (dst, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (dst.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),
@@ -636,7 +637,8 @@ fn emit_store_elem(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
-    let (src, scratch, idx, eight): (Reg, Reg, Reg, Reg) = (src.into(), scratch.into(), idx.into(), eight.into());
+    let (src, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (src.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),

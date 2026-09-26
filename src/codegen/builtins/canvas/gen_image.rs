@@ -16,7 +16,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;

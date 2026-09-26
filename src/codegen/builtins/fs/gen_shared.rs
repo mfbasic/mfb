@@ -44,7 +44,13 @@ pub(crate) fn emit_cstring_copy(
     copy_done: &str,
     invalid: &str,
 ) {
-    let (len, src, dst, index, byte): (Reg, Reg, Reg, Reg, Reg) = (len.into(), src.into(), dst.into(), index.into(), byte.into());
+    let (len, src, dst, index, byte): (Reg, Reg, Reg, Reg, Reg) = (
+        len.into(),
+        src.into(),
+        dst.into(),
+        index.into(),
+        byte.into(),
+    );
     instructions.extend([
         abi::label(copy_loop),
         abi::compare_registers(index, len),
@@ -87,7 +93,8 @@ pub(crate) fn emit_cstring_nul_scan(
     scan_done: &str,
     invalid: &str,
 ) {
-    let (len, src, index, byte): (Reg, Reg, Reg, Reg) = (len.into(), src.into(), index.into(), byte.into());
+    let (len, src, index, byte): (Reg, Reg, Reg, Reg) =
+        (len.into(), src.into(), index.into(), byte.into());
     instructions.extend([
         abi::label(scan_loop),
         abi::compare_registers(index, len),

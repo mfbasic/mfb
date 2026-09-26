@@ -8,6 +8,7 @@
 //! all `use super::gen_read_family::…`).
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::MOUSE_MODE_SYMBOL;
@@ -17,9 +18,7 @@ use crate::codegen::io::stdin::*;
 use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
-use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
-use crate::codegen::engine::operand::VirtualRegister;
 /// The label set for the shared UTF-8 lead-byte decoder (bug-331 §F). The two
 /// callers (`readChar`/`readLine`) drifted to different label *names*, not just a
 /// prefix, so every label is passed explicitly to keep each site's `.ncode`/`.mir`
@@ -322,14 +321,14 @@ fn emit_pump_escape_wait(
     if !app_mode {
         let names: Vec<VirtualRegister> = (0..8).map(|_| vregs.next()).collect();
         let regs = PollReadyRegs {
-            addr: names[0].into(),
-            local_pos: names[1].into(),
-            local_filled: names[2].into(),
-            subscriber: names[3].into(),
-            log: names[4].into(),
-            cursor: names[5].into(),
-            fill: names[6].into(),
-            eof: names[7].into(),
+            addr: &names[0],
+            local_pos: &names[1],
+            local_filled: &names[2],
+            subscriber: &names[3],
+            log: &names[4],
+            cursor: &names[5],
+            fill: &names[6],
+            eof: &names[7],
         };
         emit_stdin_poll_ready_check_with(ctx, &regs, read_label, &os_poll)?;
     }

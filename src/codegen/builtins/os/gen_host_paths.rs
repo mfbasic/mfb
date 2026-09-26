@@ -14,6 +14,7 @@ use super::gen_shared::{
 };
 use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -21,7 +22,6 @@ use crate::codegen::memory::data::*;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
-use crate::codegen::engine::operand::VirtualRegister;
 
 /// The captured `relative` argument: the `String` block pointer, its byte length,
 /// and its data pointer (`block + 8`). A `String` block is
@@ -552,8 +552,13 @@ impl HostDir {
 /// fresh `String` ([`emit_join_result`]); the internal `*Base` helper the in-place
 /// arm calls writes it into a caller buffer ([`emit_into_result`]).
 enum Sink {
-    Join { arg: RelativeArg },
-    Into { dst: VirtualRegister, cap: VirtualRegister },
+    Join {
+        arg: RelativeArg,
+    },
+    Into {
+        dst: VirtualRegister,
+        cap: VirtualRegister,
+    },
 }
 
 /// The `*Base` helper's result (plan-157-B §4.4): `base ++ suffix` written to
@@ -571,13 +576,21 @@ fn emit_into_result(
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
 ) {
-    let (base_ptr, base_len, dst, cap): (Reg, Reg, Reg, Reg) = (base_ptr.into(), base_len.into(), dst.into(), cap.into());
+    let (base_ptr, base_len, dst, cap): (Reg, Reg, Reg, Reg) =
+        (base_ptr.into(), base_len.into(), dst.into(), cap.into());
     // With nothing after it the root stays `/`; the arm then joins a value onto
     // it without a second `/` (`GrowKind::HostPath`), matching the copying call.
     let base_len = if suffix.is_empty() {
         base_len
     } else {
-        Reg::from(emit_root_elided_len(label_prefix, base_ptr, base_len, None, vregs, instructions))
+        Reg::from(emit_root_elided_len(
+            label_prefix,
+            base_ptr,
+            base_len,
+            None,
+            vregs,
+            instructions,
+        ))
     };
     let total = vregs.next();
     let out = vregs.next();

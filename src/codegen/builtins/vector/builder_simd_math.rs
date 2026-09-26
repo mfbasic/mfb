@@ -528,12 +528,12 @@ impl CodeBuilder<'_> {
     fn emit_simd_unary_scalar(
         &mut self,
         kernel: SimdUnaryKernel,
-        in_data: impl Into<Operand>,
-        out_data: impl Into<Operand>,
+        in_data: impl Into<Reg>,
+        out_data: impl Into<Reg>,
         err: impl Into<Reg>,
     ) -> Result<(), String> {
+        let (in_data, out_data): (Reg, Reg) = (in_data.into(), out_data.into());
         let err: Reg = err.into();
-        let out_data = out_data.into();
         // Per-element scratch, allocator-placed (plan-34-B Phase 3): `elem` is the
         // loaded lane, `tmp` the transform temporary / convert destination.
         let elem = self.allocate_register();

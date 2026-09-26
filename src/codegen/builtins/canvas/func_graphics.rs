@@ -9,6 +9,7 @@
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -24,7 +25,6 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-use crate::codegen::engine::operand::VirtualRegister;
 
 /// Finish an internal `Nothing`-returning body.
 fn ok_return(builder: &mut CodeBuilder, symbol: String) -> ValueResult {

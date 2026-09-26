@@ -1560,8 +1560,7 @@ mod tests {
             .count()
     }
 
-    fn has_immediate(ins: &[CodeInstruction], value: impl Into<Reg>) -> bool {
-        let value: Reg = value.into();
+    fn has_immediate(ins: &[CodeInstruction], value: &str) -> bool {
         ins.iter().any(|i| i.get("value").as_deref() == Some(value))
     }
 

@@ -13,10 +13,10 @@
 //! `.ai/canvas-threading.md` §2 has the full account.
 
 use crate::codegen::engine::builder::*;
-use crate::target::shared::abi::Reg;
 use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::push_symbol_address;
+use crate::target::shared::abi::Reg;
 
 /// A register holding the base address of the canvas scene region.
 ///

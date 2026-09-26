@@ -44,7 +44,13 @@ impl CodeBuilder<'_> {
         loop_label: &str,
         not_found: &str,
     ) {
-        let (collection, count, index, offset, length): (Reg, Reg, Reg, Reg, Reg) = (collection.into(), count.into(), index.into(), offset.into(), length.into());
+        let (collection, count, index, offset, length): (Reg, Reg, Reg, Reg, Reg) = (
+            collection.into(),
+            count.into(),
+            index.into(),
+            offset.into(),
+            length.into(),
+        );
         let entry = entry.into();
         self.emit(abi::load_u64(
             count.clone(),

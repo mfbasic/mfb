@@ -1945,7 +1945,14 @@ impl CodeBuilder<'_> {
     /// One-step double-double-accurate quotient `tan = sh:sl / ch:cl` into `v0`:
     /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
     /// four operand registers; scratch is v0/v3/v4/v6.
-    fn emit_tan_divide(&mut self, sh: impl Into<Reg>, sl: impl Into<Reg>, ch: impl Into<Reg>, cl: impl Into<Reg>, k: &KernelRegs) {
+    fn emit_tan_divide(
+        &mut self,
+        sh: impl Into<Reg>,
+        sl: impl Into<Reg>,
+        ch: impl Into<Reg>,
+        cl: impl Into<Reg>,
+        k: &KernelRegs,
+    ) {
         let (sh, sl, ch, cl): (Reg, Reg, Reg, Reg) = (sh.into(), sl.into(), ch.into(), cl.into());
         self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], sh, ch)); // q = sh/ch
         self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0])); // -q
@@ -2343,7 +2350,13 @@ impl CodeBuilder<'_> {
 
     /// Double-double product `a*b → (p, e)` with `p+e == a*b` to ~2x precision:
     /// `p = a*b`, `e = fma(a, b, -p)`. `p`/`e` must be distinct from `a`/`b`.
-    fn emit_twoprod(&mut self, p: impl Into<Reg>, e: impl Into<Reg>, a: impl Into<Reg>, b: impl Into<Reg>) {
+    fn emit_twoprod(
+        &mut self,
+        p: impl Into<Reg>,
+        e: impl Into<Reg>,
+        a: impl Into<Reg>,
+        b: impl Into<Reg>,
+    ) {
         let (p, e, a, b): (Reg, Reg, Reg, Reg) = (p.into(), e.into(), a.into(), b.into());
         self.emit(abi::vector_fmul(p, a, b));
         self.emit(abi::vector_fneg(e, p)); // e = -p
@@ -2353,8 +2366,17 @@ impl CodeBuilder<'_> {
     /// Knuth two-sum `a+b → (s, e)` with `s+e == a+b` exactly. `t1`/`t2` are
     /// caller-supplied scratch (must be caller-saved vector regs distinct from the
     /// operands/results — `v8`-`v15` are callee-saved and off-limits here).
-    fn emit_twosum(&mut self, s: impl Into<Reg>, e: impl Into<Reg>, a: impl Into<Reg>, b: impl Into<Reg>, t1: impl Into<Reg>, t2: impl Into<Reg>) {
-        let (s, e, a, b, t1, t2): (Reg, Reg, Reg, Reg, Reg, Reg) = (s.into(), e.into(), a.into(), b.into(), t1.into(), t2.into());
+    fn emit_twosum(
+        &mut self,
+        s: impl Into<Reg>,
+        e: impl Into<Reg>,
+        a: impl Into<Reg>,
+        b: impl Into<Reg>,
+        t1: impl Into<Reg>,
+        t2: impl Into<Reg>,
+    ) {
+        let (s, e, a, b, t1, t2): (Reg, Reg, Reg, Reg, Reg, Reg) =
+            (s.into(), e.into(), a.into(), b.into(), t1.into(), t2.into());
         self.emit(abi::vector_fadd(s, a, b));
         self.emit(abi::vector_fsub(t1, s, a)); // t
         self.emit(abi::vector_fsub(t2, s, t1)); // s - t  (~a)

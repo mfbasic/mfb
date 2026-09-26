@@ -95,17 +95,21 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_string_split_write_entry(
         &mut self,
-        entry: impl Into<Operand>,
-        data: impl Into<Operand>,
-        data_offset: impl Into<Operand>,
+        entry: impl Into<Reg>,
+        data: impl Into<Reg>,
+        data_offset: impl Into<Reg>,
         segment_start: impl Into<Reg>,
-        segment_end: impl Into<Operand>,
-        source_data: impl Into<Operand>,
+        segment_end: impl Into<Reg>,
+        source_data: impl Into<Reg>,
     ) -> Result<(), String> {
+        let (entry, data, data_offset, segment_end, source_data): (Reg, Reg, Reg, Reg, Reg) = (
+            entry.into(),
+            data.into(),
+            data_offset.into(),
+            segment_end.into(),
+            source_data.into(),
+        );
         let segment_start: Reg = segment_start.into();
-        let entry = entry.into();
-        let data_offset = data_offset.into();
-        let segment_end = segment_end.into();
         let tmp = self.temporary_vreg();
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
@@ -254,7 +258,11 @@ impl CodeBuilder<'_> {
         sequence_ptr: impl Into<Reg>,
         sequence_length: impl Into<Reg>,
     ) {
-        let (codepoint, sequence_ptr, sequence_length): (Reg, Reg, Reg) = (codepoint.into(), sequence_ptr.into(), sequence_length.into());
+        let (codepoint, sequence_ptr, sequence_length): (Reg, Reg, Reg) = (
+            codepoint.into(),
+            sequence_ptr.into(),
+            sequence_length.into(),
+        );
         self.emit_unicode_u32_mapping_lookup(
             codepoint,
             map.entries_symbol(),
