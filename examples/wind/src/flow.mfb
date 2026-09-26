@@ -43,10 +43,12 @@ IMPORT collections
 IMPORT color
 IMPORT math
 
-' The u and v components of one forecast hour, and what to call it on screen.
+' The wind and surface temperature fields from one forecast hour, and what to
+' call the run on screen.
 TYPE Winds
   east AS Field        ' UGRD: metres per second towards the east
   north AS Field       ' VGRD: metres per second towards the north
+  temperature AS Field ' TMP: kelvin, two metres above the ground
   label AS String
 END TYPE
 
