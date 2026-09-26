@@ -859,11 +859,7 @@ impl CodeBuilder<'_> {
         let (exponent, mask, bits): (Reg, Reg, Reg) = (exponent.into(), mask.into(), bits.into());
         self.emit(abi::shift_right_immediate(exponent, bits, 52));
         self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(
-            exponent,
-            exponent,
-            mask,
-        ));
+        self.emit(abi::and_registers(exponent, exponent, mask));
         self.emit(abi::compare_immediate(exponent, "2047"));
     }
 

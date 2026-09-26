@@ -284,7 +284,10 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
         Some(abi::FP_SCRATCH_SPELLINGS[0])
     );
     // And the analysis sees the token at its realization's index.
-    assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH_SPELLINGS[0]), Some(0));
+    assert_eq!(
+        analysis::fp_physical_index(abi::FP_SCRATCH_SPELLINGS[0]),
+        Some(0)
+    );
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
     assert_eq!(analysis::fp_physical_index("%fscratch8"), None);
 }

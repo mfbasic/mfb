@@ -5058,11 +5058,7 @@ fn emit_term_resize() -> CodeFunction {
         ins.push(abi::label(&at_least_one));
         ins.push(abi::compare_immediate(reg, &max.to_string()));
         ins.push(abi::branch_le(&at_most_max));
-        ins.push(abi::move_immediate(
-            reg,
-            "Integer",
-            &max.to_string(),
-        ));
+        ins.push(abi::move_immediate(reg, "Integer", &max.to_string()));
         ins.push(abi::label(&at_most_max));
         ins.push(abi::store_u64(reg, abi::stack_pointer(), slot));
     }

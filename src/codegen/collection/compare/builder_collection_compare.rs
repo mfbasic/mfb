@@ -76,10 +76,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(equal_label));
         self.emit(abi::load_u8(left_byte, left, 0));
         self.emit(abi::load_u8(right_byte, right, 0));
-        self.emit(abi::compare_registers(
-            left_byte,
-            right_byte,
-        ));
+        self.emit(abi::compare_registers(left_byte, right_byte));
         self.emit(abi::branch_ne(not_equal_label));
         self.emit(abi::add_immediate(left, left, 1));
         self.emit(abi::add_immediate(right, right, 1));
@@ -551,10 +548,7 @@ impl CodeBuilder<'_> {
             }
             ParameterType::String => {
                 let loop_label = self.label("collection_payload_string_match_loop");
-                self.emit(abi::compare_registers(
-                    left_length,
-                    right_length,
-                ));
+                self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit(abi::move_register(roff, left_length));
                 self.emit_byte_compare_loop(
@@ -576,10 +570,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(not_equal_label));
             }
             other if self.type_model.record_fields.contains_key(other) => {
-                self.emit(abi::compare_registers(
-                    left_length,
-                    right_length,
-                ));
+                self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit_comparable_values_match_branch(
                     other,
@@ -590,10 +581,7 @@ impl CodeBuilder<'_> {
                 )?;
             }
             other if self.inline_collection_payload_size(other).is_some() => {
-                self.emit(abi::compare_registers(
-                    left_length,
-                    right_length,
-                ));
+                self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit_compare_bytes_branch(
                     lcur,

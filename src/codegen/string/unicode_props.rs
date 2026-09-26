@@ -75,11 +75,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, UTF8_CONTINUATION_TAG));
         self.emit(abi::branch_ne(advanced_label));
         self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(
-            remaining,
-            remaining,
-            1,
-        ));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
         self.emit(abi::branch(continue_label));
     }
 
@@ -111,11 +107,7 @@ impl CodeBuilder<'_> {
         let mask: abi::Reg = mask.into();
         self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::move_immediate(count, "Integer", "0"));
-        self.emit(abi::move_immediate(
-            mask,
-            "Integer",
-            UTF8_CONTINUATION_MASK,
-        ));
+        self.emit(abi::move_immediate(mask, "Integer", UTF8_CONTINUATION_MASK));
         self.emit(abi::label(loop_label));
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(done));
@@ -143,11 +135,7 @@ impl CodeBuilder<'_> {
             binding: "data".to_string(),
             library: None,
         });
-        self.emit(abi::add_page_offset(
-            register,
-            register,
-            symbol,
-        ));
+        self.emit(abi::add_page_offset(register, register, symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
@@ -224,23 +212,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&invalid));
         self.emit(abi::move_immediate(width, "Integer", "2"));
         self.emit(abi::move_immediate(masked, "Integer", "31"));
-        self.emit(abi::and_registers(
-            codepoint,
-            codepoint,
-            masked,
-        ));
-        self.emit(abi::shift_left_immediate(
-            codepoint,
-            codepoint,
-            6,
-        ));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 6));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&check_three));
@@ -269,30 +245,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&invalid));
         self.emit(abi::move_immediate(width, "Integer", "3"));
         self.emit(abi::move_immediate(masked, "Integer", "15"));
-        self.emit(abi::and_registers(
-            codepoint,
-            codepoint,
-            masked,
-        ));
-        self.emit(abi::shift_left_immediate(
-            codepoint,
-            codepoint,
-            12,
-        ));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 12));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 6));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::and_registers(byte2, byte2, mask));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte2,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte2));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
@@ -326,37 +286,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&invalid));
         self.emit(abi::move_immediate(width, "Integer", "4"));
         self.emit(abi::move_immediate(masked, "Integer", "7"));
-        self.emit(abi::and_registers(
-            codepoint,
-            codepoint,
-            masked,
-        ));
-        self.emit(abi::shift_left_immediate(
-            codepoint,
-            codepoint,
-            18,
-        ));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 18));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 12));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::and_registers(byte2, byte2, mask));
         self.emit(abi::shift_left_immediate(byte2, byte2, 6));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte2,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte2));
         self.emit(abi::and_registers(byte3, byte3, mask));
-        self.emit(abi::or_registers(
-            codepoint,
-            codepoint,
-            byte3,
-        ));
+        self.emit(abi::or_registers(codepoint, codepoint, byte3));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&invalid));
@@ -601,11 +541,7 @@ impl CodeBuilder<'_> {
             property,
             UNICODE_PROPERTY_OFFSET_FLAGS,
         ));
-        self.emit(abi::shift_right_immediate(
-            output,
-            output,
-            4,
-        ));
+        self.emit(abi::shift_right_immediate(output, output, 4));
         self.emit(abi::move_immediate(mask, "Integer", "3"));
         self.emit(abi::and_registers(output, output, mask));
     }
@@ -807,11 +743,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::shift_left_immediate(field, field, 2));
         self.emit_load_data_address(sequence_ptr, sequences_symbol);
-        self.emit(abi::add_registers(
-            sequence_ptr,
-            sequence_ptr,
-            field,
-        ));
+        self.emit(abi::add_registers(sequence_ptr, sequence_ptr, field));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&not_found));
@@ -858,11 +790,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(output, l_index, base));
         self.emit(abi::add_registers(output, output, v_index));
         self.emit(abi::move_immediate(base, "Integer", "28"));
-        self.emit(abi::multiply_registers(
-            output,
-            output,
-            base,
-        ));
+        self.emit(abi::multiply_registers(output, output, base));
         self.emit(abi::move_immediate(base, "Integer", "44032"));
         self.emit(abi::add_registers(output, output, base));
         self.emit(abi::branch(found_label));
@@ -920,22 +848,13 @@ impl CodeBuilder<'_> {
         let state_bc: abi::Reg = state_bc.into();
         let current_bc: abi::Reg = current_bc.into();
 
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_CR,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CR));
         self.emit(abi::branch_ne(&gb3_not_cr));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_LF,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LF));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb3_not_cr));
 
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_CR,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_CR));
         self.emit(abi::branch_lo(&gb4_not_control));
         self.emit(abi::compare_immediate(
             state_bc,
@@ -944,10 +863,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_le(&maybe_break));
         self.emit(abi::label(&gb4_not_control));
 
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_CR,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_CR));
         self.emit(abi::branch_lo(&gb5_not_control));
         self.emit(abi::compare_immediate(
             current_bc,
@@ -956,71 +872,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_le(&maybe_break));
         self.emit(abi::label(&gb5_not_control));
 
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_L,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_L));
         self.emit(abi::branch_ne(&gb6_check));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_L,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_L));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_V,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_V));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_LV,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LV));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_LVT,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_LVT));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb6_check));
 
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_LV,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_LV));
         self.emit(abi::branch_eq(&gb7_check));
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_V,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_V));
         self.emit(abi::branch_ne(&gb7_no));
         self.emit(abi::label(&gb7_check));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_V,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_V));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_T,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_T));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb7_no));
 
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_LVT,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_LVT));
         self.emit(abi::branch_eq(&gb8_check));
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_T,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_T));
         self.emit(abi::branch_ne(&gb8_no));
         self.emit(abi::label(&gb8_check));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_T,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_T));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::label(&gb8_no));
 
@@ -1030,10 +910,7 @@ impl CodeBuilder<'_> {
             GRAPHEME_BOUNDCLASS_EXTEND,
         ));
         self.emit(abi::branch_eq(&no_break));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_ZWJ,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
         self.emit(abi::branch_eq(&no_break));
         self.emit(abi::compare_immediate(
             current_bc,
@@ -1047,10 +924,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&no_break));
 
         self.emit(abi::label(&gb11_check));
-        self.emit(abi::compare_immediate(
-            state_bc,
-            GRAPHEME_BOUNDCLASS_E_ZWG,
-        ));
+        self.emit(abi::compare_immediate(state_bc, GRAPHEME_BOUNDCLASS_E_ZWG));
         self.emit(abi::branch_ne(&gb1213_check));
         self.emit(abi::compare_immediate(
             current_bc,
@@ -1176,10 +1050,7 @@ impl CodeBuilder<'_> {
             GRAPHEME_BOUNDCLASS_EXTEND,
         ));
         self.emit(abi::branch_eq(&bc_extpic_extend));
-        self.emit(abi::compare_immediate(
-            current_bc,
-            GRAPHEME_BOUNDCLASS_ZWJ,
-        ));
+        self.emit(abi::compare_immediate(current_bc, GRAPHEME_BOUNDCLASS_ZWJ));
         self.emit(abi::branch_eq(&bc_extpic_zwj));
         self.emit(abi::branch(&bc_set_current));
         self.emit(abi::label(&bc_ri_check));

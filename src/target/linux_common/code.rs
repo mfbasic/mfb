@@ -1629,7 +1629,8 @@ mod tests {
             for (_, value) in &inst.fields {
                 let rendered = value.render();
                 assert!(
-                    rendered != abi::mfb_arg(0).to_string() && rendered != abi::mfb_arg(1).to_string(),
+                    rendered != abi::mfb_arg(0).to_string()
+                        && rendered != abi::mfb_arg(1).to_string(),
                     "the HWCAP scan clobbered an ARG (argc/argv) token: {rendered}"
                 );
             }

@@ -98,21 +98,13 @@ impl CodeBuilder<'_> {
         match function {
             "floor" => {
                 // Arithmetic shift right rounds toward negative infinity.
-                self.emit(abi::arithmetic_shift_right_immediate(
-                    dst,
-                    src,
-                    32,
-                ));
+                self.emit(abi::arithmetic_shift_right_immediate(dst, src, 32));
             }
             "ceil" => {
                 let frac = self.allocate_register();
                 let mask = self.allocate_register();
                 let done = self.label("fixed_ceil_done");
-                self.emit(abi::arithmetic_shift_right_immediate(
-                    dst,
-                    src,
-                    32,
-                ));
+                self.emit(abi::arithmetic_shift_right_immediate(dst, src, 32));
                 self.emit(abi::move_immediate(
                     &mask,
                     "Integer",
@@ -132,11 +124,7 @@ impl CodeBuilder<'_> {
                 let negative = self.label("fixed_round_negative");
                 let compare = self.label("fixed_round_compare");
                 let done = self.label("fixed_round_done");
-                self.emit(abi::arithmetic_shift_right_immediate(
-                    &whole,
-                    src,
-                    32,
-                ));
+                self.emit(abi::arithmetic_shift_right_immediate(&whole, src, 32));
                 self.emit(abi::move_immediate(
                     &mask,
                     "Integer",
@@ -304,12 +292,8 @@ impl CodeBuilder<'_> {
         let (dst, a, b, s0, s1): (Reg, Reg, Reg, Reg, Reg) =
             (dst.into(), a.into(), b.into(), s0.into(), s1.into());
         self.emit(abi::multiply_registers(s0, a, b)); // low 64 bits
-        self.emit(abi::signed_multiply_high_registers(
-            s1,
-            a,
-            b,
-        )); // high 64 bits
-            // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
+        self.emit(abi::signed_multiply_high_registers(s1, a, b)); // high 64 bits
+                                                                  // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
         self.emit(abi::shift_left_immediate(s1, s1, 32));
         self.emit(abi::shift_right_immediate(dst, s0, 32));
         self.emit(abi::or_registers(dst, dst, s1));
@@ -859,11 +843,7 @@ impl CodeBuilder<'_> {
     ) {
         let (dst, negative, mask): (Reg, Reg, Reg) = (dst.into(), negative.into(), mask.into());
         self.emit(abi::subtract_registers(mask, abi::ZERO, negative));
-        self.emit(abi::exclusive_or_registers(
-            dst,
-            dst,
-            mask,
-        ));
+        self.emit(abi::exclusive_or_registers(dst, dst, mask));
         self.emit(abi::subtract_registers(dst, dst, mask));
     }
 
@@ -1399,11 +1379,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&down_loop));
         self.emit(abi::compare_immediate(&count, "0"));
         self.emit(abi::branch_eq(&down_done));
-        self.emit(abi::arithmetic_shift_right_immediate(
-            value,
-            value,
-            1,
-        ));
+        self.emit(abi::arithmetic_shift_right_immediate(value, value, 1));
         self.emit(abi::subtract_immediate(&count, &count, 1));
         self.emit(abi::branch(&down_loop));
         self.emit(abi::label(&down_done));

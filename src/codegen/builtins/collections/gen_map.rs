@@ -52,11 +52,7 @@ impl CodeBuilder<'_> {
             length.into(),
         );
         let entry = entry.into();
-        self.emit(abi::load_u64(
-            count,
-            collection,
-            COLLECTION_OFFSET_COUNT,
-        ));
+        self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::add_immediate(
             entry.clone(),

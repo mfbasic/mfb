@@ -1515,22 +1515,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(integer_loop));
         self.emit(abi::compare_immediate(int_part, "0"));
         self.emit(abi::branch_eq(integer_done));
-        self.emit(abi::unsigned_divide_registers(
-            quotient,
-            int_part,
-            divisor,
-        ));
+        self.emit(abi::unsigned_divide_registers(quotient, int_part, divisor));
         self.emit(abi::multiply_subtract_registers(
-            digit,
-            quotient,
-            divisor,
-            int_part,
+            digit, quotient, divisor, int_part,
         ));
-        self.emit(abi::add_immediate(
-            digit,
-            digit,
-            b'0' as usize,
-        ));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
         self.emit(abi::store_u8(digit, cursor, 0));
         self.emit(abi::subtract_immediate(cursor, cursor, 1));
         self.emit(abi::add_immediate(length, length, 1));
@@ -1574,11 +1563,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(precision, "0"));
         self.emit(abi::branch_eq(no_fraction));
         self.emit(abi::add_immediate(total_len, total_len, 1));
-        self.emit(abi::add_registers(
-            total_len,
-            total_len,
-            precision,
-        ));
+        self.emit(abi::add_registers(total_len, total_len, precision));
         self.emit(abi::label(no_fraction));
         self.emit(abi::store_u64(
             total_len,
@@ -1616,11 +1601,7 @@ impl CodeBuilder<'_> {
         let length = length.into();
         let digit = digit.into();
         let precision = precision.into();
-        self.emit(abi::add_immediate(
-            abi::return_register(),
-            total_len,
-            9,
-        ));
+        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(alloc_ok));
@@ -1701,27 +1682,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(fraction_loop));
         self.emit(abi::compare_registers(counter, precision));
         self.emit(abi::branch_eq(fraction_done));
-        self.emit(abi::multiply_registers(
-            frac_part,
-            frac_part,
-            divisor,
-        ));
-        self.emit(abi::unsigned_divide_registers(
-            digit,
-            frac_part,
-            scale,
-        ));
+        self.emit(abi::multiply_registers(frac_part, frac_part, divisor));
+        self.emit(abi::unsigned_divide_registers(digit, frac_part, scale));
         self.emit(abi::multiply_subtract_registers(
-            frac_part,
-            digit,
-            scale,
-            frac_part,
+            frac_part, digit, scale, frac_part,
         ));
-        self.emit(abi::add_immediate(
-            digit,
-            digit,
-            b'0' as usize,
-        ));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
         self.emit(abi::store_u8(digit, dst, 0));
         self.emit(abi::add_immediate(dst, dst, 1));
         self.emit(abi::add_immediate(counter, counter, 1));

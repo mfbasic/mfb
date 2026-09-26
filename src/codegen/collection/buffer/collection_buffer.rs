@@ -95,12 +95,7 @@ impl CodeBuilder<'_> {
         let count = count.into();
         let data_len = data_len.into();
         self.emit_write_collection_header_full(
-            layout,
-            collection,
-            count,
-            count,
-            data_len,
-            data_len,
+            layout, collection, count, count, data_len, data_len,
         );
     }
 
@@ -166,11 +161,7 @@ impl CodeBuilder<'_> {
             collection,
             COLLECTION_OFFSET_BUCKETS_READY,
         ));
-        self.emit(abi::store_u64(
-            count,
-            collection,
-            COLLECTION_OFFSET_COUNT,
-        ));
+        self.emit(abi::store_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
             capacity,
             collection,
@@ -218,16 +209,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(value_reg, scratch));
         self.emit(abi::branch_lo(&small));
         // ×1.5: out = value + value/2.
-        self.emit(abi::shift_right_immediate(
-            out_reg,
-            value_reg,
-            1,
-        ));
-        self.emit(abi::add_registers(
-            out_reg,
-            value_reg,
-            out_reg,
-        ));
+        self.emit(abi::shift_right_immediate(out_reg, value_reg, 1));
+        self.emit(abi::add_registers(out_reg, value_reg, out_reg));
         self.emit(abi::branch(&after));
         self.emit(abi::label(&small));
         self.emit(abi::shift_left_immediate(out_reg, value_reg, 1)); // ×2
@@ -473,11 +456,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
-        self.emit(abi::add_registers(
-            &scratch25,
-            dest_data,
-            dest_data_offset,
-        ));
+        self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
         self.emit_block_copy_advance(
             &scratch25,
             &scratch24,

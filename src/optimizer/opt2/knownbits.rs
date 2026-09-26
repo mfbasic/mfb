@@ -95,10 +95,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
         // Rewrite 1: the whole result is known → materialize it.
         let result = value_of(i, "dst").unwrap_or(Known::UNKNOWN);
         if result.ones | result.zeros == u64::MAX {
-            planned.push((
-                i,
-                Rewrite::Constant(result.ones),
-            ));
+            planned.push((i, Rewrite::Constant(result.ones)));
             simplified += 1;
             continue;
         }

@@ -271,11 +271,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(loop_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(positive));
-        self.emit(abi::subtract_registers(
-            result,
-            abi::ZERO,
-            acc,
-        ));
+        self.emit(abi::subtract_registers(result, abi::ZERO, acc));
         self.emit(abi::branch(done));
         self.emit(abi::label(positive));
         self.emit(abi::move_register(result, acc));
@@ -1390,17 +1386,9 @@ impl CodeBuilder<'_> {
         let bits: abi::Reg = bits.into();
         let exponent: abi::Reg = exponent.into();
         let mask: abi::Reg = mask.into();
-        self.emit(abi::shift_right_immediate(
-            exponent,
-            bits,
-            52,
-        ));
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
         self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(
-            exponent,
-            exponent,
-            mask,
-        ));
+        self.emit(abi::and_registers(exponent, exponent, mask));
         self.emit(abi::compare_immediate(exponent, "2047"));
         self.emit(abi::branch_eq(invalid));
         let Some(threshold) = threshold else {
@@ -1418,11 +1406,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(edge_sign_ok));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge_sign_ok));
-        self.emit(abi::move_immediate(
-            mask,
-            "Integer",
-            F64_MANTISSA_MASK,
-        ));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
         self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(overflow));

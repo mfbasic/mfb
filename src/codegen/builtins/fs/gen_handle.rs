@@ -185,15 +185,7 @@ pub(crate) fn emit_append_to_file_buffer(
         cap: &cap,
         prefix: "fbuf",
         v: [
-            role0,
-            role1,
-            role2,
-            role3,
-            role4,
-            role5,
-            role6,
-            role7,
-            role8,
+            role0, role1, role2, role3, role4, role5, role6, role7, role8,
         ],
         fd: Some(FdLoad {
             reg: fd_reg,

@@ -312,7 +312,6 @@ impl VirtualRegister {
         Self { class, id }
     }
 
-
     /// The `%vN` (integer) / `%fN` (floating-point) sentinel spelling. Allocates
     /// a `String` — used only by the string-shaped sites the typed `.field` funnel
     /// does not cover; a bare `.field(handle)` never renders (it stores `VReg`).

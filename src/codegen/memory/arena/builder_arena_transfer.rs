@@ -482,15 +482,8 @@ impl CodeBuilder<'_> {
         // the rebuild below.
         let rebuild_label = self.label("raw_result_rebuild");
         let err_built_label = self.label("raw_result_err_built");
-        self.emit(abi::load_u64(
-            scratch9,
-            abi::stack_pointer(),
-            tag_slot,
-        ));
-        self.emit(abi::compare_immediate(
-            scratch9,
-            adoptable_error_tag(),
-        ));
+        self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
+        self.emit(abi::compare_immediate(scratch9, adoptable_error_tag()));
         self.emit(abi::branch_ne(&rebuild_label));
         let adopted = self.emit_adopt_current_error_block();
         self.emit(abi::store_u64(&adopted, abi::stack_pointer(), payload_slot));
@@ -528,22 +521,14 @@ impl CodeBuilder<'_> {
                 // overwrites `message_slot`, so the free below can tell the copy
                 // this frame allocated from the worker block it was made from.
                 let raw = self.allocate_stack_object("raw_result_message_raw", 8);
-                self.emit(abi::load_u64(
-                    scratch9,
-                    abi::stack_pointer(),
-                    message_slot,
-                ));
+                self.emit(abi::load_u64(scratch9, abi::stack_pointer(), message_slot));
                 self.emit(abi::store_u64(scratch9, abi::stack_pointer(), raw));
                 message_borrowed_slot = raw;
                 // A propagated worker error: deep-copy its message and origin out of
                 // the thread's block arena (alive until this side lets go of the
                 // handle) into the caller arena. If the helper
                 // raised its own error (source == 0), stamp this inline expression.
-                self.emit(abi::load_u64(
-                    scratch9,
-                    abi::stack_pointer(),
-                    message_slot,
-                ));
+                self.emit(abi::load_u64(scratch9, abi::stack_pointer(), message_slot));
                 let copied_message =
                     self.copy_value_to_current_arena(&ParameterType::String, scratch9)?;
                 self.emit(abi::store_u64(
@@ -560,10 +545,8 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::compare_immediate(scratch9, "0"));
                 self.emit(abi::branch_eq(&own));
-                let copied_source = self.copy_value_to_current_arena(
-                    &ParameterType::named("ErrorLoc"),
-                    scratch9,
-                )?;
+                let copied_source =
+                    self.copy_value_to_current_arena(&ParameterType::named("ErrorLoc"), scratch9)?;
                 self.emit(abi::store_u64(
                     &copied_source,
                     abi::stack_pointer(),
@@ -1546,11 +1529,7 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("thread_copy_collection_alloc_ok");
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
-        self.emit(abi::store_u64(
-            source,
-            abi::stack_pointer(),
-            source_slot,
-        ));
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
         // bug-538 (found reproducing it): this used to compute the block size by
         // hand as `HEADER + capacity*ENTRY + dataCapacity` — **omitting a map's or
         // set's hash-bucket region**, which `emit_reserve_map_buckets` adds to

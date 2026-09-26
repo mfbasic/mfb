@@ -353,17 +353,7 @@ fn emit_append_to_stdout_buffer(
         drain_handle: None,
         cap: &cap,
         prefix: "buf",
-        v: [
-            v0,
-            v1,
-            v2,
-            v3,
-            v4,
-            v5,
-            v6,
-            v7,
-            v8,
-        ],
+        v: [v0, v1, v2, v3, v4, v5, v6, v7, v8],
         fd: None,
         epipe_label,
     };

@@ -134,8 +134,10 @@ pub(crate) const CLEANUP_FAILURE_PREFIX_SYMBOL: &str = "_mfb_str_cleanup_failure
 /// token (plan-34-A). Each backend's selection realizes it to a physical
 /// register (AArch64 x19 via `regmodel::ARENA_BASE_REGISTER`, RISC-V s11,
 /// x86-64 r15); shared lowering never spells the AArch64 register number.
-pub(crate) const ARENA_STATE_REGISTER: crate::target::shared::abi::Reg = crate::target::shared::abi::ARENA;
-pub(crate) const CLOSURE_ENV_REGISTER: crate::target::shared::abi::Reg = crate::target::shared::abi::CLOSURE_ENV;
+pub(crate) const ARENA_STATE_REGISTER: crate::target::shared::abi::Reg =
+    crate::target::shared::abi::ARENA;
+pub(crate) const CLOSURE_ENV_REGISTER: crate::target::shared::abi::Reg =
+    crate::target::shared::abi::CLOSURE_ENV;
 
 // ===========================================================================
 // Closures

@@ -119,11 +119,7 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &tmp,
-            entry,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        self.emit(abi::store_u8(&tmp, entry, COLLECTION_ENTRY_OFFSET_FLAGS));
         self.emit(abi::move_immediate(&tmp, "Integer", "0"));
         self.emit(abi::store_u64(
             &tmp,
@@ -140,11 +136,7 @@ impl CodeBuilder<'_> {
             entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::subtract_registers(
-            &tmp,
-            segment_end,
-            segment_start,
-        ));
+        self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
         self.emit(abi::store_u64(
             &tmp,
             entry,
@@ -157,11 +149,7 @@ impl CodeBuilder<'_> {
         self.emit_block_copy_advance(&dst, &src, &tmp, &byte, "strings_split_copy_segment");
         self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
         self.emit(abi::add_registers(data_offset, data_offset, &tmp));
-        self.emit(abi::add_immediate(
-            entry,
-            entry,
-            COLLECTION_ENTRY_SIZE,
-        ));
+        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
         Ok(())
     }
 

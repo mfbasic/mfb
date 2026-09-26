@@ -77,7 +77,11 @@ fn mint_vreg_id_above(class: RegClass, floor: u32) -> u32 {
     };
     NEXT_VREG_ID.with(|next| {
         let mut ids = next.get();
-        ids[slot] = ids[slot].max(floor.checked_add(1).expect("virtual-register ids exhausted"));
+        ids[slot] = ids[slot].max(
+            floor
+                .checked_add(1)
+                .expect("virtual-register ids exhausted"),
+        );
         next.set(ids);
     });
     mint_vreg_id(class)

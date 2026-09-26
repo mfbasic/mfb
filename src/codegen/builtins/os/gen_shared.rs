@@ -165,8 +165,7 @@ pub(crate) fn emit_release_marshalled_result(
     ]
     .map(|register| (register, vregs.next()));
     for (register, vreg) in &saved {
-        ctx.instructions
-            .push(abi::move_register(vreg, *register));
+        ctx.instructions.push(abi::move_register(vreg, *register));
     }
     ctx.instructions.extend([
         abi::compare_immediate(owned, "0"),
@@ -181,8 +180,7 @@ pub(crate) fn emit_release_marshalled_result(
     )?;
     ctx.instructions.push(abi::label(&skip));
     for (register, vreg) in &saved {
-        ctx.instructions
-            .push(abi::move_register(*register, vreg));
+        ctx.instructions.push(abi::move_register(*register, vreg));
     }
     Ok(())
 }

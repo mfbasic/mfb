@@ -74,34 +74,18 @@ impl CodeBuilder<'_> {
             "9259542123273814144",
         ));
         self.emit(abi::label(&block));
-        self.emit(abi::subtract_registers(
-            diff,
-            target,
-            scalar_index,
-        ));
+        self.emit(abi::subtract_registers(diff, target, scalar_index));
         self.emit(abi::compare_immediate(diff, "8"));
         self.emit(abi::branch_lo(&done));
         self.emit(abi::compare_immediate(remaining, "8"));
         self.emit(abi::branch_lo(&done));
         self.emit(abi::load_u64(word, cursor, 0));
-        self.emit(abi::and_registers(
-            word,
-            word,
-            ascii_mask,
-        ));
+        self.emit(abi::and_registers(word, word, ascii_mask));
         self.emit(abi::compare_immediate(word, "0"));
         self.emit(abi::branch_ne(&done));
         self.emit(abi::add_immediate(cursor, cursor, 8));
-        self.emit(abi::subtract_immediate(
-            remaining,
-            remaining,
-            8,
-        ));
-        self.emit(abi::add_immediate(
-            scalar_index,
-            scalar_index,
-            8,
-        ));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 8));
         self.emit(abi::branch(&block));
         self.emit(abi::label(&done));
     }

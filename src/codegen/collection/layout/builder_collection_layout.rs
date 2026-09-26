@@ -211,11 +211,7 @@ impl CodeBuilder<'_> {
         let scratch = scratch.into();
         let mask = !((alignment - 1) as u64);
         self.emit(abi::add_immediate(reg, reg, alignment - 1));
-        self.emit(abi::move_immediate(
-            scratch,
-            "Integer",
-            &mask.to_string(),
-        ));
+        self.emit(abi::move_immediate(scratch, "Integer", &mask.to_string()));
         self.emit(abi::and_registers(reg, reg, scratch));
     }
 
@@ -266,11 +262,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(scratch, dst, 0));
         self.emit(abi::add_immediate(src, src, 8));
         self.emit(abi::add_immediate(dst, dst, 8));
-        self.emit(abi::subtract_immediate(
-            remaining,
-            remaining,
-            8,
-        ));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
         self.emit(abi::branch(&word_loop));
         self.emit(abi::label(&byte_tail));
         self.emit(abi::compare_immediate(remaining, "0"));
@@ -318,11 +310,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_immediate(dst_end, dst_end, 8));
         self.emit(abi::load_u64(scratch, src_end, 0));
         self.emit(abi::store_u64(scratch, dst_end, 0));
-        self.emit(abi::subtract_immediate(
-            remaining,
-            remaining,
-            8,
-        ));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
         self.emit(abi::branch(&word_loop));
         self.emit(abi::label(&byte_tail));
         self.emit(abi::compare_immediate(remaining, "0"));
@@ -377,36 +365,16 @@ impl CodeBuilder<'_> {
                     .cloned()
                     .unwrap_or_else(|| ParameterType::named(""));
                 let stride = list_entry_stride(&element);
-                self.emit(abi::load_u64(
-                    out_reg,
-                    ptr_reg,
-                    COLLECTION_OFFSET_CAPACITY,
-                ));
-                self.emit(abi::move_immediate(
-                    scratch,
-                    "Integer",
-                    &stride.to_string(),
-                ));
-                self.emit(abi::multiply_registers(
-                    out_reg,
-                    out_reg,
-                    scratch,
-                ));
-                self.emit(abi::add_immediate(
-                    out_reg,
-                    out_reg,
-                    COLLECTION_HEADER_SIZE,
-                ));
+                self.emit(abi::load_u64(out_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY));
+                self.emit(abi::move_immediate(scratch, "Integer", &stride.to_string()));
+                self.emit(abi::multiply_registers(out_reg, out_reg, scratch));
+                self.emit(abi::add_immediate(out_reg, out_reg, COLLECTION_HEADER_SIZE));
                 self.emit(abi::load_u64(
                     scratch,
                     ptr_reg,
                     COLLECTION_OFFSET_DATA_CAPACITY,
                 ));
-                self.emit(abi::add_registers(
-                    out_reg,
-                    out_reg,
-                    scratch,
-                ));
+                self.emit(abi::add_registers(out_reg, out_reg, scratch));
                 // A map block also carries its hash-index bucket region
                 // (2 * capacity u64 buckets = capacity << 4 bytes) past the
                 // data region — the same region emit_reserve_map_buckets adds
@@ -420,16 +388,8 @@ impl CodeBuilder<'_> {
                 // `List` does not. `collection_has_buckets` is the single predicate
                 // so a Set is never sized without the region it was allocated with.
                 if matches!(other, ParameterType::MapOf(..) | ParameterType::SetOf(_)) {
-                    self.emit(abi::load_u64(
-                        scratch,
-                        ptr_reg,
-                        COLLECTION_OFFSET_CAPACITY,
-                    ));
-                    self.emit(abi::shift_left_immediate(
-                        scratch,
-                        scratch,
-                        4,
-                    ));
+                    self.emit(abi::load_u64(scratch, ptr_reg, COLLECTION_OFFSET_CAPACITY));
+                    self.emit(abi::shift_left_immediate(scratch, scratch, 4));
                     self.emit(abi::add_registers(out_reg, out_reg, scratch));
                 }
                 Ok(())
@@ -2057,11 +2017,7 @@ impl CodeBuilder<'_> {
         let size_reg = size_reg.into();
         let scratch_reg = scratch_reg.into();
         // 2 * capacity buckets * 8 bytes = capacity << 4.
-        self.emit(abi::shift_left_immediate(
-            scratch_reg,
-            capacity_reg,
-            4,
-        ));
+        self.emit(abi::shift_left_immediate(scratch_reg, capacity_reg, 4));
         self.emit(abi::add_registers(size_reg, size_reg, scratch_reg));
     }
 
@@ -2390,11 +2346,7 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("collection_string_alloc_ok");
 
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::store_u64(
-            length,
-            abi::stack_pointer(),
-            length_slot,
-        ));
+        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
         self.emit(abi::add_immediate(abi::return_register(), length, 9));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -2504,15 +2456,8 @@ pub(crate) fn push_collection_data_pointer_into(
     let collection = collection.into();
     let scratch_capacity = scratch_capacity.into();
     let scratch_entry_size = scratch_entry_size.into();
-    out.push(abi::move_register(
-        scratch_capacity,
-        collection,
-    ));
-    out.push(abi::add_immediate(
-        dst,
-        collection,
-        COLLECTION_HEADER_SIZE,
-    ));
+    out.push(abi::move_register(scratch_capacity, collection));
+    out.push(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
     out.push(abi::load_u64(
         scratch_capacity,
         scratch_capacity,
