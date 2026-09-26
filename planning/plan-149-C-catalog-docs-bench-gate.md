@@ -92,10 +92,10 @@ Commit: —
       That is 95 cells, each named by its `(signature, site)` label, so a failure points at one cell. The sample, not
       all 79 × 19, keeps the variant's unfiltered cost small. The window proof does not depend on the operation (the
       operation is plan-145's, already proven for every line), so 5 operations cover every owner class at every site.
-- [ ] Run the variant filtered to one site per owner class during development. The whole sample runs in the final
-      gate as part of `cargo test`.
+- [ ] Run the variant filtered to one site per owner class during development. The whole sample runs in CI's
+      `test` job (`coverage.yml`); the harness is `#[ignore]`d in a plain `cargo test`.
 
-Acceptance: `MFB_SELF_UPDATE_FILTER=via_let cargo test --test rt_inplace_self_update` → pass, 95 cells (est. 15 min
+Acceptance: `MFB_SELF_UPDATE_FILTER=via_let cargo test --test rt_inplace_self_update -- --ignored` → pass, 95 cells (est. 15 min
 because each cell builds and runs a program; a smaller filter would not prove the site coverage this task exists for).
 Commit: —
 
