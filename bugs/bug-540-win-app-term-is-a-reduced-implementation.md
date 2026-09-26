@@ -571,19 +571,54 @@ unconditionally like the existing TUI globals; `app-mouse-surface` also because 
 mouse cell range check now reads the live size. No non-Windows golden should move
 (only `win_x86_64/app/**` changed in code).
 
-**Not verified, recorded:** a live *windowed* resize. A windowed (non-headless)
-`term::` program on 2230 hangs (see "New bug found" below), so the `WM_SIZE` arm is
-exercised only via the scripted hook through the same handler. Which cell a glyph
-lands in is still unobservable (no GDI readback).
+**Live windowed resize — verified (2026-09-25).** New `scripts/test-winapp.sh` case:
+a `--debug` windowed build (no `MFB_WINAPP_HEADLESS`; session 0 has an invisible
+desktop), resized by a PowerShell `SetWindowPos(900x560)` driver launched from the
+same `.bat` (same window station). Box 2230, 3/3 runs:
+`driver: setwindowpos=True client=884x749 cells=110x46`, transcript read back via
+`MFB_WINAPP_DUMP` exactly `live before=48x16;resized=TRUE;after=110x46\r\nFALSE\r\n`.
+`before=48x16` is the default 400x300 window's client (384x261) — the size seeded
+by the `WM_SIZE` `CreateWindowExW` sends. (Driver trap: PowerShell passes `$null` to a
+`string` parameter as `""`, so `FindWindowW(class, $null)` found nothing; it takes
+`[NullString]::Value`.) Still unobservable: which cell a glyph lands in.
 
-**New bug found (pre-existing, not fixed here — needs a window session to debug):**
-on box 2230 a windowed (no `MFB_WINAPP_HEADLESS`) `--app` program that calls any
-`term::` member **and** `io::print` never exits — the process stays alive in session
-0. Reproduced with the BASELINE binary: `IMPORT io/term; io::print(toString(term::isOn()))`
-hangs; `term::on()` alone exits `rc=0`; `io::print("hi")` alone (no term) exits
-`rc=0`; same hang with `--debug` and non-debug, base and fixed binaries. Likely the
-app-mode finish path's auto-`term::off` / transcript `SendMessageW` handshake with
-the message loop; not investigated further.
+**Found while verifying: windowed `term::` + `io::print` "never exits" — fixed.**
+Reported first as a hang (a windowed `io::print(toString(term::isOn()))` outlived
+45–120 s watchdogs on 2230, base and fixed binaries alike). Measured, not guessed:
+it is not a hang but a ~75 s stall (timed runs 72 s / 86 s; the same program
+without `term::` 7–9 s). A full minidump of the stalled process (`MiniDumpWriteDump`
+via PowerShell `Add-Type`, stacks walked from the dump's thread/memory streams):
+the UI thread is inside the EDIT control laying text out
+(`NtGdiGetTextExtentExW` under `ScriptShape`/`ScriptStringAnalyse`), the worker is
+blocked in `SendMessageW(edit, EM_REPLACESEL=0xC2, 0, wbuf)`, and `wbuf` holds
+`"FALSE"` followed by garbage for **32767** UTF-16 units. Disassembly of the
+transcript write after `MultiByteToWideChar`: `andq %rdx, %rcx` — the NUL offset is
+computed from `rcx`, the aligned MFB return register (`abi::return_register()`),
+which a Win32 call leaves undefined; the count is in `rax` (`abi::c_return(0)`,
+`.ai/arch-abi.md`, bug-452/478 family). Garbage ≥ 32767 clamps, so the EDIT gets 32 K
+units of arena bytes; how long that takes depends on what the arena held, which is
+why the term-free program happened to be fast. `_main` had the same read twice:
+the surviving EDIT HWND copy after `CreateWindowExW` (so a `Console` restore would
+re-route io to garbage) and the `MFB_WINAPP_INPUT` count after
+`GetEnvironmentVariableW`. All three now read `c_return(0)`.
+
+RED/GREEN:
+* `windows_app_mode_reads_win32_results_from_the_c_return_register` (cli test): for
+  every `bl` to a Win32 import in `_main`, the io write body and every
+  `_mfb_winapp_*`/`_mfb_rt_term_*` body, no volatile argument register
+  (`rcx`/`rdx`/`r8`/`r9`) may be read before it is written. RED before the fix —
+  exactly the three sites: `_main: str_u64 reads rcx after bl CreateWindowExW`,
+  `_main: str_u64/cmp_imm reads rcx after bl GetEnvironmentVariableW`,
+  `io::write: and reads rcx after bl MultiByteToWideChar`. GREEN after:
+  `cargo test --release --no-fail-fast --test cli_win_app_term_fidelity` → 10/10.
+* Box 2230, the windowed case: before the fix the readback was
+  `live before=48x16;resized=TRUE;after=110x46` + garbage (FAIL); after it, the exact
+  two lines (3/3). Full `scripts/test-winapp.sh` (remote dir `C:\b540w`) → exit 0,
+  46 `ok`, 0 FAIL. `cargo test --release --bin mfb win_x86_64` → 44/44.
+
+Goldens: the same five Windows app `.ncodesum` listed above still differ (re-measured
+with the final binary); the `c_return` fix moves `_main` and the io write body in
+all of them. Not regenerated.
 
 ### Phase 3 — regenerate expected outputs + full validation
 
