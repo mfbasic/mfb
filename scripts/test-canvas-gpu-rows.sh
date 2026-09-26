@@ -22,7 +22,11 @@
 #
 # The six `*_on_black` rows are bug-687's: shapes over the default black surface, where
 # one step of coverage is several sRGB levels, so a GPU distance that rounds to a different
-# coverage step than the oracle's shows past `GPU_DEFAULT`.
+# coverage step than the oracle's shows past `GPU_DEFAULT`. The eleven after them are
+# bug-735's: the same bar for every other shape kind, a non-grid stroke half-width, a
+# non-grid group offset, transformed and clipped shapes, and rectangle and clip edges
+# placed beside a coverage step; and `hairline`, a blended item stroked under the 16.16
+# step, which the draw list and the emitters used to split differently.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -100,6 +104,18 @@ star301x2|star_301_2_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
 rectsblack|rectangles_on_black|render
+circlesblack|circles_on_black|render
+ellipsesblack|ellipses_on_black|render
+linesblack|lines_on_black|render
+arcsblack|arcs_on_black|render
+strokedpolysblack|stroked_polygons_on_black|render
+polylinesblack|polylines_on_black|render
+groupsblack|grouped_polygons_on_black|render
+strokedblack|stroked_shapes_on_black|render
+rectstepblack|rectangles_at_a_step_on_black|render
+clipstepblack|clips_at_a_step_on_black|render
+xformblack|transformed_shapes_on_black|render
+hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo

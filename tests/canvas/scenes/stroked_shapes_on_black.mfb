@@ -1,0 +1,52 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    LET rr AS Float = r + 3.0 * math::sin(a * 5.0)
+    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+' bug-735: 140 items cycling through butt-capped lines, round-capped arcs, and filled-and-stroked circles, ellipses and rounded rectangles, and butt-capped polylines, every stroke width off the 16.16 grid,
+' drawn over the default opaque-black surface, where one coverage step is several sRGB
+' levels. Before bug-735 carried every distance input at double-float precision and
+' evaluated the distance in double-float, the GPU's fp32 distance from 16.16 inputs put
+' pixels past GPU_DEFAULT here on Metal and on Vulkan.
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 140
+    LET fx AS Float = toFloat(k) * 7.3719
+    LET x AS Float = 32.0 + toFloat((k MOD 14) * 60) + math::sin(fx) * 0.37
+    LET y AS Float = 32.0 + toFloat((k / 14) * 60) + math::cos(fx) * 0.41
+    LET r AS Float = 8.0 + toFloat(k MOD 13) * 1.513
+    LET c AS color::Color = color::rgb(250, 250, 120)
+    LET w AS Float = 1.0 + toFloat(k MOD 7) * 0.3137
+    LET c2 AS color::Color = color::rgb(250, 120, 250)
+    MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, cap := canvas::CapStyle.Butt, paint := canvas::stroke(c2, w)]
+    IF k MOD 6 = 1 THEN
+      d = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, cap := canvas::CapStyle.Round, paint := canvas::stroke(c2, w)]
+    ELSEIF k MOD 6 = 2 THEN
+      d = canvas::Circle[x := x, y := y, radius := r, paint := canvas::fillStroke(c, c2, w)]
+    ELSEIF k MOD 6 = 3 THEN
+      d = canvas::Ellipse[x := x, y := y, radiusX := r, radiusY := r * 0.61, angle := fx, paint := canvas::fillStroke(c, c2, w)]
+    ELSEIF k MOD 6 = 4 THEN
+      d = canvas::RoundedRect[x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := canvas::fillStroke(c, c2, w)]
+    ELSEIF k MOD 6 = 5 THEN
+      d = canvas::PolyLine[points := ring(40, x, y, r), colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(c2, w)]
+    END IF
+    scene = collections::append(scene, d)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END SUB
