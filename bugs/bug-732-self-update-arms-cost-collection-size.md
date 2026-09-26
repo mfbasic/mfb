@@ -5,8 +5,10 @@ Effort: large (3h–1d)
 Severity: MEDIUM (performance; output is correct)
 Class: Other (performance / scalability)
 
-Status: Open
-Regression Test: none yet — see Phase 1. Repro: `bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb`
+Status: Open — **2026-09-25: all six findings fixed on `worktree-B-732` (Phases 1–2
+landed, re-measured linear; see the table under Phase 2). The full suite is still
+owed (Phase 3).** One pre-existing memory bug found on the way is filed as bug-733.
+Regression Test: `tests/runtime/rt_self_update_cost.rs`. Repro: `bugs/repro/bug-732-self-update-arms-cost-collection-size.mfb`
 
 Found by bug-652's Phase 1 audit of `SELF_UPDATE_TABLE`. bug-652 records the owner's
 rule (2026-09-25): a `MUT` self-update `x = f(x, …)` must cost time proportional to
@@ -125,7 +127,8 @@ the arm.
 
 ## Fix Design
 
-Not designed. Each finding is independent and can be its own phase:
+(As filed — see *Corrections* for what shipped.) Each finding is independent and
+can be its own phase:
 
 - Findings 1 and 6 need either dead-byte accounting or a cheaper order/tail test.
   Adding a header field would change the collection layout, which bug-652 rejected
@@ -135,18 +138,184 @@ Not designed. Each finding is independent and can be its own phase:
 - Finding 5 needs a skip when the window already starts at the block start, and a
   backward scan for `trimEnd`.
 
+## Corrections
+
+Every mechanism in *Root Cause* was confirmed by reading the lowering and by
+the RED runs below; none was a false premise. What the work added:
+
+- **C1 — findings 1 and 6 needed no header field (2026-09-25).** The doc asked to
+  weigh dead-byte accounting in the header first. It was not needed: the O(count)
+  live-byte walk moved from the removals to the **grows**, whose entry copy already
+  costs O(count). Removals now leave a non-tail payload as dead bytes;
+  `emit_list_reclaim_before_grow` runs at the realloc label of every in-place
+  variable-width grow (append, bulk append, insert/prepend, and the record-field
+  forms) and repacks (`emit_repack_list_data`, then retries the room check) when
+  dead bytes outnumber live ones. That keeps the data capacity within a constant
+  factor of the live bytes, which is what bug-652 C1 needed. The collection layout
+  is unchanged.
+- **C2 — a copying grow must reclaim too.** The churn test showed a hole in C1:
+  at a record field that is not its record's last inlined field, `removeAt` runs
+  in place but `append` rebuilds through `lower_list_insert_collection`, which
+  copied the source's data region verbatim. A remove/append loop there grew
+  without bound and copied ever more per call: peak live 75,552 B at 2,000 rounds,
+  537,568 B at 16,000, 4,233,568 B at 128,000 (the pre-fix compiler: 9,648 B flat,
+  because its `removeAt` compacted). `lower_list_insert_collection` now packs the
+  source's live payloads when its dead bytes outnumber them.
+- **C3 — the bucket index can be repaired after a delete.** `.ai/collections.md`
+  said an in-place delete must set `BUCKETS_READY = 0` because open addressing
+  without a tombstone cannot be repaired. Linear probing is repaired by
+  backward-shift deletion (`_mfb_rt_map_bucket_delete`); the entries after the
+  removed one are renumbered as they slide down (`_mfb_rt_map_compact_from`).
+  The same note claimed `copy_collection_tight` drops dead map slack; it copies
+  `dataLength` verbatim. Both corrected.
+- **C4 — two more O(|s|) walks than the doc listed.** `difference` also sized its
+  `String` scratch from the longest key of *s* (`emit_borrow_area_size(dest, …)`),
+  and `symmetricDifference` from the longest of *s* and *t*. Both now size from
+  *t* only. The old `symmetricDifference` also compacted *s* before its reserve,
+  so an `ErrOutOfMemory` from the reserve left *s* already shrunk; the reserve now
+  runs first.
+- **C5 — found on the way.** A `Map`/`Set` whose size stays constant under
+  `set`/`removeKey` churn grows without bound (dead key/value slack is never
+  reclaimed): filed as **bug-733**, pre-existing at the base. `mfb man collections`
+  `removeAt`, `insert` and `replace` said "there is no cheap in-place shape … every
+  call copies the list", false since plan-121-B/plan-142: corrected.
+
 ## Phases
 
 ### Phase 1 — failing tests
-- [ ] A scaling test per finding (CPU-time ratio, as `tests/runtime/rt_list_take_drop_in_place.rs`).
+- [x] A scaling test per finding (CPU-time ratio, as `tests/runtime/rt_list_take_drop_in_place.rs`).
+      → `tests/runtime/rt_self_update_cost.rs`: one test per finding, each timing
+      `ROUNDS = 8` runs of `n` against one run of `8n` (child CPU via `wait4`;
+      bound ×3 + 0.05 s) and checking each run's result line; an `append` guard;
+      a value-semantics program (results, iteration order, every surviving key
+      probed back after removals, aliases and copies untouched; checked by hand and
+      identical to the pre-fix compiler's output); its `--debug` build freeing
+      every block (`alloc_calls = free_calls`, `live_bytes 0`,
+      `double_free_skips 0`); and a churn bound (peak live bytes of a 64-element
+      list that keeps losing non-tail payloads, 2,000 vs 16,000 rounds, in a local,
+      a last record field, a global, and a non-last record field).
+      **RED at the base `d92e9d129`** (release `mfb` from that tree, copied to
+      `/tmp/b732-base-mfb`):
+      `CARGO_TARGET_DIR=/tmp/b732-target MFB_TEST_EXE=/tmp/b732-base-mfb cargo test --test rt_self_update_cost -- --test-threads=1`
+      → 7 failed, 3 passed. The failures: `removeAtLast` ×7.49, `removeKey` ×7.96,
+      `difference` ×7.74, `symDiff` ×7.78, `strip` ×7.76, `popSorted` ×7.61, plus
+      the churn test's first version (see below). Each test stops at its first
+      shape; the second shapes, run at the base with `/tmp/b732s/cal.sh`:
+      `removeAtSorted` 0.06 → 0.50 s, `setRemove` 0.20 → 1.60 s, `trim`
+      (n = 25,000) 11.75 → 92.34 s, `popInserted` 0.10 → 0.87 s for 8 runs of n
+      vs one of 8n. The value, leak and `append` tests are green at the base.
+      The churn test's first draft measured a `sortPop` shape, which the base
+      itself fails (its retained strings change length): replaced by shapes whose
+      base peaks are flat. The final churn test is green at the base and was
+      proved load-bearing against the fix with its reclaim disabled (see C1/C2).
 Commit: —
 
 ### Phase 2 — fixes
-- [ ] One per finding; update the spec "Cost" exception list as each lands.
+- [x] Finding 5 — `try_inplace_string_window_assign` skips the move when the
+      window already starts at the block start; `lower_strings_trim_window` trims
+      trailing whitespace by stepping back from the end (`emit_trim_end_backward`,
+      the same whitespace set as `emit_unicode_whitespace_branch`).
+- [x] Finding 2 — `emit_map_find_index` (hash probe for a probe-eligible key type,
+      entry scan otherwise), `emit_map_mark_removed` (`_mfb_rt_map_bucket_delete`,
+      backward-shift deletion, then `COLLECTION_ENTRY_FLAG_REMOVED`) and
+      `emit_map_compact_from` (`_mfb_rt_map_compact_from`, slide + renumber); the
+      index stays built. Three codegen tests detected the in-place `removeKey` by
+      its `mrk_scan(_loop)` label, which an `Integer` key no longer emits; only
+      those assertion lines now look for `mrk_done` (the four questions answered in
+      the commit message).
+- [x] Findings 3, 4 — `difference` claims `t`'s hits in `s` and compacts once from
+      the first; `symmetricDifference` reserves for `t`, claims the hits, marks the
+      misses, compacts, adds the misses. `intersection` keeps its mark pass. The
+      unit test that required `difference` to mark every entry of `s` now requires
+      the claim loop and the absence of that pass.
+- [x] Finding 1 — `removeAt` shifts only the later entries; the removed payload is
+      retracted over (tail) or left as dead bytes; `emit_list_reclaim_before_grow`
+      at every in-place grow (C1).
+- [x] Finding 6 — `emit_compact_range_truncate` leaves a non-tail removed payload
+      as dead bytes and keeps walking instead of falling to the general path.
+- [x] C2 — the copying insert packs a list with more dead than live bytes; its
+      fixed-width form stays byte-identical (the first version reloaded three
+      operands unconditionally, caught by the compress/crypto covers shifting
+      with no bug-732 marker, and fixed).
+- [x] Spec: `memory/05_collections.md` — the "Cost" exception list is gone (the
+      bullet states each form's cost), plus *Map Hash Index*, *Compaction*,
+      `dataLength`, entry `flags`, the window family and the value-path `insert`;
+      `language/12_collections.md` drops its pointer to the list.
+      `.ai/collections.md` — the shrink-cost note, a "Dead bytes" rule, the
+      aliasing table's `removeAt` row, the map notes (C3, bug-733).
+      Verified: `cargo test --bin mfb spec` → 44 passed; `citations_resolve` ok;
+      `MFB=… scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`;
+      `mfb spec memory collections` / `language collections` render with 0 `[[`.
+- [x] Man: `removeAt`, `insert`, `replace`, `take` (C5).
+      `MFB=… scripts/man-census.sh --memory-scope` → 0 unclassified;
+      `MFB=… scripts/man-run-examples.sh collections --run` → 140 built, 140 ran,
+      0 failed.
+
+**GREEN** (release `mfb` built from this branch):
+`CARGO_TARGET_DIR=/tmp/b732-target MFB_TEST_EXE=<that mfb> cargo test --test rt_self_update_cost -- --test-threads=1 --nocapture`
+→ 10 passed. Ratios for the same work: `removeAtLast` ×1.46, `removeAtSorted`
+×1.40, `removeKey` ×1.88, `setRemove` ×1.41, `difference` ×1.48, `symDiff` ×1.79,
+`strip` ×1.10, `trim` ×1.01, `popSorted` ×1.43, `popInserted` ×1.67 (all at
+0.001–0.015 s CPU, where the ratio is timer noise), `append` ×1.50. Churn peaks
+flat: 12,688 / 12,688 / 12,944 / 12,624 / 10,928 B at 2,000 and 16,000 rounds.
+
+Re-measured with the repro (`/usr/bin/time -p`, `user` s; the base binary is the
+same program built by the base compiler; load average 50–80):
+
+| shape | n | before: n → 4n | after: n → 4n |
+| --- | --- | --- | --- |
+| `append` (contrast) | 10,000 | 0.00 → 0.01 | 0.00 → 0.01 |
+| `removeAtLast` | 10,000 | 0.04 → 0.58 (×15) | 0.00 → 0.01 |
+| `removeKey` | 10,000 | 0.62 → 11.50 (×19) | 0.00 → 0.03 |
+| `setRemove` | 10,000 | 0.76 → 14.37 (×19) | 0.00 → 0.02 |
+| `difference` | 10,000 | 1.34 → 23.44 (×17) | 0.00 → 0.01 |
+| `symDiff` | 10,000 | 1.25 → 22.16 (×18) | 0.00 → 0.01 |
+| `stripSuffix` | 100,000 | 0.22 → 4.14 (×19) | 0.00 → 0.01 |
+| `popSorted` | 10,000 | 0.04 → 0.70 (×18) | 0.00 → 0.01 |
+
+Other checks (all against the release `mfb` of this branch):
+- `cargo test --bin mfb -- inplace_compact self_update compact_in_place map_compact string_self_update trim remove_at`
+  → 19 passed (incl. `every_arm_row_fires_at_every_enabled_site`); `inplace_compact`
+  → 10 passed with the four new label tests.
+- `rt_list_take_drop_in_place` (5), `rt_list_append_growth_bounds` (8),
+  `rt_list_set_widening_linear`, `rt_inplace_failure_atomic`,
+  `rt_recursive_value_collection_drops`, `rt_inplace_field_{loop,mixed,nested}`,
+  `rt_inplace_global_record`, `rt_for_each_self_update`, `rt_global_self_update`,
+  `rt_inplace_item_operand`, `rt_inplace_sort`, `rt_inplace_append_builtin_call`,
+  `rt_reduce_collection_accumulator_frees`, `rt_imported_record_map_field_keys`,
+  `rt_operand_snapshot`, `rt_recursive_map_transfer`, `inplace_self_update_census`,
+  `codegen_inplace_{append_call_result,record_field,remove_at_insert}`,
+  `codegen_string_set_shift`, `rt_res_state_inplace_mutation` (24),
+  `rt_lambda_capture_self_update` — all pass.
+- A 50,000-operation fuzz of `set`/`removeKey`/`getOr`/`hasKey` (Integer and String
+  keys) and `add`/`remove`/`difference`/`symmetricDifference` (Integer and String
+  elements) prints the same as the pre-fix compiler on macos-aarch64, and on
+  windows-x86_64 (box 2230); the value program matches there too. The Linux boxes were down (connection refused), so
+  x86-64 SysV and riscv64 were only compiled, not run.
+- The `rt-behavior` string fixtures `self-update-window-valid`,
+  `self-update-grow-valid`, `strings-empty-needle-rt`,
+  `strings-artifact-coverage-rt`, `func_typename_builtin_calls` and
+  `astrings/tier-b-transforms-rt` match their golden run output.
 Commit: —
 
 ### Phase 3 — full validation
 - [ ] Full suite.
+      **Expected golden shifts** (measured on macos-aarch64 by building every
+      `tests/byte-identity/*` cover and every other fixture with a native golden,
+      base vs this branch; every changed function carries a bug-732 marker
+      label — `list_reclaim_walk`, `list_packed_walk`, `strings_trim_end_back*`,
+      `inplace_str_window_in_place`, …): the byte-identity covers **audio,
+      collections, csv, http, json, regex, strings, term** (their `.ncodesum` on
+      all five targets), and **`syntax/app/app-mouse-surface`** and
+      **`syntax/app/macos-app-mode-term`** (their app `.ncode`/`.ncodesum`). The
+      other 20 covers and 9 native-golden fixtures are byte-identical, including
+      compress and crypto (fixed-width lists only). `.ast`/`.ir` goldens cannot
+      move (codegen only). Any other diff is a bug-hunt trigger.
+      `rt_inplace_self_update` was run only on the lines this bug touches (the
+      full matrix took bug-652 over 2h50m under this load):
+      `MFB_SELF_UPDATE_FILTER='collections::removeAt|collections::removeKey|collections::remove(|collections::difference|collections::symmetricDifference|collections::take|collections::drop|collections::mid|collections::append|collections::insert|collections::prepend|collections::intersection|collections::union|collections::set(|collections::add(|strings::stripSuffix|strings::stripPrefix|strings::trim|strings::left|strings::right|strings::mid(value AS String' … cargo test --test rt_inplace_self_update`
+      → 3 passed (1,359 s; the field-kind test runs every field kind). The rest of
+      the matrix is left to the full suite. `cargo check --all-targets` is clean.
 Commit: —
 
 ## Summary
