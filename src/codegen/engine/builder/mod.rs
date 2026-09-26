@@ -2308,6 +2308,12 @@ pub(crate) fn lower_module_for_platform(
     if input_state_offset.is_some() {
         code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
     }
+    // bug-699: every `--app` window key handler encodes its events through one
+    // shared encoder, so the window input pipe carries the kitty-protocol form a
+    // terminal under `term::on` sends. The handlers are part of every app build.
+    if module.build_mode.is_app() {
+        code_functions.push(crate::codegen::io::input::encode::lower_input_encode_key()?);
+    }
     // App-mode io members lower their transcript-write / prompt+read / present
     // sequences inline (plan-101 append shape): each io `abi_function` body calls
     // the platform's `emit_app_io_*` to append its GUI sequence directly, and the

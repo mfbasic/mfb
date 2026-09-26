@@ -204,10 +204,16 @@ impl NativePlanPlatform for Platform {
         // plan-94-E: what the `WndProc` mouse arms call. Conditional, because an
         // unused import is still recorded in the native plan and would diff every
         // Windows app golden that never touches the mouse (plan-94-C Corrections
-        // C3). `ScreenToClient` serves the wheel's screen-coordinate asymmetry;
-        // `GetKeyState` supplies Alt, which `wParam` alone does not carry.
+        // C3). `ScreenToClient` serves the wheel's screen-coordinate asymmetry.
+        // (`GetKeyState`, which supplies Alt — `wParam` alone does not carry it —
+        // is imported for every app program below.)
         .chain(uses_mouse.then(|| import("ScreenToClient", USER32, "_main")))
-        .chain(uses_mouse.then(|| import("GetKeyState", USER32, "_main")))
+        // bug-699: the key translator reads every modifier with `GetKeyState` and a
+        // key's unshifted character with `MapVirtualKeyW`, in every app program.
+        .chain([
+            import("GetKeyState", USER32, "_main"),
+            import("MapVirtualKeyW", USER32, "_main"),
+        ])
         .collect()
     }
 

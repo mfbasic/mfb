@@ -374,16 +374,8 @@ pub(super) fn emit_activate_handler(
         //   gtk_widget_add_controller(window, controller)  // takes ownership
         asm.call_external("gtk_event_controller_key_new");
         asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller (callee-saved across calls)
-        asm.local_address(abi::c_arg(1), STR_KEY_PRESSED.0);
-        asm.local_address(abi::c_arg(2), KEY_PRESSED_SYMBOL);
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
-        asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
-        asm.call_external("g_signal_connect_data");
-        asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
-        asm.call_external("gtk_widget_add_controller");
+                                                                       // bug-699: key-pressed and key-released, in the capture phase.
+        super::keys::emit_connect_key_controller(&mut asm);
 
         // plan-94-D: the three mouse controllers, on the WINDOW for the same
         // reason the key controller is — the window outlives the child swap
@@ -542,16 +534,8 @@ pub(super) fn emit_reconcile_build_helper(uses_window: bool) -> Result<CodeFunct
     // switching to `Console`.
     asm.call_external("gtk_event_controller_key_new");
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller
-    asm.local_address(abi::c_arg(1), STR_KEY_PRESSED.0);
-    asm.local_address(abi::c_arg(2), KEY_PRESSED_SYMBOL);
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.call_external("g_signal_connect_data");
-    asm.load_state(abi::c_arg(0), ST_WINDOW);
-    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
-    asm.call_external("gtk_widget_add_controller"); // takes ownership
+                                                                   // bug-699: key-pressed and key-released, in the capture phase.
+    super::keys::emit_connect_key_controller(&mut asm);
 
     // close-request: closing a reconcile-built window must end the program exactly
     // as closing a startup-built one does, rather than leaving a held-alive app with
@@ -840,7 +824,8 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, Stri
 /// `MFBTextView keyDown:`). Runs on the GTK main thread.
 ///
 /// Behavior by `ST_INPUT_MODE`:
-/// - RAW (`readChar`/`readByte`): write the key's UTF-8 bytes to the input pipe
+/// - RAW (the key readers, `term::on`): inject the key event into the input pipe
+///   in the kitty keyboard-protocol form (bug-699, `keys::emit_key_inject_helper`)
 ///   immediately; no line buffering, no echo.
 /// - LINE_ECHO (`io::input`) / LINE_NOECHO (`io::readLine`): accumulate into the
 ///   line buffer; Enter commits `line + '\n'` to the pipe; Backspace drops the last
@@ -850,8 +835,9 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, Stri
 /// TRUE for keys it consumes, FALSE otherwise (so window shortcuts still work).
 pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(KEY_PRESSED_SYMBOL);
-    // lr@0, oldlen@8, count@16, unichar@24, scratch(utf8/newline 8B)@32, x19@40.
-    let frame = 48;
+    // lr@0, oldlen@8, count@16, unichar@24, scratch(utf8/newline 8B)@32, x19@40,
+    // keycode@48, state@56.
+    let frame = 64;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -860,6 +846,8 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
         0,
     ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 40));
+    asm.push(abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 48)); // keycode
+    asm.push(abi::store_u64(abi::c_arg(3), abi::stack_pointer(), 56)); // state
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // keyval
 
     // Raw mode delivers the keystroke immediately, bypassing the line buffer.
@@ -1050,19 +1038,18 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.call_internal(DELETE_LAST_CHAR_SYMBOL);
     asm.push(abi::branch("consumed"));
 
-    // Raw: unichar -> UTF-8 in scratch -> write to the pipe immediately.
+    // Raw: inject the key event in the kitty keyboard-protocol form (bug-699) —
+    // every key, including the ones `gdk_keyval_to_unicode` has no character for.
     asm.push(abi::label("raw"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.call_external("gdk_keyval_to_unicode");
-    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
-    asm.push(abi::branch_eq("ignore"));
-    asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32));
-    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
-    asm.call_external("g_unichar_to_utf8"); // x0 still = unichar; x0 := count
-    asm.push(abi::move_register(abi::c_arg(2), abi::c_return(0)));
-    asm.load_state(abi::c_arg(0), ST_PIPE_WRITE_FD);
-    asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32));
-    asm.call_external("write");
+    asm.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 48));
+    asm.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), 56));
+    asm.push(abi::move_immediate(
+        abi::c_arg(3),
+        "Integer",
+        super::keys::KIND_PRESS,
+    ));
+    asm.call_internal(super::keys::KEY_INJECT_SYMBOL);
 
     asm.push(abi::label("consumed"));
     asm.push(abi::move_immediate(abi::c_return(0), "Boolean", TRUE)); // handled

@@ -21,6 +21,7 @@
 //! its stdout), which the box run over ssh observes. J-3 adds the GDI transcript
 //! window; J-4 the input pipe; J-5 the `term::` TUI grid + mode reconcile.
 
+mod keys;
 mod mouse;
 mod window;
 pub(crate) use window::{emit_window_sync_seam, window_data_objects};
@@ -457,6 +458,8 @@ pub(super) fn emit_app_program_entry(
         // a runtime question, not a static one.
         emit_canvas_blit_helper(),
         emit_editproc(),
+        // bug-699: the key translator both procedures call.
+        keys::emit_key_inject_helper(),
         emit_finish(),
     ];
     // plan-155-A: the display-rate publish. Gated on the program drawing: it names the
@@ -1597,66 +1600,54 @@ fn emit_wndproc(
         ins.push(abi::branch("wnd_default"));
     }
 
-    // ---- plan-98-A Phase 4: WM_CHAR while a canvas surface is presented ----
+    // ---- bug-699: the keyboard, when the top-level window has focus ----
     //
-    // In `Console` the transcript EDIT has focus and its subclass (`editproc`) feeds
-    // the input pipe. Canvas mode hides that EDIT, so focus falls to the top-level
-    // window and its WM_CHAR arrives here instead — without this arm a canvas
-    // program's `io::readByte` would block forever on a pipe nobody writes to.
+    // In `Console` the transcript EDIT has focus and its subclass (`editproc`) sees
+    // the keys. Canvas mode hides that EDIT, and so does `term::on`, so focus falls
+    // to the top-level window and its key messages arrive here instead. Every key
+    // message goes through the shared translator (`keys::emit_key_inject_helper`),
+    // which writes the key events to the input pipe. (plan-98-A Phase 4 handled
+    // `WM_CHAR` here, gated on a presented canvas; a hidden EDIT in `term::` mode
+    // dropped every key.)
     //
-    // Gated on `CANVAS_HWND_SYM` being non-zero rather than on the message alone, so
-    // in `Console`/`None` this is inert and the message chains to DefWindowProcW
-    // exactly as before.
-    //
-    // Same byte contract as `editproc`: Enter (`\r`) is translated to `\n` so
-    // `io::readLine` terminates the line, everything else is the low byte verbatim.
-    // No echo — a canvas has no text surface to echo into, and the program draws its
-    // own UI.
-    //
-    // The byte and the WriteFile `written` out-param borrow the `HDC` and `PS`
-    // frame slots: WM_PAINT and WM_CHAR are different messages, so one invocation
-    // never uses both, and reusing them keeps the frame size (and its `≡ 8 mod 16`
-    // property) unchanged.
+    // `WM_SYSKEYDOWN`/`WM_SYSKEYUP` with Alt down still reach `DefWindowProcW`
+    // afterwards, so Alt+F4 and Alt+Space keep working; a window with no focused
+    // child receives every key as `WM_SYSKEYDOWN`, and those stop here.
     ins.push(abi::label("wnd_check_char"));
-    ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_CHAR));
-    ins.push(abi::branch_ne("wnd_check_blit"));
-    load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
-    ins.push(abi::branch_eq("wnd_default")); // not in canvas mode → unchanged
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), H2)); // wParam
-    ins.push(abi::compare_immediate(abi::mfb_arg(2), VK_RETURN));
-    ins.push(abi::branch_ne("wnd_char_not_cr"));
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "10")); // '\n'
-    ins.push(abi::branch("wnd_char_store"));
-    ins.push(abi::label("wnd_char_not_cr"));
-    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "255"));
+    for msg in [
+        keys::WM_KEYDOWN,
+        keys::WM_KEYUP,
+        WM_CHAR,
+        keys::WM_SYSKEYDOWN,
+        keys::WM_SYSKEYUP,
+        keys::WM_SYSCHAR,
+    ] {
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), msg));
+        ins.push(abi::branch_eq("wnd_key"));
+    }
+    ins.push(abi::branch("wnd_check_blit"));
+    ins.push(abi::label("wnd_key"));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::mfb_arg(1))); // msg
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), H2)); // wParam
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), H3)); // lParam
+    call_internal(from, keys::KEY_INJECT_SYMBOL, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), H1));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), keys::WM_SYSKEYDOWN));
+    ins.push(abi::branch_eq("wnd_key_sys"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), keys::WM_SYSKEYUP));
+    ins.push(abi::branch_ne("wnd_key_handled"));
+    ins.push(abi::label("wnd_key_sys"));
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "18")); // VK_MENU
+    call_external(from, "GetKeyState", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "32768"));
     ins.push(abi::and_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(2),
-        abi::mfb_arg(3),
-    )); // low byte
-    ins.push(abi::label("wnd_char_store"));
-    ins.push(abi::store_u8(abi::mfb_arg(0), abi::stack_pointer(), HDC)); // byte scratch
-    load_addr(abi::mfb_arg(0), STDIN_WRITE_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
-    ins.push(abi::branch_eq("wnd_default")); // pipe never wired (headless)
-                                             // WriteFile(hWrite, &byte, 1, &written, NULL)
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20)); // 5th arg NULL
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), PS)); // written
-    ins.push(abi::add_immediate(
         abi::mfb_arg(1),
-        abi::stack_pointer(),
-        HDC,
+        abi::c_return(0),
+        abi::mfb_arg(1),
     ));
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
-    ins.push(abi::add_immediate(
-        abi::mfb_arg(3),
-        abi::stack_pointer(),
-        PS,
-    ));
-    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), "0"));
+    ins.push(abi::branch_ne("wnd_default"));
+    ins.push(abi::label("wnd_key_handled"));
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
@@ -1912,21 +1903,20 @@ fn preserve_win64_nonvolatile(ins: Vec<CodeInstruction>, save_base: usize) -> Ve
 }
 
 /// `editproc(hwnd, msg, wParam, lParam)`: the transcript EDIT's subclass (plan-66-
-/// J-4). On `WM_CHAR` it writes the typed byte to the input pipe — translating
-/// Enter (`\r`) to `\n` so `io::readLine` terminates the line — then chains to the
-/// stock EDIT proc so the character still echoes into the transcript. Every other
-/// message chains straight through, so J-3's programmatic transcript appends
-/// (`EM_REPLACESEL` via `SendMessageW`) are untouched. The keystrokes reach the
-/// pipe per-character (the macOS keyDown model), so there is no fragile line
-/// read-back to distinguish typed text from program output.
+/// J-4). Every key message goes to the shared key translator
+/// (`keys::emit_key_inject_helper`, bug-699), which writes the key's events to the
+/// input pipe, and then chains to the stock EDIT proc so the character still
+/// echoes into the transcript. Every other message chains straight through, so
+/// J-3's programmatic transcript appends (`EM_REPLACESEL` via `SendMessageW`) are
+/// untouched. The keystrokes reach the pipe per key (the macOS keyDown model), so
+/// there is no fragile line read-back to distinguish typed text from program
+/// output.
 fn emit_editproc() -> CodeFunction {
-    // Frame: shadow[0..0x20], 5th-arg slot@0x20, written@0x28, byte@0x30,
-    // hwnd@0x38, msg@0x40, wParam@0x48, lParam@0x50. FRAME ≡ 8 (mod 16): the proc is
-    // entered at sp%16==8 (post-call), so 0x58 realigns to 16 before any call.
+    // Frame: shadow[0..0x20], 5th-arg slot@0x20, hwnd@0x38, msg@0x40, wParam@0x48,
+    // lParam@0x50. FRAME ≡ 8 (mod 16): the proc is entered at sp%16==8
+    // (post-call), so 0x58 realigns to 16 before any call.
     const FRAME: usize = 0x58;
     const OVERLAPPED: usize = 0x20;
-    const WRITTEN: usize = 0x28;
-    const BYTEBUF: usize = 0x30;
     const HWND: usize = 0x38;
     const MSG: usize = 0x40;
     const WPARAM: usize = 0x48;
@@ -1949,48 +1939,26 @@ fn emit_editproc() -> CodeFunction {
         abi::stack_pointer(),
         LPARAM,
     ));
-    // Only WM_CHAR feeds the pipe; everything else chains straight through.
-    ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_CHAR));
-    ins.push(abi::branch_ne("chain"));
-    // byte = (wParam == '\r') ? '\n' : (wParam & 0xFF). readLine terminates on '\n'.
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WPARAM));
-    ins.push(abi::compare_immediate(abi::mfb_arg(2), VK_RETURN));
-    ins.push(abi::branch_ne("not_cr"));
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "10")); // '\n'
-    ins.push(abi::branch("store_byte"));
-    ins.push(abi::label("not_cr"));
-    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "255"));
-    ins.push(abi::and_registers(
-        abi::mfb_arg(0),
-        abi::mfb_arg(2),
-        abi::mfb_arg(3),
-    )); // low byte
-    ins.push(abi::label("store_byte"));
-    ins.push(abi::store_u8(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        BYTEBUF,
-    ));
-    // hWrite = *_mfb_winapp_stdin_write; skip if the pipe was never wired (headless).
-    load_addr(abi::mfb_arg(0), STDIN_WRITE_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
-    ins.push(abi::branch_eq("chain"));
-    // WriteFile(hWrite, &byte, 1, &written, NULL)
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED)); // 5th arg NULL
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-    ins.push(abi::add_immediate(
-        abi::mfb_arg(1),
-        abi::stack_pointer(),
-        BYTEBUF,
-    )); // &byte
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
-    ins.push(abi::add_immediate(
-        abi::mfb_arg(3),
-        abi::stack_pointer(),
-        WRITTEN,
-    )); // &written
-    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    // bug-699: every key message goes through the shared translator
+    // (`keys::emit_key_inject_helper`), which writes the key events to the input
+    // pipe; then the message chains on so the EDIT still echoes and edits.
+    for msg in [
+        keys::WM_KEYDOWN,
+        keys::WM_KEYUP,
+        WM_CHAR,
+        keys::WM_SYSKEYDOWN,
+        keys::WM_SYSKEYUP,
+        keys::WM_SYSCHAR,
+    ] {
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), msg));
+        ins.push(abi::branch_eq("key"));
+    }
+    ins.push(abi::branch("chain"));
+    ins.push(abi::label("key"));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::mfb_arg(1))); // msg
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), WPARAM));
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), LPARAM));
+    call_internal(from, keys::KEY_INJECT_SYMBOL, &mut ins, &mut rel);
     // chain: CallWindowProcW(oldproc, hwnd, msg, wParam, lParam) — 5th arg on stack.
     ins.push(abi::label("chain"));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), LPARAM));
@@ -3086,17 +3054,24 @@ pub(super) fn emit_app_io_input(
     // vregs are needed.
     let from = symbol;
     call_internal(from, IO_WRITE_SYMBOL, instructions, relocations); // ARG[0] = prompt
+                                                                     // bug-699: the default input mode, where typed text reaches the pipe as UTF-8 —
+                                                                     // as macOS and GTK switch to line input for `io::input`.
+    keys::emit_set_input_mode(from, "0", instructions, relocations);
     call_internal(from, IO_READ_LINE_SYMBOL, instructions, relocations); // result in Result regs
     instructions.push(abi::return_());
 }
 
-/// App-mode setup for immediate, no-echo key reads (`io.readChar`/`readByte`).
-/// On Windows the input pipe already delivers each keystroke byte as it is typed
-/// (the EDIT subclass writes per `WM_CHAR`, unbuffered), so a single-byte read of
-/// fd 0 returns the next key with no cooked-mode line buffering to disable — the
-/// raw-mode flip is a no-op. Returns `Ok(())` so the shared read helpers treat raw
-/// mode as supported (the trait's `None` would mean "not app mode").
-pub(super) fn emit_app_raw_input_mode() -> Result<(), String> {
+/// App-mode setup for the key reads: switch the window to RAW input mode, in
+/// which every key event reaches the input pipe in the kitty keyboard-protocol
+/// form (bug-699, `keys`). The pipe is unbuffered either way — the EDIT subclass
+/// and the window procedure write per key — so this is the whole switch. Clobbers
+/// the first two MFB argument registers.
+pub(super) fn emit_app_raw_input_mode(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    keys::emit_set_input_mode(symbol, keys::INPUT_MODE_RAW, instructions, relocations);
     Ok(())
 }
 
@@ -4360,6 +4335,9 @@ fn emit_term_on(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
+    // bug-699: TUI mode reads keys — every key event in the kitty form, as the
+    // macOS and GTK `term::on` switch the window to raw input.
+    keys::emit_set_input_mode(from, keys::INPUT_MODE_RAW, &mut ins, &mut rel);
     // Hide the transcript EDIT, then invalidate the window to present the grid.
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -4392,6 +4370,8 @@ fn emit_term_off(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_ACTIVE_OFFSET,
     ));
+    // bug-699: back to the default input mode, as macOS and GTK return to line input.
+    keys::emit_set_input_mode(from, "0", &mut ins, &mut rel);
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
@@ -5398,6 +5378,13 @@ pub(crate) fn default_window_title(project_name: &str) -> &str {
 
 fn bootstrap_data_objects(project_name: &str) -> Vec<CodeDataObject> {
     let title = default_window_title(project_name);
+    let mut objects = bootstrap_fixed_data_objects(title);
+    // bug-699: the key translator's globals.
+    objects.extend(keys::key_data_objects());
+    objects
+}
+
+fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
     vec![
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
@@ -5702,27 +5689,36 @@ mod tests {
 
     #[test]
     fn editproc_feeds_pipe_then_chains() {
-        // editproc must write typed bytes to the pipe (WriteFile) AND chain every
-        // message to the stock EDIT proc (CallWindowProcW) so J-3's transcript
-        // appends are preserved.
+        // editproc must hand typed keys to the pipe AND chain every message to the
+        // stock EDIT proc (CallWindowProcW) so J-3's transcript appends are
+        // preserved. Since bug-699 the pipe write is the shared key translator's.
         let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
         let ep = fns.iter().find(|f| f.symbol == EDITPROC_SYMBOL).unwrap();
         let targets: Vec<&str> = ep.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(
-            targets.contains(&"WriteFile"),
-            "editproc writes keystrokes to the pipe"
+            targets.contains(&keys::KEY_INJECT_SYMBOL),
+            "editproc hands every key message to the key translator"
         );
         assert!(
             targets.contains(&"CallWindowProcW"),
             "editproc chains to the original EDIT proc (no J-3 regression)"
         );
         assert!(
-            targets.contains(&STDIN_WRITE_SYM),
-            "reads the pipe write handle global"
-        );
-        assert!(
             targets.contains(&EDIT_OLDPROC_SYM),
             "reads the saved original proc"
+        );
+        let inject = fns
+            .iter()
+            .find(|f| f.symbol == keys::KEY_INJECT_SYMBOL)
+            .expect("the key translator is emitted");
+        let targets: Vec<&str> = inject.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(
+            targets.contains(&"WriteFile"),
+            "the translator writes keystrokes to the pipe"
+        );
+        assert!(
+            targets.contains(&STDIN_WRITE_SYM),
+            "the translator reads the pipe write handle global"
         );
     }
 
@@ -6008,18 +6004,20 @@ mod canvas_reconcile_tests {
 
     /// The canvas arm publishes the HWND (Windows' native surface handle) and both
     /// non-canvas arms clear it, so "retrievable in canvas mode, released after
-    /// exit" is a real invariant rather than a stale last-value. The Phase 4 WM_CHAR
-    /// arm reads it a fourth time, as its "am I in canvas mode?" gate.
+    /// exit" is a real invariant rather than a stale last-value. (The plan-98-A
+    /// Phase 4 WM_CHAR arm also read it, as its "am I in canvas mode?" gate; since
+    /// bug-699 the key arms serve any mode in which the top-level window has focus,
+    /// so they no longer consult it.)
     #[test]
     fn canvas_hwnd_is_published_by_one_arm_and_cleared_by_the_others() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            14,
-            "7 address loads — Canvas publishes, Console and None clear, WM_CHAR \
-             gates on it, WM_PAINT gates on it, WM_SIZE gates on it (plan-98-F \
-             Phase 3), and WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A) — each \
-             an adrp/add pair = 2 relocations"
+            12,
+            "6 address loads — Canvas publishes, Console and None clear, WM_PAINT \
+             gates on it, WM_SIZE gates on it (plan-98-F Phase 3), and \
+             WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A) — each an adrp/add \
+             pair = 2 relocations"
         );
     }
 
@@ -6159,27 +6157,39 @@ mod canvas_reconcile_tests {
 
     /// plan-98-A Phase 4: canvas keyboard input. `Console` mode's keys reach the
     /// pipe through the transcript EDIT's subclass, but canvas mode hides that EDIT,
-    /// so focus falls to the top-level window and its WM_CHAR must feed the pipe
-    /// here instead — otherwise `io::readByte` in canvas mode blocks forever.
+    /// so focus falls to the top-level window and its key messages must feed the
+    /// pipe here instead — otherwise a canvas program's reads block forever. Since
+    /// bug-699 the wndproc hands every key message to the shared translator, which
+    /// owns the pipe write.
     #[test]
     fn wndproc_feeds_the_input_pipe_on_wm_char_in_canvas_mode() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         let immediates = compare_immediates(&wndproc);
+        for message in [WM_CHAR, keys::WM_KEYDOWN, keys::WM_KEYUP, keys::WM_SYSCHAR] {
+            assert!(
+                immediates.iter().any(|value| value == message),
+                "the wndproc must handle message {message}; got {immediates:?}"
+            );
+        }
         assert!(
-            immediates.iter().any(|value| value == WM_CHAR),
-            "the wndproc must handle WM_CHAR; got {immediates:?}"
+            externals(&wndproc, keys::KEY_INJECT_SYMBOL) >= 1,
+            "the key arm must call the key translator"
+        );
+        let inject = func(keys::KEY_INJECT_SYMBOL, PresentationMode::Console);
+        assert!(
+            externals(&inject, STDIN_WRITE_SYM) >= 2,
+            "the translator must read the input pipe's write handle"
         );
         assert!(
-            externals(&wndproc, STDIN_WRITE_SYM) >= 2,
-            "the WM_CHAR arm must read the input pipe's write handle"
+            externals(&inject, "WriteFile") >= 1,
+            "the translator must write the key to the pipe"
         );
         assert!(
-            externals(&wndproc, "WriteFile") >= 1,
-            "the WM_CHAR arm must write the typed byte to the pipe"
-        );
-        assert!(
-            immediates.iter().any(|value| value == VK_RETURN),
-            "Enter must be translated to '\\n' or io::readLine never terminates"
+            compare_immediates(&inject)
+                .iter()
+                .any(|value| value == VK_RETURN),
+            "a CR character must be delivered as '\\n' in the default mode or \
+             io::readLine never ends a posted line"
         );
     }
 

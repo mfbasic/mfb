@@ -14,10 +14,13 @@
 
 pub(crate) mod buffer;
 pub(crate) mod decode;
+pub(crate) mod encode;
 pub(crate) mod keys;
 
 #[cfg(test)]
 mod corpus;
+#[cfg(test)]
+mod encode_tests;
 #[cfg(test)]
 mod model;
 /// The `.ncode` interpreter the `--app` handler tests use (`tests/common`),
