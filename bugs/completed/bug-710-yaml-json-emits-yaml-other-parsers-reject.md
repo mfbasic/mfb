@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: FIXED (378194435)
 Regression Test: `examples/yaml-json/tests/emitter-conformance.sh` (new — see Validation Plan)
 
 `examples/yaml-json`'s `to-yaml` command writes bytes for C1 control characters
@@ -273,39 +273,52 @@ output outside `examples/yaml-json` is expected.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `examples/yaml-json/tests/emitter-conformance.sh` (or equivalent)
+- [x] Add `examples/yaml-json/tests/emitter-conformance.sh` (or equivalent)
       per the Regression Test below, encoding the C1/NEL/LINE-SEPARATOR and
       doubled-newline reproductions above as an executable check that fails
       against current `toYaml`/`main.mfb`.
-- [ ] Confirm the blast-radius grep above stays empty (no other emit.mfb
+- [x] Confirm the blast-radius grep above stays empty (no other emit.mfb
       consumer appeared since).
 
 Acceptance: the new script fails for the documented reason on current code.
-Commit: —
+Commit: 953f97635 — confirmed RED: all five PyYAML-acceptance fixtures raise
+a `ReaderError`/`ScannerError`, and the trailing-newline check finds two
+newlines. `git diff 0cd2db799 -- examples/yaml-json packages/yaml` (i.e. the
+blast-radius grep re-run) still finds no second `emit.mfb`/`toYaml` consumer.
 
 ### Phase 2 — the fix
 
-- [ ] Add the missing codepoints to `isPlainSafe` (`emit.mfb:64-66`) and
+- [x] Add the missing codepoints to `isPlainSafe` (`emit.mfb:64-66`) and
       `isBlockSafe` (`emit.mfb:86-89`).
-- [ ] Make `quoteScalar` (`emit.mfb:74-77`) actually escape
+- [x] Make `quoteScalar` (`emit.mfb:74-77`) actually escape
       `0x80`-`0x9F`/`0x85`/`0x2028`/`0x2029` in its output.
-- [ ] Remove the extra `& "\n"` from `toYaml`'s three return sites
+- [x] Remove the extra `& "\n"` from `toYaml`'s three return sites
       (`emit.mfb:218`, `219`, `221`).
 
 Acceptance: Phase 1's script passes; `examples/yaml-json/smoke.sh` still
 passes unchanged; the samples in `examples/yaml-json/samples/` still round-trip.
-Commit: —
+Commit: 378194435 — added a shared `isUnsafeControlOrLineBreak` predicate
+(the existing C0/DEL check plus C1/NEL/LS/PS) used by both safety checks, and
+a `escapeUnsafeForYaml` post-process over `quoteScalar`'s `json::stringify`
+output (also added `0x2029` PARAGRAPH SEPARATOR per the Open Decision
+recommendation below). `\uXXXX` was used for the escape (not `\xXX`, since
+this language's own string-literal lexer has no `\xNN` form and the two are
+equally valid inside a YAML double-quoted scalar).
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] No goldens exist for this example; re-run the exact reproduction
+- [x] No goldens exist for this example; re-run the exact reproduction
       commands above and confirm PyYAML now accepts every case, and `od -c`
       shows exactly one trailing `\n`.
-- [ ] Run `examples/yaml-json/smoke.sh`.
+- [x] Run `examples/yaml-json/smoke.sh`.
 
 Acceptance: PyYAML `safe_load` succeeds on every fixture from the
 Reproduction section; `to-yaml` output ends in a single `\n`; smoke.sh green.
-Commit: —
+Commit: 378194435 — `examples/yaml-json/tests/emitter-conformance.sh` and
+`examples/yaml-json/smoke.sh` both green against the rebuilt `yamljson.out`;
+all five reproduction commands from **Failing Reproduction** re-run by hand,
+PyYAML now accepts every one, and `od -c`/`xxd` on `to-yaml` output shows
+exactly one trailing `\n`.
 
 ## Validation Plan
 
@@ -351,3 +364,16 @@ newline fix is a one-line deletion repeated at `toYaml`'s three return sites.
 The main engineering risk is verifying the codepoint list is complete (C1
 range, NEL, LINE SEPARATOR, and by the same logic PARAGRAPH SEPARATOR) rather
 than the mechanics of either fix.
+
+## STATUS: FIXED (378194435)
+
+Both Open Decisions resolved as recommended: `quoteScalar` post-processes
+`json::stringify`'s output rather than duplicating JSON's escaping rules, and
+U+2029 (PARAGRAPH SEPARATOR) is included alongside U+2028. No deviation from
+the Fix Design otherwise. One implementation detail not anticipated by the
+doc: the escape written is `\uXXXX` (4 hex digits, matching JSON's own
+`\uXXXX` form), not the `\xXX` PyYAML happens to emit for the same
+codepoints in its own `safe_dump` — this language's string-literal lexer has
+no `\xNN` escape form at all (only `\u{HEX}`), and `\uXXXX` is equally valid
+inside a YAML double-quoted scalar, so there was no reason to hand-build a
+`\xXX` form instead.
