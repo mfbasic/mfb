@@ -1,0 +1,55 @@
+' A write after `tls::read` has reported the peer's close raises
+' `ErrConnectionClosed` at once, on every target.
+'
+' The peer is `openssl s_client` with its standard input closed: it sends
+' close_notify and then waits, still connected, for ours. That is a TLS
+' half-close, and it is exactly the case where the three TLS backends used to
+' differ from the rule. The transport would still accept the bytes (the peer is
+' alive and reading), so before the rule a write here "succeeded". The rule is
+' that once a read has reported the close, the connection is closed for writing
+' too, whatever the peer does next: the first write raises, every later one
+' raises, and so does an empty one.
+'
+' The identity is minted at run time for the reasons
+' `rt-behavior/tls/tls-write-peer-closed-raises-rt` gives: a committed
+' certificate expires, and macOS refuses a long-lived one.
+IMPORT errorCode
+IMPORT fs
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT process
+IMPORT tls
+
+
+' Read until the read itself reports the close.
+FUNC drain(RES conn AS tls::Socket) AS String
+  WHILE TRUE
+    LET chunk AS List OF Byte = tls::read(conn, 4096)
+  END WHILE
+  RETURN "never"
+  TRAP(err)
+    RETURN toString(err.code = errorCode::ErrConnectionClosed)
+  END TRAP
+END FUNC
+
+FUNC writeOnce(RES conn AS tls::Socket, text AS String) AS String
+  tls::write(conn, text)
+  RETURN "completed"
+  TRAP(err)
+    RETURN toString(err.code = errorCode::ErrConnectionClosed)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 0, "C:\\Users\\test\\b564p\\cert.pem", "C:\\Users\\test\\b564p\\key1.pem")
+  LET bound = tls::localAddress(server)
+  io::print("port=" & toString(bound.port))
+  RES conn = tls::accept(server)
+  io::print("read closed=" & drain(conn))
+  io::print("first write closed=" & writeOnce(conn, "after the close"))
+  io::print("second write closed=" & writeOnce(conn, "and again"))
+  io::print("empty write closed=" & writeOnce(conn, ""))
+  io::print("read again closed=" & drain(conn))
+  RETURN 0
+END FUNC
