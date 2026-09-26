@@ -199,9 +199,12 @@ fn permute_in_place_reorders_lanes_and_entries_without_a_gather() {
     }
 }
 
-/// plan-142-D: `intersection`/`difference` write one membership mark per entry and
-/// then compact the entry table once (`lower_map_compact_in_place`); `union` reserves
+/// plan-142-D: `intersection` writes one membership mark per entry and then
+/// compacts the entry table once (`lower_map_compact_in_place`); `union` reserves
 /// room for the whole batch once (`emit_map_reserve`) and then adds in place.
+/// bug-732: `difference` walks only its argument — each element is looked up in
+/// `x` and a hit claimed (`inplace_claim_loop`) — and never marks every entry of
+/// `x`, which made a `difference` loop O(n²).
 #[test]
 fn map_compact_in_place_marks_then_compacts_and_union_reserves_once() {
     let set_program = |statement: &str| {
@@ -213,14 +216,24 @@ fn map_compact_in_place_marks_then_compacts_and_union_reserves_once() {
              io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n"
         )
     };
+    let stems = label_stems(&set_program("x = collections::intersection(x, t)"));
+    for label in ["mcompact_loop", "inplace_intersection_mark_loop"] {
+        assert!(
+            stems.contains(label),
+            "`intersection` must mark then compact in place (`{label}`): {stems:?}"
+        );
+    }
+    let stems = label_stems(&set_program("x = collections::difference(x, t)"));
+    assert!(
+        stems.contains("inplace_claim_loop"),
+        "`difference` must claim the members of its argument in place: {stems:?}"
+    );
+    assert!(
+        !stems.contains("mcompact_loop") && !stems.contains("inplace_difference_mark_loop"),
+        "`difference` must not mark or compact over every entry of `x`: {stems:?}"
+    );
     for op in ["intersection", "difference"] {
         let stems = label_stems(&set_program(&format!("x = collections::{op}(x, t)")));
-        for label in ["mcompact_loop", &format!("inplace_{op}_mark_loop")] {
-            assert!(
-                stems.contains(label),
-                "`{op}` must mark then compact in place (`{label}`): {stems:?}"
-            );
-        }
         assert!(
             !stems.iter().any(|stem| stem.starts_with("mreserve")),
             "`{op}` only removes entries and must never reserve: {stems:?}"
