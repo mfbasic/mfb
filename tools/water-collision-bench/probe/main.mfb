@@ -7,9 +7,9 @@
 ' every call. The fix adds an exact bounding-radius reject before the trig
 ' (contactWith), and a per-shape-per-frame cache of cos/sin and a star's
 ' corners that stepWater's hot path reads instead of recomputing
-' (contactWithCached/rebuildShapeCache/starContactCached, all in
-' shapes_under_test.mfb - a copy of examples/water/src/shapes.mfb with its
-' canvas-drawing section removed, since collision testing needs no display).
+' (contactWithCached/rebuildShapeCache/starContactCached, all in the real
+' examples/water/src/shapes.mfb, which run.sh stages into this probe's
+' scratch build fresh on every run — not a copy committed here).
 '
 ' This tool has two jobs:
 '
@@ -37,12 +37,16 @@ IMPORT io
 IMPORT math
 
 ' ---------------------------------------------------------------------------
-' Oracle: the pre-fix contactWith, verbatim (bug-717's Root Cause quotes this
-' exact body - unconditional cos/sin, no bounding-radius reject). Reuses
-' rectangleContact/triangleContact/circleContact/ellipseContact/starContact
-' from shapes_under_test.mfb unchanged - none of those four kind-tests or
-' starContact were touched by the fix, only contactWith's approach to
-' reaching them, and the new cached siblings.
+' FROZEN ORACLE - deliberately never updated. This is the pre-fix contactWith,
+' verbatim (bug-717's Root Cause quotes this exact body - unconditional
+' cos/sin, no bounding-radius reject). It exists to answer one fixed
+' question - "does the real, current contactWith/contactWithCached still
+' agree with the pre-fix behavior" - not to track shapes.mfb, so unlike this
+' probe's staged copy of shapes.mfb it is correct for it to never change.
+' Reuses rectangleContact/triangleContact/circleContact/ellipseContact/
+' starContact from the real (staged) shapes.mfb unchanged - none of those
+' four kind-tests or starContact were touched by the fix, only contactWith's
+' approach to reaching them, and the new cached siblings.
 ' ---------------------------------------------------------------------------
 FUNC oracleContactWith(s AS Shape, px AS Float, py AS Float, reach AS Float) AS Contact
   LET dx AS Float = px - s.x

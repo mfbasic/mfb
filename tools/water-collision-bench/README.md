@@ -22,20 +22,32 @@ unchanged — `shapeAt` (one call per mouse click) still calls it exactly as
 before. `contactWithCached`/`rebuildShapeCache`/`starContactCached` are new,
 additional functions `stepWater`'s hot path uses instead.
 
-## What this tool checks
+## What this tool checks, and how
 
-`src/shapes_under_test.mfb` is `examples/water/src/shapes.mfb` with its
-canvas-drawing section removed (collision testing needs no display, so this
-stays a console-mode program). `src/main.mfb` re-implements the *pre-fix*
-`contactWith` body verbatim as `oracleContactWith` — unconditional trig, no
-bounding-radius reject — reusing the kind-tests (`rectangleContact`,
-`triangleContact`, `circleContact`, `ellipseContact`, `starContact`) that the
-fix did not touch.
+This tool builds and runs the **real** `examples/water/src/shapes.mfb` —
+`run.sh` stages it into a fresh scratch project on every invocation
+(`mktemp -d`, then `cp` from the live example tree), alongside
+`probe/main.mfb` — the only file this tool commits. If `shapes.mfb`
+regresses, the very next run stages the regressed file and this probe
+catches it; a committed fork could not (and previously didn't — see below).
+
+### The frozen oracle
+
+`probe/main.mfb` re-implements the *pre-fix* `contactWith` body verbatim as
+`oracleContactWith` (unconditional trig, no bounding-radius reject), reusing
+the kind-tests (`rectangleContact`, `triangleContact`, `circleContact`,
+`ellipseContact`, `starContact`) the fix did not touch — from the real,
+staged `shapes.mfb`, not a copy. `oracleContactWith` itself is deliberately
+**frozen**: it exists to answer one fixed question — does the real, current
+`contactWith`/`contactWithCached` still agree with the pre-fix behavior — not
+to track `shapes.mfb`, so it is correct for it to never change, unlike a
+probe that forks the file under test wholesale (which would silently stop
+tracking a regression).
 
 It builds every shape kind at three scales and four angles, and for each one
 tests an 9x9 grid of points spanning well outside the shape's reach to well
-inside it, comparing `oracleContactWith`'s result against both the fixed
-`contactWith` and the new `contactWithCached` — bit-for-bit (`hit`, `x`, `y`,
+inside it, comparing `oracleContactWith`'s result against both the real
+`contactWith` and the real `contactWithCached` — bit-for-bit (`hit`, `x`, `y`,
 `nx`, `ny`) — and reports any mismatch. It also times the oracle path against
 the fixed cached path over the same grid, repeated, and prints both —
 informational only, not asserted (wall-clock timing on a shared machine is
@@ -45,19 +57,23 @@ benchmark).
 ## Running it
 
 ```
-$ target/release/mfb build tools/water-collision-bench
-$ ./tools/water-collision-bench/build/water-collision-bench.out
+$ ./tools/water-collision-bench/run.sh target/release/mfb
 shapes: 60
 points tested per shape: 81
 total comparisons: 4860
 contacts found (oracle): 1535
 mismatches: 0
-oracle path elapsed ms: 64.05
-fixed cached path elapsed ms: 32.37
+oracle path elapsed ms: 63.53
+fixed cached path elapsed ms: 28.10
 PASS: water-collision-bench — contactWith and contactWithCached agree with the pre-fix oracle on every shape and point tested
 ```
 
-Against `shapes_under_test.mfb` at the pre-fix HEAD (no `contactWithCached`/
-`rebuildShapeCache`), this tool fails to build at all — `main.mfb` calls
-functions that do not exist yet, which is the RED this tool proves against
-before the fix landed.
+Verified RED against the real pre-fix `shapes.mfb` (`git show <pre-fix
+commit>^:examples/water/src/shapes.mfb`, swapped in temporarily, not
+committed): the probe fails to **build** — `contactWithCached` and
+`rebuildShapeCache` do not exist yet. Restored, this tool is GREEN again.
+
+Skips (exit 0) on a non-macOS host: the staged project is `"mode": "app"`
+(required to `IMPORT canvas`/`color`, which `shapes.mfb`'s drawing section
+needs even though this probe never calls a mode-gated canvas function), and
+only macOS is exercised here.
