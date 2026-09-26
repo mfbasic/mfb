@@ -98,7 +98,7 @@ fn socket_connect(
     ]);
     // plan-73-D: non-blocking connect + WSAPoll so tls::connect honors timeoutMs.
     // ioctlsocket(fd, FIONBIO, &1).
-    platform.emit_set_nonblocking(fd_off, CFLAGS, &vregs.next(), symbol, imports, ins, rel)?;
+    platform.emit_set_nonblocking(fd_off, CFLAGS, vregs.next().into(), symbol, imports, ins, rel)?;
     // connect(fd, ai_addr, ai_addrlen) — returns SOCKET_ERROR/WSAEWOULDBLOCK when in
     // progress, or 0 if it completed at once (localhost).
     ins.extend([

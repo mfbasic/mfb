@@ -79,7 +79,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
     // Decide every rewrite first (the lattice closures borrow the stream),
     // then apply — the same shape `opt2::sccp` uses.
     enum Rewrite {
-        Constant(String, u64),
+        Constant(u64),
         Copy(Operand, Operand),
     }
     let (mut simplified, mut narrowed, mut extensions) = (0u64, 0u64, 0u64);
@@ -97,7 +97,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
         if result.ones | result.zeros == u64::MAX {
             planned.push((
                 i,
-                Rewrite::Constant(dst.rendered().into_owned(), result.ones),
+                Rewrite::Constant(result.ones),
             ));
             simplified += 1;
             continue;
@@ -163,7 +163,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
     }
     for (i, rewrite) in planned {
         instructions[i] = match rewrite {
-            Rewrite::Constant(_, value) => super::constant_into_dst(&instructions[i], value),
+            Rewrite::Constant(value) => super::constant_into_dst(&instructions[i], value),
             Rewrite::Copy(dst, source) => copy_of(dst, source),
         };
     }

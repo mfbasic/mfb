@@ -97,14 +97,6 @@ impl Reg {
         }
     }
 
-    /// The minted register this is, if it is one.
-    pub(crate) fn as_virtual(self) -> Option<VirtualRegister> {
-        match self.0 {
-            RegRepr::Virtual(register) => Some(register),
-            _ => None,
-        }
-    }
-
     /// A hand-numbered virtual register for a test that builds an instruction
     /// stream by hand. Never available to production code.
     #[cfg(test)]

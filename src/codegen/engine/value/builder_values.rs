@@ -1717,12 +1717,6 @@ impl CodeBuilder<'_> {
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let scratch9_reg = self.temporary_vreg();
         let scratch10_reg = self.temporary_vreg();
-        // A third scratch vreg was consumed by the union-wrap data-variant
-        // field-copy loop (now removed as unreachable — every data variant
-        // returns early via `emit_wrap_record_in_union`). The allocation is kept
-        // so `next_vreg` — and therefore the byte-identical codegen it drives —
-        // is unchanged.
-        let _ = self.temporary_vreg();
         let scratch9 = &scratch9_reg;
         let scratch10 = &scratch10_reg;
         if let Some(string_value) = self.static_string_value(value) {

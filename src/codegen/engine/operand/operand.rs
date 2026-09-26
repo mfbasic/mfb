@@ -169,9 +169,10 @@ pub(crate) enum Operand {
 }
 
 impl Operand {
-    /// A virtual register of `class` numbered `id`. Engine-private for the same
-    /// reason as [`VirtualRegister::new`] (bug-721).
-    pub(in crate::codegen::engine) fn vreg(class: RegClass, id: u32) -> Self {
+    /// A virtual register of `class` numbered `id`, for a test that builds a stream
+    /// by hand. Production code gets a register only from a minter (bug-721).
+    #[cfg(test)]
+    pub(crate) fn vreg(class: RegClass, id: u32) -> Self {
         Operand::VReg { class, id }
     }
 
@@ -311,15 +312,6 @@ impl VirtualRegister {
         Self { class, id }
     }
 
-    /// The register class.
-    pub(crate) fn class(self) -> RegClass {
-        self.class
-    }
-
-    /// The id the allocator interns.
-    pub(crate) fn id(self) -> u32 {
-        self.id
-    }
 
     /// The `%vN` (integer) / `%fN` (floating-point) sentinel spelling. Allocates
     /// a `String` — used only by the string-shaped sites the typed `.field` funnel

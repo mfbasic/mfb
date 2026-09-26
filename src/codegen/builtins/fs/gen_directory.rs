@@ -600,9 +600,9 @@ pub(crate) fn lower_fs_create_directories_helper(
     platform.emit_stat_is_kind(
         STAT_OFFSET,
         FS_MODE_DIRECTORY,
-        &mode,
-        &mask,
-        &expected,
+        mode.into(),
+        mask.into(),
+        expected.into(),
         &final_ok,
         &err_already_exists,
         &mut instructions,
@@ -905,10 +905,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     )?;
     platform.emit_read_dir_entry(
         &format!("{symbol}_count"),
-        &nameptr,
-        &namelen,
-        &byte,
-        &scratch,
+        nameptr.into(),
+        namelen.into(),
+        byte.into(),
+        scratch.into(),
         &mut instructions,
     );
     let count_keep = count_skip.replace("skip", "keep");
@@ -1004,10 +1004,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     )?;
     platform.emit_read_dir_entry(
         &format!("{symbol}_fill"),
-        &nameptr,
-        &namelen,
-        &byte,
-        &scratch,
+        nameptr.into(),
+        namelen.into(),
+        byte.into(),
+        scratch.into(),
         &mut instructions,
     );
     let fill_keep = fill_skip.replace("skip", "keep");

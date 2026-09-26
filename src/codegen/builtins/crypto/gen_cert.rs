@@ -901,7 +901,7 @@ impl Sc {
 /// Load the address of the wide (`LPCWSTR`) CNG identifier `id` into `dst`.
 pub(crate) fn win_wide_addr(
     from: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<crate::target::shared::abi::Reg>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,

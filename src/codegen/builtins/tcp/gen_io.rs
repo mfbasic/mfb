@@ -201,7 +201,7 @@ pub(crate) fn lower_net_accept_helper(
     platform.emit_set_nonblocking(
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
-        &vregs.next(),
+        vregs.next().into(),
         symbol,
         platform_imports,
         &mut instructions,

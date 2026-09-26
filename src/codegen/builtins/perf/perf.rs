@@ -126,7 +126,7 @@ pub(crate) fn lower_perf_helper(
                 let base_slot = vregs.next();
                 let done = format!("{symbol}_done");
                 instructions.push(abi::move_immediate(&size, "Integer", PERF_REGION_SIZE));
-                platform.emit_arena_map(&size, &mut instructions)?;
+                platform.emit_arena_map(size.into(), &mut instructions)?;
                 instructions.extend([
                     abi::compare_immediate(abi::return_register(), "0"),
                     abi::branch_lt(&done),
