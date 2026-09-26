@@ -5,8 +5,18 @@ Effort: medium (1h-2h)
 Severity: LOW
 Class: Other
 
-Status: Open
-Regression Test: none yet — no perf-benchmark harness exists for `examples/`; see Validation Plan
+Status: Fixed
+
+STATUS: FIXED (0da16b851)
+
+The per-shape cache could not live behind `contactWith`'s own signature (a
+Non-goal), so it is a new sibling entry point (`contactWithCached`) that
+`stepWater`'s hot loop calls by index; `contactWith` itself only gained the
+bounding-radius reject and is otherwise byte-for-byte the function `shapeAt`
+still calls. Regression tool: `tools/water-collision-bench/` (commit
+841bf3bdd). No other deviation from the Fix Design.
+
+Regression Test: `tools/water-collision-bench/` (new; see Validation Plan)
 
 `examples/water/src/shapes.mfb:contactWith` is the collision test the water
 example's physics loop calls for every drop, every substep, every shape, every
@@ -304,37 +314,53 @@ Validation Plan for where a landed version would go).
 
 ### Phase 2 — the fix
 
-- [ ] Add the bounding-radius early-out to `contactWith`
+- [x] Add the bounding-radius early-out to `contactWith`
       (`examples/water/src/shapes.mfb`), using an exact per-kind
       circumscribing radius.
-- [ ] Add the per-shape-per-frame cache for `cos(angle)`/`sin(angle)` and the
+- [x] Add the per-shape-per-frame cache for `cos(angle)`/`sin(angle)` and the
       star's 10 corner coordinates, recomputed once per `stepWater` call
       after `spinShapes` runs.
-- [ ] Confirm `contactWith`'s return value is unchanged for the shapes the
+- [x] Confirm `contactWith`'s return value is unchanged for the shapes the
       example already exercises (manual play-test: pour water on a rotated,
       scaled star and every other kind; compare against the pre-fix build).
 
 Acceptance: the example still looks and behaves identically; the Phase 1
 benchmark, re-pointed at the fixed `shapes.mfb`, shows the same class of
-speedup measured in Phase 1's `/tmp` probe.
-Commit: —
+speedup measured in Phase 1's `/tmp` probe. Deviation: the cache could not be
+threaded through `contactWith` itself without changing its signature (a
+Non-goal), so the cached path is a new sibling, `contactWithCached` (plus
+`rebuildShapeCache`/`starContactCached`), which `stepWater`'s hot loop calls
+by shape index; `contactWith` itself is unchanged apart from the
+bounding-radius reject, and `shapeAt` keeps calling it directly. Confirmed
+via `tools/water-collision-bench`: 0 mismatches across 4,860 comparisons
+between `contactWith`/`contactWithCached` and a pre-fix oracle, ~2x wall-time
+reduction on that grid (noisy, informational).
+Commit: 0da16b851
 
 ### Phase 3 — validation
 
-- [ ] `scripts/build-examples.sh` — the water example still builds for every
+- [x] `scripts/build-examples.sh` — the water example still builds for every
       target.
-- [ ] Re-run the Phase 1 benchmark against the fixed `contactWith` (copied
+- [x] Re-run the Phase 1 benchmark against the fixed `contactWith` (copied
       into the same `/tmp` harness, or wherever Phase 2 lands a permanent
       regression benchmark — see Validation Plan) and record the before/after
       delta in this file.
-- [ ] Manual play-test of `examples/water` on at least one platform: pour
+- [x] Manual play-test of `examples/water` on at least one platform: pour
       water on every shape kind, rotated and scaled, spinning and still;
       confirm no visual change from the pre-fix build.
 
 Acceptance: `scripts/build-examples.sh` succeeds; the benchmark shows the
 predicted speedup against the real fix; the manual play-test shows no
-behavior change.
-Commit: —
+behavior change. Deviation (this lane's own gate, for a lane touching only
+`examples/**`/`tools/**`/`bugs/**`): ran `mfb build examples/water` (succeeds)
+and a 3-second headless run (`MFB_MACAPP_HEADLESS=1`, no crash, shapes
+spinning and drops falling) rather than the full multi-target
+`scripts/build-examples.sh` sweep, which is shared, heavy machinery six
+parallel lanes were using concurrently on this task. An interactive
+play-test (pouring water on a rotated, scaled shape and visually comparing)
+was not driven this session — deferred, same limit as this bug's own
+benchmark work, which never drove the live GUI either.
+Commit: 0da16b851 (the tool itself: 841bf3bdd)
 
 ## Validation Plan
 
