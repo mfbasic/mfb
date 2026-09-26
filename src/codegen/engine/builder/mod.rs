@@ -3480,84 +3480,101 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v18 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture the map pointer (x0) into a vreg immediately: on x86 an
         // incoming param homes in rax/rdx by role, which the div/msub below
         // clobber — destroying it before the final store. As a vreg the
         // allocator keeps it in a safe (or spilled) location. AArch64 unaffected.
-        abi::move_register("%v18", abi::c_arg(0)),
+        abi::move_register(&v18, abi::c_arg(0)),
         // dataBase (v11) = map + HEADER + capacity*ENTRY ; bucketBase (v12) += dataCap.
-        abi::load_u64("%v9", "%v18", COLLECTION_OFFSET_COUNT),
-        abi::load_u64("%v14", "%v18", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v18"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
-        abi::load_u64("%v15", "%v18", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"),
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount = 2*capacity
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::load_u64(&v9, &v18, COLLECTION_OFFSET_COUNT),
+        abi::load_u64(&v14, &v18, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v18),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE),
+        abi::load_u64(&v15, &v18, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount = 2*capacity
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // Zero the bucket array.
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&zloop),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(&v13, &v10),
         abi::branch_ge(&zdone),
-        abi::shift_left_immediate("%v7", "%v13", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::move_immediate("%v6", "Integer", "0"),
-        abi::store_u64("%v6", "%v7", 0),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::shift_left_immediate(&v7, &v13, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::move_immediate(&v6, "Integer", "0"),
+        abi::store_u64(&v6, &v7, 0),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&zloop),
         abi::label(&zdone),
         // For each entry: hash its key, open-address its index+1.
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&eloop),
-        abi::compare_registers("%v13", "%v9"),
+        abi::compare_registers(&v13, &v9),
         abi::branch_ge(&edone),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v14", "%v13", "%v16"),
-        abi::add_registers("%v14", "%v14", "%v18"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v15", "%v11", "%v15"), // keyPtr
-        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS), // h
-        abi::move_register("%v5", "%v15"),
-        abi::move_register("%v6", "%v17"),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v14, &v13, &v16),
+        abi::add_registers(&v14, &v14, &v18),
+        abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v15, &v11, &v15), // keyPtr
+        abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS), // h
+        abi::move_register(&v5, &v15),
+        abi::move_register(&v6, &v17),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
         // slot = h mod bucketCount.
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("%v6", "%v13", 1),
-        abi::store_u64("%v6", "%v7", 0),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::add_immediate(&v6, &v13, 1),
+        abi::store_u64(&v6, &v7, 0),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&eloop),
         abi::label(&edone),
-        abi::move_immediate("%v6", "Integer", "1"),
-        abi::store_u8("%v6", "%v18", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::move_immediate(&v6, "Integer", "1"),
+        abi::store_u8(&v6, &v18, COLLECTION_OFFSET_BUCKETS_READY),
         abi::return_(),
     ];
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -3587,59 +3604,75 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture map ptr (x0) and entry index (x1) into vregs before the div/msub
         // below clobber their x86 arg-register homes (rax/rdx). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v20"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::load_u64(&v14, &v20, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v20),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),     // bucketBase
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // entry addr = map + HEADER + index*ENTRY.
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v14", "%v21", "%v16"),
-        abi::add_registers("%v14", "%v14", "%v20"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
-        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v15", "%v11", "%v15"),
-        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
-        abi::move_register("%v5", "%v15"),
-        abi::move_register("%v6", "%v17"),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v14, &v21, &v16),
+        abi::add_registers(&v14, &v14, &v20),
+        abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE),
+        abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v15, &v11, &v15),
+        abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
+        abi::move_register(&v5, &v15),
+        abi::move_register(&v6, &v17),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("%v6", "%v21", 1),
-        abi::store_u64("%v6", "%v7", 0),
+        abi::add_immediate(&v6, &v21, 1),
+        abi::store_u64(&v6, &v7, 0),
         abi::return_(),
     ];
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -3692,76 +3725,89 @@ pub(crate) fn lower_string_concat_helper() -> CodeFunction {
     let right_word = format!("{symbol}_right_word");
     let right_byte = format!("{symbol}_right_byte");
     let right_done = format!("{symbol}_right_done");
+    let mut vregs = Vregs::new();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
+    let v22 = vregs.next();
+    let v23 = vregs.next();
+    let v24 = vregs.next();
+    let v25 = vregs.next();
+    let v26 = vregs.next();
+    let v27 = vregs.next();
+    let v28 = vregs.next();
+    let v29 = vregs.next();
+    let v30 = vregs.next();
+    let v31 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Park both operands before the allocation call: `_mfb_arena_alloc`
         // clobbers the argument registers (and on x86-64 rdx via its own
         // arithmetic), exactly as `lower_map_probe_helper` documents.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::load_u64("%v22", "%v20", 0), // left byteLength
-        abi::load_u64("%v23", "%v21", 0), // right byteLength
-        abi::add_registers("%v24", "%v22", "%v23"),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::load_u64(&v22, &v20, 0), // left byteLength
+        abi::load_u64(&v23, &v21, 0), // right byteLength
+        abi::add_registers(&v24, &v22, &v23),
         // `mfb.string.v1` is `u64 byteLength; bytes; NUL`, so 8 + len + 1.
-        abi::add_immediate(abi::c_arg(0), "%v24", 9),
+        abi::add_immediate(abi::c_arg(0), &v24, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&fail),
-        abi::move_register("%v25", abi::mfb_return(1)), // new block
-        abi::store_u64("%v24", "%v25", 0),
-        abi::add_immediate("%v26", "%v25", 8), // write cursor
-        abi::add_immediate("%v27", "%v20", 8), // left payload
-        abi::add_immediate("%v28", "%v21", 8), // right payload
+        abi::move_register(&v25, abi::mfb_return(1)), // new block
+        abi::store_u64(&v24, &v25, 0),
+        abi::add_immediate(&v26, &v25, 8), // write cursor
+        abi::add_immediate(&v27, &v20, 8), // left payload
+        abi::add_immediate(&v28, &v21, 8), // right payload
         // --- left operand: aligned words, then the tail ---
-        abi::move_register("%v29", "%v22"),
+        abi::move_register(&v29, &v22),
         abi::label(&left_word),
-        abi::compare_immediate("%v29", "8"),
+        abi::compare_immediate(&v29, "8"),
         abi::branch_lo(&left_byte),
-        abi::load_u64("%v30", "%v27", 0),
-        abi::store_u64("%v30", "%v26", 0),
-        abi::add_immediate("%v27", "%v27", 8),
-        abi::add_immediate("%v26", "%v26", 8),
-        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::load_u64(&v30, &v27, 0),
+        abi::store_u64(&v30, &v26, 0),
+        abi::add_immediate(&v27, &v27, 8),
+        abi::add_immediate(&v26, &v26, 8),
+        abi::subtract_immediate(&v29, &v29, 8),
         abi::branch(&left_word),
         abi::label(&left_byte),
-        abi::compare_immediate("%v29", "0"),
+        abi::compare_immediate(&v29, "0"),
         abi::branch_eq(&left_done),
-        abi::load_u8("%v30", "%v27", 0),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::add_immediate("%v27", "%v27", 1),
-        abi::add_immediate("%v26", "%v26", 1),
-        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::load_u8(&v30, &v27, 0),
+        abi::store_u8(&v30, &v26, 0),
+        abi::add_immediate(&v27, &v27, 1),
+        abi::add_immediate(&v26, &v26, 1),
+        abi::subtract_immediate(&v29, &v29, 1),
         abi::branch(&left_byte),
         abi::label(&left_done),
         // --- right operand: words only if the write cursor is still aligned ---
-        abi::move_register("%v29", "%v23"),
-        abi::move_immediate("%v31", "Integer", "7"),
-        abi::and_registers("%v30", "%v22", "%v31"),
-        abi::compare_immediate("%v30", "0"),
+        abi::move_register(&v29, &v23),
+        abi::move_immediate(&v31, "Integer", "7"),
+        abi::and_registers(&v30, &v22, &v31),
+        abi::compare_immediate(&v30, "0"),
         abi::branch_ne(&right_byte),
         abi::label(&right_word),
-        abi::compare_immediate("%v29", "8"),
+        abi::compare_immediate(&v29, "8"),
         abi::branch_lo(&right_byte),
-        abi::load_u64("%v30", "%v28", 0),
-        abi::store_u64("%v30", "%v26", 0),
-        abi::add_immediate("%v28", "%v28", 8),
-        abi::add_immediate("%v26", "%v26", 8),
-        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::load_u64(&v30, &v28, 0),
+        abi::store_u64(&v30, &v26, 0),
+        abi::add_immediate(&v28, &v28, 8),
+        abi::add_immediate(&v26, &v26, 8),
+        abi::subtract_immediate(&v29, &v29, 8),
         abi::branch(&right_word),
         abi::label(&right_byte),
-        abi::compare_immediate("%v29", "0"),
+        abi::compare_immediate(&v29, "0"),
         abi::branch_eq(&right_done),
-        abi::load_u8("%v30", "%v28", 0),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::add_immediate("%v28", "%v28", 1),
-        abi::add_immediate("%v26", "%v26", 1),
-        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::load_u8(&v30, &v28, 0),
+        abi::store_u8(&v30, &v26, 0),
+        abi::add_immediate(&v28, &v28, 1),
+        abi::add_immediate(&v26, &v26, 1),
+        abi::subtract_immediate(&v29, &v29, 1),
         abi::branch(&right_byte),
         abi::label(&right_done),
-        abi::move_immediate("%v30", "Integer", "0"),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::move_register(abi::mfb_return(0), "%v25"),
+        abi::move_immediate(&v30, "Integer", "0"),
+        abi::store_u8(&v30, &v26, 0),
+        abi::move_register(abi::mfb_return(0), &v25),
         abi::return_(),
         abi::label(&fail),
         abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
@@ -3800,6 +3846,25 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let cloop = format!("{symbol}_cloop");
     let cmatch = format!("{symbol}_cmatch");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
+    let v22 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture the params (map ptr / key ptr / key len) into vregs up front.
@@ -3807,80 +3872,80 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
         // on x86 (esp. rdx via its div), so x0/x1/x2 must not be read after it.
         // The build call still receives the map implicitly in rdi (unclobbered
         // until then). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::move_register("%v22", abi::c_arg(2)),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::move_register(&v22, abi::c_arg(2)),
         // Lazy build if not ready.
-        abi::load_u8("%v9", "%v20", COLLECTION_OFFSET_BUCKETS_READY),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u8(&v9, &v20, COLLECTION_OFFSET_BUCKETS_READY),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&ready),
         abi::branch_link(MAP_BUILD_BUCKETS_SYMBOL),
         abi::label(&ready),
-        abi::load_u64("%v9", "%v20", COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, &v20, COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&notfound),
-        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v20"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::load_u64(&v14, &v20, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v20),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),     // bucketBase
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // Hash the query key (x1/x2).
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
-        abi::move_register("%v5", "%v21"),
-        abi::move_register("%v6", "%v22"),
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
+        abi::move_register(&v5, &v21),
+        abi::move_register(&v6, &v22),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"), // slot
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16), // slot
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&notfound),
-        abi::subtract_immediate("%v13", "%v6", 1), // candidate idx
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v15", "%v13", "%v16"),
-        abi::add_registers("%v15", "%v15", "%v20"),
-        abi::add_immediate("%v15", "%v15", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("%v17", "%v15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::compare_registers("%v17", "%v22"),
+        abi::subtract_immediate(&v13, &v6, 1), // candidate idx
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v15, &v13, &v16),
+        abi::add_registers(&v15, &v15, &v20),
+        abi::add_immediate(&v15, &v15, COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64(&v17, &v15, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::compare_registers(&v17, &v22),
         abi::branch_ne(&pnext),
-        abi::load_u64("%v16", "%v15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v16", "%v11", "%v16"), // storedPtr
-        abi::move_register("%v5", "%v21"),          // queryCursor
-        abi::move_register("%v6", "%v22"),          // remaining
+        abi::load_u64(&v16, &v15, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v16, &v11, &v16), // storedPtr
+        abi::move_register(&v5, &v21),        // queryCursor
+        abi::move_register(&v6, &v22),        // remaining
         abi::label(&cloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&cmatch),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::load_u8("%v17", "%v16", 0),
-        abi::compare_registers("%v3", "%v17"),
+        abi::load_u8(&v3, &v5, 0),
+        abi::load_u8(&v17, &v16, 0),
+        abi::compare_registers(&v3, &v17),
         abi::branch_ne(&pnext),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::add_immediate("%v16", "%v16", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::add_immediate(&v16, &v16, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&cloop),
         abi::label(&cmatch),
-        abi::move_register(abi::mfb_return(0), "%v13"),
+        abi::move_register(abi::mfb_return(0), &v13),
         abi::branch(&done),
         abi::label(&pnext),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&notfound),
