@@ -9,8 +9,9 @@
 ' global rule set — no ancestor context is threaded.
 '
 ' This lives in dom (not display) so it can read the StyleNode records and rebuild
-' the Node tree by recursion over dom's OWN union — the "must be iterative" rule
-' only binds a consumer recursing over an imported union.
+' the Node tree by recursion over dom's own union — see the browser README
+' ("The DOM parser") for why a tree-building pass still favors an explicit work
+' stack over recursion.
 
 IMPORT collections
 IMPORT strings

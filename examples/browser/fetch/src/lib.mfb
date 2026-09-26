@@ -3,8 +3,10 @@
 ' http::read is blocking: it freezes the calling thread until the whole exchange
 ' finishes. To keep the UI (and its loading spinner) alive, the app runs this on
 ' a separate OS thread via thread::start(fetch::fetch, url) and polls
-' thread::isRunning while animating. thread::start requires an ISOLATED worker
-' exported from an imported package, which is why the fetch lives here.
+' thread::isRunning while animating. thread::start accepts any ISOLATED FUNC —
+' one the caller's own project declares, or an EXPORT ISOLATED FUNC of an
+' imported package — so the fetch lives in its own package for the same reason
+' dom and display do: it is one self-contained concern, reusable outside this app.
 '
 ' The worker fetches the URL (following redirects), parses it into a DOM, and
 ' returns the document Node — so both the network and the parse stay off the UI
@@ -63,9 +65,9 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   LET target AS String = strings::trim(loc)
   IF strings::contains(target, "://") THEN RETURN target
   LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
-  IF strings::startsWith(target, "//") THEN 
+  IF strings::startsWith(target, "//") THEN
     RETURN base.scheme & ":" & target
-  ELSEIF strings::startsWith(target, "/") THEN 
+  ELSEIF strings::startsWith(target, "/") THEN
     RETURN authority & target
   END IF
   MUT dir AS String = base.path

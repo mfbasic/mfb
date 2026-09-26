@@ -1,9 +1,9 @@
 ' shapes - the objects the water falls on.
 '
-' An object is a rectangle, a triangle, a circle or an ellipse, placed by its
-' centre, turned by an angle and sized by a scale. Objects never move on their
-' own: the water bounces off them, and only the mouse and the keys move, turn,
-' size or remove them.
+' An object is a rectangle, a triangle, a circle, an ellipse or a star, placed
+' by its centre, turned by an angle and sized by a scale. Objects never move on
+' their own, except to spin once a key has set them spinning: the water bounces
+' off them, and only the mouse and the keys move, turn, size or remove them.
 '
 ' Everything that asks where an object's surface is - the water, and the mouse -
 ' asks the same question: given a point, is it within `reach` of the object, and
@@ -20,7 +20,7 @@ IMPORT color
 IMPORT math
 
 ENUM ShapeKind
-  Rectangle, Triangle, Circle, Ellipse
+  Rectangle, Triangle, Circle, Ellipse, Star
 END ENUM
 
 TYPE Shape
@@ -29,6 +29,7 @@ TYPE Shape
   y AS Float
   angle AS Float       ' radians, clockwise from +X
   scale AS Float
+  spin AS Float        ' radians per second, clockwise positive; 0 when still
 END TYPE
 
 ' Where a point meets an object's surface: the place `reach` outside the surface
@@ -61,6 +62,12 @@ LET CIRCLE_RADIUS AS Float = 45.0
 LET ELLIPSE_RADIUS_X AS Float = 75.0
 LET ELLIPSE_RADIUS_Y AS Float = 32.0
 
+' A five-pointed star, one point straight up: its points are STAR_OUTER from the
+' centre and the corners between them STAR_INNER.
+LET STAR_POINTS AS Integer = 5
+LET STAR_OUTER AS Float = 60.0
+LET STAR_INNER AS Float = 25.0
+
 ' The range the scale keys hold an object to.
 LET MIN_SCALE AS Float = 0.4
 LET MAX_SCALE AS Float = 3.0
@@ -70,6 +77,9 @@ LET MAX_SCALE AS Float = 3.0
 LET ROTATE_STEP AS Float = 0.1309      ' 7.5 degrees
 LET SCALE_STEP AS Float = 1.1
 
+' How fast a spinning object turns: a quarter turn a second.
+LET SPIN_SPEED AS Float = 1.5708
+
 ' The widest an object of each kind is at scale 1 - what the toolbar sizes its
 ' icons by.
 FUNC widestOf(kind AS ShapeKind) AS Float
@@ -78,6 +88,8 @@ FUNC widestOf(kind AS ShapeKind) AS Float
     CASE ShapeKind.Triangle : RETURN TRIANGLE_HALF_BASE * 2.0
     CASE ShapeKind.Circle : RETURN CIRCLE_RADIUS * 2.0
     CASE ShapeKind.Ellipse : RETURN ELLIPSE_RADIUS_X * 2.0
+      ' The two points either side of the top one are the widest.
+    CASE ShapeKind.Star : RETURN STAR_OUTER * 2.0 * math::sin(math::pi * 0.4)
   END MATCH
 END FUNC
 
@@ -95,7 +107,7 @@ END FUNC
 
 ' Add an object and say where it went in the list.
 FUNC addShape(kind AS ShapeKind, x AS Float, y AS Float) AS Integer
-  shapes = collections::append(shapes, Shape[kind := kind, x := x, y := y, angle := 0.0, scale := 1.0])
+  shapes = collections::append(shapes, Shape[kind := kind, x := x, y := y, angle := 0.0, scale := 1.0, spin := 0.0])
   RETURN len(shapes) - 1
 END FUNC
 
@@ -109,6 +121,27 @@ END SUB
 
 SUB rotateShape(i AS Integer, turns AS Float)
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := collections::get(shapes, i).angle + turns * ROTATE_STEP })
+END SUB
+
+' Set an object spinning in a direction (-1 anticlockwise, 1 clockwise), or
+' stop it when it is already spinning that way.
+SUB toggleSpin(i AS Integer, direction AS Float)
+  LET s AS Shape = collections::get(shapes, i)
+  MUT spin AS Float = direction * SPIN_SPEED
+  IF s.spin * direction > 0.0 THEN spin = 0.0
+  shapes = collections::set(shapes, i, WITH s { spin := spin })
+END SUB
+
+SUB stopSpin(i AS Integer)
+  shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { spin := 0.0 })
+END SUB
+
+' Turn every spinning object by how far it spins in `seconds`.
+SUB spinShapes(seconds AS Float)
+  FOR i = 0 TO len(shapes) - 1
+    LET s AS Shape = collections::get(shapes, i)
+    IF s.spin <> 0.0 THEN shapes = collections::set(shapes, i, WITH s { angle := s.angle + s.spin * seconds })
+  NEXT
 END SUB
 
 SUB scaleShape(i AS Integer, steps AS Float)
@@ -164,6 +197,7 @@ FUNC contactWith(s AS Shape, px AS Float, py AS Float, reach AS Float) AS Contac
     CASE ShapeKind.Triangle : inFrame = triangleContact(lx, ly, s.scale, reach)
     CASE ShapeKind.Circle : inFrame = circleContact(lx, ly, CIRCLE_RADIUS * s.scale + reach)
     CASE ShapeKind.Ellipse : inFrame = ellipseContact(lx, ly, ELLIPSE_RADIUS_X * s.scale + reach, ELLIPSE_RADIUS_Y * s.scale + reach)
+    CASE ShapeKind.Star : inFrame = starContact(lx, ly, s.scale, reach)
   END MATCH
   IF NOT inFrame.hit THEN RETURN NO_CONTACT
 
@@ -263,6 +297,88 @@ FUNC triangleContact(lx AS Float, ly AS Float, scale AS Float, reach AS Float) A
   RETURN Contact[hit := TRUE, x := lx + nx * push, y := ly + ny * push, nx := nx, ny := ny]
 END FUNC
 
+' Corner k of the star at scale 1, in its own frame: the even corners are the
+' points, starting with the top one, and the odd corners lie between them.
+FUNC starCornerX(k AS Integer) AS Float
+  RETURN starRadius(k) * math::cos(starAngle(k))
+END FUNC
+
+FUNC starCornerY(k AS Integer) AS Float
+  RETURN starRadius(k) * math::sin(starAngle(k))
+END FUNC
+
+FUNC starAngle(k AS Integer) AS Float
+  RETURN -math::pi / 2.0 + toFloat(k) * math::pi / toFloat(STAR_POINTS)
+END FUNC
+
+FUNC starRadius(k AS Integer) AS Float
+  IF k MOD 2 = 0 THEN RETURN STAR_OUTER
+  RETURN STAR_INNER
+END FUNC
+
+' The star.
+'
+' A star is not convex, so the triangle's rule - inside every edge - does not
+' hold for it. Instead the point is measured against the nearest place on the
+' star's outline. Inside the star, it leaves through that place, facing the way
+' that edge faces. Outside, within `reach`, it is pushed straight away from that
+' place, which rounds off the points the way a drop's own roundness would.
+'
+' The corners run clockwise on screen, which is anticlockwise in the frame's
+' own terms, so an edge's outward direction is the edge turned (ey, -ex).
+FUNC starContact(lx AS Float, ly AS Float, scale AS Float, reach AS Float) AS Contact
+  LET far AS Float = STAR_OUTER * scale + reach
+  IF lx * lx + ly * ly >= far * far THEN RETURN NO_CONTACT
+
+  LET corners AS Integer = STAR_POINTS * 2
+  MUT inside AS Boolean = FALSE
+  MUT best AS Float = -1.0
+  MUT qx AS Float = 0.0
+  MUT qy AS Float = 0.0
+  MUT ex AS Float = 0.0
+  MUT ey AS Float = 0.0
+  FOR k = 0 TO corners - 1
+    LET ax AS Float = starCornerX(k) * scale
+    LET ay AS Float = starCornerY(k) * scale
+    LET bx AS Float = starCornerX((k + 1) MOD corners) * scale
+    LET by AS Float = starCornerY((k + 1) MOD corners) * scale
+
+    ' A line out from the point to the right crosses the outline an odd
+    ' number of times when the point is inside.
+    IF (ay > ly) <> (by > ly) THEN
+      IF lx < ax + (ly - ay) / (by - ay) * (bx - ax) THEN inside = NOT inside
+    END IF
+
+    ' The nearest place on this edge.
+    LET dx AS Float = bx - ax
+    LET dy AS Float = by - ay
+    LET t AS Float = math::clamp(((lx - ax) * dx + (ly - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+    LET px AS Float = ax + t * dx
+    LET py AS Float = ay + t * dy
+    LET d2 AS Float = (lx - px) * (lx - px) + (ly - py) * (ly - py)
+    IF best < 0.0 OR d2 < best THEN
+      best = d2
+      qx = px
+      qy = py
+      ex = dx
+      ey = dy
+    END IF
+  NEXT
+
+  LET edge AS Float = math::sqrt(ex * ex + ey * ey)
+  MUT nx AS Float = ey / edge
+  MUT ny AS Float = -ex / edge
+  IF NOT inside THEN
+    LET d AS Float = math::sqrt(best)
+    IF d >= reach THEN RETURN NO_CONTACT
+    IF d > 0.000001 THEN
+      nx = (lx - qx) / d
+      ny = (ly - qy) / d
+    END IF
+  END IF
+  RETURN Contact[hit := TRUE, x := qx + nx * reach, y := qy + ny * reach, nx := nx, ny := ny]
+END FUNC
+
 ' ---------------------------------------------------------------------------
 ' Drawing
 ' ---------------------------------------------------------------------------
@@ -273,6 +389,7 @@ FUNC shapeColor(kind AS ShapeKind) AS color::Color
     CASE ShapeKind.Triangle : RETURN color::rgb(150, 178, 110)
     CASE ShapeKind.Circle : RETURN color::rgb(186, 112, 112)
     CASE ShapeKind.Ellipse : RETURN color::rgb(150, 128, 186)
+    CASE ShapeKind.Star : RETURN color::rgb(96, 170, 180)
   END MATCH
 END FUNC
 
@@ -306,6 +423,12 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       RETURN canvas::Circle[x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint]
     CASE ShapeKind.Ellipse
       RETURN canvas::Ellipse[x := s.x, y := s.y, radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, angle := s.angle, paint := paint]
+    CASE ShapeKind.Star
+      MUT points AS List OF canvas::Point = []
+      FOR k = 0 TO STAR_POINTS * 2 - 1
+        points = collections::append(points, turnedPoint(s, starCornerX(k) * s.scale, starCornerY(k) * s.scale))
+      NEXT
+      RETURN canvas::Polygon[points := points, paint := paint]
   END MATCH
 END FUNC
 
