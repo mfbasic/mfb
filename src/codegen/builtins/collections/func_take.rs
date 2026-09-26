@@ -32,9 +32,8 @@ behind.
 Assigning straight back to the same `MUT` variable — `list =
 collections::take(list, n)` — is the cheap shape: it shortens the list itself
 instead of building a copy. `list = collections::take(list, len(list))` costs
-nothing at all, and trimming a list you built with `append` costs only the
-elements it removes, so a loop that trims a working list this way stays fast as
-the list grows. Assigning the result
+nothing at all, and any trim costs only the elements it removes, so a loop that
+trims a working list this way stays fast as the list grows. Assigning the result
 anywhere else — `ys = collections::take(xs, n)` — builds a new list and leaves
 `xs` as it was. The result is the same either way.
 

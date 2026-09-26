@@ -28,8 +28,11 @@ lives in `strings::`. A `String` first argument does not resolve here.
 
 `replace` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. Unlike `append`, `prepend`, and `set`, there is
-no cheap in-place shape for `replace`: every call copies the list.
+it does with that return value. Assigning straight back to the same `MUT`
+variable — `list = collections::replace(list, old, new)` — is the cheap shape: it
+rewrites the matching elements in the list itself instead of building a copy.
+Assigning the result anywhere else — `ys = collections::replace(xs, old, new)` —
+builds a new list and leaves `xs` as it was. The result is the same either way.
 
 `replace` is **infallible**: nothing it does raises a trappable error. It has no
 index to range-check, and a `new` that never matches is a success producing an

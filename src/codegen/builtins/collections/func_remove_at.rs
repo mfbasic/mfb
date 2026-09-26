@@ -23,9 +23,13 @@ therefore always raises, since no index satisfies the range.
 
 `removeAt` does not change `value`. The list it names is unchanged; the
 shortened list is the returned value, and a program observes the update only
-through what it does with that return value. Unlike `append`, `prepend`, and
-`set`, there is no cheap in-place shape for `removeAt`: every call copies the
-list.
+through what it does with that return value. Assigning straight back to the same
+`MUT` variable — `list = collections::removeAt(list, i)` — is the cheap shape: it
+removes the element from the list itself instead of building a copy, and costs
+only the elements after `index`, which move down one place, so removing the last
+element stays cheap however long the list grows. Assigning the result anywhere
+else — `ys = collections::removeAt(xs, i)` — builds a new list and leaves `xs` as
+it was. The result is the same either way.
 
 `removeAt` is **fallible**: the range check is a real trappable domain error, so
 an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
