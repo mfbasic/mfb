@@ -5,7 +5,7 @@ Effort: x-large (1d–3d) — Windows-only, reproduces only on a real PC so far,
 Severity: HIGH
 Class: Memory-safety (register aliasing: a hand-picked virtual register named a live minted one)
 
-Status: Root cause found; fix in progress
+Status: Fixed
 Regression Test: `gen_schannel_tests.rs::connect_keeps_its_host_scratch_pointer_intact_to_the_release`, `scripts/test-wintls.sh`, `tests/guards/architecture_guards.rs` (register guards)
 
 `examples/wind`, built with `mfb build --target windows-x86_64` and run on a real
@@ -257,40 +257,67 @@ Registers are fixed **by construction**, not by a lint (owner decision 2026-09-2
 
 ### Phase 1 — localise, reduce, audit (no behaviour change)
 
-- [ ] Capture a minidump of the unmodified `wind.exe` fault (admin needed for
-      `LocalDumps`). Record the faulting thread, its `R15`, every thread's
-      `R15`, and the bad node value here.
-- [ ] Reduce to a small program that faults the same way, guided by the dump,
-      and add it to the Windows app gate (`scripts/test-winapp.sh` or a
-      sibling). Confirm it fails today.
-- [ ] Complete the blast-radius audit above with a verdict for each site.
+- [x] Capture the fault state. `test` is not an admin, so instead of `LocalDumps` a
+      Win32 debug-API harness (PowerShell + C#: `CreateProcess(DEBUG_ONLY_THIS_PROCESS)`,
+      `GetThreadContext` on every thread at the first access violation) recorded every
+      thread's registers: the faulting thread is the `thread::start` worker, `r15` its
+      own heap-carved arena state, the bad node's first words the forecast host text
+      and (three runs) a live `grib.mfb:Scaling` record.
+- [x] Localise with allocator probe builds: no second thread ever entered the
+      worker's arena; a cross-bin probe trapped the small free of a block already in a
+      large bin at `_mfb_rt_tls_tls_connect+0x230f` (size 0x15 = the host C string).
+- [x] Reduce: the reduced reproduction is `tests/rt-behavior/tls/tls-poll-rt` /
+      `tls-poll-list-rt` (a second `tls::connect` in one process), run on Windows by
+      the new `scripts/test-wintls.sh`. RED with the pre-fix compiler (`4df37a4fe`) on
+      box 2230: both exit `-1073741819`.
+- [x] Blast-radius audit: 2,412 hand-numbered vreg literals across 16 files, 88
+      second counters, ~130 hand-picked physical registers, `format!`-built names
+      (see Blast Radius); a second live instance (Linux OpenSSL connect frees
+      address 2048 on failure) and several latent ones.
 
-Acceptance: the root cause is cited to `file:symbol` with the mechanism; a
-reduced reproduction fails in a gate for the documented reason; every audit
-site has a verdict.
-Commit: —
+Acceptance: met. Root cause cited (`marshal::emit_free_buffer_guarded`'s literal
+`%v9` = `lower_tls_connect`'s minted host-scratch pointer); the reduced reproduction
+fails in a gate for that reason.
+Commit: fcb634d19, a3775d1ca, 8818c963e
 
 ### Phase 2 — the fix
 
-- [ ] Make the guilty path allocate only from its own thread's arena (or adopt
-      a sender-made block), and apply the same fix to any in-scope sibling from
-      the audit.
+- [x] The instance: landed on `main` by the parallel bug-564 investigation
+      (`97afb6768`, `753391711`) and merged here (`9dab53968`).
+- [x] The class, by construction (owner decision 2026-09-26): one vreg id source
+      per compilation; `abi::Reg` as the only register-valued operand, with no
+      conversion from text, on every target; the backends-only doors
+      (`Reg::physical`, `Operand::phys`, `physical_field`); `CodeInstruction::field`
+      refuses text in a register field. Every emitter migrated — the hand-numbered
+      literals minted, the macOS app shell's `"x0"`–`"x4"` staged as `abi::c_arg(n)`,
+      the Win64/GTK callee-saved lists taken from `src/arch/x86_64/regmodel.rs`, the
+      link thunks' `format!("%v{n}")` minted, ~240 registers that had been turned back
+      into text (`Operand::from(r.render())`) passed typed.
+- [x] Guards: `no_hand_picked_vreg` (all of `src/`), `no_constructed_vreg_name`,
+      `physical_registers_stay_in_the_backends`; unit pins in `abi.rs`.
 
-Acceptance: the Phase 1 reproduction passes; the contrast cases in the matrix
-still pass; nothing in Non-goals changed.
-Commit: —
+Acceptance: met. The reduced reproduction passes (see Phase 3); no text-to-register
+path remains in production code (rustc + the guards).
+Commit: c42ab29e9, fcfe05167, f00fae760, 1cb8525d2, 2741e61dc, 5adb3ce58 (and the
+per-area migrations merged at a6a3b3d10, c102bb307, 191d16853)
 
 ### Phase 3 — full validation
 
-- [ ] Run the project's full suite and the Windows app gate.
-- [ ] Rebuild `examples/wind` for `windows-x86_64` and run it on the real PC
-      through the full forecast download and several minutes of playback.
-- [ ] If the fix shifts generated output (`.ncode` goldens for Windows
-      fixtures), confirm the delta is only the fix.
+- [x] `cargo test`: unit suite `4395 passed; 0 failed`; every integration target
+      green (see the landing commit for the final `--no-fail-fast` run).
+- [x] `scripts/test-wintls.sh target/release/mfb` on box 2230: 6 match, 2 skipped
+      (their peer is the `openssl` CLI, absent on the box); RED before (above).
+- [x] `examples/wind` for `windows-x86_64` on the real PC: 720 s under the debug
+      harness with no access violation; the worker cached all 40 forecast hours plus
+      the analysis (`%TEMP%\mfb-wind-gfs`: 41 files, the last `f120`); 0 new
+      `AppCrash_wind.exe` reports. The pre-fix build faulted within 5–20 s every run.
+- [x] Goldens: main tip 0 diffs over 2160; this branch moved 153, each proven
+      allocation/frame-layout only (136 identical skeletons, 13 uniform frame
+      shifts, 2 fused `add_pageoff`, 2 `.mir` identical modulo layout); regenerated,
+      then 0 diffs.
 
-Acceptance: full suite green; `wind.exe` runs clean on the PC; any golden
-delta is exactly the intended change.
-Commit: —
+Acceptance: met.
+Commit: 7647bd053, ec5329aba
 
 ## Validation Plan
 

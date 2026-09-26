@@ -75,7 +75,7 @@ pub(crate) fn forward(instructions: &mut Vec<CodeInstruction>, model: &dyn Regis
         // The load already sits at the top of the join, so the register it
         // reads into is the one the copy now reads from.
         let reload = super::rebuilt(
-            "ldr_u64",
+            crate::arch::ops::CodeOp::LdrU64,
             vec![
                 ("dst", candidate.holder.clone()),
                 ("base", crate::target::shared::abi::stack_pointer().into()),
@@ -238,10 +238,10 @@ mod tests {
             vec![
                 CodeOp::CmpImm,
                 CodeOp::BranchEq,
-                CodeOp::LdrU64,
+                crate::arch::ops::CodeOp::LdrU64,
                 CodeOp::Branch,
                 CodeOp::Label,
-                CodeOp::LdrU64,
+                crate::arch::ops::CodeOp::LdrU64,
                 CodeOp::Branch,
                 CodeOp::Label,
                 CodeOp::Mov,

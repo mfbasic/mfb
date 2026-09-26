@@ -272,7 +272,7 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                             .cloned()
                             .expect("a classified sp load has a dst");
                         instructions[index] =
-                            super::rebuilt("mov", vec![("dst", target), ("src", source)]);
+                            super::rebuilt(CodeOp::Mov, vec![("dst", target), ("src", source)]);
                         forwarded += 1;
                     }
                 }
@@ -352,7 +352,7 @@ pub(crate) fn remove_fp_shuttles(
                 second.get("offset").as_deref(),
                 |src, base, off| {
                     super::rebuilt(
-                        "str_d",
+                        CodeOp::StrD,
                         vec![
                             ("src", src),
                             ("base", base),
@@ -370,7 +370,7 @@ pub(crate) fn remove_fp_shuttles(
                 first.get("offset").as_deref(),
                 |dst, base, off| {
                     super::rebuilt(
-                        "ldr_d",
+                        CodeOp::LdrD,
                         vec![
                             ("dst", dst),
                             ("base", base),

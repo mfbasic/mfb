@@ -60,6 +60,7 @@ pub(crate) mod tailduped;
 pub(crate) mod threading;
 pub(crate) mod uce;
 
+use crate::arch::ops::CodeOp;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::optimizer::OptLevel;
@@ -72,8 +73,11 @@ use crate::target::shared::regmodel::RegisterModel;
 /// as they stand rather than passed back through [`CodeInstruction::field`],
 /// whose text guard exists to stop emission code naming a register — the same
 /// standing the allocator's own in-place rewrite has.
-pub(crate) fn rebuilt(op: &str, fields: Vec<(&'static str, Operand)>) -> CodeInstruction {
-    let mut instruction = CodeInstruction::new(op);
+///
+/// Every caller copies its register operands out of the instructions it replaces
+/// (`operand(..)`/`cloned()`); none is built from a name.
+pub(crate) fn rebuilt(op: CodeOp, fields: Vec<(&'static str, Operand)>) -> CodeInstruction {
+    let mut instruction = CodeInstruction::new(op.mnemonic());
     instruction.fields = fields;
     instruction
 }
@@ -86,7 +90,7 @@ pub(crate) fn constant_into_dst(instruction: &CodeInstruction, value: u64) -> Co
         .cloned()
         .expect("a folded instruction defines a dst");
     rebuilt(
-        "mov_imm",
+        CodeOp::MovImm,
         vec![
             ("dst", dst),
             (

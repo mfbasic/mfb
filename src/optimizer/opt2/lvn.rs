@@ -67,7 +67,7 @@ pub(super) fn numberable_op(op: CodeOp) -> bool {
 
 /// Build a `mov dst, src` from the two operands.
 pub(super) fn copy_of(dst: Operand, src: Operand) -> CodeInstruction {
-    super::rebuilt("mov", vec![("dst", dst), ("src", src)])
+    super::rebuilt(CodeOp::Mov, vec![("dst", dst), ("src", src)])
 }
 
 /// Run the LVN row over one function's selected stream, in place.
