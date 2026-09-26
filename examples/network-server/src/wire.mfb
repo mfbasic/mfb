@@ -48,11 +48,50 @@ PUBLIC FUNC minHandshakeMs() AS Integer
   RETURN 250
 END FUNC
 
+' The bound on serveTlsThreaded's tls::accept call (bug-704). That thread does
+' nothing but accept — there is no tick to derive a budget from the way
+' serveTls does — so a stalled or hostile peer (an idle raw TCP connection that
+' never sends any TLS bytes) can otherwise park the only accept thread inside
+' its handshake read forever, starving every other, well-behaved client queued
+' behind it.
+'
+' Per `mfb man tls accept`, one deadline bounds BOTH the wait for a connection
+' AND the handshake that follows — a connection that is only popped off the
+' accept queue near the tail of that deadline gets whatever sliver is left to
+' finish its handshake in, not a fresh budget. That is fine for a connection
+' that arrives at a effectively random offset into the cycle (the "near the
+' tail" sliver is a small fraction of the whole), but examples/network-client
+' probes TCP, then UDP, then TLS in strict sequence with its own fixed
+' 3000 ms connectTimeoutMs — so if this constant divided evenly into 3000, the
+' real TLS attempt would land at the SAME point in every accept cycle, cycle
+' after cycle, turning a rare edge into a reliable one. 2200 ms avoids that
+' resonance (3000 mod 2200 = 800, comfortably mid-cycle, not near either edge)
+' while still being well under network-client's own 3000 ms deadline and
+' generous for any real local handshake (a few milliseconds, measured).
+PUBLIC FUNC acceptHandshakeTimeoutMs() AS Integer
+  RETURN 2200
+END FUNC
+
 ' A UDP peer that has said nothing for this long is treated as gone. UDP has no
 ' close, so without a deadline a client that was killed would be broadcast to
 ' forever.
 PUBLIC FUNC udpIdleNanos() AS Integer
   RETURN 15000000000
+END FUNC
+
+' The ceiling on distinct live UDP peers (bug-705). UDP invents a "connection"
+' purely from a source address — any party that can send datagrams from new
+' source ports controls how many peer-table entries it creates, faster than
+' udpIdleNanos() can retire silent ones, so admission needs a hard bound
+' independent of the idle-eviction splice. 256 is a demo-server-sized ceiling,
+' not a tuned production value (this is an example illustrating the pattern,
+' not a hardened server); a live UDP peer beyond it is refused (its first
+' datagram is silently ignored) rather than evicting an existing one, per the
+' doc's Fix Design 3b — simpler than picking an eviction victim, and every
+' refused peer's own retry (or the caller giving up) is a normal outcome for a
+' UDP join that was never acknowledged.
+PUBLIC FUNC maxUdpPeers() AS Integer
+  RETURN 256
 END FUNC
 
 ' ------------------------------------------------------------ wire helpers --
@@ -145,8 +184,22 @@ PUBLIC ISOLATED FUNC serveTcpConnections(worker AS ThreadWorker OF RES tcp::Sock
           tcp::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
+            ' bug-705: see main.mfb:serveTcp's identical write-failure branch.
+            tcp::close(sock) TRAP(e2)
+              RECOVER
+            END TRAP
             RECOVER
           END TRAP
+        END IF
+      NEXT
+
+      ' bug-705: see main.mfb:serveTcp's identical splice step.
+      FOR i = len(live) - 1 TO 0 STEP -1
+        IF NOT collections::get(live, i) THEN
+          conns = collections::removeAt(conns, i)
+          ids = collections::removeAt(ids, i)
+          counts = collections::removeAt(counts, i)
+          live = collections::removeAt(live, i)
         END IF
       NEXT
     END IF
@@ -224,8 +277,22 @@ PUBLIC ISOLATED FUNC serveTlsConnections(worker AS ThreadWorker OF RES tls::Sock
           tls::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
+            ' bug-705: see main.mfb:serveTcp's identical write-failure branch.
+            tls::close(sock) TRAP(e2)
+              RECOVER
+            END TRAP
             RECOVER
           END TRAP
+        END IF
+      NEXT
+
+      ' bug-705: see main.mfb:serveTcp's identical splice step.
+      FOR i = len(live) - 1 TO 0 STEP -1
+        IF NOT collections::get(live, i) THEN
+          conns = collections::removeAt(conns, i)
+          ids = collections::removeAt(ids, i)
+          counts = collections::removeAt(counts, i)
+          live = collections::removeAt(live, i)
         END IF
       NEXT
     END IF

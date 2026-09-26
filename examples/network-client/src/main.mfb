@@ -28,7 +28,7 @@
 ' one. Pass --allow-self-signed to accept a chain whose only fault is an
 ' untrusted root:
 '
-'   $ network-client --port 7413 --server-name localhost --allow-self-signed
+'   $ network-client --server-name localhost --allow-self-signed
 '
 ' That relaxes the trust anchor and nothing else: the certificate must still
 ' match --server-name and must still be in date, so the flag cannot be used to
@@ -100,9 +100,9 @@ SUB usage()
   io::print("  --host HOST        Server address. Default 127.0.0.1.")
   io::print("  --port PORT        Server port. Default 7000.")
   io::print("  --server-name NAME Name the TLS certificate must match, sent as SNI.")
+  io::print("                     Defaults to HOST.")
   io::print("  --allow-self-signed  Accept a TLS chain whose only fault is an untrusted")
   io::print("                       root. The name and the dates are still checked.")
-  io::print("                     Defaults to HOST.")
   io::print("  --help             Show this text and exit.")
   io::print("")
   io::print("Every transport is attempted in turn — TCP, UDP, TLS — and each attempt")

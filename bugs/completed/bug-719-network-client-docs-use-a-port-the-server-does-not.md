@@ -1,12 +1,19 @@
 # bug-719: network-client's TLS example and network-server's README both document `--port 7413`, which neither side's server ever listens on by default
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 Effort: small (<1h)
 Severity: LOW
 Class: docs
 
-Status: Open
-Regression Test: none (docs-only; no test asserts printed help/comment text today — see Validation Plan)
+STATUS: FIXED (031c2cd7d)
+
+Fixed exactly as the doc's Fix Design recommended: dropped `--port 7413`
+entirely from both the client's header comment and the server README's
+paired command (7000 is the default, so no flag reads more naturally than a
+redundant `--port 7000`); moved `usage()`'s `"Defaults to HOST."` line to
+follow `--server-name NAME` instead of `--allow-self-signed`. No deviation.
+Regression Test: none (docs-only; no test asserts printed help/comment text —
+matches the doc's own Validation Plan)
 
 `examples/network-client/src/main.mfb`'s header comment documents a TLS example
 command, `network-client --port 7413 --server-name localhost --allow-self-signed`
@@ -291,13 +298,14 @@ Commit: — (this document only; no code touched yet)
 
 ### Phase 2 — the fix
 
-- [ ] `examples/network-client/src/main.mfb:31` — change `--port 7413` to
+- [x] `examples/network-client/src/main.mfb:31` — change `--port 7413` to
       `--port 7000` (or drop the flag entirely, since 7000 is the default —
       pick whichever reads more naturally in context; either satisfies the
-      Goal).
-- [ ] `examples/network-server/README.md:93` — same change, keeping the two
-      commands identical to each other as they are today.
-- [ ] `examples/network-client/src/main.mfb:103`-`:105` — move the
+      Goal). (Dropped the flag entirely.)
+- [x] `examples/network-server/README.md:93` — same change, keeping the two
+      commands identical to each other as they are today. (Same: dropped the
+      flag; both commands remain identical to each other.)
+- [x] `examples/network-client/src/main.mfb:103`-`:105` — move the
       `"Defaults to HOST."` print line to directly follow the
       `--server-name NAME` line (`:102`).
 
@@ -305,23 +313,30 @@ Acceptance: re-running the Failing Reproduction's client command (now without
 a port mismatch) connects on the first (TCP) transport against a server
 started with its documented command; `--help` output shows "Defaults to
 HOST." directly under `--server-name`.
-Commit: —
+Commit: 031c2cd7d
 
 ### Phase 3 — validation
 
-- [ ] `scripts/build-examples.sh` (or the relevant subset covering
+- [x] `scripts/build-examples.sh` (or the relevant subset covering
       network-client/network-server) — confirm both still build clean.
-- [ ] Re-run the full reproduction end-to-end: start the server with its
+      (Both built clean on macos-aarch64 directly; the full multi-target run
+      already covered network-client/network-server in this lane's bug-704
+      and bug-705 work on this same worktree, after this doc's own source
+      changes.)
+- [x] Re-run the full reproduction end-to-end: start the server with its
       documented command, run the client with the doc's (now-corrected) TLS
       example command, confirm TCP connects (TLS still fails against the
       self-signed cert as documented/expected — that failure is the example's
       intended lesson and is unrelated to the port fix). Kill the server
-      afterward.
-- [ ] Re-run `--help` and confirm the line order.
+      afterward. (Confirmed: TCP transport connects and receives Update
+      lines; server killed after.)
+- [x] Re-run `--help` and confirm the line order. (Confirmed: "Defaults to
+      HOST." now prints directly under `--server-name NAME`.)
 
 Acceptance: build-examples passes; the doc's own commands work end to end;
 `--help` text is corrected; no server process left running afterward.
-Commit: —
+Commit: 031c2cd7d (no additional commit; validation only, no further code
+change)
 
 ## Validation Plan
 

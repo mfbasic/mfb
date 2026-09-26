@@ -72,6 +72,15 @@ and provider state travel with the handle, which is what
 [`bug-464`](../../bugs/completed/bug-464-sockets-and-listeners-not-thread-sendable.md)
 made possible.
 
+That `tls::accept` call is bounded (`acceptHandshakeTimeoutMs()` in
+`src/wire.mfb`, [`bug-704`](../../bugs/completed/bug-704-network-server-tls-handshake-blocks-accept-loop.md)):
+this is the *only* thread that ever accepts in `--tls --thread` mode, so an
+idle or hostile peer that opens a TCP connection and never sends any TLS bytes
+would otherwise park it inside that one peer's handshake read forever,
+starving every other, well-behaved client queued behind it. A timed-out or
+failed handshake is treated like any other failed accept — the loop moves on
+to the next connection.
+
 One worker serves every connection rather than one worker per connection: it
 keeps the design to a single accept loop and a single worker loop no matter how
 many clients are attached, mirroring the single-threaded transport's one set of
@@ -90,7 +99,7 @@ be told to accept them. `examples/network-client` does that with an explicit
 opt-in:
 
 ```sh
-./build/network-client.out --port 7413 --server-name localhost --allow-self-signed
+./build/network-client.out --server-name localhost --allow-self-signed
 ```
 
 Without that flag the TLS attempt fails, which is the correct default —
