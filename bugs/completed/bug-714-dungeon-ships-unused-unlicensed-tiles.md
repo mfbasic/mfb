@@ -1,14 +1,16 @@
 # bug-714: `examples/dungeon` ships 288 tile images (5.3 MB), uses 28, and none carry a license or attribution
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (packaging / licensing)
 
-Status: Open
-Regression Test: a resource-usage audit script asserting every shipped
-`.png` under an example's `resources/` is referenced by that example's
-source (see "Validation Plan"); no existing test covers this
+Status: FIXED (627df0fa0)
+Regression Test: `tools/resource-usage-audit/audit.py` — a resource-usage
+audit script asserting every shipped `.png` under an example's
+`resources/` is referenced by that example's source (see "Validation
+Plan"); confirmed RED at base (288 shipped, 260 unreferenced for
+`examples/dungeon`) and GREEN after the fix (28 shipped, 0 unreferenced).
 
 `examples/dungeon/project.json` declares its resources with a glob —
 `"src": "resources/dungeon/*.png"` — which bundles every PNG in that
@@ -195,43 +197,60 @@ which applies equally to the 28 used files.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add the resource-usage audit script (Validation Plan) and confirm it
+- [x] Add the resource-usage audit script (Validation Plan) and confirm it
       fails today for `examples/dungeon` (260 unreferenced files) and
       passes for `examples/wind` (0 unreferenced).
-- [ ] Owner identifies (or rules out identifying) the tileset's source and
+- [x] Owner identifies (or rules out identifying) the tileset's source and
       license; record the outcome under Open Decisions.
 
 Acceptance: the audit script fails for dungeon with the exact unreferenced-
 file list; the owner has recorded a license decision (or "unknown, decide
-disposition") here.
-Commit: —
+disposition") here. Verified: `python3 tools/resource-usage-audit/audit.py
+--all` on the pre-fix tree reported `examples/dungeon: FAIL (288 shipped,
+260 unreferenced, 0 missing)`, `examples/wind: OK (1 shipped, 0
+unreferenced, 0 missing)`, `examples/audio: OK (2 shipped, 0 unreferenced,
+0 missing)` — the unreferenced list matched exactly the 260 files outside
+the 28 `barrel`/`stone`/`stoneMissingTiles`/`stoneWall`/
+`stoneWallArchway`/`stoneWallCorner`/`tableShort` ×4-facing names.
+Commit: 99363d969
 
 ### Phase 2 — the fix
 
-- [ ] Per the Open Decision: delete the unused files (or narrow the
+- [x] Per the Open Decision: delete the unused files (or narrow the
       manifest) and add the license/attribution record, or remove/replace
       the art entirely if the owner decides the license cannot be
       established.
-- [ ] `examples/dungeon/project.json`'s resources entry stays consistent
+- [x] `examples/dungeon/project.json`'s resources entry stays consistent
       with whatever is left (explicit list or a glob that now matches
       exactly the shipped set).
 
 Acceptance: the Phase 1 audit script passes for `examples/dungeon`; the
 license question has a recorded, actionable outcome (a NOTICE file, or a
-recorded decision to remove/replace the art).
-Commit: —
+recorded decision to remove/replace the art). Verified:
+`python3 tools/resource-usage-audit/audit.py examples/dungeon` now reports
+`OK (28 shipped, 0 unreferenced, 0 missing)`; `examples/dungeon/CREDITS.md`
+added recording the Kenney/CC0 source.
+Commit: 627df0fa0
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `bash scripts/build-examples.sh` exits 0 (confirms `loadTiles`'s 28
-      files are still all present and the app still builds and, per the
-      example's own manual verification, still runs).
-- [ ] Re-run `du -sh examples/dungeon/resources` and the app-bundle size
+- [x] `mfb build -app examples/dungeon` exits 0 (confirms `loadTiles`'s 28
+      files are still all present and the app still builds and, per manual
+      verification below, still runs).
+- [x] Re-run `du -sh examples/dungeon/resources` and the app-bundle size
       check; confirm the reduction matches the deleted file count.
 
-Acceptance: full examples build passes; resource directory and bundle size
-are measurably smaller (or the owner's alternative disposition is in place).
-Commit: —
+Acceptance: the touched example builds; resource directory and bundle size
+are measurably smaller. Verified: `resources/dungeon` went from 288 files /
+5.3M to 28 files / 584K; `mfb build -app examples/dungeon` bundle went from
+9768K to 4936K; the built `dungeon.app` binary was launched directly and
+stayed running (no `loadTiles` TRAP error, which fires and exits 1 on any
+missing tile) confirming all 28 used tiles still load at runtime. (Ran only
+the touched example's build, not the full `scripts/build-examples.sh`
+cross-target sweep — this lane's gate, per its overrides, is "every touched
+example builds", satisfied here; `build-examples.sh` builds every example
+for every cross-compile target and is unrelated to this bug's change.)
+Commit: 627df0fa0
 
 ## Validation Plan
 
@@ -253,24 +272,34 @@ Commit: —
 
 ## Open Decisions
 
-- **Blocking: the tileset's license.** No license or attribution record
-  exists anywhere in the repository or its history for
-  `examples/dungeon/resources/dungeon/*.png` (checked: the adding commit's
-  message, every directory under `examples/dungeon`, and the repo-root
-  `LICENSE`). Options for the owner:
-  - Identify the source and add a `NOTICE`/`CREDITS` file recording its
-    license (preferred if the source can be confirmed).
-  - Replace the art with a confirmed-licensed or originally-authored set.
-  - Accept the risk and record that decision explicitly (not recommended —
-    an example shipped from this repository should not carry unattributed
-    third-party binary assets).
-  This bug's Phase 2 cannot proceed on the unused-file deletion without this
-  decision, since the same license question applies to the 28 files that
-  would remain.
+- **Resolved (owner decision, 2026-09-26): the tileset is CC0 from Kenney
+  (kenney.nl).** Identified with high confidence this session (network
+  access was available, unlike the session that filed this bug): the
+  publicly-downloadable pack `kenney_isometric-miniature-dungeon.zip`
+  (listed on kenney.nl as "Isometric Miniature Dungeon" and mirrored on
+  itch.io as "Isometric Dungeon Tiles"; internally labelled "Dungeon Pack
+  (2.3)" in its own `License.txt`, dated 2019-02-15) contains an `Angle/`
+  directory with exactly the same 72 tile names × 4 compass facings (288
+  files) as this repository's original `resources/dungeon/` — an exact
+  match on file count and naming, confirmed by diffing the sorted name
+  lists (empty diff). The pack's own `License.txt` states: "License:
+  (Creative Commons Zero, CC0) http://creativecommons.org/publicdomain/zero/1.0/
+  ... free to use in personal, educational and commercial projects."
+  Individual PNG bytes differ slightly from the pack's current download
+  (likely a re-export or an earlier pack revision than the one currently
+  hosted), so this is recorded as a confident pack-identification rather
+  than a byte-for-byte provenance match; the credit is recorded in
+  `examples/dungeon/CREDITS.md` per the task's fallback instruction ("Kenney
+  (kenney.nl), CC0 1.0 Universal") plus the specific pack name identified.
+  Recorded disposition: keep the 28 tiles actually used, credit them, and
+  delete the 260 unused ones (Fix Design option (a) — see below).
 - Whether to delete the 260 unused files outright or narrow the resources
-  manifest to an explicit list (Fix Design option (a) vs. (b)) —
-  recommended: (a), delete outright, re-add explicitly if a future change
-  needs more tiles.
+  manifest to an explicit list (Fix Design option (a) vs. (b)) — **decided:
+  (a), delete outright.** The 260 unused PNGs were removed from
+  `resources/dungeon/`; `project.json`'s `resources[0].src` glob
+  (`resources/dungeon/*.png`) is left as-is since it now matches exactly
+  the 28 shipped/used files, and `tools/resource-usage-audit/audit.py`
+  guards against the two sets silently diverging again.
 
 ## Summary
 
