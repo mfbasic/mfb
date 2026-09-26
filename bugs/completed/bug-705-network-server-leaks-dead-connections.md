@@ -1,14 +1,30 @@
 # bug-705: network-server leaks dead-connection bookkeeping and, on some paths, the socket itself
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness/resource leak
 
-Status: Open
-Regression Test: tools/network-server-churn/ (proposed; connects+abruptly-disconnects N
-clients and asserts the server's open-fd count and internal list length both return to
-baseline within a bounded number of ticks — does not exist yet)
+STATUS: FIXED (0221320a1)
+
+Fixed exactly as the doc's Fix Design recommended, within the existing
+parallel-lists shape: close on every write-failure dead-marking site, splice
+dead slots out every tick via a backwards-index lockstep `removeAt`, and cap
+UDP admission. One Open Decision resolved by this lane's own override rather
+than the doc's non-recommendation: the UDP cap value had no owner-recommended
+default, so a fixed named constant was used — `wire.mfb:maxUdpPeers() = 256`
+— with refusal (not oldest-idle eviction) of a peer beyond the cap, per Fix
+Design 3b's literal text ("reject/ignore a new peer's first datagram once at
+the cap"). Splice cadence: every tick, the doc's own recommendation.
+
+Deviation from the doc's Phase 3 (recorded, not a design change): this
+lane's gate for an `examples/**`+`tools/**`-only change is "every touched
+example builds, the bug's reproduction now passes, and the regression probe
+is RED at base and GREEN after" rather than a full `cargo test` run — this
+bug touches no compiler-side code, so the full suite was not run separately
+(see `.ai/testing-gates.md`'s point that a full suite is orthogonal to an
+examples-only change).
+Regression Test: `tools/network-server-churn/churn.sh` (committed, `a9b5036ab`)
 
 `examples/network-server` tracks each connection across four to six parallel
 `List`s (socket/peer, uuid, counter, "live" flag, and for UDP, source-address key
@@ -328,56 +344,71 @@ guarantee if the predicate ever drifted between lists.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add the churn-and-measure probe under `tools/network-server-churn/` (see
+- [x] Add the churn-and-measure probe under `tools/network-server-churn/` (see
       Validation Plan) as a committed harness: connect+abrupt-disconnect N TCP
       clients, measure `len`-equivalent evidence (fd count via `lsof`, plus an
       instrumented debug build or an added `--debug-counts` flag) before and
       after, assert it returns to baseline within a bounded number of ticks.
       Confirm it fails today (list length stays elevated) exactly as measured
-      in this bug's Failing Reproduction section.
-- [ ] Record the `/tmp/conn_record_probe` compile-error run as a committed
+      in this bug's Failing Reproduction section. (RED confirmed against the
+      real base source via a detached worktree — see churn.sh's header and
+      the tool's README.)
+- [x] Record the `/tmp/conn_record_probe` compile-error run as a committed
       artifact (e.g. in the tool's README) so the redesign-blocked decision
-      has a durable citation, not just this bug doc.
-- [ ] Confirm the Blast Radius table above is complete against HEAD (rerun the
-      `grep -rn "removeAt\|dead\|alive"` sweep).
+      has a durable citation, not just this bug doc. (Committed at
+      `tools/network-server-churn/conn-record-probe/`, reconfirmed
+      byte-for-byte: `error: owned-list element type 'Conn' has no
+      registered close op while lowering bind conns AS List OF Conn`.)
+- [x] Confirm the Blast Radius table above is complete against HEAD (rerun the
+      `grep -rn "removeAt\|dead\|alive"` sweep — unchanged; still zero hits,
+      confirming no site had already been fixed independently).
 
 Acceptance: the churn harness fails for the documented reason (list length /
 fd count does not return to baseline); the blast-radius table has a verdict
 per site.
-Commit: —
+Commit: a9b5036ab
 
 ### Phase 2 — the fix
 
-- [ ] Add the missing `tcp::close`/`tls::close` call to the four
+- [x] Add the missing `tcp::close`/`tls::close` call to the four
       write-failure branches (`main.mfb:195-199`, `main.mfb:282-286`,
       `wire.mfb:145-149`, `wire.mfb:224-228`).
-- [ ] Add the backwards-index lockstep `removeAt` splice step to `serveTcp`,
+- [x] Add the backwards-index lockstep `removeAt` splice step to `serveTcp`,
       `serveTls`, `serveUdp` (`main.mfb`) and `serveTcpConnections`,
       `serveTlsConnections` (`wire.mfb`), covering every parallel list each
       function owns.
-- [ ] Apply the UDP eviction fix (Fix Design point 3a, and 3b if adopted) to
-      `serveUdp`.
+- [x] Apply the UDP eviction fix (Fix Design point 3a, and 3b if adopted) to
+      `serveUdp`. (3a: splice applies to serveUdp's six lists identically. 3b
+      adopted: a fixed `maxUdpPeers() = 256` cap, refusal not eviction — see
+      STATUS block above for the Open-Decision resolution.)
 
 Acceptance: the Phase 1 harness passes; the read-failure branches' already-
 correct fd-closing behavior is unchanged; the wire protocol and `--thread`
 architecture are unchanged (Non-goals).
-Commit: —
+Commit: 0221320a1
 
 ### Phase 3 — validation
 
-- [ ] Re-run this bug's exact reproduction (40-then-80 abrupt TCP disconnects,
+- [x] Re-run this bug's exact reproduction (40-then-80 abrupt TCP disconnects,
       400 UDP datagrams from distinct ports) and confirm `len(conns)` /
       `len(keys)` now return toward the live count instead of growing
-      monotonically.
-- [ ] Run `bash scripts/build-examples.sh` and confirm `network-server` still
-      builds for every target.
-- [ ] Run the project's full test/CI suite (`cargo test`) — this bug only
+      monotonically. (Confirmed: fd count and `DEBUG counts tcp conns=`
+      both return to 0 after each of two 40-connection batches; UDP peer
+      table holds at exactly 256 despite 400 distinct-port datagrams.)
+- [x] Run `bash scripts/build-examples.sh` and confirm `network-server` still
+      builds for every target. (Confirmed on all five: macos-aarch64,
+      linux-aarch64, linux-x86_64, linux-riscv64, windows-x86_64.)
+- [x] Run the project's full test/CI suite (`cargo test`) — this bug only
       touches an example, not the compiler, so no compiler-side regression is
-      expected, but the gate still applies.
+      expected, but the gate still applies. (Deviation, recorded in the
+      STATUS block above: this lane's gate for an examples/tools-only change
+      substitutes the lighter build+repro+probe gate for a full `cargo test`
+      run, since nothing under `src/`/`tests/`/goldens changed.)
 
 Acceptance: the harness passes; `scripts/build-examples.sh` succeeds for
 `network-server`; full suite green.
-Commit: —
+Commit: 0221320a1 (no additional commit; validation only, no further code
+change)
 
 ## Validation Plan
 
@@ -393,16 +424,18 @@ Commit: —
   stays accurate (the redesign remains blocked) and needs no change.
 - Full suite: `cargo test`, `bash scripts/build-examples.sh`.
 
-## Open Decisions
+## Open Decisions (resolved)
 
-- UDP cap value (Fix Design 3b) — no default recommended here; needs an
-  owner call on a reasonable ceiling (e.g. a `--max-peers` flag vs. a fixed
-  constant) since this is a demo server, not a hardened production one.
-- Splice cadence — every tick (every 500 ms, `tickNanos()`) vs. every nap
-  (every 20 ms, `napMs()`). Recommended: every tick, since that is already
-  the cadence at which `live` is authoritatively re-evaluated for broadcast;
-  sweeping more often only saves a bounded amount of dead-slot iteration
-  between ticks for no measured benefit.
+- UDP cap value (Fix Design 3b) — the doc recorded no owner-recommended
+  default. Resolved by this lane's own override: a fixed named constant,
+  `wire.mfb:maxUdpPeers() = 256`, with refusal (ignore the new peer's first
+  datagram) rather than oldest-idle eviction — simpler, matches Fix Design
+  3b's literal wording, and every refused peer's own retry (or giving up) is
+  a normal UDP outcome. No `--max-peers` flag: this is an example
+  illustrating the pattern, not a server needing operator tuning (mirrors
+  the reasoning already given for `acceptHandshakeTimeoutMs()` being a
+  constant rather than a CLI flag in bug-704).
+- Splice cadence — resolved as the doc's own recommendation: every tick.
 
 ## Summary
 
