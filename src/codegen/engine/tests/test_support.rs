@@ -21,7 +21,7 @@ impl CodegenPlatform for TestPlatform {
     fn target(&self) -> &'static str { "linux_aarch64" }
     fn arch(&self) -> &'static str { "aarch64" }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
+    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [&str; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(&self, _from: &str, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_program_exit") }
     fn emit_write(&self, _from: &str, _pi: &HashMap<String, String>, i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // A plain `bl _write` leaving the request length in the return register
@@ -90,7 +90,7 @@ impl CodegenPlatform for TestPlatform {
     fn socket_would_block_code(&self) -> &'static str { "11" }
     fn socket_message_size_code(&self) -> &'static str { "90" }
     fn socket_in_progress_code(&self) -> &'static str { "115" }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // The openssl non-blocking connect toggles the socket via this seam; a
         // plain `bl` lets the helper lower so the release-block tests can inspect it.
         instructions.push(abi::branch_link("_fcntl"));

@@ -774,6 +774,17 @@ fn lower_link_thunk(
     // Vreg-allocated (plan-00-G Phase 2): the C-ABI marshaling slots are an
     // explicit `sp`-relative local region; x9/x10/x16 scratch become vregs the
     // allocator places (incoming wrapper args stay in their ABI x0-x7).
+    let mut vregs = Vregs::new();
+    let scratch = ThunkScratch::mint(&mut vregs);
+    let ThunkScratch {
+        t0,
+        t1,
+        t2,
+        t3,
+        t4,
+        callee,
+        ..
+    } = &scratch;
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     // Save incoming wrapper arguments before any clobbering call.
@@ -808,9 +819,9 @@ fn lower_link_thunk(
     let resource_closed = format!("{symbol}_resource_closed");
     for pidx in &resource_guard_params {
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), param_base + pidx * 8),
-            abi::load_u64("%v9", "%v9", FILE_OFFSET_CLOSED),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(t0, abi::stack_pointer(), param_base + pidx * 8),
+            abi::load_u64(t0, t0, FILE_OFFSET_CLOSED),
+            abi::compare_immediate(t0, "0"),
             abi::branch_ne(&resource_closed),
         ]);
     }
@@ -904,8 +915,8 @@ fn lower_link_thunk(
             };
             let pin_off = cslot_base + pin_idx * 8;
             instructions.extend([
-                abi::move_immediate("%v9", "Integer", &(*value as u64).to_string()),
-                abi::store_u64("%v9", abi::stack_pointer(), pin_off),
+                abi::move_immediate(t0, "Integer", &(*value as u64).to_string()),
+                abi::store_u64(t0, abi::stack_pointer(), pin_off),
             ]);
             size_offsets.entry(pin_name).or_insert(pin_off);
         }
@@ -929,8 +940,8 @@ fn lower_link_thunk(
         instructions.extend([
             abi::compare_immediate(&size_reg, "0"),
             abi::branch_lt(&buffer_size_fail),
-            abi::move_immediate("%v9", "Integer", &max_buffer_bytes.to_string()),
-            abi::compare_registers(&size_reg, "%v9"),
+            abi::move_immediate(t0, "Integer", &max_buffer_bytes.to_string()),
+            abi::compare_registers(&size_reg, t0),
             abi::branch_gt(&buffer_size_fail),
         ]);
 
@@ -942,9 +953,9 @@ fn lower_link_thunk(
         // the size gate above and the post-call LENGTH clamp are unaffected, and
         // the returned list view is still bounded to [0, SIZE].
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), size_off),
-            abi::add_immediate("%v9", "%v9", BUFFER_GUARD_BYTES),
-            abi::store_u64("%v9", abi::stack_pointer(), phys_off),
+            abi::load_u64(t0, abi::stack_pointer(), size_off),
+            abi::add_immediate(t0, t0, BUFFER_GUARD_BYTES),
+            abi::store_u64(t0, abi::stack_pointer(), phys_off),
         ]);
 
         // Allocate the block and spill its pointer to the OUT word. The helper
@@ -968,23 +979,23 @@ fn lower_link_thunk(
         // plausibly. Reload the block from its frame word first — the allocation
         // destroyed every register.
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), out_off),
-            abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE),
-            abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+            abi::load_u64(t0, abi::stack_pointer(), out_off),
+            abi::add_immediate(t0, t0, COLLECTION_HEADER_SIZE),
+            abi::store_u64(t0, abi::stack_pointer(), cslot_off),
         ]);
 
         // sec-02: stamp the canary into the guard region
         // [dataBase + SIZE, dataBase + SIZE + BUFFER_GUARD_BYTES) — the last
-        // BUFFER_GUARD_BYTES of the physical block. `%v9` still holds dataBase. A
+        // BUFFER_GUARD_BYTES of the physical block. `t0` still holds dataBase. A
         // correct callee writes at most SIZE bytes, leaving the canary intact; an
         // overrun clobbers it (checked after the call).
         instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), size_off),
-            abi::add_registers("%v9", "%v9", "%v10"), // canary base = dataBase + SIZE
-            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_0),
-            abi::store_u64("%v11", "%v9", 0),
-            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_1),
-            abi::store_u64("%v11", "%v9", 8),
+            abi::load_u64(t1, abi::stack_pointer(), size_off),
+            abi::add_registers(t0, t0, t1), // canary base = dataBase + SIZE
+            abi::move_immediate(t2, "Integer", BUFFER_CANARY_0),
+            abi::store_u64(t2, t0, 0),
+            abi::move_immediate(t2, "Integer", BUFFER_CANARY_1),
+            abi::store_u64(t2, t0, 8),
         ]);
     }
 
@@ -1054,12 +1065,13 @@ fn lower_link_thunk(
                 &param_index,
                 &range_fail,
                 &alloc_fail,
+                &scratch,
                 &mut instructions,
                 &mut relocations,
             )?;
             instructions.extend([
-                abi::add_immediate("%v9", abi::stack_pointer(), *buf_off),
-                abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                abi::add_immediate(t0, abi::stack_pointer(), *buf_off),
+                abi::store_u64(t0, abi::stack_pointer(), cslot_off),
             ]);
             continue;
         }
@@ -1068,8 +1080,8 @@ fn lower_link_thunk(
             out_seq += 1;
             instructions.extend([
                 abi::store_u64(abi::ZERO, abi::stack_pointer(), out_off),
-                abi::add_immediate("%v9", abi::stack_pointer(), out_off),
-                abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                abi::add_immediate(t0, abi::stack_pointer(), out_off),
+                abi::store_u64(t0, abi::stack_pointer(), cslot_off),
             ]);
             if result_var == Some(slot.name.as_str()) {
                 result_out_off = Some(out_off);
@@ -1091,8 +1103,8 @@ fn lower_link_thunk(
                 ));
             }
             instructions.extend([
-                abi::move_immediate("%v9", "Integer", &(*value as u64).to_string()),
-                abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                abi::move_immediate(t0, "Integer", &(*value as u64).to_string()),
+                abi::store_u64(t0, abi::stack_pointer(), cslot_off),
             ]);
         } else if let Some(&pidx) = param_index.get(slot.name.as_str()) {
             let param_off = param_base + pidx * 8;
@@ -1102,6 +1114,7 @@ fn lower_link_thunk(
                     param_off,
                     cslot_off,
                     &alloc_fail,
+                    &scratch,
                     &mut instructions,
                     &mut relocations,
                 );
@@ -1109,12 +1122,12 @@ fn lower_link_thunk(
                 // §12.3: the 64-bit MFBASIC Integer must fit signed 32-bit; an
                 // out-of-range value fails rather than silently truncating.
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), param_off),
-                    abi::shift_left_immediate("%v10", "%v9", 32),
-                    abi::arithmetic_shift_right_immediate("%v10", "%v10", 32),
-                    abi::compare_registers("%v9", "%v10"),
+                    abi::load_u64(t0, abi::stack_pointer(), param_off),
+                    abi::shift_left_immediate(t1, t0, 32),
+                    abi::arithmetic_shift_right_immediate(t1, t1, 32),
+                    abi::compare_registers(t0, t1),
                     abi::branch_ne(&range_fail),
-                    abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                    abi::store_u64(t0, abi::stack_pointer(), cslot_off),
                 ]);
             } else if slot.ctype.is_c_abi(CAbiType::Ptr)
                 && function
@@ -1130,14 +1143,14 @@ fn lower_link_thunk(
                 // without it the record pointer, not the handle, reaches the C
                 // library.
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), param_off),
-                    abi::load_u64("%v9", "%v9", FILE_OFFSET_FD),
-                    abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                    abi::load_u64(t0, abi::stack_pointer(), param_off),
+                    abi::load_u64(t0, t0, FILE_OFFSET_FD),
+                    abi::store_u64(t0, abi::stack_pointer(), cslot_off),
                 ]);
             } else {
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), param_off),
-                    abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+                    abi::load_u64(t0, abi::stack_pointer(), param_off),
+                    abi::store_u64(t0, abi::stack_pointer(), cslot_off),
                 ]);
             }
         } else {
@@ -1182,8 +1195,8 @@ fn lower_link_thunk(
         let cslot_off = cslot_base + slot_idx * 8;
         if slot.ctype.is_c_abi(CAbiType::Double) {
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), cslot_off),
-                abi::float_move_d_from_x(abi::fp_argument_register(flt_idx)?, "%v9"),
+                abi::load_u64(t0, abi::stack_pointer(), cslot_off),
+                abi::float_move_d_from_x(abi::fp_argument_register(flt_idx)?, t0),
             ]);
             flt_idx += 1;
         } else {
@@ -1197,11 +1210,11 @@ fn lower_link_thunk(
     }
     instructions.extend([
         abi::load_u64(
-            "%v16",
+            callee,
             ARENA_STATE_REGISTER,
             slot_offset(globals_base, index),
         ),
-        abi::branch_link_register("%v16"),
+        abi::branch_link_register(callee),
         // bug-431: the native `LINK` function is a real C call through `blr`, so
         // its integer/pointer result comes back in the C-ABI return register
         // (`rax` on x86-64, `x0`/`a0` elsewhere) — NOT the aligned MFB result
@@ -1218,23 +1231,23 @@ fn lower_link_thunk(
     // the SUCCESS_ON gate or any result marshaling — so a callee that overran its
     // buffer cannot surface a "successful" result built from smashed arena
     // memory. A clobbered canary means the callee wrote past the declared SIZE;
-    // trap with ErrNativeBufferOverrun. Uses integer scratch only (%v9-%v11), so
+    // trap with ErrNativeBufferOverrun. Uses integer scratch only (`t0`-`t2`), so
     // a float return still parked in d0 is untouched.
     for (buf_seq, &slot_idx) in cbuffer_slots.iter().enumerate() {
         let size_off = cbuffer_size_base + buf_seq * 8;
         let out_off = cbuffer_out_off(slot_idx);
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), out_off), // block
-            abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE), // dataBase
-            abi::load_u64("%v10", abi::stack_pointer(), size_off), // SIZE
-            abi::add_registers("%v9", "%v9", "%v10"),            // canary base
-            abi::load_u64("%v10", "%v9", 0),
-            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_0),
-            abi::compare_registers("%v10", "%v11"),
+            abi::load_u64(t0, abi::stack_pointer(), out_off), // block
+            abi::add_immediate(t0, t0, COLLECTION_HEADER_SIZE), // dataBase
+            abi::load_u64(t1, abi::stack_pointer(), size_off), // SIZE
+            abi::add_registers(t0, t0, t1),                   // canary base
+            abi::load_u64(t1, t0, 0),
+            abi::move_immediate(t2, "Integer", BUFFER_CANARY_0),
+            abi::compare_registers(t1, t2),
             abi::branch_ne(&buffer_overrun),
-            abi::load_u64("%v10", "%v9", 8),
-            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_1),
-            abi::compare_registers("%v10", "%v11"),
+            abi::load_u64(t1, t0, 8),
+            abi::move_immediate(t2, "Integer", BUFFER_CANARY_1),
+            abi::compare_registers(t1, t2),
             abi::branch_ne(&buffer_overrun),
         ]);
     }
@@ -1254,35 +1267,31 @@ fn lower_link_thunk(
     if is_close_op {
         for pidx in &resource_guard_params {
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), param_base + pidx * 8),
-                abi::load_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
-                abi::move_immediate(
-                    "%v11",
-                    "Integer",
-                    &(1u64 << RESOURCE_CLOSED_BIT).to_string(),
-                ),
-                abi::or_registers("%v10", "%v10", "%v11"),
-                abi::store_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
+                abi::load_u64(t0, abi::stack_pointer(), param_base + pidx * 8),
+                abi::load_u64(t1, t0, FILE_OFFSET_CLOSED),
+                abi::move_immediate(t2, "Integer", &(1u64 << RESOURCE_CLOSED_BIT).to_string()),
+                abi::or_registers(t1, t1, t2),
+                abi::store_u64(t1, t0, FILE_OFFSET_CLOSED),
             ]);
         }
     }
     if needs_float {
         // A `double` return arrives in `d0`, not `x0`; stash its bits.
         instructions.extend([
-            abi::float_move_x_from_d("%v9", abi::FP_SCRATCH[0]),
-            abi::store_u64("%v9", abi::stack_pointer(), cretd_off),
+            abi::float_move_x_from_d(t0, abi::FP_SCRATCH[0]),
+            abi::store_u64(t0, abi::stack_pointer(), cretd_off),
         ]);
     }
 
     // Derive the status value (sign-extending a 32-bit native return).
-    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), CRET_OFF));
+    instructions.push(abi::load_u64(t0, abi::stack_pointer(), CRET_OFF));
     if function.abi_return_ctype.is_c_abi(CAbiType::Int32) {
         instructions.extend([
-            abi::shift_left_immediate("%v9", "%v9", 32),
-            abi::arithmetic_shift_right_immediate("%v9", "%v9", 32),
+            abi::shift_left_immediate(t0, t0, 32),
+            abi::arithmetic_shift_right_immediate(t0, t0, 32),
         ]);
     }
-    instructions.push(abi::store_u64("%v9", abi::stack_pointer(), STATUS_OFF));
+    instructions.push(abi::store_u64(t0, abi::stack_pointer(), STATUS_OFF));
 
     // plan-50-I: every name a `Var` may hold, mapped to the frame slot holding
     // its value. The ABI return maps to STATUS_OFF, NOT CRET_OFF — STATUS_OFF
@@ -1351,6 +1360,7 @@ fn lower_link_thunk(
             &encoding_fail,
             &nan_fail,
             &inf_fail,
+            &scratch,
             &mut instructions,
             &mut relocations,
         )?;
@@ -1363,16 +1373,16 @@ fn lower_link_thunk(
         match result_out_ctype {
             Some(CAbiType::Int32) => {
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
-                    abi::sign_extend_word(RESULT_VALUE_REGISTER, "%v9"),
+                    abi::load_u64(t0, abi::stack_pointer(), out_off),
+                    abi::sign_extend_word(RESULT_VALUE_REGISTER, t0),
                 ]);
             }
             Some(CAbiType::Bool) => {
                 let set = format!("{symbol}_out_bool_true");
                 let end = format!("{symbol}_out_bool_end");
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
-                    abi::compare_immediate("%v9", "0"),
+                    abi::load_u64(t0, abi::stack_pointer(), out_off),
+                    abi::compare_immediate(t0, "0"),
                     abi::branch_ne(&set),
                     abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
                     abi::branch(&end),
@@ -1383,9 +1393,9 @@ fn lower_link_thunk(
             }
             Some(CAbiType::Byte) => {
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
-                    abi::move_immediate("%v10", "Integer", "255"),
-                    abi::and_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                    abi::load_u64(t0, abi::stack_pointer(), out_off),
+                    abi::move_immediate(t1, "Integer", "255"),
+                    abi::and_registers(RESULT_VALUE_REGISTER, t0, t1),
                 ]);
             }
             Some(CAbiType::Double) => {
@@ -1393,18 +1403,18 @@ fn lower_link_thunk(
                 // all exponent bits set; the mantissa distinguishes Inf from NaN.
                 let finite = format!("{symbol}_out_float_finite");
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), out_off),
-                    abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
-                    abi::and_registers("%v11", "%v9", "%v10"),
-                    abi::compare_registers("%v11", "%v10"),
+                    abi::load_u64(t0, abi::stack_pointer(), out_off),
+                    abi::move_immediate(t1, "Integer", F64_POSITIVE_INF_BITS),
+                    abi::and_registers(t2, t0, t1),
+                    abi::compare_registers(t2, t1),
                     abi::branch_ne(&finite),
-                    abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
-                    abi::and_registers("%v13", "%v9", "%v12"),
-                    abi::compare_immediate("%v13", "0"),
+                    abi::move_immediate(t3, "Integer", F64_MANTISSA_MASK),
+                    abi::and_registers(t4, t0, t3),
+                    abi::compare_immediate(t4, "0"),
                     abi::branch_eq(&inf_fail),
                     abi::branch(&nan_fail),
                     abi::label(&finite),
-                    abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+                    abi::move_register(RESULT_VALUE_REGISTER, t0),
                 ]);
             }
             // plan-58-B: the OUT word holds the byte-list BLOCK pointer, which is
@@ -1460,10 +1470,10 @@ fn lower_link_thunk(
                     abi::compare_immediate(&k, "0"),
                     abi::branch_lt(&neg),
                     // Reload N: the call clobbered everything.
-                    abi::load_u64("%v9", abi::stack_pointer(), size_off),
-                    abi::compare_registers(&k, "%v9"),
+                    abi::load_u64(t0, abi::stack_pointer(), size_off),
+                    abi::compare_registers(&k, t0),
                     abi::branch_le(&capped),
-                    abi::move_register(&k, "%v9"),
+                    abi::move_register(&k, t0),
                     abi::branch(&capped),
                     abi::label(&neg),
                     abi::move_immediate(&k, "Integer", "0"),
@@ -1475,10 +1485,10 @@ fn lower_link_thunk(
                 // `05_collections.md:173-198` sanctions `capacity > count` as
                 // headroom, and a value copy is shrink-to-fit.
                 instructions.extend([
-                    abi::load_u64("%v10", abi::stack_pointer(), out_off),
-                    abi::store_u64(&k, "%v10", COLLECTION_OFFSET_COUNT),
-                    abi::store_u64(&k, "%v10", COLLECTION_OFFSET_DATA_LENGTH),
-                    abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
+                    abi::load_u64(t1, abi::stack_pointer(), out_off),
+                    abi::store_u64(&k, t1, COLLECTION_OFFSET_COUNT),
+                    abi::store_u64(&k, t1, COLLECTION_OFFSET_DATA_LENGTH),
+                    abi::move_register(RESULT_VALUE_REGISTER, t1),
                 ]);
             }
             // Everything else is a plain 8-byte load of the OUT word. Enumerated
@@ -1520,6 +1530,7 @@ fn lower_link_thunk(
                 inf_fail: &inf_fail,
             },
             &symbol,
+            &scratch,
             &mut instructions,
             &mut relocations,
         )?;
@@ -1564,23 +1575,23 @@ fn lower_link_thunk(
         instructions.extend([
             // record pointer (RET[1]) → scratch; reload handle; store handle@FD.
             abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), rec_ptr_off),
-            abi::load_u64("%v9", abi::stack_pointer(), rec_handle_off),
-            abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
-            abi::store_u64("%v9", "%v10", FILE_OFFSET_FD),
+            abi::load_u64(t0, abi::stack_pointer(), rec_handle_off),
+            abi::load_u64(t1, abi::stack_pointer(), rec_ptr_off),
+            abi::store_u64(t0, t1, FILE_OFFSET_FD),
             // Canonical plan-80 header: tag@0 marks this a Native resource.
-            abi::move_immediate("%v9", "Integer", RESOURCE_TAG_NATIVE),
-            abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_TAG),
+            abi::move_immediate(t0, "Integer", RESOURCE_TAG_NATIVE),
+            abi::store_u64(t0, t1, RESOURCE_OFFSET_TAG),
             // Zero CLOSED (open) and the File I/O buffer words a native resource
             // never uses (they must be zero, not the arena-alloc's poison —
             // plan-52-B). STATE@24 is handled below.
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_CLOSED),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_PTR),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_FILLED),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_BUF_ENABLED),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_PTR),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_POS),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_FILL),
-            abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_READ_AT_EOF),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_CLOSED),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_PTR),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_FILLED),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_ENABLED),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_READ_PTR),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_READ_POS),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_READ_FILL),
+            abi::store_u64(abi::ZERO, t1, FILE_OFFSET_READ_AT_EOF),
         ]);
         // STATE@24: `BIND STATE <res> = <out-struct>` (plan-53-B) marshals the OUT
         // struct the native call filled into an `S` record and stores its pointer;
@@ -1613,23 +1624,24 @@ fn lower_link_thunk(
                 &encoding_fail,
                 &nan_fail,
                 &inf_fail,
+                &scratch,
                 &mut instructions,
                 &mut relocations,
             )?;
             instructions.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
-                abi::store_u64(RESULT_VALUE_REGISTER, "%v10", FILE_OFFSET_STATE),
+                abi::load_u64(t1, abi::stack_pointer(), rec_ptr_off),
+                abi::store_u64(RESULT_VALUE_REGISTER, t1, FILE_OFFSET_STATE),
             ]);
         } else {
             instructions.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
-                abi::store_u64(abi::ZERO, "%v10", FILE_OFFSET_STATE),
+                abi::load_u64(t1, abi::stack_pointer(), rec_ptr_off),
+                abi::store_u64(abi::ZERO, t1, FILE_OFFSET_STATE),
             ]);
         }
         instructions.extend([
             // The record pointer is the wrapper result.
-            abi::load_u64("%v10", abi::stack_pointer(), rec_ptr_off),
-            abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
+            abi::load_u64(t1, abi::stack_pointer(), rec_ptr_off),
+            abi::move_register(RESULT_VALUE_REGISTER, t1),
         ]);
     }
 
@@ -1652,11 +1664,11 @@ fn lower_link_thunk(
             abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
             abi::load_u64(&abi::argument_register(0)?, abi::stack_pointer(), CRET_OFF),
             abi::load_u64(
-                "%v16",
+                callee,
                 ARENA_STATE_REGISTER,
                 slot_offset(globals_base, free_slot),
             ),
-            abi::branch_link_register("%v16"),
+            abi::branch_link_register(callee),
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
         ]);
     }
@@ -1715,14 +1727,14 @@ fn lower_link_thunk(
             abi::label(&resource_closed),
             // Re-load: the guard's compare register is long dead by here.
             abi::load_u64(
-                "%v9",
+                t0,
                 abi::stack_pointer(),
                 param_base + resource_guard_params[0] * 8,
             ),
-            abi::load_u64("%v9", "%v9", FILE_OFFSET_CLOSED),
-            abi::move_immediate("%v10", "Integer", &(1u64 << RESOURCE_MOVED_BIT).to_string()),
-            abi::and_registers("%v9", "%v9", "%v10"),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(t0, t0, FILE_OFFSET_CLOSED),
+            abi::move_immediate(t1, "Integer", &(1u64 << RESOURCE_MOVED_BIT).to_string()),
+            abi::and_registers(t0, t0, t1),
+            abi::compare_immediate(t0, "0"),
             abi::branch_ne(&resource_moved),
         ]);
         raise_error_into(
@@ -1816,9 +1828,13 @@ fn emit_return_passthrough(
     function: &IrLinkFunction,
     m: ReturnMarshal,
     symbol: &str,
+    scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let ThunkScratch {
+        t0, t1, t2, t3, t4, ..
+    } = scratch;
     let cret_off = m.cret_off;
     let status_off = m.status_off;
     // plan-113: exhaustive on `CAbiType`, so a new C type cannot be added
@@ -1839,6 +1855,7 @@ fn emit_return_passthrough(
                 cret_off,
                 m.alloc_fail,
                 m.encoding_fail,
+                scratch,
                 instructions,
                 relocations,
             );
@@ -1850,18 +1867,18 @@ fn emit_return_passthrough(
             // mantissa then distinguishes Inf (zero) from NaN (non-zero).
             let finite = format!("{symbol}_float_finite");
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), m.cretd_off),
-                abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
-                abi::and_registers("%v11", "%v9", "%v10"),
-                abi::compare_registers("%v11", "%v10"),
+                abi::load_u64(t0, abi::stack_pointer(), m.cretd_off),
+                abi::move_immediate(t1, "Integer", F64_POSITIVE_INF_BITS),
+                abi::and_registers(t2, t0, t1),
+                abi::compare_registers(t2, t1),
                 abi::branch_ne(&finite),
-                abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
-                abi::and_registers("%v13", "%v9", "%v12"),
-                abi::compare_immediate("%v13", "0"),
+                abi::move_immediate(t3, "Integer", F64_MANTISSA_MASK),
+                abi::and_registers(t4, t0, t3),
+                abi::compare_immediate(t4, "0"),
                 abi::branch_eq(m.inf_fail),
                 abi::branch(m.nan_fail),
                 abi::label(&finite),
-                abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+                abi::move_register(RESULT_VALUE_REGISTER, t0),
             ]);
         }
         CAbiType::Ptr | CAbiType::Int64 => {
@@ -1882,8 +1899,8 @@ fn emit_return_passthrough(
             let set = format!("{symbol}_bool_true");
             let end = format!("{symbol}_bool_end");
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), cret_off),
-                abi::compare_immediate("%v9", "0"),
+                abi::load_u64(t0, abi::stack_pointer(), cret_off),
+                abi::compare_immediate(t0, "0"),
                 abi::branch_ne(&set),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
                 abi::branch(&end),
@@ -1894,9 +1911,9 @@ fn emit_return_passthrough(
         }
         CAbiType::Byte => {
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), cret_off),
-                abi::move_immediate("%v10", "Integer", "255"),
-                abi::and_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                abi::load_u64(t0, abi::stack_pointer(), cret_off),
+                abi::move_immediate(t1, "Integer", "255"),
+                abi::and_registers(RESULT_VALUE_REGISTER, t0, t1),
             ]);
         }
         // The narrow integers carry no return-side normalization: the C ABI
@@ -1944,36 +1961,46 @@ fn emit_copy_string_to_cstring(
     str_off: usize,
     out_off: usize,
     alloc_fail: &str,
+    scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let ThunkScratch {
+        t0,
+        t1,
+        t2,
+        t3,
+        t4,
+        t5,
+        ..
+    } = scratch;
     let loop_label = format!("{symbol}_cs{out_off}_copy");
     let done_label = format!("{symbol}_cs{out_off}_done");
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), str_off),
-        abi::load_u64("%v10", "%v9", 0),
-        abi::add_immediate(abi::return_register(), "%v10", 1),
+        abi::load_u64(t0, abi::stack_pointer(), str_off),
+        abi::load_u64(t1, t0, 0),
+        abi::add_immediate(abi::return_register(), t1, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
-        abi::load_u64("%v9", abi::stack_pointer(), str_off),
-        abi::load_u64("%v10", "%v9", 0),
-        abi::add_immediate("%v11", "%v9", 8),
-        abi::move_register("%v12", abi::mfb_return(1)),
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::load_u64(t0, abi::stack_pointer(), str_off),
+        abi::load_u64(t1, t0, 0),
+        abi::add_immediate(t2, t0, 8),
+        abi::move_register(t3, abi::mfb_return(1)),
+        abi::move_immediate(t4, "Integer", "0"),
         abi::label(&loop_label),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(t4, t1),
         abi::branch_eq(&done_label),
-        abi::load_u8("%v14", "%v11", 0),
-        abi::store_u8("%v14", "%v12", 0),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::load_u8(t5, t2, 0),
+        abi::store_u8(t5, t3, 0),
+        abi::add_immediate(t2, t2, 1),
+        abi::add_immediate(t3, t3, 1),
+        abi::add_immediate(t4, t4, 1),
         abi::branch(&loop_label),
         abi::label(&done_label),
-        abi::store_u8(abi::ZERO, "%v12", 0),
+        abi::store_u8(abi::ZERO, t3, 0),
     ]);
 }
 
@@ -2000,9 +2027,19 @@ fn emit_copy_cstring_to_string(
     cret_off: usize,
     alloc_fail: &str,
     encoding_fail: &str,
+    scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let ThunkScratch {
+        t0,
+        t1,
+        t2,
+        t3,
+        t4,
+        t5,
+        ..
+    } = scratch;
     let null_label = format!("{symbol}_ret_null");
     let len_loop = format!("{symbol}_ret_len");
     let len_done = format!("{symbol}_ret_len_done");
@@ -2012,43 +2049,43 @@ fn emit_copy_cstring_to_string(
     let ret_off = RESULT_SAVE_OFF;
     let len_off = STATUS_SCRATCH_OFF;
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), cret_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(t0, abi::stack_pointer(), cret_off),
+        abi::compare_immediate(t0, "0"),
         abi::branch_eq(&null_label),
         // strlen
-        abi::move_register("%v12", "%v9"),
-        abi::move_immediate("%v10", "Integer", "0"),
+        abi::move_register(t3, t0),
+        abi::move_immediate(t1, "Integer", "0"),
         abi::label(&len_loop),
-        abi::load_u8("%v11", "%v12", 0),
-        abi::compare_immediate("%v11", "0"),
+        abi::load_u8(t2, t3, 0),
+        abi::compare_immediate(t2, "0"),
         abi::branch_eq(&len_done),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::add_immediate("%v10", "%v10", 1),
+        abi::add_immediate(t3, t3, 1),
+        abi::add_immediate(t1, t1, 1),
         abi::branch(&len_loop),
         abi::label(&len_done),
-        abi::store_u64("%v10", abi::stack_pointer(), len_off),
-        abi::add_immediate(abi::return_register(), "%v10", 9),
+        abi::store_u64(t1, abi::stack_pointer(), len_off),
+        abi::add_immediate(abi::return_register(), t1, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::store_u64("%v10", abi::mfb_return(1), 0),
+        abi::load_u64(t1, abi::stack_pointer(), len_off),
+        abi::store_u64(t1, abi::mfb_return(1), 0),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), ret_off),
-        abi::load_u64("%v11", abi::stack_pointer(), cret_off),
-        abi::add_immediate("%v12", abi::mfb_return(1), 8),
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::load_u64(t2, abi::stack_pointer(), cret_off),
+        abi::add_immediate(t3, abi::mfb_return(1), 8),
+        abi::move_immediate(t4, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(t4, t1),
         abi::branch_eq(&copy_done),
-        abi::load_u8("%v14", "%v11", 0),
-        abi::store_u8("%v14", "%v12", 0),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::load_u8(t5, t2, 0),
+        abi::store_u8(t5, t3, 0),
+        abi::add_immediate(t2, t2, 1),
+        abi::add_immediate(t3, t3, 1),
+        abi::add_immediate(t4, t4, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, "%v12", 0),
+        abi::store_u8(abi::ZERO, t3, 0),
         // §12.4: returned bytes are validated as UTF-8 at the boundary.
         abi::load_u64(abi::return_register(), abi::stack_pointer(), ret_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), 8),
@@ -2076,12 +2113,49 @@ fn emit_copy_cstring_to_string(
     ]);
 }
 
-/// First virtual-register index `emit_link_expr` hands out. The thunk body uses
-/// fixed scratch vregs `%v9`..`%v16`; starting the expression's own vregs well
-/// past that window guarantees the two name spaces never overlap, so the shared
+/// First virtual-register index `emit_link_expr` hands out. The thunk body's
+/// scratch vregs ([`ThunkScratch`]) are the first eight minted from the thunk's
+/// `Vregs` (`%v0`..`%v7`); starting the expression's own vregs well past that
+/// window guarantees the two name spaces never overlap, so the shared
 /// linear-scan allocator sees each expression temporary as an independent value
 /// (bug-56).
 const LINK_EXPR_VREG_BASE: usize = 64;
+
+/// The integer scratch vregs of one `LINK` thunk, minted once per thunk and
+/// handed to every helper that emits into the thunk's instruction stream.
+///
+/// One allocator run sees the whole stream, so a register name IS the value:
+/// the helpers below reuse the thunk's scratch by name, and they get those names
+/// from here rather than from hand-numbered `"%vN"` literals — a literal would
+/// alias whatever the `Vregs` counter minted N-th (bug-721). Minted in field
+/// order, which is the order of the literals `%v9`..`%v16` they replaced, so the
+/// allocator's `(start, vreg)` tie-break sees the same relative order.
+struct ThunkScratch {
+    t0: String,
+    t1: String,
+    t2: String,
+    t3: String,
+    t4: String,
+    t5: String,
+    t6: String,
+    /// The resolved native function pointer a `blr` calls through.
+    callee: String,
+}
+
+impl ThunkScratch {
+    fn mint(vregs: &mut Vregs) -> Self {
+        ThunkScratch {
+            t0: vregs.next(),
+            t1: vregs.next(),
+            t2: vregs.next(),
+            t3: vregs.next(),
+            t4: vregs.next(),
+            t5: vregs.next(),
+            t6: vregs.next(),
+            callee: vregs.next(),
+        }
+    }
+}
 
 /// Emit code computing the boolean/integer value of a `SUCCESS_ON`/`RESULT`
 /// expression, reading the native return variable from `[sp + status_off]`.
@@ -2323,9 +2397,11 @@ fn marshal_struct_in(
     param_index: &HashMap<&str, usize>,
     range_fail: &str,
     alloc_fail: &str,
+    scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let ThunkScratch { t1, t2, .. } = scratch;
     let Some(bind) = function.bind_in.iter().find(|b| b.slot == slot_name) else {
         return Ok(());
     };
@@ -2374,6 +2450,7 @@ fn marshal_struct_in(
                 param_base + pidx * 8,
                 off,
                 alloc_fail,
+                scratch,
                 instructions,
                 relocations,
             );
@@ -2382,7 +2459,7 @@ fn marshal_struct_in(
 
         if let Some(literal) = field.literal {
             instructions.push(abi::move_immediate(
-                "%v10",
+                t1,
                 "Integer",
                 &(literal as u64).to_string(),
             ));
@@ -2394,7 +2471,7 @@ fn marshal_struct_in(
                 ));
             };
             instructions.push(abi::load_u64(
-                "%v10",
+                t1,
                 abi::stack_pointer(),
                 param_base + pidx * 8,
             ));
@@ -2410,13 +2487,13 @@ fn marshal_struct_in(
         // range-checks for exactly this reason, and a struct field is no different.
         if let Some(bits) = narrow_signed_bits(ctype) {
             instructions.extend([
-                abi::shift_left_immediate("%v11", "%v10", (64 - bits) as u8),
-                abi::arithmetic_shift_right_immediate("%v11", "%v11", (64 - bits) as u8),
-                abi::compare_registers("%v10", "%v11"),
+                abi::shift_left_immediate(t2, t1, (64 - bits) as u8),
+                abi::arithmetic_shift_right_immediate(t2, t2, (64 - bits) as u8),
+                abi::compare_registers(t1, t2),
                 abi::branch_ne(range_fail),
             ]);
         }
-        instructions.push(store_field(ctype, "%v10", off));
+        instructions.push(store_field(ctype, t1, off));
     }
     Ok(())
 }
@@ -2478,9 +2555,20 @@ fn marshal_struct_out(
     encoding_fail: &str,
     nan_fail: &str,
     inf_fail: &str,
+    scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let ThunkScratch {
+        t0,
+        t1,
+        t2,
+        t3,
+        t4,
+        t5,
+        t6,
+        ..
+    } = scratch;
     let record = record_fields.get(&decl.maps_to).ok_or_else(|| {
         format!(
             "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
@@ -2539,24 +2627,24 @@ fn marshal_struct_out(
         let len_done = format!("{symbol}_sf{rec_idx}_len_done");
         let measured = format!("{symbol}_sf{rec_idx}_measured");
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), *off),
-            abi::store_u64("%v9", abi::stack_pointer(), ptr_slot),
-            abi::move_immediate("%v10", "Integer", "0"),
-            abi::store_u64("%v10", abi::stack_pointer(), len_slot),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(t0, abi::stack_pointer(), *off),
+            abi::store_u64(t0, abi::stack_pointer(), ptr_slot),
+            abi::move_immediate(t1, "Integer", "0"),
+            abi::store_u64(t1, abi::stack_pointer(), len_slot),
+            abi::compare_immediate(t0, "0"),
             abi::branch_eq(&null_label),
             // strlen
-            abi::move_register("%v12", "%v9"),
-            abi::move_immediate("%v10", "Integer", "0"),
+            abi::move_register(t3, t0),
+            abi::move_immediate(t1, "Integer", "0"),
             abi::label(&len_loop),
-            abi::load_u8("%v11", "%v12", 0),
-            abi::compare_immediate("%v11", "0"),
+            abi::load_u8(t2, t3, 0),
+            abi::compare_immediate(t2, "0"),
             abi::branch_eq(&len_done),
-            abi::add_immediate("%v12", "%v12", 1),
-            abi::add_immediate("%v10", "%v10", 1),
+            abi::add_immediate(t3, t3, 1),
+            abi::add_immediate(t1, t1, 1),
             abi::branch(&len_loop),
             abi::label(&len_done),
-            abi::store_u64("%v10", abi::stack_pointer(), len_slot),
+            abi::store_u64(t1, abi::stack_pointer(), len_slot),
             // Validate before anything is copied into the record.
             abi::load_u64(abi::return_register(), abi::stack_pointer(), ptr_slot),
             abi::load_u64(abi::c_arg(1), abi::stack_pointer(), len_slot),
@@ -2572,8 +2660,8 @@ fn marshal_struct_out(
     // Pass 1: size = 8*n, then each inlined block (8-aligned, `len + 9` bytes).
     let fixed = 8 * record.len();
     instructions.extend([
-        abi::move_immediate("%v9", "Integer", &fixed.to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), total_off),
+        abi::move_immediate(t0, "Integer", &fixed.to_string()),
+        abi::store_u64(t0, abi::stack_pointer(), total_off),
     ]);
     for (rec_idx, ctype, _) in &plan {
         if *ctype != CAbiType::Str {
@@ -2582,15 +2670,15 @@ fn marshal_struct_out(
         let len_slot = cstr_area + cstr_index[rec_idx] * 16 + 8;
         instructions.extend([
             // total = align8(total)
-            abi::load_u64("%v9", abi::stack_pointer(), total_off),
-            abi::add_immediate("%v9", "%v9", 7),
-            abi::move_immediate("%v10", "Integer", ALIGN8_MASK),
-            abi::and_registers("%v9", "%v9", "%v10"),
+            abi::load_u64(t0, abi::stack_pointer(), total_off),
+            abi::add_immediate(t0, t0, 7),
+            abi::move_immediate(t1, "Integer", ALIGN8_MASK),
+            abi::and_registers(t0, t0, t1),
             // total += len + 9
-            abi::load_u64("%v11", abi::stack_pointer(), len_slot),
-            abi::add_immediate("%v11", "%v11", 9),
-            abi::add_registers("%v9", "%v9", "%v11"),
-            abi::store_u64("%v9", abi::stack_pointer(), total_off),
+            abi::load_u64(t2, abi::stack_pointer(), len_slot),
+            abi::add_immediate(t2, t2, 9),
+            abi::add_registers(t0, t0, t2),
+            abi::store_u64(t0, abi::stack_pointer(), total_off),
         ]);
     }
     instructions.extend([
@@ -2607,8 +2695,8 @@ fn marshal_struct_out(
     // Pass 2: write each field. The record pointer is reloaded per field — it did
     // not survive the allocation (`_mfb_arena_alloc` destroys x0-x17).
     instructions.extend([
-        abi::move_immediate("%v9", "Integer", &fixed.to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
+        abi::move_immediate(t0, "Integer", &fixed.to_string()),
+        abi::store_u64(t0, abi::stack_pointer(), cursor_off),
     ]);
     for (rec_idx, ctype, off) in &plan {
         if *ctype == CAbiType::Str {
@@ -2619,63 +2707,63 @@ fn marshal_struct_out(
             let copy_done = format!("{symbol}_sf{rec_idx}_copy_done");
             instructions.extend([
                 // cursor = align8(cursor)
-                abi::load_u64("%v9", abi::stack_pointer(), cursor_off),
-                abi::add_immediate("%v9", "%v9", 7),
-                abi::move_immediate("%v10", "Integer", ALIGN8_MASK),
-                abi::and_registers("%v9", "%v9", "%v10"),
-                abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
+                abi::load_u64(t0, abi::stack_pointer(), cursor_off),
+                abi::add_immediate(t0, t0, 7),
+                abi::move_immediate(t1, "Integer", ALIGN8_MASK),
+                abi::and_registers(t0, t0, t1),
+                abi::store_u64(t0, abi::stack_pointer(), cursor_off),
                 // record[8*i] = cursor (the block-relative offset)
-                abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
-                abi::store_u64("%v9", "%v10", 8 * rec_idx),
+                abi::load_u64(t1, abi::stack_pointer(), REC_OFF),
+                abi::store_u64(t0, t1, 8 * rec_idx),
                 // dst = record + cursor; [dst] = len
-                abi::add_registers("%v11", "%v10", "%v9"),
-                abi::load_u64("%v10", abi::stack_pointer(), len_slot),
-                abi::store_u64("%v10", "%v11", 0),
+                abi::add_registers(t2, t1, t0),
+                abi::load_u64(t1, abi::stack_pointer(), len_slot),
+                abi::store_u64(t1, t2, 0),
                 // copy `len` bytes to dst+8, then NUL-terminate.
-                abi::load_u64("%v12", abi::stack_pointer(), ptr_slot),
-                abi::add_immediate("%v13", "%v11", 8),
-                abi::move_immediate("%v14", "Integer", "0"),
+                abi::load_u64(t3, abi::stack_pointer(), ptr_slot),
+                abi::add_immediate(t4, t2, 8),
+                abi::move_immediate(t5, "Integer", "0"),
                 abi::label(&copy_loop),
-                abi::compare_registers("%v14", "%v10"),
+                abi::compare_registers(t5, t1),
                 abi::branch_eq(&copy_done),
-                abi::load_u8("%v15", "%v12", 0),
-                abi::store_u8("%v15", "%v13", 0),
-                abi::add_immediate("%v12", "%v12", 1),
-                abi::add_immediate("%v13", "%v13", 1),
-                abi::add_immediate("%v14", "%v14", 1),
+                abi::load_u8(t6, t3, 0),
+                abi::store_u8(t6, t4, 0),
+                abi::add_immediate(t3, t3, 1),
+                abi::add_immediate(t4, t4, 1),
+                abi::add_immediate(t5, t5, 1),
                 abi::branch(&copy_loop),
                 abi::label(&copy_done),
-                abi::store_u8(abi::ZERO, "%v13", 0),
+                abi::store_u8(abi::ZERO, t4, 0),
                 // cursor += len + 9
-                abi::load_u64("%v9", abi::stack_pointer(), cursor_off),
-                abi::load_u64("%v10", abi::stack_pointer(), len_slot),
-                abi::add_immediate("%v10", "%v10", 9),
-                abi::add_registers("%v9", "%v9", "%v10"),
-                abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
+                abi::load_u64(t0, abi::stack_pointer(), cursor_off),
+                abi::load_u64(t1, abi::stack_pointer(), len_slot),
+                abi::add_immediate(t1, t1, 9),
+                abi::add_registers(t0, t0, t1),
+                abi::store_u64(t0, abi::stack_pointer(), cursor_off),
             ]);
             continue;
         }
-        instructions.push(load_field(*ctype, "%v9", *off));
+        instructions.push(load_field(*ctype, t0, *off));
         match *ctype {
             // Every load zero-extends, so a signed narrow field must be
             // sign-extended or -1 surfaces as its unsigned reading (bug-238).
             CAbiType::Int8 | CAbiType::Int16 | CAbiType::Int32 => {
                 let bits = narrow_signed_bits(*ctype).unwrap();
                 instructions.extend([
-                    abi::shift_left_immediate("%v9", "%v9", (64 - bits) as u8),
-                    abi::arithmetic_shift_right_immediate("%v9", "%v9", (64 - bits) as u8),
+                    abi::shift_left_immediate(t0, t0, (64 - bits) as u8),
+                    abi::arithmetic_shift_right_immediate(t0, t0, (64 - bits) as u8),
                 ]);
             }
             CAbiType::Bool => {
                 let set = format!("{symbol}_sf{rec_idx}_true");
                 let end = format!("{symbol}_sf{rec_idx}_end");
                 instructions.extend([
-                    abi::compare_immediate("%v9", "0"),
+                    abi::compare_immediate(t0, "0"),
                     abi::branch_ne(&set),
-                    abi::move_immediate("%v9", "Integer", "0"),
+                    abi::move_immediate(t0, "Integer", "0"),
                     abi::branch(&end),
                     abi::label(&set),
-                    abi::move_immediate("%v9", "Integer", "1"),
+                    abi::move_immediate(t0, "Integer", "1"),
                     abi::label(&end),
                 ]);
             }
@@ -2684,13 +2772,13 @@ fn marshal_struct_out(
                 // boundary exactly as the CDouble return path does.
                 let finite = format!("{symbol}_sf{rec_idx}_finite");
                 instructions.extend([
-                    abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
-                    abi::and_registers("%v11", "%v9", "%v10"),
-                    abi::compare_registers("%v11", "%v10"),
+                    abi::move_immediate(t1, "Integer", F64_POSITIVE_INF_BITS),
+                    abi::and_registers(t2, t0, t1),
+                    abi::compare_registers(t2, t1),
                     abi::branch_ne(&finite),
-                    abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
-                    abi::and_registers("%v13", "%v9", "%v12"),
-                    abi::compare_immediate("%v13", "0"),
+                    abi::move_immediate(t3, "Integer", F64_MANTISSA_MASK),
+                    abi::and_registers(t4, t0, t3),
+                    abi::compare_immediate(t4, "0"),
                     abi::branch_eq(inf_fail),
                     abi::branch(nan_fail),
                     abi::label(&finite),
@@ -2717,8 +2805,8 @@ fn marshal_struct_out(
             | CAbiType::Buffer => {}
         }
         instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
-            abi::store_u64("%v9", "%v10", 8 * rec_idx),
+            abi::load_u64(t1, abi::stack_pointer(), REC_OFF),
+            abi::store_u64(t0, t1, 8 * rec_idx),
         ]);
     }
     instructions.push(abi::load_u64(

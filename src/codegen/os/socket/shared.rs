@@ -1013,6 +1013,7 @@ fn lower_net_endpoint_helper(
         platform.emit_set_nonblocking(
             FD_OFFSET,
             FLAGS_OFFSET,
+            &vregs.next(),
             symbol,
             platform_imports,
             &mut instructions,

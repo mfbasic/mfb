@@ -3731,6 +3731,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        _scratch: [&str; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // Windows has no `struct termios`: emit_terminal_control_call(GetAttrs)
@@ -3974,6 +3975,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         fd_offset: usize,
         _flags_offset: usize,
+        _scratch: &str,
         from: &str,
         _platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

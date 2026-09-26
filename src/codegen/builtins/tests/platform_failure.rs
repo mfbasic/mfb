@@ -320,6 +320,7 @@ impl CodegenPlatform for FailAt<'_> {
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        scratch: [&str; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
         self.inner.emit_apply_raw_mode(
@@ -328,6 +329,7 @@ impl CodegenPlatform for FailAt<'_> {
             modified_offset,
             disable_echo,
             disable_canonical,
+            scratch,
             instructions,
         )
     }
@@ -730,6 +732,7 @@ impl CodegenPlatform for FailAt<'_> {
         &self,
         fd_offset: usize,
         flags_offset: usize,
+        scratch: &str,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
@@ -739,6 +742,7 @@ impl CodegenPlatform for FailAt<'_> {
         self.inner.emit_set_nonblocking(
             fd_offset,
             flags_offset,
+            scratch,
             from,
             platform_imports,
             instructions,

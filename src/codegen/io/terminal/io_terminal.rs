@@ -77,6 +77,10 @@ pub(crate) fn emit_configure_stdin_terminal(
         slots.modified,
         disable_echo,
         disable_canonical,
+        // The scratch this module already names (`%v9`, dead by here), plus the
+        // mask register the platform edit used; both still hand-numbered, as
+        // is the rest of this file.
+        ["%v9", "%v10"],
         ctx.instructions,
     );
 

@@ -630,6 +630,12 @@ pub(crate) trait CodegenPlatform {
     /// intent-level (47-E §4.1) because a `struct termios` and its per-field
     /// offsets/flag bits are POSIX-only — Windows raw mode is a `SetConsoleMode`
     /// bitmask on a handle, with no struct to edit.
+    ///
+    /// `scratch` names two integer vregs the edit may use, minted (or owned) by
+    /// the caller: the method emits into the caller's instruction stream, so a
+    /// name it invented itself could alias one of the caller's live vregs
+    /// (bug-721).
+    #[allow(clippy::too_many_arguments)]
     fn emit_apply_raw_mode(
         &self,
         base_register: &str,
@@ -637,6 +643,7 @@ pub(crate) trait CodegenPlatform {
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        scratch: [&str; 2],
         instructions: &mut Vec<CodeInstruction>,
     );
     /// A terminal line-discipline control call (plan-47-G G1 chokepoint). The
@@ -974,10 +981,16 @@ pub(crate) trait CodegenPlatform {
     /// does `fcntl(fd, F_SETFL, flags | O_NONBLOCK)`; Windows does
     /// `ioctlsocket(fd, FIONBIO, &1)` — a different *call*, not just a different
     /// constant (47-E §3.1), which is why `O_NONBLOCK` cannot stay a constant.
+    ///
+    /// `scratch` is an integer vreg the caller minted for the `O_NONBLOCK` OR.
+    /// The method emits into the caller's instruction stream, so a name it
+    /// invented itself could alias one of the caller's live vregs (bug-721).
+    #[allow(clippy::too_many_arguments)]
     fn emit_set_nonblocking(
         &self,
         fd_offset: usize,
         flags_offset: usize,
+        scratch: &str,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,

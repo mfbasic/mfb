@@ -20,7 +20,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
+    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [&str; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,
     _from: &str,
@@ -249,7 +249,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn socket_would_block_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_would_block_code") }
     fn socket_message_size_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_message_size_code") }
     fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: &str, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
     fn emit_variadic_external_call(
     &self,
