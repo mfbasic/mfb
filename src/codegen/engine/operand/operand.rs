@@ -55,7 +55,10 @@
 // --- codegen tier imports (migration) ---
 use crate::target::shared::regmodel::RegClass;
 
-use crate::codegen::engine::regalloc::{fp_vreg_name, parse_fp_vreg, parse_vreg, vreg_name};
+use crate::codegen::engine::regalloc::{fp_vreg_name, vreg_name};
+// Parsing a register back out of text is test-only (bug-721): see `Operand::parse`.
+#[cfg(test)]
+use crate::codegen::engine::regalloc::{parse_fp_vreg, parse_vreg};
 
 /// Which calling convention an [`Operand::Abi`] register belongs to (plan-85-A).
 /// The six-token vocabulary that replaces the two overloaded `%arg`/`%ret` role

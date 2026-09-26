@@ -238,8 +238,8 @@ fn emission_lines(manifest: &Path) -> Vec<(String, usize, String)> {
 
 /// A physical register is chosen by the register allocator or by a backend's
 /// selection — never by emission code (bug-721). `abi::Reg` has no conversion from
-/// text; the two typed doors to a physical register, `Reg::physical` and
-/// `CodeInstruction::physical_field`, may therefore be opened only where the
+/// text; the three typed doors to a physical register, `Reg::physical`,
+/// `Operand::phys` and `CodeInstruction::physical_field`, may therefore be opened only where the
 /// physical file is actually decided: the per-ISA backends (`src/arch/`), the
 /// register allocator (`src/codegen/engine/regalloc/`) and the frame finalizer that
 /// saves the callee-saved registers the coloring used
@@ -255,11 +255,15 @@ fn physical_registers_stay_in_the_backends() {
             // The definitions themselves.
             || rel == "src/target/shared/abi.rs"
             || rel == "src/codegen/engine/builder/code_impl.rs"
+            || rel == "src/codegen/engine/operand/operand.rs"
     };
     let offenders: Vec<String> = emission_lines(manifest)
         .into_iter()
         .filter(|(rel, _, line)| {
-            !allowed(rel) && (line.contains("Reg::physical(") || line.contains(".physical_field("))
+            !allowed(rel)
+                && (line.contains("Reg::physical(")
+                    || line.contains(".physical_field(")
+                    || line.contains("Operand::phys("))
         })
         .map(|(rel, no, line)| format!("{rel}:{no}: {}", line.trim()))
         .collect();

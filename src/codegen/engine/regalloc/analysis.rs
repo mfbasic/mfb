@@ -294,7 +294,7 @@ fn aarch64_scratch_occupancy_index(name: &str) -> Option<u32> {
 /// The concrete integer physical-register index (AArch64 `x0`–`x30`, x86-64 GPRs,
 /// or rv64 lp64d ABI names), or `None`. ISA-neutral: a function is single-ISA and
 /// the three name spaces never collide.
-fn int_concrete_physical_index(name: &str) -> Option<u32> {
+pub(crate) fn int_concrete_physical_index(name: &str) -> Option<u32> {
     // Fast-reject the sentinel-prefixed operands (`%vN` int / `%fN` fp virtual
     // registers, and any `%`-token not already resolved by the occupancy parser
     // upstream): none is a concrete physical name, so skip the three linear
