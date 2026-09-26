@@ -839,6 +839,10 @@ name = "rt_list_take_drop_in_place"
 path = "tests/runtime/rt_list_take_drop_in_place.rs"
 
 [[test]]
+name = "rt_self_update_cost"
+path = "tests/runtime/rt_self_update_cost.rs"
+
+[[test]]
 name = "rt_native_float_pow_operator_runtime"
 path = "tests/runtime/rt_native_float_pow_operator_runtime.rs"
 
