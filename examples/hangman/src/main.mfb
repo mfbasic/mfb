@@ -9,7 +9,7 @@ IMPORT color
 '
 ' Run it from an interactive terminal:
 '   mfb build examples/hangman
-'   ./examples/hangman/hangman.out
+'   ./examples/hangman/build/hangman.out
 '
 ' term::on() switches to the alternate screen; term::moveTo / term::setForeground
 ' position and color the board; io::readChar() reads a single key without echo;

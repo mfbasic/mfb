@@ -1,11 +1,12 @@
 # bug-701: `fs` classifies the same host refusal differently by member and by platform
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Open — **decided 2026-09-25 (owner): every target raises the same error for the
+same condition. No per-platform error differences, and no man page documents one.**
 Regression Test: extend the bug-694 probe matrix into `tests/runtime/` per sub-issue (Phase 1)
 
 bug-694's cross-platform probe (every `fs` member against the same fixtures on
@@ -105,8 +106,10 @@ so explicitly ("reading a file never produces either").
 
 ## Goal
 
-- Each row of the table above reads the same across members that meet the same
-  condition, and across the three hosts.
+- **One condition, one error, on every target** (owner decision, 2026-09-25). Each
+  row of the table above reads the same across members that meet the same condition,
+  and across macOS, Linux and Windows. A per-platform difference is a bug, not a
+  documented behavior.
 - `readText`/`readBytes` of a directory raise one documented error everywhere,
   never `ErrOutOfMemory`.
 - A failed open for reading never raises `ErrWriteFailed`.
@@ -124,7 +127,8 @@ so explicitly ("reading a file never produces either").
 
 - Every `fs` member that reaches either mapper (all path-taking members).
 - The bug-694 `fs` man pages: each page's errors paragraph states today's
-  per-platform behavior and must be rewritten with the fix.
+  per-platform behavior and must be rewritten with the fix. After it, no `fs` page
+  names a platform in its errors paragraph.
 - `createDirectories`' own mapper (`gen_directory.rs:lower_fs_create_directories_helper`).
 
 ## Fix Design
@@ -142,7 +146,8 @@ with one code on every host.
 ### Phase 1: failing tests + measurement (no behavior change)
 
 - [ ] Commit the probe as a runtime test per row (macOS/Linux in `cargo test`;
-      the Windows column as a recorded box-2230 run).
+      the Windows column as a recorded box-2230 run). Each test asserts the one code
+      below, so the same expectation runs on every host.
 - [ ] Confirm or refute the C2 hypothesis (`strace` the Linux read).
 
 Commit: —
@@ -169,12 +174,29 @@ Commit: —
 
 ## Open Decisions
 
-- Missing entry: `ErrPathNotFound` for every path-taking member (recommended —
-  it is the filesystem-specific code) vs. keeping `ErrNotFound` on the writers.
-  This changes what existing `TRAP` handlers see on the writers.
-- Directory where a file is required: which code — `ErrInvalidPath`
-  (recommended; the path cannot name a file) or `ErrAccessDenied` (Windows'
-  current answer).
+- ~~Per-platform differences acceptable?~~ **Decided 2026-09-25 (owner): no. All
+  targets raise the same error.**
+- Missing entry: **`ErrPathNotFound` for every path-taking member** (the
+  filesystem-specific code), replacing `ErrNotFound` on the writers. This changes
+  what existing `TRAP` handlers see on the writers. Adopted as the default on
+  2026-09-25 — it was presented to the owner with the decision above and not
+  objected to.
+- Directory where a file is required: **`ErrInvalidPath`** everywhere (the path
+  cannot name a file), replacing Windows' `ErrAccessDenied`. Adopted as the default
+  on the same terms.
+
+Target table after the fix (every host):
+
+| case | error |
+| --- | --- |
+| `readText` / `readBytes` of a directory | ErrInvalidPath |
+| `writeText` / `openFile(…, "w")` into a missing directory | ErrPathNotFound |
+| `readText` / `writeText` a too-long name | ErrInvalidPath |
+| `readText` / `writeText` through a file used as a directory | ErrInvalidPath |
+| `writeText` / `openFile(…,"w")` / `deleteFile` of a directory | ErrInvalidPath |
+| `deleteDirectory` / `setCurrentDirectory` of a file | ErrInvalidPath |
+| `canonicalPath` through a file used as a directory, or a link loop | ErrInvalidPath |
+| `createDirectories` through a file | ErrInvalidPath |
 
 ## Summary
 

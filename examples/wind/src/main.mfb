@@ -6,7 +6,7 @@
 ' field. Once that is on screen, a worker thread fetches the next five days of
 ' the same run's forecast, and when the last of it is in, the forecast plays:
 ' the wind under the tracers changes hour by hour along a tracker at the bottom
-' of the window. Nothing is bundled but the coastline.
+' of the window. Nothing is bundled but the land-and-lake map resource.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/wind
@@ -27,49 +27,46 @@
 ' The mouse works the button and the tracker: click the button to play or stop,
 ' and click or drag along the tracker to go to a moment of the forecast.
 '
-' The program is in eight files:
+' The program is in nine files:
 '   grib.mfb      GRIB2: messages, sections, and the two packings NCEP writes
 '   fetch.mfb     which GFS cycle to ask NOMADS for, and the on-disk cache
 '   forecast.mfb  the worker thread that fetches the five-day forecast
 '   earth.mfb     the Equal Earth projection, and the window onto it
-'   land.mfb      the coastline resource, and the blue-and-green underlay
+'   land.mfb      the land-and-lake resource, and the map underlay
 '   flow.mfb      sampling the field, and the swarm of tracers over it
+'   temperature.mfb  the animated temperature raster
 '   timeline.mfb  the play/stop button and the tracker
 '   main.mfb      the font, the keys, the mouse, and the frame loop
 '
-' The first run downloads about half a megabyte and takes a moment to decode
-' before the map appears, then about 23 megabytes more in the background for
-' the forecast; later runs of the same GFS cycle read the cached files instead.
+' The first run downloads about three quarters of a megabyte and takes a moment
+' to decode before the map appears, then about 28 megabytes more in the
+' background for the forecast; later runs of the same GFS cycle read the cached
+' files instead.
 
 IMPORT app
 IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT errorCode
-IMPORT fs
 IMPORT io
 IMPORT math
-IMPORT os
+IMPORT strings
 IMPORT thread
 
 ' ---------------------------------------------------------------------------
 ' The font
 ' ---------------------------------------------------------------------------
 
-' canvas::loadFont reads TrueType outlines, so every candidate here is a plain
-' .ttf - not a .ttc collection and not an .otf with PostScript outlines. The
+' The first of these fonts that is installed, or "" when none is. They are the
+' everyday sans-serif faces of macOS, Windows and the common Linux desktops. The
 ' captions are the only text in the program, so a missing font is fatal but
 ' cheap to diagnose.
-FUNC systemFontPath AS String
-  MUT candidates AS List OF String = []
-  IF os::name() = "macos" THEN
-    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
-  ELSE
-    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
-  END IF
+LET PREFERRED_FONTS AS List OF String = ["Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
 
-  FOR EACH path IN candidates
-    IF fs::fileExists(path) THEN RETURN path
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
   NEXT
   RETURN ""
 END FUNC
@@ -246,22 +243,76 @@ FUNC zoomCaption(v AS View, size AS canvas::Size) AS String
   RETURN "zoom " & toString(times, toByte(1)) & "x"
 END FUNC
 
-' One frame: the map, the streamlines, and the captions over them.
-FUNC frameScene(world AS Ring, v AS View, w AS Winds, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
+' The mode switch at the top right. Its icon names the active layer: three wind
+' streaks for wind, or a thermometer for temperature.
+TYPE ModeButton
+  x AS Float
+  y AS Float
+  radius AS Float
+END TYPE
+
+FUNC modeButtonFor(v AS View) AS ModeButton
+  LET radius AS Float = captionSize(v) * 1.15
+  LET margin AS Float = captionSize(v) * 1.2
+  RETURN ModeButton[x := v.width - margin - radius, y := margin + radius, radius := radius]
+END FUNC
+
+FUNC onModeButton(button AS ModeButton, at AS canvas::Point) AS Boolean
+  LET dx AS Float = at.x - button.x
+  LET dy AS Float = at.y - button.y
+  LET reach AS Float = button.radius * 1.25
+  RETURN dx * dx + dy * dy <= reach * reach
+END FUNC
+
+FUNC modeButtonItems(button AS ModeButton, temperatureMode AS Boolean) AS List OF canvas::DrawItem
+  LET cx AS Float = button.x
+  LET cy AS Float = button.y
+  LET r AS Float = button.radius
+  MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(color::rgba(12, 28, 42, 150), color::rgba(255, 255, 255, 100), 1.2)]]
+
+  IF temperatureMode THEN
+    LET stemWidth AS Float = r * 0.26
+    LET stemHeight AS Float = r * 0.92
+    LET stem AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth / 2.0, y := cy - r * 0.62, w := stemWidth, h := stemHeight, cornerRadius := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244))]
+    LET mercury AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth * 0.18, y := cy - r * 0.32, w := stemWidth * 0.36, h := r * 0.66, cornerRadius := stemWidth * 0.18, paint := canvas::fill(color::rgb(235, 65, 45))]
+    LET bulb AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.38, radius := r * 0.28, paint := canvas::fill(color::rgb(235, 65, 45))]
+    items = collections::append(items, [stem, mercury, bulb])
+  ELSE
+    LET tint AS color::Color = color::rgb(225, 238, 246)
+    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    items = collections::append(items, [north, middle, south])
+  END IF
+
+  RETURN items
+END FUNC
+
+' One frame: the map, the selected weather layer, and the controls over it.
+FUNC frameScene(world AS Ring, v AS View, heatItems AS List OF canvas::DrawItem, temperatureMode AS Boolean, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = mapItems(world, v)
 
-  FOR EACH item IN trailItems(v)
-    items = collections::append(items, item)
-  NEXT
+  IF temperatureMode THEN
+    FOR EACH item IN heatItems
+      items = collections::append(items, item)
+    NEXT
+  ELSE
+    FOR EACH item IN trailItems(v)
+      items = collections::append(items, item)
+    NEXT
+  END IF
 
   IF captions THEN
     LET size1 AS Float = captionSize(v)
     LET margin AS Float = size1 * 1.2
-    items = collections::append(items, textItem(face, margin, margin + size1, size1, CAPTION_COLOR, w.label))
-    items = collections::append(items, textItem(face, margin, margin + size1 * 2.5, size1 * 0.85, HINT_COLOR, zoomCaption(v, size) & "  \u{00B7}  " & toString(particleCount()) & " tracers"))
+    items = collections::append(items, textItem(face, margin, margin + size1, size1, CAPTION_COLOR, zoomCaption(v, size)))
     LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  space play/stop  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
     items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, HINT_COLOR, hint))
   END IF
+
+  FOR EACH item IN modeButtonItems(modeButtonFor(v), temperatureMode)
+    items = collections::append(items, item)
+  NEXT
 
   RETURN items
 END FUNC
@@ -298,8 +349,8 @@ LET MAX_STEP_SECONDS AS Float = 0.05
 MUT forecastFrames AS List OF Winds = []
 MUT earlierIndex AS Integer = -1
 MUT laterIndex AS Integer = -1
-MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), label := ""]
-MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), label := ""]
+MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), label := ""]
+MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), label := ""]
 
 FUNC emptyField AS Field
   RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, values := []]
@@ -361,14 +412,14 @@ FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   app::setTitle("Wind")
 
-  LET fontPath AS String = systemFontPath()
-  IF fontPath = "" THEN
-    io::printError("wind: no TrueType font found in the usual system locations.")
+  LET fontName AS String = systemFontName()
+  IF fontName = "" THEN
+    io::printError("wind: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
-  RES face AS canvas::Font = canvas::loadFont(fontPath)
+  RES face AS canvas::Font = canvas::loadSystemFont(fontName)
 
-  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS 10 m wind from NOAA NOMADS", "about half a megabyte of GRIB2, then a moment to unpack it"))
+  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about three quarters of a megabyte of GRIB2, then a moment to unpack it"))
 
   LET analysis AS Analysis = loadAnalysis() TRAP(e)
     canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
@@ -393,9 +444,12 @@ FUNC main AS Integer
   MUT size AS canvas::Size = canvas::getSize()
   MUT view AS View = wholeWorld(size)
   MUT captions AS Boolean = TRUE
+  MUT temperatureMode AS Boolean = FALSE
   MUT running AS Boolean = TRUE
   MUT scrubbing AS Boolean = FALSE
   seedSwarm(countFor(view), view)
+  LET initialMix AS Float = windsFor(0.0)
+  RES heatImage AS canvas::Image = canvas::createImage(HEAT_WIDTH, HEAT_HEIGHT, temperaturePixels(earlierWinds, laterWinds, initialMix, view))
   canvas::enableMouse(TRUE)
 
   DO WHILE running
@@ -451,14 +505,16 @@ FUNC main AS Integer
       END MATCH
     LOOP
 
-    ' The mouse only works the button and the tracker. A press on the tracker
-    ' moves the thumb there and keeps it under the pointer for as long as the
-    ' button stays down, playing or not.
+    ' The mouse switches the weather layer, and works the forecast button and
+    ' tracker. A press on the tracker moves the thumb there and keeps it under
+    ' the pointer for as long as the button stays down, playing or not.
     DO WHILE TRUE
       LET mouse AS canvas::MouseEvent = canvas::pollMouse()
       IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
       IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
-        IF onButton(track, mouse.position) THEN
+        IF onModeButton(modeButtonFor(view), mouse.position) THEN
+          temperatureMode = NOT temperatureMode
+        ELSEIF onButton(track, mouse.position) THEN
           IF ready THEN playback = WITH playback { playing := NOT playback.playing }
         ELSEIF onTrack(track, mouse.position) THEN
           scrubbing = TRUE
@@ -472,6 +528,7 @@ FUNC main AS Integer
     LOOP
 
     LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
+    LET zoom AS Float = view.scale / fitScale(size)
 
     ' Playing runs the thumb along the line and round to the start again.
     IF playback.playing AND NOT scrubbing THEN
@@ -482,8 +539,13 @@ FUNC main AS Integer
     LET mix AS Float = windsFor(playback.hours)
 
     reprojectTrails(view.lon0)
-    stepSwarm(earlierWinds, laterWinds, mix, view, elapsed)
-    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, analysis.winds, face, size, captions)
+    stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
+    MUT heatItems AS List OF canvas::DrawItem = []
+    IF temperatureMode THEN
+      canvas::setBytes(heatImage, temperaturePixels(earlierWinds, laterWinds, mix, view))
+      heatItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := heatImage, paint := canvas::fill(color::rgba(255, 255, 255, 135))]]
+    END IF
+    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, heatItems, temperatureMode, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)
       scene = collections::append(scene, item)
     NEXT

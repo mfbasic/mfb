@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build examples/wind/resources/wind/coastline.bin from Natural Earth's 1:10m land.
+"""Build the wind map resource from Natural Earth's 1:10m land and lakes.
 
 Every outline is simplified with Visvalingam-Whyatt on the projected (Equal Earth)
 plane, and every point keeps the importance it had when it was removed, so the app
 can take any level of detail out of one file by keeping the points at or above a
 threshold. See README.md for the file format and why it is shaped this way.
 
-Usage: generate.py <ne_10m_land.geojson> <out coastline.bin>
+Usage: generate.py <ne_10m_land.geojson> <ne_10m_lakes.geojson> <out coastline.bin>
 """
 
 import heapq
@@ -106,14 +106,19 @@ def zigzag(value):
     return (value << 1) if value >= 0 else ((-value << 1) - 1)
 
 
-def outer_rings(geojson):
-    holes = 0
+def polygons(geojson):
     for feature in geojson["features"]:
         geometry = feature["geometry"]
-        polygons = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
-        for polygon in polygons:
-            holes += len(polygon) - 1
-            yield polygon[0], holes
+        parts = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+        yield from parts
+
+
+def prepared(ring):
+    """A GeoJSON ring as fixed-point coordinates, open and without repeats."""
+    coords = [(round(lon * COORD_SCALE), round(lat * COORD_SCALE)) for lon, lat in ring]
+    if len(coords) > 1 and coords[0] == coords[-1]:
+        coords.pop()
+    return dedupe(coords)
 
 
 SEAM = 180 * COORD_SCALE
@@ -122,6 +127,8 @@ POLE = 90 * COORD_SCALE
 # Ring kinds, the per-ring flag byte in the file.
 CLOSED = 0          # an ordinary closed outline; its longitudes may run past 180
 SOUTH_POLAR = 1     # an open coast path spanning 360 degrees, closed through the pole
+LAKE = 2            # a closed water outline drawn over land
+LAKE_ISLAND = 3     # an interior ring drawn back as land after its lake
 
 
 def seam_runs(coords):
@@ -189,7 +196,7 @@ def ranked(coords, kind):
     """Importance levels for a ring, projected about its own middle longitude."""
     lons = [x for x, _ in coords]
     middle = (min(lons) + max(lons)) / 2.0
-    closed = coords if kind == CLOSED else coords + [(coords[-1][0], -POLE), (coords[0][0], -POLE)]
+    closed = coords if kind != SOUTH_POLAR else coords + [(coords[-1][0], -POLE), (coords[0][0], -POLE)]
     plane = [project((x - middle) / COORD_SCALE, y / COORD_SCALE) for x, y in closed]
     levels = [level_of(a) for a in importance(plane)]
     if kind == SOUTH_POLAR:
@@ -200,20 +207,22 @@ def ranked(coords, kind):
 
 
 def main():
-    source, target = sys.argv[1], sys.argv[2]
-    with open(source) as f:
-        geojson = json.load(f)
+    land_source, lake_source, target = sys.argv[1], sys.argv[2], sys.argv[3]
+    with open(land_source) as f:
+        land_geojson = json.load(f)
+    with open(lake_source) as f:
+        lake_geojson = json.load(f)
 
     rings = []
-    total_points = holes = 0
-    for ring, holes in outer_rings(geojson):
-        total_points += len(ring)
-        coords = [(round(lon * COORD_SCALE), round(lat * COORD_SCALE)) for lon, lat in ring]
-        if len(coords) > 1 and coords[0] == coords[-1]:
-            coords.pop()
-        coords = dedupe(coords)
-        if len(coords) >= 3:
-            rings.append(coords)
+    land_holes = []
+    total_points = 0
+    for polygon in polygons(land_geojson):
+        for index, ring in enumerate(polygon):
+            total_points += len(ring)
+            coords = prepared(ring)
+            if len(coords) < 3:
+                continue
+            (rings if index == 0 else land_holes).append(coords)
 
     # Pair the rings cut along the antimeridian, and find the polar one.
     out_rings = []
@@ -248,8 +257,34 @@ def main():
     if west_cut:
         raise SystemExit("a ring cut along -180 has no partner along +180")
 
+    # Lakes are painted after every land outline. The land layer's own holes
+    # (the Caspian Sea, which the lake layer leaves out) come first. A lake
+    # layer polygon's interior rings are islands, painted back as land
+    # immediately after the surrounding water. No lake currently crosses the
+    # antimeridian; reject one if the source changes, because silently drawing
+    # its closing edge across the map would be much worse than asking the
+    # generator to learn that case.
+    lake_rings = lake_islands = lake_points = 0
+    for coords in land_holes:
+        if seam_runs(coords):
+            raise SystemExit("a land hole meets the antimeridian; not handled")
+        out_rings.append((LAKE, coords))
+        lake_rings += 1
+    for polygon in polygons(lake_geojson):
+        for index, ring in enumerate(polygon):
+            lake_points += len(ring)
+            coords = prepared(ring)
+            if len(coords) < 3:
+                continue
+            if seam_runs(coords):
+                raise SystemExit("a lake meets the antimeridian; not handled")
+            kind = LAKE if index == 0 else LAKE_ISLAND
+            out_rings.append((kind, coords))
+            lake_rings += index == 0
+            lake_islands += index > 0
+
     out = bytearray(b"MFBC")
-    out.append(2)  # format version
+    out.append(3)  # format version
     varint(out, len(out_rings))
     kept_points = 0
     for kind, coords in out_rings:
@@ -266,8 +301,9 @@ def main():
             last_x, last_y = x, y
     with open(target, "wb") as f:
         f.write(out)
-    print(f"rings={len(out_rings)} stitched={stitched} polar={polar} points={kept_points} "
-          f"of {total_points} holes_skipped={holes} bytes={len(out)}")
+    print(f"rings={len(out_rings)} land_stitched={stitched} polar={polar} "
+          f"lakes={lake_rings} lake_islands={lake_islands} points={kept_points} "
+          f"of {total_points + lake_points} land_holes={len(land_holes)} bytes={len(out)}")
 
 
 if __name__ == "__main__":

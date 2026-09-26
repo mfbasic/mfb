@@ -9,7 +9,7 @@ IMPORT color
 '
 ' Build and run it from an interactive terminal:
 '   mfb build examples/snake
-'   ./examples/snake/snake.out
+'   ./examples/snake/build/snake.out
 '
 ' Controls:
 '   Arrow keys / WASD   turn

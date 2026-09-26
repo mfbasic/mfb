@@ -1,4 +1,4 @@
-' water - a thousand drops.
+' water - two thousand drops.
 '
 ' The water is a fixed pool of POOL_SIZE drops. At the start every one of them is
 ' idle; while the pipe is on it lets drops out of the pool a few at a time, and a
@@ -38,7 +38,7 @@ IMPORT math
 ' Tuning
 ' ---------------------------------------------------------------------------
 
-LET POOL_SIZE AS Integer = 1000
+LET POOL_SIZE AS Integer = 2000
 
 ' Pixels per second per second, downward.
 LET GRAVITY AS Float = 980.0
@@ -48,7 +48,7 @@ LET GRAVITY AS Float = 980.0
 LET MAX_SPEED AS Float = 1500.0
 
 ' How far from its centre a drop meets an object, and how big it is drawn.
-LET DROP_RADIUS AS Float = 3.0
+LET DROP_RADIUS AS Float = 1.5
 
 ' How much of the speed into a surface a drop keeps as it bounces off, and how
 ' much of its speed along the surface it loses.
@@ -57,7 +57,7 @@ LET FRICTION AS Float = 0.04
 
 ' How close two drops may be before they push each other apart, how much of the
 ' overlap each frame takes away, and how much of their closing speed it takes.
-LET SPACING AS Float = 6.5
+LET SPACING AS Float = 3.25
 LET PUSH AS Float = 0.45
 LET DAMPING AS Float = 0.5
 

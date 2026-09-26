@@ -1,0 +1,65 @@
+' temperature - a small animated raster stretched across the map.
+'
+' The GFS grid is much denser than the screen needs for a translucent colour
+' wash. This samples it into a fixed-size image, using the same interpolation in
+' space and forecast time as the wind. The image is regenerated while
+' temperature mode is visible and canvas stretches it over the current window.
+
+IMPORT collections
+IMPORT math
+
+LET HEAT_WIDTH AS Integer = 160
+
+LET HEAT_HEIGHT AS Integer = 100
+
+' Celsius endpoints of the blue-to-red scale. Values outside this useful
+' weather range hold at its ends rather than wrapping through another colour.
+LET HEAT_COLD AS Float = -40.0
+
+LET HEAT_HOT AS Float = 40.0
+
+' Temperature at one place and forecast moment, converted from the kelvin GFS
+' stores to Celsius.
+FUNC temperatureBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Float
+  LET a AS Float = sampleField(earlier.temperature, g)
+  IF mix <= 0.0 THEN RETURN a - 273.15
+  LET b AS Float = sampleField(later.temperature, g)
+  RETURN a + (b - a) * mix - 273.15
+END FUNC
+
+' RGBA8 pixels for the visible view. One inverse-projection is done per row to
+' recover latitude; longitude then follows directly from Equal Earth's x
+' equation. Pixels outside the oval world are transparent.
+FUNC temperaturePixels(earlier AS Winds, later AS Winds, mix AS Float, v AS View) AS List OF Byte
+  MUT pixels AS List OF Byte = []
+
+  FOR row = 0 TO HEAT_HEIGHT - 1
+    LET sy AS Float = (toFloat(row) + 0.5) * v.height / toFloat(HEAT_HEIGHT)
+    LET rowPlane AS Plane = toPlane(v, 0.0, sy)
+    LET rowPlace AS Unprojected = unproject(rowPlane, v.lon0)
+    LET lat AS Float = rowPlace.place.lat
+    LET theta AS Float = thetaOf(lat)
+    LET lonFactor AS Float = degrees(EE_M * eeDenominator(theta) / math::cos(theta))
+    LET insideY AS Boolean = math::abs(rowPlane.y) <= PLANE_HALF_HEIGHT
+
+    FOR column = 0 TO HEAT_WIDTH - 1
+      LET sx AS Float = (toFloat(column) + 0.5) * v.width / toFloat(HEAT_WIDTH)
+      LET p AS Plane = toPlane(v, sx, sy)
+      LET relativeLon AS Float = p.x * lonFactor
+
+      IF insideY AND math::abs(relativeLon) <= 180.0 THEN
+        LET g AS Geo = Geo[lon := wrapLon(relativeLon + v.lon0), lat := lat]
+        LET celsius AS Float = temperatureBetween(earlier, later, mix, g)
+        LET heat AS Float = math::clamp((celsius - HEAT_COLD) / (HEAT_HOT - HEAT_COLD), 0.0, 1.0)
+        LET red AS Byte = toByte(math::floor(25.0 + heat * 220.0))
+        LET green AS Byte = toByte(math::floor(85.0 - heat * 45.0))
+        LET blue AS Byte = toByte(math::floor(235.0 - heat * 215.0))
+        pixels = collections::append(pixels, [red, green, blue, toByte(255)])
+      ELSE
+        pixels = collections::append(pixels, [toByte(0), toByte(0), toByte(0), toByte(0)])
+      END IF
+    NEXT
+  NEXT
+
+  RETURN pixels
+END FUNC

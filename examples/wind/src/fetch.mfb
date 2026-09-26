@@ -2,10 +2,10 @@
 '
 ' The data is NOAA's Global Forecast System, served by NOMADS. The whole GFS
 ' output for one hour is hundreds of megabytes, so this asks NOMADS' filter CGI
-' for the two fields it actually draws - UGRD and VGRD, the eastward and
-' northward components of the wind at 10 metres above the ground - on the half
-' degree grid. That comes back as a two-message GRIB2 file of about half a
-' megabyte.
+' for the three fields it actually draws - UGRD and VGRD, the eastward and
+' northward components of the wind at 10 metres above the ground, and TMP at
+' two metres above the ground - on the half degree grid. That comes back as a
+' three-message GRIB2 file of about three quarters of a megabyte.
 '
 ' GFS runs four times a day, at 00, 06, 12 and 18 UTC, and the analysis hour of
 ' a run appears on NOMADS roughly four hours after the run's nominal time. So
@@ -23,7 +23,7 @@
 ' Downloads are cached in the host temporary directory under the cycle and hour
 ' they came from, so the second run of the program starts instantly and a
 ' rebuild while working on the drawing costs nothing. Only the newest cycle is
-' kept: a run is 41 files and about 23 megabytes, and a new one comes out every
+' kept: a run is 41 files and about 28 megabytes, and a new one comes out every
 ' six hours.
 
 IMPORT datetime
@@ -66,8 +66,9 @@ LET PUBLISH_DELAY_SECONDS AS Integer = 14400
 LET CYCLES_TO_TRY AS Integer = 8
 
 ' The grid NOMADS is asked for. The half-degree file is 720 by 361 points and
-' about half a megabyte, which is more detail than the picture can show at a
-' world-sized zoom and enough to hold up when zoomed in.
+' about three quarters of a megabyte for the three requested fields, which is
+' more detail than the picture can show at a world-sized zoom and enough to
+' hold up when zoomed in.
 LET GRID_NAME AS String = "0p50"
 
 FUNC cycleAt(epochSeconds AS Integer) AS Cycle
@@ -86,11 +87,12 @@ FUNC hourCaption(c AS Cycle, hour AS Integer) AS String
   RETURN "+" & toString(hour) & " h of the " & c.caption & " run"
 END FUNC
 
-' The NOMADS filter URL for one hour of one cycle's 10 m wind. The %2F are
-' literal: the CGI's dir parameter carries a path, and it has to arrive
-' percent-encoded rather than as slashes in the query string.
+' The NOMADS filter URL for one hour of one cycle's 10 m wind and 2 m
+' temperature. The %2F are literal: the CGI's dir parameter carries a path,
+' and it has to arrive percent-encoded rather than as slashes in the query
+' string.
 FUNC filterUrl(c AS Cycle, hour AS Integer) AS String
-  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & "." & hourTag(hour) & "&lev_10_m_above_ground=on&var_UGRD=on&var_VGRD=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
+  RETURN "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_" & GRID_NAME & ".pl?file=gfs.t" & c.hour & "z.pgrb2full." & GRID_NAME & "." & hourTag(hour) & "&lev_10_m_above_ground=on&lev_2_m_above_ground=on&var_UGRD=on&var_VGRD=on&var_TMP=on&dir=%2Fgfs." & c.day & "%2F" & c.hour & "%2Fatmos"
 END FUNC
 
 FUNC cacheDirectory AS String
@@ -106,7 +108,7 @@ END FUNC
 
 ' Where one hour of a cycle is kept between runs.
 FUNC cachePath(c AS Cycle, hour AS Integer) AS String
-  RETURN fs::pathJoin([cacheDirectory(), cachePrefix(c) & hourTag(hour) & "-10m-" & GRID_NAME & ".grb2"])
+  RETURN fs::pathJoin([cacheDirectory(), cachePrefix(c) & hourTag(hour) & "-wind-temp-" & GRID_NAME & ".grb2"])
 END FUNC
 
 ' Delete every cached file that is not from cycle c. The program only ever
@@ -156,16 +158,17 @@ FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
   END TRAP
 END FUNC
 
-' The two wind components out of one cycle's file. Discipline 0, category 2 is
-' momentum; parameter 2 is the u component and 3 the v. Surface type 103 is
-' "specified height above ground", and 10 is the metres.
+' The two wind components and temperature out of one cycle's file. Discipline
+' 0, category 2 is momentum; parameter 2 is the u component and 3 the v.
+' Category 0, parameter 0 is temperature. Surface type 103 is "specified height
+' above ground"; wind is at 10 metres and temperature at 2 metres.
 FUNC windsFrom(data AS List OF Byte, c AS Cycle) AS Winds
   LET fields AS List OF Field = decodeFile(data)
-  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), label := "GFS 10 m wind  " & c.caption]
+  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), temperature := pick(fields, 0, 0, 103, 2), label := "GFS surface weather  " & c.caption]
 END FUNC
 
-' The most recent GFS 10 m wind analysis this machine can get hold of, and the
-' run it belongs to.
+' The most recent GFS surface analysis this machine can get hold of, and the run
+' it belongs to.
 FUNC loadAnalysis AS Analysis
   LET newest AS Integer = (datetime::now().seconds - PUBLISH_DELAY_SECONDS) / CYCLE_SECONDS
   MUT firstProblem AS String = ""
