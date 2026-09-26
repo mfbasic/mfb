@@ -1,0 +1,56 @@
+' Key-reading helpers for the dungeon game.
+'
+' Kept in their own file (rather than inline in main.mfb) so
+' tools/dungeon-key-probe can build the REAL functions below directly — via a
+' second `project.json` "sources" root pointed at this exact file on disk —
+' instead of a hand-maintained or extracted copy that could drift out of sync
+' with what dungeon actually ships.
+
+IMPORT errorCode
+IMPORT io
+
+' A malformed input byte (not valid UTF-8) is reported as this sentinel — a
+' code point no keyboard or paste can legitimately produce — so readKey can
+' drop it and keep reading, distinct from "" (a genuine end of input, per
+' io::readChar's ErrEndOfFile). This sentinel is only ever consumed inside
+' readKey below; it must never reach commandFor as if it were a real key.
+FUNC badByteSentinel AS String
+  RETURN "\u{FFFD}"
+END FUNC
+
+FUNC getChar AS String
+  RETURN io::readChar()
+
+  TRAP(e)
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN ""
+    IF e.code = errorCode::ErrEncoding THEN RETURN badByteSentinel()
+    PROPAGATE
+  END TRAP
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' One key press. A lone escape byte is the Esc key; an escape followed by more
+' input is a key sequence, which is read off and reported as "" so it does
+' nothing. "EOF" means the window closed. A malformed input byte (getChar's
+' bad-byte sentinel) is dropped and reading resumes with the next byte — it is
+' not end of input, and it is never handed to the caller as a key.
+FUNC readKey AS String
+  MUT c AS String = getChar()
+  DO WHILE c = badByteSentinel()
+    c = getChar()
+  LOOP
+  IF c = "" THEN RETURN "EOF"
+  IF c <> "\u{1B}" THEN RETURN c
+  IF NOT ready(30) THEN RETURN "ESC"
+  DO WHILE ready(0)
+    LET rest AS String = getChar()
+    IF rest = "" THEN RETURN "EOF"
+  LOOP
+  RETURN ""
+END FUNC
