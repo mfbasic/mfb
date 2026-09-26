@@ -1372,6 +1372,80 @@ pub(crate) fn lower_tls_listen_macos(
     }
 }
 
+/// bug-736: store `tls::accept`'s deadline for one phase at `sp + deadline_off`,
+/// from the clamped `timeoutMs` at `sp + timeout_off`. The unbounded sentinel is
+/// `DISPATCH_TIME_FOREVER` (omitted = block), `0` is `DISPATCH_TIME_NOW` (one
+/// immediate attempt, `ErrTimeout` if not already done), and a positive value is
+/// `dispatch_time(DISPATCH_TIME_NOW, ms * 1e6)` read at the moment this runs.
+/// `accept` calls it once before the connection wait and again when it pops a
+/// connection, so each phase is bounded by the full `timeoutMs` and the time the
+/// connection wait used is never taken from the handshake. Linux and Windows
+/// get the same property by reloading the raw value into the accepted socket's
+/// `SO_RCVTIMEO`/`SO_SNDTIMEO`, though there it bounds each handshake read or
+/// write rather than the whole handshake. `tag` keeps the two call sites'
+/// labels apart; `fnptr_off` is clobbered.
+#[allow(clippy::too_many_arguments)]
+fn emit_accept_deadline(
+    ctx: &mut EmitCtx,
+    handle_off: usize,
+    timeout_off: usize,
+    fnptr_off: usize,
+    deadline_off: usize,
+    tag: &str,
+    fail: &str,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    let wait_now = format!("{symbol}_{tag}_wait_now");
+    let wait_forever = format!("{symbol}_{tag}_wait_forever");
+    let ready = format!("{symbol}_{tag}_deadline_ready");
+
+    ctx.instructions.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), timeout_off),
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_eq(&wait_forever),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_eq(&wait_now),
+    ]);
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
+        handle_off,
+        "dispatch_time",
+        fnptr_off,
+        fail,
+    )?;
+    ctx.instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), timeout_off),
+        abi::move_immediate(&v10, "Integer", "1000000"),
+        abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), &v10), // ms -> ns
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v9),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), deadline_off),
+        abi::branch(&ready),
+        abi::label(&wait_now),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), deadline_off),
+        abi::branch(&ready),
+        abi::label(&wait_forever),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::bitwise_not(&v9, &v9), // DISPATCH_TIME_FOREVER
+        abi::store_u64(&v9, abi::stack_pointer(), deadline_off),
+        abi::label(&ready),
+    ]);
+    Ok(())
+}
+
 pub(crate) fn lower_tls_accept_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -1400,9 +1474,6 @@ pub(crate) fn lower_tls_accept_macos(
     let closed = format!("{symbol}_closed");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let wait_forever = format!("{symbol}_wait_forever");
-    let wait_now = format!("{symbol}_wait_now");
-    let deadline_ready = format!("{symbol}_deadline_ready");
     let wait_loop = format!("{symbol}_wait");
     let pop = format!("{symbol}_pop");
     let listener_dead = format!("{symbol}_listener_dead");
@@ -1471,19 +1542,12 @@ pub(crate) fn lower_tls_accept_macos(
         NWH,
         &load_fail,
     )?;
-    // plan-73-D. Deadline: the unbounded sentinel => DISPATCH_TIME_FOREVER (omit =
-    // block); `0` => DISPATCH_TIME_NOW (one immediate attempt → `ErrTimeout`); `> 0`
-    // => dispatch_time(NOW, ms*1e6). Negatives were rejected up front. The one
-    // absolute deadline bounds both the wait for a connection and the handshake.
-    ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), TIMEOUT),
-        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(&v9, &v10),
-        abi::branch_eq(&wait_forever),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_eq(&wait_now),
-    ]);
-    dlsym(
+    // plan-73-D / bug-736. Deadline for the CONNECTION wait. The same timeout is
+    // applied again, from a fresh `dispatch_time(NOW, ..)`, once a connection is
+    // popped (see `pop` below), so the handshake never inherits what the wait
+    // spent. Linux and Windows reload the raw value for their handshake
+    // `SO_*TIMEO`, which has the same effect.
+    emit_accept_deadline(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1492,29 +1556,13 @@ pub(crate) fn lower_tls_accept_macos(
             relocations: &mut rel,
         },
         NWH,
-        "dispatch_time",
+        TIMEOUT,
         FNPTR,
+        DEADLINE,
+        "conn",
         &load_fail,
+        &mut vregs,
     )?;
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
-        abi::move_immediate(&v10, "Integer", "1000000"),
-        abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), &v10), // ms -> ns
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), DEADLINE),
-        abi::branch(&deadline_ready),
-        // 0 => DISPATCH_TIME_NOW (0): both the accept and handshake waits return at once.
-        abi::label(&wait_now),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), DEADLINE),
-        abi::branch(&deadline_ready),
-        abi::label(&wait_forever),
-        abi::move_immediate(&v9, "Integer", "0"),
-        abi::bitwise_not(&v9, &v9), // DISPATCH_TIME_FOREVER
-        abi::store_u64(&v9, abi::stack_pointer(), DEADLINE),
-        abi::label(&deadline_ready),
-    ]);
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1565,6 +1613,26 @@ pub(crate) fn lower_tls_accept_macos(
         abi::add_immediate(&v11, &v11, 1),
         abi::store_u64(&v11, &v9, LCTX_TAIL),
     ]);
+    // bug-736: the handshake gets its own deadline, computed now that the
+    // connection is out of the backlog. Reusing the connection-wait deadline gave
+    // a connection that arrived late in the window only the remainder, so the
+    // server cancelled a healthy handshake with `ErrTimeout`.
+    emit_accept_deadline(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        NWH,
+        TIMEOUT,
+        FNPTR,
+        DEADLINE,
+        "hs",
+        &load_fail,
+        &mut vregs,
+    )?;
     // Per-connection block context { sem, signal, state, content, error }, on the
     // C heap (bug-623 D, see `CTX_SIZE`).
     emit_ctx_calloc(
