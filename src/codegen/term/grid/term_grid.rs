@@ -29,6 +29,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
@@ -147,6 +148,30 @@ fn append_const(buf: &str, bytes: &[u8], scratch: &str, instrs: &mut Vec<CodeIns
     }
 }
 
+/// Throwaway vregs for the present's append helpers, minted once by
+/// `emit_grid_present` and shared by every append it emits: each helper clobbers
+/// them and none holds a value across a call to another. Minting them once (rather
+/// than per call) keeps the present's register count flat however many appends it
+/// makes.
+struct AppendScratch<'a> {
+    /// `append_decimal`: quotient, constant 10, digit cursor, divide result,
+    /// remainder digit, digit-region end, copied byte.
+    q: &'a str,
+    ten: &'a str,
+    tp: &'a str,
+    d: &'a str,
+    r: &'a str,
+    e: &'a str,
+    c: &'a str,
+    /// `append_rgb`: the channel being appended and the 0xFF mask.
+    ch: &'a str,
+    ch_mask: &'a str,
+    /// `append_glyph`: the byte being appended, the blank's space, the 0xFF mask.
+    glyph_byte: &'a str,
+    glyph_space: &'a str,
+    glyph_mask: &'a str,
+}
+
 /// Append the unsigned decimal text of `val` into `buf`, advancing `buf`. Digits
 /// are generated least-significant-first into the sp-relative scratch region
 /// `[tmp_start, tmp_end)` (no call happens, so the region is stable), then copied
@@ -156,15 +181,19 @@ fn append_decimal(
     val: &str,
     tmp_end: usize,
     tag: &str,
+    scratch: &AppendScratch,
     instrs: &mut Vec<CodeInstruction>,
 ) {
-    let q = "%v240";
-    let ten = "%v241";
-    let tp = "%v242";
-    let d = "%v243";
-    let r = "%v244";
-    let e = "%v245";
-    let c = "%v246";
+    let AppendScratch {
+        q,
+        ten,
+        tp,
+        d,
+        r,
+        e,
+        c,
+        ..
+    } = *scratch;
     let gen = format!("{tag}_dgen");
     let copy = format!("{tag}_dcopy");
     let cdone = format!("{tag}_ddone");
@@ -205,33 +234,40 @@ fn append_rgb(
     packed: &str,
     tmp_end: usize,
     tag: &str,
+    scratch: &AppendScratch,
     instrs: &mut Vec<CodeInstruction>,
 ) {
-    let ch = "%v247";
-    let m = "%v248";
+    let ch = scratch.ch;
+    let m = scratch.ch_mask;
     instrs.push(abi::move_immediate(m, "Integer", "255"));
     instrs.push(abi::and_registers(ch, packed, m));
-    append_decimal(buf, ch, tmp_end, &format!("{tag}_r"), instrs);
+    append_decimal(buf, ch, tmp_end, &format!("{tag}_r"), scratch, instrs);
     append_const(buf, b";", ch, instrs);
     instrs.push(abi::shift_right_immediate(ch, packed, 8));
     instrs.push(abi::move_immediate(m, "Integer", "255"));
     instrs.push(abi::and_registers(ch, ch, m));
-    append_decimal(buf, ch, tmp_end, &format!("{tag}_g"), instrs);
+    append_decimal(buf, ch, tmp_end, &format!("{tag}_g"), scratch, instrs);
     append_const(buf, b";", ch, instrs);
     instrs.push(abi::shift_right_immediate(ch, packed, 16));
     instrs.push(abi::move_immediate(m, "Integer", "255"));
     instrs.push(abi::and_registers(ch, ch, m));
-    append_decimal(buf, ch, tmp_end, &format!("{tag}_b"), instrs);
+    append_decimal(buf, ch, tmp_end, &format!("{tag}_b"), scratch, instrs);
 }
 
 /// Append the glyph's raw UTF-8 bytes (packed little-endian in `glyph`), or a
 /// single space when the cell is blank (glyph 0). Stops at the first zero byte.
-fn append_glyph(buf: &str, glyph: &str, tag: &str, instrs: &mut Vec<CodeInstruction>) {
-    let b = "%v249";
-    let sp = "%v250";
+fn append_glyph(
+    buf: &str,
+    glyph: &str,
+    tag: &str,
+    scratch: &AppendScratch,
+    instrs: &mut Vec<CodeInstruction>,
+) {
+    let b = scratch.glyph_byte;
+    let sp = scratch.glyph_space;
     let blank = format!("{tag}_gblank");
     let done = format!("{tag}_gdone");
-    let m = "%v251";
+    let m = scratch.glyph_mask;
     instrs.extend([
         abi::compare_immediate(glyph, "0"),
         abi::branch_eq(&blank),
@@ -270,6 +306,19 @@ fn append_glyph(buf: &str, glyph: &str, tag: &str, instrs: &mut Vec<CodeInstruct
     ]);
 }
 
+/// The six throwaway vregs `emit_scroll_back` clobbers: the cell count, the moved
+/// cell count, the copy source/destination cursors, the word being moved, and the
+/// word counter.
+#[derive(Clone, Copy)]
+struct ScrollScratch<'a> {
+    ncells: &'a str,
+    moved: &'a str,
+    src: &'a str,
+    dst: &'a str,
+    word: &'a str,
+    cnt: &'a str,
+}
+
 /// Scroll the back buffer up one row: shift rows 1..rows into 0..rows-1 and blank
 /// the last row. `back` is the cell base, `rows`/`cols` the grid dims. No calls.
 ///
@@ -278,19 +327,27 @@ fn append_glyph(buf: &str, glyph: &str, tag: &str, instrs: &mut Vec<CodeInstruct
 /// slot. This shifts the pool region (which follows the cells, at
 /// `back + ncells*(2*CELL+OUTBUF)`) in lockstep and blanks the last row's slots.
 /// `POOL_BYTES_PER_CELL` is a multiple of 8 so the shift stays word-aligned.
+///
+/// `scratch` is six caller vregs this clobbers, all of which must be dead at the
+/// call. `emit_grid_write` lends its per-glyph scratch rather than minting six
+/// more: every one of them is rewritten before it is next read at each scroll
+/// point.
 fn emit_scroll_back(
     back: &str,
     rows: &str,
     cols: &str,
+    scratch: &ScrollScratch,
     tag: &str,
     instrs: &mut Vec<CodeInstruction>,
 ) {
-    let ncells = "%v320";
-    let moved = "%v321";
-    let src = "%v322";
-    let dst = "%v323";
-    let word = "%v324";
-    let cnt = "%v325";
+    let ScrollScratch {
+        ncells,
+        moved,
+        src,
+        dst,
+        word,
+        cnt,
+    } = *scratch;
     let copy = format!("{tag}_sc_copy");
     let copy_done = format!("{tag}_sc_cdone");
     let clr = format!("{tag}_sc_clr");
@@ -392,16 +449,17 @@ pub(crate) fn emit_grid_alloc(
     platform_imports: &HashMap<String, String>,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let rowsv = "%v400";
-    let colsv = "%v401";
-    let t = "%v402";
-    let m = "%v403";
-    let gp = "%v404";
-    let wc = "%v405";
-    let zp = "%v406";
-    let zero = "%v407";
-    let one = "%v408";
+    let rowsv: &str = &vregs.next();
+    let colsv: &str = &vregs.next();
+    let t: &str = &vregs.next();
+    let m: &str = &vregs.next();
+    let gp: &str = &vregs.next();
+    let wc: &str = &vregs.next();
+    let zp: &str = &vregs.next();
+    let zero: &str = &vregs.next();
+    let one: &str = &vregs.next();
     let size_fail = format!("{symbol}_ga_sizefail");
     let size_ok = format!("{symbol}_ga_sizeok");
     let zloop = format!("{symbol}_ga_zloop");
@@ -490,13 +548,14 @@ pub(crate) fn emit_grid_free(
     term_state_offset: usize,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) {
-    let gp = "%v450";
-    let rowsv = "%v451";
-    let colsv = "%v452";
-    let t = "%v453";
-    let m = "%v454";
-    let zero = "%v455";
+    let gp: &str = &vregs.next();
+    let rowsv: &str = &vregs.next();
+    let colsv: &str = &vregs.next();
+    let t: &str = &vregs.next();
+    let m: &str = &vregs.next();
+    let zero: &str = &vregs.next();
     let skip = format!("{symbol}_gf_skip");
     instrs.extend([
         abi::load_u64(
@@ -545,51 +604,63 @@ pub(crate) fn emit_grid_write(
     append_newline: bool,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) {
-    let gp = "%v300";
-    let back = "%v301";
-    let rows = "%v302";
-    let cols = "%v303";
-    let row = "%v304";
-    let col = "%v305";
-    let fg = "%v306";
-    let bg = "%v307";
-    let bold = "%v308";
-    let un = "%v309";
-    let ptr = "%v310";
-    let rem = "%v311";
-    let b0 = "%v312";
-    let len = "%v313";
-    let glyph = "%v314";
-    let t = "%v315";
-    let idx = "%v316";
-    let cell = "%v317";
+    let gp: &str = &vregs.next();
+    let back: &str = &vregs.next();
+    let rows: &str = &vregs.next();
+    let cols: &str = &vregs.next();
+    let row: &str = &vregs.next();
+    let col: &str = &vregs.next();
+    let fg: &str = &vregs.next();
+    let bg: &str = &vregs.next();
+    let bold: &str = &vregs.next();
+    let un: &str = &vregs.next();
+    let ptr: &str = &vregs.next();
+    let rem: &str = &vregs.next();
+    let b0: &str = &vregs.next();
+    let len: &str = &vregs.next();
+    let glyph: &str = &vregs.next();
+    let t: &str = &vregs.next();
+    let idx: &str = &vregs.next();
+    let cell: &str = &vregs.next();
     // plan-70-B width path: codepoint decode + charwidth lookup + wide handling.
-    let cp = "%v318";
-    let width = "%v319";
-    let sa = "%v320";
-    let sb = "%v321";
-    let trail = "%v322";
+    let cp: &str = &vregs.next();
+    let width: &str = &vregs.next();
+    let sa: &str = &vregs.next();
+    let sb: &str = &vregs.next();
+    let trail: &str = &vregs.next();
     // plan-70-B Phase 2 cluster walk + EGC pool.
-    let prop = "%v323";
-    let state_bc = "%v324";
-    let state_icb = "%v325";
-    let clen = "%v326"; // total cluster byte length
-    let pptr = "%v327"; // peek: pointer at ptr + clen
-    let pb0 = "%v328"; // peek: lead byte
-    let plen = "%v329"; // peek: scalar byte length
-    let pcp = "%v330"; // peek: codepoint
-    let pprop = "%v331"; // peek: property ptr
-    let pbc = "%v332"; // peek: boundclass
-    let picb = "%v333"; // peek: indic-conjunct-break
-    let pwidth = "%v334"; // peek: charwidth
-    let sc = "%v335"; // scratch
-    let sd = "%v336"; // scratch
-    let sd2 = "%v337"; // scratch byte
-    let cellidx = "%v338"; // linear cell index (row*cols+col) for the pool slot
-    let ncells = "%v339";
-    let poolbase = "%v340";
-    let poolslot = "%v341";
+    let prop: &str = &vregs.next();
+    let state_bc: &str = &vregs.next();
+    let state_icb: &str = &vregs.next();
+    let clen: &str = &vregs.next(); // total cluster byte length
+    let pptr: &str = &vregs.next(); // peek: pointer at ptr + clen
+    let pb0: &str = &vregs.next(); // peek: lead byte
+    let plen: &str = &vregs.next(); // peek: scalar byte length
+    let pcp: &str = &vregs.next(); // peek: codepoint
+    let pprop: &str = &vregs.next(); // peek: property ptr
+    let pbc: &str = &vregs.next(); // peek: boundclass
+    let picb: &str = &vregs.next(); // peek: indic-conjunct-break
+    let pwidth: &str = &vregs.next(); // peek: charwidth
+    let sc: &str = &vregs.next(); // scratch
+    let sd: &str = &vregs.next(); // scratch
+    let sd2: &str = &vregs.next(); // scratch byte
+    let cellidx: &str = &vregs.next(); // linear cell index (row*cols+col) for the pool slot
+    let ncells: &str = &vregs.next();
+    let poolbase: &str = &vregs.next();
+    let poolslot: &str = &vregs.next();
+    // The scroll's scratch is this writer's per-glyph scratch: at every scroll
+    // point (after the cluster is measured, at `\n`, and at the newline tail) each
+    // of these is rewritten before it is next read.
+    let scroll = ScrollScratch {
+        ncells: sa,
+        moved: sb,
+        src: trail,
+        dst: prop,
+        word: state_bc,
+        cnt: state_icb,
+    };
     let done = format!("{symbol}_gw_done");
     let loop_top = format!("{symbol}_gw_loop");
     let handle_nl = format!("{symbol}_gw_nl");
@@ -844,7 +915,7 @@ pub(crate) fn emit_grid_write(
         abi::compare_registers(row, rows),
         abi::branch_lo(&row_ok),
     ]);
-    emit_scroll_back(back, rows, cols, &format!("{symbol}_gwp"), instrs);
+    emit_scroll_back(back, rows, cols, &scroll, &format!("{symbol}_gwp"), instrs);
     instrs.extend([
         abi::subtract_immediate(row, rows, 1),
         abi::label(&row_ok),
@@ -921,7 +992,7 @@ pub(crate) fn emit_grid_write(
         abi::compare_registers(row, rows),
         abi::branch_lo(&nl_ok),
     ]);
-    emit_scroll_back(back, rows, cols, &format!("{symbol}_gwn"), instrs);
+    emit_scroll_back(back, rows, cols, &scroll, &format!("{symbol}_gwn"), instrs);
     instrs.extend([
         abi::subtract_immediate(row, rows, 1),
         abi::label(&nl_ok),
@@ -948,7 +1019,7 @@ pub(crate) fn emit_grid_write(
             abi::compare_registers(row, rows),
             abi::branch_lo(&tail_ok),
         ]);
-        emit_scroll_back(back, rows, cols, &format!("{symbol}_gwt"), instrs);
+        emit_scroll_back(back, rows, cols, &scroll, &format!("{symbol}_gwt"), instrs);
         instrs.extend([
             abi::subtract_immediate(row, rows, 1),
             abi::label(&tail_ok),
@@ -977,6 +1048,7 @@ pub(crate) fn emit_grid_write(
 /// not a tty), the size is unchanged, or a new allocation cannot be obtained.
 /// Uses sp locals `[8,56)` for the winsize struct + parked dims across the
 /// arena calls — disjoint in time from the present's decimal scratch (`[32,56)`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_grid_resize(
     symbol: &str,
     term_state_offset: usize,
@@ -985,6 +1057,7 @@ pub(crate) fn emit_grid_resize(
     platform_imports: &HashMap<String, String>,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     // sp scratch layout for the resize (temporally before the present loop).
     const WINSZ: usize = 8;
@@ -994,29 +1067,29 @@ pub(crate) fn emit_grid_resize(
     const S_OLDC: usize = 40;
     const S_OLDGP: usize = 48;
     let sp = abi::stack_pointer();
-    let newr = "%v500";
-    let newc = "%v501";
-    let oldr = "%v502";
-    let oldc = "%v503";
-    let gp = "%v504";
-    let ng = "%v505";
-    let t = "%v506";
-    let m = "%v507";
-    let wc = "%v508";
-    let zp = "%v509";
-    let zero = "%v510";
-    let minr = "%v511";
-    let minc = "%v512";
-    let rr = "%v513";
-    let ob = "%v514";
-    let nb = "%v515";
-    let cc = "%v516";
-    let sptr = "%v517";
-    let dptr = "%v518";
-    let word = "%v519";
+    let newr: &str = &vregs.next();
+    let newc: &str = &vregs.next();
+    let oldr: &str = &vregs.next();
+    let oldc: &str = &vregs.next();
+    let gp: &str = &vregs.next();
+    let ng: &str = &vregs.next();
+    let t: &str = &vregs.next();
+    let m: &str = &vregs.next();
+    let wc: &str = &vregs.next();
+    let zp: &str = &vregs.next();
+    let zero: &str = &vregs.next();
+    let minr: &str = &vregs.next();
+    let minc: &str = &vregs.next();
+    let rr: &str = &vregs.next();
+    let ob: &str = &vregs.next();
+    let nb: &str = &vregs.next();
+    let cc: &str = &vregs.next();
+    let sptr: &str = &vregs.next();
+    let dptr: &str = &vregs.next();
+    let word: &str = &vregs.next();
     // plan-70-B Phase 2: pool-slot copy across the reflow.
-    let opb = "%v520";
-    let npb = "%v521";
+    let opb: &str = &vregs.next();
+    let npb: &str = &vregs.next();
     let prloop = format!("{symbol}_rz_prloop");
     let prdone = format!("{symbol}_rz_prdone");
     let pcloop = format!("{symbol}_rz_pcloop");
@@ -1265,53 +1338,72 @@ pub(crate) fn emit_grid_present(
     platform_imports: &HashMap<String, String>,
     instrs: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
-    let gp = "%v200";
-    let rows = "%v201";
-    let cols = "%v202";
-    let dirty = "%v203";
-    let ncells = "%v204";
-    let back = "%v205";
-    let front = "%v206";
-    let outbuf = "%v207";
-    let buf = "%v208";
-    let idx = "%v209";
-    let row = "%v210";
-    let col = "%v211";
-    let off = "%v212";
-    let bc = "%v213";
-    let fc = "%v214";
-    let last_valid = "%v215";
-    let last_row = "%v216";
-    let last_col = "%v217";
-    let last_fg = "%v218";
-    let last_bg = "%v219";
-    let last_bold = "%v220";
-    let last_un = "%v221";
-    let cfg = "%v222";
-    let cbg = "%v223";
-    let cbold = "%v224";
-    let cun = "%v225";
-    let glyph = "%v226";
-    let a0 = "%v227";
-    let b0 = "%v228";
-    let tmp = "%v229";
-    let rowp1 = "%v230";
-    let colp1 = "%v231";
+    let gp: &str = &vregs.next();
+    let rows: &str = &vregs.next();
+    let cols: &str = &vregs.next();
+    let dirty: &str = &vregs.next();
+    let ncells: &str = &vregs.next();
+    let back: &str = &vregs.next();
+    let front: &str = &vregs.next();
+    let outbuf: &str = &vregs.next();
+    let buf: &str = &vregs.next();
+    let idx: &str = &vregs.next();
+    let row: &str = &vregs.next();
+    let col: &str = &vregs.next();
+    let off: &str = &vregs.next();
+    let bc: &str = &vregs.next();
+    let fc: &str = &vregs.next();
+    let last_valid: &str = &vregs.next();
+    let last_row: &str = &vregs.next();
+    let last_col: &str = &vregs.next();
+    let last_fg: &str = &vregs.next();
+    let last_bg: &str = &vregs.next();
+    let last_bold: &str = &vregs.next();
+    let last_un: &str = &vregs.next();
+    let cfg: &str = &vregs.next();
+    let cbg: &str = &vregs.next();
+    let cbold: &str = &vregs.next();
+    let cun: &str = &vregs.next();
+    let glyph: &str = &vregs.next();
+    let a0: &str = &vregs.next();
+    let b0: &str = &vregs.next();
+    let tmp: &str = &vregs.next();
+    let rowp1: &str = &vregs.next();
+    let colp1: &str = &vregs.next();
     // bug-314 H3: the present-write loop's cursor / remaining / result.
-    let wcur = "%v232";
-    let wrem = "%v233";
-    let wres = "%v234";
+    let wcur: &str = &vregs.next();
+    let wrem: &str = &vregs.next();
+    let wres: &str = &vregs.next();
     // plan-70-B: this cell's stored display width, for the cursor-advance model.
-    let cwidth = "%v235";
+    let cwidth: &str = &vregs.next();
     // plan-70-B Phase 2: pooled-cluster emission.
-    let pe_len = "%v236";
-    let pe_base = "%v237";
-    let pe_slot = "%v238";
-    let pe_i = "%v239";
-    let pe_byte = "%v240";
-    let pe_sc = "%v241";
-    let pe_dst = "%v242";
+    let pe_len: &str = &vregs.next();
+    let pe_base: &str = &vregs.next();
+    let pe_slot: &str = &vregs.next();
+    let pe_i: &str = &vregs.next();
+    let pe_byte: &str = &vregs.next();
+    let pe_sc: &str = &vregs.next();
+    let pe_dst: &str = &vregs.next();
+    // The append helpers' scratch. The decimal formatter's first three share the
+    // pooled-cluster copy's byte/scratch/destination vregs: the copy and each
+    // decimal append run at different points of a cell's emission, and neither
+    // holds a value across the other.
+    let append = AppendScratch {
+        q: pe_byte,
+        ten: pe_sc,
+        tp: pe_dst,
+        d: &vregs.next(),
+        r: &vregs.next(),
+        e: &vregs.next(),
+        c: &vregs.next(),
+        ch: &vregs.next(),
+        ch_mask: &vregs.next(),
+        glyph_byte: &vregs.next(),
+        glyph_space: &vregs.next(),
+        glyph_mask: &vregs.next(),
+    };
 
     let done_ok = format!("{symbol}_pr_ok");
     let loop_top = format!("{symbol}_pr_loop");
@@ -1354,6 +1446,7 @@ pub(crate) fn emit_grid_present(
         platform_imports,
         instrs,
         relocations,
+        vregs,
     )?;
     instrs.extend([
         abi::load_u64(
@@ -1437,10 +1530,24 @@ pub(crate) fn emit_grid_present(
     ]);
     append_const(buf, b"\x1b[", tmp, instrs);
     instrs.push(abi::add_immediate(rowp1, row, 1));
-    append_decimal(buf, rowp1, tmp_end, &format!("{symbol}_prcur"), instrs);
+    append_decimal(
+        buf,
+        rowp1,
+        tmp_end,
+        &format!("{symbol}_prcur"),
+        &append,
+        instrs,
+    );
     append_const(buf, b";", tmp, instrs);
     instrs.push(abi::add_immediate(colp1, col, 1));
-    append_decimal(buf, colp1, tmp_end, &format!("{symbol}_prcuc"), instrs);
+    append_decimal(
+        buf,
+        colp1,
+        tmp_end,
+        &format!("{symbol}_prcuc"),
+        &append,
+        instrs,
+    );
     append_const(buf, b"H", tmp, instrs);
     instrs.push(abi::label(&cup_done));
     // Load this cell's attributes.
@@ -1479,10 +1586,24 @@ pub(crate) fn emit_grid_present(
     append_const(buf, b"\x1b[4m", tmp, instrs);
     instrs.push(abi::label(&no_un));
     append_const(buf, b"\x1b[38;2;", tmp, instrs);
-    append_rgb(buf, cfg, tmp_end, &format!("{symbol}_prfg"), instrs);
+    append_rgb(
+        buf,
+        cfg,
+        tmp_end,
+        &format!("{symbol}_prfg"),
+        &append,
+        instrs,
+    );
     append_const(buf, b"m", tmp, instrs);
     append_const(buf, b"\x1b[48;2;", tmp, instrs);
-    append_rgb(buf, cbg, tmp_end, &format!("{symbol}_prbg"), instrs);
+    append_rgb(
+        buf,
+        cbg,
+        tmp_end,
+        &format!("{symbol}_prbg"),
+        &append,
+        instrs,
+    );
     append_const(buf, b"m", tmp, instrs);
     instrs.extend([
         abi::move_register(last_fg, cfg),
@@ -1530,7 +1651,7 @@ pub(crate) fn emit_grid_present(
         abi::branch(&after_glyph),
         abi::label(&inline_glyph),
     ]);
-    append_glyph(buf, glyph, &format!("{symbol}_prg"), instrs);
+    append_glyph(buf, glyph, &format!("{symbol}_prg"), &append, instrs);
     instrs.push(abi::label(&after_glyph));
     // The terminal cursor is now `width` columns past this cell's start: a wide
     // glyph (stored width 2) leaves the cursor 2 columns on, so a following run of
@@ -1571,11 +1692,25 @@ pub(crate) fn emit_grid_present(
     append_const(buf, b"\x1b[", tmp, instrs);
     instrs.push(abi::load_u64(tmp, gp, H_CUR_ROW));
     instrs.push(abi::add_immediate(rowp1, tmp, 1));
-    append_decimal(buf, rowp1, tmp_end, &format!("{symbol}_prrr"), instrs);
+    append_decimal(
+        buf,
+        rowp1,
+        tmp_end,
+        &format!("{symbol}_prrr"),
+        &append,
+        instrs,
+    );
     append_const(buf, b";", tmp, instrs);
     instrs.push(abi::load_u64(tmp, gp, H_CUR_COL));
     instrs.push(abi::add_immediate(colp1, tmp, 1));
-    append_decimal(buf, colp1, tmp_end, &format!("{symbol}_prrc"), instrs);
+    append_decimal(
+        buf,
+        colp1,
+        tmp_end,
+        &format!("{symbol}_prrc"),
+        &append,
+        instrs,
+    );
     append_const(buf, b"H", tmp, instrs);
     instrs.push(abi::load_u64(
         tmp,
@@ -1735,6 +1870,7 @@ mod tests {
             &platform_imports,
             &mut instrs,
             &mut relocations,
+            &mut Vregs::new(),
         )
         .expect("present lowers");
 

@@ -206,6 +206,7 @@ pub(crate) fn lower_read_line_family(
                 false,
                 // Nothing is staged before the read, so nothing to park.
                 false,
+                &mut vregs,
             )?;
         }
         emit_console_raw_line_mode(
@@ -540,6 +541,7 @@ pub(crate) fn lower_read_line_family(
                 // The read's result is already in the result bank here, and the
                 // escape write clobbers it.
                 true,
+                &mut vregs,
             )?;
         }
     }

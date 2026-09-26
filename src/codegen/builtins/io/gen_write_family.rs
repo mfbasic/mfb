@@ -301,6 +301,7 @@ pub(crate) fn lower_write_family(
             append_newline,
             &mut instructions,
             &mut relocations,
+            &mut vregs,
         );
         instructions.push(abi::move_immediate(
             RESULT_TAG_REGISTER,
