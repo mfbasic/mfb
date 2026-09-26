@@ -10,7 +10,6 @@
 //! hooks are `unimplemented!()` because the helpers under test never call them.
 
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;

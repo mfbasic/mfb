@@ -245,7 +245,7 @@ mod tests {
         // `%mathpool` token, realized `x2` at the Phase-3b seam (plan-34-D).
         assert_eq!(m.arena_base(), ARENA_BASE_REGISTER);
         assert_eq!(m.math_pool_base(), Some(abi::MATH_POOL));
-        assert_eq!(abi::realize_abi_token(abi::MATH_POOL), Some("x2"));
+        assert_eq!(abi::realize_abi_token(abi::MATH_POOL_SPELLING), Some("x2"));
         // The standalone FP callee-saved predicate.
         assert!(is_fp_callee_saved("d15"));
         assert!(!is_fp_callee_saved("d16"));

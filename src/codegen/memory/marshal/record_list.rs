@@ -321,7 +321,7 @@ mod tests {
             COLLECTION_TYPE_OBJECT
         ));
         assert!(instructions.iter().any(|i| {
-            i.get("src").as_deref() == Some(abi::ZERO)
+            i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
                 && i.get("offset").as_deref()
                     == Some(COLLECTION_OFFSET_BUCKETS_READY.to_string().as_str())
         }));

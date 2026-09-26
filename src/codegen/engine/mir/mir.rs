@@ -1787,12 +1787,12 @@ mod tests {
     fn invariant_registers_are_neutral_tokens() {
         use crate::target::shared::abi;
         // The tokens are neutral, never an AArch64 register number.
-        assert_eq!(abi::ZERO, "xzr");
-        assert_eq!(abi::LR, "lr");
-        assert_eq!(abi::ARENA, ARENA_BASE);
+        assert_eq!(abi::ZERO, crate::target::shared::abi::Reg::test_named("xzr"));
+        assert_eq!(abi::LR, crate::target::shared::abi::Reg::test_named("lr"));
+        assert_eq!(abi::ARENA.to_string(), ARENA_BASE);
         for token in [abi::ZERO, abi::LR, abi::ARENA] {
             assert!(
-                !matches!(token, "x19" | "x30" | "x31"),
+                !matches!(token.to_string().as_str(), "x19" | "x30" | "x31"),
                 "invariant-register token must not be an AArch64 register number: {token}"
             );
         }

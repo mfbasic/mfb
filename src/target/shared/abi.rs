@@ -104,11 +104,21 @@ impl Reg {
         Reg(RegRepr::Virtual(VirtualRegister::new_for_test(RegClass::Int, id)))
     }
 
-    /// A physical register spelling for a test fixture. Never available to
-    /// production code.
+    /// Any register a hand-built test stream spells — `%vN`, `%fN`, a role token or
+    /// a physical name. Never available to production code (bug-721).
     #[cfg(test)]
-    pub(crate) fn test_physical(name: &'static str) -> Self {
-        Reg::physical(name)
+    pub(crate) fn test_named(text: &str) -> Self {
+        use crate::codegen::engine::regalloc::{parse_fp_vreg, parse_vreg};
+        if let Some(id) = parse_vreg(text) {
+            return Reg(RegRepr::Virtual(VirtualRegister::new_for_test(RegClass::Int, id)));
+        }
+        if let Some(id) = parse_fp_vreg(text) {
+            return Reg(RegRepr::Virtual(VirtualRegister::new_for_test(RegClass::Fp, id)));
+        }
+        if let Some(token) = role_token(text) {
+            return Reg::token(token);
+        }
+        Reg::physical(text)
     }
 }
 
@@ -180,6 +190,12 @@ impl From<Reg> for Operand {
 impl From<&Reg> for Operand {
     fn from(register: &Reg) -> Self {
         register.operand()
+    }
+}
+
+impl PartialEq<Operand> for Reg {
+    fn eq(&self, other: &Operand) -> bool {
+        self.operand() == *other
     }
 }
 
@@ -2011,15 +2027,15 @@ mod tests {
     fn convention_explicit_abi_accessors() {
         // plan-85-A: each accessor yields the expected typed `Operand::Abi`
         // variant and renders to its convention-explicit token spelling.
-        assert_eq!(mfb_arg(0).render(), "%argMFB0");
-        assert_eq!(mfb_arg(7).render(), "%argMFB7");
-        assert_eq!(mfb_return(0).render(), "%retMFB0");
-        assert_eq!(mfb_return(3).render(), "%retMFB3");
-        assert_eq!(c_arg(2).render(), "%argC2");
-        assert_eq!(c_return(0).render(), "%retC0");
-        assert_eq!(c_return(1).render(), "%retC1");
-        assert_eq!(sys_arg(3).render(), "%argSys3");
-        assert_eq!(sys_return().render(), "%retSys");
+        assert_eq!(mfb_arg(0).to_string(), "%argMFB0");
+        assert_eq!(mfb_arg(7).to_string(), "%argMFB7");
+        assert_eq!(mfb_return(0).to_string(), "%retMFB0");
+        assert_eq!(mfb_return(3).to_string(), "%retMFB3");
+        assert_eq!(c_arg(2).to_string(), "%argC2");
+        assert_eq!(c_return(0).to_string(), "%retC0");
+        assert_eq!(c_return(1).to_string(), "%retC1");
+        assert_eq!(sys_arg(3).to_string(), "%argSys3");
+        assert_eq!(sys_return().to_string(), "%retSys");
         assert_eq!(
             mfb_arg(1),
             Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
@@ -2050,42 +2066,42 @@ mod tests {
         // the AArch64 register positionally by each backend's `Operand::Abi` handler
         // (`realize_abi_positional`) — it never reaches the string `realize_abi_token`
         // seam, which now covers only the neutral no-convention tokens.
-        assert_eq!(argument_register(0).unwrap().render(), "%argMFB0");
-        assert_eq!(argument_register(7).unwrap().render(), "%argMFB7");
+        assert_eq!(argument_register(0).unwrap().to_string(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap().to_string(), "%argMFB7");
         assert_eq!(realize_abi_positional(0), "x0");
         assert_eq!(realize_abi_positional(7), "x7");
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
         assert_eq!(REGISTER_ARGUMENT_COUNT, 8);
-        let incoming = incoming_stack_arg_load("x9", 2);
+        let incoming = incoming_stack_arg_load(crate::target::shared::abi::Reg::test_named("x9"), 2);
         assert_eq!(incoming.op.mnemonic(), "ldr_u64");
-        assert_eq!(get(&incoming, "base").as_deref(), Some(INCOMING_ARGS_BASE));
+        assert_eq!(get(&incoming, "base").as_deref(), Some(INCOMING_ARGS_SPELLING));
         assert_eq!(get(&incoming, "offset").as_deref(), Some("16"));
         assert_eq!(get(&incoming, "dst").as_deref(), Some("x9"));
-        let outgoing = outgoing_stack_arg_store("x9", 0);
+        let outgoing = outgoing_stack_arg_store(crate::target::shared::abi::Reg::test_named("x9"), 0);
         assert_eq!(outgoing.op.mnemonic(), "str_u64");
-        assert_eq!(get(&outgoing, "base").as_deref(), Some(OUTGOING_ARGS_BASE));
+        assert_eq!(get(&outgoing, "base").as_deref(), Some(OUTGOING_ARGS_SPELLING));
         assert_eq!(get(&outgoing, "offset").as_deref(), Some("0"));
         assert_eq!(get(&outgoing, "src").as_deref(), Some("x9"));
         // Named ABI registers. The MFB result is a typed convention token realized
         // positionally by each backend's `Operand::Abi` handler (not the string seam).
-        assert_eq!(return_register().render(), "%retMFB0");
+        assert_eq!(return_register().to_string(), "%retMFB0");
         assert_eq!(realize_abi_positional(0), "x0");
-        assert_eq!(link_register(), "lr");
-        assert_eq!(stack_pointer(), "sp");
-        assert_eq!(syscall_register(), "%sysnr");
+        assert_eq!(link_register(), crate::target::shared::abi::Reg::test_named("lr"));
+        assert_eq!(stack_pointer(), crate::target::shared::abi::Reg::test_named("sp"));
+        assert_eq!(syscall_register(), crate::target::shared::abi::Reg::test_named("%sysnr"));
         assert_eq!(realize_abi_token("%sysnr"), Some("x8"));
         // The FP scratch pool realizes to the caller-saved low `d` bank, index
         // for index (plan-34-D).
-        for (i, token) in FP_SCRATCH.iter().enumerate() {
+        for (i, token) in FP_SCRATCH_SPELLINGS.iter().enumerate() {
             assert_eq!(*token, format!("%fscratch{i}"));
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register().render(), "%argMFB2");
+        assert_eq!(string_length_register().to_string(), "%argMFB2");
         assert_eq!(realize_abi_positional(2), "x2");
-        assert_eq!(string_data_register().render(), "%argMFB1");
+        assert_eq!(string_data_register().to_string(), "%argMFB1");
         assert_eq!(realize_abi_positional(1), "x1");
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
@@ -2101,41 +2117,41 @@ mod tests {
         assert_eq!(get(&label("L"), "name").as_deref(), Some("L"));
 
         let cases: Vec<(CodeInstruction, &str)> = vec![
-            (move_register("x0", "x1"), "mov"),
-            (move_immediate("x0", "Integer", "3"), "mov_imm"),
-            (add_immediate("x0", "x1", 4), "add_imm"),
-            (subtract_immediate("x0", "x1", 4), "sub_imm"),
-            (add_registers("x0", "x1", "x2"), "add"),
-            (add_registers_set_flags("x0", "x1", "x2"), "adds"),
-            (subtract_registers("x0", "x1", "x2"), "sub"),
-            (subtract_registers_set_flags("x0", "x1", "x2"), "subs"),
-            (and_registers("x0", "x1", "x2"), "and"),
-            (or_registers("x0", "x1", "x2"), "orr"),
-            (exclusive_or_registers("x0", "x1", "x2"), "eor"),
-            (bitwise_not("x0", "x1"), "mvn"),
-            (multiply_registers("x0", "x1", "x2"), "mul"),
-            (signed_multiply_high_registers("x0", "x1", "x2"), "smulh"),
-            (unsigned_multiply_high_registers("x0", "x1", "x2"), "umulh"),
-            (add_carry("x0", "x1", "x2", "x3", "xzr"), "add_carry"),
-            (rotate_right_registers("x0", "x1", "x2"), "rorv"),
-            (rotate_right_word_registers("x0", "x1", "x2"), "rorv_w"),
-            (shift_left_variable("x0", "x1", "x2"), "lslv"),
-            (shift_right_variable("x0", "x1", "x2"), "lsrv"),
-            (arithmetic_shift_right_variable("x0", "x1", "x2"), "asrv"),
-            (count_leading_zeros("x0", "x1"), "clz"),
-            (reverse_bits("x0", "x1"), "rbit"),
-            (reverse_bytes_word("x0", "x1"), "rev_w"),
-            (reverse_bytes("x0", "x1"), "rev_x"),
-            (signed_divide_registers("x0", "x1", "x2"), "sdiv"),
-            (unsigned_divide_registers("x0", "x1", "x2"), "udiv"),
-            (multiply_subtract_registers("x0", "x1", "x2", "x3"), "msub"),
-            (shift_left_immediate("x0", "x1", 3), "lsl_imm"),
-            (shift_right_immediate("x0", "x1", 3), "lsr_imm"),
-            (arithmetic_shift_right_immediate("x0", "x1", 3), "asr_imm"),
+            (move_register(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "mov"),
+            (move_immediate(crate::target::shared::abi::Reg::test_named("x0"), "Integer", "3"), "mov_imm"),
+            (add_immediate(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 4), "add_imm"),
+            (subtract_immediate(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 4), "sub_imm"),
+            (add_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "add"),
+            (add_registers_set_flags(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "adds"),
+            (subtract_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "sub"),
+            (subtract_registers_set_flags(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "subs"),
+            (and_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "and"),
+            (or_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "orr"),
+            (exclusive_or_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "eor"),
+            (bitwise_not(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "mvn"),
+            (multiply_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "mul"),
+            (signed_multiply_high_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "smulh"),
+            (unsigned_multiply_high_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "umulh"),
+            (add_carry(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2"), crate::target::shared::abi::Reg::test_named("x3"), crate::target::shared::abi::Reg::test_named("xzr")), "add_carry"),
+            (rotate_right_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "rorv"),
+            (rotate_right_word_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "rorv_w"),
+            (shift_left_variable(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "lslv"),
+            (shift_right_variable(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "lsrv"),
+            (arithmetic_shift_right_variable(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "asrv"),
+            (count_leading_zeros(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "clz"),
+            (reverse_bits(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "rbit"),
+            (reverse_bytes_word(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "rev_w"),
+            (reverse_bytes(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "rev_x"),
+            (signed_divide_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "sdiv"),
+            (unsigned_divide_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2")), "udiv"),
+            (multiply_subtract_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), crate::target::shared::abi::Reg::test_named("x2"), crate::target::shared::abi::Reg::test_named("x3")), "msub"),
+            (shift_left_immediate(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 3), "lsl_imm"),
+            (shift_right_immediate(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 3), "lsr_imm"),
+            (arithmetic_shift_right_immediate(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 3), "asr_imm"),
             (subtract_stack(16), "sub_sp"),
             (add_stack(16), "add_sp"),
-            (compare_immediate("x0", "1"), "cmp_imm"),
-            (compare_registers("x0", "x1"), "cmp"),
+            (compare_immediate(crate::target::shared::abi::Reg::test_named("x0"), "1"), "cmp_imm"),
+            (compare_registers(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1")), "cmp"),
             (branch_eq("L"), "b.eq"),
             (branch_ne("L"), "b.ne"),
             (branch_ge("L"), "b.ge"),
@@ -2150,39 +2166,39 @@ mod tests {
             (branch_ls("L"), "b.ls"),
             (branch("L"), "b"),
             (branch_link("f"), "bl"),
-            (branch_link_register("x0"), "blr"),
+            (branch_link_register(crate::target::shared::abi::Reg::test_named("x0")), "blr"),
             (branch_self(), "branch_self"),
             (syscall(), "svc"),
             (return_(), "ret"),
-            (load_u64("x0", "x1", 8), "ldr_u64"),
-            (load_u32("x0", "x1", 4), "ldr_u32"),
-            (load_u16("x0", "x1", 2), "ldr_u16"),
-            (load_u8("x0", "x1", 1), "ldr_u8"),
-            (store_u64("x0", "x1", 8), "str_u64"),
-            (store_u32("x0", "x1", 4), "str_u32"),
-            (store_u8("x0", "x1", 1), "str_u8"),
-            (load_double("d0", "x1", 8), "ldr_d"),
-            (store_double("d0", "x1", 8), "str_d"),
-            (load_page_address("x0", "g"), "adrp"),
-            (add_page_offset("x0", "x0", "g"), "add_pageoff"),
-            (float_move_x_from_d("x0", "d1"), "fmov_x_from_d"),
-            (float_move_d_from_x("d0", "x1"), "fmov_d_from_x"),
-            (float_move_d_from_d("d0", "d1"), "fmov_d_from_d"),
-            (float_add_d("d0", "d1", "d2"), "fadd_d"),
-            (float_subtract_d("d0", "d1", "d2"), "fsub_d"),
-            (float_multiply_d("d0", "d1", "d2"), "fmul_d"),
-            (float_divide_d("d0", "d1", "d2"), "fdiv_d"),
-            (float_negate_d("d0", "d1"), "fneg_d"),
-            (float_sqrt_d("d0", "d1"), "fsqrt_d"),
-            (float_abs_d("d0", "d1"), "fabs_d"),
-            (float_compare_d("d0", "d1"), "fcmp_d"),
-            (float_compare_zero_d("d0"), "fcmp_zero_d"),
-            (signed_convert_to_float_d("d0", "x1"), "scvtf_d_from_x"),
-            (float_convert_to_signed_x("x0", "d1"), "fcvtzs_x_from_d"),
-            (float_floor_to_signed_x("x0", "d1"), "fcvtms_x_from_d"),
-            (float_ceil_to_signed_x("x0", "d1"), "fcvtps_x_from_d"),
-            (float_round_to_signed_x("x0", "d1"), "fcvtas_x_from_d"),
-            (float_multiply_add_d("d0", "d1", "d2", "d3"), "fmadd_d"),
+            (load_u64(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 8), "ldr_u64"),
+            (load_u32(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 4), "ldr_u32"),
+            (load_u16(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 2), "ldr_u16"),
+            (load_u8(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 1), "ldr_u8"),
+            (store_u64(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 8), "str_u64"),
+            (store_u32(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 4), "str_u32"),
+            (store_u8(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x1"), 1), "str_u8"),
+            (load_double(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("x1"), 8), "ldr_d"),
+            (store_double(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("x1"), 8), "str_d"),
+            (load_page_address(crate::target::shared::abi::Reg::test_named("x0"), "g"), "adrp"),
+            (add_page_offset(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("x0"), "g"), "add_pageoff"),
+            (float_move_x_from_d(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("d1")), "fmov_x_from_d"),
+            (float_move_d_from_x(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("x1")), "fmov_d_from_x"),
+            (float_move_d_from_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1")), "fmov_d_from_d"),
+            (float_add_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1"), crate::target::shared::abi::Reg::test_named("d2")), "fadd_d"),
+            (float_subtract_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1"), crate::target::shared::abi::Reg::test_named("d2")), "fsub_d"),
+            (float_multiply_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1"), crate::target::shared::abi::Reg::test_named("d2")), "fmul_d"),
+            (float_divide_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1"), crate::target::shared::abi::Reg::test_named("d2")), "fdiv_d"),
+            (float_negate_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1")), "fneg_d"),
+            (float_sqrt_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1")), "fsqrt_d"),
+            (float_abs_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1")), "fabs_d"),
+            (float_compare_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1")), "fcmp_d"),
+            (float_compare_zero_d(crate::target::shared::abi::Reg::test_named("d0")), "fcmp_zero_d"),
+            (signed_convert_to_float_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("x1")), "scvtf_d_from_x"),
+            (float_convert_to_signed_x(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("d1")), "fcvtzs_x_from_d"),
+            (float_floor_to_signed_x(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("d1")), "fcvtms_x_from_d"),
+            (float_ceil_to_signed_x(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("d1")), "fcvtps_x_from_d"),
+            (float_round_to_signed_x(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("d1")), "fcvtas_x_from_d"),
+            (float_multiply_add_d(crate::target::shared::abi::Reg::test_named("d0"), crate::target::shared::abi::Reg::test_named("d1"), crate::target::shared::abi::Reg::test_named("d2"), crate::target::shared::abi::Reg::test_named("d3")), "fmadd_d"),
         ];
         for (inst, mnemonic) in cases {
             assert_eq!(inst.op.mnemonic(), mnemonic);
@@ -2192,19 +2208,19 @@ mod tests {
     #[test]
     fn vector_constructors() {
         // Loads/stores and the macro-generated three-same/two-misc/shift builders.
-        assert_eq!(vector_load("v0", "x1", 16).op.mnemonic(), "ldr_q");
-        assert_eq!(vector_store("v0", "x1", 16).op.mnemonic(), "str_q");
-        assert_eq!(vector_fadd("v0", "v1", "v2").op.mnemonic(), "fadd_v");
-        assert_eq!(vector_bit("v0", "v1", "v2").op.mnemonic(), "bit_v");
-        assert_eq!(vector_fabs("v0", "v1").op.mnemonic(), "fabs_v");
-        assert_eq!(vector_fcmle_zero("v0", "v1").op.mnemonic(), "fcmle_zero_v");
-        assert_eq!(vector_shl("v0", "v1", 3).op.mnemonic(), "shl_v");
-        assert_eq!(vector_sshr("v0", "v1", 3).op.mnemonic(), "sshr_v");
-        assert_eq!(vector_ushr("v0", "v1", 3).op.mnemonic(), "ushr_v");
-        let dup = vector_dup_from_x("v0", "x1");
+        assert_eq!(vector_load(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("x1"), 16).op.mnemonic(), "ldr_q");
+        assert_eq!(vector_store(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("x1"), 16).op.mnemonic(), "str_q");
+        assert_eq!(vector_fadd(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1"), crate::target::shared::abi::Reg::test_named("v2")).op.mnemonic(), "fadd_v");
+        assert_eq!(vector_bit(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1"), crate::target::shared::abi::Reg::test_named("v2")).op.mnemonic(), "bit_v");
+        assert_eq!(vector_fabs(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1")).op.mnemonic(), "fabs_v");
+        assert_eq!(vector_fcmle_zero(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1")).op.mnemonic(), "fcmle_zero_v");
+        assert_eq!(vector_shl(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1"), 3).op.mnemonic(), "shl_v");
+        assert_eq!(vector_sshr(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1"), 3).op.mnemonic(), "sshr_v");
+        assert_eq!(vector_ushr(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("v1"), 3).op.mnemonic(), "ushr_v");
+        let dup = vector_dup_from_x(crate::target::shared::abi::Reg::test_named("v0"), crate::target::shared::abi::Reg::test_named("x1"));
         assert_eq!(dup.op.mnemonic(), "dup_v_from_x");
         assert_eq!(get(&dup, "src").as_deref(), Some("x1"));
-        let ext = vector_extract_to_x("x0", "v1", 1);
+        let ext = vector_extract_to_x(crate::target::shared::abi::Reg::test_named("x0"), crate::target::shared::abi::Reg::test_named("v1"), 1);
         assert_eq!(ext.op.mnemonic(), "umov_x_from_v");
         assert_eq!(get(&ext, "index").as_deref(), Some("1"));
     }

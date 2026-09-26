@@ -10,7 +10,6 @@
 use super::*;
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::mir;
-use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 struct TlsReadTestPlatform;
@@ -20,7 +19,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [&str; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
+    fn emit_apply_raw_mode(&self, _b: crate::target::shared::abi::Reg, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [crate::target::shared::abi::Reg; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,
     _from: &str,
@@ -69,7 +68,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_stat") }
-    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
+    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: crate::target::shared::abi::Reg, _mk: crate::target::shared::abi::Reg, _e: crate::target::shared::abi::Reg, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
     fn emit_current_directory(
     &self,
     _from: &str,
@@ -95,7 +94,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn emit_errno(
     &self,
     _from: &str,
-    _dst: Operand,
+    _dst: crate::target::shared::abi::Reg,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
@@ -219,7 +218,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_closedir") }
-    fn emit_read_dir_entry(&self, _p: &str, _np: &str, _nl: &str, _b: &str, _s: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
+    fn emit_read_dir_entry(&self, _p: &str, _np: crate::target::shared::abi::Reg, _nl: crate::target::shared::abi::Reg, _b: crate::target::shared::abi::Reg, _s: crate::target::shared::abi::Reg, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
     fn emit_realpath(
     &self,
     _from: &str,
@@ -229,7 +228,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_realpath") }
     fn emit_arena_map(
     &self,
-    _size_reg: &str,
+    _size_reg: crate::target::shared::abi::Reg,
     _instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_map") }
     fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
@@ -249,7 +248,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn socket_would_block_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_would_block_code") }
     fn socket_message_size_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_message_size_code") }
     fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: &str, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: crate::target::shared::abi::Reg, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
     fn emit_variadic_external_call(
     &self,
