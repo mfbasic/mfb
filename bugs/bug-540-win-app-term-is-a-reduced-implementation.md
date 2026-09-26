@@ -5,12 +5,13 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **WIN-01, WIN-04 and WIN-05 are fixed; WIN-02 and WIN-03 remain,
-unblocked 2026-09-25** (owner approved the scripted `term::` resize hook; the terminal
-must work the same on every target)
-Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (five cases, covering
-WIN-01, WIN-04 and WIN-05), the `term::` style/reset case and the `term::drawText`
-cluster case in `scripts/test-winapp.sh` (box 2230). Nothing yet covers WIN-02/03.
+Status: Open — **all five sub-issues fixed on `worktree-B-540` (WIN-02/WIN-03
+landed 2026-09-25, runtime-verified headless on box 2230)**; the full-suite gate,
+golden regeneration and `Commit:` lines are the coordinator's
+Regression Test: `tests/cli/cli_win_app_term_fidelity.rs` (nine cases: WIN-01,
+WIN-04, WIN-05, and four for WIN-02/03), the `term::` style/reset case, the
+`term::drawText` cluster case and the `term::` resize case in `scripts/test-winapp.sh`
+(box 2230).
 
 **Windows smoke run, 2026-09-12 (the run owed since WIN-04 landed in round 3):**
 `bash scripts/test-winapp.sh` with the round-4 main binary on box 2230 exited **0**.
@@ -405,16 +406,16 @@ Commit: —
       parks that ordinal as its FIRST store, because the clipping helpers below it
       use ARG[0..2] as scratch.
 - [x] WIN-05: `emit_term_on` resets all seven shared term-state fields.
-- [ ] **WIN-02 prerequisite (new):** a scripted `term::` resize hook on the
+- [x] **WIN-02 prerequisite (new):** a scripted `term::` resize hook on the
       headless Windows path, the twin of `MFB_CANVAS_RESIZE_W`/`_H`. Without it
       WIN-02 is unfalsifiable on the only box that can execute it.
-- [ ] WIN-02: make the surface dynamic — writable cols/rows globals seeded at
+- [x] WIN-02: make the surface dynamic — writable cols/rows globals seeded at
       `term::on` and updated on `WM_SIZE`; convert every `TUI_COLS`/`TUI_ROWS`
       immediate, including the `win_clip_span`/`win_guard_on_grid` bounds. Note
       the backing bitmap does not have to be recreated on every resize: allocating
       it once at a generous maximum and treating cols/rows as the *logical*
       surface avoids a UI-thread/worker race over the memDC's bitmap entirely.
-- [ ] WIN-03: latch a resize flag in the `WM_SIZE` handler; add the
+- [x] WIN-03: latch a resize flag in the `WM_SIZE` handler; add the
       `"term.didResize"` arm that reads and clears it.
 - [x] WIN-04: `emit_app_io_write`'s grid walk is now `emit_win_term_cluster_walk`,
       specialized at emit time by `WinTermWriteMode::{Write, DrawText}` (the
@@ -482,6 +483,143 @@ cell a cluster lands in — the GDI grid has no readback.
 Acceptance: met for WIN-01 and WIN-05.
 Commit: —
 
+### WIN-02 / WIN-03 landed (2026-09-25)
+
+**What changed** (`src/target/win_x86_64/app/mod.rs`, `mouse.rs`):
+
+* **Scripted hook.** `MFB_WINAPP_TERM_RESIZE_W`/`_H` (client pixels, what `WM_SIZE`
+  delivers). On the headless path `_main` waits until `term::on` has built the memDC
+  (`WaitForSingleObject(worker, 20)` poll, so a program that never enters TUI mode
+  ends the wait by exiting) and calls the SAME handler `WM_SIZE` calls,
+  `emit_term_resize` (`_mfb_winapp_term_resize`).
+* **WIN-02.** `TUI_COLS`/`TUI_ROWS` are gone
+  (`grep -n 'TUI_COLS\|TUI_ROWS' src/target/win_x86_64/app/*.rs` → no output). The
+  size is two writable globals (`GRID_COLS_SYM`/`GRID_ROWS_SYM`, initial 80x25 = the
+  headless default); every bound reads them through `GridAxis` /
+  `emit_win_grid_last`: the line/box/fill clips, drawText/drawGlyph guards, moveTo's
+  clamp, the walk's right clip and wrap, the mouse cell range check, and
+  `terminalSize`. The bitmap is allocated once at `TUI_MAX_COLS`x`TUI_MAX_ROWS`
+  (480x135 cells = 3840x2160 px) and never recreated (the doc's suggestion); the
+  globals are the logical surface, clamped `1..=max`. `WM_PAINT` blits the whole
+  bitmap; everything outside the live surface is kept black (on/clear blank all of
+  it, a resize blanks right of / below the old∩new overlap). `WM_SIZE` updates the
+  size in **every** mode, and the `WM_SIZE` `CreateWindowExW` sends before the worker
+  exists is what seeds a windowed run — so the UI thread is the only writer and
+  `term::on` does not re-measure (a second writer would race it).
+* **WIN-03 — a counter pair, not a flag (deviation, on purpose).** The resize is
+  recorded on the UI thread and read on the worker, so a shared read-and-clear flag
+  loses a resize landing between the load and the store — exactly why
+  `canvas::didResize` is a counter pair (`.ai/canvas-threading.md`). The handler
+  bumps `TUI_RESIZES_SYM` (only once a memDC exists, so nothing is reported before
+  the first `term::on`); the new `"term.didResize"` arm (`emit_term_did_resize`)
+  compares it with `TUI_RESIZES_SEEN_SYM` and records what it reported. `term::on`
+  acknowledges pending resizes **as its first act, before it publishes the memDC** —
+  acknowledging last swallowed a resize landing in between (measured on 2230:
+  `resized=FALSE` with `after=120x30`; fixed by the reorder, then 3/3 runs GREEN).
+* **Found and fixed with it (same code path, same "same on every target" rule):**
+  the `io::write` grid path never scrolled (text past the bottom was stamped below
+  the surface — with a max-sized bitmap that would now become visible on a grow),
+  wrapped eagerly where the console wraps lazily, and `io::print` did not end its
+  line on the grid (`newline` was ignored on that path). The Write walk now follows
+  the console grid writer's order (lazy wrap, wide-at-edge wrap, scroll at the
+  bottom; `\n` and the print tail scroll too). The scroll is an out-of-line helper
+  (`emit_term_scroll`): inline, `BitBlt`'s five stack args grew the `io::write`
+  frame and moved the walk's finalized slot offsets, which broke WIN-04's
+  instruction-identity test — caught by that test, fixed by moving it out of line.
+
+**RED** (baseline release binary of this worktree's base `4ef538bb9`, saved as
+`/tmp/b540-mfb-base`):
+`MFB_TEST_EXE=/tmp/b540-mfb-base cargo test --release --no-fail-fast --test cli_win_app_term_fidelity`
+→ 4 passed / 5 failed: the four new tests
+(`…terminal_size_reads_the_live_surface_size`: "found immediates [\"80\", \"25\"]";
+`…every_grid_bound_follows_the_live_size`; `…did_resize_reads_the_windows_surface_record`:
+"must not read the console arena term-state flag";
+`…window_and_scripted_resize_share_one_term_handler`) plus the corrected
+`row_guard` line (below). Runtime, box 2230, new section of `scripts/test-winapp.sh`
+with the baseline: `before=80x25;resized=FALSE;again=FALSE;after=80x25;…` with the
+hook set — 3 FAILs (didResize, size, off/on).
+
+**GREEN** (fixed binary): same cargo command → 9 passed, 0 failed;
+`cargo test --release --bin mfb win_x86_64` → 44 passed (4 new: the handler's frame
+≡ 8 mod 16 and publish/count order, the scroll helper's frame and stack-arg
+offsets, the WM_SIZE/scripted-hook shared call, the 80x25 headless initial data;
+`every_wndproc` now also spans `uses_term`, so the nonvolatile-bank test covers the
+new arm); `cargo test --release --bin mfb spec` → pass. **Box 2230, full
+`scripts/test-winapp.sh`** (run from a copy using remote dir `C:\b540w`) → exit 0,
+every case ok, including
+`before=120x30;resized=TRUE;again=FALSE;after=120x30;afteron=FALSE;kept=120x30`
+(with hook; 960x480 px → 120x30) and
+`before=80x25;resized=FALSE;again=FALSE;after=80x25;afteron=FALSE;kept=80x25`
+(without). The resize program draws, wraps and scrolls at the far edges of the new
+surface and exits 0. `before=` is deliberately not asserted: the resize can land
+before the first read.
+
+**Test line corrected (4-point proof).** `windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_controls`'s
+`row_guard` matched `mov_imm "24"`. (1) written in `98c80c348` (WIN-04);
+(2) it protects "drawText draws nothing for a row > rows-1"; (3) nothing else
+greps it; (4) `24` is the fixed surface's `rows-1`, which the owner's 2026-09-25
+ruling and this bug's Goal remove — its own message says `rows-1`. Only that
+pattern changed (now: load the rows global, `sub 1`, `cmp`, `b.gt dt_done`); the
+behaviour asserted is unchanged.
+
+**Goldens expected to shift** (measured: fresh `-ncode` sha256 vs the golden, base
+binary SAME / fixed binary DIFF for all five; not regenerated):
+`tests/syntax/app/{macos-app-mode-term,macos-app-mode-io,macos-app-mode-plumbing,app-window-surface,app-mouse-surface}/golden/*.windows-x86_64.app.ncodesum`.
+`macos-app-mode-term` shifts in code; the others shift at least because the new
+data objects (size globals, counter pair, two env names) are emitted
+unconditionally like the existing TUI globals; `app-mouse-surface` also because the
+mouse cell range check now reads the live size. No non-Windows golden should move
+(only `win_x86_64/app/**` changed in code).
+
+**Live windowed resize — verified (2026-09-25).** New `scripts/test-winapp.sh` case:
+a `--debug` windowed build (no `MFB_WINAPP_HEADLESS`; session 0 has an invisible
+desktop), resized by a PowerShell `SetWindowPos(900x560)` driver launched from the
+same `.bat` (same window station). Box 2230, 3/3 runs:
+`driver: setwindowpos=True client=884x749 cells=110x46`, transcript read back via
+`MFB_WINAPP_DUMP` exactly `live before=48x16;resized=TRUE;after=110x46\r\nFALSE\r\n`.
+`before=48x16` is the default 400x300 window's client (384x261) — the size seeded
+by the `WM_SIZE` `CreateWindowExW` sends. (Driver trap: PowerShell passes `$null` to a
+`string` parameter as `""`, so `FindWindowW(class, $null)` found nothing; it takes
+`[NullString]::Value`.) Still unobservable: which cell a glyph lands in.
+
+**Found while verifying: windowed `term::` + `io::print` "never exits" — fixed.**
+Reported first as a hang (a windowed `io::print(toString(term::isOn()))` outlived
+45–120 s watchdogs on 2230, base and fixed binaries alike). Measured, not guessed:
+it is not a hang but a ~75 s stall (timed runs 72 s / 86 s; the same program
+without `term::` 7–9 s). A full minidump of the stalled process (`MiniDumpWriteDump`
+via PowerShell `Add-Type`, stacks walked from the dump's thread/memory streams):
+the UI thread is inside the EDIT control laying text out
+(`NtGdiGetTextExtentExW` under `ScriptShape`/`ScriptStringAnalyse`), the worker is
+blocked in `SendMessageW(edit, EM_REPLACESEL=0xC2, 0, wbuf)`, and `wbuf` holds
+`"FALSE"` followed by garbage for **32767** UTF-16 units. Disassembly of the
+transcript write after `MultiByteToWideChar`: `andq %rdx, %rcx` — the NUL offset is
+computed from `rcx`, the aligned MFB return register (`abi::return_register()`),
+which a Win32 call leaves undefined; the count is in `rax` (`abi::c_return(0)`,
+`.ai/arch-abi.md`, bug-452/478 family). Garbage ≥ 32767 clamps, so the EDIT gets 32 K
+units of arena bytes; how long that takes depends on what the arena held, which is
+why the term-free program happened to be fast. `_main` had the same read twice:
+the surviving EDIT HWND copy after `CreateWindowExW` (so a `Console` restore would
+re-route io to garbage) and the `MFB_WINAPP_INPUT` count after
+`GetEnvironmentVariableW`. All three now read `c_return(0)`.
+
+RED/GREEN:
+* `windows_app_mode_reads_win32_results_from_the_c_return_register` (cli test): for
+  every `bl` to a Win32 import in `_main`, the io write body and every
+  `_mfb_winapp_*`/`_mfb_rt_term_*` body, no volatile argument register
+  (`rcx`/`rdx`/`r8`/`r9`) may be read before it is written. RED before the fix —
+  exactly the three sites: `_main: str_u64 reads rcx after bl CreateWindowExW`,
+  `_main: str_u64/cmp_imm reads rcx after bl GetEnvironmentVariableW`,
+  `io::write: and reads rcx after bl MultiByteToWideChar`. GREEN after:
+  `cargo test --release --no-fail-fast --test cli_win_app_term_fidelity` → 10/10.
+* Box 2230, the windowed case: before the fix the readback was
+  `live before=48x16;resized=TRUE;after=110x46` + garbage (FAIL); after it, the exact
+  two lines (3/3). Full `scripts/test-winapp.sh` (remote dir `C:\b540w`) → exit 0,
+  46 `ok`, 0 FAIL. `cargo test --release --bin mfb win_x86_64` → 44/44.
+
+Goldens: the same five Windows app `.ncodesum` listed above still differ (re-measured
+with the final binary); the `c_return` fix moves `_main` and the io write body in
+all of them. Not regenerated.
+
 ### Phase 3 — regenerate expected outputs + full validation
 
 - [x] Regenerated the goldens outside `tests/byte-identity/` (with the script since merged into
@@ -497,6 +635,18 @@ Commit: —
       The spec's coverage table now reads "yes, per `LineStyle`/`FillStyle`" in the
       Windows column for those three rows, and its Windows section records both
       the table-driven selection and the `term::on` reset.
+- [x] WIN-02/03 docs (2026-09-25): the Windows `terminalSize`/`didResize`
+      disclosures are deleted — the `mfb man term` overview gap paragraph and the
+      paragraphs in `func_terminal_size.rs`/`func_did_resize.rs`; rendered with
+      `mfb man term`, `mfb man term terminalSize`, `mfb man term didResize` (no
+      Windows/80x25 text left). The spec's coverage table now reads "live client size
+      (`WM_SIZE`)" / "reports a client resize (counter pair)", and its Windows section
+      documents the live surface, the backing maximum, the handler, the counter pair,
+      the headless hook and the write path's scroll. `cargo test --release --bin mfb spec`
+      passes.
+- [ ] WIN-02/03 full suite (coordinator): `cargo test --release --no-fail-fast`,
+      `scripts/test-accept.sh`, `scripts/artifact-gate.sh all` + regenerate the five
+      Windows app `.ncodesum` listed above.
 - [x] `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`,
       `scripts/artifact-gate.sh all`, `scripts/man-census.sh --fill term`.
 - [x] Re-ran on 2230. A live window resize is still not runnable there — see the

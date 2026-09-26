@@ -27,8 +27,15 @@
 //!   against THAT walk rather than against macOS: the fix emits the io::write walk
 //!   a second time, so the fold must be the same instructions in both bodies.
 //!
-//! WIN-02 (fixed 80x25 surface) and WIN-03 (`didResize` always `FALSE`) are NOT
-//! closed here; see the bug.
+//! * **WIN-02** the surface was a compile-time 80x25: `term::terminalSize` stored
+//!   the literals and every clamp said column 79 / row 24, whatever the window.
+//! * **WIN-03** `term::didResize` had no Windows arm and fell through to the
+//!   console body, whose arena flag nothing on Windows ever sets.
+//!
+//!   Both are asserted structurally here — the size is READ, every bound is read
+//!   from the same place, and a resize from either the window or the scripted hook
+//!   reaches it — and at run time by `scripts/test-winapp.sh` on box 2230, which
+//!   drives `MFB_WINAPP_TERM_RESIZE_W`/`_H` and checks the reported size.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -61,7 +68,23 @@ const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n 
      term::off()\nEND SUB\n";
 
 fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Value> {
-    let project = temp_project(name, TERM_SOURCE);
+    functions_of(&app_ncode_plan(name, target, TERM_SOURCE))
+}
+
+fn functions_of(plan: &Value) -> serde_json::Map<String, Value> {
+    let mut map = serde_json::Map::new();
+    for function in plan["functions"].as_array().expect("functions array") {
+        map.insert(
+            function["symbol"].as_str().expect("symbol").to_string(),
+            function["instructions"].clone(),
+        );
+    }
+    map
+}
+
+/// The whole `-ncode` plan of `source` built `-app` for `target`.
+fn app_ncode_plan(name: &str, target: &str, source: &str) -> Value {
+    let project = temp_project(name, source);
     let mut command = Command::new(common::mfb_exe());
     // `-target` on BOTH sides, always. Omitting it for the macOS oracle asked for
     // the HOST backend, which is macOS only on a developer Mac: on the Linux CI
@@ -84,15 +107,7 @@ fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Valu
     );
     let text = fs::read_to_string(Path::new(&project).join(format!("{name}.ncode")))
         .expect("read the native code plan");
-    let plan: Value = serde_json::from_str(&text).expect("ncode is JSON");
-    let mut map = serde_json::Map::new();
-    for function in plan["functions"].as_array().expect("functions array") {
-        map.insert(
-            function["symbol"].as_str().expect("symbol").to_string(),
-            function["instructions"].clone(),
-        );
-    }
-    map
+    serde_json::from_str(&text).expect("ncode is JSON")
 }
 
 fn body<'a>(functions: &'a serde_json::Map<String, Value>, symbol: &str) -> &'a [Value] {
@@ -105,8 +120,8 @@ fn body<'a>(functions: &'a serde_json::Map<String, Value>, symbol: &str) -> &'a 
 
 /// Every immediate in a body that falls in the box-drawing / block-element range
 /// `U+2500..U+259F` — i.e. exactly the `TERM_*_CODEPOINTS` entries, and nothing a
-/// coordinate, colour or count could be confused with (the largest grid bound this
-/// backend emits is 79).
+/// coordinate, colour or count could be confused with (the largest size immediate
+/// this backend emits is the 3840-pixel backing bitmap width).
 fn glyph_immediates(instructions: &[Value]) -> std::collections::BTreeSet<u32> {
     instructions
         .iter()
@@ -396,15 +411,367 @@ fn windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_control
         "term::drawText must test for a control character (< U+0020) before stamping — the \
          documented contract skips them, and TextOutW draws whatever the font maps a C0 unit to"
     );
-    let row_guard = draw_text.windows(3).any(|w| {
-        w[0]["op"] == "mov_imm"
-            && w[0]["value"] == "24"
-            && w[1]["op"] == "cmp"
-            && w[2]["op"] == "b.gt"
-            && w[2]["target"] == "dt_done"
+    // `rows-1` is read from the live surface (bug-540 WIN-02) — this matched the
+    // fixed surface's literal `24` until the surface stopped being 80x25.
+    let row_guard = draw_text.windows(5).any(|w| {
+        w[0]["op"] == "adrp"
+            && w[1]["op"] == "ldr_u64"
+            && w[2]["op"] == "sub_imm"
+            && w[2]["imm"] == "1"
+            && w[3]["op"] == "cmp"
+            && w[4]["op"] == "b.gt"
+            && w[4]["target"] == "dt_done"
     });
     assert!(
         row_guard,
         "term::drawText must draw nothing for a row off the surface (row > rows-1)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// bug-540 WIN-02 / WIN-03: the surface follows the window.
+// ---------------------------------------------------------------------------
+
+/// [`TERM_SOURCE`]'s members plus every member whose answer or bound is the
+/// surface size: `terminalSize`, `didResize`, `moveTo` and an `io::write` that runs
+/// the grid walk while TUI mode is on (and `isOn`, which locates the arena
+/// term-state base, as [`fields_base`] does).
+const RESIZE_SOURCE: &str = "IMPORT io\nIMPORT term\n\nSUB main()\n  \
+     term::on()\n  \
+     LET size AS term::TermSize = term::terminalSize()\n  \
+     term::moveTo(size.rows - 1, size.columns - 1)\n  \
+     term::drawHLine(term::LineStyle.Double, 5, 1, 12)\n  \
+     term::drawVLine(term::LineStyle.HeavyDash, 6, 3, 10)\n  \
+     term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)\n  \
+     term::fillRect(term::FillStyle.Dark, 8, 4, 10, 16)\n  \
+     term::drawText(9, 6, \"app\")\n  \
+     term::drawGlyph(10, 7, 9731)\n  \
+     io::write(\"grid\")\n  \
+     io::print(toString(term::didResize()) & toString(term::isOn()))\n  \
+     term::sync()\n  \
+     term::off()\nEND SUB\n";
+
+fn resize_ncode_functions(name: &str) -> serde_json::Map<String, Value> {
+    functions_of(&app_ncode_plan(name, "windows-x86_64", RESIZE_SOURCE))
+}
+
+/// The data symbols a body addresses (`adrp`), in order.
+fn addressed(instructions: &[Value]) -> Vec<String> {
+    instructions
+        .iter()
+        .filter(|instruction| instruction["op"] == "adrp")
+        .filter_map(|instruction| instruction["symbol"].as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The backend-owned (`_mfb_winapp_*`) data symbols `term::terminalSize` reads its
+/// answer from. Derived from the member rather than restated, like `slot_of`.
+fn size_symbols(functions: &serde_json::Map<String, Value>) -> Vec<String> {
+    addressed(body(functions, "_mfb_rt_term_term_terminalSize"))
+        .into_iter()
+        .filter(|symbol| symbol.starts_with("_mfb_winapp_"))
+        .collect()
+}
+
+/// bug-540 WIN-02. `term::terminalSize` stored the literals `80` and `25` into the
+/// record, so it reported 80x25 however large the window was. It must READ the
+/// surface size — two backend globals, columns then rows — and store no literal.
+#[test]
+fn windows_app_mode_terminal_size_reads_the_live_surface_size() {
+    let windows = resize_ncode_functions("win_app_term_size_live");
+    let size = body(&windows, "_mfb_rt_term_term_terminalSize");
+    let literals: Vec<&str> = size
+        .iter()
+        .filter(|instruction| instruction["op"] == "mov_imm")
+        .filter_map(|instruction| instruction["value"].as_str())
+        .filter(|value| matches!(*value, "80" | "25"))
+        .collect();
+    assert!(
+        literals.is_empty(),
+        "term::terminalSize must not report the compile-time 80x25 (found immediates \
+         {literals:?}) — the surface follows the window (bug-540 WIN-02)"
+    );
+    let symbols = size_symbols(&windows);
+    assert_eq!(
+        symbols.len(),
+        2,
+        "term::terminalSize must read the columns and the rows from the backend's live \
+         surface-size globals; it addresses {symbols:?} (bug-540 WIN-02)"
+    );
+}
+
+/// bug-540 WIN-02, the half a partial conversion fails: every bound on the surface
+/// must come from the SAME live size `term::terminalSize` reports. A clamp still
+/// saying 79 while the surface is 120 wide silently truncates, and no run-time
+/// check on the box can see which cell a glyph landed in — so this is where that
+/// is pinned. `79`/`24` were the old last column/row; neither may survive as an
+/// immediate in any body that bounds a coordinate.
+#[test]
+fn windows_app_mode_every_grid_bound_follows_the_live_size() {
+    let windows = resize_ncode_functions("win_app_term_bounds_live");
+    let symbols = size_symbols(&windows);
+    assert_eq!(
+        symbols.len(),
+        2,
+        "the size globals, from term::terminalSize"
+    );
+    let mut bodies: Vec<(String, &[Value])> = [
+        "drawHLine",
+        "drawVLine",
+        "drawBox",
+        "fillRect",
+        "drawText",
+        "drawGlyph",
+        "moveTo",
+    ]
+    .iter()
+    .map(|member| {
+        let symbol = format!("_mfb_rt_term_term_{member}");
+        let instructions = body(&windows, &symbol);
+        (symbol, instructions)
+    })
+    .collect();
+    bodies.push((
+        "io::write grid path".to_string(),
+        io_write_grid_body(&windows),
+    ));
+    for (name, instructions) in bodies {
+        // A bound may live one call down in a backend helper (`io::write`'s scroll
+        // is out of line), so the backend callees' reads count as the body's.
+        let mut reads = addressed(instructions);
+        for callee in instructions
+            .iter()
+            .filter(|instruction| instruction["op"] == "bl")
+            .filter_map(|instruction| instruction["target"].as_str())
+            .filter(|target| target.starts_with("_mfb_winapp_"))
+        {
+            if let Some(callee_body) = windows.get(callee).and_then(Value::as_array) {
+                reads.extend(addressed(callee_body));
+            }
+        }
+        for symbol in &symbols {
+            assert!(
+                reads.contains(symbol),
+                "{name} must bound its coordinates by the live surface size ({symbol}), \
+                 not a compile-time constant (bug-540 WIN-02)"
+            );
+        }
+        let stale: Vec<&str> = instructions
+            .iter()
+            .filter(|instruction| matches!(instruction["op"].as_str(), Some("mov_imm")))
+            .filter_map(|instruction| instruction["value"].as_str())
+            .chain(
+                instructions
+                    .iter()
+                    .filter(|instruction| instruction["op"] == "cmp_imm")
+                    .filter_map(|instruction| instruction["rhs"].as_str()),
+            )
+            .filter(|value| matches!(*value, "79" | "24"))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "{name} still bounds against the fixed 80x25 surface's last column/row \
+             ({stale:?}) — a partial conversion silently truncates (bug-540 WIN-02)"
+        );
+    }
+}
+
+/// bug-540 WIN-03. `term::didResize` had no Windows arm: it fell through to the
+/// console body, which reads-and-clears the arena term-state flag that only the
+/// console present ever latches — so it always read FALSE. The Windows arm must
+/// read the resize the backend records on its own surface state (the macOS
+/// `TV_DID_RESIZE` shape) and acknowledge it, never the console arena slot.
+#[test]
+fn windows_app_mode_did_resize_reads_the_windows_surface_record() {
+    let windows = resize_ncode_functions("win_app_term_did_resize");
+    let did_resize = body(&windows, "_mfb_rt_term_term_didResize");
+    let arena = fields_base(&windows);
+    assert!(
+        !did_resize.iter().any(|instruction| {
+            instruction["op"] == "ldr_u64" && instruction["base"].as_str() == Some(arena.as_str())
+        }),
+        "term::didResize must not read the console arena term-state flag: nothing on \
+         Windows latches it, so it always reads FALSE (bug-540 WIN-03)"
+    );
+    let reads: Vec<String> = addressed(did_resize)
+        .into_iter()
+        .filter(|symbol| symbol.starts_with("_mfb_winapp_"))
+        .collect();
+    assert!(
+        !reads.is_empty(),
+        "term::didResize must read the resize the Windows backend records (bug-540 WIN-03)"
+    );
+    assert!(
+        did_resize
+            .iter()
+            .any(|instruction| instruction["op"] == "str_u64"),
+        "term::didResize must acknowledge what it reports — reading it clears it"
+    );
+}
+
+/// The UTF-16LE, NUL-terminated string a `-ncode` data object holds, if it is one.
+fn utf16_value(object: &Value) -> Option<String> {
+    let hex = object["value"].as_str()?;
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok())
+        .collect::<Option<_>>()?;
+    let units: Vec<u16> = bytes
+        .chunks(2)
+        .map(|pair| u16::from_le_bytes([pair[0], *pair.get(1).unwrap_or(&0)]))
+        .take_while(|unit| *unit != 0)
+        .collect();
+    String::from_utf16(&units).ok()
+}
+
+/// bug-540 WIN-02/WIN-03, the resize SOURCES. A window resize arrives as `WM_SIZE`
+/// on the UI thread, and headless box runs have no window, so the scripted hook
+/// (`MFB_WINAPP_TERM_RESIZE_W`/`_H`, the twin of `MFB_CANVAS_RESIZE_W`/`_H`) must
+/// drive the SAME handler from `_main` — otherwise the run on box 2230 would prove
+/// a stand-in rather than the production path. And that handler must be what
+/// updates the size `term::terminalSize` reads.
+#[test]
+fn windows_app_mode_window_and_scripted_resize_share_one_term_handler() {
+    let plan = app_ncode_plan("win_app_term_resize_paths", "windows-x86_64", RESIZE_SOURCE);
+    let windows = functions_of(&plan);
+    let calls = |symbol: &str| -> Vec<String> {
+        body(&windows, symbol)
+            .iter()
+            .filter(|instruction| instruction["op"] == "bl")
+            .filter_map(|instruction| instruction["target"].as_str())
+            .map(str::to_string)
+            .collect()
+    };
+    let wndproc_calls = calls("_mfb_winapp_wndproc");
+    let main_calls = calls("_main");
+    let shared: Vec<&String> = wndproc_calls
+        .iter()
+        .filter(|target| target.starts_with("_mfb_winapp_") && main_calls.contains(target))
+        .collect();
+    assert!(
+        !shared.is_empty(),
+        "WM_SIZE (in the window procedure) and the headless scripted resize (in _main) \
+         must call one shared term:: resize handler (bug-540 WIN-02)"
+    );
+    let size = size_symbols(&windows);
+    assert!(
+        shared.iter().any(|handler| {
+            windows.contains_key(handler.as_str()) && {
+                let reads = addressed(body(&windows, handler));
+                size.iter().all(|symbol| reads.contains(symbol))
+            }
+        }),
+        "the shared resize handler must update the size term::terminalSize reports \
+         ({size:?}) (bug-540 WIN-02)"
+    );
+    // The scripted hook's two variable names are data the bootstrap reads.
+    let names: Vec<(String, String)> = plan["dataObjects"]
+        .as_array()
+        .expect("dataObjects")
+        .iter()
+        .filter_map(|object| Some((object["symbol"].as_str()?.to_string(), utf16_value(object)?)))
+        .collect();
+    let main_reads = addressed(body(&windows, "_main"));
+    for variable in ["MFB_WINAPP_TERM_RESIZE_W", "MFB_WINAPP_TERM_RESIZE_H"] {
+        let symbol = names
+            .iter()
+            .find(|(_, value)| value == variable)
+            .map(|(symbol, _)| symbol.clone())
+            .unwrap_or_else(|| {
+                panic!(
+                    "no data object names {variable}: the scripted term:: resize hook \
+                     does not exist (bug-540 WIN-02 prerequisite)"
+                )
+            });
+        assert!(
+            main_reads.contains(&symbol),
+            "_main must read {variable} on the headless path"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bug-540 (found while verifying WIN-02 windowed): Win32 results are read from
+// the C return register.
+// ---------------------------------------------------------------------------
+
+/// The Win64 volatile argument registers. After a call into a Win32 DLL none of
+/// them holds anything the caller can use until it writes it again — the result is
+/// in `rax` (`abi::c_return(0)`), and the aligned MFB return register
+/// (`abi::return_register()`) realizes to `rcx`.
+const WIN64_VOLATILE_ARGS: [&str; 4] = ["rcx", "rdx", "r8", "r9"];
+
+/// For each `bl` to a Win32 import, the first instruction after it (before the next
+/// call, label or branch) that READS a volatile argument register the call left
+/// undefined. Every read field counts: a store's `src` and `base`, an ALU op's
+/// `lhs`/`rhs`, a load's `base`, a move's `src`.
+fn reads_of_clobbered_args(instructions: &[Value]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (at, call) in instructions.iter().enumerate() {
+        let Some(target) = call["target"].as_str() else {
+            continue;
+        };
+        if call["op"] != "bl" || target.starts_with("_mfb") {
+            continue;
+        }
+        let mut written: Vec<String> = Vec::new();
+        for next in &instructions[at + 1..] {
+            let op = next["op"].as_str().unwrap_or("");
+            if op == "bl" || op == "label" || op == "b" || op.starts_with("b.") || op == "ret" {
+                break;
+            }
+            for field in ["src", "base", "lhs", "rhs"] {
+                if let Some(register) = next[field].as_str() {
+                    if WIN64_VOLATILE_ARGS.contains(&register)
+                        && !written.iter().any(|w| w == register)
+                    {
+                        found.push(format!("{op} reads {register} after bl {target}"));
+                    }
+                }
+            }
+            if let Some(dst) = next["dst"].as_str() {
+                written.push(dst.to_string());
+            }
+        }
+    }
+    found
+}
+
+/// The transcript write reads `MultiByteToWideChar`'s count to place the NUL. It
+/// read `rcx` — the aligned MFB return register, which a Win32 call leaves holding
+/// garbage — instead of `rax`, so the count clamped to 32767 and the EDIT received
+/// the text plus ~32K units of arena garbage. Measured on box 2230: a windowed
+/// `io::print("FALSE")` handed `EM_REPLACESEL` 32767 units ("FALSE" + garbage), and
+/// the UI thread spent ~75 s laying it out before the program could exit. `_main`
+/// had the same read twice: the surviving copy of the EDIT's HWND after
+/// `CreateWindowExW`, and the `MFB_WINAPP_INPUT` length after
+/// `GetEnvironmentVariableW`.
+#[test]
+fn windows_app_mode_reads_win32_results_from_the_c_return_register() {
+    let windows = resize_ncode_functions("win_app_c_return");
+    let mut bodies: Vec<(String, &[Value])> = vec![
+        ("_main".to_string(), body(&windows, "_main")),
+        ("io::write".to_string(), io_write_grid_body(&windows)),
+    ];
+    for (symbol, instructions) in &windows {
+        if symbol.starts_with("_mfb_winapp_") || symbol.starts_with("_mfb_rt_term_") {
+            bodies.push((
+                symbol.clone(),
+                instructions.as_array().expect("instructions"),
+            ));
+        }
+    }
+    let mut violations = Vec::new();
+    for (name, instructions) in bodies {
+        for read in reads_of_clobbered_args(instructions) {
+            violations.push(format!("{name}: {read}"));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "a Win32 call's result is in rax (abi::c_return(0)); these read a volatile \
+         argument register the call left undefined:\n  {}",
+        violations.join("\n  ")
     );
 }
