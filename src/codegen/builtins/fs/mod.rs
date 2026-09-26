@@ -133,7 +133,8 @@ second `fs::close` raises `ErrResourceClosed`. A `File` that has been closed —
 explicitly or when its binding ends — cannot be used again: a use the compiler
 can see is rejected at compile time, and one it cannot see raises
 `ErrResourceClosed`. A `File` may be handed to another thread with
-`thread::transfer`.
+`thread::transfer`; a use of it afterwards that the compiler cannot see raises
+`ErrResourceMoved`.
 
 Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;

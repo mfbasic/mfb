@@ -27,6 +27,7 @@ pub(crate) fn lower_tls_read(
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer");
     let context_expired = format!("{symbol}_context_expired");
@@ -46,8 +47,13 @@ pub(crate) fn lower_tls_read(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         // bug-414: reject maxBytes <= 0 with ErrInvalidArgument, matching the
         // OpenSSL backend (openssl.rs). A closed resource takes precedence
         // (checked above), as it does on OpenSSL. Without this, maxBytes == 0 ran
@@ -400,6 +406,8 @@ pub(crate) fn lower_tls_read(
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&timed_out));
@@ -436,6 +444,7 @@ pub(crate) fn lower_tls_close(
     const FRAME_SIZE: usize = 0x100;
 
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let done = format!("{symbol}_done");
     let no_tok = format!("{symbol}_notok");
     let skip_free = format!("{symbol}_skip_free");
@@ -445,8 +454,13 @@ pub(crate) fn lower_tls_close(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64(&v9, abi::stack_pointer(), STATE),
         abi::load_u64(&v10, abi::return_register(), TLS_OFFSET_FD),
@@ -566,6 +580,8 @@ pub(crate) fn lower_tls_close(
     // costs nothing: lexical cleanup discards a close failure (§15), so the
     // "close once, or let the scope do it" idiom is unaffected.
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&already_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME_SIZE))
 }
@@ -589,6 +605,7 @@ pub(crate) fn lower_tls_poll(
     const FRAME_SIZE: usize = 48;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let ready = format!("{symbol}_ready");
     let not_ready = format!("{symbol}_not_ready");
@@ -602,8 +619,13 @@ pub(crate) fn lower_tls_poll(
     ins.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         // Buffered decrypted plaintext? STATE ptr is at record[16] (schannel repurposes
         // the SSL slot; the read helper loads it from the same literal offset);
         // LEFT_LEN is the undelivered plaintext byte count.
@@ -667,6 +689,8 @@ pub(crate) fn lower_tls_poll(
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME_SIZE))
 }

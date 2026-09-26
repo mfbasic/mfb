@@ -659,7 +659,8 @@ pub(crate) fn emit_call_in_block_arena(
 /// plan-156-C: a `thread::*` op receives a thread VIEW in `c_arg(0)` — the parent's
 /// `Thread` or the worker's `ThreadWorker` resource record — not the control block.
 /// Branch to `closed` when the view's `RESOURCE_OFFSET_CLOSED` word is set (a dropped
-/// view, or the closed default an inline `TRAP` binds); otherwise replace `c_arg(0)`
+/// view, or the closed default an inline `TRAP` binds) — to its moved twin when the
+/// word carries the moved bit (bug-702); otherwise replace `c_arg(0)`
 /// with the control block the view names (`RESOURCE_OFFSET_HANDLE`), so the op's body
 /// works on the block. Emitted first, before the op reads any argument. `closed` is
 /// emitted by [`emit_view_closed_exit`]. `scratch` is a vreg the caller minted
@@ -676,26 +677,45 @@ pub(crate) fn emit_control_block_of(
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(closed),
         abi::load_u64(scratch, abi::c_arg(0), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate(scratch, "0"),
-        abi::branch_ne(closed),
-        abi::load_u64(abi::c_arg(0), abi::c_arg(0), RESOURCE_OFFSET_HANDLE),
     ]);
+    // bug-702: a `Thread` handed to another thread with `thread::transfer` is
+    // moved, not closed, and reports so.
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        scratch,
+        closed,
+        &view_moved_label(closed),
+    ));
+    instructions.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::c_arg(0),
+        RESOURCE_OFFSET_HANDLE,
+    ));
 }
 
-/// The `closed` exit of [`emit_control_block_of`]: return `ErrResourceClosed` with no
-/// origin (the one op that returns an origin, `waitFor`, returns a worker's).
+/// The moved-view label paired with [`emit_control_block_of`]'s `closed` label.
+fn view_moved_label(closed: &str) -> String {
+    format!("{closed}_moved")
+}
+
+/// The `closed` and moved exits of [`emit_control_block_of`]: return
+/// `ErrResourceClosed` or `ErrResourceMoved` with no origin (the one op that returns an origin, `waitFor`, returns a worker's).
 pub(crate) fn emit_view_closed_exit(
     symbol: &str,
     closed: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    instructions.push(abi::label(closed));
-    raise_error_into(symbol, "ErrResourceClosed", instructions, relocations);
-    instructions.extend([
-        abi::move_immediate(RESULT_ERROR_SOURCE_REGISTER, "Integer", "0"),
-        abi::return_(),
-    ]);
+    for (label, error) in [
+        (closed.to_string(), "ErrResourceClosed"),
+        (view_moved_label(closed), "ErrResourceMoved"),
+    ] {
+        instructions.push(abi::label(&label));
+        raise_error_into(symbol, error, instructions, relocations);
+        instructions.extend([
+            abi::move_immediate(RESULT_ERROR_SOURCE_REGISTER, "Integer", "0"),
+            abi::return_(),
+        ]);
+    }
 }
 
 /// `_mfb_rt_thread_block_arena_destroy(state)`: unmap the block arena's chunks

@@ -59,7 +59,8 @@ a blocking host file write, so a worker that needs prompt cancellation around a
 blocking descriptor should check `thread::isCancelled` between operations.
 
 `ErrWriteFailed` means the host write failed — including a handle opened only
-for reading — and `ErrResourceClosed` that `file` has been closed. With
+for reading — `ErrResourceClosed` that `file` has been closed, and
+`ErrResourceMoved` that it was handed to another thread with `thread::transfer`. With
 buffering enabled a failed write can surface later instead, from the
 `fs::writeAllBytes`, `fs::flush` or `fs::close` that drains the buffer."#;
 const EX: &str = r#"Write raw bytes to an open file:
@@ -121,6 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             errors: vec![
                 "ErrWriteFailed",
                 "ErrResourceClosed",
+            "ErrResourceMoved",
             ],
             body: Body::abi_function(lower_fs_write_all_bytes),
         }],

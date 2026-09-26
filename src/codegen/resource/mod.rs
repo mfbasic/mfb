@@ -186,5 +186,34 @@ pub(crate) fn builtin_resource_live_slots(
     }
 }
 
+/// The guard every operation on a built-in resource handle opens with (bug-702):
+/// read the handle's flag word (already loaded into `flag`) and refuse a closed
+/// handle by branching to `closed`, a moved one by branching to `moved`.
+///
+/// The word is a flag set (`RESOURCE_CLOSED_BIT`, `RESOURCE_MOVED_BIT`; the rest
+/// spare and zero): `1` is closed-and-not-moved, `0` is open, and every other
+/// value has the moved bit set (`thread::transfer` stores `moved|closed`). So two
+/// equality tests split the three states with only the flag register — the value
+/// is not needed after the guard, and the two tails raise `ErrResourceClosed` and
+/// `ErrResourceMoved`. Testing `== closed-only` first is what keeps a moved
+/// handle from being reported as "already closed": it belongs to another thread.
+pub(crate) fn closed_or_moved_guard(
+    flag: impl Into<crate::target::shared::abi::Reg>,
+    closed: &str,
+    moved: &str,
+) -> [crate::codegen::engine::types::CodeInstruction; 4] {
+    use crate::codegen::error::constants::{RESOURCE_CLOSED_BIT, RESOURCE_MOVED_BIT};
+    use crate::target::shared::abi;
+    const CLOSED_ONLY: u64 = 1 << RESOURCE_CLOSED_BIT;
+    const _: () = assert!(CLOSED_ONLY & (1 << RESOURCE_MOVED_BIT) == 0);
+    let flag = flag.into();
+    [
+        abi::compare_immediate(flag, &CLOSED_ONLY.to_string()),
+        abi::branch_eq(closed),
+        abi::compare_immediate(flag, "0"),
+        abi::branch_ne(moved),
+    ]
+}
+
 #[cfg(test)]
 mod tests;

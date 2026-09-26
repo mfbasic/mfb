@@ -55,6 +55,7 @@ pub(crate) fn lower_tls_address_macos(
     const ABLOCK: usize = 120; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let load_fail = format!("{symbol}_load_fail");
     let query_fail = format!("{symbol}_query_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -73,8 +74,13 @@ pub(crate) fn lower_tls_address_macos(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_HANDLE),
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
         // Nothing retained yet; the failure tails release conditionally.
@@ -274,6 +280,8 @@ pub(crate) fn lower_tls_address_macos(
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
@@ -328,6 +336,7 @@ pub(crate) fn lower_tls_listener_address_macos(
     const ABLOCK: usize = 96; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let load_fail = format!("{symbol}_load_fail");
     let query_fail = format!("{symbol}_query_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -343,8 +352,13 @@ pub(crate) fn lower_tls_listener_address_macos(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_HANDLE),
         abi::store_u64(&v9, abi::stack_pointer(), LISTENER),
         // The bound host, parked by `tls::listen`. A null here would mean a
@@ -428,6 +442,8 @@ pub(crate) fn lower_tls_listener_address_macos(
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);

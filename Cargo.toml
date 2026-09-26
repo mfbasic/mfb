@@ -739,6 +739,10 @@ name = "rt_fs_closed_handle_guards"
 path = "tests/runtime/rt_fs_closed_handle_guards.rs"
 
 [[test]]
+name = "rt_moved_handle_guards"
+path = "tests/runtime/rt_moved_handle_guards.rs"
+
+[[test]]
 name = "rt_fs_create_directories_existing_entry"
 path = "tests/runtime/rt_fs_create_directories_existing_entry.rs"
 

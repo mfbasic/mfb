@@ -124,12 +124,20 @@ const PROPAGATING: &[(&str, Propagating)] = &[
 ];
 
 /// Codes a callee can raise that the named caller provably never reaches, and why.
-const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[(
-    "readBytes",
-    "ErrResourceClosed",
-    "readBytes hands readAllBytes the File record it just opened, with \
-     FILE_OFFSET_CLOSED stored as 0, so the closed-handle check cannot fire",
-)];
+const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
+    (
+        "readBytes",
+        "ErrResourceClosed",
+        "readBytes hands readAllBytes the File record it just opened, with \
+         FILE_OFFSET_CLOSED stored as 0, so the closed-handle check cannot fire",
+    ),
+    (
+        "readBytes",
+        "ErrResourceMoved",
+        "the same fresh record: its flag word is 0, so the moved-handle check \
+         (bug-702) cannot fire either",
+    ),
+];
 
 /// Error codes by numeric value (`"77030001"` -> `"ErrPathNotFound"`).
 fn codes_by_value() -> BTreeMap<&'static str, &'static str> {
