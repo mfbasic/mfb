@@ -251,3 +251,54 @@ fn map_compact_in_place_marks_then_compacts_and_union_reserves_once() {
         "`union` removes nothing: {stems:?}"
     );
 }
+
+/// bug-732: `removeAt` on an entry list shifts the entries after the index and
+/// nothing else — no data-region move and no fix-up walk over every entry (which
+/// made removing near the end O(count)). The removed payload is retracted over
+/// when it is the data tail, else left as dead bytes.
+#[test]
+fn remove_at_on_an_entry_list_moves_only_the_later_entries() {
+    let stems = label_stems(&program(
+        "String",
+        "[\"a\", \"bb\", \"ccc\", \"dddd\"]",
+        "",
+        "x = collections::removeAt(x, 1)",
+    ));
+    assert!(
+        stems.contains("remove_inplace_hole"),
+        "`removeAt` on a List OF String must test for the data tail: {stems:?}"
+    );
+    for label in ["remove_inplace_fix_loop", "remove_inplace_d_wloop"] {
+        assert!(
+            !stems.contains(label),
+            "`removeAt` on a List OF String must not move the data or fix up every \
+             entry (`{label}`): {stems:?}"
+        );
+    }
+}
+
+/// bug-732: a grow of an entry list's data region first totals the live bytes and
+/// reclaims the dead ones an in-place removal left, when they outnumber the live
+/// ones; a fixed-width list has no dead bytes, so its grow is unchanged.
+#[test]
+fn an_entry_list_grow_reclaims_dead_bytes_and_a_fixed_width_grow_does_not() {
+    for (element, init, item) in [("String", "[\"a\"]", "\"b\""), ("Integer", "[1]", "2")] {
+        for statement in [
+            format!("x = collections::append(x, {item})"),
+            format!("x = collections::insert(x, 0, {item})"),
+            format!("x = collections::prepend(x, {item})"),
+            format!("x = collections::append(x, [{item}, {item}])"),
+        ] {
+            let stems = label_stems(&program(element, init, "", &statement));
+            let reclaims = ["list_reclaim_walk", "set_repack_copy_loop"]
+                .iter()
+                .all(|label| stems.contains(*label));
+            assert_eq!(
+                reclaims,
+                element == "String",
+                "`{statement}` on a List OF {element}: the grow must reclaim dead bytes \
+                 exactly when the list has an entry table: {stems:?}"
+            );
+        }
+    }
+}

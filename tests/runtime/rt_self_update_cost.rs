@@ -237,6 +237,15 @@ UNION Node
   Text
 END UNION
 
+TYPE Holder
+  tag AS Integer
+  xs AS List OF String
+END TYPE
+
+'GLOBAL-BEGIN
+MUT gList AS List OF String = []
+'GLOBAL-END
+
 FUNC el(name AS String) AS Node
   RETURN Element[name := name, children := [Text[value := name & "-kid"]]]
 END FUNC
@@ -563,7 +572,42 @@ SUB stringsWin()
   io::print("grow " & toString(len(g)) & " <" & strings::right(g, 6) & ">")
 END SUB
 
+SUB fields()
+  MUT h AS Holder = Holder[tag := 1, xs := ["s1", "s2", "s3", "s4"]]
+  FOR i = 1 TO 200
+    h = WITH h { xs := collections::insert(h.xs, len(h.xs) - 1, "i" & toString(i)) }
+    h = WITH h { xs := collections::take(h.xs, len(h.xs) - 1) }
+  NEXT
+  io::print("f insert-take " & toString(h.tag) & " " & showS(h.xs))
+  FOR i = 1 TO 200
+    h = WITH h { xs := collections::append(h.xs, "a" & toString(i)) }
+    h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 2) }
+  NEXT
+  io::print("f append-removeAt " & showS(h.xs))
+  FOR i = 1 TO 100
+    h = WITH h { xs := collections::append(h.xs, ["b" & toString(i), "c" & toString(i)]) }
+    h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
+    h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
+  NEXT
+  io::print("f bulk-removeAt " & showS(h.xs))
+END SUB
+
+'GLOBAL-BEGIN
+SUB globals()
+  gList = ["g1", "g2", "g3"]
+  FOR i = 1 TO 200
+    gList = collections::insert(gList, len(gList) - 1, "j" & toString(i))
+    gList = collections::take(gList, len(gList) - 1)
+    gList = collections::prepend(gList, "p" & toString(i))
+    gList = collections::removeAt(gList, 1)
+  NEXT
+  io::print("g churn " & showS(gList))
+END SUB
+'GLOBAL-END
+
 SUB main()
+  fields()
+  globals() 'GLOBAL-CALL
   removeAtStrings()
   removeAtNodes()
   truncations()
@@ -574,6 +618,10 @@ END SUB
 "#;
 
 const VALUE_OUTPUT: &str = "\
+f insert-take 1 [s1 s2 s3 i200]
+f append-removeAt [s1 s2 s3 a200]
+f bulk-removeAt [s1 s2 b100 c100]
+g churn [p200 g2 j200]
 ra last [a bb ccc dddd eeeee]
 ra mid [a bb dddd eeeee]
 ra first [bb dddd eeeee]
@@ -631,7 +679,8 @@ grow 60 <ababab>
 
 /// A fixed-size list that keeps losing a payload that is not the data tail while
 /// gaining a new one: `insert` before the last element then pop it, or `append`
-/// then remove the element before it.
+/// then remove the element before it — in a local, in a record field (the grow
+/// reallocates the record) and in a module-level global.
 const CHURN_PROGRAM: &str = r#"IMPORT io
 IMPORT os
 IMPORT collections
@@ -666,6 +715,34 @@ FUNC churnRemoveAt(n AS Integer) AS String
   RETURN toString(len(x)) & " " & collections::get(x, len(x) - 1)
 END FUNC
 
+TYPE Holder
+  tag AS Integer
+  xs AS List OF String
+END TYPE
+
+MUT gList AS List OF String = []
+
+FUNC churnField(n AS Integer) AS String
+  MUT h AS Holder = Holder[tag := 7, xs := seed()]
+  FOR i = 1 TO n
+    h = WITH h { xs := collections::insert(h.xs, len(h.xs) - 1, item(i)) }
+    h = WITH h { xs := collections::take(h.xs, len(h.xs) - 1) }
+    h = WITH h { xs := collections::append(h.xs, [item(i), item(i + 1)]) }
+    h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
+    h = WITH h { xs := collections::removeAt(h.xs, len(h.xs) - 3) }
+  NEXT
+  RETURN toString(len(h.xs)) & " " & collections::get(h.xs, len(h.xs) - 1)
+END FUNC
+
+FUNC churnGlobal(n AS Integer) AS String
+  gList = seed()
+  FOR i = 1 TO n
+    gList = collections::append(gList, item(i))
+    gList = collections::removeAt(gList, len(gList) - 2)
+  NEXT
+  RETURN toString(len(gList)) & " " & collections::get(gList, len(gList) - 1)
+END FUNC
+
 FUNC main AS Integer
   LET args = os::args()
   LET shape = collections::get(args, 0)
@@ -675,6 +752,10 @@ FUNC main AS Integer
     r = churnInsertPop(n)
   ELSEIF shape = "removeAt" THEN
     r = churnRemoveAt(n)
+  ELSEIF shape = "field" THEN
+    r = churnField(n)
+  ELSEIF shape = "global" THEN
+    r = churnGlobal(n)
   END IF
   io::print(shape & " " & r)
   RETURN 0
@@ -853,6 +934,29 @@ fn removals_and_windows_keep_value_semantics() {
     let _ = std::fs::remove_dir_all(&project);
 }
 
+/// The value program without its module-level global: the text between each
+/// `'GLOBAL-BEGIN` / `'GLOBAL-END` pair, and the line calling `globals()`.
+fn without_globals(program: &str) -> String {
+    let mut out = String::new();
+    let mut cutting = false;
+    for line in program.lines() {
+        match line {
+            "'GLOBAL-BEGIN" => cutting = true,
+            "'GLOBAL-END" => cutting = false,
+            _ if cutting || line.ends_with("'GLOBAL-CALL") => {}
+            _ => {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    assert!(
+        !out.contains("gList"),
+        "the leak variant must drop the global churn"
+    );
+    out
+}
+
 fn counter(stderr: &str, key: &str) -> u64 {
     stderr
         .lines()
@@ -863,13 +967,21 @@ fn counter(stderr: &str, key: &str) -> u64 {
 
 /// Built with `--debug`, the value program frees every block exactly once: each
 /// removed graph-owning element (a `List OF Node` element, a `Map OF String TO
-/// Node` value) is freed, and no reclaimed or repacked block leaks.
+/// Node` value) is freed, and no reclaimed or repacked block leaks. The
+/// module-level global's churn is left out: a global still holds its last value
+/// at exit, which the report counts as live.
 #[test]
 fn removals_free_every_removed_element_once() {
-    let project = common::temp_project("b732_leaks", VALUE_PROGRAM);
+    let source = without_globals(VALUE_PROGRAM);
+    let expected: String = VALUE_OUTPUT
+        .lines()
+        .filter(|line| !line.starts_with("g churn "))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let project = common::temp_project("b732_leaks", &source);
     let exe = common::debug_report::build_debug_project("b732_leaks", &project);
     let (stdout, stderr) = common::debug_report::run_ok("b732_leaks", &exe);
-    assert_eq!(stdout, VALUE_OUTPUT, "the --debug build changed the output");
+    assert_eq!(stdout, expected, "the --debug build changed the output");
     let allocs = counter(&stderr, "arena.0.alloc_calls ");
     let frees = counter(&stderr, "arena.0.free_calls ");
     let live = counter(&stderr, "arena.0.live_bytes ");
@@ -891,7 +1003,7 @@ fn removals_free_every_removed_element_once() {
 fn a_churning_list_does_not_grow_without_bound() {
     let project = common::temp_project("b732_churn", CHURN_PROGRAM);
     let exe = common::debug_report::build_debug_project("b732_churn", &project);
-    for shape in ["insertPop", "removeAt"] {
+    for shape in ["insertPop", "removeAt", "field", "global"] {
         let peak = |n: u64| {
             let output = Command::new(&exe)
                 .args([shape, &n.to_string()])
