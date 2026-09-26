@@ -29,6 +29,7 @@ use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 /// Longest accepted `XDG_DOCUMENTS_DIR` value, and the size of the two value
 /// buffers (the line being read, and the last valid one).
@@ -287,7 +288,7 @@ pub(crate) fn emit_linux_user_dirs_documents(
         abi::compare_registers(&byte, &expect),
         abi::branch_ne(&to_skip),
         abi::add_immediate(&idx, &idx, 1),
-        abi::compare_immediate(&idx, KEY.len().to_string()),
+        abi::compare_immediate(&idx, &KEY.len().to_string()),
         abi::branch_ne(&next_byte),
         abi::move_immediate(&state, "Integer", "2"),
         abi::branch(&next_byte),
@@ -335,7 +336,7 @@ pub(crate) fn emit_linux_user_dirs_documents(
         abi::compare_registers(&byte, &expect),
         abi::branch_ne(&to_skip),
         abi::add_immediate(&idx, &idx, 1),
-        abi::compare_immediate(&idx, DOLLAR_HOME.len().to_string()),
+        abi::compare_immediate(&idx, &DOLLAR_HOME.len().to_string()),
         abi::branch_ne(&next_byte),
         abi::label(&dollar_done),
         abi::move_immediate(&relative, "Integer", "1"),
@@ -349,7 +350,7 @@ pub(crate) fn emit_linux_user_dirs_documents(
         abi::compare_immediate(&byte, "10"),
         abi::branch_eq(&line_end),
         abi::label(&append),
-        abi::compare_immediate(&work_len, VALUE_CAP.to_string()),
+        abi::compare_immediate(&work_len, &VALUE_CAP.to_string()),
         abi::branch_ge(&to_skip), // too long for a path: void the line
         abi::compare_immediate(&byte, "34"),
         abi::branch_ne(&quote_seen),
@@ -455,7 +456,7 @@ pub(crate) fn emit_linux_user_dirs_documents(
         // buffer (the file is closed; its path is no longer needed).
         abi::label(&relative_result),
         abi::add_registers(&at, &home.len, &best_len),
-        abi::compare_immediate(&at, (PATH_CAP - 1).to_string()),
+        abi::compare_immediate(&at, &(PATH_CAP - 1).to_string()),
         abi::branch_gt(fallback),
         abi::add_immediate(&path, abi::stack_pointer(), PATH_OFF),
         abi::move_register(&out, &path),
@@ -503,7 +504,8 @@ pub(crate) fn emit_linux_user_dirs_documents(
 }
 
 /// Store `bytes` at `out`, advancing it.
-fn store_bytes(bytes: &[u8], out: &str, scratch: &str, instructions: &mut Vec<CodeInstruction>) {
+fn store_bytes(bytes: &[u8], out: impl Into<Reg>, scratch: impl Into<Reg>, instructions: &mut Vec<CodeInstruction>) {
+    let (out, scratch): (Reg, Reg) = (out.into(), scratch.into());
     for &b in bytes {
         super::gen_shared::emit_store_byte_advance(b, out, scratch, instructions);
     }

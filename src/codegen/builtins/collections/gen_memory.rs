@@ -343,7 +343,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::list_of(element_type.clone()),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: if project_key {
                 format!("keys({})", collection.type_)
             } else {
@@ -653,7 +653,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: initial.type_,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!(
                 "{}({}, {}, {})",
                 if reverse { "reduceRight" } else { "reduce" },

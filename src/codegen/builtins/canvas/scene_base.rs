@@ -13,6 +13,7 @@
 //! `.ai/canvas-threading.md` §2 has the full account.
 
 use crate::codegen::engine::builder::*;
+use crate::target::shared::abi::Reg;
 use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::push_symbol_address;
@@ -50,8 +51,9 @@ pub(crate) fn emit_scene_store(
     builder: &mut CodeBuilder,
     scene: &VirtualRegister,
     offset: usize,
-    value: impl Into<crate::codegen::engine::operand::Operand>,
+    value: impl Into<Reg>,
 ) {
+    let value: Reg = value.into();
     if orders_scene_accesses(builder) {
         let at = builder.temporary_vreg();
         builder.emit(crate::target::shared::abi::add_immediate(

@@ -20,6 +20,7 @@ use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::codegen::os::socket::shared::{emit_accept_call, emit_socket_type_cloexec};
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -3195,7 +3196,8 @@ mod error_path_release_tests {
     use crate::codegen::engine::mir;
     use crate::codegen::engine::tests::{has_label, TestPlatform};
 
-    fn reloc_count(rel: &[CodeRelocation], needle: &str) -> usize {
+    fn reloc_count(rel: &[CodeRelocation], needle: impl Into<Reg>) -> usize {
+        let needle: Reg = needle.into();
         rel.iter().filter(|r| r.to.contains(needle)).count()
     }
 
@@ -3270,7 +3272,8 @@ mod error_path_release_tests {
     /// A whole-function reloc count cannot substitute: `connect` already frees
     /// SSL/SSL_CTX in `alloc_fail`, so only a windowed check proves `tls_fail`
     /// frees them too.
-    fn resolves_between(ins: &[CodeInstruction], start: &str, end: &str, name: &str) -> bool {
+    fn resolves_between(ins: &[CodeInstruction], start: impl Into<Reg>, end: &str, name: &str) -> bool {
+        let start: Reg = start.into();
         let at = |label: &str| {
             ins.iter()
                 .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(label))

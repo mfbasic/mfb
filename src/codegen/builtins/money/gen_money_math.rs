@@ -21,6 +21,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Round a truncated signed division toward the mode's half rule and write the
@@ -38,14 +39,13 @@ impl CodeBuilder<'_> {
     /// avoided (`|rem|` vs `|div| - |rem|`) so nothing overflows near i64::MAX.
     pub(crate) fn emit_apply_rounding(
         &mut self,
-        dst: impl Into<Operand>,
-        quotient: impl Into<Operand>,
-        remainder: impl Into<Operand>,
-        abs_divisor: impl Into<Operand>,
-        sign_neg: impl Into<Operand>,
+        dst: impl Into<Reg>,
+        quotient: impl Into<Reg>,
+        remainder: impl Into<Reg>,
+        abs_divisor: impl Into<Reg>,
+        sign_neg: impl Into<Reg>,
     ) -> Result<(), String> {
-        let dst = dst.into();
-        let quotient = quotient.into();
+        let (dst, quotient, remainder, abs_divisor, sign_neg): (Reg, Reg, Reg, Reg, Reg) = (dst.into(), quotient.into(), remainder.into(), abs_divisor.into(), sign_neg.into());
         let round_up = self.label("money_round_up");
         let round_down = self.label("money_round_down");
         let keep = self.label("money_round_keep");
@@ -104,16 +104,16 @@ impl CodeBuilder<'_> {
         op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
-        dst: impl Into<Operand>,
-    ) -> Result<String, String> {
+        dst: impl Into<Reg>,
+    ) -> Result<Reg, String> {
+        let dst: Reg = dst.into();
         let l_money = left.type_ == ParameterType::Money;
         let r_money = right.type_ == ParameterType::Money;
-        let dst = dst.into();
         match op {
             // `M ± M` and `M MOD M` are exact integer ops on the raw i64.
             BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Mod => {
                 self.emit_integer_binary(op, left, right, dst.clone(), false)?;
-                Ok(dst.render())
+                Ok(dst)
             }
             BinaryOp::Multiply => {
                 // Commutative: identify the Money operand and the scalar factor.
@@ -153,21 +153,21 @@ impl CodeBuilder<'_> {
         &mut self,
         money: &ValueResult,
         scalar: &ValueResult,
-        dst: impl Into<Operand>,
-    ) -> Result<String, String> {
-        let dst = dst.into();
+        dst: impl Into<Reg>,
+    ) -> Result<Reg, String> {
+        let dst: Reg = dst.into();
         match &scalar.type_ {
             // Exact integer scaling: `raw * k`, overflow-checked.
             ParameterType::Integer | ParameterType::Byte => {
                 self.emit_checked_integer_multiply(dst.clone(), &money.location, &scalar.location)?;
-                Ok(dst.render())
+                Ok(dst)
             }
             // Exact binary fixed-point scaling: `raw * fixed_raw / 2^32` is exactly
             // what `emit_fixed_multiply` computes when fed the Money raw as the
             // left operand and the Q32.32 raw as the right (plan-29-F §4.1).
             ParameterType::Fixed => {
                 self.emit_fixed_multiply(dst.clone(), &money.location, &scalar.location)?;
-                Ok(dst.render())
+                Ok(dst)
             }
             // Inexact floating scaling (plan-29-F §4.3).
             ParameterType::Float => {
@@ -185,9 +185,9 @@ impl CodeBuilder<'_> {
         &mut self,
         money: &ValueResult,
         scalar: &ValueResult,
-        dst: impl Into<Operand>,
-    ) -> Result<String, String> {
-        let dst = dst.into();
+        dst: impl Into<Reg>,
+    ) -> Result<Reg, String> {
+        let dst: Reg = dst.into();
         match &scalar.type_ {
             // `raw / k`, mode-rounded (plan-29-E §4.2). `k == 0` → ErrInvalidArgument.
             ParameterType::Integer | ParameterType::Byte => {
@@ -239,13 +239,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&not_min));
                 self.emit_apply_rounding(dst.clone(), &quotient, &remainder, &abs_div, &sign_neg)?;
                 self.emit(abi::label(&div_done));
-                Ok(dst.render())
+                Ok(dst)
             }
             // `raw * 2^32 / fixed_raw` is exactly `emit_fixed_divide(raw, fixed_raw)`
             // (plan-29-F §4.2); it guards `fixed_raw == 0` → ErrInvalidArgument.
             ParameterType::Fixed => {
                 self.emit_fixed_divide(dst.clone(), &money.location, &scalar.location)?;
-                Ok(dst.render())
+                Ok(dst)
             }
             ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, true),
             other => Err(format!(
@@ -261,14 +261,14 @@ impl CodeBuilder<'_> {
         &mut self,
         left: &ValueResult,
         right: &ValueResult,
-    ) -> Result<String, String> {
+    ) -> Result<Reg, String> {
         let da = self.allocate_fp_register();
         let db = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&da, &left.location));
         self.emit(abi::signed_convert_to_float_d(&db, &right.location));
         let result = self.allocate_fp_register();
         self.emit(abi::float_divide_d(&result, &da, &db));
-        Ok(result.render())
+        Ok(result.into())
     }
 
     /// `Money DIV scalar|Money → Float` (plan-29-E §4.5 / plan-29-F §4.4): forced
@@ -277,14 +277,14 @@ impl CodeBuilder<'_> {
         &mut self,
         left: &ValueResult,
         right: &ValueResult,
-    ) -> Result<String, String> {
+    ) -> Result<Reg, String> {
         let da = self.allocate_fp_register();
         let db = self.allocate_fp_register();
         self.load_numeric_as_double(&da, left)?;
         self.load_numeric_as_double(&db, right)?;
         let result = self.allocate_fp_register();
         self.emit(abi::float_divide_d(&result, &da, &db));
-        Ok(result.render())
+        Ok(result.into())
     }
 
     /// `Money * Float` / `Money / Float → Money` (plan-29-F §4.3). Because the
@@ -294,12 +294,12 @@ impl CodeBuilder<'_> {
     /// a zero divisor → ErrInvalidArgument; an out-of-range result → ErrOverflow.
     fn emit_money_scale_float(
         &mut self,
-        money_raw: impl Into<Operand>,
+        money_raw: impl Into<Reg>,
         scalar: &ValueResult,
-        dst: impl Into<Operand>,
+        dst: impl Into<Reg>,
         divide: bool,
-    ) -> Result<String, String> {
-        let dst = dst.into();
+    ) -> Result<Reg, String> {
+        let (money_raw, dst): (Reg, Reg) = (money_raw.into(), dst.into());
         let fval = self.allocate_fp_register();
         self.load_numeric_as_double(&fval, scalar)?;
         self.emit_float_finite_or_invalid(&fval)?;
@@ -319,15 +319,16 @@ impl CodeBuilder<'_> {
             self.emit(abi::float_multiply_d(&result, &money_d, &fval));
         }
         self.emit_round_double_to_money_raw(&result, dst.clone())?;
-        Ok(dst.render())
+        Ok(dst)
     }
 
     /// Fail with ErrInvalidFormat when the f64 in `value` is NaN or ±Inf (its
     /// biased exponent is all ones), mirroring `toFixed(Float)`'s guard.
     pub(crate) fn emit_float_finite_or_invalid(
         &mut self,
-        value: impl Into<Operand>,
+        value: impl Into<Reg>,
     ) -> Result<(), String> {
+        let value: Reg = value.into();
         let ok = self.label("money_finite_ok");
         let invalid = self.label("money_finite_invalid");
         let bits = self.allocate_register();
@@ -348,11 +349,10 @@ impl CodeBuilder<'_> {
     /// ErrOverflow.
     pub(crate) fn emit_round_double_to_money_raw(
         &mut self,
-        value: impl Into<Operand>,
-        dst: impl Into<Operand>,
+        value: impl Into<Reg>,
+        dst: impl Into<Reg>,
     ) -> Result<(), String> {
-        let value = value.into();
-        let dst = dst.into();
+        let (value, dst): (Reg, Reg) = (value.into(), dst.into());
         let overflow = self.label("money_round_overflow");
         let range_ok = self.label("money_round_range_ok");
         let round_away = self.label("money_round_f_away");
@@ -436,13 +436,13 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_parse_decimal_string_to_money_raw(
         &mut self,
-        source_register: impl Into<Operand>,
-        dst: impl Into<Operand>,
+        source_register: impl Into<Reg>,
+        dst: impl Into<Reg>,
         invalid_label: &str,
         overflow_label: &str,
         scientific_label: &str,
     ) -> Result<(), String> {
-        let dst = dst.into();
+        let (source_register, dst): (Reg, Reg) = (source_register.into(), dst.into());
         let string = self.temporary_vreg();
         let length = self.temporary_vreg();
         let cursor = self.temporary_vreg();
@@ -638,11 +638,10 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_money_rounding_to_integer(
         &mut self,
         function: &str,
-        raw: impl Into<Operand>,
-        dst: impl Into<Operand>,
+        raw: impl Into<Reg>,
+        dst: impl Into<Reg>,
     ) -> Result<(), String> {
-        let dst = dst.into();
-        let raw = raw.into();
+        let (raw, dst): (Reg, Reg) = (raw.into(), dst.into());
         let scale = self.allocate_register();
         let quotient = self.allocate_register();
         let remainder = self.allocate_register();

@@ -6,6 +6,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 /// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
 /// materialized directly into a fresh arena `String` (length header + bytes +

@@ -3,12 +3,14 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 /// One PCG64 step `state = state * MULT + INC` (128-bit), over virtual registers.
 /// `lo`/`hi` are the caller's state vregs (read and rewritten in place); all
 /// scratch is freshly generated. The increment is added with explicit-carry
 /// `add_carry` (the carry is a vreg value, not the flags register — plan-00-G §4),
 /// so the chain survives register allocation.
-fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, vregs: &mut Vregs, lo: &str, hi: &str) {
+fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, vregs: &mut Vregs, lo: impl Into<Reg>, hi: impl Into<Reg>) {
+    let (lo, hi): (Reg, Reg) = (lo.into(), hi.into());
     let mult_lo = vregs.next();
     let prod_lo = vregs.next();
     let prod_hi = vregs.next();

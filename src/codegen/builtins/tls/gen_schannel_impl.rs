@@ -185,8 +185,8 @@ fn socket_connect(
 fn send_all(
     symbol: &str,
     fd_off: usize,
-    buf: &str,
-    len: &str,
+    buf: impl Into<Reg>,
+    len: impl Into<Reg>,
     tag: &str,
     fail: &str,
     imports: &HashMap<String, String>,
@@ -194,6 +194,7 @@ fn send_all(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
  vregs: &mut Vregs) -> Result<(), String> {
+    let (buf, len): (Reg, Reg) = (buf.into(), len.into());
     let v6 = vregs.next();
     let v7 = vregs.next();
     let loop_l = format!("{symbol}_{tag}_send");
@@ -227,7 +228,8 @@ fn send_all(
 // A SecBufferDesc is { u32 ulVersion; u32 cBuffers; u64 pBuffers } = 16 bytes.
 // `base` is the register holding the block base (the stack pointer for the read
 // path, the arena STATE pointer for connect/close — see `st::` scratch).
-fn set_secbuffer(base: &str, off: usize, cb: &str, ty: &str, ptr_reg: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn set_secbuffer(base: impl Into<Reg>, off: usize, cb: &str, ty: &str, ptr_reg: impl Into<Reg>, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let (base, ptr_reg): (Reg, Reg) = (base.into(), ptr_reg.into());
     let v9 = vregs.next();
     ins.extend([
         abi::move_immediate(&v9, "Integer", cb),
@@ -238,7 +240,8 @@ fn set_secbuffer(base: &str, off: usize, cb: &str, ty: &str, ptr_reg: &str, ins:
     ]);
 }
 
-fn set_secbuffer_desc(base: &str, off: usize, count: &str, buffers_off: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn set_secbuffer_desc(base: impl Into<Reg>, off: usize, count: &str, buffers_off: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let base: Reg = base.into();
     let v9 = vregs.next();
     ins.extend([
         abi::move_immediate(&v9, "Integer", SECBUFFER_VERSION),
@@ -503,7 +506,7 @@ pub(crate) fn lower_tls_connect(
     // --- Handshake: first ISC with no input token ---
     // out SecBuffer[0] = {0, TOKEN, NULL}; ALLOCATE_MEMORY makes Schannel fill it.
     ins.push(abi::load_u64(&v18, abi::stack_pointer(), STATE));
-    set_secbuffer(&v18, st::OUTBUF, "0", SECBUFFER_TOKEN, &abi_zero(), &mut ins, &mut vregs);
+    set_secbuffer(&v18, st::OUTBUF, "0", SECBUFFER_TOKEN, abi_zero(), &mut ins, &mut vregs);
     set_secbuffer_desc(&v18, st::OUTDESC, "1", st::OUTBUF, &mut ins, &mut vregs);
     // ISC(&cred, NULL, sname, flags, 0, 0, NULL, 0, &ctxt, &outdesc, &attrs, &expiry)
     ins.extend([
@@ -586,9 +589,9 @@ pub(crate) fn lower_tls_connect(
         abi::add_immediate(&v9, &v10, st::RECV),
         abi::store_u64(&v9, &v10, st::INBUF + 8),
     ]);
-    set_secbuffer(&v10, st::INBUF + 16, "0", SECBUFFER_EMPTY, &abi_zero(), &mut ins, &mut vregs);
+    set_secbuffer(&v10, st::INBUF + 16, "0", SECBUFFER_EMPTY, abi_zero(), &mut ins, &mut vregs);
     set_secbuffer_desc(&v10, st::INDESC, "2", st::INBUF, &mut ins, &mut vregs);
-    set_secbuffer(&v10, st::OUTBUF, "0", SECBUFFER_TOKEN, &abi_zero(), &mut ins, &mut vregs);
+    set_secbuffer(&v10, st::OUTBUF, "0", SECBUFFER_TOKEN, abi_zero(), &mut ins, &mut vregs);
     set_secbuffer_desc(&v10, st::OUTDESC, "1", st::OUTBUF, &mut ins, &mut vregs);
     // ISC(&cred, &ctxt, sname, flags, 0, 0, &indesc, 0, &ctxt, &outdesc, &attrs, &expiry)
     ins.extend([
@@ -887,13 +890,14 @@ pub(crate) fn lower_tls_connect(
     Ok((ins, rel, FRAME_SIZE))
 }
 
-fn abi_zero() -> String {
+fn abi_zero() -> Reg {
     // A register holding 0 for a SecBuffer pvBuffer=NULL: store ZERO directly.
-    abi::ZERO.to_string()
+    abi::ZERO
 }
 
 /// Move `count` bytes from `[src]` to `[dst]` front-to-back (safe when dst<src).
-fn move_bytes(src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn move_bytes(src: impl Into<Reg>, dst: impl Into<Reg>, count: impl Into<Reg>, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let (src, dst, count): (Reg, Reg, Reg) = (src.into(), dst.into(), count.into());
     let v5 = vregs.next();
     let v4 = vregs.next();
     let l = format!("{tag}_mv");

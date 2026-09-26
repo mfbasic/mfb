@@ -42,6 +42,7 @@ use std::collections::HashMap;
 use super::gen_common::*;
 use super::gen_shared::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 // --- COM / WASAPI constants -------------------------------------------------
 const CLSCTX_ALL: &str = "23"; // INPROC_SERVER|INPROC_HANDLER|LOCAL_SERVER|REMOTE_SERVER
 const COINIT_MULTITHREADED: &str = "0";

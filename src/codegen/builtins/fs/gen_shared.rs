@@ -3,6 +3,7 @@
 use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 /// The `(instructions, relocations, stack_size)` an `fs` OS-seam body emits before
@@ -34,15 +35,16 @@ pub(crate) fn void_result(call: &str) -> crate::codegen::engine::builder::ValueR
 pub(crate) fn emit_cstring_copy(
     instructions: &mut Vec<CodeInstruction>,
     reject_nul: bool,
-    len: &str,
-    src: &str,
-    dst: &str,
-    index: &str,
-    byte: &str,
+    len: impl Into<Reg>,
+    src: impl Into<Reg>,
+    dst: impl Into<Reg>,
+    index: impl Into<Reg>,
+    byte: impl Into<Reg>,
     copy_loop: &str,
     copy_done: &str,
     invalid: &str,
 ) {
+    let (len, src, dst, index, byte): (Reg, Reg, Reg, Reg, Reg) = (len.into(), src.into(), dst.into(), index.into(), byte.into());
     instructions.extend([
         abi::label(copy_loop),
         abi::compare_registers(index, len),
@@ -77,14 +79,15 @@ pub(crate) fn emit_cstring_copy(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cstring_nul_scan(
     instructions: &mut Vec<CodeInstruction>,
-    len: &str,
-    src: &str,
-    index: &str,
-    byte: &str,
+    len: impl Into<Reg>,
+    src: impl Into<Reg>,
+    index: impl Into<Reg>,
+    byte: impl Into<Reg>,
     scan_loop: &str,
     scan_done: &str,
     invalid: &str,
 ) {
+    let (len, src, index, byte): (Reg, Reg, Reg, Reg) = (len.into(), src.into(), index.into(), byte.into());
     instructions.extend([
         abi::label(scan_loop),
         abi::compare_registers(index, len),
@@ -105,12 +108,13 @@ pub(crate) fn emit_cstring_nul_scan(
 /// `GetLastError` code, which numbers the same conditions differently (bug-694 C1).
 pub(crate) fn emit_errno_error_mapping(
     symbol: &str,
-    errno_reg: &str,
+    errno_reg: impl Into<Reg>,
     family: PlatformFamily,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
+    let errno_reg: Reg = errno_reg.into();
     let err_not_found = format!("{symbol}_errno_not_found");
     let err_access_denied = format!("{symbol}_errno_access_denied");
     let err_already_exists = format!("{symbol}_errno_already_exists");
@@ -157,13 +161,14 @@ pub(crate) fn emit_errno_error_mapping(
 /// The host errno is expected in `x9`, as produced by `emit_errno`.
 pub(crate) fn emit_fs_path_errno_error_mapping(
     symbol: &str,
-    errno_reg: &str,
+    errno_reg: impl Into<Reg>,
     family: PlatformFamily,
     no_follow: bool,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
+    let errno_reg: Reg = errno_reg.into();
     // Shared error labels (family-independent).
     let err_path_not_found = format!("{symbol}_errno_path_not_found");
     let err_access_denied = format!("{symbol}_errno_access_denied");

@@ -20,6 +20,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 // NEON f64 polynomial kernels for the Float transcendentals — plan-01-simd
 // Phase 5. Hand-written, identical on every target, no external math library.
@@ -374,22 +375,22 @@ impl FloatKernel {
 /// constraint, so the conversion adds no new obligation; it removes the fixed
 /// physical claim.
 struct KernelRegs {
-    v16: String,
-    v17: String,
-    v18: String,
-    v19: String,
-    v20: String,
-    v21: String,
-    v22: String,
-    v23: String,
-    v24: String,
-    v25: String,
-    v26: String,
-    v27: String,
-    v28: String,
-    v29: String,
-    v30: String,
-    v31: String,
+    v16: Reg,
+    v17: Reg,
+    v18: Reg,
+    v19: Reg,
+    v20: Reg,
+    v21: Reg,
+    v22: Reg,
+    v23: Reg,
+    v24: Reg,
+    v25: Reg,
+    v26: Reg,
+    v27: Reg,
+    v28: Reg,
+    v29: Reg,
+    v30: Reg,
+    v31: Reg,
     /// The sin/cos/tan reduction's extra registers; `None` for every other kernel.
     trig: Option<TrigRegs>,
 }
@@ -400,23 +401,23 @@ struct KernelRegs {
 /// `emit_sincos_reduce` on every body and read by the polynomial evaluators.
 struct TrigRegs {
     /// [`TRIG_MEDIUM_LIMIT`].
-    limit: String,
+    limit: Reg,
     /// [`TRIG_CANCEL_RATIO`].
-    cancel: String,
+    cancel: Reg,
     /// `+inf`.
-    inf: String,
+    inf: Reg,
     /// `1.0`.
-    one: String,
+    one: Reg,
     /// Per-lane all-ones where the lane takes the exact reduction.
-    route: String,
+    route: Reg,
     /// The low half's first-order effect on `sin(r)`: `r_lo * (1 - r^2/2)`.
-    sin_corr: String,
+    sin_corr: Reg,
     /// The low half's first-order effect on `cos(r)`: `-r * r_lo`.
-    cos_corr: String,
+    cos_corr: Reg,
     /// The untouched argument, saved by `sin`/`tan` before the reduction
     /// overwrites it, so a zero lane can keep its sign (see
     /// [`CodeBuilder::emit_zero_argument_passthrough`]). `cos` never reads it.
-    arg: String,
+    arg: Reg,
 }
 
 impl KernelRegs {
@@ -440,31 +441,31 @@ impl CodeBuilder<'_> {
     /// adds the sin/cos/tan reduction registers.
     fn float_kernel_regs(&mut self, trig: bool) -> KernelRegs {
         KernelRegs {
-            v16: self.temporary_fp_vreg().render(),
-            v17: self.temporary_fp_vreg().render(),
-            v18: self.temporary_fp_vreg().render(),
-            v19: self.temporary_fp_vreg().render(),
-            v20: self.temporary_fp_vreg().render(),
-            v21: self.temporary_fp_vreg().render(),
-            v22: self.temporary_fp_vreg().render(),
-            v23: self.temporary_fp_vreg().render(),
-            v24: self.temporary_fp_vreg().render(),
-            v25: self.temporary_fp_vreg().render(),
-            v26: self.temporary_fp_vreg().render(),
-            v27: self.temporary_fp_vreg().render(),
-            v28: self.temporary_fp_vreg().render(),
-            v29: self.temporary_fp_vreg().render(),
-            v30: self.temporary_fp_vreg().render(),
-            v31: self.temporary_fp_vreg().render(),
+            v16: self.temporary_fp_vreg().into(),
+            v17: self.temporary_fp_vreg().into(),
+            v18: self.temporary_fp_vreg().into(),
+            v19: self.temporary_fp_vreg().into(),
+            v20: self.temporary_fp_vreg().into(),
+            v21: self.temporary_fp_vreg().into(),
+            v22: self.temporary_fp_vreg().into(),
+            v23: self.temporary_fp_vreg().into(),
+            v24: self.temporary_fp_vreg().into(),
+            v25: self.temporary_fp_vreg().into(),
+            v26: self.temporary_fp_vreg().into(),
+            v27: self.temporary_fp_vreg().into(),
+            v28: self.temporary_fp_vreg().into(),
+            v29: self.temporary_fp_vreg().into(),
+            v30: self.temporary_fp_vreg().into(),
+            v31: self.temporary_fp_vreg().into(),
             trig: trig.then(|| TrigRegs {
-                limit: self.temporary_fp_vreg().render(),
-                cancel: self.temporary_fp_vreg().render(),
-                inf: self.temporary_fp_vreg().render(),
-                one: self.temporary_fp_vreg().render(),
-                route: self.temporary_fp_vreg().render(),
-                sin_corr: self.temporary_fp_vreg().render(),
-                cos_corr: self.temporary_fp_vreg().render(),
-                arg: self.temporary_fp_vreg().render(),
+                limit: self.temporary_fp_vreg().into(),
+                cancel: self.temporary_fp_vreg().into(),
+                inf: self.temporary_fp_vreg().into(),
+                one: self.temporary_fp_vreg().into(),
+                route: self.temporary_fp_vreg().into(),
+                sin_corr: self.temporary_fp_vreg().into(),
+                cos_corr: self.temporary_fp_vreg().into(),
+                arg: self.temporary_fp_vreg().into(),
             }),
         }
     }
@@ -545,7 +546,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -617,9 +618,10 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_simd_float_scalar(
         &mut self,
         kernel: FloatKernel,
-        value_loc: impl Into<Operand>,
+        value_loc: impl Into<Reg>,
         text: String,
     ) -> Result<ValueResult, String> {
+        let value_loc: Reg = value_loc.into();
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], value_loc));
         let k = &self.float_kernel_regs(kernel.is_trig());
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
@@ -648,7 +650,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Float,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text,
         })
     }
@@ -814,7 +816,8 @@ impl CodeBuilder<'_> {
     /// mask` inserts `val`'s bits into `acc` where `mask` is set — one instruction,
     /// leaving `mask` and `val` untouched (both are reused across atan's segments),
     /// bit-identical to the old `orr;bsl;orr` triple.
-    fn emit_vsel(&mut self, acc: &str, mask: &str, val: &str) {
+    fn emit_vsel(&mut self, acc: impl Into<Reg>, mask: impl Into<Reg>, val: impl Into<Reg>) {
+        let (acc, mask, val): (Reg, Reg, Reg) = (acc.into(), mask.into(), val.into());
         self.emit(abi::vector_bit(acc, val, mask));
     }
 
@@ -1473,8 +1476,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_add_d(&u_hi, &sum, &err)); // fast two-sum renormalize
         self.emit(abi::float_subtract_d(&u_lo, &u_hi, &sum));
         self.emit(abi::float_subtract_d(&u_lo, &err, &u_lo));
-        let pio2_hi = self.temporary_fp_vreg().render();
-        let pio2_lo = self.temporary_fp_vreg().render();
+        let pio2_hi: Reg = self.temporary_fp_vreg().into();
+        let pio2_lo: Reg = self.temporary_fp_vreg().into();
         self.emit_load_pool_double(&pio2_hi, std::f64::consts::FRAC_PI_2);
         self.emit_load_pool_double(&pio2_lo, PIO2_DD_LO);
         let prod = self.temporary_fp_vreg();
@@ -1549,9 +1552,9 @@ impl CodeBuilder<'_> {
 
     /// `piece * scale` as a double: the piece has at most 53 bits, so the
     /// conversion is exact, and `scale` is a power of two.
-    fn emit_scaled_piece(&mut self, piece: &VirtualRegister, scale: f64) -> String {
-        let out = self.temporary_fp_vreg().render();
-        let factor = self.temporary_fp_vreg().render();
+    fn emit_scaled_piece(&mut self, piece: &VirtualRegister, scale: f64) -> Reg {
+        let out: Reg = self.temporary_fp_vreg().into();
+        let factor: Reg = self.temporary_fp_vreg().into();
         self.emit(abi::signed_convert_to_float_d(&out, piece));
         self.emit_load_pool_double(&factor, scale);
         self.emit(abi::float_multiply_d(&out, &out, &factor));
@@ -1559,7 +1562,8 @@ impl CodeBuilder<'_> {
     }
 
     /// Load a pooled `f64` constant into a scalar FP register.
-    fn emit_load_pool_double(&mut self, dst: &str, value: f64) {
+    fn emit_load_pool_double(&mut self, dst: impl Into<Reg>, value: f64) {
+        let dst: Reg = dst.into();
         let offset = math_const_pool_offset(value.to_bits())
             .expect("the exact trig reduction's constants are pooled");
         let pool = self.math_pool_base_reg();
@@ -1584,8 +1588,8 @@ impl CodeBuilder<'_> {
     /// Pre-existing, found while fixing bug-618 (the RED case is in
     /// `tests/runtime/rt_math_float_trig_large_angles.rs`).
     fn emit_zero_argument_passthrough(&mut self, k: &KernelRegs) {
-        let arg = k.trig().arg.clone();
-        let mask = self.temporary_fp_vreg().render();
+        let arg = k.trig().arg;
+        let mask: Reg = self.temporary_fp_vreg().into();
         self.emit(abi::vector_fcmeq_zero(&mask, &arg));
         self.emit(abi::vector_bsl(&mask, &arg, abi::VEC_SCRATCH[0]));
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[0], &mask, &mask));
@@ -1594,7 +1598,7 @@ impl CodeBuilder<'_> {
     /// Save the argument for [`Self::emit_zero_argument_passthrough`] before the
     /// reduction overwrites `v0`.
     fn emit_save_trig_argument(&mut self, k: &KernelRegs) {
-        let arg = k.trig().arg.clone();
+        let arg = k.trig().arg;
         self.emit(abi::vector_orr(
             &arg,
             abi::VEC_SCRATCH[0],
@@ -1725,7 +1729,8 @@ impl CodeBuilder<'_> {
 
     /// `cos_r = collapse(P_cos(r2))` into `dst` (Horner var in `v1`). The exact
     /// instruction sequence emit_sin_cos_body uses, so the result is bit-identical.
-    fn emit_cos_r_into(&mut self, dst: &str, k: &KernelRegs) {
+    fn emit_cos_r_into(&mut self, dst: impl Into<Reg>, k: &KernelRegs) {
+        let dst: Reg = dst.into();
         self.emit_compensated_horner(
             abi::VEC_SCRATCH[3],
             abi::VEC_SCRATCH[4],
@@ -1749,7 +1754,8 @@ impl CodeBuilder<'_> {
     /// `sin_r = collapse(r * P_sin(r2))` into `dst` (reduced angle in `v2`, Horner
     /// var in `v1`); carries the lo half through the multiply, exactly as
     /// emit_sin_cos_body — bit-identical.
-    fn emit_sin_r_into(&mut self, dst: &str, k: &KernelRegs) {
+    fn emit_sin_r_into(&mut self, dst: impl Into<Reg>, k: &KernelRegs) {
+        let dst: Reg = dst.into();
         self.emit_compensated_horner(
             abi::VEC_SCRATCH[3],
             abi::VEC_SCRATCH[4],
@@ -1939,7 +1945,8 @@ impl CodeBuilder<'_> {
     /// One-step double-double-accurate quotient `tan = sh:sl / ch:cl` into `v0`:
     /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
     /// four operand registers; scratch is v0/v3/v4/v6.
-    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str, k: &KernelRegs) {
+    fn emit_tan_divide(&mut self, sh: impl Into<Reg>, sl: impl Into<Reg>, ch: impl Into<Reg>, cl: impl Into<Reg>, k: &KernelRegs) {
+        let (sh, sl, ch, cl): (Reg, Reg, Reg, Reg) = (sh.into(), sl.into(), ch.into(), cl.into());
         self.emit(abi::vector_fdiv(abi::VEC_SCRATCH[0], sh, ch)); // q = sh/ch
         self.emit(abi::vector_fneg(abi::VEC_SCRATCH[3], abi::VEC_SCRATCH[0])); // -q
         self.emit(abi::vector_orr(abi::VEC_SCRATCH[4], sh, sh));
@@ -2336,7 +2343,8 @@ impl CodeBuilder<'_> {
 
     /// Double-double product `a*b → (p, e)` with `p+e == a*b` to ~2x precision:
     /// `p = a*b`, `e = fma(a, b, -p)`. `p`/`e` must be distinct from `a`/`b`.
-    fn emit_twoprod(&mut self, p: &str, e: &str, a: &str, b: &str) {
+    fn emit_twoprod(&mut self, p: impl Into<Reg>, e: impl Into<Reg>, a: impl Into<Reg>, b: impl Into<Reg>) {
+        let (p, e, a, b): (Reg, Reg, Reg, Reg) = (p.into(), e.into(), a.into(), b.into());
         self.emit(abi::vector_fmul(p, a, b));
         self.emit(abi::vector_fneg(e, p)); // e = -p
         self.emit(abi::vector_fmla(e, a, b)); // e = -p + a*b = fma(a,b,-p)
@@ -2345,7 +2353,8 @@ impl CodeBuilder<'_> {
     /// Knuth two-sum `a+b → (s, e)` with `s+e == a+b` exactly. `t1`/`t2` are
     /// caller-supplied scratch (must be caller-saved vector regs distinct from the
     /// operands/results — `v8`-`v15` are callee-saved and off-limits here).
-    fn emit_twosum(&mut self, s: &str, e: &str, a: &str, b: &str, t1: &str, t2: &str) {
+    fn emit_twosum(&mut self, s: impl Into<Reg>, e: impl Into<Reg>, a: impl Into<Reg>, b: impl Into<Reg>, t1: impl Into<Reg>, t2: impl Into<Reg>) {
+        let (s, e, a, b, t1, t2): (Reg, Reg, Reg, Reg, Reg, Reg) = (s.into(), e.into(), a.into(), b.into(), t1.into(), t2.into());
         self.emit(abi::vector_fadd(s, a, b));
         self.emit(abi::vector_fsub(t1, s, a)); // t
         self.emit(abi::vector_fsub(t2, s, t1)); // s - t  (~a)
@@ -2362,12 +2371,13 @@ impl CodeBuilder<'_> {
     /// were never touched; two-sum uses v0/v31, per the note at the twosum call.)
     fn emit_compensated_horner(
         &mut self,
-        hi: &str,
-        lo: &str,
-        var: &str,
+        hi: impl Into<Reg>,
+        lo: impl Into<Reg>,
+        var: impl Into<Reg>,
         coeffs: &[f64],
         k: &KernelRegs,
     ) {
+        let (hi, lo, var): (Reg, Reg, Reg) = (hi.into(), lo.into(), var.into());
         self.broadcast_f64(hi, coeffs[coeffs.len() - 1]);
         self.emit(abi::vector_eor(lo, lo, lo));
         for i in (0..coeffs.len() - 1).rev() {
@@ -2394,7 +2404,8 @@ impl CodeBuilder<'_> {
     /// result in `acc`. `acc = c[n-1]; acc = c[i] + acc*var` for `i = n-2..=0`.
     /// Uses `v4` as the per-step coefficient broadcast (callers must not hold a
     /// live value there).
-    fn emit_horner(&mut self, acc: &str, var: &str, coeffs: &[f64]) {
+    fn emit_horner(&mut self, acc: impl Into<Reg>, var: impl Into<Reg>, coeffs: &[f64]) {
+        let (acc, var): (Reg, Reg) = (acc.into(), var.into());
         self.broadcast_f64(acc, coeffs[coeffs.len() - 1]);
         for i in (0..coeffs.len() - 1).rev() {
             self.broadcast_f64(abi::VEC_SCRATCH[4], coeffs[i]);
@@ -2420,20 +2431,20 @@ impl CodeBuilder<'_> {
     /// `bl`, and the bodies make no further call). x86 uses `r11` instead, because
     /// `x2` is a SysV ABI-role register there and would be remapped inconsistently
     /// across the quadrant branch. See `math_pool_base` for the full rationale.
-    fn math_pool_base_reg(&mut self) -> String {
-        if let Some(phys) = mir::active_backend().register_model().math_pool_base() {
-            return phys.to_string();
+    fn math_pool_base_reg(&mut self) -> Reg {
+        if let Some(pinned) = mir::active_backend().register_model().math_pool_base() {
+            return Reg::from(pinned);
         }
         if let Some((symbol, reg)) = &self.math_pool_base_vreg {
             if *symbol == self.current_symbol {
-                return reg.clone();
+                return Reg::from(reg);
             }
         }
         // `allocate_register` is infallible: it never overflows a pool — the
         // liveness-driven coloring spills under pressure.
-        let reg = self.temporary_vreg().render();
-        self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg.clone()));
-        reg
+        let reg = self.temporary_vreg();
+        self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg));
+        Reg::from(reg)
     }
 
     fn emit_load_math_pool_base(&mut self) {
@@ -2464,7 +2475,8 @@ impl CodeBuilder<'_> {
     /// Pooled constants load with one `ldr q` from the pool base; anything else
     /// falls back to building the immediate inline (so the pool's coverage never
     /// affects correctness).
-    fn broadcast_f64(&mut self, vreg: &str, value: f64) {
+    fn broadcast_f64(&mut self, vreg: impl Into<Reg>, value: f64) {
+        let vreg: Reg = vreg.into();
         if let Some(offset) = math_const_pool_offset(value.to_bits()) {
             let pool_base = self.math_pool_base_reg();
             self.emit(abi::vector_load(vreg, &pool_base, offset));
@@ -2480,7 +2492,8 @@ impl CodeBuilder<'_> {
     }
 
     /// Broadcast a signed `i64` constant into both `.2d` lanes of `vreg`.
-    fn broadcast_i64(&mut self, vreg: &str, value: i64) {
+    fn broadcast_i64(&mut self, vreg: impl Into<Reg>, value: i64) {
+        let vreg: Reg = vreg.into();
         if let Some(offset) = math_const_pool_offset(value as u64) {
             let pool_base = self.math_pool_base_reg();
             self.emit(abi::vector_load(vreg, &pool_base, offset));
@@ -2609,7 +2622,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -2622,10 +2635,11 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_simd_float_binary_scalar(
         &mut self,
         kernel: FloatBinaryKernel,
-        left_loc: impl Into<Operand>,
-        right_loc: impl Into<Operand>,
+        left_loc: impl Into<Reg>,
+        right_loc: impl Into<Reg>,
         text: String,
     ) -> Result<ValueResult, String> {
+        let (left_loc, right_loc): (Reg, Reg) = (left_loc.into(), right_loc.into());
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], left_loc));
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[1], right_loc));
         let k = &self.float_kernel_regs(false);
@@ -2641,7 +2655,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Float,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text,
         })
     }

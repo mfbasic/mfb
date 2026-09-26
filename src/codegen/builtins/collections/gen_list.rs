@@ -128,7 +128,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: element_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text,
         })
     }
@@ -169,7 +169,7 @@ impl CodeBuilder<'_> {
         result: &VirtualRegister,
     ) {
         if *element_type == ParameterType::String {
-            self.mark_fresh_string(Operand::from(result.render()));
+            self.mark_fresh_string(Operand::from(result));
         }
     }
 

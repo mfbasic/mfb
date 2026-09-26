@@ -111,7 +111,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::Fixed)),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }
@@ -354,7 +354,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::Fixed)),
-            location: Operand::from(result_base.render()),
+            location: Operand::from(result_base),
             text,
         })
     }

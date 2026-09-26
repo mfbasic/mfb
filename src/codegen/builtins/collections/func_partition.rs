@@ -217,7 +217,7 @@ impl CodeBuilder<'_> {
         let record = ValueResult {
             origin: None,
             type_: record_type.clone(),
-            location: Operand::from(record_reg.render()),
+            location: Operand::from(record_reg),
             text: format!("partition({}, {})", collection.type_, action.text),
         };
         let record = self.free_intermediate_collection(matched_slot, &collection.type_, record)?;

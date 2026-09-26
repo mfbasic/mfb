@@ -30,6 +30,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 pub(crate) const ERRNO_ENOMEM: &str = "12";
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
@@ -137,7 +138,8 @@ pub(crate) fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
 /// This replaces the `len + 1` arena copy bug-574 had to release at `done`. A
 /// `String` with an interior NUL still reaches the host truncated at that NUL,
 /// exactly as before — the copy loop copied the NUL too.
-pub(crate) fn borrow_cstring(src: &str, out: &str) -> CodeInstruction {
+pub(crate) fn borrow_cstring(src: impl Into<Reg>, out: impl Into<Reg>) -> CodeInstruction {
+    let (src, out): (Reg, Reg) = (src.into(), out.into());
     abi::add_immediate(out, src, 8)
 }
 
@@ -149,10 +151,11 @@ pub(crate) fn borrow_cstring(src: &str, out: &str) -> CodeInstruction {
 /// the exit must have defined `owned`. `uniq` names the skip label.
 pub(crate) fn emit_release_marshalled_result(
     ctx: &mut EmitCtx,
-    owned: &str,
+    owned: impl Into<Reg>,
     uniq: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let owned: Reg = owned.into();
     let skip = format!("{uniq}_release_skip");
     let saved = [
         RESULT_TAG_REGISTER,
@@ -189,13 +192,14 @@ pub(crate) fn emit_release_marshalled_result(
 /// on OOM. `cstr` is a vreg (preserved across `arena_alloc`).
 pub(crate) fn build_string_from_cstr(
     symbol: &str,
-    cstr: &str,
+    cstr: impl Into<Reg>,
     alloc_fail: &str,
     uniq: &str,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let cstr: Reg = cstr.into();
     let count_loop = format!("{uniq}_len_loop");
     let count_done = format!("{uniq}_len_done");
     let alloc_ok = format!("{uniq}_str_ok");
@@ -264,14 +268,15 @@ pub(crate) fn push_alloc_error(
 /// result registers with the OK tag. Branches to `alloc_fail` on OOM.
 pub(crate) fn build_string_from_len(
     symbol: &str,
-    src: &str,
-    len: &str,
+    src: impl Into<Reg>,
+    len: impl Into<Reg>,
     alloc_fail: &str,
     uniq: &str,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let (src, len): (Reg, Reg) = (src.into(), len.into());
     let alloc_ok = format!("{uniq}_ok");
     let copy_loop = format!("{uniq}_copy_loop");
     let copy_done = format!("{uniq}_copy_done");
@@ -316,15 +321,16 @@ pub(crate) fn build_string_from_len(
 /// copied bytes (plan-55-B §4.4). `src_cursor`/`index`/`byte` are caller-owned
 /// scratch vregs; `uniq` disambiguates the loop labels.
 pub(crate) fn emit_copy_counted(
-    src_base: &str,
-    len: &str,
-    dst: &str,
-    src_cursor: &str,
-    index: &str,
-    byte: &str,
+    src_base: impl Into<Reg>,
+    len: impl Into<Reg>,
+    dst: impl Into<Reg>,
+    src_cursor: impl Into<Reg>,
+    index: impl Into<Reg>,
+    byte: impl Into<Reg>,
     uniq: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (src_base, len, dst, src_cursor, index, byte): (Reg, Reg, Reg, Reg, Reg, Reg) = (src_base.into(), len.into(), dst.into(), src_cursor.into(), index.into(), byte.into());
     let loop_label = format!("{uniq}_loop");
     let done_label = format!("{uniq}_done");
     instructions.extend([
@@ -347,10 +353,11 @@ pub(crate) fn emit_copy_counted(
 /// (plan-55-B §4.4). `scratch` is a caller-owned vreg.
 pub(crate) fn emit_store_byte_advance(
     value: u8,
-    dst: &str,
-    scratch: &str,
+    dst: impl Into<Reg>,
+    scratch: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (dst, scratch): (Reg, Reg) = (dst.into(), scratch.into());
     instructions.extend([
         abi::move_immediate(scratch, "Byte", &value.to_string()),
         abi::store_u8(scratch, dst, 0),

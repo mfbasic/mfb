@@ -156,7 +156,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: map_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("mapValues({map_type})"),
         })
     }

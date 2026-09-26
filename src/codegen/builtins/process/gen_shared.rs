@@ -47,6 +47,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -138,12 +139,13 @@ const _: () = assert!(SPILL_CHUNK <= SPILL_INITIAL_CAPACITY);
 pub(crate) fn emit_spill_pending(
     symbol: &str,
     tag: &str,
-    buf: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
     ready: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, t0, t1): (Reg, Reg, Reg) = (buf.into(), t0.into(), t1.into());
     let empty = format!("{symbol}_{tag}_spill_empty");
     instructions.extend([
         abi::compare_immediate(buf.clone(), "0"),
@@ -160,13 +162,14 @@ pub(crate) fn emit_spill_pending(
 /// branch to `miss` when the block is absent or exhausted (the caller then reads
 /// the fd). `t0`/`t1` are scratch.
 pub(crate) fn emit_spill_take_byte(
-    buf: impl Into<Operand> + Clone,
-    dst: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    dst: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
     miss: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, dst, t0, t1): (Reg, Reg, Reg, Reg) = (buf.into(), dst.into(), t0.into(), t1.into());
     instructions.extend([
         abi::compare_immediate(buf.clone(), "0"),
         abi::branch_eq(miss),
@@ -190,17 +193,18 @@ pub(crate) fn emit_spill_take_byte(
 pub(crate) fn emit_spill_take_chunk(
     symbol: &str,
     tag: &str,
-    buf: impl Into<Operand> + Clone,
-    dst: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    dst: impl Into<Reg>,
     max: usize,
-    count: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
-    t2: impl Into<Operand> + Clone,
-    t3: impl Into<Operand> + Clone,
+    count: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
+    t2: impl Into<Reg>,
+    t3: impl Into<Reg>,
     miss: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, dst, count, t0, t1, t2, t3): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (buf.into(), dst.into(), count.into(), t0.into(), t1.into(), t2.into(), t3.into());
     let clamped = format!("{symbol}_{tag}_spill_clamped");
     let copy_loop = format!("{symbol}_{tag}_spill_copy");
     let copy_done = format!("{symbol}_{tag}_spill_copied");

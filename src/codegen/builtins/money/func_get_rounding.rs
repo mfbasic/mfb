@@ -87,7 +87,7 @@ pub(crate) fn lower_money_get_rounding(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::named("Rounding"),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "money.getRounding()".to_string(),
     })
 }

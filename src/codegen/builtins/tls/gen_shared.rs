@@ -22,6 +22,7 @@ use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -625,13 +626,14 @@ pub(crate) fn lower_tls_connect_helper(
 /// foreign-call traps").
 pub(crate) fn connect_arg_prologue(
     address: bool,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     host_off: usize,
     port_off: usize,
     timeout_off: usize,
     sname_off: usize,
     allow_off: usize,
 ) -> Vec<CodeInstruction> {
+    let scratch: Reg = scratch.into();
     if address {
         vec![
             // x0 = the flat `net::Address` (plan-132): slot 0 holds the host
@@ -872,7 +874,7 @@ pub(crate) fn lower_tls_poll_list_helper(
     // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
     // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
     // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
-    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Operand, idx: &str| {
+    let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Reg, idx: Reg| {
         ins.extend([
             abi::load_u64(&v13, abi::stack_pointer(), LIST_OFF),
             abi::move_immediate(&v14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
@@ -932,7 +934,7 @@ pub(crate) fn lower_tls_poll_list_helper(
         abi::compare_registers(&v9, &v10),
         abi::branch_ge(&scan_done),
     ]);
-    load_elem(&mut ins, abi::return_register(), &v9);
+    load_elem(&mut ins, abi::return_register(), v9.into());
     ins.extend([
         abi::move_immediate(abi::c_arg(1), "Integer", "0"), // non-blocking check
         abi::branch_link(SCALAR),
@@ -960,7 +962,7 @@ pub(crate) fn lower_tls_poll_list_helper(
         // Wait a bounded slice on socket 0 (via the scalar helper) before rescanning.
         abi::move_immediate(&v9, "Integer", "0"),
     ]);
-    load_elem(&mut ins, abi::return_register(), &v9);
+    load_elem(&mut ins, abi::return_register(), v9.into());
     ins.extend([
         abi::move_immediate(abi::c_arg(1), "Integer", SLICE_MS),
         abi::branch_link(SCALAR),
@@ -971,7 +973,7 @@ pub(crate) fn lower_tls_poll_list_helper(
         // Return socks[i] (borrowed) — the list still owns/closes it.
         abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
     ]);
-    load_elem(&mut ins, RESULT_VALUE_REGISTER, &v9);
+    load_elem(&mut ins, RESULT_VALUE_REGISTER, v9.into());
     ins.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

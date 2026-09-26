@@ -10,6 +10,7 @@ use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
+use crate::target::shared::abi::Reg;
 
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer
 /// to its fd. `x0 = File*`. No-op when the handle is unbuffered (`BUF_ENABLED == 0`)
@@ -154,12 +155,13 @@ pub(crate) fn lower_fs_file_drain(
 pub(crate) fn emit_append_to_file_buffer(
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
-    file: &str,
-    src: &str,
-    len: &str,
+    file: impl Into<Reg>,
+    src: impl Into<Reg>,
+    len: impl Into<Reg>,
     tag: &str,
     write_error: &str,
 ) -> Result<(), String> {
+    let (file, src, len): (Reg, Reg, Reg) = (file.into(), src.into(), len.into());
     let cap = FILE_BUFFER_CAPACITY.to_string();
     // The nine sink role registers plus the fd-load register, minted from the
     // caller's counter so they never collide with vregs it holds live across this
@@ -183,18 +185,18 @@ pub(crate) fn emit_append_to_file_buffer(
         cap: &cap,
         prefix: "fbuf",
         v: [
-            role0.as_str(),
-            role1.as_str(),
-            role2.as_str(),
-            role3.as_str(),
-            role4.as_str(),
-            role5.as_str(),
-            role6.as_str(),
-            role7.as_str(),
-            role8.as_str(),
+            role0.into(),
+            role1.into(),
+            role2.into(),
+            role3.into(),
+            role4.into(),
+            role5.into(),
+            role6.into(),
+            role7.into(),
+            role8.into(),
         ],
         fd: Some(FdLoad {
-            reg: fd_reg.as_str(),
+            reg: fd_reg.into(),
             off: FILE_OFFSET_FD,
         }),
         // bug-467: a file handle is not the process's stdout pipe, so a failed
@@ -207,7 +209,8 @@ pub(crate) fn emit_append_to_file_buffer(
 /// Refuse a closed `File` (x0 = File*) by branching to `closed`: the same
 /// `CLOSED != 0` guard every other handle operation opens with (bug-694 C3). The
 /// flag word also carries the moved bit, so a moved handle is refused here too.
-fn emit_closed_guard(instructions: &mut Vec<CodeInstruction>, flag: &str, closed: &str) {
+fn emit_closed_guard(instructions: &mut Vec<CodeInstruction>, flag: impl Into<Reg>, closed: &str) {
+    let flag: Reg = flag.into();
     instructions.extend([
         abi::load_u64(flag, abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate(flag, "0"),

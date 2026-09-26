@@ -56,7 +56,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Boolean,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: format!("{label_prefix}({collection_type}) [hash]"),
             });
         }
@@ -108,7 +108,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{label_prefix}({collection_type}, {key_type})"),
         })
     }

@@ -8,6 +8,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 pub(crate) struct OpenFlagSet {
@@ -103,13 +104,14 @@ pub(crate) fn o_cloexec(family: PlatformFamily) -> &'static str {
 
 fn emit_branch_if_ascii_literal(
     instructions: &mut Vec<CodeInstruction>,
-    ptr: &str,
-    len: &str,
-    scratch: &str,
+    ptr: impl Into<Reg>,
+    len: impl Into<Reg>,
+    scratch: impl Into<Reg>,
     literal: &[u8],
     target: &str,
     symbol: &str,
 ) {
+    let (ptr, len, scratch): (Reg, Reg, Reg) = (ptr.into(), len.into(), scratch.into());
     let next = format!(
         "{symbol}_literal_{}_{}",
         target.rsplit('_').next().unwrap_or("next"),

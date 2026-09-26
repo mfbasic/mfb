@@ -30,6 +30,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 /// The un-encodable prefix marking a `ValueResult.location` as a register-native
@@ -59,7 +60,8 @@ pub(crate) fn vector_field_count(type_: &ParameterType) -> Option<usize> {
 }
 
 /// Map a vector field name to its lane index.
-fn vector_field_index(member: &str) -> Option<usize> {
+fn vector_field_index(member: impl Into<Reg>) -> Option<usize> {
+    let member: Reg = member.into();
     match member {
         "x" => Some(0),
         "y" => Some(1),
@@ -230,8 +232,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn vector_native_field(
         &self,
         target_value: &ValueResult,
-        member: &str,
+        member: impl Into<Reg>,
     ) -> Option<ValueResult> {
+        let member: Reg = member.into();
         let lanes = self.vector_native_lanes(target_value)?;
         let index = vector_field_index(member)?;
         lanes.get(index).cloned()
@@ -259,7 +262,7 @@ impl CodeBuilder<'_> {
         let block = ValueResult {
             origin: None,
             type_: value.type_,
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: value.text,
         };
         // The materialized block is a fresh, freeable-flat arena block — register

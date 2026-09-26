@@ -21,6 +21,7 @@ use crate::codegen::registry::{
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
+use crate::target::shared::abi::Reg;
 
 /// `abi_function` body for `io::pollInput` — test whether stdin has input ready
 /// (optionally waiting up to a timeout), returned as a `Boolean`, consuming none.

@@ -647,7 +647,7 @@ pub(crate) fn lower_out(
             ValueResult {
                 origin: None,
                 type_: ParameterType::String,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: "strings.normalizeNfc".to_string(),
             },
             output_len_slot,
@@ -656,12 +656,12 @@ pub(crate) fn lower_out(
     // bug-536 shape B: the normalized output is this lowering's own
     // `emit_arena_alloc_call` block (`result_slot`). The constant-fold early
     // return above loads a rodata pointer and is deliberately NOT marked.
-    builder.mark_fresh_string(Operand::from(result.render()));
+    builder.mark_fresh_string(Operand::from(result));
     Ok((
         ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "strings.normalizeNfc".to_string(),
         },
         output_len_slot,

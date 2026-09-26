@@ -20,6 +20,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::os::syscall::{SIGPIPE_SIGNO, SIG_DFL};
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 // POSIX constants identical across macOS and Linux for the ops here.
 pub(crate) const SIGKILL: &str = "9";
@@ -39,13 +40,15 @@ pub(crate) const ENTRY_VLEN: usize = COLLECTION_ENTRY_OFFSET_VALUE_LENGTH;
 /// vreg): `WIFEXITED` → `(status >> 8) & 0xff`, otherwise signal-death → `-1`.
 /// `s0`/`s1` are caller-supplied scratch vregs distinct from `status`/`exit`.
 pub(crate) fn emit_decode_status(
-    status: &str,
-    exit: &str,
-    s0: &str,
-    s1: &str,
+    status: impl Into<Reg>,
+    exit: impl Into<Reg>,
+    s0: impl Into<Reg>,
+    s1: impl Into<Reg>,
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let exit: Reg = exit.into();
+    let (status, s0, s1): (Reg, Reg, Reg) = (status.into(), s0.into(), s1.into());
     let signaled = format!("{symbol}_signaled");
     let decoded = format!("{symbol}_decoded");
     instructions.extend([
@@ -195,19 +198,20 @@ pub(crate) const SPAWN_LOCAL: usize = 64;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_copy_to_cstring(
     symbol: &str,
-    src: &str,
-    len: &str,
-    out: &str,
-    sp: &str,
-    dp: &str,
-    cnt: &str,
-    byte: &str,
+    src: impl Into<Reg>,
+    len: impl Into<Reg>,
+    out: impl Into<Reg>,
+    sp: impl Into<Reg>,
+    dp: impl Into<Reg>,
+    cnt: impl Into<Reg>,
+    byte: impl Into<Reg>,
     loop_label: &str,
     done_label: &str,
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let (src, len, out, sp, dp, cnt, byte): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (src.into(), len.into(), out.into(), sp.into(), dp.into(), cnt.into(), byte.into());
     instructions.extend([
         abi::add_immediate(abi::return_register(), len, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -253,14 +257,15 @@ pub(crate) fn emit_copy_to_cstring(
 pub(crate) fn emit_child_apply_env(
     symbol: &str,
     v: &mut Vregs,
-    map: &str,
-    envreplace: &str,
+    map: impl Into<Reg>,
+    envreplace: impl Into<Reg>,
     alloc_fail: &str,
     platform: &dyn CodegenPlatform,
     platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let (map, envreplace): (Reg, Reg) = (map.into(), envreplace.into());
     let map0 = v.next();
     let ep = v.next();
     let estr = v.next();
@@ -485,12 +490,12 @@ pub(crate) fn emit_child_apply_env(
 pub(crate) fn emit_spawn_tail(
     symbol: &str,
     v: &mut Vregs,
-    argv: &str,
+    argv: impl Into<Reg>,
     // Optional child-side setup applied AFTER the dup2/close dance and BEFORE
     // `execvp`: a working-directory C-string ptr (skipped when its first byte is
     // NUL, i.e. an empty cwd) and an environment `(map vreg, envReplace vreg)`.
-    cwd: Option<&str>,
-    env: Option<(&str, &str)>,
+    cwd: Option<Reg>,
+    env: Option<(Reg, Reg)>,
     alloc_fail: &str,
     fork_fail: &str,
     done: &str,
@@ -499,6 +504,7 @@ pub(crate) fn emit_spawn_tail(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let argv: Reg = argv.into();
     const F_SETFD: &str = "2";
     const FD_CLOEXEC: &str = "1";
     /// Linux `O_CLOEXEC` (0x80000; same on x86-64/AArch64/RISC-V) for `pipe2`.
@@ -928,7 +934,7 @@ pub(crate) fn emit_spawn_tail(
         )?;
         platform.emit_errno(
             symbol,
-            errno.as_str().into(),
+            errno.into(),
             platform_imports,
             instructions,
             relocations,
@@ -1046,10 +1052,11 @@ fn emit_spawn_attr_destroy(
 /// allocated with room for `text.len() + 1` bytes.
 pub(crate) fn emit_cstring_literal(
     text: &str,
-    dst: &str,
-    byte: &str,
+    dst: impl Into<Reg>,
+    byte: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (dst, byte): (Reg, Reg) = (dst.into(), byte.into());
     for (offset, ch) in text.bytes().enumerate() {
         instructions.push(abi::move_immediate(byte, "Integer", &ch.to_string()));
         instructions.push(abi::store_u8(byte, dst, offset));
@@ -1162,7 +1169,7 @@ pub(crate) fn lower_process_send_helper(
     ]);
     platform.emit_errno(
         symbol,
-        errno.as_str().into(),
+        errno.into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1214,7 +1221,7 @@ pub(crate) fn lower_process_send_helper(
         ]);
         platform.emit_errno(
             symbol,
-            errno.as_str().into(),
+            errno.into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -1262,9 +1269,9 @@ pub(crate) const POLLOUT: &str = "4";
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_poll_wait(
     symbol: &str,
-    fd: &str,
-    timeout: &str,
-    scratch: &str,
+    fd: impl Into<Reg>,
+    timeout: impl Into<Reg>,
+    scratch: impl Into<Reg>,
     pollfd_slot: usize,
     events: &str,
     timeout_l: &str,
@@ -1273,6 +1280,7 @@ pub(crate) fn emit_poll_wait(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let (fd, timeout, scratch): (Reg, Reg, Reg) = (fd.into(), timeout.into(), scratch.into());
     instructions.extend([
         abi::store_u32(fd, abi::stack_pointer(), pollfd_slot),
         abi::move_immediate(scratch, "Integer", events),
@@ -1392,7 +1400,7 @@ pub(crate) fn lower_process_reaper_helper(
     ]);
     platform.emit_errno(
         symbol,
-        errno.as_str().into(),
+        errno.into(),
         platform_imports,
         &mut instructions,
         &mut relocations,

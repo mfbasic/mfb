@@ -27,8 +27,9 @@ fn emit_string_from_wstr(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
-    wptr: &str,
+    wptr: impl Into<Reg>,
 ) {
+    let wptr: Reg = wptr.into();
     let len_loop = format!("{symbol}_{tag}_wlen");
     let len_done = format!("{symbol}_{tag}_wlen_done");
     let copy_loop = format!("{symbol}_{tag}_wcopy");
@@ -191,7 +192,7 @@ pub(crate) fn lower_devices(
     com_call(SLOT_DEV_GET_ID, 2, &mut ins, &mut vregs);
     // id = string(pId)
     ins.push(abi::load_u64(&v9, abi::stack_pointer(), D_IDRAW));
-    emit_string_from_wstr(symbol, "id", DEVID_OFF, &alloc_fail, &mut ins, &mut rel, &mut vregs, v9.as_str());
+    emit_string_from_wstr(symbol, "id", DEVID_OFF, &alloc_fail, &mut ins, &mut rel, &mut vregs, v9);
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), D_IDRAW));
     ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, &mut ins, &mut rel)?;
     // name via property store (best effort).
@@ -226,7 +227,7 @@ pub(crate) fn lower_devices(
         abi::branch_eq(&name_from_id),
         abi::store_u64(&v9, abi::stack_pointer(), GOTBYTES_OFF), // stash pwszVal
     ]);
-    emit_string_from_wstr(symbol, "nm", NAME_OFF, &alloc_fail, &mut ins, &mut rel, &mut vregs, v9.as_str());
+    emit_string_from_wstr(symbol, "nm", NAME_OFF, &alloc_fail, &mut ins, &mut rel, &mut vregs, v9);
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), GOTBYTES_OFF));
     ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, &mut ins, &mut rel)?;
     // Release the property store.

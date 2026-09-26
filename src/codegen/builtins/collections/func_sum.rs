@@ -245,7 +245,7 @@ pub(crate) fn lower_sum(
     Ok(ValueResult {
         origin: None,
         type_: element_type.clone(),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: format!("sum({})", collection.type_),
     })
 }

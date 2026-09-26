@@ -152,7 +152,7 @@ pub(crate) fn lower_devices(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-        v9.as_str(),
+        v9,
         &mut vregs,
     );
     // free the id cstring
@@ -217,7 +217,7 @@ pub(crate) fn lower_devices(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-        v9.as_str(),
+        v9,
         &mut vregs,
     );
     instructions.push(abi::load_u64(

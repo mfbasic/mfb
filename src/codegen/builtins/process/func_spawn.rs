@@ -17,6 +17,7 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 use super::gen_shared::*;
@@ -341,8 +342,8 @@ pub(crate) fn lower_process_spawn_helper_posix(
             symbol,
             &mut v,
             &argv,
-            Some(&cwdcstr),
-            Some((&env_map, &envrep)),
+            Some(Reg::from(cwdcstr)),
+            Some((Reg::from(env_map), Reg::from(envrep))),
             &alloc_fail,
             &fork_fail,
             &done,

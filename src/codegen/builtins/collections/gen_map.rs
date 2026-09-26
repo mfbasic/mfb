@@ -18,6 +18,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Entry-table linear-scan preamble shared by the map lookups
@@ -32,20 +33,18 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_entry_scan_setup(
         &mut self,
-        collection: impl Into<Operand>,
-        count: impl Into<Operand>,
-        index: impl Into<Operand>,
+        collection: impl Into<Reg>,
+        count: impl Into<Reg>,
+        index: impl Into<Reg>,
         entry: impl Into<Operand>,
-        offset: impl Into<Operand>,
-        length: impl Into<Operand>,
+        offset: impl Into<Reg>,
+        length: impl Into<Reg>,
         entry_offset_field: usize,
         entry_length_field: usize,
         loop_label: &str,
         not_found: &str,
     ) {
-        let collection = collection.into();
-        let count = count.into();
-        let index = index.into();
+        let (collection, count, index, offset, length): (Reg, Reg, Reg, Reg, Reg) = (collection.into(), count.into(), index.into(), offset.into(), length.into());
         let entry = entry.into();
         self.emit(abi::load_u64(
             count.clone(),
@@ -70,12 +69,12 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_entry_scan_advance(
         &mut self,
         entry: impl Into<Operand>,
-        index: impl Into<Operand>,
+        index: impl Into<Reg>,
         next_label: &str,
         loop_label: &str,
     ) {
+        let index: Reg = index.into();
         let entry = entry.into();
-        let index = index.into();
         self.emit(abi::label(next_label));
         self.emit(abi::add_immediate(
             entry.clone(),
@@ -393,7 +392,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: value_type.clone(),
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
         }
@@ -467,7 +466,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: value_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("get({collection_type}, {key_type})"),
         })
     }
@@ -532,7 +531,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: value_type.clone(),
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
         }
@@ -621,7 +620,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: value_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })
     }

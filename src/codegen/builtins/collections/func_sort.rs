@@ -89,7 +89,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::list_of(ParameterType::Integer),
-            location: Operand::from(reg.render()),
+            location: Operand::from(reg),
             text: "index-list".to_string(),
         })
     }
@@ -462,7 +462,7 @@ impl CodeBuilder<'_> {
         let threaded = ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result_reg.render()),
+            location: Operand::from(result_reg),
             text: String::new(),
         };
         let idx_type = ParameterType::list_of(ParameterType::Integer);

@@ -9,6 +9,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 impl CodeBuilder<'_> {
@@ -18,16 +19,15 @@ impl CodeBuilder<'_> {
     /// path op keeps its own `fs_path_*_trim_{loop,done}` names in the goldens.
     fn emit_trailing_slash_trim(
         &mut self,
-        length: impl Into<Operand>,
-        bytes: impl Into<Operand>,
-        cursor: impl Into<Operand>,
-        byte: impl Into<Operand>,
+        length: impl Into<Reg>,
+        bytes: impl Into<Reg>,
+        cursor: impl Into<Reg>,
+        byte: impl Into<Reg>,
         trim_loop: &str,
         trim_done: &str,
     ) {
-        let length = length.into();
-        let cursor = cursor.into();
-        let byte = byte.into();
+        let bytes: Reg = bytes.into();
+        let (length, cursor, byte): (Reg, Reg, Reg) = (length.into(), cursor.into(), byte.into());
         self.emit(abi::label(trim_loop));
         self.emit(abi::compare_immediate(length.clone(), "1"));
         self.emit(abi::branch_le(trim_done));
@@ -97,11 +97,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         // bug-536 shape B: `_mfb_rt_fs_path_join` arena-allocs the joined path
         // and copies both components in.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "fs.pathJoin".to_string(),
         })
     }
@@ -176,7 +176,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "fs.pathBaseName".to_string(),
         })
     }
@@ -256,11 +256,11 @@ impl CodeBuilder<'_> {
     fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
         let (start, length) = self.fs_path_dir_name_window(path)?;
         let result = self.emit_materialize_string_from_bytes(&start, &length)?;
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "fs.pathDirName".to_string(),
         })
     }
@@ -336,7 +336,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "fs.pathExtension".to_string(),
         })
     }
@@ -784,13 +784,13 @@ impl CodeBuilder<'_> {
         if matches!(out, StringOut::Block) {
             // bug-536 shape B: `result_slot` holds this lowering's own
             // `emit_arena_alloc_call` block.
-            self.mark_fresh_string(Operand::from(result.render()));
+            self.mark_fresh_string(Operand::from(result));
         }
         Ok((
             ValueResult {
                 origin: None,
                 type_: ParameterType::String,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: "fs.pathNormalize".to_string(),
             },
             out_len_slot,
