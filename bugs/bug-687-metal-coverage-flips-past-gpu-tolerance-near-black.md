@@ -11,10 +11,12 @@ Phase 1 model gate (2026-09-25): option 2 as designed does not reach `GPU_DEFAUL
 {301/97} row** — the residual is the 16.16 narrowing of the vertices, not shader
 arithmetic (see "Phase 1 results"). **V5 chosen (owner, 2026-09-25)**: carry each
 vertex at double-float precision and evaluate the polygon distance and the inverse
-transform in double-float in both shaders — Phase 2 below.
+transform in double-float in both shaders. **Phase 2 done (2026-09-25)**: the four rows
+pass on Metal and on Vulkan (2226, 2230), every existing GPU row still passes; see
+"Phase 2 results". Not archived: waiting on the coordinator's merge.
 Regression Test: `tests/canvas/rt_canvas_metal.rs` (the four `*over_black*` rows) and the
 `star251x97`, `star301x97`, `star301x2`, `polygonsblack` rows of
-`scripts/test-canvas-gpu-rows.sh` — RED at HEAD, see Phase 1 results
+`scripts/test-canvas-gpu-rows.sh` — RED at `4ef538bb9`, GREEN on this branch
 
 Found while fixing bug-686. A polygon drawn on Metal differs from the software oracle by
 more than `Tolerance::GPU_DEFAULT` allows (`max_channel_delta: 2`) on a handful of dark,
@@ -214,15 +216,168 @@ only moves the input error from ~1e-5 px to ~1e-12 px. Options 1 and 3 are uncha
 
 ### Phase 2: the shaders
 
-- [ ] Metal MSL and Vulkan GLSL (V5, owner 2026-09-25): each vertex coordinate carried
+- [x] Metal MSL and Vulkan GLSL (V5, owner 2026-09-25): each vertex coordinate carried
       as its 16.16 word plus a residual word, both backends' edge upload, region layout
       and buffer size to match; the polygon distance, crossing test, coverage rounding
       and inverse transform in double-float; the quantisation
       `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` unchanged. Rebuild the SPIR-V.
-- [ ] Measure the per-pixel cost on the bug-686 rows (`scripts/test-canvas-gpu-rows.sh`,
+- [x] Measure the per-pixel cost on the bug-686 rows (`scripts/test-canvas-gpu-rows.sh`,
       `tools/canvas-bench`); record it here. On lavapipe the numbers describe a CPU, not a
       GPU (bug-688) — say so next to them.
-- [ ] Phase 1 rows pass on Metal (local) and Vulkan (2226, 2230); every existing GPU row
+- [x] Phase 1 rows pass on Metal (local) and Vulkan (2226, 2230); every existing GPU row
       still passes.
+
+#### Phase 2 results (2026-09-25)
+
+**What changed.**
+
+- **Layout.** Each polygon edge's four endpoint coordinates also upload a residual word,
+  `round((x * 65536 - word) * 2^31)` (`EDGE_RESIDUAL_SCALE`, units of 2^-47 px). The
+  words go in a new region parallel to the 16.16 words: `METAL_EDGE_RESIDUAL_BASE_WORDS`,
+  and on Vulkan `VULKAN_EDGE_RESIDUAL_BASE_WORDS` as specialization constant 3. The band
+  index and every region after it move up by one edge region, and both buffers grow by
+  4 MiB. The emitters are `emit_edge_buffer` (Metal) and `emit_edge_upload` (Vulkan).
+  The band builders and polylines read only the 16.16 words, so they are unchanged.
+  Nothing on the CPU reads the GPU edge buffer back: `MFB_CANVAS_GEO_VERIFY` checks the
+  geometry records, and it reports 0 mismatches on every row below.
+- **Shaders.** A polygon's (kind 4) fill and stroke coverage come from `polygonCoverage`,
+  in double-float. That covers the shape-space point with the group offset taken off,
+  the inverse transform and its five central-difference samples, the distance, the
+  even-odd crossing (multiplied out, no division), `d / ||grad d||`, and the coverage
+  rounding. The quantisation `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` is unchanged, and
+  every other kind keeps its fp32 path.
+- **Metal's fast math** reassociated the double-float error terms to zero. Measured with
+  a Swift/Metal probe (`/tmp/b687-probe`): 65,418 of 65,536 TwoSum error terms and every
+  Dekker TwoProd term came back wrong. So each MSL helper turns reassociation off for its
+  own body (`#pragma clang fp reassociate(off)`, measured: 0 wrong), and TwoProd uses
+  `fma`, which MSL defines as exact. The GLSL marks its helpers `precise` and splits with
+  Dekker, because GLSL does not promise a fused `fma`.
+- **SPIR-V** rebuilt on 2226 (`MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`). The vertex
+  blob was restored, since its GLSL did not change.
+
+**Why the fp32 pre-pass is exact, not a tolerance.** Evaluating every band edge in
+double-float cost 2.8x the render time on bug-686's 64,000-edge polygon. So
+`edgeDistance` spends double-float only where fp32 cannot decide the answer. The returned
+value is still the double-float value, and nothing about the comparison or the
+quantisation moves.
+
+- **`edgeSlack(p, a, b)` is an error bound, not a margin on the answer.** It bounds how
+  far one edge's fp32 distance can be from its double-float distance. The sources are
+  the 16.16 word's conversion to float, the dropped residual (at most 2^-17 px), and the
+  subtractions, products, division and square root. Each is a few ulps of the largest
+  coordinate involved, because a segment's distance is 1-Lipschitz in its endpoints. The
+  bound is 2^-18 of the six coordinates' magnitudes (64 ulps of each) plus 2^-12 px.
+  Measured on the CPU with `/tmp/b687-model/slackcheck.c`, over every pixel x edge pair
+  of {301/97}, {301/2}, the 4,000-edge ring, the 64,000-edge polygon (every 5th pixel)
+  and a {301/97} star at (30000, 30000), with and without FMA: at most 0.8% of the bound
+  is used. The crossing test's bound uses at most 0.54% of its limit, and there are 0 row
+  or side decisions wrong outside the bounds.
+- **Pass 1 is fp32 over the band.** It computes `bound` (the least `d32 + slack`, which
+  is at least the true minimum distance) and `low` (the least `d32 - slack`, which is at
+  most the true minimum). It also computes the parity of every crossing fp32 decides with
+  certainty: a row test is certain unless an endpoint is within the slack of the row, and
+  a side test is certain unless `|cross|` is within the slack times `|v|1 + 2|w|1`.
+- **Pass 2 uses double-float for exactly two sets of edges.**
+  - Distance: only edges whose `d32 - slack <= bound`. No other edge can be the nearest,
+    because its true distance is at least `d32 - slack`, which exceeds `bound`, which is
+    at least the true minimum.
+  - Parity: only the crossings pass 1 left out as unsure.
+- **Pass 2 is skipped when `low > reach`.** `reach` is 0.5 + the stroke half-width
+  untransformed; under a transform there is no shortcut, because the gradient needs all
+  five values. Past `reach` the fill coverage is 0 or 255 by sign alone and the stroke's
+  is 0, so any value past `reach` with the right sign gives the same pixel. `low` is
+  returned in the exact value's place.
+- **Proved on the device**, not only argued: each frame was rendered on Metal with the
+  full double-float build (every edge in double-float, `b5e8b9aae`) and with the final
+  build, then `cmp`'d. They are **byte-identical** for all four new scenes, `huge_polygon`,
+  `forty_thousand_opaque_edges` and `large_polygons` (`/tmp/b687-model/run_scene.sh`,
+  then `cmp`).
+- **One call site per double-float helper.** lavapipe (Mesa, LLVM) compiles the whole
+  fragment shader at pipeline creation. An intermediate version with four double-float
+  call sites per `edgeDistance`, inlined six times, did not finish compiling in 16 minutes
+  on box 2226. The quads row hung at 100% CPU and was killed. The final version samples
+  the five transform points in one loop and has one site for each helper; both
+  test-canvas-gpu-rows rows (quads, star301x97) finished in 17 s.
+
+**GREEN.** Final build `mfb` md5 `1ac75211c3c594122afd4469a00b03c5`:
+
+| row | Metal (local) | Vulkan 2226 linux-aarch64 | Vulkan 2230 windows-x86_64 |
+| --- | --- | --- | --- |
+| {251/97} over black | ok | ok worst 1, 1.35% | ok worst 1, 1.35% |
+| {301/97} over black | ok | ok worst 1, 1.38% | ok worst 1, 1.38% |
+| {301/2} over black | ok | ok worst 1, 0.03% | ok worst 1, 0.03% |
+| `LARGE_POLYGONS` over black | ok | ok worst 1, 0.19% | ok worst 1, 0.19% |
+| every existing row | 20 ok | 8 render + 4 geo rows ok | 8 render + 3 geo rows ok; `race` fails, pre-existing (below) |
+
+- Metal: `cargo test --release --test rt_canvas_metal` gives 24 passed, 0 failed. The
+  local renders (`run_scene.sh`) are all `ok worst=1`, e.g. {301/97} at 0.57%. The
+  remaining 1-level differences are the device's sRGB encode; the model predicts 0
+  coverage mismatches for V5.
+- Vulkan: `scripts/test-canvas-gpu-rows.sh <mfb> --target linux-aarch64` and
+  `--target windows-x86_64`. Every row drew on the GPU with `geoVerifyMismatches=0`.
+- **2230's `race` row fails, and not because of this change.** The GPU run renders 2
+  frames, too few to race, so the script races on the software renderer, which also
+  renders only 2 frames against the 3 it requires. `geoVerifyMismatches=0` on both runs.
+  It fails identically with the compiler from before this bug's shader work
+  (`8158a9524`): `scripts/test-canvas-gpu-rows.sh <that mfb> --target windows-x86_64
+  --rows race` prints `FAIL: race/sw: the race did not happen (2 frames,
+  geoResolvedChecked=12000)`. The software path does not touch anything this bug changed.
+  bug-688 measured 3 software frames there, exactly at the threshold, so the emulated box
+  is now just slower. It is reported to the coordinator, not changed here: making it pass
+  means editing a shared race scene or its frame threshold, which needs its own proof.
+- Unit tests: `cargo test --release --bin mfb -- metal vulkan canvas` gives 107 passed.
+  That includes the extended region-chain tests, the spec-constant test and the
+  shape-space test.
+- `scripts/spec-census.sh --citations`: 0 misses.
+
+**Cost.** Measured with `/tmp/b687-cost/cost.sh`: each scene is presented 200 times with
+a 2-px rectangle moving so that every frame renders, under `MFB_CANVAS_SYNC=1`, in a
+`--debug` build. The figure is the stats line's `phaseRenderMs / frames`, which covers
+the GPU draw plus the readback and CPU encode. The table gives the minimum of 3
+alternating runs in ms per frame. Baseline is `8158a9524`, the commit before the change.
+The machine was shared (load 20-30); "net" subtracts the one-rectangle control:
+
+| scene (Metal, Apple GPU) | before | after | net before → after |
+| --- | --- | --- | --- |
+| one rectangle (control) | 2.25 | 2.29 | — |
+| {301/97} over black | 3.94 | 6.95 | 1.7 → 4.7 (2.8x) |
+| {251/97} over black | 3.79 | 6.99 | 1.5 → 4.7 |
+| `LARGE_POLYGONS` (grey ground) | 3.56 | 6.29 | 1.3 → 4.0 |
+| `LARGE_POLYGONS` over black | 3.75 | 7.30 | 1.5 → 5.0 |
+| 64,000-edge polygon (`huge_polygon`) | 10.70 | 19.49 | 8.5 → 17.2 (2.0x) |
+| 40,000 opaque edges | 3.35 | 4.30 | 1.1 → 2.0 |
+
+Before the exact pre-pass (every edge in double-float): 64,000 edges 38.2 ms, {301/97}
+11.95 ms. Rotated rings cost most, because a transformed polygon evaluates all five
+samples in double-float and has no `reach` shortcut.
+
+On lavapipe the numbers describe a CPU, not a GPU (bug-688). Box 2226 aarch64,
+`/tmp/b687-cost/cost_linux.sh` with 20 frames, two runs each; the box's noise is about 2x
+between runs:
+
+| scene (lavapipe, CPU) | before | after |
+| --- | --- | --- |
+| {301/97} over black | 163 / 82 | 637 / 230 |
+| `LARGE_POLYGONS` over black | 105 / 90 | 285 / 811 |
+| 64,000-edge polygon | 209 / 358 | 921 / 1155 |
+| 40,000 opaque edges | 324 / 254 | 206 / 223 |
+
+**Goldens expected to shift (not regenerated, per the task).** The `app-mouse-surface`
+canvas change-sentinel's `.ncodesum` files, for all four targets
+(`tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.{macos-aarch64,linux-aarch64,linux-x86_64,windows-x86_64}.app.ncodesum`).
+Four things move in them:
+- the emitted edge upload, `emit_edge_buffer` on Metal and `emit_edge_upload` on Vulkan;
+- every Metal and Vulkan emitter that folds a region base or the buffer size, since the
+  band, gradient, glyph and picture offsets all moved;
+- Metal's embedded MSL string;
+- the Vulkan specialization table (4 entries) and the embedded fragment SPIR-V.
+
+The `.ir`, `.nir`, `.nplan` and `.ast` files should not move, because no MFBASIC helper
+changed. That is a prediction, not a measurement: `artifact-gate.sh all` was not run.
+
+**Known limits, unchanged by this fix.** A stroke's half-width and a group's draw offset
+still reach the shader as 16.16, and a `PolyLine`'s distance is still fp32. A stroke whose
+half-width is not a multiple of 2^-16, or a group at a non-16.16 offset, can still flip a
+step near black. Neither is in any row here.
 
 Commit: —
