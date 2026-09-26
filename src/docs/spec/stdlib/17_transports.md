@@ -208,6 +208,31 @@ plus a handshake and a peer identity.
   connection borrows; it does not request or verify a client certificate.
 * **The key may be PKCS#8 or PKCS#1**, on every platform, unencrypted. One PEM
   therefore serves every target.
+* **`tls::accept`'s `timeoutMs` bounds two steps, each by the full value.** The
+  wait for an inbound connection is bounded by `timeoutMs`; once a connection
+  is taken, its handshake is bounded by `timeoutMs` again, measured from that
+  moment. Time the wait used is not taken from the handshake, so one call can
+  take longer than `timeoutMs`. The timeout convention applies to each
+  step: omitted blocks in both, `0` is one immediate attempt at each (a
+  handshake essentially never completes at once, so `0` raises `ErrTimeout`
+  even when a client is queued), and expiry of either step raises
+  `ErrTimeout`. The mechanism differs by backend. On macOS the connection
+  wait and the handshake wait are each a `dispatch_semaphore_wait` against an
+  absolute deadline, and the handshake deadline is computed afresh when the
+  connection is popped from the listener's ring, so it bounds the whole
+  handshake and one call takes at most about `2 × timeoutMs`.
+  [[src/codegen/builtins/tls/gen_macos/server.rs:emit_accept_deadline]]
+  [[src/codegen/builtins/tls/gen_macos/server.rs:lower_tls_accept_macos]]
+  On Linux and Windows the connection wait is `poll`/`WSAPoll` with
+  `timeoutMs`, and the handshake bound is `SO_RCVTIMEO`/`SO_SNDTIMEO` set to
+  `timeoutMs` on the accepted socket and cleared after it. That is a
+  per-operation timeout, so it limits each blocking handshake read or write,
+  not the handshake as a whole: a peer that goes silent for `timeoutMs` is
+  dropped, but one that keeps sending a little within every `timeoutMs` can
+  hold the handshake open longer. The backends therefore agree on a silent
+  peer and on a late connection, and differ on a slow one.
+  [[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_accept_openssl]]
+  [[src/codegen/builtins/tls/gen_schannel_server.rs:lower_tls_accept]]
 * **A mismatched cert/key pair is not rejected at listen.** No backend verifies
   the pair while building the credential; the mismatch surfaces as `ErrTlsFailed`
   from the first `tls::accept`.
