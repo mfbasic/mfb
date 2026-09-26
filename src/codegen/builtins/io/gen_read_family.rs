@@ -190,6 +190,7 @@ pub(crate) fn emit_stdin_byte_read(
             retry_label,
             input_error,
             invalid_context,
+            vregs,
             ctx.instructions,
             ctx.relocations,
         );

@@ -365,5 +365,5 @@ fn emit_append_to_stdout_buffer(
         fd: None,
         epipe_label,
     };
-    emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
+    emit_append_to_buffer(ctx, vregs, src, len, tag, write_error, &sink)
 }

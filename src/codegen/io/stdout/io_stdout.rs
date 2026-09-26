@@ -34,23 +34,33 @@ pub(crate) fn lower_stdout_drain(
     let epipe = format!("{symbol}_epipe");
     let slide_loop = format!("{symbol}_slide_loop");
     let slide_done = format!("{symbol}_slide_done");
+    let mut vregs = Vregs::new();
+    let enabled = vregs.next();
+    let remaining = vregs.next();
+    let cursor = vregs.next();
+    let written = vregs.next();
+    let base = vregs.next();
+    let slide_dst = vregs.next();
+    let slide_src = vregs.next();
+    let slide_count = vregs.next();
+    let slide_byte = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v0", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-        abi::compare_immediate("%v0", "0"),
+        abi::load_u64(&enabled, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+        abi::compare_immediate(&enabled, "0"),
         abi::branch_eq(&ok),
-        abi::load_u64("%v1", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
-        abi::compare_immediate("%v1", "0"),
+        abi::load_u64(&remaining, ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
+        abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&ok),
-        abi::load_u64("%v2", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
-        // Keep the buffer base in %v4 (never advanced) so a partial-write error can
+        abi::load_u64(&cursor, ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
+        // Keep the buffer base in `base` (never advanced) so a partial-write error can
         // slide the unflushed tail back to the base (bug-208). The platform emit_*
-        // helpers operate on physical arg/return registers, so %v4 survives them.
-        abi::move_register("%v4", "%v2"),
+        // helpers operate on physical arg/return registers, so `base` survives them.
+        abi::move_register(&base, &cursor),
         abi::label(&drain_loop),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_register(abi::string_data_register(), "%v2"),
-        abi::move_register(abi::string_length_register(), "%v1"),
+        abi::move_register(abi::string_data_register(), &cursor),
+        abi::move_register(abi::string_length_register(), &remaining),
     ];
     let mut relocations = Vec::new();
     platform.emit_write(
@@ -60,8 +70,8 @@ pub(crate) fn lower_stdout_drain(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register("%v3", abi::return_register()),
-        abi::compare_immediate("%v3", "0"),
+        abi::move_register(&written, abi::return_register()),
+        abi::compare_immediate(&written, "0"),
         abi::branch_gt(&advance),
         // A 0-byte return for a nonzero-length write moved nothing: error out
         // rather than advancing by zero and looping forever (bug-62 — this loop
@@ -83,7 +93,7 @@ pub(crate) fn lower_stdout_drain(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        "%v3",
+        &written,
         write_uses_raw_syscall(platform),
         &drain_loop,
         stdout_epipe_label(platform, platform_imports, &epipe),
@@ -91,9 +101,9 @@ pub(crate) fn lower_stdout_drain(
     )?;
     instructions.extend([
         abi::label(&advance),
-        abi::add_registers("%v2", "%v2", "%v3"),
-        abi::subtract_registers("%v1", "%v1", "%v3"),
-        abi::compare_immediate("%v1", "0"),
+        abi::add_registers(&cursor, &cursor, &written),
+        abi::subtract_registers(&remaining, &remaining, &written),
+        abi::compare_immediate(&remaining, "0"),
         abi::branch_ne(&drain_loop),
         abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::label(&ok),
@@ -102,27 +112,27 @@ pub(crate) fn lower_stdout_drain(
         abi::label(&err),
         // bug-97: persist the unflushed window before erroring out so a retried
         // flush resumes from here instead of re-sending the already-written prefix.
-        // A partial write left `%v1` bytes at cursor `%v2` (= base + k). bug-208:
+        // A partial write left `remaining` bytes at `cursor` (= base + k). bug-208:
         // rather than advancing OUT_PTR into the middle of the buffer — which the
         // append path (which treats OUT_PTR as the fixed 4 KiB base) would then
-        // overrun — slide the `%v1` unflushed bytes from `%v2` back down to the
-        // base (`%v4`) and keep OUT_PTR = base. dst (base) < src (cursor), so a
+        // overrun — slide the `remaining` unflushed bytes from `cursor` back down to the
+        // base (`base`) and keep OUT_PTR = base. dst (base) < src (cursor), so a
         // forward byte copy is overlap-safe.
-        abi::move_register("%v5", "%v4"), // dst = base
-        abi::move_register("%v6", "%v2"), // src = base + k
-        abi::move_register("%v7", "%v1"), // count = remaining
+        abi::move_register(&slide_dst, &base),   // dst = base
+        abi::move_register(&slide_src, &cursor), // src = base + k
+        abi::move_register(&slide_count, &remaining), // count = remaining
         abi::label(&slide_loop),
-        abi::compare_immediate("%v7", "0"),
+        abi::compare_immediate(&slide_count, "0"),
         abi::branch_eq(&slide_done),
-        abi::load_u8("%v8", "%v6", 0),
-        abi::store_u8("%v8", "%v5", 0),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::add_immediate("%v6", "%v6", 1),
-        abi::subtract_immediate("%v7", "%v7", 1),
+        abi::load_u8(&slide_byte, &slide_src, 0),
+        abi::store_u8(&slide_byte, &slide_dst, 0),
+        abi::add_immediate(&slide_dst, &slide_dst, 1),
+        abi::add_immediate(&slide_src, &slide_src, 1),
+        abi::subtract_immediate(&slide_count, &slide_count, 1),
         abi::branch(&slide_loop),
         abi::label(&slide_done),
-        abi::store_u64("%v4", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
-        abi::store_u64("%v1", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
+        abi::store_u64(&base, ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
+        abi::store_u64(&remaining, ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
     ]);
@@ -192,7 +202,8 @@ pub(crate) fn stdout_epipe_label<'a>(
 /// than the whole buffer is written directly after the drain (never split). Any
 /// underlying `write` failure branches to `write_error`. `tag` disambiguates the
 /// emitted labels so the helper can append more than one chunk (e.g. a line plus
-/// its trailing newline). Uses vregs `%v20`..`%v29`.
+/// its trailing newline). Its two direct-write temporaries are minted from
+/// `vregs`; the sink's role registers come from the caller.
 /// How the direct-write fallback obtains the destination fd (bug-331 §E): stdout
 /// writes fd `1` as an immediate; a file loads its fd from the handle once per
 /// direct-write path and moves it into the return register.
@@ -206,8 +217,8 @@ pub(crate) struct FdLoad<'a> {
 /// a field here, so the emitter below is written once and stays byte-identical for
 /// both: the state base register + its buffer-pointer / filled offsets, the drain
 /// symbol (and, for a file, the handle passed to the drain in `x0`), the capacity
-/// constant, the label infix, the nine role registers (`%v20`..`%v28` for stdout,
-/// their irregularly-renumbered file counterparts), and the fd source.
+/// constant, the label infix, the nine role registers (minted by each caller),
+/// and the fd source.
 pub(crate) struct BufferSink<'a> {
     pub state_reg: &'a str,
     pub buf_ptr_off: usize,
@@ -230,6 +241,7 @@ pub(crate) struct BufferSink<'a> {
 /// the two former copies; every divergence is carried by `s`.
 pub(crate) fn emit_append_to_buffer(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     src: &str,
     len: &str,
     tag: &str,
@@ -251,6 +263,11 @@ pub(crate) fn emit_append_to_buffer(
     let byte_tail = format!("{symbol}_{prefix}_{tag}_byte_tail");
     let copy_done = format!("{symbol}_{prefix}_{tag}_copy_done");
     let appended = format!("{symbol}_{prefix}_{tag}_appended");
+    // The direct-write cursor and remaining count, shared by both direct-write
+    // paths, minted from the caller's counter so they cannot alias a caller
+    // temporary live across the append (bug-721).
+    let direct_src = vregs.next();
+    let direct_len = vregs.next();
     // fd → return register for a direct write: an immediate `1` (stdout) or the
     // handle's loaded fd register (file).
     let fd_to_ret = |s: &BufferSink| match &s.fd {
@@ -275,7 +292,7 @@ pub(crate) fn emit_append_to_buffer(
         abi::move_register(s.v[0], abi::mfb_return(1)),
         abi::branch(&have_buf),
         // Allocation failed: write this chunk directly so no output is lost. Loop on
-        // short writes (bug-51) until nothing remains; %v40/%v41 are vregs, spilled
+        // short writes (bug-51) until nothing remains; direct_src/direct_len are vregs, spilled
         // across each `bl write`.
         abi::label(&alloc_failed),
     ]);
@@ -284,14 +301,14 @@ pub(crate) fn emit_append_to_buffer(
             .push(abi::load_u64(fd.reg, s.state_reg, fd.off));
     }
     ctx.instructions.extend([
-        abi::move_register("%v40", src),
-        abi::move_register("%v41", len),
+        abi::move_register(&direct_src, src),
+        abi::move_register(&direct_len, len),
         abi::label(&alloc_failed_loop),
-        abi::compare_immediate("%v41", "0"),
+        abi::compare_immediate(&direct_len, "0"),
         abi::branch_eq(&appended),
         fd_to_ret(s),
-        abi::move_register(abi::string_data_register(), "%v40"),
-        abi::move_register(abi::string_length_register(), "%v41"),
+        abi::move_register(abi::string_data_register(), &direct_src),
+        abi::move_register(abi::string_length_register(), &direct_len),
     ]);
     platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail_epipe(
@@ -304,8 +321,8 @@ pub(crate) fn emit_append_to_buffer(
         },
         abi::return_register(),
         write_uses_raw_syscall(platform),
-        "%v40",
-        "%v41",
+        &direct_src,
+        &direct_len,
         &alloc_failed_loop,
         s.epipe_label,
         write_error,
@@ -342,14 +359,14 @@ pub(crate) fn emit_append_to_buffer(
             .push(abi::load_u64(fd.reg, s.state_reg, fd.off));
     }
     ctx.instructions.extend([
-        abi::move_register("%v40", src),
-        abi::move_register("%v41", len),
+        abi::move_register(&direct_src, src),
+        abi::move_register(&direct_len, len),
         abi::label(&big_write_loop),
-        abi::compare_immediate("%v41", "0"),
+        abi::compare_immediate(&direct_len, "0"),
         abi::branch_eq(&appended),
         fd_to_ret(s),
-        abi::move_register(abi::string_data_register(), "%v40"),
-        abi::move_register(abi::string_length_register(), "%v41"),
+        abi::move_register(abi::string_data_register(), &direct_src),
+        abi::move_register(abi::string_length_register(), &direct_len),
     ]);
     platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_transfer_loop_tail_epipe(
@@ -362,8 +379,8 @@ pub(crate) fn emit_append_to_buffer(
         },
         abi::return_register(),
         write_uses_raw_syscall(platform),
-        "%v40",
-        "%v41",
+        &direct_src,
+        &direct_len,
         &big_write_loop,
         s.epipe_label,
         write_error,

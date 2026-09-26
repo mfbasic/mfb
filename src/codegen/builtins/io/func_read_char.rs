@@ -136,7 +136,6 @@ pub(crate) fn lower_read_char(
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
-    let mut vregs = Vregs::new();
     // Drain buffered stdout before blocking on input (plan-14-A §4.3 hook 2);
     // no-op when buffering is off, skipped in app mode (no stdout buffer).
     if !app_mode {
@@ -153,6 +152,7 @@ pub(crate) fn lower_read_char(
                 )
             })??;
     }
+    let mut vregs = Vregs::new();
     emit_configure_stdin_terminal(
         &mut EmitCtx {
             symbol,
@@ -161,6 +161,7 @@ pub(crate) fn lower_read_char(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &terminal_slots,
         abi::stack_pointer(),
         true,
@@ -292,6 +293,7 @@ pub(crate) fn lower_read_char(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &terminal_slots,
     )?;
     instructions.push(abi::return_());

@@ -201,7 +201,7 @@ pub(crate) fn emit_append_to_file_buffer(
         // write here keeps raising `ErrWriteFailed` rather than re-raising SIGPIPE.
         epipe_label: None,
     };
-    emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
+    emit_append_to_buffer(ctx, vregs, src, len, tag, write_error, &sink)
 }
 
 /// Refuse a closed `File` (x0 = File*) by branching to `closed`: the same

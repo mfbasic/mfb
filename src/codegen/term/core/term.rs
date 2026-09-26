@@ -573,6 +573,9 @@ fn emit_on(
         original: term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
         modified: term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET,
     };
+    // No `emit_on` value is live across this call, so a counter scoped to it
+    // cannot alias one (bug-721).
+    let mut vregs = Vregs::new();
     emit_configure_stdin_terminal(
         &mut EmitCtx {
             symbol,
@@ -581,6 +584,7 @@ fn emit_on(
             instructions: ctx.instructions,
             relocations: ctx.relocations,
         },
+        &mut vregs,
         &raw_slots,
         ARENA_STATE_REGISTER,
         true,

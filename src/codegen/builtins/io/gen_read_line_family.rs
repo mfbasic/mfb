@@ -217,6 +217,7 @@ pub(crate) fn lower_read_line_family(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             term_state_offset,
             true,
             false,
@@ -231,6 +232,7 @@ pub(crate) fn lower_read_line_family(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             &terminal_slots,
             abi::stack_pointer(),
             true,
@@ -506,6 +508,7 @@ pub(crate) fn lower_read_line_family(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             &terminal_slots,
         )?;
     }
@@ -522,6 +525,7 @@ pub(crate) fn lower_read_line_family(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             term_state_offset,
             false,
             true,

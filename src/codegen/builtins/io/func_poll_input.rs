@@ -152,6 +152,7 @@ pub(crate) fn lower_poll_input(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             &poll_ready,
             &os_poll,
         )?;

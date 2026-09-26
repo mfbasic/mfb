@@ -139,6 +139,7 @@ pub(crate) fn lower_read_byte(
                 )
             })??;
     }
+    let mut vregs = Vregs::new();
     emit_configure_stdin_terminal(
         &mut EmitCtx {
             symbol,
@@ -147,6 +148,7 @@ pub(crate) fn lower_read_byte(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &terminal_slots,
         abi::stack_pointer(),
         true,
@@ -155,7 +157,6 @@ pub(crate) fn lower_read_byte(
     )?;
     // plan-15: read the byte from the stdin broadcast log. EINTR/blocking are
     // handled inside `_mfb_rt_stdin_next_byte`; a 0-byte return is EOF.
-    let mut vregs = Vregs::new();
     emit_stdin_byte_read(
         &mut EmitCtx {
             symbol,
@@ -205,6 +206,7 @@ pub(crate) fn lower_read_byte(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &terminal_slots,
     )?;
     instructions.push(abi::return_());

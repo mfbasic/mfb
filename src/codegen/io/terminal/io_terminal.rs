@@ -1,6 +1,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
@@ -21,9 +22,12 @@ pub(crate) struct TerminalModeSlots {
 /// relative to `base_register` — `abi::stack_pointer()` for the transient
 /// per-read toggle in the read helpers, or `ARENA_STATE_REGISTER` for
 /// `term::on`'s persistent console raw mode (bug-149), which parks the buffers
-/// in the term-state region rather than a read-scoped stack frame.
+/// in the term-state region rather than a read-scoped stack frame. Its scratch
+/// register is minted from the caller's `vregs`, so it cannot alias a caller
+/// temporary (bug-721).
 pub(crate) fn emit_configure_stdin_terminal(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     slots: &TerminalModeSlots,
     base_register: &str,
     disable_echo: bool,
@@ -35,6 +39,7 @@ pub(crate) fn emit_configure_stdin_terminal(
     let platform_imports = ctx.platform_imports;
 
     let skip = format!("{symbol}_terminal_mode_skip");
+    let active = vregs.next();
     ctx.instructions.extend([
         abi::store_u64(abi::ZERO, base_register, slots.active),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -62,8 +67,8 @@ pub(crate) fn emit_configure_stdin_terminal(
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(error_label),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", base_register, slots.active),
+        abi::move_immediate(&active, "Integer", "1"),
+        abi::store_u64(&active, base_register, slots.active),
     ]);
 
     platform.emit_apply_raw_mode(
@@ -95,8 +100,12 @@ pub(crate) fn emit_configure_stdin_terminal(
     Ok(())
 }
 
+/// Undo [`emit_configure_stdin_terminal`] when its active flag is set, parking
+/// the `Result` registers across the `tcsetattr`. The flag is read into a vreg
+/// minted from the caller's `vregs` (bug-721).
 pub(crate) fn emit_restore_stdin_terminal(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     slots: &TerminalModeSlots,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
@@ -105,6 +114,7 @@ pub(crate) fn emit_restore_stdin_terminal(
 
     let restored = format!("{symbol}_terminal_mode_restored");
     let restore_failed = format!("{symbol}_terminal_mode_restore_failed");
+    let active = vregs.next();
     ctx.instructions.extend([
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
         abi::store_u64(
@@ -117,8 +127,8 @@ pub(crate) fn emit_restore_stdin_terminal(
             abi::stack_pointer(),
             slots.saved_message,
         ),
-        abi::load_u64("%v9", abi::stack_pointer(), slots.active),
-        abi::compare_immediate("%v9", "1"),
+        abi::load_u64(&active, abi::stack_pointer(), slots.active),
+        abi::compare_immediate(&active, "1"),
         abi::branch_ne(&restored),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
@@ -166,8 +176,11 @@ pub(crate) fn emit_restore_stdin_terminal(
 /// so nothing is read from a read-scoped stack frame. When `preserve_result` is
 /// set the `Result` registers are parked across the `tcsetattr` call (needed for
 /// the post-read re-apply, which runs after the read result is already staged).
+/// The flag and the parking registers are minted from the caller's `vregs`, so
+/// none of them can alias a caller temporary live across the call (bug-721).
 pub(crate) fn emit_console_raw_line_mode(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     term_state_offset: usize,
     line_mode: bool,
     preserve_result: bool,
@@ -183,20 +196,24 @@ pub(crate) fn emit_console_raw_line_mode(
     } else {
         term_state_offset + TERM_STATE_RAW_TERMIOS_OFFSET
     };
+    let raw_active = vregs.next();
+    let saved_tag = vregs.next();
+    let saved_value = vregs.next();
+    let saved_message = vregs.next();
     ctx.instructions.extend([
         abi::load_u64(
-            "%v9",
+            &raw_active,
             ARENA_STATE_REGISTER,
             term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
         ),
-        abi::compare_immediate("%v9", "0"),
+        abi::compare_immediate(&raw_active, "0"),
         abi::branch_eq(&skip),
     ]);
     if preserve_result {
         ctx.instructions.extend([
-            abi::move_register("%v20", RESULT_TAG_REGISTER),
-            abi::move_register("%v21", RESULT_VALUE_REGISTER),
-            abi::move_register("%v22", RESULT_ERROR_MESSAGE_REGISTER),
+            abi::move_register(&saved_tag, RESULT_TAG_REGISTER),
+            abi::move_register(&saved_value, RESULT_VALUE_REGISTER),
+            abi::move_register(&saved_message, RESULT_ERROR_MESSAGE_REGISTER),
         ]);
     }
     ctx.instructions.extend([
@@ -213,9 +230,9 @@ pub(crate) fn emit_console_raw_line_mode(
     )?;
     if preserve_result {
         ctx.instructions.extend([
-            abi::move_register(RESULT_TAG_REGISTER, "%v20"),
-            abi::move_register(RESULT_VALUE_REGISTER, "%v21"),
-            abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, "%v22"),
+            abi::move_register(RESULT_TAG_REGISTER, &saved_tag),
+            abi::move_register(RESULT_VALUE_REGISTER, &saved_value),
+            abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, &saved_message),
         ]);
     }
     ctx.instructions.push(abi::label(&skip));
