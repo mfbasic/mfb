@@ -131,7 +131,7 @@ Risk is low: each site keeps its label structure and only swaps its raise tail.
 Acceptance: the table covers every grep row plus the calls behind the shared `check`
 closure (strengthened from 33, C1).
   Check: `grep -c '^| gen_' planning/plan-158-B-audio-status-macos-alsa.md` → 41 (est. 1 min).
-Commit: —
+Commit: ca414e4c3
 
 ### Phase 2 — Adopt
 
@@ -177,7 +177,7 @@ Commit: —
 Acceptance: both probes print the status suffix.
   Check: `./build/probe.out` → a line matching `\(.*: 0x[0-9a-f]{8}\)` (est. 2 min per box).
   — met on both (above).
-Commit: —
+Commit: d382a92a3 (adoption, fixes, tests), 5ed78e791 (spec), 3e3547727 (goldens + ledger)
 
 ## Validation Plan
 
