@@ -1,0 +1,63 @@
+' The key probe's reading loop (tools/key-probe), shared by the console and the
+' --app probe programs: the driver copies this file into each one.
+'
+' Reads keys with io::readKey until `q` is pressed or input ends, and after every
+' key rewrites `out` with:
+'   PRESSES: <every press and repeat, space-separated, e.g. `a Left Shift+Left é q`>
+'   <one line per event: key event modifiers grapheme-hex>
+' so a driver can compare the PRESSES line across surfaces and platforms, and
+' read the release and modifier detail below it.
+
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+FUNC modifierPrefix(k AS io::Key) AS String
+  MUT p AS String = ""
+  IF k.ctrl THEN p = p & "Ctrl+"
+  IF k.alt THEN p = p & "Alt+"
+  IF k.meta THEN p = p & "Meta+"
+  IF k.shift AND k.key <> io::KeyName.Unicode THEN p = p & "Shift+"
+  RETURN p
+END FUNC
+
+FUNC pressName(k AS io::Key) AS String
+  IF k.key = io::KeyName.Unicode THEN
+    RETURN modifierPrefix(k) & k.grapheme
+  END IF
+  RETURN modifierPrefix(k) & toString(k.key)
+END FUNC
+
+FUNC flag(b AS Boolean) AS String
+  IF b THEN RETURN "1"
+  RETURN "0"
+END FUNC
+
+FUNC eventLine(k AS io::Key) AS String
+  RETURN toString(k.key) & " " & toString(k.event) & " " & flag(k.shift) & flag(k.ctrl) & flag(k.alt) & flag(k.meta) & " " & encoding::hexEncode(strings::toBytes(k.grapheme))
+END FUNC
+
+FUNC probeKeys(out AS String) AS Integer
+  MUT presses AS String = ""
+  MUT events AS String = ""
+  fs::writeText(out, "PRESSES:\n")
+  DO WHILE TRUE
+    LET k AS io::Key = io::readKey() TRAP(e)
+      IF e.code = errorCode::ErrEndOfFile THEN
+        EXIT DO
+      END IF
+      FAIL e
+    END TRAP
+    events = events & eventLine(k) & "\n"
+    IF k.event <> io::KeyEvent.Release THEN
+      presses = presses & " " & pressName(k)
+    END IF
+    fs::writeText(out, "PRESSES:" & presses & "\n" & events)
+    IF k.grapheme = "q" AND k.event <> io::KeyEvent.Release THEN
+      EXIT DO
+    END IF
+  LOOP
+  RETURN 0
+END FUNC
