@@ -5,8 +5,8 @@ Effort: small
 Severity: LOW
 Class: Correctness (declared-error data disagrees with behavior)
 
-Status: PARTIALLY FIXED (2026-09-27) — `set` fixed; `sum`'s Float claim does not
-reproduce at this HEAD, see Fix section
+Status: FIXED (2026-09-27) — `set` (bug-698 lane) and `sum` (bug-754 lane): `sum`'s Float overload declares
+ErrFloatOverflow + ErrFloatNaN (not ErrOverflow); the declared-errors guard now sees it and passes
 Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
 every_collections_member_declares_exactly_the_errors_its_lowering_raises`
 (covers `set`'s per-overload split; does not check `sum`, a `Body::abi_inline`

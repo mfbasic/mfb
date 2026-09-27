@@ -112,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Float,
-                errors: vec!["ErrOverflow"],
+                errors: vec!["ErrFloatOverflow", "ErrFloatNaN"],
                 body: Body::abi_inline(lower_sum),
             },
             Implementation {
