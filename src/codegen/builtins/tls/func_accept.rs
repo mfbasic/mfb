@@ -28,10 +28,9 @@ both steps until a connection is ready and handshaken. `0` is one immediate
 attempt at each step: it succeeds only if a client is already waiting and its
 handshake completes at once, which in practice it almost never does, so use a
 positive value. A positive value fails with `ErrTimeout` if no connection arrives
-within that many milliseconds, or if the handshake with the client that arrived
-runs out of time; a client that sends nothing for `timeoutMs` during its
-handshake is always dropped. A negative `timeoutMs` raises
-`ErrInvalidArgument`. A
+within that many milliseconds, or if the client that arrived does not finish its
+handshake within that many milliseconds more, however it paces its bytes. A
+negative `timeoutMs` raises `ErrInvalidArgument`. A
 handshake that fails raises `ErrTlsFailed`, and the accepted connection is closed
 before the error is returned; the listener stays open, so the server can continue
 accepting.

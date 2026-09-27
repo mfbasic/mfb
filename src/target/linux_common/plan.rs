@@ -827,8 +827,10 @@ impl LinuxPlan<'_> {
                 }
                 if call == "tls.accept" {
                     // accept4(SOCK_CLOEXEC) the inbound connection (bug-499); poll
-                    // bounds the wait when timeoutMs > 0.
-                    for base in ["accept4", "poll"] {
+                    // bounds the wait when timeoutMs > 0. A bounded handshake runs
+                    // non-blocking (fcntl) against a clock_gettime deadline, polling
+                    // for the time left (bug-739).
+                    for base in ["accept4", "poll", "fcntl", "clock_gettime"] {
                         imports.push(self.libc_import(base, required_by));
                     }
                 }

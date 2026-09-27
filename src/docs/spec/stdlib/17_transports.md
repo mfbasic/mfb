@@ -216,23 +216,29 @@ plus a handshake and a peer identity.
   step: omitted blocks in both, `0` is one immediate attempt at each (a
   handshake essentially never completes at once, so `0` raises `ErrTimeout`
   even when a client is queued), and expiry of either step raises
-  `ErrTimeout`. The mechanism differs by backend. On macOS the connection
-  wait and the handshake wait are each a `dispatch_semaphore_wait` against an
-  absolute deadline, and the handshake deadline is computed afresh when the
-  connection is popped from the listener's ring, so it bounds the whole
-  handshake and one call takes at most about `2 × timeoutMs`.
+  `ErrTimeout`. Each step is one absolute deadline, so a peer cannot extend
+  the handshake by sending a little at a time, and one call takes at most
+  about `2 × timeoutMs`. The mechanism differs by backend. On macOS the
+  connection wait and the handshake wait are each a `dispatch_semaphore_wait`
+  against an absolute deadline, and the handshake deadline is computed afresh
+  when the connection is popped from the listener's ring.
   [[src/codegen/builtins/tls/gen_macos/server.rs:emit_accept_deadline]]
   [[src/codegen/builtins/tls/gen_macos/server.rs:lower_tls_accept_macos]]
-  On Linux and Windows the connection wait is `poll`/`WSAPoll` with
-  `timeoutMs`, and the handshake bound is `SO_RCVTIMEO`/`SO_SNDTIMEO` set to
-  `timeoutMs` on the accepted socket and cleared after it. That is a
-  per-operation timeout, so it limits each blocking handshake read or write,
-  not the handshake as a whole: a peer that goes silent for `timeoutMs` is
-  dropped, but one that keeps sending a little within every `timeoutMs` can
-  hold the handshake open longer. The backends therefore agree on a silent
-  peer and on a late connection, and differ on a slow one.
+  On Linux the connection wait is `poll` with `timeoutMs`; a bounded handshake
+  then runs with the accepted fd non-blocking, calling `SSL_accept` and, on
+  `WANT_READ`/`WANT_WRITE`, polling for the time left before a
+  `CLOCK_MONOTONIC` deadline taken when the connection was accepted. The fd's
+  blocking mode is restored afterwards. `0` makes one non-blocking
+  `SSL_accept` attempt.
   [[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_accept_openssl]]
+  [[src/codegen/builtins/tls/gen_openssl.rs:emit_monotonic_ms]]
+  On Windows the connection wait is `WSAPoll`; before every handshake `recv`
+  and every `AcceptSecurityContext` pass that may send, `SO_RCVTIMEO`/`SO_SNDTIMEO`
+  are re-armed to the time left before a `GetTickCount64` deadline (`0` is a
+  1 ms deadline, since Winsock reads a zero timeout as infinite), and cleared
+  after the handshake.
   [[src/codegen/builtins/tls/gen_schannel_server.rs:lower_tls_accept]]
+  [[src/codegen/builtins/tls/gen_schannel_server.rs:emit_hs_refresh]]
 * **A mismatched cert/key pair is not rejected at listen.** No backend verifies
   the pair while building the credential; the mismatch surfaces as `ErrTlsFailed`
   from the first `tls::accept`.
