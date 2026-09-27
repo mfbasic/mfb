@@ -17,9 +17,11 @@ const DESC: &str = r#"`term::setUnderline` sets whether text drawn through the `
 on is underlined. It takes exactly one `Boolean`: `TRUE` enables the attribute,
 `FALSE` disables it.
 
-The flag is stored in the module's current-attribute state and **no escape
-sequence is emitted**. Like every other drawing operation on this retained
-surface, the change becomes visible only when `term::sync` presents the frame.
+Nothing is written to the terminal by this call. Like every other drawing
+operation on this surface, the change becomes visible only when `term::sync`
+presents the frame. While TUI mode is on, every call that writes cells takes the
+current underline setting: `io::print` and `io::write`, and `term::drawText`, `drawGlyph`, `drawHLine`,
+`drawVLine`, `drawBox` and `fillRect`.
 
 Underlining is per cell, not global. Each cell of the grid records the foreground,
 background, bold, and underline that were current when its glyph was written, so
@@ -30,10 +32,14 @@ The setting persists until the next `term::setUnderline` or the next `term::on`,
 which resets underline to off. It is independent of the foreground and background
 colours and of bold, so changing it leaves those alone, and the current value can
 be read back with `term::getUnderline`. Setting the same value twice is harmless —
-the state is a flag, not a toggle.
+the state is a flag, not a toggle. One exception: `term::drawText` with an `AttributedString`
+uses the underline carried by the string for each run, not this setting, and
+restores this setting when it finishes.
 
-The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+While TUI mode is off the call is ignored and raises nothing; `term::getUnderline`
+reports `FALSE` until the next `term::on`, which starts with underline off. In an `--app`
+program outside `app::Mode.Console` it raises `ErrWrongMode`, as every `term::`
+call does."#;
 
 const EX: &str = r#"Underline one label, then continue normally:
 

@@ -17,7 +17,11 @@ only that one did.
 
 Each individual test is the same exact byte comparison `strings::endsWith`
 performs: the trailing bytes of `value` must equal every byte of the candidate,
-in order, with no normalization and no case folding. A candidate longer than
+in order, with no normalization and no case folding. A match always covers whole
+Unicode scalars but not necessarily whole characters: a candidate that is a lone
+combining mark, such as `"\u{0301}"`, matches `"e\u{0301}"` even though the two
+display as one character, and a precomposed `"é"` does not match a decomposed
+`"e\u{0301}"`. A candidate longer than
 `value` cannot match and is skipped rather than treated as an error.
 
 An empty string appearing as a candidate matches everything, so a `suffixes` list

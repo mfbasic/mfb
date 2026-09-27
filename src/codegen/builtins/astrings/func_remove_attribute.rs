@@ -13,10 +13,11 @@ const INTRO: &str =
     r#"Remove a matching attribute over an inclusive scalar range, splitting straddlers."#;
 
 const DESC: &str = r#"`removeAttribute` returns a new `AttributedString` with `attr` removed over the inclusive range
-`[start, endIndex]`. A stored span is affected only when its attribute **structurally matches** `attr`
-(same member and, for font/size, same value). A matching span that straddles the range is **split**:
+`[start, endIndex]`. A stored span is affected only when its attribute **structurally matches** `attr`:
+the same member and, for the attributes that carry a value — font, font size, foreground and
+background — the same value. A matching span that straddles the range is **split**:
 its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.endIndex]` are kept and
-the overlap dropped. Because overlapping spans resolve by higher-start-wins, removing a covering
+the overlap dropped. Because a higher start wins where spans overlap, removing a covering
 winner can reveal a lower-start loser at read time.
 
 **An invalid range raises.** `start` must be zero or more and no greater than
@@ -65,14 +66,14 @@ fn ranged_attr_params() -> Vec<Parameter> {
         },
         Parameter {
             name: "start",
-            desc: "The first scalar index of the range (0-based).",
+            desc: "The first scalar index of the inclusive range (0-based); zero or more and no greater than `endIndex`.",
             aliases: &[],
             ty: ParameterType::Integer,
             default: DefaultValue::None,
         },
         Parameter {
             name: "endIndex",
-            desc: "The last scalar index of the range (inclusive).",
+            desc: "The last scalar index of the inclusive range; at least `start` and inside the visible text.",
             aliases: &[],
             ty: ParameterType::Integer,
             default: DefaultValue::None,

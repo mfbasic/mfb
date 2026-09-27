@@ -12,14 +12,14 @@ const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` ho
 `value` exactly once, in the set's stable insertion order. It takes exactly one
 argument, which is neither optional nor variadic.
 
-The set is neither copied for the caller nor mutated: the result is a freshly
-built list. Because a set already holds each element at most once, the resulting
+The set is not modified: the result is a new list. Because a set already holds each element at most once, the resulting
 list has no duplicates and its length equals `len(value)`. An empty set yields an
 empty list.
 
-`toList` is **infallible**: nothing it does raises a trappable domain error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
+`toList` raises no error of its own. Building the result needs memory, so it can
+raise `ErrOutOfMemory`."#;
 
-const EX: &str = r#"List the elements of a set:
+const EX: &str = r#"Print the elements of a set in insertion order:
 
 ```
 IMPORT collections
@@ -27,7 +27,9 @@ IMPORT io
 
 FUNC main AS Integer
   LET elems AS List OF Integer = collections::toList(Set OF Integer { 3, 1, 2 })
-  io::print(toString(len(elems)))
+  FOR EACH n IN elems
+    io::print(toString(n))
+  NEXT
   RETURN 0
 END FUNC
 ```

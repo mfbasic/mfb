@@ -11,14 +11,15 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Test whether a string contains another string."#;
 
 const DESC: &str = r#"`strings::contains` returns `TRUE` when `needle` occurs as a contiguous
-substring of `value`, and `FALSE` otherwise. The bytes of `needle` are compared
-against `value` at each successive byte offset, and the scan returns `TRUE` at
-the first offset where the whole needle matches.
+substring of `value`, and `FALSE` otherwise.
 
-No normalization, case folding, or other transformation is applied to either
-operand. Because both are well-formed UTF-8 and UTF-8 is self-synchronizing, a
-matching byte run is always also a whole-scalar substring — a match can never
-land mid-scalar.
+Comparison is exact: no normalization, case folding, or other transformation is
+applied to either operand, so `contains("Hello", "hello")` is `FALSE`. Matching
+is by Unicode scalar, not by user-perceived character: a match always covers
+whole scalars, but it can begin or end inside a combining sequence, an emoji
+sequence, or a flag — `contains("e\u{0301}", "e")` is `TRUE`. Because no
+normalization is applied, `é` written as one precomposed scalar does not match
+`é` written as `e` plus a combining acute.
 
 The empty `needle` occurs at every position and returns `TRUE` for any `value`,
 including the empty string — `contains` answers a question about an occurrence,

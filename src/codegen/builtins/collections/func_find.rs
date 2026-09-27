@@ -34,8 +34,8 @@ search with an empty needle, the index `start` itself.
 
 When no match exists at or after `start`, `find` fails with `ErrNotFound`. It
 never returns a sentinel such as `-1`; a search that may legitimately come up
-empty needs a `TRAP`, or `collections::contains` if only the yes/no answer is
-wanted.
+empty needs a `TRAP`. For an element search, `collections::contains` answers the
+yes/no question instead; it does not take a sublist.
 
 Element equality depends on the element type. `String` elements compare byte for
 byte; `Integer`, `Fixed`, `Money`, `Boolean`, `Byte`, and `Scalar` elements
@@ -44,7 +44,7 @@ not match `0.0`; record elements compare field by field. An element type that ca
 `List`, `Map` or `Set` — is rejected at compile time
 (`TYPE_REQUIRES_COMPARABLE`) rather than matching by identity.
 
-`value` is neither modified nor closed, and no new collection is built."#;
+`find` does not modify `value`."#;
 
 const EX_FIND: &str = r#"Find an element, with and without a starting index:
 
@@ -115,14 +115,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
+                        desc: "The element to look for, compared with `=`; or a `List OF T` to look for as a contiguous sublist, whose elements are compared in order.",
                         aliases: &["needle"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
+                        desc: "Where to begin searching, as a zero-based index. Omit it for 0. It must be from 0 through `len(value)` inclusive; anything outside that raises `ErrIndexOutOfRange`.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,
@@ -143,14 +143,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
+                        desc: "The element to look for, compared with `=`; or a `List OF T` to look for as a contiguous sublist, whose elements are compared in order.",
                         aliases: &["needle"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
+                        desc: "Where to begin searching, as a zero-based index. Omit it for 0. It must be from 0 through `len(value)` inclusive; anything outside that raises `ErrIndexOutOfRange`.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,

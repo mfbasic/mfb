@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:term/drawVLine
+
+I compiled and ran both rendered examples in a TTY from `/tmp/plan-125-scratch/D-phase3/man-page-term-drawVLine`; they exited successfully and printed ANSI terminal frames containing a full-height `║` at column 0 and `│` at column 40, respectively. I also verified the descriptor and `emit_draw_line`/`emit_stamp_run` implementation: endpoints normalize and clamp, off-grid columns are no-ops, current attributes are stamped, and TUI-off calls return successfully without drawing.

@@ -14,21 +14,22 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Count the extended grapheme clusters in a string."#;
 
 const DESC: &str = r#"`strings::graphemesCount` returns the number of Unicode extended grapheme
-clusters in `value`. It is defined as the element count of
-`strings::graphemes(value)`, and is computed by performing that same
-segmentation and reading the resulting list's length.
+clusters in `value`; the result always equals `len(strings::graphemes(value))`.
 
 An extended grapheme cluster is one user-perceived character, and it may be built
 from several Unicode scalar values: a base letter followed by combining marks, a
 flag formed from a pair of regional indicators, or an emoji built from a base
 symbol joined to modifiers by zero-width joiners. Each such cluster counts as
-one.
+one. The pair `"\r\n"` is also a single cluster, so text with Windows line
+endings counts one cluster per line break, not two.
 
 The count is therefore a third measure, distinct from both `len(value)`, which
 counts Unicode scalar values, and `strings::byteLen(value)`, which counts UTF-8
-bytes. For text with combining marks, emoji, or characters outside the Basic
-Multilingual Plane, all three can differ: `"e"` plus `U+0301` plus `"fg"` has
-three clusters but four scalars.
+bytes. A cluster and a scalar differ only when several scalars combine into one
+user-perceived character — combining marks, flags, emoji modifier and joiner
+sequences, Hangul jamo; a single emoji outside the Basic Multilingual Plane is
+still one scalar and one cluster, and only its byte length differs. `"e"` plus
+`U+0301` plus `"fg"` has three clusters but four scalars.
 
 The empty string yields `0`. `value` is not mutated and the call never fails.
 Counting means walking the whole string, so unlike `strings::byteLen` the cost
@@ -52,14 +53,15 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-A combining sequence counts as one cluster but two scalars:
+A combining sequence (`e` followed by `U+0301`) counts as one cluster but two
+scalars:
 
 ```
 IMPORT io
 IMPORT strings
 
 FUNC main() AS Integer
-  LET text AS String = "e" & "́" & "fg"
+  LET text AS String = "e\u{301}fg"
   io::print(toString(strings::graphemesCount(text)))
   io::print(toString(len(text)))
   RETURN 0

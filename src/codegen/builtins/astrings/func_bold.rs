@@ -9,7 +9,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Construct the bold flag `astrings::Attribute`."#;
 
 const DESC: &str = r#"`bold` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Bold`. Pass it to
-`astrings::addAttribute` to mark a scalar range bold. A flag attribute carries no value — a scalar is
+`astrings::addAttribute` to mark an inclusive, zero-based scalar range bold; that page states
+which ranges are valid and what an invalid one raises. A flag attribute carries no value — a scalar is
 bold when any covering span carries the bold flag."#;
 
 const EX: &str = r#"```

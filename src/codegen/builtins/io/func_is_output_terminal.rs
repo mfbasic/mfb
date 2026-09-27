@@ -27,13 +27,13 @@ When the question cannot be answered the call reports `FALSE` rather than
 failing, so it never raises.
 
 The probe inspects state only: it writes nothing and changes nothing. Use it to
-decide whether emitting ANSI colour, progress bars, or cursor tricks is
-appropriate, and to fall back to plain text when output is being captured. The
+detect whether output is going to a terminal, and to fall back to plain text when
+output is being captured. It does not check what the terminal supports: whether
+ANSI colour, progress bars, or cursor control work is a separate question. The
 answer says nothing about `io::setBuffered`: buffering is an MFBASIC-level setting
 the program controls, not something inferred from whether standard output is a
-terminal. In app mode the program has no real standard streams — output is
-rendered by the application transcript window, which is treated as an interactive
-console — so this call returns `TRUE` without probing a descriptor."#;
+terminal. In app mode this call returns `TRUE`, because the application window is
+treated as an interactive console."#;
 const EX: &str = r#"Colour the output only when a terminal is attached:
 
 ```

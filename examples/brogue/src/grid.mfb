@@ -42,21 +42,29 @@ PUBLIC FUNC coordinatesAreInMap(x AS Integer, y AS Integer) AS Boolean
   RETURN x >= 0 AND x < DCOLS AND y >= 0 AND y < DROWS
 END FUNC
 
-' The x or y offset of direction dir (GlobalsBase.c nbDirs / cDirs).
+' The x or y offset of direction dir (GlobalsBase.c nbDirs / cDirs). The
+' tables are module-level constants (bug-707): the functions used to rebuild
+' an 8-element list literal on every call, which was ~79.6% of all
+' allocations one `dig` performed (see bug-707's Root Cause).
+PUBLIC LET nbDxTable AS List OF Integer = [0, 0, -1, 1, -1, -1, 1, 1]
+PUBLIC LET nbDyTable AS List OF Integer = [-1, 1, 0, 0, -1, 1, -1, 1]
+PUBLIC LET cDxTable AS List OF Integer = [0, 1, 1, 1, 0, -1, -1, -1]
+PUBLIC LET cDyTable AS List OF Integer = [1, 1, 0, -1, -1, -1, 0, 1]
+
 PUBLIC FUNC nbDx(dir AS Integer) AS Integer
-  RETURN collections::get([0, 0, -1, 1, -1, -1, 1, 1], dir)
+  RETURN collections::get(nbDxTable, dir)
 END FUNC
 
 PUBLIC FUNC nbDy(dir AS Integer) AS Integer
-  RETURN collections::get([-1, 1, 0, 0, -1, 1, -1, 1], dir)
+  RETURN collections::get(nbDyTable, dir)
 END FUNC
 
 PUBLIC FUNC cDx(dir AS Integer) AS Integer
-  RETURN collections::get([0, 1, 1, 1, 0, -1, -1, -1], dir)
+  RETURN collections::get(cDxTable, dir)
 END FUNC
 
 PUBLIC FUNC cDy(dir AS Integer) AS Integer
-  RETURN collections::get([1, 1, 0, -1, -1, -1, 0, 1], dir)
+  RETURN collections::get(cDyTable, dir)
 END FUNC
 
 ' allocGrid + fillGrid: a grid with every cell set to value.

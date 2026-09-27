@@ -1,0 +1,6 @@
+### 1. Resource closure is conditional on emitted windows
+UNIT:      man-page:collections/window
+CLAIM:     "If T is a RES handle, the current build closes those resources during the call, so the handles in value are already closed afterwards; do not pass a list of open resources to window."
+VERDICT:   wrong
+EVIDENCE:  `src/codegen/builtins/collections/func_window.rs:DESC` states this. Scratch probe `resource-partial/src/main.mfb` calls `window(children, 2)` on one `process::Process`; it printed `windows=0` then `9` from `process::waitFor`, proving the handle remained open. `resource-stride/src/main.mfb` with three processes and `window(children, 1, 2)` printed `windows=2`, `closed`, `closed`, `codes=-1,2,-1`: only handles included in emitted windows were closed.
+SUGGESTED: If `T` is a `RES` handle, every handle included in an emitted window is closed during this call; handles not included in any window remain open. Do not use `window` on open resources you still need in an emitted window.

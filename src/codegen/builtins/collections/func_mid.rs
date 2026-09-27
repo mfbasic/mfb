@@ -28,9 +28,10 @@ Empty results are legal at the boundaries, since `start` may equal the length of
 `value` and `count` may be `0`: on a four-element list, `mid(value, 4, 0)`
 returns an empty list.
 
-The result is a new, independent list of the same type as
-`value`; `value` itself is neither modified nor closed, and its elements
-are copied into the new list rather than shared with `value`.
+The result is a new list of the same type as `value`; `value` is not modified.
+For ordinary values the elements are copies. If `T` is a `RES` handle, the result
+holds an alias of the same open resource: closing it through either list closes
+it for both.
 
 Assigning straight back to the same `MUT` variable — `list =
 collections::mid(list, start, count)` — is the cheap shape: it cuts the list
@@ -99,21 +100,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The list to take a run from. Not modified — you get a new list back.",
+                    desc: "The list to take a run from. It may be empty, in which case only `start := 0, count := 0` is valid. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "start",
-                    desc: "The zero-based index of the first element to take.",
+                    desc: "The zero-based index of the first element to take. It must be from 0 through the length of `value` inclusive; anything else raises `ErrIndexOutOfRange`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "count",
-                    desc: "How many elements to take. `start + count` must not exceed the length — this raises rather than clamping.",
+                    desc: "How many elements to take. It must be 0 or greater, and `start + count` must not exceed the length; either violation raises `ErrIndexOutOfRange` rather than clamping.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

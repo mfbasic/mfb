@@ -24,8 +24,9 @@ For a three-item list `[x, y, z]`, the result is
 and commutative: folding `[1, 2, 3]` from the right with subtraction and an
 initial accumulator of `0` yields `((0 - 3) - 2) - 1`, or `-6`.
 
-`f` is called exactly once per item, so an empty `value` calls `f` not at all and
-returns `initial` unchanged. `value` is not modified.
+When `f` succeeds for every item it is called once per item, and an empty
+`value` calls `f` not at all and returns `initial` unchanged. If `f` fails, the
+fold stops at that item and its error propagates. `value` is not modified.
 
 The accumulator type `U` need not match the element type `T`; `reduceRight` can
 fold a list into a value of an entirely different type, such as building a

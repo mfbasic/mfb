@@ -24,11 +24,9 @@ const DESC: &str = r#"`io::readByte` reads exactly one byte from standard input 
 `Byte` in the range 0 through 255. It takes no arguments and does not wait for a
 newline.
 
-**On a terminal the read is a single keypress.** For the duration of the call,
-standard input is switched out of canonical mode and echo is suppressed
-(`~ICANON`, `~ECHO`, `VMIN = 1`, `VTIME = 0`), so one key satisfies the read with
-no Return and nothing is displayed; the previous line discipline is restored
-before the call returns. When standard input is not a terminal the stream is read
+**On a terminal the read is a single keypress.** One keypress satisfies the read, with no Return
+needed, and the key is not displayed. The call then restores the terminal's usual
+input behavior; if that setup or restore fails, it raises `ErrInputFailed`. When standard input is not a terminal the stream is read
 as is with no mode change.
 
 Before blocking, any pending standard-output buffer is drained, so a prompt
@@ -39,12 +37,12 @@ to raise — this is the difference from `io::readChar`, which always returns on
 whole Unicode scalar value. Use `io::readByte` for binary input or protocol
 framing, and `io::readChar` for text.
 
-End of input is reported as an error, not as a sentinel value such as `0` or
-`-1`, which keeps every one of the 256 byte values usable as data. Use
-`io::pollInput` to test for readiness when the program must not block. Standard
-input is a per-thread broadcast log; a thread other than the main thread must
-subscribe with `thread::openStdIn` before reading, or the call raises
-`ErrInvalidContext`."#;
+End of input raises `ErrEndOfFile` rather than returning a sentinel value such as
+`0` or `-1`, which keeps every one of the 256 byte values usable as data. Trap it
+with `IF e.code = errorCode::ErrEndOfFile` when the end of a pipe or file is
+expected. Use
+`io::pollInput` to test for readiness when the program must not block. A worker thread must subscribe with `thread::openStdIn` before reading, or the call
+raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read one byte and report its value:
 
 ```

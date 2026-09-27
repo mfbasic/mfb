@@ -350,7 +350,9 @@ const INTRO: &str = r#"Produce the sliding windows of a list, each of exactly `s
 
 const DESC: &str = r#"`collections::window` walks `value` from index 0 in steps of `stride`, and at
 each position where a full run of `size` consecutive elements still fits, emits
-that run as a window. The result is the list of those windows, in order.Every window has exactly `size` elements — there is no short final window. The
+that run as a window. The result is the list of those windows, in order.
+
+Every window has exactly `size` elements — there is no short final window. The
 loop advances only while `i + size` is still within the length of `value`, so a
 trailing partial run is simply not emitted, and the elements it would have
 contained are dropped from the result. This is the key difference from
@@ -368,9 +370,12 @@ is the empty list; an empty `value` likewise produces an empty result. Both
 runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
 `step`.
 
-Each window is a new list holding its own copy of the elements, so overlapping
-windows hold independent copies of the elements they share and nothing you do
-with a window affects `value`. `value` is not modified.
+Each window is a new list. For ordinary values it holds copies of the elements,
+so overlapping windows hold independent copies and nothing you do with a window
+affects `value`, which is not modified. If `T` is a `RES` handle, the current build
+closes every handle that lands in an emitted window during the call; handles the
+stride skips, or that no full window reaches, stay open. Do not pass a list of open
+resources you still need to `window`.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `window` copies contiguous ranges and never inspects an element, so

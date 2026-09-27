@@ -320,7 +320,7 @@ elapses first, and it **reads nothing** — the bytes are still there for
 convention. When it is **omitted, `pollInput` blocks** until standard input
 becomes ready and then returns `TRUE` (omit = unbounded). `0` is a non-blocking
 check that returns immediately with the current readiness. A positive value waits
-up to that long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
+up to that long when not interrupted. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
 A value above `2147483647` waits no longer than that, roughly 24 days.
 
 Input already waiting for this thread reports `TRUE` immediately; otherwise the
@@ -338,28 +338,36 @@ Two cases to know about:
   read blocks for the rest even though `io::pollInput` said `TRUE`.
 
 `io::readByte` is the one read that a `TRUE` result does fully guarantee. A
-signal delivered while waiting is not an error; the wait is resumed."#;
-const EX: &str = r#"Read a line only when one is already pending (pass `0` for the immediate check —
-omitting the timeout would instead block until input is ready):
+signal delivered while waiting is not an error, but the wait restarts with the full
+timeout, so repeated signals can lengthen the total time."#;
+const EX: &str = r#"Read a line only when input is already ready (pass `0` for the immediate check —
+omitting the timeout would instead block until input is ready). End of input also
+counts as ready, so the read handles it:
 
 ```
 IMPORT io
 
 SUB main()
   IF io::pollInput(0) THEN
-    io::print(io::readLine())
+    LET line = io::readLine() TRAP(e)
+      RECOVER "(end of input)"
+    END TRAP
+    io::print(line)
   END IF
 END SUB
 ```
 
-Wait up to a second for a keypress:
+Wait up to a second for input:
 
 ```
 IMPORT io
 
 SUB main()
   IF io::pollInput(1000) THEN
-    io::print(io::readChar())
+    LET key = io::readChar() TRAP(e)
+      RECOVER "(end of input)"
+    END TRAP
+    io::print(key)
   ELSE
     io::print("timeout")
   END IF

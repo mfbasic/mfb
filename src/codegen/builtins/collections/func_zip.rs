@@ -569,8 +569,9 @@ in the same order as the inputs.
 name the result type `List OF Pair OF A, B` and read `p.first` / `p.second`
 directly.
 
-Neither `a` nor `b` is modified; the result is a newly built list. `zip` invokes
-no user callback and raises no error.
+Neither `a` nor `b` is modified; the result is a new list. `zip` invokes no user
+callback and raises no error of its own. Building the result needs memory, so it
+can raise `ErrOutOfMemory`.
 
 `zip` is generic over `A` and `B`, the element types of the two lists. They are
 inferred independently from the two arguments and need not be the same type. The
