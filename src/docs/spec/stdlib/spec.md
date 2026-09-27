@@ -80,6 +80,11 @@ built-in injection chain.
   dynamic Huffman by exact cost, package-merge code lengths and zlib's header rules, greedy and lazy
   hash-chain matching with zlib's per-level limits, the zlib and gzip header bytes, the determinism
   guarantee, and dated throughput and size measurements.
+- `io-input` — the `io::` readers: keyboard versus data sources, the per-thread
+  input buffer, the key decoder, the read engine's input delay and timeouts, what
+  each reader takes and skips, the two ways a line is read, the kitty keyboard
+  protocol `term::on` switches a terminal to, and the one key encoding every
+  `--app` window writes.
 
 ## See Also
 

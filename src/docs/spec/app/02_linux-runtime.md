@@ -36,6 +36,8 @@ program entry runs separately on the worker thread under
 | `_mfb_gtkapp_activate` | `activate` handler; builds window, pipe, worker |
 | `_mfb_gtkapp_worker` | pthread start routine running the language program |
 | `_mfb_gtkapp_key_pressed` | window `key-pressed` handler (terminal-style input) |
+| `_mfb_gtkapp_key_released` | window `key-released` handler (the release, in raw mode) |
+| `_mfb_gtkapp_key_inject` | shared key translator: one GDK key event → kitty-form bytes on the pipe |
 | `_mfb_gtkapp_window_closed` | `close-request`; quits the GApplication |
 | `_mfb_gtkapp_finish` | program-completion handler (`FINISH_SYMBOL`) |
 | `_mfb_gtkapp_append` | main-thread `GtkTextBuffer` insert + auto-scroll |
@@ -109,8 +111,12 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
   gtk_text_view_get_buffer(view)` → `ST_TEXT_BUFFER`. The scrolled window's child
   is the text view; the window's child is the scrolled window.
 - Input is captured terminal-style by a `GtkEventControllerKey` added to the
-  **window** (not a focusable input widget): `key-pressed` → `_mfb_gtkapp_key_pressed`,
-  controller added via `gtk_widget_add_controller` (takes ownership).
+  **window** (not a focusable input widget), in the capture phase
+  (`gtk_event_controller_set_propagation_phase`, `GTK_PHASE_CAPTURE`) so no
+  child widget consumes a key first: `key-pressed` → `_mfb_gtkapp_key_pressed`,
+  `key-released` → `_mfb_gtkapp_key_released`, controller added via
+  `gtk_widget_add_controller` (takes ownership).
+  [[src/target/linux_gtk/keys.rs:emit_connect_key_controller]]
 - `close-request` → `_mfb_gtkapp_window_closed`; `gtk_window_present(window)`.
 - `pipe(fds)`: read fd → `ST_PIPE_READ_FD`, write fd → `ST_PIPE_WRITE_FD`, and
   `dup2(read, 0)` so the reused console read helpers consume committed input on fd 0.
@@ -237,9 +243,10 @@ color (so 0 means "use default" and explicit black stays distinct). `BOLD_FLAG =
 ### Input modes / special keys
 
 `ST_INPUT_MODE` selects: `MODE_LINE_NOECHO = "0"` (default / `io::readLine`),
-`MODE_LINE_ECHO = "1"` (`io::input`), `MODE_RAW = "2"`
-(`io::readChar`/`readByte`). `_mfb_gtkapp_key_pressed` (main thread) handles
-RAW (write the key's UTF-8 bytes to the pipe immediately), LINE modes (accumulate
+`MODE_LINE_ECHO = "1"` (`io::input`), `MODE_RAW = "2"` (the keystroke readers
+and `term::on`). `_mfb_gtkapp_key_pressed` (main thread) handles RAW (hand the
+event to `_mfb_gtkapp_key_inject`, which writes its kitty-form bytes to the pipe
+immediately — `./mfb spec app console-io`), LINE modes (accumulate
 into `ST_LINE_BUF`; Enter commits `line + '\n'`; Backspace drops the last byte,
 byte-granular and ASCII-only; printable keys append and
 echo in LINE_ECHO). Special keyvals: `GDK_KEY_BACKSPACE = 65288`,
@@ -315,7 +322,7 @@ fd 0). The app-mode `io` flush helper branches on TUI state: while `term::` mode
 is **on** it presents the frame, posting `g_idle_add(_mfb_gtkapp_term_redraw_idle)`;
 only with TUI **off** does it return OK immediately without a marshaled
 drain. The three `is*Terminal` helpers return `OK(TRUE)`.
-`emit_set_raw_input_mode` (inlined into readChar/readByte) sets `MODE_RAW`.
+`emit_set_raw_input_mode` (inlined into the keystroke readers) sets `MODE_RAW`.
 [[src/target/linux_gtk/app_io.rs:emit_app_io_input]]
 [[src/target/linux_gtk/app_io.rs:emit_set_raw_input_mode]]
 

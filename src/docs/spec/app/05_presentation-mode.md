@@ -98,8 +98,7 @@ families need different ones — so they are gated differently.
 | | `Console` (0) | `None` (1) | `Canvas` (2) |
 |---|---|---|---|
 | `io::print` / `io::write` (and error variants) | transcript view | degrades to stdout/stderr | degrades to stdout/stderr |
-| `io::input` / `io::readLine` / `io::readChar` | window key events | **traps `ErrWrongMode`** | window key events |
-| `io::readByte` | window key events | ungated (reads fd 0) | window key events |
+| `io::input` / `io::readLine` / `io::readRaw` / `io::readScalar` / `io::readGrapheme` / `io::readKey` | window key events | **traps `ErrWrongMode`** | window key events |
 | `term::*` | the grid | **traps `ErrWrongMode`** | **traps `ErrWrongMode`** |
 
 - **`term::*` requires the character grid**, which only the `Console` transcript
@@ -112,7 +111,9 @@ families need different ones — so they are gated differently.
   would block forever on a pipe with no producer. The gate is therefore written as
   "trap in `None`" rather than "permit only `Console`", so a future windowed mode
   inherits the input source instead of silently trapping.
-- **`io::readByte` is not in the gated set** and never has been: it reads fd 0
-  directly in every mode.
+- **Every reader is in the gated set.** Before bug-699 the byte reader
+  (`io::readByte`, since removed) was not, and in `None` it blocked on the pipe;
+  its replacement `io::readRaw` traps like the others.
+  [[src/codegen/engine/builder/mod.rs]]
 - **Writes are never gated** — they degrade to standard output wherever no
   transcript view is attached.
