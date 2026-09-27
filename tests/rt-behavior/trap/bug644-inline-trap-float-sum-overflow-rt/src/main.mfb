@@ -55,8 +55,7 @@ FUNC main() AS Integer
   END TRAP
   io::print("Integer = " & toString(wide))
 
-  ' As an operand of an operator the total is observed at the call too: the
-  ' handler runs, where the untrapped `1.0 / sum` would recover to 0.0.
+  ' As an operand of an operator the overflow still raises at the call (bug-754).
   LET inverse AS Float = 1.0 / collections::sum([bigF(), bigF()]) TRAP(e7)
     io::print("operand handler code=" & toString(e7.code))
     RECOVER -7.0

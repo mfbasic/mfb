@@ -148,8 +148,6 @@ pub(crate) fn lower_insert(
         index_slot,
     ));
     let item = args[2].clone();
-    // Observation boundary: a `Float` inserted element must be finite (plan-17).
-    builder.observe_float_vr(&item)?;
     if item.type_ == list.type_ {
         return Err("native collection insert expects a single item, not a list".to_string());
     }

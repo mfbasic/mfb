@@ -58,8 +58,6 @@ impl CodeBuilder<'_> {
             list_slot,
         ));
         let item = args[1].clone();
-        // Observation boundary: a `Float` inserted element must be finite (plan-17).
-        self.observe_float_vr(&item)?;
         if at_start && item.type_ == list.type_ {
             return Err("native collection prepend expects a single item, not a list".to_string());
         }

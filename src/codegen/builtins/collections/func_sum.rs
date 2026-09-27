@@ -1,6 +1,7 @@
 //! `collections::sum` — descriptor entry + target-generic lowering (plan-96).
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::math::gen_math::FloatInfinityError;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -233,6 +234,15 @@ pub(crate) fn lower_sum(
     builder.emit(abi::add_immediate(&scratch10, &scratch10, 1));
     builder.emit(abi::branch(&loop_label));
     builder.emit(abi::label(&done));
+    // bug-754: the `Float` total is checked HERE, at the call, exactly as the
+    // `Integer`/`Fixed` steps are. Every element is finite (it was observed when
+    // stored), so once the running total leaves binary64 it stays `±Inf`: one check
+    // of the final total sees every overflow. A total left for a later observation
+    // boundary to catch was caught only if one saw it — `1.0 / sum(xs)` recovered
+    // to `0.0`, and under an inline `TRAP` the handler received `Ok(+Inf)` (bug-644).
+    if element_type == ParameterType::Float {
+        builder.emit_float_result_check(&scratch14, FloatInfinityError::Overflow)?;
+    }
     let result = builder.allocate_register();
     builder.emit(abi::move_register(&result, &scratch14));
     Ok(ValueResult {

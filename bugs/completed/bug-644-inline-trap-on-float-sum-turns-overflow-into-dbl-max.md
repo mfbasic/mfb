@@ -164,3 +164,10 @@ audit probes. Commit: see Phase 2 (one commit; the fixture is RED at `a0082e4ae`
 54605e3b2
 
 STATUS: FIXED (54605e3b2). Deviation: the value was +Inf, not DBL_MAX; the dead-handler warning was a separate stale infallible-list entry, fixed too. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.
+
+Correction (2026-09-27, review): the Phase 2 check inside the raw capture covered
+only the trapped position; with no `TRAP`, `1.0 / collections::sum(xs)` still
+recovered to `0.0`, and the earlier version of spec §8 described that as behavior.
+bug-754 replaced the mechanism: `sum` now checks its own total at the call, and
+`observe_float_call_result` was removed. This doc's regression fixture is unchanged
+and still passes.
