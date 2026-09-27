@@ -657,19 +657,35 @@ one that answers only DA sees neither and keeps `z`/Left typed before the reply;
 readLine under term::on pops then re-pushes; Ctrl+C exits 130 with the pop.
 Manual run in a real kitty-capable terminal: not done (no GUI terminal can be
 driven from this session) — the pty emulates the terminal's replies.
-Commit: (see git log: "bug-699 Phase 5")
+Commit: c724dab58
 
 ### Phase 6: remove `readChar` / `readByte` / `pollInput`
 
-- [ ] Delete the three members and their descriptors; migrate every caller in the
+- [x] Delete the three members and their descriptors; migrate every caller in the
       Blast Radius (the six decoders to `readKey`, `pollInput` loops to
       `timeoutMs = 0` with `TRAP … ErrTimeout`).
-- [ ] Spec and man updated; `grep -rn "readChar\|readByte\|pollInput" src examples
+- [x] Spec and man updated; `grep -rn "readChar\|readByte\|pollInput" src examples
       tests packages` returns nothing live.
 
 Acceptance: the grep is empty; every migrated example builds and its keys work in a
 console build and a macOS `--app` build.
-Commit: —
+Done: every caller migrated — the examples (`ai_chat`, `browser`, `dungeon`,
+`emoji`, `hangman`, `hello_input`, `life`, `snake`, both `swat` editions,
+`water`, `wide-demo`, `wind`) now read through `io::readKey` /
+`io::readGrapheme` with a timeout instead of `pollInput` + a hand-written
+escape decoder; a key's release is skipped where only presses count. The
+tests, fixtures, `scripts/test-macapp.sh` and the three probes under `tools/`
+are migrated (the `readChar`/`readByte`/`pollInput` syntax and rt-behavior
+fixtures are deleted with their members). The spec gains `stdlib io-input`.
+Measured: `grep -rnwE "readChar|readByte|pollInput" src examples tests packages
+tools scripts` → only four historical mentions ("since removed", "bug-699
+replaced …"); `python3 tools/pty-probe/snake_life_advance_under_input.py`,
+`python3 tools/pty-probe/life_quit_no_return.py`,
+`python3 tools/dungeon-key-probe/probe.py`,
+`python3 tools/example-eof-probe/probe.py` all PASS; `mfb test
+tests/acceptance < /dev/null` 782/782 after the fix below;
+`scripts/spec-census.sh --citations` 0 missing, `--links` 0 unresolved.
+Commit: 0ef602045 (migration), plus the spec commit that follows it
 
 ### Phase 7: full validation
 
@@ -719,6 +735,32 @@ Recorded where they bite; none changes a Decision.
 - **The macOS transcript's and TUI's `keyDown:` exist only in a program that starts
   in `Console`** — see "New bugs found". `tests/codegen/app_special_keys.rs` reads
   those two surfaces from a Console-start program for that reason.
+
+## New bugs found (Phases 3–6)
+
+4. **FIXED here — every timed reader in a program that uses the mouse failed to
+   assemble** (`duplicate label '…_stdin_poll_ready_unlock'`): the reader's
+   deadline wait and the mouse pump's escape wait both ran the stdin log's
+   readiness check, whose labels were keyed on the function symbol. Found
+   building `examples/swat/tui`. Fixed in `87e88f130` (labels keyed on the call
+   site); test `rt_io_key_readers::every_reader_builds_and_reads_in_a_mouse_program`.
+5. **FIXED here — `io::readKey(-1)` raised `ErrInputFailed`, not
+   `ErrInvalidArgument`**, when an earlier reader had left 1 in the frame slot of
+   the terminal-restore flag: the negative-timeout exit is taken before the
+   terminal is configured, and the shared restore read the stale flag. Found by
+   the acceptance suite. Fixed in `e9ad2a263` (flag zeroed in both reader
+   prologues); test `reader_tests::a_negative_timeout_is_an_invalid_argument`
+   (poisoned stack).
+6. **FIXED here — under the kitty protocol Ctrl+C no longer interrupted a
+   `term::on` program**: the terminal sends it as a key, not the byte the line
+   discipline turns into SIGINT. The console reader now raises SIGINT for a bare
+   Ctrl+C press (Phase 5, `c724dab58`); test
+   `rt_io_key_readers::ctrl_c_under_the_kitty_protocol_still_interrupts_the_program`.
+7. **bug-742** (`io::pollInput` crashes at exit after a recovered negative
+   timeout) is moot: `pollInput` is removed. Its reproduction, re-shaped for the
+   readers that replace it (recovered `readKey(-1)`/`readLine(-1)` followed by
+   successful timed reads, at EOF, on a pipe and inside a helper `FUNC`), exits 0.
+   Archived with this bug.
 
 ## New bugs found (Phase 1–2)
 

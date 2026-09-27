@@ -1,12 +1,30 @@
 # bug-742: after a recovered `io::pollInput(-1)` failure, a later successful `pollInput` crashes the program at exit (SIGBUS)
 
-Last updated: 2026-09-16
+## STATUS: FIXED (0ef602045) — resolved by removal
+
+`io::pollInput` no longer exists: bug-699 Phase 6 (`0ef602045`) removed it with
+`io::readChar`/`io::readByte`, in favour of the `timeoutMs` every `io::` reader
+now takes. The crash had no path left to it. The root-cause hypothesis below was
+never confirmed — the code it names is deleted.
+
+What was checked instead, because the replacement readers share the shape the
+bug describes (a timeout rejected before any state is set up, then a successful
+call, then exit): the reproduction re-shaped for them — a recovered
+`io::readKey(-1)`, then `io::readRaw(0)`, a recovered `io::readLine(-1)`, then
+`io::readLine(0)` — exits 0 with stdin at EOF (`< /dev/null`), from a pipe
+(`echo xy |`) and from a file; so does the blast-radius variant inside a helper
+`FUNC` (recovered `ErrEncoding` from `readLine`/`input`, then successful reads).
+One real defect of the same family did exist in the new readers and is fixed:
+the negative-timeout exit read an uninitialised terminal-restore flag
+(`e9ad2a263`, `reader_tests::a_negative_timeout_is_an_invalid_argument`).
+
+Last updated: 2026-09-26
 Effort: medium
 Severity: HIGH
 Class: Correctness (process crash; memory-safety symptom)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed (2026-09-26) — resolved by removal of `io::pollInput` (bug-699)
+Regression Test: none possible for the removed member; the replacement readers' negative-timeout path is `reader_tests::a_negative_timeout_is_an_invalid_argument`
 
 `io::pollInput` with a negative timeout correctly raises `ErrInvalidArgument`
 (`77050002`), and an inline `TRAP` recovers from it. But if the program then calls
