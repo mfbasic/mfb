@@ -41,6 +41,19 @@
 //! connection is taken and the handshake step times out. Both must raise
 //! `ErrTimeout` promptly; a `0` that blocked would hang on the silent peer.
 //!
+//! ## bug-739: the handshake bound covers the whole handshake
+//!
+//! On Linux and Windows the handshake bound used to be `SO_RCVTIMEO` on the
+//! accepted socket, which limits each read, so a peer that sent its ClientHello
+//! a few bytes at a time, each piece inside `timeoutMs`, held `accept` for as
+//! long as it kept sending. `tls_accept_bounds_the_whole_handshake` sends the
+//! ClientHello in pieces: quickly under a generous bound (the positive control,
+//! which must succeed and which also covers a ClientHello that arrives in more
+//! than one piece), then slowly under a short bound, which must raise
+//! `ErrTimeout` near the bound instead of completing once the last piece
+//! arrives. Measured on Linux (box 2226) against the unfixed compiler:
+//! `trickle=OK` after the full trickle.
+//!
 //! macOS and Linux only, like `rt_tls_listener_local_address.rs`: the
 //! `openssl` CLI that mints the identity is not dependable on Windows.
 
@@ -98,6 +111,66 @@ try:
 except Exception as e:
     print("client=FAILED %s: %s" % (type(e).__name__, e), flush=True)
 "#;
+
+/// bug-739 client: send the ClientHello in `pieces` pieces of `chunk` bytes,
+/// `step_ms` apart, then the rest, then finish the handshake and read a line.
+const TRICKLE_CLIENT: &str = r#"
+import socket, ssl, sys, time
+port, step, pieces, chunk = int(sys.argv[1]), float(sys.argv[2]) / 1000.0, int(sys.argv[3]), int(sys.argv[4])
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+raw = socket.create_connection(("127.0.0.1", port), timeout=60)
+inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
+obj = ctx.wrap_bio(inc, out, server_hostname="127.0.0.1")
+try:
+    try:
+        obj.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    hello = out.read()
+    for i in range(pieces):
+        raw.sendall(hello[i * chunk:(i + 1) * chunk])
+        time.sleep(step)
+    raw.sendall(hello[pieces * chunk:])
+    while True:
+        try:
+            obj.do_handshake()
+            break
+        except ssl.SSLWantReadError:
+            pending = out.read()
+            if pending:
+                raw.sendall(pending)
+            data = raw.recv(65536)
+            if not data:
+                raise Exception("server closed the connection")
+            inc.write(data)
+    pending = out.read()
+    if pending:
+        raw.sendall(pending)
+    data = b""
+    while not data.endswith(b"\n"):
+        try:
+            data += obj.read(256)
+        except ssl.SSLWantReadError:
+            got = raw.recv(65536)
+            if not got:
+                break
+            inc.write(got)
+    print("client=GOT " + data.decode(errors="replace").strip(), flush=True)
+except Exception as e:
+    print("client=FAILED %s: %s" % (type(e).__name__, e), flush=True)
+"#;
+/// The generous bound for the fast, fragmented control handshake.
+const CONTROL_ACCEPT_MS: u64 = 20_000;
+/// The short bound the slow trickle must be held to.
+const TRICKLE_ACCEPT_MS: u64 = 1500;
+/// The slow trickle: 20 pieces of 10 bytes, 400 ms apart, so it needs about
+/// 8 s, more than five times `TRICKLE_ACCEPT_MS`, and every gap is well inside it.
+const TRICKLE_STEP_MS: u64 = 400;
+/// An expiry must land near `TRICKLE_ACCEPT_MS`; the trickle alone takes
+/// about 8 s, so anything under this is the bound, not the peer finishing.
+const TRICKLE_BOUND_MS: u64 = 6000;
 
 fn have_tools() -> bool {
     let ok = |cmd: &str, arg: &str| {
@@ -181,6 +254,80 @@ fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     .expect("write project.json");
     fs::write(project.join("src/main.mfb"), source).expect("write source");
     common::build_project(&project)
+}
+
+fn build_trickle_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
+    let source = format!(
+        "IMPORT datetime\nIMPORT io\nIMPORT net\nIMPORT tls\n\n\
+         FUNC nowMs AS Integer\n\
+        \x20 RETURN datetime::monotonicNanos() / 1000000\n\
+         END FUNC\n\n\
+         FUNC timedAccept(RES listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String\n\
+        \x20 RES conn = tls::accept(listener, timeoutMs)\n\
+        \x20 LET took AS Integer = nowMs() - started\n\
+        \x20 tls::write(conn, \"{PAYLOAD}\" & toString([toByte(10)]))\n\
+        \x20 tls::close(conn)\n\
+        \x20 RETURN \"OK \" & toString(took)\n\
+        \x20 TRAP(err)\n\
+        \x20   RETURN \"FAILED \" & toString(err.code) & \" \" & toString(nowMs() - started)\n\
+        \x20 END TRAP\n\
+         END FUNC\n\n\
+         FUNC main AS Integer\n\
+        \x20 RES listener = tls::listen(\"127.0.0.1\", 0, \"{cert}\", \"{key}\")\n\
+        \x20 LET at AS net::Address = tls::localAddress(listener)\n\
+        \x20 io::print(\"port=\" & toString(at.port))\n\
+        \x20 io::print(\"control=\" & timedAccept(listener, {CONTROL_ACCEPT_MS}, nowMs()))\n\
+        \x20 io::print(\"trickle=\" & timedAccept(listener, {TRICKLE_ACCEPT_MS}, nowMs()))\n\
+        \x20 tls::close(listener)\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+        cert = common::mfb_path_literal(cert),
+        key = common::mfb_path_literal(key),
+    );
+    let project = root.join("trickle");
+    fs::create_dir_all(project.join("src")).expect("create src dir");
+    fs::write(
+        project.join("project.json"),
+        "{\"name\":\"tlsaccepttrickle\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+    )
+    .expect("write project.json");
+    fs::write(project.join("src/main.mfb"), source).expect("write source");
+    common::build_project(&project)
+}
+
+/// Run the trickle client to completion and return its one result line.
+fn run_trickle_client(pids: &[u32], root: &Path, port: u16, step_ms: u64) -> String {
+    let client = Command::new(common::python_exe())
+        .args([
+            "-c",
+            TRICKLE_CLIENT,
+            &port.to_string(),
+            &step_ms.to_string(),
+            "20",
+            "10",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn python TLS client");
+    let client_pid = client.id();
+    let (tx, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(client.wait_with_output());
+    });
+    let out = done
+        .recv_timeout(DEADLINE)
+        .unwrap_or_else(|_| {
+            let mut all = pids.to_vec();
+            all.push(client_pid);
+            fail(&all, root, "the python client did not exit".to_string())
+        })
+        .expect("wait for python client");
+    let mut said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if said.is_empty() {
+        said = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    }
+    said
 }
 
 fn kill(pid: u32) {
@@ -354,6 +501,108 @@ fn tls_accept_gives_a_late_connection_a_full_handshake_budget() {
         );
     }
 
+    let status = status.expect("server wait");
+    assert!(
+        status.success(),
+        "the server must exit 0: {}\nstderr:\n{server_err}",
+        common::exit_description(&status)
+    );
+}
+
+#[test]
+fn tls_accept_bounds_the_whole_handshake() {
+    if !have_tools() {
+        eprintln!("skipping: the openssl CLI or python3 is not available");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("mfb_bug739_{}", common::unique_nonce()));
+    fs::create_dir_all(&root).expect("create temp root");
+    let (cert, key) = write_cert(&root);
+    let exe = build_trickle_server(&root, &cert, &key);
+
+    let mut server = Command::new(&exe)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn mfb tls server");
+    let server_pid = server.id();
+    let (tx, lines) = mpsc::channel::<String>();
+    let stdout = server.stdout.take().expect("server stdout");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let next = |prefix: &str| -> String {
+        let line = lines.recv_timeout(DEADLINE).unwrap_or_else(|_| {
+            fail(
+                &[server_pid],
+                &root,
+                format!("server printed nothing for `{prefix}`"),
+            )
+        });
+        line.strip_prefix(prefix)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                fail(
+                    &[server_pid],
+                    &root,
+                    format!("expected `{prefix}…`, got {line:?}"),
+                )
+            })
+    };
+    let port: u16 = {
+        let value = next("port=");
+        value
+            .parse()
+            .unwrap_or_else(|_| fail(&[server_pid], &root, format!("bad port {value:?}")))
+    };
+
+    // 1. Positive control: the ClientHello arrives in 20 pieces 50 ms apart,
+    //    under a generous bound. It must succeed.
+    let control_client = run_trickle_client(&[server_pid], &root, port, 50);
+    let control = next("control=");
+    // 2. The slow trickle under a short bound.
+    let trickle_client = run_trickle_client(&[server_pid], &root, port, TRICKLE_STEP_MS);
+    let trickle = next("trickle=");
+
+    let (done_tx, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        let status = server.wait();
+        let mut err = String::new();
+        if let Some(mut e) = server.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        let _ = done_tx.send((status, err));
+    });
+    let (status, server_err) = done
+        .recv_timeout(DEADLINE)
+        .unwrap_or_else(|_| fail(&[server_pid], &root, "server did not exit".to_string()));
+    let _ = fs::remove_dir_all(&root);
+
+    let (control_words, _) = outcome(&control);
+    assert_eq!(
+        control_words,
+        ["OK"],
+        "a ClientHello that arrives in pieces, quickly, must complete: server {control:?}, \
+         client {control_client:?}\nserver stderr:\n{server_err}"
+    );
+    assert_eq!(control_client, format!("client=GOT {PAYLOAD}"));
+
+    let (trickle_words, trickle_ms) = outcome(&trickle);
+    assert_eq!(
+        trickle_words,
+        ["FAILED", ERR_TIMEOUT],
+        "a peer that trickles its ClientHello must not outlast the {TRICKLE_ACCEPT_MS} ms \
+         handshake bound; the server reported {trickle:?} (OK = each piece reset a per-read \
+         timeout), client said {trickle_client:?}"
+    );
+    assert!(
+        trickle_ms < TRICKLE_BOUND_MS,
+        "the trickle was cut off after {trickle_ms} ms; the bound is {TRICKLE_ACCEPT_MS} ms"
+    );
     let status = status.expect("server wait");
     assert!(
         status.success(),
