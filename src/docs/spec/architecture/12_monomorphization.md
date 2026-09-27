@@ -164,7 +164,12 @@ blocks a later field that supplies the concrete type (bug-442). Recording the
 provisional `Unknown` rather than dropping it preserves the degenerate
 `T := Unknown` instantiation that width-agnostic native ops (e.g.
 `collections::flatten` over lists whose first inner is empty) rely on when no
-argument supplies a concrete element type. The resource slot of a `Thread` type is optional — both-present unify
+argument supplies a concrete element type. "Equal" ignores a top-level `RES`
+ownership marker, which is not part of a type: a `List OF RES fs.File` argument
+binds `T := RES fs.File`, a callback over its elements declares `FUNC(fs.File)`,
+and the two agree, keeping the marked binding whichever came first (bug-752; the
+verifier's `compatible` likewise compares a callable's parameters modulo the
+marker). [[src/ir/verify/compat.rs:compatible]] The resource slot of a `Thread` type is optional — both-present unify
 recursively, both-absent succeed, mismatched presence fails. See
 `./mfb spec language templates` for the source-level template semantics this
 implements.

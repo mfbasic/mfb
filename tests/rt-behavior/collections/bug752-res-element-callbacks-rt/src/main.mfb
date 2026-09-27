@@ -1,0 +1,45 @@
+' bug-752: a source-generic collections member whose callback takes the element
+' accepts a `List OF RES` element type. The list binds `T := RES File` while the
+' callback declares `FUNC(File)` — `RES` is an ownership marker, not part of the
+' type — and inference used to reject the pair ("cannot infer template
+' arguments from `FUNC(fs.File) AS Integer`"). `partition` also bound each
+' element with `LET`, which a resource refuses. Every handle stays open.
+IMPORT io
+IMPORT collections
+IMPORT fs
+IMPORT errorCode
+
+LET PATH AS String = "/tmp/mfb_bug752_res_element_callbacks.txt"
+
+FUNC state(RES h AS fs::File) AS String
+  LET line = fs::readLine(h) TRAP(e)
+    IF e.code = errorCode::ErrResourceClosed THEN
+      RECOVER "CLOSED"
+    END IF
+    RECOVER "open"
+  END TRAP
+  RETURN line
+END FUNC
+
+FUNC rank(RES x AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+SUB main()
+  fs::writeText(PATH, "")
+  RES a AS fs::File = fs::open(PATH, "read")
+  RES b AS fs::File = fs::open(PATH, "read")
+  LET files AS List OF RES fs::File = [a, b]
+
+  LET groups = collections::groupBy(files, rank, rank)
+  io::print("groupBy groups=" & toString(len(groups)))
+  LET parts = collections::partition(files, LAMBDA(RES x AS fs::File) -> TRUE)
+  io::print("partition matched=" & toString(len(parts.matched)) & " unmatched=" & toString(len(parts.unmatched)))
+  LET sorted = collections::sortBy(files, rank)
+  io::print("sortBy len=" & toString(len(sorted)))
+  LET at = collections::findIndex(files, LAMBDA(RES x AS fs::File) -> TRUE)
+  LET last = collections::findLastIndex(files, LAMBDA(RES x AS fs::File) -> TRUE)
+  io::print("findIndex=" & toString(at) & " findLastIndex=" & toString(last))
+  io::print("all=" & toString(collections::all(files, LAMBDA(RES x AS fs::File) -> TRUE)) & " any=" & toString(collections::any(files, LAMBDA(RES x AS fs::File) -> FALSE)))
+  io::print("a: " & state(a) & " b: " & state(b))
+END SUB

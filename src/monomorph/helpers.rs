@@ -173,6 +173,14 @@ fn refines(general: &ParameterType, specific: &ParameterType) -> bool {
 /// * The tail is `pattern == actual || actual is Unknown` — structural equality is
 ///   byte-identical to the old string equality because `parse`/`name` is a
 ///   bijection over this vocabulary, and the concrete side is never a `Var`.
+/// bug-752: `type_` without a top-level `RES` ownership marker.
+fn strip_res(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
+    }
+}
+
 pub(super) fn unify_type(
     pattern: &ParameterType,
     actual: &ParameterType,
@@ -216,8 +224,19 @@ pub(super) fn unify_type(
                 // agrees — mirroring the `actual is Unknown` terminal rule below — so
                 // it neither overwrites nor conflicts.
                 Some(existing) if refines(actual, existing) => {}
-                // Two concrete actuals for the same param must agree.
-                Some(existing) => return existing == actual,
+                // Two concrete actuals for the same param must agree. bug-752: the
+                // `RES` ownership marker is not part of the type — a `List OF RES
+                // File` binds `T := RES File` while a callback over its elements
+                // declares `FUNC(File)` — so the two agree modulo the marker, and
+                // the marked binding (the element's) is kept.
+                Some(existing) => {
+                    if strip_res(existing) != strip_res(actual) {
+                        return false;
+                    }
+                    if matches!(actual, ParameterType::Res(_)) {
+                        substitutions.insert(sym, actual.clone());
+                    }
+                }
             }
             return true;
         }
@@ -777,6 +796,49 @@ mod tests {
             internal_origin: false,
             instantiated_at: Vec::new(),
         }
+    }
+
+    /// bug-752: a `List OF RES File` binds `T := RES File`, and a callback over its
+    /// elements declares `FUNC(File)`. The `RES` marker is ownership, not type, so
+    /// the two agree and the marked binding is kept — in either argument order.
+    #[test]
+    fn unify_agrees_modulo_the_res_marker() {
+        let params = vec!["T".to_string(), "K".to_string()];
+        let mut s = HashMap::new();
+        assert!(unify_str(
+            "List OF T",
+            "List OF RES fs.File",
+            &params,
+            &mut s
+        ));
+        assert!(unify_str(
+            "FUNC(T) AS K",
+            "FUNC(fs.File) AS Integer",
+            &params,
+            &mut s
+        ));
+        assert_eq!(s.get("T").map(String::as_str), Some("RES fs.File"));
+        let mut s = HashMap::new();
+        assert!(unify_str(
+            "FUNC(T) AS K",
+            "FUNC(fs.File) AS Integer",
+            &params,
+            &mut s
+        ));
+        assert!(unify_str(
+            "List OF T",
+            "List OF RES fs.File",
+            &params,
+            &mut s
+        ));
+        assert_eq!(s.get("T").map(String::as_str), Some("RES fs.File"));
+        // A genuinely different type still disagrees.
+        assert!(!unify_str(
+            "FUNC(T) AS K",
+            "FUNC(String) AS Integer",
+            &params,
+            &mut s
+        ));
     }
 
     #[test]
