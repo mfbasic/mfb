@@ -85,7 +85,7 @@
     "name": "touch",
     "line": 11,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "path", "line": 11, "type": "String", "default": null }
     ],

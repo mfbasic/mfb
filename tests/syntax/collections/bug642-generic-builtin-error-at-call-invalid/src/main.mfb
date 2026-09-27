@@ -8,7 +8,7 @@ FUNC flagOf(n AS Integer) AS Boolean
   RETURN n > 0
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET flags AS List OF Boolean = [TRUE, FALSE]
   LET sortedFlags = collections::sort(flags)
   ' The bug-744 lane's case: `Nothing` is not orderable either.
@@ -21,4 +21,4 @@ SUB main()
   LET fns AS List OF FUNC(Integer) AS Boolean = [flagOf]
   LET unique = collections::distinct(fns)
   io::print(toString(len(sortedFlags) + len(sortedNothings) + len(again) + len(byFlag) + len(unique)))
-END SUB
+END FUNC

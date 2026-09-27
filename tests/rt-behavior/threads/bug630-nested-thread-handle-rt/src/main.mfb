@@ -24,7 +24,7 @@ ISOLATED FUNC opener(w AS ThreadWorker OF Nothing RES fs::File TO Integer, seed 
   RETURN 1
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' waitFor — the document's own reproduction, nested inside a loop so the
   ' temporary handle is created and consumed 100 times.
   MUT total AS Integer = 0
@@ -52,4 +52,4 @@ SUB main()
   ' accept — the resource plane, same split.
   RES got AS fs::File = thread::accept(thread::start(opener, "tests/rt-behavior/threads/bug630-nested-thread-handle-rt/data/input.txt"))
   io::print("nested accept text=" & fs::readAll(got))
-END SUB
+END FUNC

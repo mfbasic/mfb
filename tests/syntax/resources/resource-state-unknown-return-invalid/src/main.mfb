@@ -6,5 +6,5 @@ FUNC make() AS RES fs::File STATE Nonexistent
   RETURN fs::createTempFile()
 END FUNC
 
-SUB main()
-END SUB
+FUNC main() AS Nothing
+END FUNC

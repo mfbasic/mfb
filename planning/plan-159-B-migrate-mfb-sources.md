@@ -152,13 +152,29 @@ Commit: —
 
 ### Phase 2 — `tests/**/*.mfb` and their goldens
 
-- [ ] 2.1 Rewrite every `tests/**/*.mfb` except the exclusion list.
-- [ ] 2.2 Localize before bulk regeneration: pick ONE fixture per golden category
+- [x] 2.1 Rewrite every `tests/**/*.mfb` except the exclusion list. — `sub-to-func.py
+      tests` → `199 file(s) changed; 0 unhandled`; the 4 exclusion fixtures with SUB
+      source restored to HEAD. Goal `rg` (§1) → only the 4 exclusion sources plus
+      `func-bare-trap-rt` (comment prose, fixed in 2.5).
+- [x] 2.2 Localize before bulk regeneration: pick ONE fixture per golden category
       (`.ast`, `.ir`, `.nir`, `build.log`, `.info`), rebuild it, and confirm the diff
-      touches only the predicted fields. Record the fixture names here.
-- [ ] 2.3 Regenerate: `bash scripts/sync-goldens.sh target/release/mfb` for
+      touches only the predicted fields. Record the fixture names here. — `overload-sub-valid`
+      (`.ast`: `"kind": "sub"`→`"func"`, `"returnType": null`→`"Nothing"`; `.ir`: kind only),
+      `project-entry-param` (`.nir`/`.ir`: kind only), `types-default-value-invalid`
+      (`build.log`: the quoted header line only, carets unchanged), `package-simple`
+      (`.info`: `SUB mark$…`→`FUNC mark$…`, their `sigHash`, the package hashes/length).
+- [x] 2.3 Regenerate: `bash scripts/sync-goldens.sh target/release/mfb` for
       byte-identity + rt-behavior. Handle `syntax/**` by hand (`sync-goldens.sh` skips
-      it; see `.ai/testing-gates.md`).
+      it; see `.ai/testing-gates.md`). — Done WITHOUT `sync-goldens.sh`, which copies
+      every actual blindly (Corrections): full `test-accept.sh` → `325 mismatch(es) (1570
+      test(s) ran)`; every mismatch classified line-by-line by `/tmp/p159/classify.py`
+      against the predicted rewrites (kind/returnType, `EXIT SUB` `exit` node → `return`
+      node, DOC header `SUB`→`FUNC`, quoted source lines, `pkg info` kind + hashes, the
+      reworded `"after SUB "` output) → 321 predicted and copied; 1 reviewed by hand
+      (`while-wend-removed-invalid`: the caret under `SUB`/`FUNC` widens `^^^`→`^^^^`);
+      3 NOT caused by B — they fail identically on a detached plan-base build
+      (`/tmp/p159-base`, `3 mismatch(es) (3 test(s) ran)`) and are left untouched here
+      (Corrections). Covers `syntax/**` too.
 - [ ] 2.4 Confirm that no `.ncode`/`.ncodesum` golden changed:
       `git diff --stat -- '*.ncode' '*.ncodesum'` → empty.
 - [ ] 2.5 Fixtures whose *comment* documents SUB semantics (for example
@@ -194,6 +210,16 @@ Commit: —
   for those fixtures is therefore "identical once the identity prefix is normalized",
   checked by diffing one such fixture's `.ncode`; every other `.ncode`/`.ncodesum` must
   stay byte-identical.
+- **2026-09-27 — 3 acceptance fixtures fail at the plan base (found in task 2.3).**
+  `regex/replace-empty-pattern-rt` and `strings/strings-inline-trap-fallible-rt` lost their
+  `TYPE_INLINE_TRAP_DEAD_HANDLER` advisory, and `collections/func_collections_helpers_invalid`
+  prints `collections::sort` where its golden says `__collections_sort`. None has a source
+  change in B, and all three fail the same way with a compiler built at `4fe38df41`
+  (`git worktree add --detach /tmp/p159-base 4fe38df41`). Being root-caused and fixed
+  separately; their goldens are not touched by B.
+- **2026-09-27 — `sync-goldens.sh` was not used (task 2.3).** It copies every actual over
+  its golden, so it would have laundered the 3 pre-existing failures above into the tree.
+  The classifier copies only files whose every changed line is a predicted rewrite.
 - **2026-09-27 — "19 example projects" were 19 files (task 1.2).** `git diff --name-only
   -- examples | awk -F/ '{print $1"/"$2}' | sort -u` → 12 examples; `browser` holds 4
   projects and `swat` 2, so 15 builds. `browser` must be built as its README's package

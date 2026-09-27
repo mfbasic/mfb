@@ -77,7 +77,7 @@
   {
     "name": "main",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "src/main.mfb",
     "params": [
@@ -92,7 +92,7 @@
   {
     "name": "consume$Integer",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "src/main.mfb",
     "params": [
@@ -105,7 +105,7 @@
   {
     "name": "consume$String",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "src/main.mfb",
     "params": [

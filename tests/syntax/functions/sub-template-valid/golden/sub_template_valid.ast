@@ -8,7 +8,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "consume",
@@ -17,19 +17,19 @@
       "params": [
       { "name": "value", "type": "T", "default": null, "line": 3 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 6,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "consume", "arguments": [{ "kind": "number", "value": "42" }] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "consume", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 8 },

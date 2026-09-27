@@ -99,14 +99,14 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 55,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "cells", "arguments": [] }, "line": 56 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "pixels", "arguments": [] }, "line": 57 }

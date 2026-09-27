@@ -98,7 +98,7 @@
     "name": "tree",
     "line": 18,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "root", "line": 18, "type": "String", "default": null }
     ],

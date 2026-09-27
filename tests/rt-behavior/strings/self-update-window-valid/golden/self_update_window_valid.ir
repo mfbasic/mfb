@@ -79,7 +79,7 @@
     "name": "show",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "tag", "line": 16, "type": "String", "default": null },
     { "name": "got", "line": 16, "type": "String", "default": null },
@@ -104,7 +104,7 @@
     "name": "windowsLocal",
     "line": 26,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -183,7 +183,7 @@
     "name": "graphemesLocal",
     "line": 115,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -210,7 +210,7 @@
     "name": "pathsLocal",
     "line": 139,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -253,7 +253,7 @@
     "name": "windowsGlobal",
     "line": 183,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -292,7 +292,7 @@
     "name": "shrinkThenGrow",
     "line": 222,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -329,7 +329,7 @@
     "name": "trapLeft",
     "line": 243,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -353,7 +353,7 @@
     "name": "trapRight",
     "line": 254,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -377,7 +377,7 @@
     "name": "trapMid",
     "line": 265,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -401,7 +401,7 @@
     "name": "trapGraphemeAt",
     "line": 276,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -425,7 +425,7 @@
     "name": "trapGlobalMid",
     "line": 287,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

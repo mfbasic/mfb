@@ -348,14 +348,14 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 139,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "call", "callee": "percentDecode", "arguments": [] }, "line": 140 },
       { "kind": "binding", "mutable": false, "name": "r2", "type": "Integer", "value": { "kind": "call", "callee": "formUrlDecode", "arguments": [] }, "line": 141 },

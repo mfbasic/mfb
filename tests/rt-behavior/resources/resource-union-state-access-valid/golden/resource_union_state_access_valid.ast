@@ -30,7 +30,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "advance",
@@ -38,7 +38,7 @@
       "params": [
       { "name": "p", "type": "Stream", "resource": true, "state": "Cursor", "default": null, "line": 16 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "stateAssignment", "resource": "p", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "state" }, "member": "pos" }, "right": { "kind": "number", "value": "10" } } }] }, "line": 17 }
       ]

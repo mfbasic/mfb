@@ -12,7 +12,7 @@
     "items": [
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "failures", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "check",
@@ -22,7 +22,7 @@
       { "name": "got", "type": "String", "default": null, "line": 15 },
       { "name": "want", "type": "String", "default": null, "line": 15 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",

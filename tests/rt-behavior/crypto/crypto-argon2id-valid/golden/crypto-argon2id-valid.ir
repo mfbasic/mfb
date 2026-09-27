@@ -320,7 +320,7 @@
     "name": "main",
     "line": 42,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

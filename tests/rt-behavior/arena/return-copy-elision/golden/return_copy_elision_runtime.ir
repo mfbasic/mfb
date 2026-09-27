@@ -174,7 +174,7 @@
     "name": "printList",
     "line": 47,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 47, "type": "String", "default": null },
     { "name": "xs", "line": 47, "type": "List OF Integer", "default": null }

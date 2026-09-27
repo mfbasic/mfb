@@ -14,9 +14,9 @@ IMPORT color
 IMPORT errorCode
 IMPORT io
 
-SUB show(label AS String, c AS color::Color)
+FUNC show(label AS String, c AS color::Color) AS Nothing
   io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
-END SUB
+END FUNC
 
 ' Parse a form that must be REJECTED, and assert the raised code rather than the
 ' mere absence of a result.
@@ -32,9 +32,9 @@ END FUNC
 
 ' Round-trip a colour through the lossless text form. `toHexAlpha` encodes every
 ' channel, so this must be exact for EVERY colour, transparent ones included.
-SUB roundTrip(label AS String, c AS color::Color)
+FUNC roundTrip(label AS String, c AS color::Color) AS Nothing
   io::print(label & "=" & color::toHexAlpha(color::fromHex(color::toHexAlpha(c))) & " expected " & color::toHexAlpha(c))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' --- the four accepted lengths, WITH the leading `#` ---------------------

@@ -106,7 +106,7 @@
     "name": "touchDrop",
     "line": 18,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "path", "line": 18, "type": "String", "default": null }
     ],
@@ -120,7 +120,7 @@
     "name": "earlyClose",
     "line": 25,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "path", "line": 25, "type": "String", "default": null }
     ],

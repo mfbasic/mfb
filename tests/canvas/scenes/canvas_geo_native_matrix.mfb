@@ -92,7 +92,7 @@ FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
   RETURN out
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT items AS List OF canvas::DrawItem = []
   FOR EACH p IN paints()
@@ -109,4 +109,4 @@ SUB main()
   LET bow AS canvas::DrawItem = canvas::Arc[x := 40.0, y := 40.0, radius := 10.0, startAngle := 0.0, endAngle := 2.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(9, 9, 9), 2.0)]
   canvas::present([moved, ramp, oval, bow])
   io::print("rendered")
-END SUB
+END FUNC

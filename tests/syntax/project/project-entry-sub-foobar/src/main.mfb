@@ -1,2 +1,2 @@
-SUB foobar
-END SUB
+FUNC foobar AS Nothing
+END FUNC

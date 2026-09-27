@@ -143,7 +143,7 @@
     "name": "report",
     "line": 25,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "a", "line": 25, "type": "Integer", "default": null },
     { "name": "b", "line": 25, "type": "Integer", "default": null },

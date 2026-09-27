@@ -5,7 +5,7 @@ IMPORT color
 ' Exercises the term:: surface in app mode so the macOS .app native goldens
 ' capture term::on/off driving the synthesized TermView (plan-01-term.md §6.3,
 ' Phase 4) and the remaining term:: helpers on the shared console backend.
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()
   term::setForeground(color::rgb(0, 255, 0))
@@ -36,4 +36,4 @@ SUB main()
   LET size AS term::TermSize = term::terminalSize()
   io::print(toString(active) & toString(fg.green) & toString(bg.red) & toString(bold) & toString(underline) & toString(size.columns))
   term::off()
-END SUB
+END FUNC

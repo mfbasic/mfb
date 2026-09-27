@@ -1,5 +1,5 @@
 ' plan-159-A: `FUNC main() AS Nothing` is a valid executable entry. On success it
-' behaves exactly like `SUB main`: the program's output, then exit 0.
+' behaves like any value-less entry: the program's output, then exit 0.
 IMPORT io
 
 FUNC main() AS Nothing

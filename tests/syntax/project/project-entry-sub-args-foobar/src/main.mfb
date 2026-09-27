@@ -1,2 +1,2 @@
-SUB foobar(args AS List OF String)
-END SUB
+FUNC foobar(args AS List OF String) AS Nothing
+END FUNC

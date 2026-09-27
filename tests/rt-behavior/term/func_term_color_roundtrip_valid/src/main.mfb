@@ -18,9 +18,9 @@ REM Output is deterministic and host-neutral: no terminal size, no cursor positi
 REM no ANSI. term::on/off bracket the calls because the colour members are gated on
 REM TUI mode.
 
-SUB show(label AS String, c AS color::Color)
+FUNC show(label AS String, c AS color::Color) AS Nothing
   io::print(label & "=" & toString(c.red) & " " & toString(c.green) & " " & toString(c.blue) & " " & toString(c.alpha))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   term::on()

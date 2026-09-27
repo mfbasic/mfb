@@ -115,7 +115,7 @@
     "name": "#45a7d15ac6b4f562$privateTrace",
     "line": 15,
     "visibility": "private",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 15, "type": "Integer", "default": null }
     ],
@@ -128,7 +128,7 @@
     "name": "packageTrace",
     "line": 19,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 19, "type": "Integer", "default": null }
     ],
@@ -141,7 +141,7 @@
     "name": "exportTrace",
     "line": 23,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 23, "type": "Integer", "default": null }
     ],

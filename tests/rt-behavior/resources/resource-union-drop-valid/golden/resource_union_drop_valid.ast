@@ -21,7 +21,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "writeVia",
@@ -30,7 +30,7 @@
       { "name": "path", "type": "String", "default": null, "line": 12 },
       { "name": "data", "type": "String", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 13 },
       {

@@ -37,14 +37,14 @@ FUNC add(a AS Float, b AS Float) AS Float
 END FUNC
 
 DOC INTERNAL
-  SUB logIt
+  FUNC logIt
   DESC Internal logging helper, exported for tests.
   ARG value The value to log.
   DEPRECATED Use the structured logger instead.
 END DOC
-SUB logIt(value AS Integer)
+FUNC logIt(value AS Integer) AS Nothing
   LET ignored AS Integer = value
-END SUB
+END FUNC
 
 DOC
   TYPE Point

@@ -5,7 +5,7 @@ IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
   io::print("bound")
-END SUB
+END FUNC

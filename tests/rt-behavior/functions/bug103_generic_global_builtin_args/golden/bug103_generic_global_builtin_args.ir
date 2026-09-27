@@ -122,7 +122,7 @@
     "name": "show$Integer",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 12, "type": "Integer", "default": null }
     ],
@@ -135,7 +135,7 @@
     "name": "showLabeled$Integer",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 16, "type": "String", "default": null },
     { "name": "value", "line": 16, "type": "Integer", "default": null }

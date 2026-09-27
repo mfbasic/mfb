@@ -78,7 +78,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "report",
@@ -95,7 +95,7 @@
       { "name": "i", "type": "Integer", "default": null, "line": 25 },
       { "name": "j", "type": "Integer", "default": null, "line": 25 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "report " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "right": { "kind": "identifier", "value": "h" } }, "right": { "kind": "identifier", "value": "i" } }, "right": { "kind": "identifier", "value": "j" } }] } }] }, "line": 26 }
       ]

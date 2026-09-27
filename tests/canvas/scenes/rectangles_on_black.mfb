@@ -7,7 +7,7 @@ IMPORT math
 ' bug-687: 140 rectangles (off-grid positions and sizes) filled over the default
 ' opaque-black surface. A guard: rectangles keep the fp32 distance, and measured worst 2
 ' on Metal and on Vulkan (lavapipe) at bug-687 -- inside GPU_DEFAULT, but only just.
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = []
   MUT k AS Integer = 0
@@ -22,4 +22,4 @@ SUB main()
     k = k + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

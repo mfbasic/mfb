@@ -81,7 +81,7 @@
     "name": "reassign",
     "line": 13,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -94,7 +94,7 @@
     "name": "append",
     "line": 18,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

@@ -46,7 +46,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "printEntry",
@@ -54,7 +54,7 @@
       "params": [
       { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null, "line": 30 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "key" }] }, "line": 31 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "value" }] }] }, "line": 32 }
@@ -98,44 +98,44 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "fallthroughSub",
       "line": 52,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "fallthrough" }] }, "line": 53 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "bareReturnSub",
       "line": 56,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bare-return" }] }, "line": 57 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 58 }
+      { "kind": "return", "value": null, "line": 58 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "explicitReturnSub",
       "line": 61,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "explicit-return" }] }, "line": 62 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 63 }
+      { "kind": "return", "value": null, "line": 63 }
       ]
     },
     {

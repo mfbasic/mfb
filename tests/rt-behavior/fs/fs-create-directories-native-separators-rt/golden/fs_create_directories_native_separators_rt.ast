@@ -33,7 +33,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "tree",
@@ -41,7 +41,7 @@
       "params": [
       { "name": "root", "type": "String", "default": null, "line": 18 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "callee": "sep", "arguments": [] }, "line": 19 },
       { "kind": "binding", "mutable": false, "name": "leaf", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "root" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "a" } }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "b" } }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "c" } }, "line": 20 },

@@ -113,7 +113,7 @@
     "name": "check",
     "line": 7,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 7, "type": "String", "default": null },
     { "name": "cond", "line": 7, "type": "Boolean", "default": null }

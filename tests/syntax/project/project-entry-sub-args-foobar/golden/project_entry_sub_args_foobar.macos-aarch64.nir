@@ -18,7 +18,7 @@
   {
     "name": "foobar",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "src/main.mfb",
     "params": [

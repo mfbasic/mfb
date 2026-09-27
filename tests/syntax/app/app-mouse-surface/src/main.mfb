@@ -52,7 +52,7 @@ FUNC cells() AS Nothing
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   cells()
   pixels()
-END SUB
+END FUNC

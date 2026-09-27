@@ -10,7 +10,7 @@
     "name": "onlyFile",
     "line": 1,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

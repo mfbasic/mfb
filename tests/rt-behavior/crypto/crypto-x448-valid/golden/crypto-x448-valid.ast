@@ -172,14 +172,14 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 70,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "base448", "type": "List OF Byte", "value": { "kind": "call", "callee": "basePoint", "arguments": [{ "kind": "number", "value": "56" }, { "kind": "number", "value": "5" }] }, "line": 71 },
       { "kind": "binding", "mutable": false, "name": "alice", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b" }] }, "line": 72 },

@@ -4,7 +4,7 @@ IMPORT color
 IMPORT collections
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
   MUT ring AS Integer = 0
@@ -21,4 +21,4 @@ SUB main()
     ring = ring + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

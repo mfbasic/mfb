@@ -7,9 +7,9 @@ TYPE Cursor
 END TYPE
 
 ' A non-owning callee mutates a single STATE field in place (plan §4 `seek`).
-SUB seek(RES s AS fs::File STATE Cursor, dest AS Integer)
+FUNC seek(RES s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
   s.state.pos = dest
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES f AS fs::File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")

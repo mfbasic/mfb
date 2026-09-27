@@ -112,13 +112,13 @@ FUNC redConcat(acc AS String, x AS String) AS String
   RETURN acc & x
 END FUNC
 
-' One line of the digest. A FUNC rather than a SUB so every repetition can be
+' One line of the digest. It returns the line (not Nothing) so every repetition can be
 ' folded into the running total even though only the first is printed.
 FUNC row(label AS String, got AS List OF String) AS String
   RETURN label & "=" & collections::get(got, 0) & "," & collections::get(got, 2) & "," & toString(len(got))
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT rep AS Integer = 0
   MUT first AS String = ""
   ' Repeated, and the source list is rebuilt each pass: a wrong free corrupts the
@@ -173,9 +173,9 @@ SUB main()
     IF d <> first THEN
       io::print("DRIFT at rep " & toString(rep))
       io::print(d)
-      EXIT SUB
+      RETURN
     END IF
     rep = rep + 1
   END WHILE
   io::print("stable over " & toString(rep) & " repetitions")
-END SUB
+END FUNC

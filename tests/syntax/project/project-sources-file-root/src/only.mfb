@@ -1,2 +1,2 @@
-EXPORT SUB onlyFile
-END SUB
+EXPORT FUNC onlyFile AS Nothing
+END FUNC

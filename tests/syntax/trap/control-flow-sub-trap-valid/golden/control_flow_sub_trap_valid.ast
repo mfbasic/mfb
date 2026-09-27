@@ -7,7 +7,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "viaReturn",
@@ -15,14 +15,14 @@
       "params": [
       { "name": "flag", "type": "Boolean", "default": null, "line": 1 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "flag" },
         "line": 2,
         "then": [
-        { "kind": "exit", "target": "sub", "code": null, "line": 3 }
+        { "kind": "return", "value": null, "line": 3 }
         ],
         "else": [
         { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "return path failed" }] }, "line": 5 }
@@ -33,12 +33,12 @@
       "name": "err",
       "line": 7,
       "body": [
-      { "kind": "exit", "target": "sub", "code": null, "line": 8 }
+      { "kind": "return", "value": null, "line": 8 }
       ]
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "viaTrapReturn",
@@ -46,14 +46,14 @@
       "params": [
       { "name": "flag", "type": "Boolean", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "flag" },
         "line": 13,
         "then": [
-        { "kind": "exit", "target": "sub", "code": null, "line": 14 }
+        { "kind": "return", "value": null, "line": 14 }
         ],
         "else": [
         { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "trap path failed" }] }, "line": 16 }
@@ -64,7 +64,7 @@
       "name": "err",
       "line": 18,
       "body": [
-      { "kind": "exit", "target": "sub", "code": null, "line": 19 }
+      { "kind": "return", "value": null, "line": 19 }
       ]
     }
     },

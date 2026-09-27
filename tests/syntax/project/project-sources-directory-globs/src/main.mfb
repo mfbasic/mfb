@@ -1,2 +1,2 @@
-EXPORT SUB rootMain
-END SUB
+EXPORT FUNC rootMain AS Nothing
+END FUNC

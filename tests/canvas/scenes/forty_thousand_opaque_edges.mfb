@@ -15,7 +15,7 @@ IMPORT math
 ' population budget (bug-688). That measures blending, not edges; this scene measures
 ' the edges. The ground is mid-grey for the reason `huge_polygon.mfb`'s is: a rim pixel
 ' near black is where fp32 flips a coverage step past tolerance (bug-687).
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]]
   MUT ring AS Integer = 0
@@ -35,4 +35,4 @@ SUB main()
     ring = ring + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

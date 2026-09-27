@@ -367,7 +367,7 @@
     "name": "main",
     "line": 84,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

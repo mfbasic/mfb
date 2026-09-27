@@ -62,7 +62,7 @@ FUNC inverseExp() AS Float
   RETURN 1.0 / math::exp(1000.0)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET r0 AS Float = inverseSum() TRAP(e0)
     io::print("1.0 / sum: raised " & toString(e0.code))
     RECOVER -1.0
@@ -111,4 +111,4 @@ SUB main()
   ' A finite total and finite arguments are untouched.
   LET fine AS Float = 1.0 / collections::sum([1.5, 2.5])
   io::print("1.0 / finite sum = " & toString(fine) & ", abs = " & toString(math::abs(-2.0 * 3.0)))
-END SUB
+END FUNC

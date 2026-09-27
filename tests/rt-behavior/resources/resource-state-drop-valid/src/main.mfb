@@ -8,10 +8,10 @@ END TYPE
 ' Opens a stateful resource and lets it drop WITHOUT an explicit close: the
 ' scope-drop closes the file and structurally frees the attached STATE. Looped
 ' many times so a leaked fd (file not closed) or leaked STATE would fail.
-SUB touch(path AS String)
+FUNC touch(path AS String) AS Nothing
   RES f AS fs::File STATE Cursor = fs::openFile(path)
   f.state.pos = 42
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET path AS String = "target/resource_state_drop_valid.txt"

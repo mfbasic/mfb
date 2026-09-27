@@ -9,7 +9,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "logLine",
@@ -18,7 +18,7 @@
       { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 4 },
       { "name": "msg", "type": "String", "default": null, "line": 4 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "msg" }] }, "line": 5 }
       ]

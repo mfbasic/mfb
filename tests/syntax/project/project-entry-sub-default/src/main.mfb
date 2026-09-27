@@ -1,2 +1,2 @@
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC

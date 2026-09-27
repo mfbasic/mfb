@@ -9,13 +9,13 @@ IMPORT math
 LET G AS Integer = 7
 LET NAME AS String = "Ada"
 
-SUB show OF T(value AS T)
+FUNC show OF T(value AS T) AS Nothing
   io::print("show:" & toString(value))
-END SUB
+END FUNC
 
-SUB showLabeled OF T(label AS String, value AS T)
+FUNC showLabeled OF T(label AS String, value AS T) AS Nothing
   io::print(label & "=" & toString(value))
-END SUB
+END FUNC
 
 FUNC pick(n AS Integer) AS String
   RETURN "int"

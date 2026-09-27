@@ -1,24 +1,24 @@
-SUB viaReturn(flag AS Boolean)
+FUNC viaReturn(flag AS Boolean) AS Nothing
   IF flag THEN
-    EXIT SUB
+    RETURN
   ELSE
     FAIL error(10, "return path failed")
   END IF
   TRAP(err)
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB viaTrapReturn(flag AS Boolean)
+FUNC viaTrapReturn(flag AS Boolean) AS Nothing
   IF flag THEN
-    EXIT SUB
+    RETURN
   ELSE
     FAIL error(11, "trap path failed")
   END IF
   TRAP(err)
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
 FUNC main AS Integer
   viaReturn(TRUE)

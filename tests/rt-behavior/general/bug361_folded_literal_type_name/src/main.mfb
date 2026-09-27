@@ -5,15 +5,15 @@ IMPORT io
 ' The collection pass started with an empty local-type map, so it never saw the
 ' folded literal the builder went on to emit, and the build aborted. Parameters
 ' of several types keep the seeding honest.
-SUB logType(value AS String)
+FUNC logType(value AS String) AS Nothing
   io::print("type=" & typeName(value))
-END SUB
+END FUNC
 
-SUB logCount(count AS Integer)
+FUNC logCount(count AS Integer) AS Nothing
   io::print("count is " & typeName(count) & ".")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   logType("hello")
   logCount(7)
-END SUB
+END FUNC

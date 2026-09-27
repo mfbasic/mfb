@@ -10,8 +10,8 @@ TYPE P
   j AS json::Json
 END TYPE
 
-SUB g(RES h AS fs::File STATE P)
-END SUB
+FUNC g(RES h AS fs::File STATE P) AS Nothing
+END FUNC
 
 FUNC main AS Integer
   RETURN 0

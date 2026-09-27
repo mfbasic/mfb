@@ -10,7 +10,7 @@
     "name": "rootMain",
     "line": 1,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -21,7 +21,7 @@
     "name": "keep",
     "line": 1,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

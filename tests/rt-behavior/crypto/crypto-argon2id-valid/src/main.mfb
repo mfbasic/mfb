@@ -39,7 +39,7 @@ FUNC attempt(memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer
   RETURN "ok " & toString(len(out))
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET password AS List OF Byte = strings::toBytes("password")
   LET salt AS List OF Byte = strings::toBytes("somesalt12345678")
 
@@ -80,4 +80,4 @@ SUB main()
   io::print("length-3=" & attempt(32, 1, 1, 3, 16))
   io::print("salt-7=" & attempt(32, 1, 1, 32, 7))
   io::print("salt-8=" & attempt(32, 1, 1, 4, 8))
-END SUB
+END FUNC

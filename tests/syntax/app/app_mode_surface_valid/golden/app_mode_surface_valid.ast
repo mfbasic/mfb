@@ -9,14 +9,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 7,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "start", "type": "app.Mode", "value": { "kind": "call", "callee": "app.getMode", "arguments": [] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "app.Mode" }, "member": "None" }] }, "line": 9 },

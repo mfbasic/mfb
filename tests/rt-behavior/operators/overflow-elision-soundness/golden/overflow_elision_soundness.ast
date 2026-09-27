@@ -107,14 +107,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 41,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeSub(2)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeSub", "arguments": [{ "kind": "number", "value": "2" }] }] } }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "safeSub(100)=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "safeSub", "arguments": [{ "kind": "number", "value": "100" }] }] } }] }, "line": 43 },

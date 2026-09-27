@@ -1,10 +1,10 @@
 IMPORT io
 
-SUB consume OF T(value AS T)
-END SUB
+FUNC consume OF T(value AS T) AS Nothing
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   consume(42)
   consume("ok")
   io::print("ok")
-END SUB
+END FUNC

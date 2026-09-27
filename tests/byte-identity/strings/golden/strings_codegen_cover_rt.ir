@@ -113,7 +113,7 @@
     "name": "useS",
     "line": 7,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 7, "type": "String", "default": null }
     ],
@@ -126,7 +126,7 @@
     "name": "useI",
     "line": 11,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 11, "type": "Integer", "default": null }
     ],
@@ -139,7 +139,7 @@
     "name": "useB",
     "line": 15,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 15, "type": "Boolean", "default": null }
     ],

@@ -14,9 +14,9 @@
 ' back' becomes writable. Not expressible today in any form."
 IMPORT fs
 
-SUB consume(RES f AS fs::File)
+FUNC consume(RES f AS fs::File) AS Nothing
   fs::close(f)
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES f AS fs::File = fs::createTempFile()

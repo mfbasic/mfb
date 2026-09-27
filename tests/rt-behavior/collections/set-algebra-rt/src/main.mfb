@@ -6,7 +6,7 @@
 IMPORT io
 IMPORT collections
 
-SUB main
+FUNC main AS Nothing
   LET a = Set OF Integer { 1, 2, 3 }
   LET b = Set OF Integer { 2, 3, 4 }
   io::print("union=" & toString(len(collections::union(a, b))))
@@ -33,4 +33,4 @@ SUB main
   LET s2 = Set OF String { "b", "c" }
   io::print("strUnion=" & toString(len(collections::union(s1, s2))))
   io::print("strInter=" & toString(len(collections::intersection(s1, s2))))
-END SUB
+END FUNC

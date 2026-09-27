@@ -248,7 +248,7 @@
     "name": "show",
     "line": 25,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 25, "type": "String", "default": null },
     { "name": "d", "line": 25, "type": "List OF Byte", "default": null }
@@ -262,7 +262,7 @@
     "name": "main",
     "line": 29,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

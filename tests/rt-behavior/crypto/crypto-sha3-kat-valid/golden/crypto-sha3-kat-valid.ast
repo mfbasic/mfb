@@ -38,7 +38,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -47,20 +47,20 @@
       { "name": "label", "type": "String", "default": null, "line": 25 },
       { "name": "d", "type": "List OF Byte", "default": null, "line": 25 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "d" }] } }] }, "line": 26 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 29,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "a3", "type": "List OF Byte", "value": { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "163" }] }, "line": 30 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-empty" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA3_224" }, { "kind": "string", "value": "" }] }] }, "line": 31 },

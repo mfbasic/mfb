@@ -13,15 +13,15 @@ IMPORT errorCode
 
 MUT g AS String = ""
 
-SUB show(tag AS String, got AS String, want AS String)
+FUNC show(tag AS String, got AS String, want AS String) AS Nothing
   IF got = want THEN
     io::print(tag & " ok [" & got & "]")
   ELSE
     io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
   END IF
-END SUB
+END FUNC
 
-SUB padLocal()
+FUNC padLocal() AS Nothing
   MUT s AS String = "abc"
   LET a AS String = strings::padRight(s, 8)
   s = strings::padRight(s, 8)
@@ -58,9 +58,9 @@ SUB padLocal()
   LET h AS String = strings::padRight(s, 4, "x")
   s = strings::padRight(s, 4, "x")
   show("padRightEmpty", s, h)
-END SUB
+END FUNC
 
-SUB padToWidthLocal()
+FUNC padToWidthLocal() AS Nothing
   MUT s AS String = "abc"
   LET a AS String = strings::padRightToWidth(s, 8)
   s = strings::padRightToWidth(s, 8)
@@ -93,9 +93,9 @@ SUB padToWidthLocal()
   LET f AS String = strings::padRightToWidth(s, 7, "漢")
   s = strings::padRightToWidth(s, 7, "漢")
   show("padRightToWidthWidePad", s, f)
-END SUB
+END FUNC
 
-SUB repeatLocal()
+FUNC repeatLocal() AS Nothing
   MUT s AS String = "ab"
   LET a AS String = strings::repeat(s, 3)
   s = strings::repeat(s, 3)
@@ -115,9 +115,9 @@ SUB repeatLocal()
   LET d AS String = strings::repeat(s, 2)
   s = strings::repeat(s, 2)
   show("repeatUtf8", s, d)
-END SUB
+END FUNC
 
-SUB growsGlobal()
+FUNC growsGlobal() AS Nothing
   g = "abc"
   LET a AS String = strings::padRight(g, 8)
   g = strings::padRight(g, 8)
@@ -137,11 +137,11 @@ SUB growsGlobal()
   LET d AS String = strings::repeat(g, 3)
   g = strings::repeat(g, 3)
   show("g.repeat3", g, d)
-END SUB
+END FUNC
 
 ' --- the grown block keeps working: append, shrink, grow again --------------
 
-SUB growThenUse()
+FUNC growThenUse() AS Nothing
   MUT s AS String = "abc"
   s = strings::padRight(s, 8)
   s = s & "!"
@@ -161,20 +161,20 @@ SUB growThenUse()
     t = strings::left(t, 1)
   NEXT
   show("growLoop", t, "x")
-END SUB
+END FUNC
 
 ' --- os::appResourcePath: prefix growth whose prefix comes from the host --------
 ' The path itself is machine-specific, so only the verdict is printed.
 
-SUB same(tag AS String, got AS String, want AS String)
+FUNC same(tag AS String, got AS String, want AS String) AS Nothing
   IF got = want THEN
     io::print(tag & " ok")
   ELSE
     io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
   END IF
-END SUB
+END FUNC
 
-SUB resourcePaths()
+FUNC resourcePaths() AS Nothing
   MUT s AS String = "data/x.txt"
   LET a AS String = os::appResourcePath(s)
   s = os::appResourcePath(s)
@@ -197,75 +197,75 @@ SUB resourcePaths()
     t = strings::right(t, 1)
   NEXT
   show("resourcePathLoop", t, "x")
-END SUB
+END FUNC
 
-SUB trapResourceDots()
+FUNC trapResourceDots() AS Nothing
   MUT s AS String = "../etc/passwd"
   s = os::appResourcePath(s)
   io::print("trap.resourceDots NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.resourceDots raised=" & toString(err.code = errorCode::ErrInvalidPath) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
 ' --- failure atomicity ------------------------------------------------------
 
-SUB trapPadRight()
+FUNC trapPadRight() AS Nothing
   MUT s AS String = "abc"
   s = strings::padRight(s, -1)
   io::print("trap.padRight NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.padRight raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapPadLeftBadChar()
+FUNC trapPadLeftBadChar() AS Nothing
   MUT s AS String = "abc"
   s = strings::padLeft(s, 8, "ab")
   io::print("trap.padLeftBadChar NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.padLeftBadChar raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapPadToWidth()
+FUNC trapPadToWidth() AS Nothing
   MUT s AS String = "abc"
   s = strings::padRightToWidth(s, -1)
   io::print("trap.padToWidth NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.padToWidth raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapRepeat()
+FUNC trapRepeat() AS Nothing
   MUT s AS String = "abc"
   s = strings::repeat(s, -1)
   io::print("trap.repeat NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.repeat raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapGlobalRepeat()
+FUNC trapGlobalRepeat() AS Nothing
   g = "abc"
   g = strings::repeat(g, -1)
   io::print("trap.g.repeat NOT RAISED [" & g & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.g.repeat raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " g=[" & g & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   padLocal()

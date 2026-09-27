@@ -7,14 +7,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "foobar",
       "line": 1,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     }

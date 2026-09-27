@@ -140,7 +140,7 @@
     "name": "main",
     "line": 28,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

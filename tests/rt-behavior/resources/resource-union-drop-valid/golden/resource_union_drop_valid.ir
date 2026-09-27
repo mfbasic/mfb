@@ -97,7 +97,7 @@
     "name": "writeVia",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "path", "line": 12, "type": "String", "default": null },
     { "name": "data", "line": 12, "type": "String", "default": null }

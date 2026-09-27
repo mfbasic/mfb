@@ -4,21 +4,21 @@
 IMPORT io
 IMPORT strings
 
-SUB useS(value AS String)
+FUNC useS(value AS String) AS Nothing
   io::print(value)
-END SUB
+END FUNC
 
-SUB useI(value AS Integer)
+FUNC useI(value AS Integer) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 
-SUB useB(value AS Boolean)
+FUNC useB(value AS Boolean) AS Nothing
   IF value THEN
     io::print("1")
   ELSE
     io::print("0")
   END IF
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   LET s AS String = "Héllo, World中😀"

@@ -18,9 +18,9 @@ END UNION
 ' A parameter declaring `STATE StateB` handed a `Stream STATE StateA` value is
 ' rejected TYPE_STATE_MISMATCH — the uniform STATE type is fixed at the owning
 ' binding and every later declaration must agree.
-SUB observe(RES p AS Stream STATE StateB)
+FUNC observe(RES p AS Stream STATE StateB) AS Nothing
   LET n = p.state.b
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES s AS Stream STATE StateA = fs::createTempFile()

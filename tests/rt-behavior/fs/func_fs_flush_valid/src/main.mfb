@@ -9,10 +9,10 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 
-SUB writeBuffered(path AS String)
+FUNC writeBuffered(path AS String) AS Nothing
   RES f = fs::openFile(path, "write")
   fs::setBuffered(f, TRUE)
   fs::writeAll(f, "flushed-")
   fs::flush(f)
   fs::writeAll(f, "then-dropped")
-END SUB
+END FUNC

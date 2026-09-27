@@ -7,16 +7,16 @@
 ' rejected with ErrInvalidArgument (77050002); a single scalar (including a multi-byte
 ' one) is accepted.
 '
-' padLeft is inline-lowered, so the rejection cases go through a SUB (tryPad) whose body
+' padLeft is inline-lowered, so the rejection cases go through a function (tryPad) whose body
 ' calls it as an ordinary auto-propagating call; the caller traps the propagated failure.
 IMPORT io
 IMPORT strings
 
-SUB tryPad(value AS String, width AS Integer, padChar AS String)
+FUNC tryPad(value AS String, width AS Integer, padChar AS String) AS Nothing
   LET padded AS String = strings::padLeft(value, width, padChar)
   ' Only reached if padChar was accepted (the bug would be: malformed padChar accepted).
   io::print("accepted " & toString(len(strings::toBytes(padded))))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' Empty padChar -> rejected.

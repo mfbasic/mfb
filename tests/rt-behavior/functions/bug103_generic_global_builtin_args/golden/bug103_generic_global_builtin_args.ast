@@ -11,7 +11,7 @@
     { "kind": "binding", "visibility": "public", "mutable": false, "name": "G", "type": "Integer", "value": { "kind": "number", "value": "7" }, "line": 9 },
     { "kind": "binding", "visibility": "public", "mutable": false, "name": "NAME", "type": "String", "value": { "kind": "string", "value": "Ada" }, "line": 10 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -20,13 +20,13 @@
       "params": [
       { "name": "value", "type": "T", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "show:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 13 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showLabeled",
@@ -36,7 +36,7 @@
       { "name": "label", "type": "String", "default": null, "line": 16 },
       { "name": "value", "type": "T", "default": null, "line": 16 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 17 }
       ]

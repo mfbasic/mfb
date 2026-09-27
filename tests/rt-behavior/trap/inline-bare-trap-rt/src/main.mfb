@@ -5,14 +5,14 @@ IMPORT io
 ' bare-expression statement. Each bare handler RECOVERs a default identically to
 ' the `TRAP(e)` spelling.
 
-SUB report(label AS String, s AS String)
+FUNC report(label AS String, s AS String) AS Nothing
   ' bare-expression-statement inline trap: the trapped call's value is discarded,
   ' the handler RECOVERs a sentinel so the statement still succeeds.
   toInt(s) TRAP
     RECOVER -1
   END TRAP
   io::print(label & " expr-stmt ok")
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   ' LET binding

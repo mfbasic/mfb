@@ -7,14 +7,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "rootMain",
       "line": 1,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     }
@@ -26,14 +26,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "keep",
       "line": 1,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     }

@@ -111,7 +111,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "printList",
@@ -120,7 +120,7 @@
       { "name": "label", "type": "String", "default": null, "line": 47 },
       { "name": "xs", "type": "List OF Integer", "default": null, "line": 47 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ":" } }] }, "line": 48 },
       {

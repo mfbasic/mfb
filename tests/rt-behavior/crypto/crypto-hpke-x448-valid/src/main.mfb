@@ -73,7 +73,7 @@ FUNC trySeal(c AS crypto::AsymmetricCipher, pub AS List OF Byte, data AS List OF
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET seed AS List OF Byte = encoding::hexDecode("6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b")
   LET pub AS List OF Byte = encoding::hexDecode("5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180")
   LET aad AS List OF Byte = encoding::utf8Encode("Count-0")
@@ -119,4 +119,4 @@ SUB main()
   LET lowOrder AS List OF Byte = cat(fill(56, 0), collections::mid(boxAes, 56, len(boxAes) - 56))
   io::print("low-order-enc=" & tryOpen(aes, seed, lowOrder, aad))
   io::print("bad-pub-len=" & trySeal(aes, fill(32, 1), pt))
-END SUB
+END FUNC

@@ -21,43 +21,43 @@ FUNC treeSize(t AS Tree) AS Integer
   RETURN n
 END FUNC
 
-SUB showTrees(label AS String, xs AS List OF Tree)
+FUNC showTrees(label AS String, xs AS List OF Tree) AS Nothing
   MUT parts AS List OF String = []
   FOR EACH t IN xs
     parts = collections::append(parts, toString(t.tag) & "/" & toString(treeSize(t)))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END SUB
+END FUNC
 
-SUB showInts(label AS String, xs AS List OF Integer)
+FUNC showInts(label AS String, xs AS List OF Integer) AS Nothing
   MUT parts AS List OF String = []
   FOR EACH x IN xs
     parts = collections::append(parts, toString(x))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END SUB
+END FUNC
 
-SUB showFloats(label AS String, xs AS List OF Float)
+FUNC showFloats(label AS String, xs AS List OF Float) AS Nothing
   MUT parts AS List OF String = []
   FOR EACH x IN xs
     parts = collections::append(parts, toString(x))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END SUB
+END FUNC
 
-SUB showStrings(label AS String, xs AS List OF String)
+FUNC showStrings(label AS String, xs AS List OF String) AS Nothing
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(xs, ", ") & "]")
-END SUB
+END FUNC
 
-SUB showTags(label AS String, xs AS List OF Tag)
+FUNC showTags(label AS String, xs AS List OF Tag) AS Nothing
   MUT parts AS List OF String = []
   FOR EACH t IN xs
     parts = collections::append(parts, t.name & ":" & toString(t.weight))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END SUB
+END FUNC
 
-SUB showNested(label AS String, xs AS List OF List OF Integer)
+FUNC showNested(label AS String, xs AS List OF List OF Integer) AS Nothing
   MUT parts AS List OF String = []
   FOR EACH inner IN xs
     MUT cells AS List OF String = []
@@ -67,7 +67,7 @@ SUB showNested(label AS String, xs AS List OF List OF Integer)
     parts = collections::append(parts, "[" & strings::join(cells, " ") & "]")
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' Integer: every shape of the range.

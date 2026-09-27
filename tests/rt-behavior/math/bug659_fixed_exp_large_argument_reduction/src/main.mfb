@@ -21,7 +21,7 @@ FUNC probe(v AS Float) AS String
   RETURN r
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' Ordinary range — must stay byte-identical.
   io::print("exp(21)        = " & probe(21.0))
   io::print("exp(21.4)      = " & probe(21.4))
@@ -42,4 +42,4 @@ SUB main()
   io::print("exp(-1.5e9)    = " & probe(-1500000000.0))
   io::print("exp(-2e9)      = " & probe(-2000000000.0))
   io::print("exp(-2147483647)=" & probe(-2147483647.0))
-END SUB
+END FUNC

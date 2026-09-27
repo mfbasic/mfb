@@ -8,7 +8,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "log",
@@ -16,13 +16,13 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 8 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 9 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "log",
@@ -30,13 +30,13 @@
       "params": [
       { "name": "value", "type": "String", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str " }, "right": { "kind": "identifier", "value": "value" } }] }, "line": 13 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "log",
@@ -45,7 +45,7 @@
       { "name": "label", "type": "String", "default": null, "line": 17 },
       { "name": "value", "type": "Integer", "default": null, "line": 17 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 18 }
       ]

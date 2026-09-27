@@ -45,7 +45,7 @@ FUNC shakeLen(length AS Integer) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("shake256-0=" & toString(shakeLen(0)))
   io::print("shake256-neg=" & toString(shakeLen(-5)))
   io::print("shake256-1=" & toString(shakeLen(1)))
@@ -61,4 +61,4 @@ SUB main()
   io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(crypto::Hash.SHA1, 1, 0)))
   io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(crypto::Hash.SHA1, 1, 21)))
   io::print("pbkdf2-sha2_512-iter0=" & toString(pbkdf2Args(crypto::Hash.SHA2_512, 0, 64)))
-END SUB
+END FUNC

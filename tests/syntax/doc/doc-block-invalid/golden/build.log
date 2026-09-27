@@ -38,7 +38,7 @@ tests/syntax/doc/doc-block-invalid/src/main.mfb:10 error[2-205-0002 DOC_NAME_MIS
      | ^
 tests/syntax/doc/doc-block-invalid/src/main.mfb:16 error[2-205-0021 DOC_OVERLOAD_UNRESOLVED]: DOC header parameter types match no overload of the declaration
                No overload of `add` has parameter types (Float, Float).
-  21 |   SUB noisy
+  21 |   FUNC noisy
   22 |   GROUP A
   23 |   GROUP B
      | ^

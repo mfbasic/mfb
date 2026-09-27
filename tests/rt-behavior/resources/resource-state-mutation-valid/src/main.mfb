@@ -6,9 +6,9 @@ TYPE FileState
   len AS Integer
 END TYPE
 
-SUB advance(RES f AS fs::File STATE FileState, by AS Integer)
+FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing
   f.state = WITH f.state { pos := f.state.pos + by }
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES f AS fs::File STATE FileState = fs::createTempFile()

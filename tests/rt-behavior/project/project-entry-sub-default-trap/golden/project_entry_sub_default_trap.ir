@@ -14,7 +14,7 @@
     "name": "main",
     "line": 1,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

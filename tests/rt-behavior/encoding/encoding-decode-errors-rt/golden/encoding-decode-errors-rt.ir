@@ -450,7 +450,7 @@
     "name": "main",
     "line": 139,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

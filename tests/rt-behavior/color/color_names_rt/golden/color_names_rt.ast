@@ -10,7 +10,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -19,7 +19,7 @@
       { "name": "label", "type": "String", "default": null, "line": 14 },
       { "name": "name", "type": "String", "default": null, "line": 14 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromName", "arguments": [{ "kind": "identifier", "value": "name" }] }] } }] }, "line": 15 }
       ]
@@ -50,7 +50,7 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "named",
@@ -59,7 +59,7 @@
       { "name": "label", "type": "String", "default": null, "line": 31 },
       { "name": "c", "type": "color.Color", "default": null, "line": 31 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "color.nameOf", "arguments": [{ "kind": "identifier", "value": "c" }] } }] }, "line": 32 }
       ]

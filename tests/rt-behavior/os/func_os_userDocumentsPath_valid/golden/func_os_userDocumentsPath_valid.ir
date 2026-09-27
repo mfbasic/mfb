@@ -138,7 +138,7 @@
     "name": "setFile",
     "line": 36,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "path", "line": 36, "type": "String", "default": null },
     { "name": "text", "line": 36, "type": "String", "default": null }

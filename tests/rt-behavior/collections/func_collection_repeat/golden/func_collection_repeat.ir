@@ -120,7 +120,7 @@
     "name": "showTrees",
     "line": 24,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 24, "type": "String", "default": null },
     { "name": "xs", "line": 24, "type": "List OF Tree", "default": null }
@@ -145,7 +145,7 @@
     "name": "showInts",
     "line": 32,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 32, "type": "String", "default": null },
     { "name": "xs", "line": 32, "type": "List OF Integer", "default": null }
@@ -170,7 +170,7 @@
     "name": "showFloats",
     "line": 40,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 40, "type": "String", "default": null },
     { "name": "xs", "line": 40, "type": "List OF Float", "default": null }
@@ -195,7 +195,7 @@
     "name": "showStrings",
     "line": 48,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 48, "type": "String", "default": null },
     { "name": "xs", "line": 48, "type": "List OF String", "default": null }
@@ -209,7 +209,7 @@
     "name": "showTags",
     "line": 52,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 52, "type": "String", "default": null },
     { "name": "xs", "line": 52, "type": "List OF Tag", "default": null }
@@ -234,7 +234,7 @@
     "name": "showNested",
     "line": 60,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 60, "type": "String", "default": null },
     { "name": "xs", "line": 60, "type": "List OF List OF Integer", "default": null }

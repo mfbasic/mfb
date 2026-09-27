@@ -10,7 +10,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -19,7 +19,7 @@
       { "name": "label", "type": "String", "default": null, "line": 17 },
       { "name": "c", "type": "color.Color", "default": null, "line": 17 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "red" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "green" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "blue" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "alpha" }] } }] }, "line": 18 }
       ]
@@ -50,7 +50,7 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "roundTrip",
@@ -59,7 +59,7 @@
       { "name": "label", "type": "String", "default": null, "line": 35 },
       { "name": "c", "type": "color.Color", "default": null, "line": 35 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] } }, "right": { "kind": "string", "value": " expected " } }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "c" }] } }] }, "line": 36 }
       ]

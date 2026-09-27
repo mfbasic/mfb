@@ -112,7 +112,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "translate",
@@ -122,7 +122,7 @@
       { "name": "dx", "type": "Float", "default": null, "line": 40 },
       { "name": "dy", "type": "Float", "default": null, "line": 40 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "nextX", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "x" }, "right": { "kind": "identifier", "value": "dx" } }, "line": 41 },
       { "kind": "binding", "mutable": false, "name": "nextY", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "y" }, "right": { "kind": "identifier", "value": "dy" } }, "line": 42 }

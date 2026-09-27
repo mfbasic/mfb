@@ -11,14 +11,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 14,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 15 },
       { "kind": "binding", "mutable": false, "name": "t", "type": "String", "value": { "kind": "string", "value": "l" }, "line": 16 },

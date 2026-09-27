@@ -12,9 +12,9 @@ END TYPE
 '
 ' TODO(plan-52-C): this golden should name STATE, matching the write path's
 ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
-SUB show(RES p AS fs::File)
+FUNC show(RES p AS fs::File) AS Nothing
   io::print(toString(p.state.pos))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES f AS fs::File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb")

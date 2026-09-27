@@ -4,9 +4,9 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Integer = compress::crc32()
   LET b AS Integer = compress::crc32(strings::toBytes("abc"), 0, 1)
   LET c AS Integer = compress::crc32("abc")
   io::print(toString(a + b + c))
-END SUB
+END FUNC

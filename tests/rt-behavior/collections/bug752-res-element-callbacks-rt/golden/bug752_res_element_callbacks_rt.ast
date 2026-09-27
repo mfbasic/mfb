@@ -59,14 +59,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 28,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "PATH" }, { "kind": "string", "value": "" }] }, "line": 29 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.open", "arguments": [{ "kind": "identifier", "value": "PATH" }, { "kind": "string", "value": "read" }] }, "line": 30 },

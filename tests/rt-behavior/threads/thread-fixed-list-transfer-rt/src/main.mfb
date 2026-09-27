@@ -12,12 +12,12 @@ IMPORT fixed_list_xfer_worker
 
 MUT failures AS Integer = 0
 
-SUB check(label AS String, got AS String, want AS String)
+FUNC check(label AS String, got AS String, want AS String) AS Nothing
   IF got <> want THEN
     io::print("FAIL " & label & ": got " & got & " want " & want)
     failures = failures + 1
   END IF
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' Integer payload (width 8), 100 elements: built here, copied in, rebuilt in

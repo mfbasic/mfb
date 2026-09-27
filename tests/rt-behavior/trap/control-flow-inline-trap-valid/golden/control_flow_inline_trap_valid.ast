@@ -32,7 +32,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "doEffect",
@@ -40,7 +40,7 @@
       "params": [
       { "name": "v", "type": "Integer", "default": null, "line": 8 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",

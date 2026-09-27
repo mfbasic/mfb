@@ -7,9 +7,9 @@ REM __regex_posixProp emitted "posix*" sentinels that __regex_propTest had no
 REM case for (they fell through to __regex_scriptTest -> FALSE). Each row proves
 REM the class both matches its own set and rejects a scalar outside it.
 
-SUB show(label AS String, yes AS Boolean, no AS Boolean)
+FUNC show(label AS String, yes AS Boolean, no AS Boolean) AS Nothing
   io::print(label & " match=" & toString(yes) & " reject=" & toString(NOT no))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   show("alnum", regex::match("a5Z", "^[[:alnum:]]+$"), regex::match("a!", "^[[:alnum:]]+$"))

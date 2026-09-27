@@ -76,7 +76,7 @@
     "name": "logLine",
     "line": 4,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "f", "line": 4, "type": "fs.File", "default": null },
     { "name": "msg", "line": 4, "type": "String", "default": null }

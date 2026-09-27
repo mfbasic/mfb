@@ -11,9 +11,9 @@ IMPORT errorCode
 IMPORT io
 
 ' Resolve a name that must SUCCEED.
-SUB show(label AS String, name AS String)
+FUNC show(label AS String, name AS String) AS Nothing
   io::print(label & "=" & color::toHexAlpha(color::fromName(name)))
-END SUB
+END FUNC
 
 ' Resolve a name that must be REJECTED, asserting the raised code rather than the
 ' absence of a result -- a fixture that merely failed to print would pass vacuously.
@@ -28,9 +28,9 @@ FUNC reject(label AS String, name AS String) AS Integer
 END FUNC
 
 ' Name a colour that must have one.
-SUB named(label AS String, c AS color::Color)
+FUNC named(label AS String, c AS color::Color) AS Nothing
   io::print(label & "=" & color::nameOf(c))
-END SUB
+END FUNC
 
 ' Name a colour that must NOT have one.
 FUNC unnamed(label AS String, c AS color::Color) AS Integer

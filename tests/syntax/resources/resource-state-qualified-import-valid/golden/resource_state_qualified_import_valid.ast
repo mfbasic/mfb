@@ -10,14 +10,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 8,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": "http.PendingState", "name": "s", "type": "http.Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://example.com/" }] }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bound" }] }, "line": 10 }

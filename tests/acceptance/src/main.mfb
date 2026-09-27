@@ -1,5 +1,5 @@
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("Acceptance Test Suite, run with ./mfb test")
-END SUB
+END FUNC

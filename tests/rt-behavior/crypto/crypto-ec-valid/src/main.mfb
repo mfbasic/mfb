@@ -7,7 +7,7 @@ IMPORT encoding
 IMPORT io
 IMPORT collections
 
-SUB check(label AS String, field AS Integer)
+FUNC check(label AS String, field AS Integer) AS Nothing
   LET point AS Integer = 1 + 2 * field
   LET priv AS Integer = point + field
   MUT kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
@@ -29,9 +29,9 @@ SUB check(label AS String, field AS Integer)
   END WHILE
   io::print(label & " pub-is-point-prefix=" & toString(prefixOk))
   io::print(label & " first-byte-uncompressed=" & toString(collections::get(kp.publicKey, 0)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET msg AS List OF Byte = encoding::utf8Encode("The quick brown fox")
   LET tampered AS List OF Byte = encoding::utf8Encode("The quick brown Fox")
 
@@ -60,4 +60,4 @@ SUB main()
   check("p256", 32)
   check("p384", 48)
   check("p521", 66)
-END SUB
+END FUNC

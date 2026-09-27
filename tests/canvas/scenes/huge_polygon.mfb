@@ -16,7 +16,7 @@ FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float, wobble AS Float) A
   RETURN points
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   ' A mid-grey ground, so no antialiased rim pixel sits near black: there one coverage
   ' step is several sRGB levels, and fp32 against the f64 oracle flips a step where a
@@ -27,4 +27,4 @@ SUB main()
   ' reference costs edges x area -- 64,000 edges over a 500-px polygon took 15 minutes.
   LET coast AS canvas::DrawItem = canvas::Polygon[points := ring(64000, 450.0, 320.0, 50.0, 6.0), paint := canvas::fillStroke(color::rgb(40, 160, 90), color::rgb(240, 240, 200), 2.0)]
   canvas::present([ground, coast])
-END SUB
+END FUNC

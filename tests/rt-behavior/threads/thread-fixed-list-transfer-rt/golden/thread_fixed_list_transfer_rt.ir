@@ -79,7 +79,7 @@
     "name": "check",
     "line": 15,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 15, "type": "String", "default": null },
     { "name": "got", "line": 15, "type": "String", "default": null },

@@ -10,12 +10,12 @@ IMPORT color
 IMPORT io
 
 ' Build from HSL, decompose, rebuild -- the round trip must be exact.
-SUB rt(label AS String, h AS Float, s AS Float, l AS Float)
+FUNC rt(label AS String, h AS Float, s AS Float, l AS Float) AS Nothing
   LET c AS color::Color = color::hsl(h, s, l)
   LET p AS color::Hsl = color::toHsl(c)
   LET back AS color::Color = color::hsl(p.hue, p.saturation, p.lightness)
   io::print(label & " hex=" & color::toHex(c) & " h=" & toString(p.hue) & " s=" & toString(p.saturation) & " l=" & toString(p.lightness) & " roundTrip=" & toString(color::toHex(c) = color::toHex(back)))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' --- the six primary hues, 60 degrees apart ------------------------------

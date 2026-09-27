@@ -899,7 +899,7 @@
     "name": "main",
     "line": 55,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

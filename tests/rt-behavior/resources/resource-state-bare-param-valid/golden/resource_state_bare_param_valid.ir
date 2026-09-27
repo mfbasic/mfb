@@ -85,7 +85,7 @@
     "name": "opaque",
     "line": 14,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "p", "line": 14, "type": "fs.File", "default": null }
     ],

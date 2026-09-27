@@ -1,2 +1,2 @@
-SUB start()
-END SUB
+FUNC start() AS Nothing
+END FUNC

@@ -73,7 +73,7 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "announce",
@@ -81,18 +81,18 @@
       "params": [
       { "name": "s", "type": "String", "default": null, "line": 36 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 37 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "announce ok " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }] }, "line": 38 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 39 }
+      { "kind": "return", "value": null, "line": 39 }
       ],
       "trap": {
       "name": "#err",
       "line": 40,
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "announce trapped, exiting" }] }, "line": 41 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 42 }
+      { "kind": "return", "value": null, "line": 42 }
       ]
     }
     },

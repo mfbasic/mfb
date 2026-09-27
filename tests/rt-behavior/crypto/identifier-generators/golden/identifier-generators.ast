@@ -10,14 +10,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 5,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "u7", "type": "String", "value": { "kind": "call", "callee": "crypto.uuid7", "arguments": [] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "variant", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "u7" }, { "kind": "number", "value": "19" }, { "kind": "number", "value": "1" }] }, "line": 7 },

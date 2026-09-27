@@ -29,7 +29,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "observe",
@@ -37,7 +37,7 @@
       "params": [
       { "name": "p", "type": "Stream", "resource": true, "state": "StreamState", "default": null, "line": 16 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "n", "type": null, "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "state" }, "member": "bytes" }, "line": 17 }
       ]

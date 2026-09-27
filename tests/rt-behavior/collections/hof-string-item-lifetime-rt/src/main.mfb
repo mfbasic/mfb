@@ -19,9 +19,9 @@ IMPORT io
 IMPORT collections
 IMPORT strings
 
-SUB show(s AS String)
+FUNC show(s AS String) AS Nothing
   io::print("  item=" & s)
-END SUB
+END FUNC
 
 FUNC upper(s AS String) AS String
   RETURN strings::upper(s)

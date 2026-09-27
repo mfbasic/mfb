@@ -76,7 +76,7 @@
     "name": "closeHandle",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "f", "line": 12, "type": "fs.File", "default": null }
     ],

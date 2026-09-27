@@ -25,14 +25,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "reassignLocal",
       "line": 17,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "ab" }, { "kind": "number", "value": "4" }] }, "line": 18 },
       { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 19 },
@@ -41,14 +41,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "reassignGlobal",
       "line": 24,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "cd" }, { "kind": "number", "value": "4" }] }, "line": 25 },
       { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 26 },
@@ -57,14 +57,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "reassignCaptured",
       "line": 31,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "ef" }, { "kind": "number", "value": "4" }] }, "line": 32 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "collections.forEach", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "lambda", "params": [
@@ -74,14 +74,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "bindThenReassignSource",
       "line": 38,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "gh" }, { "kind": "number", "value": "4" }] }, "line": 39 },
       { "kind": "binding", "mutable": false, "name": "t", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 40 },
@@ -91,14 +91,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "returnedFromFunction",
       "line": 46,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "kl" }, { "kind": "number", "value": "4" }] }, "line": 47 },
       { "kind": "binding", "mutable": false, "name": "r", "type": "String", "value": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 48 },
@@ -107,14 +107,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "freshArgumentLoop",
       "line": 53,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "x" }, "line": 54 },
       {
@@ -133,14 +133,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "identityLoopGlobal",
       "line": 64,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "g", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "mn" }, { "kind": "number", "value": "4" }] }, "line": 65 },
       {
@@ -159,14 +159,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "literalThenAppend",
       "line": 73,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "string", "value": "lit" }] }, "line": 74 },
       { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "!" } }, "line": 75 },

@@ -2,5 +2,5 @@ PRIVATE FUNC secretValue() AS Integer
   RETURN 41
 END FUNC
 
-PRIVATE SUB secretTrace()
-END SUB
+PRIVATE FUNC secretTrace() AS Nothing
+END FUNC

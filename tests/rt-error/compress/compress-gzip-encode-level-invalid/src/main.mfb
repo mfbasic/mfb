@@ -3,8 +3,8 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print("before")
   LET packed AS List OF Byte = compress::gzipEncode(strings::toBytes("hello"), level := 10)
   io::print("after=" & toString(len(packed)))
-END SUB
+END FUNC

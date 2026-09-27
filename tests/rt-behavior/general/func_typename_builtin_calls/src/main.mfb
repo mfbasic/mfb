@@ -11,7 +11,7 @@ IMPORT collections
 ' resolver-accepted source. The builder (and its data_objects pre-pass twin) now
 ' delegate any non-explicit target to `builtins::resolve_call_return_type`. Every
 ' line below failed to compile before the fix.
-SUB main()
+FUNC main() AS Nothing
   LET s AS String = "hello"
   LET t AS String = "l"
   LET f AS Float = 2.0
@@ -73,4 +73,4 @@ SUB main()
   io::print(bfi)
   io::print(bco)
   io::print(bib)
-END SUB
+END FUNC

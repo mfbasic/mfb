@@ -10,14 +10,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 10,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "cdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901" }] }, "line": 11 },
       { "kind": "binding", "mutable": false, "name": "zl", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "789ccdcce11140300c06d055be090c601bd294a252494399de9d29fc7e778f241765330426098c985a75e51e75661c9e68c5a872ed88d2b0782e0639593fde86e74690a903fd687901198d4d29" }] }, "line": 12 },

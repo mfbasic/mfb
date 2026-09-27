@@ -13,7 +13,7 @@ IMPORT io
 '
 ' `setMode` is referenced too, so the reconcile's "sync after show" calls are
 ' emitted alongside the member helpers.
-SUB main()
+FUNC main() AS Nothing
   LET before AS String = app::getTitle()
   app::setTitle("Window " & before)
   LET after AS String = app::getTitle()
@@ -23,4 +23,4 @@ SUB main()
   app::setMode(app::Mode.Canvas)
   app::setFullscreen(FALSE)
   io::print(toString(app::getFullscreen()))
-END SUB
+END FUNC

@@ -30,7 +30,7 @@ FUNC shapes(frame AS Integer) AS List OF canvas::DrawItem
   RETURN items
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES img AS canvas::Image = canvas::createImage(2, 1, [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)])
   LET badge AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 1.0, w := 3.0, h := 3.0, paint := canvas::fill(color::rgb(4, 4, 4))]
@@ -51,4 +51,4 @@ SUB main()
   LET front AS canvas::DrawLayer = canvas::DrawLayer[items := shapes(21)]
   canvas::presentLayers([back, front])
   io::print("rendered")
-END SUB
+END FUNC

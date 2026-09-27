@@ -76,7 +76,7 @@
     "name": "log$Integer",
     "line": 8,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 8, "type": "Integer", "default": null }
     ],
@@ -89,7 +89,7 @@
     "name": "log$String",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 12, "type": "String", "default": null }
     ],
@@ -102,7 +102,7 @@
     "name": "log$String$Integer",
     "line": 17,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 17, "type": "String", "default": null },
     { "name": "value", "line": 17, "type": "Integer", "default": null }

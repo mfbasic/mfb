@@ -19,10 +19,10 @@ FUNC addUp(acc AS Integer, v AS Integer) AS Integer
   RETURN acc + v
 END FUNC
 
-SUB visit(v AS Integer)
+FUNC visit(v AS Integer) AS Nothing
   IF v = 20 THEN FAIL error(4, "forEach hit 20")
   io::print("visit " & toString(v))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET nums AS List OF Integer = [10, 20, 30]

@@ -2,7 +2,7 @@ IMPORT crypto
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET u7 AS String = crypto::uuid7()
   LET variant AS String = strings::mid(u7, 19, 1)
   io::print("uuid7-length=" & toString(strings::byteLen(u7)))
@@ -13,4 +13,4 @@ SUB main()
   io::print("ulid-length=" & toString(strings::byteLen(id)))
   io::print("ulid-first-valid=" & toString(strings::mid(id, 0, 1) >= "0" AND strings::mid(id, 0, 1) <= "7"))
   io::print("distinct=" & toString(crypto::uuid7() <> crypto::uuid7() AND crypto::ulid() <> crypto::ulid()))
-END SUB
+END FUNC

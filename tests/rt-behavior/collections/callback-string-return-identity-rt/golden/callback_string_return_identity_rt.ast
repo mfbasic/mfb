@@ -295,14 +295,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 121,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "rep", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 122 },
       { "kind": "binding", "mutable": true, "name": "first", "type": "String", "value": { "kind": "string", "value": "" }, "line": 123 },
@@ -369,7 +369,7 @@
           "then": [
           { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "DRIFT at rep " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "rep" }] } }] }, "line": 174 },
           { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "d" }] }, "line": 175 },
-          { "kind": "exit", "target": "sub", "code": null, "line": 176 }
+          { "kind": "return", "value": null, "line": 176 }
           ],
           "else": [
           ]

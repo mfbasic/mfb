@@ -74,7 +74,7 @@ FUNC trySeal(c AS crypto::AsymmetricCipher, pub AS List OF Byte, data AS List OF
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET seed AS List OF Byte = encoding::hexDecode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
   LET pub AS List OF Byte = encoding::hexDecode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
   LET aad AS List OF Byte = encoding::utf8Encode("Count-0")
@@ -118,4 +118,4 @@ SUB main()
   io::print("legacy-aes=" & tryOpen(aes, seed, encoding::hexDecode("371abfabd302a85e3b26ad1b7755b88cdc6bef40bdbc1d43f524243518b2a62d2b4228fcf060e60fb058e4caf929e677ab11a326eeba39cf50f5"), none))
   io::print("legacy-chacha=" & tryOpen(chacha, seed, encoding::hexDecode("c78d573dcd7161973c1d97407fcc3975ff09aabbfb46926def82f881069a5712161e654993f296f18dd3064125b0f797b3c05fd6e8fe0959b98c"), none))
   io::print("bad-pub-len=" & trySeal(aes, fill(31, 1), pt))
-END SUB
+END FUNC

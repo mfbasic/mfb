@@ -22,13 +22,13 @@ FUNC osAccResourceDotDot() AS String
   RETURN os::appResourcePath("assets/../secret.txt")
 END FUNC
 
-SUB osAccSetEmptyName()
+FUNC osAccSetEmptyName() AS Nothing
   os::setEnv("", "value")
-END SUB
+END FUNC
 
-SUB osAccSetEqualsName()
+FUNC osAccSetEqualsName() AS Nothing
   os::setEnv("MFB_ACCEPT_OS_BAD=NAME", "value")
-END SUB
+END FUNC
 
 TESTING
   TGROUP "Builtin: os"

@@ -1,6 +1,6 @@
 IMPORT collections
-SUB printString(value AS String)
-END SUB
+FUNC printString(value AS String) AS Nothing
+END FUNC
 
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]

@@ -50,12 +50,12 @@ FUNC routes() AS List OF http::Route
 END FUNC
 
 ' The worked-example accept loop. Compiled here; run on-device.
-SUB serverMain()
+FUNC serverMain() AS Nothing
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes())
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
 FUNC mkReq(testId AS String, debug AS String) AS http::Request
   MUT params AS Map OF String TO String = Map OF String TO String {}

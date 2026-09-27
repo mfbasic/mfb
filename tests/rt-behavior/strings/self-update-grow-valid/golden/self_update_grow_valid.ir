@@ -79,7 +79,7 @@
     "name": "show",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "tag", "line": 16, "type": "String", "default": null },
     { "name": "got", "line": 16, "type": "String", "default": null },
@@ -104,7 +104,7 @@
     "name": "padLocal",
     "line": 24,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -143,7 +143,7 @@
     "name": "padToWidthLocal",
     "line": 63,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -178,7 +178,7 @@
     "name": "repeatLocal",
     "line": 98,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -205,7 +205,7 @@
     "name": "growsGlobal",
     "line": 120,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -232,7 +232,7 @@
     "name": "growThenUse",
     "line": 144,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -272,7 +272,7 @@
     "name": "same",
     "line": 169,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "tag", "line": 169, "type": "String", "default": null },
     { "name": "got", "line": 169, "type": "String", "default": null },
@@ -297,7 +297,7 @@
     "name": "resourcePaths",
     "line": 177,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -338,7 +338,7 @@
     "name": "trapResourceDots",
     "line": 202,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -362,7 +362,7 @@
     "name": "trapPadRight",
     "line": 215,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -386,7 +386,7 @@
     "name": "trapPadLeftBadChar",
     "line": 226,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -410,7 +410,7 @@
     "name": "trapPadToWidth",
     "line": 237,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -434,7 +434,7 @@
     "name": "trapRepeat",
     "line": 248,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -458,7 +458,7 @@
     "name": "trapGlobalRepeat",
     "line": 259,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

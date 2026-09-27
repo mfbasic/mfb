@@ -48,8 +48,8 @@ FUNC gcmShortKey() AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("r1=" & toString(gcmTamperedTag()))
   io::print("r2=" & toString(chachaTamperedCiphertext()))
   io::print("r3=" & toString(gcmShortKey()))
-END SUB
+END FUNC

@@ -4,8 +4,8 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print("before")
   LET r AS Integer = compress::crc32(strings::toBytes("abc"), -1)
   io::print("after=" & toString(r))
-END SUB
+END FUNC

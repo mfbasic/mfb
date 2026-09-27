@@ -18,12 +18,12 @@ IMPORT collections
 
 MUT failures AS Integer = 0
 
-SUB check(label AS String, got AS String, want AS String)
+FUNC check(label AS String, got AS String, want AS String) AS Nothing
   IF got <> want THEN
     io::print("FAIL " & label & ": got " & got & " want " & want)
     failures = failures + 1
   END IF
-END SUB
+END FUNC
 
 ' Render a list of lists as "a,b|c,d|" so one comparison covers every element,
 ' every inner length, and the order of both levels at once.

@@ -1,13 +1,13 @@
-SUB propagateOutside
+FUNC propagateOutside AS Nothing
   PROPAGATE
-END SUB
+END FUNC
 
-SUB fallthroughTrap
+FUNC fallthroughTrap AS Nothing
   LET x AS Integer = 1
   TRAP(err)
     RETURN
   END TRAP
-END SUB
+END FUNC
 
 FUNC duplicateTrap AS Integer
   RETURN 0

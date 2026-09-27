@@ -3,7 +3,7 @@ IMPORT io
 ' bug-08: a callable may take more than 8 parameters. Arguments 0..8 arrive in
 ' registers (x0-x7 / the SysV set), the rest in the stack tail. This proves the
 ' whole matrix — integer, string and float stack arguments, a many-parameter
-' `SUB`, and recursion through a stack-argument callable — computes the same on
+' `AS Nothing` function, and recursion through a stack-argument callable — computes the same on
 ' every native target.
 
 ' 12 integer parameters: 8 register + 4 stack.
@@ -21,10 +21,10 @@ FUNC fsum10(a AS Float, b AS Float, c AS Float, d AS Float, e AS Float, f AS Flo
   RETURN a + b + c + d + e + f + g + h + i + j
 END FUNC
 
-' Ten-parameter SUB (Nothing return).
-SUB report(a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, h AS Integer, i AS Integer, j AS Integer)
+' Ten-parameter function with a Nothing return.
+FUNC report(a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, h AS Integer, i AS Integer, j AS Integer) AS Nothing
   io::print("report " & toString(a + b + c + d + e + f + g + h + i + j))
-END SUB
+END FUNC
 
 ' Recursion through a nine-parameter callable (one stack argument).
 FUNC countdown(n AS Integer, a AS Integer, b AS Integer, c AS Integer, d AS Integer, e AS Integer, f AS Integer, g AS Integer, acc AS Integer) AS Integer

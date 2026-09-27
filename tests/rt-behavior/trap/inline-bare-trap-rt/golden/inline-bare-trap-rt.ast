@@ -8,7 +8,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "report",
@@ -17,7 +17,7 @@
       { "name": "label", "type": "String", "default": null, "line": 8 },
       { "name": "s", "type": "String", "default": null, "line": 8 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": {
         "kind": "trapped",

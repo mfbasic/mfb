@@ -33,14 +33,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 24,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exp(21)        = " }, "right": { "kind": "call", "callee": "probe", "arguments": [{ "kind": "number", "value": "21.0" }] } }] }, "line": 26 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exp(21.4)      = " }, "right": { "kind": "call", "callee": "probe", "arguments": [{ "kind": "number", "value": "21.4" }] } }] }, "line": 27 },

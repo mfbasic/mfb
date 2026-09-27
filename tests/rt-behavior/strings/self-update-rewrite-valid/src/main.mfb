@@ -13,17 +13,17 @@ IMPORT errorCode
 
 MUT g AS String = ""
 
-SUB show(tag AS String, got AS String, want AS String)
+FUNC show(tag AS String, got AS String, want AS String) AS Nothing
   IF got = want THEN
     io::print(tag & " ok [" & got & "]")
   ELSE
     io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
   END IF
-END SUB
+END FUNC
 
 ' --- the case maps: the ASCII byte path and the Unicode path ----------------
 
-SUB caseMapsLocal()
+FUNC caseMapsLocal() AS Nothing
   MUT s AS String = "aBcD"
   LET a AS String = strings::upper(s)
   s = strings::upper(s)
@@ -66,11 +66,11 @@ SUB caseMapsLocal()
   LET i AS String = strings::upper(s)
   s = strings::upper(s)
   show("upperEmpty", s, i)
-END SUB
+END FUNC
 
 ' --- normalizeNfc: decomposed vs precomposed --------------------------------
 
-SUB normalizeLocal()
+FUNC normalizeLocal() AS Nothing
   MUT s AS String = "abc"
   LET a AS String = strings::normalizeNfc(s)
   s = strings::normalizeNfc(s)
@@ -93,11 +93,11 @@ SUB normalizeLocal()
   LET d AS String = strings::normalizeNfc(s)
   s = strings::normalizeNfc(s)
   show("nfcReorder", s, d)
-END SUB
+END FUNC
 
 ' --- replace: shorter, equal, longer, empty, and no match -------------------
 
-SUB replaceLocal()
+FUNC replaceLocal() AS Nothing
   MUT s AS String = "abcabc"
   LET a AS String = strings::replace(s, "a", "xy")
   s = strings::replace(s, "a", "xy")
@@ -128,11 +128,11 @@ SUB replaceLocal()
   LET f AS String = strings::replace(s, "é", "ee")
   s = strings::replace(s, "é", "ee")
   show("replaceUtf8", s, f)
-END SUB
+END FUNC
 
 ' --- pathNormalize: `..`, `.`, repeated `/`, and a path that becomes `.` ----
 
-SUB pathNormalizeLocal()
+FUNC pathNormalizeLocal() AS Nothing
   MUT s AS String = "a/b/../c"
   LET a AS String = fs::pathNormalize(s)
   s = fs::pathNormalize(s)
@@ -162,11 +162,11 @@ SUB pathNormalizeLocal()
   LET f AS String = fs::pathNormalize(s)
   s = fs::pathNormalize(s)
   show("normEmpty", s, f)
-END SUB
+END FUNC
 
 ' --- the same rewrites at a module-level global (S2) ------------------------
 
-SUB rewritesGlobal()
+FUNC rewritesGlobal() AS Nothing
   g = "straße"
   LET a AS String = strings::upper(g)
   g = strings::upper(g)
@@ -186,11 +186,11 @@ SUB rewritesGlobal()
   LET d AS String = fs::pathNormalize(g)
   g = fs::pathNormalize(g)
   show("g.normDotDot", g, d)
-END SUB
+END FUNC
 
 ' --- the rewritten block keeps working --------------------------------------
 
-SUB rewriteThenUse()
+FUNC rewriteThenUse() AS Nothing
   MUT s AS String = "straße"
   s = strings::upper(s)
   s = s & "!"
@@ -209,20 +209,20 @@ SUB rewriteThenUse()
     u = strings::upper(u)
   NEXT
   show("caseLoop", u, "A")
-END SUB
+END FUNC
 
 ' --- failure atomicity ------------------------------------------------------
 
-SUB trapReplaceEmptyOld()
+FUNC trapReplaceEmptyOld() AS Nothing
   MUT s AS String = "abc"
   s = strings::replace(s, "", "x")
   io::print("trap.replaceEmptyOld NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.replaceEmptyOld raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   caseMapsLocal()

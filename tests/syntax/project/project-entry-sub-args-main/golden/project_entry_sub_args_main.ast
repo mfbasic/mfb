@@ -7,7 +7,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
@@ -15,7 +15,7 @@
       "params": [
       { "name": "args", "type": "List OF String", "default": null, "line": 1 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     }

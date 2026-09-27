@@ -9,16 +9,16 @@
 IMPORT color
 IMPORT io
 
-SUB show(label AS String, c AS color::Color)
+FUNC show(label AS String, c AS color::Color) AS Nothing
   io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
-END SUB
+END FUNC
 
-SUB roundTrip(label AS String, c AS color::Color)
+FUNC roundTrip(label AS String, c AS color::Color) AS Nothing
   ' fromPacked(toPacked(c)) = c is the contract; print both sides so a failure
   ' says WHICH channel moved rather than just "not equal".
   show(label & ".in", c)
   show(label & ".out", color::fromPacked(color::toPacked(c)))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' --- byte order, pinned literally ---------------------------------------

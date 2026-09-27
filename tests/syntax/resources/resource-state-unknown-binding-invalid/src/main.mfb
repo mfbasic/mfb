@@ -5,7 +5,7 @@
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES f AS fs::File STATE Nonexistent = fs::createTempFile()
   io::print("bound")
-END SUB
+END FUNC

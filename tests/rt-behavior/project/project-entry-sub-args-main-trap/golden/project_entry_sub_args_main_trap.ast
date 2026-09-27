@@ -7,7 +7,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
@@ -15,7 +15,7 @@
       "params": [
       { "name": "args", "type": "List OF String", "default": null, "line": 1 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "This is a message" }] }, "line": 2 }
       ],
@@ -23,7 +23,7 @@
       "name": "err",
       "line": 4,
       "body": [
-      { "kind": "exit", "target": "sub", "code": null, "line": 5 }
+      { "kind": "return", "value": null, "line": 5 }
       ]
     }
     }

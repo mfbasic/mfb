@@ -8,14 +8,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 5,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "print" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "write" }] }, "line": 7 },
