@@ -398,6 +398,13 @@ marker union members and for the `FUNC(...) AS Nothing` callback bridge that let
 a `SUB` be passed where a function value is expected. A `SUB` is value-less — it
 produces no success value (see §7) — so a `SUB` body does not name `Nothing`.
 
+A `FUNC … AS Nothing` is an ordinary `FUNC`: its call is a value expression that
+yields `NOTHING`, so it may be bound (`LET y = f(1)`, `LET y AS Nothing = f(1)`),
+passed, compared, stored in a record field, or returned. The same holds for a call
+through a `FUNC(...) AS Nothing` value — including a `SUB` named as a value — and for
+a built-in declared `AS Nothing`. Only a direct `SUB` call is barred from value
+position (`TYPE_SUB_HAS_NO_VALUE`, §7). [[src/ir/verify/values.rs:check_value_depth]]
+
 ```basic
 SUB log(msg AS String)
   IF msg = "" THEN RETURN       ' bare RETURN: early, value-less exit
