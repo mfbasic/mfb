@@ -707,6 +707,10 @@ name = "rt_global_init_order_fold"
 path = "tests/runtime/rt_global_init_order_fold.rs"
 
 [[test]]
+name = "rt_literal_let_folding"
+path = "tests/runtime/rt_literal_let_folding.rs"
+
+[[test]]
 name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 

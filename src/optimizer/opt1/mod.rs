@@ -1,11 +1,12 @@
 //! Opt1 — the NIR half of the optimizer (plan-100).
 //!
 //! A single seam, [`optimize_nir`], sitting between NIR lowering and Plan1
-//! (storage / `StorageType` / symbol assignment). Twelve catalog rows occupy
-//! it — [`constant_folding`], [`algebraic`] simplification, and non-loop
-//! [`strength`] reduction (Level 1, composed into one scope-tracked walk by
-//! [`local_rewrites`]); tree-level [`branches`] simplification, [`uce`], and
-//! [`dce`] (Level 2, the last consuming the [`plans`] name-usage census);
+//! (storage / `StorageType` / symbol assignment). Its rows are
+//! [`globals`]' literal `LET` folding, [`constant_folding`], [`algebraic`]
+//! simplification, and non-loop [`strength`] reduction (Level 1, the last
+//! three composed into one scope-tracked walk by [`local_rewrites`]);
+//! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 2, the
+//! last consuming the [`plans`] name-usage census);
 //! and the six structured-loop rows (Level 3): [`licm`], [`unswitch`],
 //! [`fuse`], [`fission`], [`peel`], and [`rotate`], consuming the
 //! [`plans::loops`] fact base (invariance, loop-control capture, the pure
@@ -60,6 +61,12 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // the identical treatment in `opt2::optimize_mir`); the wrapper is inert
     // without `-vv` and changes nothing about what runs.
     use crate::trace::timed;
+    // Literal `LET` folding (Level 1) runs first: a read it turns into a
+    // literal is one the local rewrites below can then fold through
+    // (`DCOLS * DROWS - 1` becomes one constant).
+    timed("literal LET folding", || {
+        globals::fold_literal_lets(&mut module)
+    });
     timed("local rewrites", || local_rewrites::apply(&mut module));
     // After the local rewrites: branch simplification (Level 2) folds the
     // constant conditions folding just minted; then the loop rows (Level 3)

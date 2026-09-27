@@ -1,5 +1,7 @@
-//! The three Level-2 Opt1 global rows (`planning/optimizations.md`), all
-//! reading one whole-module census ([`super::plans::globals`]):
+//! The Opt1 global rows (`planning/optimizations.md`), all reading one
+//! whole-module census ([`super::plans::globals`]). One is Level 1 — **literal
+//! `LET` folding** ([`fold_literal_lets`], plan-158-A), which needs no privacy
+//! proof because nothing can write a `LET` — and three are Level 2:
 //!
 //! - **Dead global elimination** — a private global no function and no other
 //!   global's initializer ever mentions is removed outright. Nothing can
@@ -148,6 +150,71 @@ fn substitute_outside_initialization(
         }
     }
     substituted
+}
+
+/// The **Literal `LET` folding** row (Level 1): replace each read of a
+/// module-level `LET` whose initializer is a scalar literal with that literal.
+///
+/// A `LET` binding can never be assigned — the language rejects it — so once
+/// its initializer has run, every read yields the initializer's value. Three
+/// checks make the rewrite exact rather than merely plausible, each per
+/// global:
+///
+/// - **Immutable by declaration** (`!mutable`), and — as a second, structural
+///   proof — no `StoreGlobal` of it anywhere but its own initializer store
+///   (`GlobalUse::never_written`). Visibility does not matter: an importer
+///   cannot write a `LET` either, so unlike the Level-2 constification row this
+///   one needs no privacy proof.
+/// - **A literal of the global's own scalar type**: a `Const` whose type is
+///   the declared type, and that type one whose value is a single machine word
+///   with no storage of its own (`Integer`, `Byte`, `Boolean`, `Float`,
+///   `Fixed`, `Money`). Evaluating that `Const` at the read is what the
+///   initializer's store evaluated, so the read and the literal agree bit for
+///   bit; a computed initializer (a call, an arithmetic expression that could
+///   trap, a string or collection that owns storage) is never folded.
+/// - **Only where the initializer has already run**: a function the global
+///   initializer can reach keeps its reads (see
+///   [`substitute_outside_initialization`]).
+pub(crate) fn fold_literal_lets(module: &mut NirModule) {
+    if !crate::optimizer::level_enabled(1) {
+        return;
+    }
+    let census = globals::census(module);
+    let constants: std::collections::HashMap<String, NirValue> = module
+        .globals
+        .iter()
+        .filter(|global| !global.mutable)
+        .filter(|global| {
+            census
+                .get(&global.name)
+                .is_none_or(|usage| usage.never_written())
+        })
+        .filter_map(|global| match &global.value {
+            Some(value @ NirValue::Const { type_, .. })
+                if *type_ == global.type_ && is_word_scalar(type_) =>
+            {
+                Some((global.name.clone(), value.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let folded = substitute_outside_initialization(module, &constants);
+    crate::optimizer::stats::count_lets_folded(folded);
+}
+
+/// A type whose value is one machine word with no storage of its own, so a
+/// literal of it can stand anywhere a read of it did.
+fn is_word_scalar(type_: &crate::types::ParameterType) -> bool {
+    use crate::types::ParameterType;
+    matches!(
+        type_,
+        ParameterType::Integer
+            | ParameterType::Byte
+            | ParameterType::Boolean
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money
+    )
 }
 
 fn substitute_op(
@@ -514,6 +581,164 @@ mod tests {
             "the initializer SUB's own read runs before `limit` is stored"
         );
         assert_eq!(module.globals.len(), 2, "`limit` is still read");
+    }
+
+    fn fold(module: &mut NirModule, level: u8) {
+        with_opt_level(OptLevel(level), || fold_literal_lets(module));
+    }
+
+    fn returned(module: &NirModule, function: usize) -> NirValue {
+        match &module.functions[function].body[0] {
+            NirOp::Return { value: Some(value) } => value.clone(),
+            _ => panic!("expected the return"),
+        }
+    }
+
+    fn typed_const(type_: ParameterType, value: &str) -> NirValue {
+        NirValue::Const {
+            type_,
+            value: value.to_string(),
+        }
+    }
+
+    /// plan-158-A: a `LET` (immutable) with a literal of its own scalar type is
+    /// folded at `-O1` whatever its visibility — an importer cannot write a
+    /// `LET` either — and its storage stays for anything that still names it.
+    #[test]
+    fn literal_lets_fold_at_level_one_regardless_of_visibility() {
+        for (type_, value) in [
+            (ParameterType::Integer, "29"),
+            (ParameterType::Byte, "7"),
+            (ParameterType::Boolean, "true"),
+            (ParameterType::Float, "1.5"),
+            (ParameterType::Fixed, "2.25"),
+            (ParameterType::Money, "3.10"),
+        ] {
+            let mut module = test_module(vec![function(vec![NirOp::Return {
+                value: Some(read("rows")),
+            }])]);
+            let mut rows = global(
+                "rows",
+                false,
+                "public",
+                Some(typed_const(type_.clone(), value)),
+            );
+            rows.type_ = type_.clone();
+            module.globals = vec![rows];
+            fold(&mut module, 1);
+            assert!(
+                matches!(returned(&module, 0), NirValue::Const { value: v, type_: t } if v == value && t == type_),
+                "{type_:?} LET folds to its literal"
+            );
+            assert_eq!(module.globals.len(), 1, "the storage stays");
+        }
+    }
+
+    /// Everything that is not "an immutable binding holding a literal of its
+    /// own word-sized scalar type" keeps its read.
+    #[test]
+    fn only_literal_word_scalar_lets_fold() {
+        let call = NirValue::Call {
+            target: "compute".to_string(),
+            args: vec![],
+            loc: Default::default(),
+        };
+        let cases: Vec<(&str, NirGlobal)> = vec![
+            ("a MUT", global("g", true, "private", Some(int_const("1")))),
+            (
+                "a computed initializer",
+                global("g", false, "public", Some(call)),
+            ),
+            ("no initializer", global("g", false, "public", None)),
+            ("a literal of another type (a coercion)", {
+                let mut g = global("g", false, "public", Some(int_const("1")));
+                g.type_ = ParameterType::Float;
+                g
+            }),
+            ("a String literal", {
+                let mut g = global(
+                    "g",
+                    false,
+                    "public",
+                    Some(typed_const(ParameterType::String, "hi")),
+                );
+                g.type_ = ParameterType::String;
+                g
+            }),
+        ];
+        for (what, global) in cases {
+            let mut module = test_module(vec![function(vec![NirOp::Return {
+                value: Some(read("g")),
+            }])]);
+            module.globals = vec![global];
+            fold(&mut module, 1);
+            assert!(
+                matches!(returned(&module, 0), NirValue::Global { .. }),
+                "{what} is not folded"
+            );
+        }
+    }
+
+    /// A `LET` some function stores to (which the resolver never produces) is
+    /// not trusted to hold its initializer: the structural check backs up the
+    /// declaration.
+    #[test]
+    fn a_stored_let_is_not_folded() {
+        let mut module = test_module(vec![function(vec![
+            NirOp::StoreGlobal {
+                name: "g".to_string(),
+                type_: ParameterType::Integer,
+                value: Some(int_const("2")),
+            },
+            NirOp::Return {
+                value: Some(read("g")),
+            },
+        ])]);
+        module.globals = vec![global("g", false, "public", Some(int_const("1")))];
+        fold(&mut module, 1);
+        let NirOp::Return { value: Some(value) } = &module.functions[0].body[1] else {
+            panic!("expected the return");
+        };
+        assert!(matches!(value, NirValue::Global { .. }));
+    }
+
+    /// bug-744's guard applies to this row too: a function the initializer
+    /// reaches keeps its read.
+    #[test]
+    fn literal_let_folding_keeps_reads_that_can_run_during_initialization() {
+        let initializer = crate::target::shared::nir::global_initializer_name("test");
+        let mut init = function(vec![NirOp::Eval {
+            value: NirValue::Call {
+                target: "early".to_string(),
+                args: vec![],
+                loc: Default::default(),
+            },
+        }]);
+        init.name = initializer;
+        let mut early = function(vec![NirOp::Return {
+            value: Some(read("g")),
+        }]);
+        early.name = "early".to_string();
+        let mut late = function(vec![NirOp::Return {
+            value: Some(read("g")),
+        }]);
+        late.name = "late".to_string();
+        let mut module = test_module(vec![init, early, late]);
+        module.globals = vec![global("g", false, "public", Some(int_const("5")))];
+        fold(&mut module, 1);
+        assert!(matches!(returned(&module, 1), NirValue::Global { .. }));
+        assert!(matches!(returned(&module, 2), NirValue::Const { .. }));
+    }
+
+    /// Off at `-O0`.
+    #[test]
+    fn literal_let_folding_is_off_at_level_zero() {
+        let mut module = test_module(vec![function(vec![NirOp::Return {
+            value: Some(read("g")),
+        }])]);
+        module.globals = vec![global("g", false, "public", Some(int_const("5")))];
+        fold(&mut module, 0);
+        assert!(matches!(returned(&module, 0), NirValue::Global { .. }));
     }
 
     /// The rows are off at `-O1`.

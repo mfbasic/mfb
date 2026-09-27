@@ -40,6 +40,17 @@ impl Row {
 pub(crate) fn rows() -> &'static [Row] {
     static ROWS: &[Row] = &[
         Row {
+            name: "Literal `LET` folding",
+            level: 1,
+            stage: "NIR",
+            summary: "Replaces a read of a module-level `LET` whose value is a \
+                      number or Boolean literal with that literal, so the value \
+                      is an immediate instead of a memory load. Code that can \
+                      run while module-level bindings are still being \
+                      initialized keeps its reads.",
+            counter: &stats::LETS_FOLDED,
+        },
+        Row {
             name: "Constant folding",
             level: 1,
             stage: "NIR + MIR",

@@ -128,7 +128,7 @@ package).
 | `--nobj` | `NativeObjectPlan` | `<name>.nobj` |
 | `--ncode` | `NativeCodePlan` | `<name>.ncode` |
 | `--mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
-| `-O <0,1>` / `-O0` / `-O=0` / `--optimize <0,1>` / `--optimize=…` | — | optimization scale level; default `1`. At `-O1` the Level-1 passes (the post-regalloc machine peepholes) run; `-O0` turns them off. Both are behavior-preserving, so `-O0` changes only the emitted code, never a program's observable results |
+| `-O <0..3>` / `-O0` / `-O=0` / `--optimize <0..3>` / `--optimize=…` | — | optimization scale level, `0`–`3` (`optimizer::available_levels`); default `1`. Each level runs the catalog rows at or below it (`optimizer::catalog::rows`, rendered by `mfb man optimizations`); at `-O1` that is literal-`LET` folding, constant folding, algebraic simplification, non-loop strength reduction and the post-regalloc machine peepholes; `-O0` turns every row off. Every level is behavior-preserving, so the level changes only the emitted code, never a program's observable results [[src/optimizer/mod.rs:available_levels]] [[src/optimizer/catalog.rs:rows]] |
 | `--target os-arch` / `--target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |
