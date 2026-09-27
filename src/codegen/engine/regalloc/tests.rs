@@ -616,6 +616,7 @@ fn coalescing_removes_a_dying_copy_at_level_one() {
     };
     assert_eq!(copies(1), 0, "-O1 coalesces the copy away");
     assert_eq!(copies(0), 1, "-O0 keeps it");
+}
 
 /// Run an allocated straight-line/branching rv64 stream on a tiny model machine
 /// (registers + `sp`-relative memory) and return the memory it wrote. Covers
