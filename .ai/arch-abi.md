@@ -374,6 +374,30 @@ The flagless riscv64 backend (`select_riscv64`) emulates condition flags: a bare
 
 So the landed fix snapshots the rhs to a reserved **per-thread memory word** `ARENA_FLAG_RHS_OFFSET`, carved from the rv64-only v128 slot region (`ARENA_V128_SLOTS_SIZE` 128→127 slots, `SLOT_COUNT` 128→127) so `ARENA_STATE_SIZE` and every other target's bytes are unchanged. `store_flag_rhs` spills at the compare, `load_flag_rhs` reloads into `t0` at the branch, addressed off pinned `s11`. Only the label/call invalidations remain (a callee overwrites the shared word; flags never survive a call anyway) — operand-register redefinition is now recoverable. Blast radius is surgical: only functions that hit the bare-compare path (today just `_mfb_rt_sort_string_list`) change bytes; all 6 pre-existing rv64 goldens stayed identical. Lesson: a wrong reserved-slot choice is a runtime-only fault — VALIDATE ON A riscv64 RUN (2229), never a rebuild.
 
+### riscv64 lowering scratch vs. the allocator's spill code (bug-749, bug-746)
+
+Register allocation runs AFTER `select_riscv64`, so spill code — a reload before
+an instruction, a def store after it, an eviction save/restore around it — can land
+between ANY two selected instructions that name a virtual register. The encoder
+builds the address of an `sp` store (and of every FP load/store) whose offset
+exceeds the 12-bit immediate in **`t0`** (`emit_store`). So in a frame over 2 KiB,
+spill code overwrites `t0`, and only `t0`. Two rules follow:
+
+* **Never hold a value in `t0` across an instruction that names a vreg** (or into
+  a reader that names one). Use `t1`/`t2`, which spill code never touches. The
+  fused immediate compare, the overflow add/sub and the rhs snapshot store all held
+  `t0` there, and `tests/byte-identity/general`'s `toMoney("1.25")` trapped under
+  qemu. It is invisible until a frame crosses 2 KiB: adding one unrelated block to a
+  function flips a passing program to a failing one.
+* **`rv.br` is a terminator that names registers**, the only one on any target. An
+  allocator bracket around it (evict … restore) needs the restore on BOTH edges.
+  bug-746 splits the taken edge.
+
+Instrument for this class: a post-allocation scan of `-ncode --target
+linux-riscv64` for "`t0` written, then an `sp` store before `t0` is read". It
+measured 398 live sites in 12 corpus projects before the fix, including
+`examples/browser`, and 0 after.
+
 ### riscv64 pool-shrink allocator fault (OPEN latent bug)
 
 Removing a single caller-saved temporary (`t3`) from `src/arch/riscv64/regmodel.rs` `INT_ALLOCATABLE` (11→ tried as a fix shape) made **12 unrelated rt-behavior fixtures SIGSEGV on 2229** — fixtures that never touch the flag path (their `.ncode` has no `gp`/`t3`). Restoring `t3` fixed them. So the rv64 linear-scan allocator has a **latent fault that only manifests with a smaller register pool** — a real miscompile, not just more spilling.
