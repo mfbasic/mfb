@@ -85,6 +85,21 @@ pub(crate) struct MousePump {
     pub(crate) clock_scratch: usize,
 }
 
+/// A deadline-bounded wait before each source read (bug-699): the reader's
+/// frame slots the wait uses, and where it goes when the deadline passes. The
+/// wait runs before EVERY source read the call makes — including the ones the
+/// mouse pump issues after swallowing a report — so no read blocks past the
+/// deadline.
+pub(crate) struct ReadWait {
+    /// sp-relative slot holding the deadline (monotonic ns; `u64::MAX` = none).
+    pub(crate) deadline_slot: usize,
+    /// sp-relative 16-byte clock scratch.
+    pub(crate) clock_scratch: usize,
+    /// sp-relative 8-byte `pollfd`.
+    pub(crate) pollfd_slot: usize,
+    pub(crate) timeout_label: String,
+}
+
 ///
 /// # The input buffer (bug-699)
 ///
@@ -105,6 +120,7 @@ pub(crate) fn emit_stdin_byte_read(
     invalid_context: &str,
     mouse: Option<MousePump>,
     input: Option<usize>,
+    wait: Option<&ReadWait>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
@@ -153,9 +169,16 @@ pub(crate) fn emit_stdin_byte_read(
         )?;
     }
 
+    let wait_read = format!("{retry_label}_wait_read");
     if app_mode {
         if !head_first {
             ctx.instructions.push(abi::label(retry_label));
+        }
+        if let Some(wait) = wait {
+            crate::codegen::io::input::reader::emit_read_wait(
+                wait, app_mode, &wait_read, ctx, vregs,
+            )?;
+            ctx.instructions.push(abi::label(&wait_read));
         }
         ctx.instructions.extend([
             // fd 0 (stdin) goes in ARG[0], the read() first-arg register that
@@ -184,6 +207,12 @@ pub(crate) fn emit_stdin_byte_read(
     } else {
         if !head_first {
             ctx.instructions.push(abi::label(retry_label));
+        }
+        if let Some(wait) = wait {
+            crate::codegen::io::input::reader::emit_read_wait(
+                wait, app_mode, &wait_read, ctx, vregs,
+            )?;
+            ctx.instructions.push(abi::label(&wait_read));
         }
         emit_stdin_next_byte(
             symbol,
@@ -499,6 +528,7 @@ fn emit_continuation_read(
         // The input buffer, though, applies: a continuation byte a look-ahead
         // reader left there is this character's next byte.
         input,
+        None,
         vregs,
     )
 }

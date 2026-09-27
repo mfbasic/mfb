@@ -1,0 +1,28 @@
+$ mfb build -ast -ir tests/rt-behavior/io/io-key-readers-eof
+Wrote AST to tests/rt-behavior/io/io-key-readers-eof/io_key_readers_eof.ast
+Wrote IR to tests/rt-behavior/io/io-key-readers-eof/io_key_readers_eof.ir
+[exit 0]
+$ mfb build tests/rt-behavior/io/io-key-readers-eof
+Wrote executable to tests/rt-behavior/io/io-key-readers-eof/build/io_key_readers_eof.out
+[exit 0]
+$ tests/rt-behavior/io/io-key-readers-eof/build/io_key_readers_eof.out
+readRaw() eof
+readRaw(0) eof
+readScalar(0) eof
+readGrapheme(0) eof
+readKey(0) eof
+readLine(0) eof
+input(0) eof
+readRaw(50) eof
+readScalar(50) eof
+readGrapheme(50) eof
+readKey(50) eof
+readLine(50) eof
+input(50) eof
+readRaw(-1) invalid
+readScalar(-1) invalid
+readGrapheme(-1) invalid
+readKey(-1) invalid
+readLine(-1) invalid
+input(-1) invalid
+[exit 0]

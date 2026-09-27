@@ -2505,6 +2505,7 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("json.JsonObj", FieldKindRow::Arm('C')),
     ("regex.Group", SIZE_VARIES),
     ("regex.MatchInfo", SIZE_VARIES),
+    ("io.Key", SIZE_VARIES),
     ("term.TermSize", FieldKindRow::Arm('F')),
     ("term.MouseEvent", FieldKindRow::Arm('F')),
     ("datetime.Instant", FieldKindRow::Arm('F')),

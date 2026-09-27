@@ -4,7 +4,7 @@
 //! clean-room lowerings (plan-101): `lower_*` emits a vreg body into the builder
 //! (app-mode members `bl` a standalone GUI helper); the wrapper finalizes. No hatch.
 
-use super::gen_read_line_family::lower_read_line_family;
+use super::gen_read_line_family::{lower_read_line_family, timeout_parameter};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -15,19 +15,19 @@ use crate::types::ParameterType;
 /// prompt (with prompt).
 pub(crate) fn lower_input(
     builder: &mut CodeBuilder,
-    _args: &[ValueResult],
+    args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_read_line_family(builder, ctx, true, "io.input")
+    lower_read_line_family(builder, args, ctx, true, "io.input")
 }
 
 const INTRO: &str =
     r#"Read one line of UTF-8 text from standard input, optionally writing a prompt first"#;
-const DESC: &str = r#"`io::input` optionally writes a prompt to standard output, then reads bytes from
-standard input up to and including the next line feed (LF, byte `0x0A`) and
-returns the line as a `String` with its terminator removed. A preceding carriage
-return (CR, byte `0x0D`, from a CRLF ending) is stripped as well. A line that is
-empty before its terminator returns an empty `String`.
+const DESC: &str = r#"`io::input` optionally writes a prompt to standard output, then reads one line
+from standard input and returns it as a `String` without its terminator. It
+reads exactly as `io::readLine` does — what was typed, from a terminal or an
+`--app` window; the bytes up to the next LF, from a pipe or a file — with one
+difference:
 
 **`io::input` does not change the terminal mode**, so typed characters are echoed
 by the terminal in the usual way and the line is submitted with Return. This is
@@ -42,15 +42,22 @@ nothing at all and therefore cannot fail; `io::input()` with no argument is
 exactly `io::input("")`. A genuine failure while writing the prompt raises
 `ErrWriteFailed` before any input is read.
 
-Bytes are decoded as UTF-8 as they arrive, with the full validity check; an
-ill-formed sequence fails rather than yielding a replacement character. End of
-input is an error rather than an empty result, but only when it arrives before any
-byte of the line: if input ends after some bytes were read, those bytes are
-returned as the final unterminated line and the following call raises `ErrEndOfFile`.
-Standard input is a per-thread broadcast log; a thread other than the main thread
-must subscribe with `thread::openStdIn` before reading, or the call raises
-`ErrInvalidContext`. In app mode the prompt goes to the application transcript and
-the line is read from the window input pipe."#;
+`timeoutMs` bounds the wait for the line, with the same rules and the same
+guarantee as `io::readLine`: omitted waits for as long as it takes, `0` makes
+one immediate attempt, a positive value waits that many milliseconds, a
+negative one raises `ErrInvalidArgument`, and a wait that runs out raises
+`ErrTimeout` with no part of the line lost. The timeout comes after the prompt,
+so a timed read with no prompt is `io::input("", 5000)` — or simply
+`io::readLine(5000)`, which is the same read without the echo.
+
+The text must be valid UTF-8; an ill-formed sequence raises `ErrEncoding`. End
+of input is an error rather than an empty result, but only when it arrives
+before any character of the line: if input ends after part of a line, that part
+is returned as the final unterminated line and the following call raises
+`ErrEndOfFile`. Standard input is a per-thread broadcast log; a thread other than
+the main thread must subscribe with `thread::openStdIn` before reading, or the
+call raises `ErrInvalidContext`. In app mode the prompt goes to the application
+transcript and the line is read from the window."#;
 const EX: &str = r#"Prompt on the same line and greet the user:
 
 ```
@@ -71,6 +78,25 @@ SUB main()
   LET line AS String = io::input()
   io::print(line)
 END SUB
+```
+
+Ask with a time limit:
+
+```
+IMPORT errorCode
+IMPORT io
+
+SUB main()
+  LET name AS String = io::input("Name (10 s): ", 10000) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN
+      io::print("")
+      io::print("Hello, stranger")
+      EXIT SUB
+    END IF
+    FAIL e
+  END TRAP
+  io::print("Hello, " & name)
+END SUB
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -79,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("String"),
+        expected_arguments: Some("String, Integer"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
@@ -87,10 +113,25 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 desc: "Optional. Text written to standard output before the read, verbatim and with nothing appended. An empty `String` (or omitting the argument) writes nothing.",
                 aliases: &[],
                 ty: ParameterType::String,
-                default: DefaultValue::Optional,
-            }],
+                // Padded at the call: `io::input()` is `io::input("")`, and the
+                // timeout after it is padded too.
+                default: DefaultValue::Fill {
+                    type_name: ParameterType::String,
+                    expr: "",
+                },
+            },
+            timeout_parameter()],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec![
+                "ErrTimeout",
+                "ErrInvalidArgument",
+                "ErrWriteFailed",
+                "ErrEndOfFile",
+                "ErrEncoding",
+                "ErrInputFailed",
+                "ErrInvalidContext",
+                "ErrOutOfMemory",
+            ],
             body: Body::abi_function(lower_input),
         }],
     });

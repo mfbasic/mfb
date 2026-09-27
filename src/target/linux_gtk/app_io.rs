@@ -738,7 +738,10 @@ pub(crate) fn emit_app_io_input(
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
     let v_prompt = vregs.next();
+    let v_timeout = vregs.next();
     asm.push(abi::move_register(&v_prompt, abi::mfb_arg(0))); // preserve prompt
+    // bug-699: `io::input(prompt, timeoutMs)` hands its timeout on to `io::readLine`.
+    asm.push(abi::move_register(&v_timeout, abi::mfb_arg(1)));
     asm.push(abi::move_immediate(
         abi::SCRATCH[1],
         "Integer",
@@ -747,6 +750,7 @@ pub(crate) fn emit_app_io_input(
     asm.store_state(abi::SCRATCH[1], ST_INPUT_MODE);
     asm.push(abi::move_register(abi::mfb_arg(0), &v_prompt)); // prompt
     asm.call_internal(IO_WRITE_SYMBOL); // arg0 = prompt; result ignored
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_timeout)); // timeoutMs
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in the return registers
     asm.push(abi::return_());
     instructions.extend(asm.ins);

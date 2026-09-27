@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC compilereadScalar AS Integer
+  IF FALSE THEN
+    LET waited AS Scalar = io::readScalar()
+    LET polled AS Scalar = io::readScalar(0)
+    LET bounded AS Scalar = io::readScalar(250)
+    LET named AS Scalar = io::readScalar(timeoutMs := 100)
+  END IF
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN compilereadScalar()
+END FUNC

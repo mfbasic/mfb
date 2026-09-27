@@ -173,6 +173,7 @@ pub(crate) fn lower_read_byte(
         &invalid_context,
         mouse_pump,
         ctx.input_state_offset,
+        None,
         &mut vregs,
     )?;
     instructions.extend([

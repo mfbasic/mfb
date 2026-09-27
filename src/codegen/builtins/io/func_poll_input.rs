@@ -462,6 +462,7 @@ fn emit_mouse_ready_verify(
         // No input-buffer front: `pollInput` answered TRUE before reaching here
         // if the buffer held a byte, so this read is always of the source.
         None,
+        None,
         &mut vregs,
     )?;
     ctx.instructions

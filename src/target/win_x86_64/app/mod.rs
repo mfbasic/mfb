@@ -3038,10 +3038,11 @@ fn emit_win_term_cluster_walk(
 /// (via the shared `io.write` helper, whose app-mode body appends to the EDIT),
 /// then read a line from fd 0 — which `_main` has redirected to the window input
 /// pipe — via the shared `io.readLine` helper. The prompt string arrives in
-/// `ARG[0]` and is consumed by `io.write`; `io.readLine` needs no argument and
-/// leaves its `String` Result in the Result registers, which this tail returns.
-/// Mirrors macOS `emit_app_io_input`; on Win64 the return address is on the
-/// stack (no link register), so the frame only reserves shadow space for the calls.
+/// `ARG[0]` and is consumed by `io.write`; the timeout arrives in `ARG[1]` and is
+/// handed on as `io.readLine`'s argument (bug-699), which leaves its `String`
+/// Result in the Result registers, which this tail returns. Mirrors macOS
+/// `emit_app_io_input`; on Win64 the return address is on the stack (no link
+/// register), so the frame only reserves shadow space for the calls.
 pub(super) fn emit_app_io_input(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -3049,14 +3050,16 @@ pub(super) fn emit_app_io_input(
 ) {
     // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
     // builds it and, because the body makes calls, reserves the Win64 shadow space
-    // and realigns the stack (see `finalize_frame`). The prompt is already in
-    // `ARG[0]` on entry and nothing is live across the two internal calls, so no
-    // vregs are needed.
+    // and realigns the stack (see `finalize_frame`). The timeout lives in a vreg
+    // across the calls, which the finalizer saves.
     let from = symbol;
+    let timeout = crate::codegen::engine::util::Vregs::new().next();
+    instructions.push(abi::move_register(timeout, abi::mfb_arg(1)));
     call_internal(from, IO_WRITE_SYMBOL, instructions, relocations); // ARG[0] = prompt
-                                                                     // bug-699: the default input mode, where typed text reaches the pipe as UTF-8 —
-                                                                     // as macOS and GTK switch to line input for `io::input`.
+    // bug-699: the default input mode, where typed text reaches the pipe as UTF-8 —
+    // as macOS and GTK switch to line input for `io::input`.
     keys::emit_set_input_mode(from, "0", instructions, relocations);
+    instructions.push(abi::move_register(abi::mfb_arg(0), timeout));
     call_internal(from, IO_READ_LINE_SYMBOL, instructions, relocations); // result in Result regs
     instructions.push(abi::return_());
 }

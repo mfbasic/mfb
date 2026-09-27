@@ -3653,12 +3653,9 @@ impl CodeBuilder<'_> {
                 }
             }
         }
-        if target == "io.input" && helper_args.is_empty() {
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::String,
-                value: String::new(),
-            });
-        } else if target == "io.pollInput" && helper_args.is_empty() {
+        // (`io::input`'s omitted prompt and timeout are `DefaultValue::Fill`s,
+        // padded in the IR like every other optional argument — bug-699.)
+        if target == "io.pollInput" && helper_args.is_empty() {
             // plan-73-F: the no-timeout `io::pollInput()` form BLOCKS until input is
             // ready (the timeout convention's omit=unbounded rule) — pad the missing
             // `timeoutMs` with the block sentinel (i64::MIN); the poll helper routes

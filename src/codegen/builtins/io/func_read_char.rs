@@ -186,6 +186,7 @@ pub(crate) fn lower_read_char(
         &invalid_context,
         mouse_pump,
         ctx.input_state_offset,
+        None,
         &mut vregs,
     )?;
     let three_not_e0 = format!("{symbol}_three_not_e0");

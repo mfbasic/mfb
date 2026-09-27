@@ -593,31 +593,43 @@ Commit: 4e70277e0
 
 ### Phase 3: `--app` injection and key release
 
-- [ ] macOS: one shared translator helper for the three `keyDown:` paths; `keyUp:`
+- [x] macOS: one shared translator helper for the three `keyDown:` paths; `keyUp:`
       and `flagsChanged:` IMPs; kitty-form injection.
-- [ ] GTK: key-press and key-release handlers inject before `gdk_keyval_to_unicode`
+- [x] GTK: key-press and key-release handlers inject before `gdk_keyval_to_unicode`
       (`GDK_KEY_Delete` explicitly, not `0x7F`).
-- [ ] Windows: `WM_KEYDOWN`/`WM_KEYUP`/`WM_SYSKEY*` arms in `emit_wndproc` and
+- [x] Windows: `WM_KEYDOWN`/`WM_KEYUP`/`WM_SYSKEY*` arms in `emit_wndproc` and
       `editproc`; UTF-16 → UTF-8; Backspace `0x7F`. Mind the `WndProc` frame
       alignment (`≡ 8 mod 16`, `.ai/arch-abi.md`).
 
 Acceptance: Phase 1 handler tests pass; the probe matches on all three platforms.
-Commit: —
+Deviation: macOS `flagsChanged:` is not installed. A lone modifier press has no
+text and no key name the readers return (`io::KeyName` names no modifier key), so
+the IMP would inject nothing a reader could see; modifiers still arrive on every
+key through `modifierFlags`. Windows' default (non-`term::on`) window input stays
+hybrid: typed text as UTF-8 (CR → LF) so `readLine`/`input` keep working on the
+edit control, non-text keys in the kitty form; `term::on` switches to all-kitty.
+Commit: e2a1a0fbd
 
 ### Phase 4: the new readers and timeouts
 
-- [ ] `io::readRaw`, `readScalar`, `readGrapheme`, `readKey`; `io::Key`,
+- [x] `io::readRaw`, `readScalar`, `readGrapheme`, `readKey`; `io::Key`,
       `io::KeyName`, `io::KeyEvent` registry descriptors and lowering.
-- [ ] `[timeoutMs]` on `readLine` and `input` (a timeout leaves a partial line
+- [x] `[timeoutMs]` on `readLine` and `input` (a timeout leaves a partial line
       buffered).
-- [ ] Function tests (`.ai/compiler.md` conventions), fed by piped stdin and the
+- [x] Function tests (`.ai/compiler.md` conventions), fed by piped stdin and the
       corpus; `readRaw` byte-exact on a pipe.
-- [ ] Man pages per `.ai/man-content.md` (developer terms; `readRaw` states it
+- [x] Man pages per `.ai/man-content.md` (developer terms; `readRaw` states it
       differs by platform and terminal; `readKey` carries the `NotSupported`
       modifier table); `scripts/man-run-examples.sh io --run`.
 
 Acceptance: function tests pass on macOS and Linux; man examples run.
-Commit: —
+Deviation: the `End` key is `io::KeyName.EndKey` — `END` is a reserved word, so
+an enum variant cannot be spelled `End`.
+Measured: `cargo test --release --test rt_io_key_readers` (8 pipe/pty cases),
+`cargo test --bin mfb reader_tests`, `STDIN_FILE=… scripts/man-run-examples.sh io
+--run input isInputTerminal readGrapheme readKey readLine readRaw readScalar write`
+(18 built, 18 ran, 0 failed).
+Commit: (this commit; recorded in the Phase 5 commit)
 
 ### Phase 5: kitty in `term::on` / `term::off`
 

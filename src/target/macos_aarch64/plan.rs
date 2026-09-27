@@ -272,6 +272,10 @@ impl plan::NativePlanPlatform for Platform {
                 | "io.input"
                 | "io.readChar"
                 | "io.readByte"
+                | "io.readRaw"
+                | "io.readScalar"
+                | "io.readGrapheme"
+                | "io.readKey"
         ) {
             for name in ["_signal", "_raise", "___error"] {
                 imports.push(PlatformImport {
@@ -439,12 +443,24 @@ impl plan::NativePlanPlatform for Platform {
             // libSystem import of its own — the drain's `_write` comes from the
             // io.print arm. The old `_fsync`+`___error` imports were dead.
             "io.flush" => Vec::new(),
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.readRaw"
+            | "io.readScalar" | "io.readGrapheme" | "io.readKey" => {
                 let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_read".to_string(),
                     required_by: required_by.clone(),
                 }];
+                // bug-699: the timed wait (`poll` until a monotonic deadline) every
+                // reader but the two plain ones runs before each source read.
+                if !matches!(spec.call, "io.readChar" | "io.readByte") {
+                    for symbol in ["_poll", "_clock_gettime"] {
+                        imports.push(PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: symbol.to_string(),
+                            required_by: required_by.clone(),
+                        });
+                    }
+                }
                 if spec.call == "io.input" {
                     imports.extend([
                         PlatformImport {
@@ -468,6 +484,13 @@ impl plan::NativePlanPlatform for Platform {
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_tcsetattr".to_string(),
+                            required_by: required_by.clone(),
+                        },
+                        // bug-699: every keystroke reader asks once what
+                        // standard input is (a keyboard or data).
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_isatty".to_string(),
                             required_by: required_by.clone(),
                         },
                     ]);

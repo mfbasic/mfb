@@ -16,6 +16,7 @@ pub(crate) mod buffer;
 pub(crate) mod decode;
 pub(crate) mod encode;
 pub(crate) mod keys;
+pub(crate) mod reader;
 
 #[cfg(test)]
 mod corpus;
@@ -47,18 +48,42 @@ pub(crate) const INPUT_DELAY_MS: u64 = 25;
 /// The input-buffer region, per arena (per stdin subscriber — a worker thread
 /// that calls `thread::openStdIn` reads through its own).
 ///
-/// Byte offset of the count of bytes the buffer holds; the bytes follow it, the
-/// oldest first. Zero is the resting state: nothing pulled ahead of a reader.
+/// Byte offset of the count of bytes the buffer holds; the bytes are at
+/// [`INPUT_STATE_BUF_OFFSET`], the oldest first. Zero is the resting state:
+/// nothing pulled ahead of a reader.
 pub(crate) const INPUT_STATE_LEN_OFFSET: usize = 0;
-/// Byte offset of the buffered bytes.
-pub(crate) const INPUT_STATE_BUF_OFFSET: usize = 8;
-/// Bytes the buffer holds at most. A token never needs more than a key
+/// The monotonic nanosecond at which the bytes at the front of the buffer
+/// started waiting to be classified (a lone ESC, a base character that a
+/// combining mark may follow), or 0 when nothing is waiting. Kept across reads
+/// so that a program polling with `timeoutMs = 0` still sees the Escape key
+/// once [`INPUT_DELAY_MS`] has passed. Any consume from the front clears it.
+pub(crate) const INPUT_STATE_PENDING_OFFSET: usize = 8;
+/// What standard input is, decided once per thread: 0 not yet asked,
+/// [`SOURCE_KEYBOARD`] or [`SOURCE_DATA`].
+pub(crate) const INPUT_STATE_SOURCE_OFFSET: usize = 16;
+/// The decoder's token record ([`decode::TOKEN_BYTES`]), where every look-ahead
+/// reader's last token lands.
+pub(crate) const INPUT_STATE_TOKEN_OFFSET: usize = 24;
+/// Byte offset of the buffered bytes. One spare word follows the token record,
+/// so a NUL can always be written after its grapheme — which makes the record's
+/// `{length, bytes}` pair a complete `String` block.
+pub(crate) const INPUT_STATE_BUF_OFFSET: usize =
+    INPUT_STATE_TOKEN_OFFSET + decode::TOKEN_BYTES + 8;
+/// Bytes the buffer holds at most. A decoded token never needs more than a key
 /// sequence (a kitty `CSI … u` with alternates and text is well under 64 bytes)
-/// or one grapheme (capped at [`GRAPHEME_CAP`]), so a reader looking ahead for
-/// one token cannot fill it.
-pub(crate) const INPUT_BUFFER_CAPACITY: usize = 256;
+/// or one grapheme (capped at [`GRAPHEME_CAP`]); the rest is room for a line a
+/// timed `io::readLine` gives back when its time runs out.
+pub(crate) const INPUT_BUFFER_CAPACITY: usize = 4096;
 /// Total reserved slots.
 pub(crate) const INPUT_STATE_SLOTS: usize = (INPUT_STATE_BUF_OFFSET + INPUT_BUFFER_CAPACITY) / 8;
+const _: () = assert!(INPUT_STATE_BUF_OFFSET % 8 == 0);
+
+/// Standard input is a terminal (console) or an `--app` window: a prefix that
+/// only more input can classify waits at most [`INPUT_DELAY_MS`].
+pub(crate) const SOURCE_KEYBOARD: u64 = 1;
+/// Standard input is a pipe or a file: a prefix waits for the input that
+/// completes it, or for its end, so the same file always splits the same way.
+pub(crate) const SOURCE_DATA: u64 = 2;
 
 /// The longest grapheme a token carries; a cluster that would grow past it is
 /// split there. A combining-mark flood is not a keystroke.
@@ -69,14 +94,20 @@ const _: () = assert!(GRAPHEME_CAP < INPUT_BUFFER_CAPACITY);
 /// and dropped (no key sequence comes near it).
 pub(crate) const CSI_PARAM_CAP: usize = 64;
 
-/// The runtime symbols of the readers that decode through the input buffer and
-/// may leave bytes in it (bug-699 Phase 4: `io::readRaw`, `readScalar`,
-/// `readGrapheme`, `readKey`). A program that calls one reserves the region,
-/// and every reader in it — the plain ones included — then takes buffered bytes
-/// before new ones. The list is empty until those readers exist: without one,
-/// nothing can put a byte in the buffer, so no program pays for it and every
-/// existing program is byte-identical.
-pub(crate) const INPUT_BUFFER_READERS: &[&str] = &[];
+/// The runtime symbols of the readers that read through the input buffer
+/// (bug-699 Phase 4): the key and text readers look ahead through the decoder,
+/// and the two line readers give a half-read line back to the buffer when their
+/// time runs out. A program that calls one reserves the region, and every
+/// reader in it — the plain ones included — then takes buffered bytes before new
+/// ones.
+pub(crate) const INPUT_BUFFER_READERS: &[&str] = &[
+    "_mfb_rt_io_io_readRaw",
+    "_mfb_rt_io_io_readScalar",
+    "_mfb_rt_io_io_readGrapheme",
+    "_mfb_rt_io_io_readKey",
+    "_mfb_rt_io_io_readLine",
+    "_mfb_rt_io_io_input",
+];
 
 /// Whether a program with these runtime symbols reserves the input buffer.
 pub(crate) fn program_uses_input_buffer(runtime_symbols: &[String]) -> bool {
@@ -87,6 +118,21 @@ pub(crate) fn program_uses_input_buffer(runtime_symbols: &[String]) -> bool {
     runtime_symbols
         .iter()
         .any(|symbol| INPUT_BUFFER_READERS.contains(&symbol.as_str()))
+}
+
+/// The readers that ask the decoder for whole grapheme clusters.
+pub(crate) const CLUSTER_READERS: &[&str] = &["_mfb_rt_io_io_readGrapheme", "_mfb_rt_io_io_readKey"];
+
+/// Whether a program with these runtime symbols needs the decoder's grapheme
+/// clusters (and so the Unicode property tables).
+pub(crate) fn program_uses_grapheme_clusters(runtime_symbols: &[String]) -> bool {
+    #[cfg(test)]
+    if FORCE_INPUT_BUFFER.with(std::cell::Cell::get) {
+        return true;
+    }
+    runtime_symbols
+        .iter()
+        .any(|symbol| CLUSTER_READERS.contains(&symbol.as_str()))
 }
 
 #[cfg(test)]

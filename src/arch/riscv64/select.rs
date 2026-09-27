@@ -525,10 +525,10 @@ pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
             ) => {
                 // A standalone integer flag-reading branch consuming a bare
                 // compare. Re-derive the native compare-and-branch from `pending`.
-                let rhs = pending
-                    .as_ref()
-                    .expect("rv64: standalone flag branch without a preceding compare");
                 let target = field_value(&instruction.fields, "target");
+                let rhs = pending.as_ref().unwrap_or_else(|| {
+                    panic!("rv64: standalone flag branch to `{target}` without a preceding compare")
+                });
                 let cond = op.mnemonic();
                 match rhs {
                     FlagRhs::Zero => {

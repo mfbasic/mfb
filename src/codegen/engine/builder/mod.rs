@@ -1432,6 +1432,10 @@ pub(crate) fn lower_module_for_platform(
                 "io.input",
                 "io.readChar",
                 "io.readByte",
+                "io.readRaw",
+                "io.readScalar",
+                "io.readGrapheme",
+                "io.readKey",
                 "io.pollInput",
                 "thread.openStdIn",
                 "thread.closeStdIn",
@@ -1756,6 +1760,21 @@ pub(crate) fn lower_module_for_platform(
             value: "00".repeat(8),
         });
     }
+    // bug-699: the process-global "the terminal reports key events" word the
+    // console readers consult (`term::on` sets it while the kitty keyboard protocol
+    // is on). Process-global because the terminal is; emitted with the input
+    // buffer, the only thing that reads it.
+    if uses_input_buffer && !module.build_mode.is_app() {
+        data_objects.push(CodeDataObject {
+            symbol: crate::codegen::builtins::io::gen_read_key_family::INPUT_EVENTS_SYMBOL
+                .to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.input_events.v1 { u64 reporting }".to_string(),
+            align: 8,
+            size: 8,
+            value: "00".repeat(8),
+        });
+    }
     // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
     // (plan-98-B put it one region past the presentation-mode word), but arena state is
     // per-thread and the graphics thread has to see what the worker published, so it
@@ -1973,6 +1992,10 @@ pub(crate) fn lower_module_for_platform(
                             "io.input",
                             "io.readChar",
                             "io.readByte",
+                            "io.readRaw",
+                            "io.readScalar",
+                            "io.readGrapheme",
+                            "io.readKey",
                             "io.pollInput",
                             "thread.openStdIn",
                             "thread.closeStdIn",
@@ -2268,6 +2291,10 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_io_io_input"
                     | "_mfb_rt_io_io_readChar"
                     | "_mfb_rt_io_io_readByte"
+                    | "_mfb_rt_io_io_readRaw"
+                    | "_mfb_rt_io_io_readScalar"
+                    | "_mfb_rt_io_io_readGrapheme"
+                    | "_mfb_rt_io_io_readKey"
             )
         });
     if uses_stdout_buffer {
@@ -2287,6 +2314,10 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_io_io_input"
                     | "_mfb_rt_io_io_readChar"
                     | "_mfb_rt_io_io_readByte"
+                    | "_mfb_rt_io_io_readRaw"
+                    | "_mfb_rt_io_io_readScalar"
+                    | "_mfb_rt_io_io_readGrapheme"
+                    | "_mfb_rt_io_io_readKey"
                     | "_mfb_rt_io_io_pollInput"
                     | "_mfb_rt_thread_thread_openStdIn"
                     | "_mfb_rt_thread_thread_closeStdIn"
@@ -2306,7 +2337,9 @@ pub(crate) fn lower_module_for_platform(
     // buffer. Reserved and emitted together, so a program without such a reader
     // carries neither.
     if input_state_offset.is_some() {
-        code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
+        code_functions.push(crate::codegen::io::input::decode::lower_input_decode(
+            crate::codegen::io::input::program_uses_grapheme_clusters(&runtime_symbols),
+        )?);
     }
     // bug-699: every `--app` window key handler encodes its events through one
     // shared encoder, so the window input pipe carries the kitty-protocol form a
@@ -3373,7 +3406,16 @@ pub(crate) fn lower_runtime_helper(
     // No-op when the program cannot leave `Console` (`presentation_mode_offset` is
     // `None`). `term::` is gated separately at its own dispatch above, and keeps the
     // `Console`-only requirement — it needs the character grid, not just input.
-    if matches!(spec.call, "io.input" | "io.readLine" | "io.readChar") {
+    if matches!(
+        spec.call,
+        "io.input"
+            | "io.readLine"
+            | "io.readChar"
+            | "io.readRaw"
+            | "io.readScalar"
+            | "io.readGrapheme"
+            | "io.readKey"
+    ) {
         app::prepend_wrong_mode_gate(
             &mut instructions,
             &mut relocations,

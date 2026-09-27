@@ -23,7 +23,11 @@
 //! resolution answers arity/return/validation with no custom resolver.
 
 use crate::codegen::engine::types::CodegenPlatform;
-use crate::codegen::registry::{Registry, RegistryPackage};
+use crate::codegen::io::input::keys::{KeyEvent, KeyName};
+use crate::codegen::registry::{
+    EnumVariant, RecordProp, Registry, RegistryEnum, RegistryPackage, RegistryRecord,
+};
+use crate::types::ParameterType;
 
 mod func_flush;
 mod func_input;
@@ -36,12 +40,17 @@ mod func_print;
 mod func_print_error;
 mod func_read_byte;
 mod func_read_char;
+mod func_read_grapheme;
+mod func_read_key;
 mod func_read_line;
+mod func_read_raw;
+mod func_read_scalar;
 mod func_set_buffered;
 mod func_write;
 mod func_write_error;
 mod gen_is_terminal;
-mod gen_read_family;
+pub(crate) mod gen_read_family;
+pub(crate) mod gen_read_key_family;
 mod gen_read_line_family;
 mod gen_write_family;
 
@@ -99,6 +108,225 @@ reader. A thread other than main must subscribe with `thread::openStdIn` before
 reading, or the read raises `ErrInvalidContext`; `thread::closeStdIn`
 unsubscribes."#;
 
+/// The `Key` value record `io::readKey` returns (bug-699 Decision 4).
+pub(crate) const KEY_TYPE: &str = "Key";
+/// Its package-qualified identity (bug-480 Phase 4b): what the record marshaller
+/// and a consumer name.
+pub(crate) const KEY_TYPE_ID: &str = "io.Key";
+pub(crate) const KEY_NAME_TYPE: &str = "KeyName";
+pub(crate) const KEY_EVENT_TYPE: &str = "KeyEvent";
+
+/// A `KeyName` variant's man-page description. The variants are declared in
+/// `keys::KeyName` order, because a variant's ordinal is what the decoder stores.
+fn key_name_description(key: KeyName) -> &'static str {
+    match key {
+        KeyName::Unicode => {
+            "A key that types text — a letter, a digit, a symbol, the space bar. \
+             The text is in `grapheme`."
+        }
+        KeyName::Up => "The up arrow.",
+        KeyName::Down => "The down arrow.",
+        KeyName::Left => "The left arrow.",
+        KeyName::Right => "The right arrow.",
+        KeyName::Home => "Home.",
+        KeyName::End => "End. (Spelled `EndKey`: `END` is a keyword.)",
+        KeyName::PageUp => "Page Up.",
+        KeyName::PageDown => "Page Down.",
+        KeyName::Insert => "Insert.",
+        KeyName::Delete => "Delete — the key that deletes forward. Backspace is its own key.",
+        KeyName::Backspace => "Backspace. Its `grapheme` is U+007F.",
+        KeyName::Enter => "Return or Enter, the keypad's too. Its `grapheme` is `\"\\n\"`.",
+        KeyName::Tab => "Tab. Shift+Tab is `Tab` with `shift` set. Its `grapheme` is `\"\\t\"`.",
+        KeyName::Escape => "Esc. Its `grapheme` is U+001B.",
+        KeyName::F1 => "The function key F1.",
+        KeyName::F2 => "The function key F2.",
+        KeyName::F3 => "The function key F3.",
+        KeyName::F4 => "The function key F4.",
+        KeyName::F5 => "The function key F5.",
+        KeyName::F6 => "The function key F6.",
+        KeyName::F7 => "The function key F7.",
+        KeyName::F8 => "The function key F8.",
+        KeyName::F9 => "The function key F9.",
+        KeyName::F10 => "The function key F10.",
+        KeyName::F11 => "The function key F11.",
+        KeyName::F12 => "The function key F12.",
+    }
+}
+
+/// Every `KeyName`, in declaration (ordinal) order.
+pub(crate) const KEY_NAMES: [KeyName; 27] = [
+    KeyName::Unicode,
+    KeyName::Up,
+    KeyName::Down,
+    KeyName::Left,
+    KeyName::Right,
+    KeyName::Home,
+    KeyName::End,
+    KeyName::PageUp,
+    KeyName::PageDown,
+    KeyName::Insert,
+    KeyName::Delete,
+    KeyName::Backspace,
+    KeyName::Enter,
+    KeyName::Tab,
+    KeyName::Escape,
+    KeyName::F1,
+    KeyName::F2,
+    KeyName::F3,
+    KeyName::F4,
+    KeyName::F5,
+    KeyName::F6,
+    KeyName::F7,
+    KeyName::F8,
+    KeyName::F9,
+    KeyName::F10,
+    KeyName::F11,
+    KeyName::F12,
+];
+
+/// The key record and its two enums (bug-699 Decision 4).
+fn register_key_types(pkg: &mut RegistryPackage) {
+    pkg.add_record(RegistryRecord {
+        name: KEY_TYPE,
+        export: true,
+        description: "One key event, as `io::readKey` reports it: which key, what \
+                      it typed, whether it was pressed, repeated or released, and \
+                      which modifiers were held.",
+        props: vec![
+            RecordProp {
+                name: "key",
+                ty: ParameterType::named(KEY_NAME_TYPE),
+                description: "Which key. `io::KeyName.Unicode` for a key that types \
+                              text; the key's own name otherwise.",
+            },
+            RecordProp {
+                name: "grapheme",
+                ty: ParameterType::String,
+                description: "What the keystroke typed — what `io::readGrapheme` \
+                              would return for it — or `\"\"` for a key with no \
+                              Unicode value. For a Ctrl chord it is the key's own \
+                              character (`\"a\"` for Ctrl+A).",
+            },
+            RecordProp {
+                name: "event",
+                ty: ParameterType::named(KEY_EVENT_TYPE),
+                description: "Press, repeat or release — or `NotSupported` when the \
+                              input cannot tell them apart.",
+            },
+            RecordProp {
+                name: "shift",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Shift was held.",
+            },
+            RecordProp {
+                name: "ctrl",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Control was held.",
+            },
+            RecordProp {
+                name: "alt",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Alt was held — Option on macOS.",
+            },
+            RecordProp {
+                name: "meta",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` when Meta was held — Command on macOS, the \
+                              Windows or Super key elsewhere.",
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: KEY_NAME_TYPE,
+        export: true,
+        variants: KEY_NAMES
+            .iter()
+            .map(|key| EnumVariant {
+                name: key_name_spelling(*key),
+                description: key_name_description(*key),
+                advisory: None,
+            })
+            .collect(),
+    });
+    pkg.add_enum(RegistryEnum {
+        name: KEY_EVENT_TYPE,
+        export: true,
+        variants: [
+            (
+                KeyEvent::Press,
+                "The key went down.",
+            ),
+            (
+                KeyEvent::Repeat,
+                "The key is held down and repeating.",
+            ),
+            (
+                KeyEvent::Release,
+                "The key came up. Its `grapheme` is still the key's character; \
+                 a release types nothing.",
+            ),
+            (
+                KeyEvent::NotSupported,
+                "The input cannot tell a press from a repeat or a release — a \
+                 terminal outside the kitty keyboard protocol, a pipe, a file. \
+                 Every key is reported once, as it is typed, and no release \
+                 arrives.",
+            ),
+        ]
+        .into_iter()
+        .map(|(event, description)| EnumVariant {
+            name: key_event_spelling(event),
+            description,
+            advisory: None,
+        })
+        .collect(),
+    });
+}
+
+fn key_name_spelling(key: KeyName) -> &'static str {
+    match key {
+        KeyName::Unicode => "Unicode",
+        KeyName::Up => "Up",
+        KeyName::Down => "Down",
+        KeyName::Left => "Left",
+        KeyName::Right => "Right",
+        KeyName::Home => "Home",
+        // `END` is a reserved keyword (case-insensitive), so a variant cannot be
+        // spelled `End`: neither the ENUM body nor `io::KeyName.End` would parse.
+        // The noun goes with it, as `endIndex` does for a range's end.
+        KeyName::End => "EndKey",
+        KeyName::PageUp => "PageUp",
+        KeyName::PageDown => "PageDown",
+        KeyName::Insert => "Insert",
+        KeyName::Delete => "Delete",
+        KeyName::Backspace => "Backspace",
+        KeyName::Enter => "Enter",
+        KeyName::Tab => "Tab",
+        KeyName::Escape => "Escape",
+        KeyName::F1 => "F1",
+        KeyName::F2 => "F2",
+        KeyName::F3 => "F3",
+        KeyName::F4 => "F4",
+        KeyName::F5 => "F5",
+        KeyName::F6 => "F6",
+        KeyName::F7 => "F7",
+        KeyName::F8 => "F8",
+        KeyName::F9 => "F9",
+        KeyName::F10 => "F10",
+        KeyName::F11 => "F11",
+        KeyName::F12 => "F12",
+    }
+}
+
+fn key_event_spelling(event: KeyEvent) -> &'static str {
+    match event {
+        KeyEvent::Press => "Press",
+        KeyEvent::Repeat => "Repeat",
+        KeyEvent::Release => "Release",
+        KeyEvent::NotSupported => "NotSupported",
+    }
+}
+
 /// Register the `io` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("io", MODULE_INTRO, MODULE_DESC);
@@ -112,9 +340,14 @@ pub(crate) fn register(r: &mut Registry) {
     func_set_buffered::register(&mut pkg);
     func_input::register(&mut pkg);
     func_read_line::register(&mut pkg);
+    func_read_raw::register(&mut pkg);
+    func_read_scalar::register(&mut pkg);
+    func_read_grapheme::register(&mut pkg);
+    func_read_key::register(&mut pkg);
     func_read_char::register(&mut pkg);
     func_read_byte::register(&mut pkg);
     func_poll_input::register(&mut pkg);
+    register_key_types(&mut pkg);
     func_is_input_terminal::register(&mut pkg);
     func_is_output_terminal::register(&mut pkg);
     func_is_error_terminal::register(&mut pkg);

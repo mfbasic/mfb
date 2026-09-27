@@ -331,7 +331,9 @@ impl NativePlanPlatform for Platform {
             // Phase C — io console input. isBuffered/setBuffered make no OS call
             // (fall through). The stdin-broadcast log rides heap + SRWLOCK/condvar.
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.pollInput"
-            | "io.flush" => vec![
+            | "io.readRaw" | "io.readScalar" | "io.readGrapheme" | "io.readKey"
+            | "io.flush" => {
+                let mut imports = vec![
                 import("GetStdHandle", KERNEL32, required_by),
                 import("ReadFile", KERNEL32, required_by),
                 import("WriteFile", KERNEL32, required_by),
@@ -357,7 +359,22 @@ impl NativePlanPlatform for Platform {
                 import("GetFileType", KERNEL32, required_by),
                 import("PeekNamedPipe", KERNEL32, required_by),
                 import("Sleep", KERNEL32, required_by),
-            ],
+                ];
+                // bug-699: the timed readers wait until a monotonic deadline.
+                if matches!(
+                    spec.call,
+                    "io.input"
+                        | "io.readLine"
+                        | "io.readRaw"
+                        | "io.readScalar"
+                        | "io.readGrapheme"
+                        | "io.readKey"
+                ) {
+                    imports.push(import("QueryPerformanceCounter", KERNEL32, required_by));
+                    imports.push(import("QueryPerformanceFrequency", KERNEL32, required_by));
+                }
+                imports
+            }
             "fs.exists" | "fs.fileExists" | "fs.directoryExists" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFileAttributesW", KERNEL32, required_by),

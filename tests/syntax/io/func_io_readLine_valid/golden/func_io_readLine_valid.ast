@@ -22,7 +22,7 @@
         "condition": { "kind": "boolean", "value": false },
         "line": 4,
         "then": [
-        { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.readLine", "arguments": [] }] }, "line": 5 }
+        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.readLine", "arguments": [] }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.readLine", "arguments": [{ "kind": "number", "value": "0" }] }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.readLine", "arguments": [{ "kind": "named", "name": "timeoutMs", "value": { "kind": "number", "value": "500" } }] }] } }, "line": 5 }
         ],
         "else": [
         ]

@@ -23,8 +23,9 @@
 //! ([`super::program_uses_input_buffer`]); in any other program none of this is
 //! emitted and the read paths are exactly what they were.
 
-use super::{INPUT_STATE_BUF_OFFSET, INPUT_STATE_LEN_OFFSET};
+use super::{INPUT_STATE_BUF_OFFSET, INPUT_STATE_LEN_OFFSET, INPUT_STATE_PENDING_OFFSET};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::ARENA_STATE_REGISTER;
 use crate::codegen::io::stdin::field_addr;
@@ -60,7 +61,9 @@ pub(crate) fn emit_branch_if_buffered(
 
 /// Drop the oldest `count` bytes from the buffer (`count` <= the length): shift
 /// the rest to the front and shorten it. The buffer is small and a token is a
-/// handful of bytes, so a copy is cheaper to get right than a ring's wrap.
+/// handful of bytes, so a copy is cheaper to get right than a ring's wrap. The
+/// front changes, so nothing is waiting to be classified any more: the pending
+/// timestamp is cleared.
 pub(crate) fn emit_consume(
     count: impl Into<abi::Reg>,
     state_offset: usize,
@@ -86,6 +89,7 @@ pub(crate) fn emit_consume(
         abi::add_registers(&end, &to, &len),
         abi::subtract_registers(&len, &len, count),
         abi::store_u64(&len, &region, INPUT_STATE_LEN_OFFSET),
+        abi::store_u64(abi::ZERO, &region, INPUT_STATE_PENDING_OFFSET),
         abi::label(&copy),
         // while from < end: *to++ = *from++
         abi::compare_registers(&end, &from),
@@ -131,5 +135,72 @@ pub(crate) fn emit_take_buffered_byte(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch(got),
         abi::label(&empty),
+    ]);
+}
+
+/// Give `count` bytes at `src` back to the FRONT of the buffer, ahead of
+/// whatever it holds — the inverse of [`emit_consume`]. How a timed line read
+/// leaves its half-read line for the next read, and how a scalar read keeps the
+/// rest of a key that typed several scalars. Branches to `full` (and changes
+/// nothing) when the buffer cannot hold them. `src` must not point into the
+/// buffer itself.
+pub(crate) fn emit_unread(
+    symbol: &str,
+    src: impl Into<abi::Reg>,
+    count: impl Into<abi::Reg>,
+    state_offset: usize,
+    full: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let src: abi::Reg = src.into();
+    let count: abi::Reg = count.into();
+    let tag = instructions.len();
+    let shift = format!("{symbol}_input_unread_shift_{tag}");
+    let copy = format!("{symbol}_input_unread_copy_{tag}");
+    let done = format!("{symbol}_input_unread_done_{tag}");
+    let region = vregs.next();
+    let len = vregs.next();
+    let total = vregs.next();
+    let cap = vregs.next();
+    let from = vregs.next();
+    let to = vregs.next();
+    let base = vregs.next();
+    let byte = vregs.next();
+    let i = vregs.next();
+    field_addr(region, ARENA_STATE_REGISTER, state_offset, instructions);
+    instructions.extend([
+        abi::load_u64(&len, &region, INPUT_STATE_LEN_OFFSET),
+        abi::add_registers(&total, &len, count),
+        abi::move_immediate(&cap, "Integer", &super::INPUT_BUFFER_CAPACITY.to_string()),
+        abi::compare_registers(&total, &cap),
+        abi::branch_hi(full),
+        // Move the buffered bytes up by `count`, last byte first.
+        abi::add_immediate(&base, &region, INPUT_STATE_BUF_OFFSET),
+        abi::add_registers(&from, &base, &len),
+        abi::add_registers(&to, &from, count),
+        abi::label(&shift),
+        abi::compare_registers(&from, &base),
+        abi::branch_ls(&copy),
+        abi::subtract_immediate(&from, &from, 1),
+        abi::subtract_immediate(&to, &to, 1),
+        abi::load_u8(&byte, &from, 0),
+        abi::store_u8(&byte, &to, 0),
+        abi::branch(&shift),
+        // Then the given bytes into the front.
+        abi::label(&copy),
+        abi::move_immediate(&i, "Integer", "0"),
+        abi::label(&format!("{copy}_loop")),
+        abi::compare_registers(&i, count),
+        abi::branch_eq(&done),
+        abi::add_registers(&from, src, &i),
+        abi::load_u8(&byte, &from, 0),
+        abi::add_registers(&to, &base, &i),
+        abi::store_u8(&byte, &to, 0),
+        abi::add_immediate(&i, &i, 1),
+        abi::branch(&format!("{copy}_loop")),
+        abi::label(&done),
+        abi::store_u64(&total, &region, INPUT_STATE_LEN_OFFSET),
+        abi::store_u64(abi::ZERO, &region, INPUT_STATE_PENDING_OFFSET),
     ]);
 }

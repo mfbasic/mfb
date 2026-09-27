@@ -231,6 +231,10 @@ impl LinuxPlan<'_> {
                 | "io.input"
                 | "io.readChar"
                 | "io.readByte"
+                | "io.readRaw"
+                | "io.readScalar"
+                | "io.readGrapheme"
+                | "io.readKey"
         ) {
             sigpipe_imports.push(self.libc_import("signal", required_by));
             sigpipe_imports.push(self.libc_import("raise", required_by));
@@ -318,8 +322,15 @@ impl LinuxPlan<'_> {
             // io.print arm. The old `fsync`+`__errno_location` imports were dead
             // (bug-71, bug-117).
             "io.flush" => Vec::new(),
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.readRaw"
+            | "io.readScalar" | "io.readGrapheme" | "io.readKey" => {
                 let mut imports = vec![self.libc_import("read", required_by)];
+                // bug-699: the timed wait (`poll` until a monotonic deadline) every
+                // reader but the two plain ones runs before each source read.
+                if !matches!(spec.call, "io.readChar" | "io.readByte") {
+                    imports.push(self.libc_import("poll", required_by));
+                    imports.push(self.libc_import("clock_gettime", required_by));
+                }
                 if spec.call == "io.input" {
                     // The prompt echo.
                     write_import(&mut imports);
@@ -330,6 +341,9 @@ impl LinuxPlan<'_> {
                     // `tcsetattr` (a no-op when TUI single-key mode is inactive).
                     // `tcsetattr` is a libc call on every backend, unlike `write`.
                     imports.push(self.libc_import("tcsetattr", required_by));
+                    // bug-699: every keystroke reader asks once what standard
+                    // input is (a keyboard or data).
+                    imports.push(self.libc_import("isatty", required_by));
                 } else {
                     imports.push(self.libc_import("isatty", required_by));
                     imports.push(self.libc_import("tcgetattr", required_by));
