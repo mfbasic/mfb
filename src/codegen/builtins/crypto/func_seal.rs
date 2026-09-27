@@ -121,7 +121,7 @@ low-entropy value.
 
 **Implementation.** Both ciphers are pure MFBASIC software cores computed over the
 `bits` package — no platform cryptographic library — so the ciphertext and tag are
-byte-identical on every target (macOS, Linux, Windows; aarch64, x86-64)."#;
+byte-identical on every target (macOS, Linux, Windows; aarch64, x86-64). `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Seal a message and open it back:
 
 ```
@@ -208,7 +208,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: ParameterType::named("Sealed"),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::abi_function(lower_seal),
             },
             Implementation {
@@ -226,7 +226,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: ParameterType::named("Sealed"),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 // The `String` overload UTF-8-encodes then re-enters the bytes
                 // `AbiFunction` via the `__crypto_sealText` MFB shim — it cannot be a
                 // second `AbiFunction` overload (both would collapse onto the one

@@ -343,10 +343,88 @@ fn every_canvas_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
+/// `crypto::generate`'s native lowering constructs a `KeyPair` record, which
+/// this sweep's harness (a bare `TypeModel::empty()`) has no layout for — a
+/// fixture gap like `CANVAS_SKIP_MEMBERS`'s, not a real ambiguity: `generate`
+/// already declares `errors: vec!["ErrOutOfMemory", "ErrUnknown"]` and is
+/// covered by `every_crypto_member_is_admitted_on_every_backend`-style
+/// registry-wide tests elsewhere. Repro: run this test without the skip and
+/// read the "native record type 'KeyPair' does not resolve" refusal.
+const CRYPTO_SKIP_MEMBERS: &[&str] = &["generate"];
+
+/// `hash`/`seal`/`open`/`sign`/`verify` each dispatch at runtime to a fixed
+/// `_mfb_ifn_crypto_*` symbol — a companion MFBASIC helper (`add_helper`, not
+/// a registry member), so this native-only sweep cannot lower it directly
+/// (the general `Body::Mfb` guard bug-698 Phase 1 describes is separate,
+/// future scope). Verified directly instead, per symbol below: `grep -n
+/// "FAIL " src/codegen/builtins/crypto/helper_*.rs` (note the space — `FAIL
+/// error(code, msg)` is a function call, not `FAIL(`) finds every raise site;
+/// every helper's own `List OF Byte`/`List OF Integer` result can also raise
+/// `ErrOutOfMemory` regardless.
+const CRYPTO_IFN_PROPAGATING: &[(&str, Propagating)] = &[
+    // The nine SHA cores (`grep -n 'FAIL ' src/codegen/builtins/crypto/helper_sha*.rs
+    // src/codegen/builtins/crypto/gen_hash.rs` finds none): only the List OF Byte
+    // result can fail, with ErrOutOfMemory.
+    ("_mfb_ifn_crypto_5Fsha1_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha224_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha256_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha384_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha3_5F224_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha3_5F256_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha3_5F384_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha3_5F512_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fsha512_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    // `helper_aes256_gcm_seal.rs`: two `FAIL error(77050002, …)` (bad key/nonce
+    // length) = ErrInvalidArgument, plus ErrOutOfMemory building the result.
+    (
+        "_mfb_ifn_crypto_5Faes256GcmSeal",
+        Propagating::Known(&["ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    // `helper_chacha20_poly1305_seal.rs`: same shape, two ErrInvalidArgument FAILs.
+    (
+        "_mfb_ifn_crypto_5Fchacha20Poly1305Seal",
+        Propagating::Known(&["ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    // `helper_aes256_gcm_open.rs`: two ErrInvalidArgument FAILs (key/nonce length)
+    // plus `FAIL error(77050016, …)` (tag mismatch) = ErrAuthenticationFailed.
+    (
+        "_mfb_ifn_crypto_5Faes256GcmOpen",
+        Propagating::Known(&["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    // `helper_chacha20_poly1305_open.rs`: same shape.
+    (
+        "_mfb_ifn_crypto_5Fchacha20Poly1305Open",
+        Propagating::Known(&["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    // `helper_ed25519_sign.rs`/`helper_ed448_sign.rs`: one ErrInvalidArgument FAIL
+    // each (wrong private-key length), plus ErrOutOfMemory building the signature.
+    (
+        "_mfb_ifn_crypto_5Fed25519Sign",
+        Propagating::Known(&["ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fed448Sign",
+        Propagating::Known(&["ErrInvalidArgument", "ErrOutOfMemory"]),
+    ),
+    // `helper_ed25519_verify.rs`/`helper_ed448_verify.rs`: NO `FAIL` — a
+    // wrong-length key/signature is `RETURN FALSE`, "never an error" per the
+    // ed448 helper's own doc comment. Only ErrOutOfMemory (the working `List OF
+    // Integer`/`List OF Byte` values these build).
+    ("_mfb_ifn_crypto_5Fed25519Verify", Propagating::Known(&["ErrOutOfMemory"])),
+    ("_mfb_ifn_crypto_5Fed448Verify", Propagating::Known(&["ErrOutOfMemory"])),
+];
+
 #[test]
 fn every_crypto_member_declares_exactly_the_errors_its_lowering_raises() {
-    assert_package_declares_exactly_the_errors_its_lowering_raises(
-        "crypto", ARENA, NONE_P, NONE_U, 1,
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "crypto",
+        ARENA,
+        CRYPTO_IFN_PROPAGATING,
+        NONE_U,
+        NONE_U,
+        &[],
+        CRYPTO_SKIP_MEMBERS,
+        1,
     );
 }
 

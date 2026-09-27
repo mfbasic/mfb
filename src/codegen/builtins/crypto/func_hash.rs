@@ -108,7 +108,7 @@ over the `bits` package — no platform cryptographic library is called — so t
 output is **byte-identical on macOS, Linux, and Windows** (and across
 aarch64/x86-64). No loop bound, branch, or index depends on the message contents;
 only the public message length does. The core is hash-generic over the `crypto::Hash`
-enum, so a future `crypto::Hash` variant is supported without new code."#;
+enum, so a future `crypto::Hash` variant is supported without new code. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"crypto::Hash a byte list and print it as hex:
 
 ```
@@ -164,7 +164,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::abi_function(lower_hash),
             },
             Implementation {
@@ -185,7 +185,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 // The `String` overload UTF-8-encodes then re-enters the bytes
                 // `AbiFunction` via the `__crypto_hashText` MFB shim — it cannot be a
                 // second `AbiFunction` overload (both would collapse onto the one

@@ -104,7 +104,7 @@ and `tag` fields for you.
 **Implementation.** Both ciphers are pure MFBASIC software cores computed over the
 `bits` package — no platform cryptographic library — so decryption and the
 constant-time tag check are byte-identical on every target (macOS, Linux, Windows;
-aarch64, x86-64)."#;
+aarch64, x86-64). `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Seal, then open the `crypto::Sealed` record directly:
 
 ```
@@ -199,7 +199,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument"],
+                errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::abi_function(lower_open),
             },
             Implementation {
@@ -217,7 +217,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument"],
+                errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"],
                 // The `Sealed` overload unpacks `.ciphertext`/`.tag` then re-enters the
                 // five-argument `AbiFunction` via the `__crypto_openSealed` MFB shim — it
                 // cannot be a second `AbiFunction` overload (both would collapse onto the
