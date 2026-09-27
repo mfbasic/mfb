@@ -12,42 +12,22 @@
     ],
     "items": [
     {
-      "kind": "type",
-      "visibility": "public",
-      "name": "Cursor",
-      "line": 7,
-      "fields": [
-      { "visibility": null, "name": "pos", "type": "Integer", "line": 8 }
-      ]
-    },
-    {
-      "kind": "union",
-      "visibility": "public",
-      "name": "Stream",
-      "line": 11,
-      "includes": [],
-      "variants": [
-      { "name": "fs.File", "line": 12 },
-      { "name": "tcp.Socket", "line": 13 }
-      ]
-    },
-    {
       "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 20,
+      "line": 11,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 21 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 22 },
-      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }, "line": 24 },
-      { "kind": "binding", "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 25 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "got" }] }] }, "line": 26 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF RES union_xfer_workers.Stream STATE union_xfer_workers.Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "union_xfer_workers.Cursor", "name": "s", "type": "union_xfer_workers.Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 13 },
+      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "got" }] }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
       ]
     }
     ]

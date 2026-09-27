@@ -2,7 +2,7 @@ IMPORT thread
 IMPORT fs
 IMPORT tcp
 
-UNION Stream
+EXPORT UNION Stream
   fs::File
   tcp::Socket
 END UNION
