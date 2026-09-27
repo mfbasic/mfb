@@ -689,10 +689,9 @@ pub(crate) fn lower_open_input(
         instructions.extend([
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_ne(&unavailable_sites.site(
-                "AudioObjectGetPropertyData",
-                abi::return_register(),
-            )),
+            abi::branch_ne(
+                &unavailable_sites.site("AudioObjectGetPropertyData", abi::return_register()),
+            ),
             abi::load_u32(&v9, abi::stack_pointer(), PRECHK_ID),
             abi::compare_immediate(&v9, "0"),
             abi::branch_eq(&unavailable),

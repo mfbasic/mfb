@@ -70,7 +70,11 @@ fn macos_audio_failures_report_their_os_status() {
         if device {
             expected.insert("AudioQueueSetProperty".to_string());
         }
-        assert_eq!(raises_of(&ins, &rel, "ErrAudioDevice"), (1, expected), "device={device}");
+        assert_eq!(
+            raises_of(&ins, &rel, "ErrAudioDevice"),
+            (1, expected),
+            "device={device}"
+        );
 
         let (ins, rel, _) =
             lower_open_input("t_in", device, &imports, &TestPlatform).expect("openInput");
@@ -83,9 +87,14 @@ fn macos_audio_failures_report_their_os_status() {
         if device {
             expected.insert("AudioQueueSetProperty".to_string());
         }
-        assert_eq!(raises_of(&ins, &rel, "ErrAudioDevice"), (1, expected), "device={device}");
+        assert_eq!(
+            raises_of(&ins, &rel, "ErrAudioDevice"),
+            (1, expected),
+            "device={device}"
+        );
     }
-    let (ins, rel, _) = lower_open_input("t_in", false, &imports, &TestPlatform).expect("openInput");
+    let (ins, rel, _) =
+        lower_open_input("t_in", false, &imports, &TestPlatform).expect("openInput");
     assert_eq!(
         raises_of(&ins, &rel, "ErrAudioUnavailable"),
         (1, set(&["AudioObjectGetPropertyData"]))
@@ -151,8 +160,7 @@ fn alsa_audio_failures_report_their_os_status() {
         (1, set(&["snd_pcm_recover"]))
     );
     for timeout in [false, true] {
-        let (ins, rel, _) =
-            lower_read("t_read", timeout, &imports, &TestPlatform).expect("read");
+        let (ins, rel, _) = lower_read("t_read", timeout, &imports, &TestPlatform).expect("read");
         assert_eq!(
             raises_of(&ins, &rel, "ErrAudioDevice"),
             (1, set(&["snd_pcm_recover"])),

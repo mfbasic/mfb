@@ -51,10 +51,10 @@ pub(crate) mod gen_macos_devices;
 pub(crate) mod gen_macos_io;
 pub(crate) mod gen_macos_shared;
 pub(crate) mod gen_macos_stream;
-#[cfg(test)]
-mod status_tests;
 pub(crate) mod gen_shared;
 pub(crate) mod gen_windows;
+#[cfg(test)]
+mod status_tests;
 
 mod func_available;
 mod func_close;

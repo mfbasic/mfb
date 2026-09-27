@@ -188,7 +188,9 @@ fn exclusive_output_open_does_not_start_the_stream() {
         .expect("the open's post-Start label");
     let skip = ins
         .iter()
-        .position(|i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened"))
+        .position(|i| {
+            i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened")
+        })
         .expect("the EXCLUSIVE output skips Start");
     assert!(skip < label);
     let calls = ins[skip..label]
@@ -198,8 +200,9 @@ fn exclusive_output_open_does_not_start_the_stream() {
     assert_eq!(calls, 1, "exactly the Start call is skipped");
     let (ins, _rel, _) = lower_open("t_open", true, false, &imports, &TestPlatform).expect("open");
     assert!(
-        !ins.iter()
-            .any(|i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened")),
+        !ins.iter().any(
+            |i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened")
+        ),
         "an input stream always starts at open"
     );
 }
@@ -250,7 +253,8 @@ fn windows_audio_failures_report_their_os_status() {
             "open input={input} device={device}"
         );
     }
-    let (ins, rel, _) = lower_write("t_write", &imports, &TestPlatform).expect("lower audio::write");
+    let (ins, rel, _) =
+        lower_write("t_write", &imports, &TestPlatform).expect("lower audio::write");
     assert_eq!(
         raises_of(&ins, &rel, "ErrAudioDevice"),
         (

@@ -2959,9 +2959,8 @@ pub(crate) fn lower_module_for_platform(
                  parked error"
             ));
         }
-        code_functions.push(
-            crate::codegen::error::emission::fail_status::lower_fail_status_helper(),
-        );
+        code_functions
+            .push(crate::codegen::error::emission::fail_status::lower_fail_status_helper());
     }
     // plan-158-A: the call-site re-stamp of a parked helper error. Same gate, and
     // also ahead of the park's: it calls the park.

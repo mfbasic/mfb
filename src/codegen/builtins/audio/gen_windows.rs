@@ -143,8 +143,8 @@ const TIMEOUT_OFF: usize = 128; // read/query: timeoutMs
 const DEVID_OFF: usize = 136; // devices: id string
 const NAME_OFF: usize = 144; // devices: name string
 const COUNT_OFF: usize = 152; // devices: endpoint count
-// plan-158-A: a failing OS call's status and its message-prefix address, carried
-// across a shared cleanup tail to `_mfb_rt_fail_status` (`StatusFailSites`).
+                              // plan-158-A: a failing OS call's status and its message-prefix address, carried
+                              // across a shared cleanup tail to `_mfb_rt_fail_status` (`StatusFailSites`).
 const FAIL_STATUS_OFF: usize = 160;
 const FAIL_PREFIX_OFF: usize = 168;
 const DEADLINE_OFF: usize = 176; // read timeout: absolute deadline (ms tick)

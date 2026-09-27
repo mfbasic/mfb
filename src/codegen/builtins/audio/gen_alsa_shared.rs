@@ -232,8 +232,8 @@ pub(crate) const DEVLIST_CURSOR_OFF: usize = 512; // record-list builder scratch
 pub(crate) const DEVLIST_INDEX_OFF: usize = 520; // record-list builder scratch
 
 pub(crate) const DEVLIST_OFF: usize = 528; // the built list
-// plan-158-B: `StatusFailSites`' two slots (a failing call's status and its
-// message-prefix address), above every named slot.
+                                           // plan-158-B: `StatusFailSites`' two slots (a failing call's status and its
+                                           // message-prefix address), above every named slot.
 pub(crate) const ALSA_FAIL_STATUS_OFF: usize = 536;
 pub(crate) const ALSA_FAIL_PREFIX_OFF: usize = 544;
 
@@ -701,7 +701,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_rate_near");
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_rate_near",
+    );
     // set_period_size_near(&period, &dir) — period = bufferFrames
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
@@ -735,7 +739,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_period_size_near");
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_period_size_near",
+    );
     // set_buffer_size_near(&buffer) — buffer = bufferFrames * 4 (mirror macOS depth)
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
@@ -765,7 +773,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_buffer_size_near");
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_buffer_size_near",
+    );
     // commit
     emit_alsa_call(
         &mut *vregs,
