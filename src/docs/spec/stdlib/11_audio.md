@@ -129,6 +129,31 @@ with `dlopen` — never a `DT_NEEDED` — so a binary that imports `audio` still
 starts where alsa-lib is absent, and every `audio::` call there raises
 `ErrAudioUnavailable`.
 
+## Windows share modes and preemption
+
+No resampling holds on Windows too, so a stream runs in one of two WASAPI modes.
+`openOutput`/`openInput` read the device's mix format first and use SHARED mode
+whenever it can serve the request: the requested rate is the mix rate, the mix is
+32-bit float, and it has at least the requested channels. The samples are then
+converted between `s16le` and the mix's float format. Only when SHARED cannot
+serve the request (a 44100 Hz stream on a 48000 Hz device) is the stream opened in
+EXCLUSIVE mode at `s16le` [[src/codegen/builtins/audio/gen_windows_open.rs:lower_open]].
+
+Opening an exclusive stream takes the device from every other stream on it: each
+one's next call fails with `ErrAudioDevice`
+`(… : 0x88890004)` (`AUDCLNT_E_DEVICE_INVALIDATED`), and it must be reopened. This
+is Windows' behaviour and cannot be avoided once an exclusive stream is needed;
+it is also why SHARED comes first. An exclusive ATTEMPT does it even when it
+fails, so an open never tries exclusive mode it does not need (measured on a Win11
+host, plan-158-C C2). Two streams at the device's own rate coexist.
+
+An exclusive output takes whole device buffers: `write` collects frames and hands
+over a full buffer at a time, the first one before the stream starts, and `close`
+pads the last partial buffer with silence and lets it play
+[[src/codegen/builtins/audio/gen_windows_io.rs:emit_exclusive_submit]]. Until the
+first full buffer, `poll` on such a stream answers `TRUE` at once and `available`
+reports the room left in that buffer.
+
 ## Error model
 
 - `ErrAudioUnavailable` (`7-705-0017`) — the audio backend library or a device is
@@ -145,6 +170,41 @@ starts where alsa-lib is absent, and every `audio::` call there raises
 
 The two audio codes are registered in the constant registry by the diagnostics
 topic; see `mfb spec diagnostics error-codes`.
+
+### The OS status in the message
+
+On every backend, an `ErrAudioDevice` or `ErrAudioUnavailable` caused by a failed
+OS call names the call and its status after the registered message:
+`Audio device open, configuration, or stream operation failed. (IAudioRenderClient::GetBuffer: 0x88890004)`.
+The status is the low 32 bits of the call's result as 8 hex digits:
+
+- Windows: the `HRESULT` of a COM call (`IAudioClient::Initialize(SHARED)` and
+  `IAudioClient::Initialize(EXCLUSIVE)` name the mode that was tried),
+  `GetLastError()` for `CreateEventW`, and `WAIT_TIMEOUT` (`0x00000102`) from
+  `WaitForSingleObject` when a `write` waits more than two buffer periods (at least
+  200 ms) for a stream that has stopped signalling.
+- macOS: the `OSStatus` of the `AudioQueue*` or `AudioObjectGetPropertyData` call
+  (`AudioQueueStart: 0xfffefbb3` when a queue is pointed at a device that cannot
+  run in its direction).
+- Linux: the negative errno of the `snd_pcm_*` or `snd_device_name_hint` call
+  (`snd_pcm_open: 0xfffffff0` is `-EBUSY`), and for the committed-format checks
+  named `rate` and `channels`, the value the device committed.
+
+`e.code` is unchanged. The failure sites raise through `StatusFailSites`
+[[src/codegen/error/emission/native_fail.rs:StatusFailSites]], which calls
+`_mfb_rt_fail_status` [[src/codegen/error/emission/fail_status.rs:lower_fail_status_helper]]. That helper
+builds the text and parks it as an owned `Error` block, the same route
+`FAIL <Error value>` takes (`mfb spec language errors`). The call names are
+pinned per backend by `windows_audio_failures_report_their_os_status`
+[[src/codegen/builtins/audio/gen_windows_tests.rs:windows_audio_failures_report_their_os_status]],
+`macos_audio_failures_report_their_os_status`
+[[src/codegen/builtins/audio/status_tests.rs:macos_audio_failures_report_their_os_status]] and
+`alsa_audio_failures_report_their_os_status`
+[[src/codegen/builtins/audio/status_tests.rs:alsa_audio_failures_report_their_os_status]].
+A failure with no OS call behind it keeps the bare registered message: a `write` or
+`read` on a closed stream, a parameter out of range, a failed `mmap`, a missing
+`libasound` or symbol, and a Core Foundation string call that returns no status. If the message cannot
+be allocated, the error is raised with the bare registered message instead.
 
 ## See Also
 

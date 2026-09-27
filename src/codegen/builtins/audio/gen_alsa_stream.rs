@@ -24,6 +24,14 @@ pub(crate) fn lower_open(
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
+    // plan-158-B: a failing ALSA call reports its name and negative errno.
+    let mut dev_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        ALSA_FAIL_STATUS_OFF,
+        ALSA_FAIL_PREFIX_OFF,
+    );
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
@@ -178,7 +186,7 @@ pub(crate) fn lower_open(
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("snd_pcm_open", abi::return_register())),
     ]);
     emit_configure_hw_params(
         &mut vregs,
@@ -190,7 +198,7 @@ pub(crate) fn lower_open(
             relocations: &mut relocations,
         },
         &unavailable,
-        &dev_fail,
+        &mut dev_sites,
     )?;
     // snd_pcm_prepare(pcm)
     emit_alsa_call(
@@ -214,7 +222,7 @@ pub(crate) fn lower_open(
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("snd_pcm_prepare", abi::return_register())),
         abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
         abi::move_immediate(&v9, "Integer", "1"),
         abi::store_u64(&v9, &v15, S_STARTED),
@@ -275,6 +283,20 @@ pub(crate) fn lower_open(
         &mut relocations,
         &done,
     );
+    dev_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(dev_sites.tail()));
+    emit_open_cleanup(
+        &mut vregs,
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "status",
+    )?;
+    dev_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,

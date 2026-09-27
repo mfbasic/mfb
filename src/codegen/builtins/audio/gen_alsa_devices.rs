@@ -32,6 +32,14 @@ pub(crate) fn lower_devices(
     let fill_loop = format!("{symbol}_fill");
     let fill_done = format!("{symbol}_fill_done");
     let done = format!("{symbol}_done");
+    // plan-158-B: a failed hint enumeration reports its negative errno.
+    let mut unavailable_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioUnavailable",
+        &format!("{symbol}_status_unavailable"),
+        ALSA_FAIL_STATUS_OFF,
+        ALSA_FAIL_PREFIX_OFF,
+    );
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
@@ -74,7 +82,7 @@ pub(crate) fn lower_devices(
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site("snd_device_name_hint", abi::return_register())),
         // count NULL-terminated hints
         abi::load_u64(&v9, abi::stack_pointer(), HINTS_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFF),
@@ -315,6 +323,11 @@ pub(crate) fn lower_devices(
         &mut relocations,
         &done,
     );
+    // The hint enumeration failed before anything was allocated.
+    let v_status = vregs.next();
+    unavailable_sites.emit_stubs(&v_status, &mut instructions, &mut relocations);
+    instructions.push(abi::label(unavailable_sites.tail()));
+    unavailable_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,

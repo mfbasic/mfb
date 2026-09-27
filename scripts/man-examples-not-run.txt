@@ -12,6 +12,7 @@
 
 # term — the gate has no controlling terminal. `term::terminalSize`'s own page
 # documents the raise (ErrUnsupported) when standard output is not a terminal.
+term::didResize#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawBox#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawGlyph#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawHLine#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
@@ -22,6 +23,7 @@ term::moveTo#2  needs a controlling terminal (raises ErrUnsupported without one,
 term::terminalSize#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::terminalSize#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::sync#2  an interactive loop that reads keys until `q` from a terminal
+io::readKey#2  an interactive loop that reads keys until Escape or `q`; the gate's stdin has neither, so it ends at ErrEndOfFile
 
 # tls servers — each needs a certificate and key on disk and then blocks in
 # tls::accept for a client the gate does not provide.

@@ -96,6 +96,29 @@ def sum_of_squares(var, dim):
     return " + ".join(f"{var}.{f} * {var}.{f}" for f in FIELDS[dim])
 
 
+# bug-654: the Fixed angle/slerp/project/clamp_length chains are carried in Float
+# and rounded to Q32.32 once, at the end; each intermediate Fixed rounding compounded.
+def float_sum_of_squares(var, dim):
+    return " + ".join(f"toFloat({var}.{f}) * toFloat({var}.{f})" for f in FIELDS[dim])
+
+
+def float_dot(a, b, dim):
+    return " + ".join(f"toFloat({a}.{f}) * toFloat({b}.{f})" for f in FIELDS[dim])
+
+
+def float_angle_prefix(dim):
+    """The Float-carried norms, zero check and cosine shared by the Fixed angle and
+    slerp overloads (bug-654)."""
+    return [
+        f"LET la AS Float = math::sqrt({float_sum_of_squares('a', dim)})",
+        f"LET lb AS Float = math::sqrt({float_sum_of_squares('b', dim)})",
+        "IF la = 0.0 OR lb = 0.0 THEN",
+        '  FAIL error(77050002, "vector::angle with a zero-length vector")',
+        "END IF",
+        f"LET cosv AS Float = ({float_dot('a', 'b', dim)}) / (la * lb)",
+    ]
+
+
 def gen_length(element, dim):
     t = tname(element, dim)
     sig = f"{impl('length', element, dim)}(v AS {t}) AS {element}"
@@ -207,6 +230,18 @@ def gen_project(element, dim):
     t = tname(element, dim)
     sig = f"{impl('project', element, dim)}(a AS {t}, b AS {t}) AS {t}"
     msg = "vector::project onto a zero-length vector"
+    if element == "Fixed":
+        body = [
+            f"LET db AS Float = {float_sum_of_squares('b', dim)}",
+            "IF db = 0.0 THEN",
+            f'  FAIL error(77050002, "{msg}")',
+            "END IF",
+            f"LET ratio AS Float = ({float_dot('a', 'b', dim)}) / db",
+        ]
+        for f in FIELDS[dim]:
+            body.append(f"LET c{f} AS Fixed = toFixed(ratio * toFloat(b.{f}))")
+        body.append(f"RETURN {t}[{', '.join('c' + f for f in FIELDS[dim])}]")
+        return fn(sig, body)
     body = [
         f"LET db AS {element} = {impl('dot', element, dim)}(b, b)",
         f"IF db = {zero(element)} THEN",
@@ -262,6 +297,12 @@ def gen_angle(element, dim):
     sig = f"{impl('angle', element, dim)}(a AS {t}, b AS {t}) AS {element}"
     if element == "Integer":
         return fn(sig, [f"RETURN math::round(__vector_angleFixed_integer{dim}(a, b))"])
+    if element == "Fixed":
+        body = float_angle_prefix(dim) + [
+            "LET clamped AS Float = math::clamp(cosv, -1.0, 1.0)",
+            "RETURN toFixed(math::acos(clamped))",
+        ]
+        return fn(sig, body)
     msg = "vector::angle with a zero-length vector"
     body = [
         f"LET la AS {element} = math::sqrt({impl('dot', element, dim)}(a, a))",
@@ -318,18 +359,17 @@ def gen_slerp(element, dim):
         for f in FIELDS[dim]:
             body.append(f"LET c{f} AS Float = w0 * a.{f} + w1 * b.{f}")
     elif element == "Fixed":
-        body = [
-            f"LET omega AS Fixed = {impl('angle', element, dim)}(a, b)",
-            "LET s AS Fixed = math::sin(omega)",
-            "IF math::abs(s) < toFixed(0.000001) THEN",
+        body = float_angle_prefix(dim) + [
+            "LET omega AS Float = math::acos(math::clamp(cosv, -1.0, 1.0))",
+            "LET s AS Float = math::sin(omega)",
+            "IF math::abs(s) < 0.000001 THEN",
             f"  RETURN {unclamped}(a, b, t)",
             "END IF",
-            "LET tf AS Fixed = toFixed(t)",
-            "LET w0 AS Fixed = math::sin((toFixed(1.0) - tf) * omega) / s",
-            "LET w1 AS Fixed = math::sin(tf * omega) / s",
+            "LET w0 AS Float = math::sin((1.0 - t) * omega) / s",
+            "LET w1 AS Float = math::sin(t * omega) / s",
         ]
         for f in FIELDS[dim]:
-            body.append(f"LET c{f} AS Fixed = w0 * a.{f} + w1 * b.{f}")
+            body.append(f"LET c{f} AS Fixed = toFixed(w0 * toFloat(a.{f}) + w1 * toFloat(b.{f}))")
     else:  # Integer
         body = [
             f"LET omega AS Fixed = __vector_angleFixed_integer{dim}(a, b)",
@@ -369,6 +409,16 @@ def gen_clamp_length(element, dim):
         ]
         for f in FIELDS[dim]:
             body.append(f"LET c{f} AS Integer = math::round(toFloat(v.{f}) * ratio)")
+    elif element == "Fixed":
+        body += [
+            f"LET len AS Float = math::sqrt({float_sum_of_squares('v', dim)})",
+            "IF len <= toFloat(maxLen) OR len = 0.0 THEN",
+            "  RETURN v",
+            "END IF",
+            "LET ratio AS Float = toFloat(maxLen) / len",
+        ]
+        for f in FIELDS[dim]:
+            body.append(f"LET c{f} AS Fixed = toFixed(toFloat(v.{f}) * ratio)")
     else:
         body += [
             f"LET len AS {element} = math::sqrt({sum_of_squares('v', dim)})",
