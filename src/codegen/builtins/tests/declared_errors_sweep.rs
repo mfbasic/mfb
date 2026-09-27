@@ -28,7 +28,9 @@
 use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::BuilderHarness;
-use crate::codegen::engine::types::{CodeInstruction, CodeRelocation, CodegenPlatform};
+use crate::codegen::engine::types::{
+    CodeInstruction, CodeRelocation, CodegenPlatform, RelocIntent,
+};
 use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, AbiCtx, Body, Implementation, RegistryFunction};
 use crate::os::linux::flavor::LinuxFlavor;
@@ -108,9 +110,13 @@ pub(crate) fn scan(
         }
     }
     for relocation in relocations {
-        // External (libc/kernel32) calls report failure through errno, which the
-        // body maps itself; `_mfb_str*` are the error-message data objects.
-        if relocation.library.is_none() && !relocation.to.starts_with("_mfb_str") {
+        // Only a `Call`-intent relocation is a call at all — `DataAddrHi`/
+        // `DataAddrLo`/`GotLoadHi`/`GotLoadLo` are addresses of data (error-message
+        // strings, dlopen/dlsym name literals, …), never something that can itself
+        // raise. External (libc/kernel32) calls report failure through errno, which
+        // the body maps itself, so only an internal (no `library`) call is a callee
+        // to classify.
+        if relocation.kind == RelocIntent::Call && relocation.library.is_none() {
             callees.insert(relocation.to.clone());
         }
     }
@@ -128,7 +134,41 @@ pub(crate) fn lower_body(
     implementation: &Implementation,
     platform: &dyn CodegenPlatform,
 ) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    let call = format!("{package}.{}", function.name);
+    lower_body_call(
+        &format!("{package}.{}", function.name),
+        implementation,
+        platform,
+    )
+}
+
+/// Every `ctx.call` form a member's implementation can be lowered under: its
+/// own `package.name`, plus each `os_aliases` code-form
+/// (`RegistryFunction::os_aliases`, e.g. `udp.poll`'s list overload arrives
+/// under `udp.pollList`) — a body dispatches on `ctx.call`, so an alias-only
+/// branch is invisible unless the sweep drives it under its OWN call string,
+/// not the member's public name.
+pub(crate) fn call_forms(package: &str, function: &RegistryFunction, implementation: &Implementation) -> Vec<String> {
+    let mut calls = vec![format!("{package}.{}", function.name)];
+    if let Body::AbiFunction { os_aliases, .. } = &implementation.body {
+        for alias in os_aliases.iter() {
+            calls.push(format!("{package}.{alias}"));
+        }
+    }
+    calls
+}
+
+/// Lower one implementation under a specific `ctx.call` string (see
+/// [`call_forms`]) on one backend and return the emitted instructions and
+/// relocations.
+///
+/// A body refuses when an import or string literal it needs is not declared.
+/// The plan derives both from the program, so supply each one it names and
+/// lower again until it succeeds.
+pub(crate) fn lower_body_call(
+    call: &str,
+    implementation: &Implementation,
+    platform: &dyn CodegenPlatform,
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
     let mut vregs = Vregs::new();
     let args: Vec<ValueResult> = implementation
         .params
@@ -144,7 +184,7 @@ pub(crate) fn lower_body(
     for _ in 0..64 {
         let mut builder = harness.builder("_mfb_rt_probe", platform);
         let ctx = AbiCtx {
-            call: &call,
+            call,
             ..harness.abi_ctx(platform)
         };
         let result = match implementation.body {
@@ -199,18 +239,17 @@ pub(crate) fn lower_member(
             ) {
                 continue;
             }
-            match lower_body(package, function, implementation, platform.as_ref()) {
-                Ok((instructions, relocations)) => scan(
-                    &instructions,
-                    &relocations,
-                    codes,
-                    &mut raised,
-                    &mut callees,
-                ),
-                Err(error) => failures.push(format!(
-                    "{target} {package}::{} refused: {error}",
-                    function.name
-                )),
+            for call in call_forms(package, function, implementation) {
+                match lower_body_call(&call, implementation, platform.as_ref()) {
+                    Ok((instructions, relocations)) => scan(
+                        &instructions,
+                        &relocations,
+                        codes,
+                        &mut raised,
+                        &mut callees,
+                    ),
+                    Err(error) => failures.push(format!("{target} {call} refused: {error}")),
+                }
             }
         }
     }
