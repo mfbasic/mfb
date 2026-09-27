@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: `src/arch/riscv64/select.rs:tests::bare_compare_on_abi_tokens_realizes_them`,
 `src/target/linux_riscv64/mod.rs:tests::mouse_aware_stdin_reads_encode`
 
@@ -15,6 +15,18 @@ terminal mouse (`term::enableMouse`, `term::pollMouse`, …) together with a std
 `error: unknown rv64 integer register '%retMFB0'` and writes no binary.
 `examples/swat/tui` is the in-tree victim (it is one of the `linux-riscv64` failures
 of `scripts/build-examples.sh`); every other target builds it.
+
+## STATUS: FIXED (564a6e18a)
+
+Shipped as designed: `select_riscv64`'s bare-compare arms keep register operands
+typed (`field_operand`, `snapshot_lhs`, `store_flag_rhs(&Operand)`). No deviation.
+Verified on merged tip 1ca1f73a1: `scripts/artifact-gate.sh target/release/mfb all`
+→ 0 diffs over 2160 goldens (no golden moved, as predicted); full `cargo test
+--no-fail-fast` → all 244 test binaries `ok`. Runtime: both riscv64 boxes (2229, 2232)
+refused ssh, so the proof ran under qemu-user riscv64 containers (Alpine musl, Debian
+trixie glibc): a mouse+`pollInput`/`readChar`/`readLine` probe matched the host output
+byte for byte, and `examples/swat/tui` rendered, took a mouse click and quit cleanly
+on both libcs.
 
 **The single correct behavior:** the rv64 selector's bare-compare snapshot realizes a
 convention-token operand (`%retMFB0` → `a0`) exactly as every other rv64 operand is
@@ -164,12 +176,13 @@ Commit: 564a6e18a; 535b873eb (`.ai/codegen-invariants.md` lesson)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `scripts/artifact-gate.sh target/release/mfb all` — expected 0 diffs.
-- [ ] Full `cargo test`.
-- [ ] Run the rebuilt `examples/swat/tui` on a riscv64 box.
+- [x] `scripts/artifact-gate.sh target/release/mfb all` — 0 diffs / 2160 goldens (1ca1f73a1).
+- [x] Full `cargo test --no-fail-fast` — 244 binaries ok (1ca1f73a1).
+- [x] Run the rebuilt `examples/swat/tui` on riscv64 — boxes 2229/2232 refused ssh;
+      run under qemu-user riscv64 containers instead (musl + glibc), see STATUS.
 
 Acceptance: gate 0 diffs; full suite green; the example runs on riscv64.
-Commit: —
+Commit: no golden moved; verification only (this archive commit)
 
 ## Validation Plan
 
