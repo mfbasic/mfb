@@ -208,10 +208,14 @@ fn pure_expression(
     }
 }
 
-/// The one declared type of every local name the function binds, parameters
-/// included. A name bound at two different types (shadowing in different
-/// scopes) is left out, so no argument read of it is ever treated as typed.
-fn local_types(function: &NirFunction) -> HashMap<String, ParameterType> {
+/// Every local name the function binds, parameters included, with its one
+/// declared type — or `None` for a name bound at two different types
+/// (shadowing in different scopes), so no argument read of it is ever treated
+/// as typed. The key set is also what [`inline_call`] checks a call target
+/// against: a call whose target names a local is an indirect call through a
+/// `FUNC` value (codegen resolves a local before a module function), never a
+/// call to the module function that happens to share the name.
+fn local_types(function: &NirFunction) -> HashMap<String, Option<ParameterType>> {
     fn note(types: &mut HashMap<String, Option<ParameterType>>, name: &str, type_: &ParameterType) {
         let entry = types
             .entry(name.to_string())
@@ -270,9 +274,6 @@ fn local_types(function: &NirFunction) -> HashMap<String, ParameterType> {
     }
     walk(&function.body, &mut types);
     types
-        .into_iter()
-        .filter_map(|(name, type_)| Some((name, type_?)))
-        .collect()
 }
 
 /// The inlined expression for `value` when it is an eligible call (module
@@ -280,12 +281,16 @@ fn local_types(function: &NirFunction) -> HashMap<String, ParameterType> {
 fn inline_call(
     value: &NirValue,
     leaves: &HashMap<String, Leaf>,
-    types: &HashMap<String, ParameterType>,
+    types: &HashMap<String, Option<ParameterType>>,
     file: &str,
 ) -> Option<NirValue> {
     let NirValue::Call { target, args, .. } = value else {
         return None;
     };
+    if types.contains_key(target) {
+        // A local of this name shadows the module function: an indirect call.
+        return None;
+    }
     let leaf = leaves.get(target)?;
     if args.len() != leaf.params.len() {
         return None;
@@ -296,7 +301,7 @@ fn inline_call(
             NirValue::Const {
                 type_: arg_type, ..
             } => arg_type == type_,
-            NirValue::Local(local) => types.get(local) == Some(type_),
+            NirValue::Local(local) => types.get(local).and_then(Option::as_ref) == Some(type_),
             _ => false,
         };
         if !typed {
@@ -537,6 +542,22 @@ mod tests {
             run(&mut module, 1);
             assert!(matches!(returned(&module), NirValue::Call { .. }));
         }
+    }
+
+    /// A call whose target names a local (a `FUNC`-typed parameter sharing the
+    /// module function's name) is an indirect call and keeps it — the
+    /// `rt-behavior/general/typename_user_call` shape.
+    #[test]
+    fn a_call_through_a_same_named_local_is_left_alone() {
+        let mut through_param = caller("grid.mfb", call("gi", vec![local("i"), local("j")]));
+        through_param.params.push(NirParam {
+            name: "gi".to_string(),
+            type_: ParameterType::Unknown,
+            default: None,
+        });
+        let mut module = test_module(vec![gi("grid.mfb"), through_param]);
+        run(&mut module, 1);
+        assert!(matches!(returned(&module), NirValue::Call { .. }));
     }
 
     /// A callee that is not a scalar one-expression leaf is never inlined.
