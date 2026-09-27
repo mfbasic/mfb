@@ -152,7 +152,7 @@ pub(crate) fn census(module: &NirModule) -> Census {
 /// from an early initializer which reads a later binding sees exactly that.
 /// Replacing such a read with the initializer's literal would change the value
 /// the program computes, so neither global-folding row may rewrite a read in a
-/// function this returns (bug-744).
+/// function this returns (bug-747).
 ///
 /// Reachability is by name and conservative: a direct call (`Call` /
 /// `CallResult`) whose target is a module function follows the edge, and so
@@ -347,7 +347,7 @@ mod tests {
         }
     }
 
-    /// bug-744: the initializer SUB reaches what it calls, what those call,
+    /// bug-747: the initializer SUB reaches what it calls, what those call,
     /// and every function it mentions as a value; nothing else. A call to a
     /// name that is no module function (a builtin) is not an edge.
     #[test]

@@ -1,4 +1,4 @@
-//! bug-744: no `-O` level may fold a module binding's initializer into a read
+//! bug-747: no `-O` level may fold a module binding's initializer into a read
 //! that can run before that binding is initialized.
 //!
 //! Top-level bindings initialize one at a time, in declaration order, and a

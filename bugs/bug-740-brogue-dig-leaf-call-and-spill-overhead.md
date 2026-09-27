@@ -178,7 +178,7 @@ memory mechanism; it needs optimizer work, not an example change.
 
 ## WIP status (2026-09-26, paused by coordinator)
 
-- Landed on `worktree-B-740`: bug-744 (fixed, archived), plan-158-A phase 1
+- Landed on `worktree-B-740`: bug-747 (fixed, archived), plan-158-A phase 1
   (literal `LET` folding, `2d170c339`); main merged (`876128d36`). plan-158-A
   phase 2 (golden regen, full gates, bench) not run yet.
 - Written but NOT on the branch (scratch detached worktree `/tmp/b740-dev`,

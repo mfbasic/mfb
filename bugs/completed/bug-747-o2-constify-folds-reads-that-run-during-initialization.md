@@ -1,4 +1,4 @@
-# bug-744: `-O2` constification folds a global read that runs before the global is initialized
+# bug-747: `-O2` constification folds a global read that runs before the global is initialized
 
 Last updated: 2026-09-26
 Effort: small (<1h)

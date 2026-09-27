@@ -3,7 +3,7 @@
 Last updated: 2026-09-26
 Overall Effort: huge (>3d) — plan-158 is bug-740's three mechanisms, one letter each
 Effort: medium (1h–2h)
-Depends on: bug-744 (fixed first; this row reuses its guard)
+Depends on: bug-747 (fixed first; this row reuses its guard)
 
 bug-740 mechanism (a). A module-level `LET` whose initializer is a number or
 Boolean literal is read from the globals block on every use (`add x8, x19,
@@ -18,7 +18,7 @@ References:
 
 - `bugs/bug-740-brogue-dig-leaf-call-and-spill-overhead.md` — the profile and the
   three mechanisms. Mechanism (a) is this plan.
-- `bugs/completed/bug-744-o2-constify-folds-reads-that-run-during-initialization.md`
+- `bugs/completed/bug-747-o2-constify-folds-reads-that-run-during-initialization.md`
   — the init-order hazard this row must not repeat, and the guard it reuses.
 - `src/optimizer/opt1/globals.rs` — the Level-2 constification row this mirrors.
 - `planning/optimizations.md` — the pass catalog; `src/optimizer/catalog.rs` —
@@ -30,7 +30,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-744 fixed (the `initializer_reachable` guard exists) | `grep -n "fn initializer_reachable" src/optimizer/opt1/plans/globals.rs` → one hit | MET (2026-09-26) |
+| bug-747 fixed (the `initializer_reachable` guard exists) | `grep -n "fn initializer_reachable" src/optimizer/opt1/plans/globals.rs` → one hit | MET (2026-09-26) |
 
 Everything below is written against a tree where that guard exists.
 
@@ -51,7 +51,7 @@ Everything below is written against a tree where that guard exists.
   node, a string, a collection, a record, a union or an enum member is not a
   `Const` of a word scalar and is never folded: evaluating it at each read could
   trap, allocate, or run code a different number of times.
-- **Never a read that can run during initialization** (bug-744): the global
+- **Never a read that can run during initialization** (bug-747): the global
   initializer SUB and everything it reaches keep their reads.
 - No change to the `.mfp` package format, the globals block layout, or any
   global's storage: the global is still stored and still readable by anything
@@ -71,7 +71,7 @@ Everything below is written against a tree where that guard exists.
   (`src/optimizer/opt1/globals.rs:constify`): private globals only, so brogue's
   `PUBLIC LET DROWS` is a memory load even at `-O3` (verified: `-O3 -ncode` of
   `gi` still loads `x19+3896`).
-- bug-744 added `plans::globals::initializer_reachable` and the shared
+- bug-747 added `plans::globals::initializer_reachable` and the shared
   substitution `substitute_outside_initialization`.
 
 ### Measured populations
@@ -103,12 +103,12 @@ inlined `gi` with `DROWS` still a load keeps a memory access in the hottest loop
 One new Opt1 row, `globals::fold_literal_lets`, gated `level_enabled(1)`, run
 first in `optimize_nir` (before the local rewrites, so they fold through the
 literal). It builds the `{name → Const}` map from the three checks above and
-hands it to bug-744's `substitute_outside_initialization`. A catalog row
+hands it to bug-747's `substitute_outside_initialization`. A catalog row
 ("Literal `LET` folding", Level 1, stage NIR) and a stats counter make it visible
 under `-v` and in `mfb man optimizations`.
 
 Correctness risk concentrates in the initializer-order guard — already fixed and
-tested by bug-744 — and in the type check (a `Const` whose type differs from the
+tested by bug-747 — and in the type check (a `Const` whose type differs from the
 global's is a coercion the store performs; folding it would skip the coercion).
 
 **Gate class: not byte-identical.** Every fixture that reads a scalar-literal
@@ -178,7 +178,7 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: Phase 1's unit and runtime tests; bug-744's
+- Tests: Phase 1's unit and runtime tests; bug-747's
   `rt_global_init_order_fold` (its `LET` case is this row's init-order guard).
 - Coverage check: `mfb build -v examples/brogue` shows the row firing (303).
 - Runtime proof: `examples/brogue/check/check-terrain.sh 8 1` byte-identical.
@@ -211,5 +211,5 @@ Commit: —
 ## Summary
 
 Small and nearly free: the risk was the initialization-order hazard, which
-bug-744 found and fixed in the older row first. On its own it moves brogue by
+bug-747 found and fixed in the older row first. On its own it moves brogue by
 nothing measurable; it exists so that plan-158-C's inlined helpers see constants.

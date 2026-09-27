@@ -12,7 +12,7 @@
 //!   so the behavioral cases above are not vacuous.
 //!
 //! The initialization-order guard the row shares with the Level-2 row is pinned
-//! by `rt_global_init_order_fold` (bug-744).
+//! by `rt_global_init_order_fold` (bug-747).
 
 #[path = "../common/mod.rs"]
 mod common;

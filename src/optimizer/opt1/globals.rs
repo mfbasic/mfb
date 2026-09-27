@@ -130,7 +130,7 @@ fn constify(module: &mut NirModule, census: &Census) -> u64 {
 ///
 /// A function the initializer can reach may read a global before that
 /// global's own store has run, and such a read observes zero, not the
-/// initializer (`plans::globals::initializer_reachable`, bug-744). Those
+/// initializer (`plans::globals::initializer_reachable`, bug-747). Those
 /// functions — and the initializer SUB itself — keep their reads.
 fn substitute_outside_initialization(
     module: &mut NirModule,
@@ -511,7 +511,7 @@ mod tests {
         );
     }
 
-    /// bug-744: a function the global initializer can reach may run before a
+    /// bug-747: a function the global initializer can reach may run before a
     /// global's own store, when the slot still reads zero — so it keeps its
     /// read (and so does the initializer SUB itself), while a function that
     /// only runs after initialization gets the literal.
@@ -702,7 +702,7 @@ mod tests {
         assert!(matches!(value, NirValue::Global { .. }));
     }
 
-    /// bug-744's guard applies to this row too: a function the initializer
+    /// bug-747's guard applies to this row too: a function the initializer
     /// reaches keeps its read.
     #[test]
     fn literal_let_folding_keeps_reads_that_can_run_during_initialization() {
