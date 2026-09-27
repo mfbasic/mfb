@@ -144,6 +144,11 @@ pub(crate) fn lower_key_reader(
         .location
         .clone();
     instructions.push(abi::store_u64(&timeout_arg, abi::stack_pointer(), TIMEOUT));
+    // The terminal-restore flag reads zero until the terminal is configured, so
+    // the shared restore at `done` is a no-op on the negative-timeout exit taken
+    // before it (it read whatever the frame held — `readKey(-1)` raised
+    // `ErrInputFailed` instead of `ErrInvalidArgument`).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), TERM_ACTIVE));
     // The timeout convention: the omitted-argument sentinel waits without bound,
     // any other negative value is `ErrInvalidArgument`.
     let t = vregs.next();

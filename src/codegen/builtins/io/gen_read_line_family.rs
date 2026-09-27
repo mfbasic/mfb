@@ -857,7 +857,13 @@ pub(crate) fn lower_read_line_family(
     }
     instructions.push(abi::return_());
     // `BUFFER` must read zero on the error paths taken before the allocation.
-    let mut prologue = vec![abi::store_u64(abi::ZERO, abi::stack_pointer(), BUFFER)];
+    // ... and the terminal-restore flag must read zero on the paths taken before
+    // the terminal is configured (a negative timeout, a failed prompt write), or
+    // the shared restore at `done` acts on whatever the frame held.
+    let mut prologue = vec![
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), BUFFER),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TERM_ACTIVE),
+    ];
     prologue.append(&mut instructions);
     builder.instructions.extend(prologue);
     builder.relocations.extend(relocations);

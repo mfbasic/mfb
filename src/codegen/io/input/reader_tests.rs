@@ -1,16 +1,10 @@
-//! The plain readers consume through the input buffer (bug-699 Phase 2).
+//! The readers consume through the input buffer (bug-699).
 //!
-//! A program with a look-ahead reader (Phase 4) reserves the buffer, and then
-//! `io::readByte`, `io::readChar`, `io::readLine` and `io::pollInput` must take
-//! the bytes a look-ahead left there BEFORE anything new, or mixing readers
-//! would lose or reorder input. Those readers do not exist yet, so the region is
-//! reserved here with the test-only switch and filled by hand — exactly the
-//! state a look-ahead that peeked and did not consume leaves behind — and the
-//! emitted reader helpers are run in the `.ncode` interpreter with the stdin
-//! source modelled behind them.
-//!
-//! Without the switch nothing here is emitted at all; that half is the
-//! artifact gate's byte-identity check, not a test in this file.
+//! Every reader must take the bytes a look-ahead left in the buffer BEFORE
+//! anything new, or mixing readers would lose or reorder input. The region is
+//! filled by hand here — exactly the state a look-ahead that peeked and did not
+//! consume leaves behind — and the emitted reader helpers are run in the
+//! `.ncode` interpreter with the stdin source modelled behind them.
 
 use super::ncode_emu::{Externals, Machine};
 use super::{INPUT_STATE_BUF_OFFSET, INPUT_STATE_LEN_OFFSET};
@@ -21,15 +15,12 @@ const PROGRAM: &str = "\
 IMPORT io
 
 FUNC main AS Integer
-  LET b AS Byte = io::readByte()
-  LET c AS String = io::readChar()
   LET l AS String = io::readLine()
-  LET r AS Boolean = io::pollInput(0)
   LET raw AS Byte = io::readRaw()
   LET s AS Scalar = io::readScalar()
   LET g AS String = io::readGrapheme()
   LET k AS io::Key = io::readKey()
-  io::print(toString(b) & c & l & toString(r) & toString(raw) & toString(s) & g & k.grapheme)
+  io::print(l & toString(raw) & toString(s) & g & k.grapheme)
   RETURN 0
 END FUNC
 ";
@@ -63,6 +54,8 @@ struct Process {
     /// What `isatty(0)` answers: a terminal (the keyboard delay applies) or a
     /// pipe.
     tty: bool,
+    /// How many `tcsetattr` calls the reader made.
+    set_attrs: usize,
 }
 
 impl Externals for Process {
@@ -97,7 +90,11 @@ impl Externals for Process {
             }
             "_mfb_arena_free" | "_mfb_rt_io_stdout_drain" => Some(0),
             "_isatty" => Some(u64::from(self.tty)),
-            "_tcgetattr" | "_tcsetattr" => Some(0),
+            "_tcgetattr" => Some(0),
+            "_tcsetattr" => {
+                self.set_attrs += 1;
+                Some(0)
+            }
             // x1 = the timespec.
             "_clock_gettime" => {
                 m.write_uint(m.arg(1), 8, self.now / 1_000_000_000);
@@ -154,6 +151,7 @@ impl Run {
                 errno: 0,
                 now: 1_000_000_000,
                 tty: false,
+                set_attrs: 0,
             },
             region,
         }
@@ -179,58 +177,7 @@ impl Run {
     }
 }
 
-const READ_BYTE: &str = "_mfb_rt_io_io_readByte";
-const READ_CHAR: &str = "_mfb_rt_io_io_readChar";
 const READ_LINE: &str = "_mfb_rt_io_io_readLine";
-const POLL_INPUT: &str = "_mfb_rt_io_io_pollInput";
-
-#[test]
-fn read_byte_takes_buffered_bytes_first_then_the_source() {
-    let mut run = Run::new(b"\x1b[D", b"x");
-    let mut got = Vec::new();
-    for _ in 0..4 {
-        let (tag, value) = run.call(READ_BYTE, &[]);
-        assert_eq!(tag, 0, "readByte succeeds");
-        got.push(value as u8);
-    }
-    assert_eq!(got, b"\x1b[Dx");
-    assert_eq!(
-        run.process.source_reads, 1,
-        "the source is read only once the buffer is empty"
-    );
-    assert!(run.buffered().is_empty());
-}
-
-#[test]
-fn read_byte_with_an_empty_buffer_reads_the_source_as_before() {
-    // The control: the buffer front must fall through when there is nothing in it.
-    let mut run = Run::new(b"", b"q");
-    let (tag, value) = run.call(READ_BYTE, &[]);
-    assert_eq!((tag, value), (0, u64::from(b'q')));
-    assert_eq!(run.process.source_reads, 1);
-}
-
-#[test]
-fn read_char_completes_a_character_across_the_buffer_and_the_source() {
-    // A look-ahead left the lead byte of `é`; its continuation is still in the
-    // source. One readChar must join them.
-    let mut run = Run::new(b"\xc3", b"\xa9z");
-    let (tag, block) = run.call(READ_CHAR, &[]);
-    assert_eq!(tag, 0, "readChar succeeds");
-    assert_eq!(run.string(block), "é".as_bytes());
-    let (_, block) = run.call(READ_CHAR, &[]);
-    assert_eq!(run.string(block), b"z");
-}
-
-#[test]
-fn read_char_takes_a_whole_buffered_character_without_the_source() {
-    let mut run = Run::new("€a".as_bytes(), b"");
-    let (tag, block) = run.call(READ_CHAR, &[]);
-    assert_eq!(tag, 0);
-    assert_eq!(run.string(block), "€".as_bytes());
-    assert_eq!(run.buffered(), b"a");
-    assert_eq!(run.process.source_reads, 0);
-}
 
 #[test]
 fn read_line_joins_buffered_bytes_and_the_rest_of_the_line() {
@@ -242,27 +189,6 @@ fn read_line_joins_buffered_bytes_and_the_rest_of_the_line() {
         run.process.source.iter().copied().collect::<Vec<u8>>(),
         b"next"
     );
-}
-
-#[test]
-fn poll_input_reports_buffered_input_ready() {
-    // Nothing in the source: only the buffered byte can make this TRUE.
-    let mut run = Run::new(b"k", b"");
-    let (tag, ready) = run.call(POLL_INPUT, &[0]);
-    assert_eq!((tag, ready), (0, 1), "a buffered byte is input ready now");
-    assert_eq!(run.buffered(), b"k", "pollInput reads nothing");
-}
-
-#[test]
-fn poll_input_with_an_empty_buffer_still_asks_the_source() {
-    let mut run = Run::new(b"", b"");
-    assert_eq!(
-        run.call(POLL_INPUT, &[0]),
-        (0, 0),
-        "nothing buffered, nothing pending"
-    );
-    let mut run = Run::new(b"", b"s");
-    assert_eq!(run.call(POLL_INPUT, &[0]), (0, 1), "pending source input");
 }
 
 // --- The buffered readers (bug-699 Phase 4) -------------------------------------
@@ -392,8 +318,18 @@ fn a_timed_read_line_gives_a_half_line_back() {
 fn a_negative_timeout_is_an_invalid_argument() {
     for reader in [READ_RAW, READ_SCALAR, READ_GRAPHEME, READ_KEY, READ_LINE] {
         let mut run = Run::new(b"", b"x");
+        // The frame the reader gets is whatever the stack last held — here, the
+        // word `1` everywhere, which is what an earlier reader that configured
+        // the terminal leaves in its restore flag — so a slot read before it is
+        // written shows up (the flag did: `readKey(-1)` "restored" a terminal
+        // it never configured and raised `ErrInputFailed`).
+        let sp = run.machine.reg("sp");
+        for word in 1..=8192u64 {
+            run.machine.write_uint(sp - 8 * word, 8, 1);
+        }
         let (tag, code) = run.call(reader, &[(-5i64) as u64]);
         assert_eq!((tag != 0, code), (true, error_code("ErrInvalidArgument")), "{reader}");
         assert_eq!(run.process.source_reads, 0, "{reader} reads nothing");
+        assert_eq!(run.process.set_attrs, 0, "{reader} leaves the terminal alone");
     }
 }
