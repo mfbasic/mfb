@@ -19,7 +19,7 @@ IMPORT tls
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES l = tls::listen("127.0.0.1", 18736, "cert.pem", "key.pem")
   io::print("listening")
   MUT n AS Integer = 0
@@ -37,4 +37,4 @@ SUB main()
     n = n + 1
   END WHILE
   tls::close(l)
-END SUB
+END FUNC

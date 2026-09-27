@@ -148,7 +148,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 
-SUB emit(path AS String)
+FUNC emit(path AS String) AS Nothing
   MUT fromMemory AS String = ""
   MUT memoryError AS Integer = 0
   fromMemory = describeMemory(path) TRAP(e)
@@ -180,4 +180,4 @@ SUB emit(path AS String)
     END IF
   END IF
   io::print(line & "}")
-END SUB
+END FUNC

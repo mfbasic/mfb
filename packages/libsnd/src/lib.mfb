@@ -378,14 +378,14 @@ DOC
     IMPORT audio
     IMPORT libsnd
 
-    SUB main()
+    FUNC main() AS Nothing
       RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
       LET info AS SoundInfo = sound.state
       RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
       NEXT
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 ' `sf_open` signals every failure the same way — a NULL handle — so the LINK gate
@@ -600,13 +600,13 @@ DOC
     IMPORT audio
     IMPORT libsnd
 
-    SUB main()
+    FUNC main() AS Nothing
       ' The output is fixed at 48 kHz; the file may be anything.
       RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("chime.flac")
       LET s AS Sound = libsnd::loadSound(sound, 48000)
       RES out AS AudioOutput = audio::openOutput(48000, s.channels, 512)
       audio::write(out, s.pcm)
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC loadSound(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer) AS Sound
@@ -644,14 +644,14 @@ DOC
     IMPORT audio
     IMPORT libsnd
 
-    SUB main()
+    FUNC main() AS Nothing
       RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
       LET info AS SoundInfo = sound.state
       RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
       NEXT
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, frames AS Integer) AS Sound
@@ -702,7 +702,7 @@ DOC
     IMPORT audio
     IMPORT libsnd
 
-    SUB main()
+    FUNC main() AS Nothing
       ' The output is fixed at 48 kHz; the file may be any rate.
       RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
       LET info AS SoundInfo = sound.state
@@ -710,7 +710,7 @@ DOC
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 48000, 4096).pcm)
       NEXT
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer, frames AS Integer) AS Sound

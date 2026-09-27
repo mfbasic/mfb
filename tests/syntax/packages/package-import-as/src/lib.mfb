@@ -5,6 +5,6 @@ EXPORT FUNC byteLenAlias(message AS String) AS Integer
   RETURN text::byteLen(message)
 END FUNC
 
-EXPORT SUB flushStreams()
+EXPORT FUNC flushStreams() AS Nothing
   console::flush()
-END SUB
+END FUNC

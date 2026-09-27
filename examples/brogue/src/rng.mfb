@@ -82,9 +82,9 @@ FUNC range(n AS Integer) AS Integer
 END FUNC
 
 ' Select the stream later draws come from (Brogue's `rogue.RNG = ...`).
-PUBLIC SUB setStream(s AS Stream)
+PUBLIC FUNC setStream(s AS Stream) AS Nothing
   activeStream = s
-END SUB
+END FUNC
 
 ' The stream draws currently come from.
 PUBLIC FUNC stream() AS Stream
@@ -96,9 +96,9 @@ PUBLIC FUNC randomNumbersGenerated() AS Integer
   RETURN generatedCount
 END FUNC
 
-PUBLIC SUB setRandomNumbersGenerated(n AS Integer)
+PUBLIC FUNC setRandomNumbersGenerated(n AS Integer) AS Nothing
   generatedCount = n
-END SUB
+END FUNC
 
 ' Math.c `seedRandomGenerator`: seed both streams identically. Seed 0 means
 ' "seed from the clock", offset as Brogue does. The seed is a 64-bit pattern;

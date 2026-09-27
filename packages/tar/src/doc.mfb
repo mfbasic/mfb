@@ -107,11 +107,11 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET raw AS List OF Byte = fs::readBytes("backup.tar")
       LET archive AS tar::Archive = tar::open(raw)
       io::print(toString(len(tar::entries(archive))) & " entries")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -134,13 +134,13 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("backup.tar")
       LET archive AS tar::Archive = tar::open(f)
       FOR EACH entry IN tar::entries(archive)
         io::print(entry.name)
       NEXT
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -194,12 +194,12 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("backup.tar")
       LET archive AS tar::Archive = tar::open(f)
       LET bytes AS List OF Byte = tar::read(archive, tar::find(archive, "notes.txt"))
       io::print(toString(len(bytes)) & " bytes")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -225,11 +225,11 @@ DOC
     IMPORT tar
     IMPORT fs
 
-    SUB main()
+    FUNC main() AS Nothing
       MUT b AS tar::Builder = tar::create()
       b = tar::addText(b, "notes.txt", "hello")
       fs::writeBytes("out.tar", tar::finish(b))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -338,10 +338,10 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("backup.tar")
       LET archive AS tar::Archive = tar::open(f)
       io::print(toString(tar::extractTo(archive, "out")) & " files")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC

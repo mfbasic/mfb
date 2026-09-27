@@ -64,7 +64,7 @@ END FUNC
 ' itself read as eight spaces. Historic implementations disagreed about whether
 ' the bytes are signed, so -- as GNU tar does -- either answer is accepted
 ' rather than rejecting archives that are fine everywhere else.
-SUB verifyChecksum(block AS List OF Byte, offset AS Integer)
+FUNC verifyChecksum(block AS List OF Byte, offset AS Integer) AS Nothing
   LET recorded AS Integer = readOctal(block, OFF_CHKSUM, 8, "checksum")
   MUT unsignedSum AS Integer = 0
   MUT signedSum AS Integer = 0
@@ -83,7 +83,7 @@ SUB verifyChecksum(block AS List OF Byte, offset AS Integer)
   IF recorded <> unsignedSum AND recorded <> signedSum THEN
     FAIL error(ErrorChecksum, "tar: header at " & toString(offset) & " records checksum " & toString(recorded) & ", computed " & toString(unsignedSum))
   END IF
-END SUB
+END FUNC
 
 ' A numeric field, in whichever of the two spellings it uses.
 FUNC readNumber(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer

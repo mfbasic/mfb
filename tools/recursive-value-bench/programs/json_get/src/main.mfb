@@ -6,7 +6,7 @@ IMPORT json
 IMPORT collections
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   LET k AS Integer = toInt(collections::get(os::args(), 0))
   MUT items AS String = "["
   MUT j AS Integer = 0
@@ -25,4 +25,4 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("found=" & toString(found))
-END SUB
+END FUNC

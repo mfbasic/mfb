@@ -41,7 +41,7 @@ FUNC frames AS Integer
 END FUNC
 
 ' A: parallel lists (what wind does)
-SUB runParallel()
+FUNC runParallel() AS Nothing
   MUT lon AS List OF Float = []
   MUT age AS List OF Integer = []
   MUT trail AS List OF Float = []
@@ -63,10 +63,10 @@ SUB runParallel()
     NEXT
   NEXT
   io::print(toString(collections::get(trail, 5)))
-END SUB
+END FUNC
 
 ' B: List OF Particle, element field update
-SUB runRecords()
+FUNC runRecords() AS Nothing
   MUT ps AS List OF Particle = []
   FOR i = 1 TO n()
     MUT t AS List OF Float = []
@@ -86,11 +86,11 @@ SUB runRecords()
     NEXT
   NEXT
   io::print(toString(collections::get(collections::get(ps, 0).trail, 5)))
-END SUB
+END FUNC
 
 
 ' C: get + set back, no WITH
-SUB runGetSet()
+FUNC runGetSet() AS Nothing
   MUT ps AS List OF Particle = []
   FOR i = 1 TO n()
     MUT t AS List OF Float = []
@@ -106,10 +106,10 @@ SUB runGetSet()
     NEXT
   NEXT
   io::print(toString(len(ps)))
-END SUB
+END FUNC
 
 ' D: WITH on one record local only
-SUB runWithOnly()
+FUNC runWithOnly() AS Nothing
   MUT t AS List OF Float = []
   FOR k = 1 TO tl()
     t = collections::append(t, 0.0)
@@ -122,10 +122,10 @@ SUB runWithOnly()
     p = WITH p { lon := x, age := p.age + 1, trail := collections::set(p.trail, head, x) }
   NEXT
   io::print(toString(p.lon))
-END SUB
+END FUNC
 
 ' E: read-only get of a field
-SUB runGetOnly()
+FUNC runGetOnly() AS Nothing
   MUT ps AS List OF Particle = []
   FOR i = 1 TO n()
     MUT t AS List OF Float = []
@@ -141,10 +141,10 @@ SUB runGetOnly()
     NEXT
   NEXT
   io::print(toString(sum))
-END SUB
+END FUNC
 
 ' F: scalar-only record, field read
-SUB runScalarRec()
+FUNC runScalarRec() AS Nothing
   MUT ds AS List OF Dot = []
   FOR i = 1 TO n()
     ds = collections::append(ds, Dot[lon := 1.0, age := 0])
@@ -156,10 +156,10 @@ SUB runScalarRec()
     NEXT
   NEXT
   io::print(toString(sum))
-END SUB
+END FUNC
 
 ' G: LET-bound immutable list, field read via LET binding
-SUB runImmutable()
+FUNC runImmutable() AS Nothing
   MUT b AS List OF Particle = []
   FOR i = 1 TO n()
     b = collections::append(b, Particle[lon := 1.0, age := 0, trail := [0.0, 0.0]])
@@ -173,9 +173,9 @@ SUB runImmutable()
     NEXT
   NEXT
   io::print(toString(sum))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET v AS String = os::getEnvOr("V", "A")
   IF v = "A" THEN
     runParallel()
@@ -192,4 +192,4 @@ SUB main()
   ELSE
     runGetOnly()
   END IF
-END SUB
+END FUNC

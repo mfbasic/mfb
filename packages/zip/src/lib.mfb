@@ -54,7 +54,7 @@ END TYPE
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   ' A typed binding is required: an untyped list literal selects neither
 '   ' overload.
 '   LET raw AS List OF Byte = fs::readBytes("photos.zip")
@@ -62,7 +62,7 @@ END TYPE
 '   FOR EACH entry IN zip::entries(archive)
 '     io::print(entry.name)
 '   NEXT
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC open(data AS List OF Byte) AS Archive
   RETURN parseArchive(MemorySource[data])
@@ -80,12 +80,12 @@ END FUNC
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   RES f = fs::openFile("photos.zip")
 '   LET archive AS zip::Archive = zip::open(f)
 '   io::print(toString(len(zip::entries(archive))))
 '   ' f closes itself when this scope ends
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC open(RES file AS fs::File) AS Archive
   RETURN parseArchive(FileSource[file])
@@ -143,12 +143,12 @@ END FUNC
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   RES f = fs::openFile("photos.zip")
 '   LET archive AS zip::Archive = zip::open(f)
 '   LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
 '   io::print(toString(len(bytes)))
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC read(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS List OF Byte
   RETURN readEntry(archive, entry, maxBytes)
@@ -164,11 +164,11 @@ END FUNC
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   RES f = fs::openFile("photos.zip")
 '   LET archive AS zip::Archive = zip::open(f)
 '   io::print(zip::readText(archive, zip::find(archive, "notes.txt")))
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC readText(archive AS Archive, entry AS Entry, maxBytes AS Integer = 67108864) AS String
   RETURN readEntryText(archive, entry, maxBytes)
@@ -183,11 +183,11 @@ END FUNC
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   MUT b AS zip::Builder = zip::create()
 '   b = zip::addText(b, "notes.txt", "hello")
 '   fs::writeBytes("out.zip", zip::finish(b))
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC create() AS Builder
   RETURN createBuilder()
@@ -263,11 +263,11 @@ END FUNC
 ' IMPORT zip
 ' IMPORT fs
 '
-' SUB main()
+' FUNC main() AS Nothing
 '   RES f = fs::openFile("photos.zip")
 '   LET archive AS zip::Archive = zip::open(f)
 '   io::print(toString(zip::extractTo(archive, "out")) & " files")
-' END SUB
+' END FUNC
 ' ```
 EXPORT FUNC extractTo(archive AS Archive, directory AS String, maxTotalBytes AS Integer = 1073741824) AS Integer
   RETURN extractArchive(archive, directory, maxTotalBytes)

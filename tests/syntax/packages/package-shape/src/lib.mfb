@@ -37,7 +37,7 @@ EXPORT FUNC shapeKind(shape AS Shape) AS ShapeKind
   END MATCH
 END FUNC
 
-EXPORT SUB translate(point AS Point, dx AS Float, dy AS Float)
+EXPORT FUNC translate(point AS Point, dx AS Float, dy AS Float) AS Nothing
   LET nextX = point.x + dx
   LET nextY = point.y + dy
-END SUB
+END FUNC

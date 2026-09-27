@@ -32,7 +32,7 @@ END FUNC
 
 ' The carved grid as terrain: floor, and a door (60%, above the deepest level)
 ' or floor at each door site. From Architect.c `digDungeon`.
-PUBLIC SUB applyCarvedGrid(grid AS List OF Integer)
+PUBLIC FUNC applyCarvedGrid(grid AS List OF Integer) AS Nothing
   FOR i = 0 TO DCOLS - 1
     FOR j = 0 TO DROWS - 1
       LET v = gridAt(grid, i, j)
@@ -47,7 +47,7 @@ PUBLIC SUB applyCarvedGrid(grid AS List OF Integer)
       END IF
     NEXT
   NEXT
-END SUB
+END FUNC
 
 ' Whether (x, y) is exposed: on the map, and not both vision- and
 ' passability-blocking.
@@ -58,7 +58,7 @@ END FUNC
 
 ' Architect.c `finishWalls`: exposed granite becomes wall, unexposed wall
 ' becomes granite. The scan reads the map as it changes, as in C.
-PUBLIC SUB finishWalls(includingDiagonals AS Boolean)
+PUBLIC FUNC finishWalls(includingDiagonals AS Boolean) AS Nothing
   MUT dirCount AS Integer = 4
   IF includingDiagonals THEN dirCount = 8
   FOR i = 0 TO DCOLS - 1
@@ -83,7 +83,7 @@ PUBLIC SUB finishWalls(includingDiagonals AS Boolean)
       END IF
     NEXT
   NEXT
-END SUB
+END FUNC
 
 ' Architect.c `liquidType`: lava, water, chasm or brimstone, by depth.
 FUNC liquidType() AS LiquidChoice
@@ -213,7 +213,7 @@ END FUNC
 
 ' Architect.c `createWreath`: ring every wreath cell with shallowLiquid out to
 ' wreathWidth, where the liquid layer is empty; doors it covers become floor.
-SUB createWreath(shallowLiquid AS Integer, wreathWidth AS Integer, wreathMap AS List OF Integer)
+FUNC createWreath(shallowLiquid AS Integer, wreathWidth AS Integer, wreathMap AS List OF Integer) AS Nothing
   FOR i = 0 TO DCOLS - 1
     FOR j = 0 TO DROWS - 1
       IF gridAt(wreathMap, i, j) <> 0 THEN
@@ -230,10 +230,10 @@ SUB createWreath(shallowLiquid AS Integer, wreathWidth AS Integer, wreathMap AS 
       END IF
     NEXT
   NEXT
-END SUB
+END FUNC
 
 ' Architect.c `fillLakes`: give each lake its own liquid and shallow wreath.
-PUBLIC SUB fillLakes(source AS List OF Integer)
+PUBLIC FUNC fillLakes(source AS List OF Integer) AS Nothing
   MUT lakeMap AS List OF Integer = source
   FOR i = 0 TO DCOLS - 1
     FOR j = 0 TO DROWS - 1
@@ -245,7 +245,7 @@ PUBLIC SUB fillLakes(source AS List OF Integer)
       END IF
     NEXT
   NEXT
-END SUB
+END FUNC
 
 ' Architect.c `levelIsDisconnectedWithBlockingMap`: whether filling
 ' blockingMap would split the passable level into pieces. With countRegionSize
@@ -433,13 +433,13 @@ END FUNC
 
 ' Architect.c `evacuateCreatures`: move creatures out of the blocking map.
 ' None exist during terrain generation; one would need the creature model.
-SUB evacuateCreatures(blockingMap AS List OF Integer)
+FUNC evacuateCreatures(blockingMap AS List OF Integer) AS Nothing
   FOR k = 0 TO DCOLS * DROWS - 1
     IF collections::get(blockingMap, k) <> 0 AND hasFlag(cellFlagsAt(k / DROWS, k MOD DROWS), bits::bor(HAS_MONSTER, HAS_PLAYER)) THEN
       FAIL unsupported("evacuating a creature from a dungeon feature")
     END IF
   NEXT
-END SUB
+END FUNC
 
 ' Architect.c `spawnDungeonFeature` with refreshCell off, as in terrain
 ' generation: spawn dungeon feature featIndex at (x, y) and its subsequent
@@ -552,7 +552,7 @@ END FUNC
 
 ' Architect.c `runAutogenerators(false)`: scatter the non-machine terrain
 ' features (grass, rubble, bones and the like) by depth.
-PUBLIC SUB runAutogenerators()
+PUBLIC FUNC runAutogenerators() AS Nothing
   FOR ag = 1 TO numberAutogenerators - 1
     LET gen = collections::get(autoGeneratorCatalog, ag)
     IF gen.machine > 0 THEN CONTINUE FOR
@@ -580,11 +580,11 @@ PUBLIC SUB runAutogenerators()
       END IF
     NEXT
   NEXT
-END SUB
+END FUNC
 
 ' Architect.c `removeDiagonalOpenings`: wherever two open cells touch only
 ' diagonally between two diagonal-blocking walls, knock out one of the walls.
-PUBLIC SUB removeDiagonalOpenings()
+PUBLIC FUNC removeDiagonalOpenings() AS Nothing
   MUT diagonalCornerRemoved AS Boolean = TRUE
   DO WHILE diagonalCornerRemoved
     diagonalCornerRemoved = FALSE
@@ -619,4 +619,4 @@ PUBLIC SUB removeDiagonalOpenings()
       NEXT
     NEXT
   LOOP
-END SUB
+END FUNC

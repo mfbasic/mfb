@@ -152,7 +152,7 @@ FUNC zeros(n AS Integer) AS List OF Integer
   RETURN out
 END FUNC
 
-SUB buildChunks()
+FUNC buildChunks() AS Nothing
   ringChunk = []
   chunkStart = []
   chunkWest = []
@@ -185,11 +185,11 @@ SUB buildChunks()
   NEXT
   ringChunk = collections::append(ringChunk, len(chunkStart))
   chunkStart = collections::append(chunkStart, coastPointCount())
-END SUB
+END FUNC
 
 ' Two counting sorts: every point by level, most important first, then - keeping
 ' that order - by cell.
-SUB buildCells()
+FUNC buildCells() AS Nothing
   LET n AS Integer = coastPointCount()
   MUT levelAt AS List OF Integer = zeros(257)
   FOR i = 0 TO n - 1
@@ -246,7 +246,7 @@ SUB buildCells()
     NEXT
   NEXT
   cellRunStart = collections::append(cellRunStart, len(runLevel))
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Reading the coastline
@@ -298,7 +298,7 @@ FUNC isCoastlineFile AS Boolean
 END FUNC
 
 ' Read the shipped coastline into the flat lists, and index it.
-SUB loadCoastline()
+FUNC loadCoastline() AS Nothing
   coastBytes = fs::readBytes(os::appResourcePath("wind/coastline.bin"))
   IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 3 MFBC coastline file")
   coastAt = 5
@@ -358,7 +358,7 @@ SUB loadCoastline()
   coastBytes = []
   buildChunks()
   buildCells()
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' The edge of the world

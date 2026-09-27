@@ -70,7 +70,7 @@ FUNC liveIndexOf(keys AS List OF String, live AS List OF Boolean, key AS String)
   RETURN -1
 END FUNC
 
-SUB usage()
+FUNC usage() AS Nothing
   io::print("network-server — a broadcast server over TCP, UDP, or TLS.")
   io::print("")
   io::print("USAGE")
@@ -107,11 +107,11 @@ SUB usage()
   io::print("EXAMPLE")
   io::print("  network-server --tls certs/cert.pem certs/key.pem --port 8443")
   io::print("  network-server --tcp --thread --port 7000")
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- TCP --
 
-SUB serveTcp(host AS String, port AS Integer, debugCounts AS Boolean)
+FUNC serveTcp(host AS String, port AS Integer, debugCounts AS Boolean) AS Nothing
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
     io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -230,11 +230,11 @@ SUB serveTcp(host AS String, port AS Integer, debugCounts AS Boolean)
 
     os::sleep(napMs())
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- TLS --
 
-SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String, debugCounts AS Boolean)
+FUNC serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String, debugCounts AS Boolean) AS Nothing
   RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
     io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -336,11 +336,11 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
 
     os::sleep(napMs())
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- UDP --
 
-SUB serveUdp(host AS String, port AS Integer, debugCounts AS Boolean)
+FUNC serveUdp(host AS String, port AS Integer, debugCounts AS Boolean) AS Nothing
   RES server AS udp::Socket = udp::bind(host, port) TRAP(e)
     io::printError("Cannot bind udp " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -454,7 +454,7 @@ SUB serveUdp(host AS String, port AS Integer, debugCounts AS Boolean)
 
     os::sleep(napMs())
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
 ' ------------------------------------------------------- threaded transports --
 
@@ -472,7 +472,7 @@ END SUB
 ' set of parallel lists instead of growing a list of worker handles alongside
 ' it.
 
-SUB serveTcpThreaded(host AS String, port AS Integer)
+FUNC serveTcpThreaded(host AS String, port AS Integer) AS Nothing
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
     io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -494,9 +494,9 @@ SUB serveTcpThreaded(host AS String, port AS Integer)
       RECOVER
     END TRAP
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
-SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPath AS String)
+FUNC serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS Nothing
   RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
     io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -525,15 +525,15 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
       RECOVER
     END TRAP
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 
 ' --------------------------------------------------------------------- main --
 
-SUB main()
+FUNC main() AS Nothing
   LET args AS List OF String = os::args()
   IF len(args) = 0 THEN
     usage()
-    EXIT SUB
+    RETURN
   END IF
 
   MUT mode AS String = ""
@@ -549,7 +549,7 @@ SUB main()
     LET arg AS String = collections::get(args, i)
     IF arg = "--help" OR arg = "-h" THEN
       usage()
-      EXIT SUB
+      RETURN
     ELSEIF arg = "--tcp" THEN
       mode = "tcp"
       i = i + 1
@@ -627,4 +627,4 @@ SUB main()
       serveTls(host, port, certPath, keyPath, debugCounts)
     END IF
   END IF
-END SUB
+END FUNC

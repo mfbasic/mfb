@@ -36,11 +36,11 @@ END FUNC
 ' against -- a partial that includes itself inside a section over a non-empty
 ' list, so each level multiplies -- reaches gigabytes in a handful of levels.
 ' Checking afterwards means never getting there.
-PUBLIC SUB guardOutput(out AS String)
+PUBLIC FUNC guardOutput(out AS String) AS Nothing
   IF strings::byteLen(out) > OUTPUT_LIMIT THEN
     FAIL error(ErrorLimit, "mustache: the rendered output passed the " & toString(OUTPUT_LIMIT) & "-byte limit")
   END IF
-END SUB
+END FUNC
 
 ' Render nodes [from, stop) and return what they produced.
 PUBLIC FUNC renderNodes(nodes AS List OF Node, from AS Integer, stop AS Integer, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String

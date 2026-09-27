@@ -23,7 +23,7 @@ PRIVATE FUNC freshDir(tag AS String) AS String
   RETURN path
 END FUNC
 
-PRIVATE SUB removeTree(path AS String)
+PRIVATE FUNC removeTree(path AS String) AS Nothing
   FOR EACH child IN fs::listDirectory(path)
     LET full AS String = fs::pathJoin([path, child])
     IF fs::directoryExists(full) THEN
@@ -33,7 +33,7 @@ PRIVATE SUB removeTree(path AS String)
     END IF
   NEXT
   fs::deleteDirectory(path)
-END SUB
+END FUNC
 
 PRIVATE FUNC countIn(path AS String) AS Integer
   RETURN len(fs::listDirectory(path))

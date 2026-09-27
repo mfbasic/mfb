@@ -90,7 +90,7 @@ FUNC fmtMs(v AS Float) AS String
   RETURN padLeft(toString(v, toByte(3)), 10)
 END FUNC
 
-SUB printResults(tests AS List OF BenchResult, run AS Integer)
+FUNC printResults(tests AS List OF BenchResult, run AS Integer) AS Nothing
   io::print("# Lang: MFBasic")
   io::print("# runs: " & toString(run))
   io::print("# columns: median, average, min, max (milliseconds)")
@@ -104,7 +104,7 @@ SUB printResults(tests AS List OF BenchResult, run AS Integer)
     END IF
     io::print("  " & padRight(r.name, 15) & ": " & fmtMs(r.med) & ", " & fmtMs(r.avg) & ", " & fmtMs(r.min) & ", " & fmtMs(r.max))
   NEXT
-END SUB
+END FUNC
 
 FUNC tmpPath(name AS String) AS String
   RETURN fs::pathJoin([fs::tempDirectory(), name])
@@ -135,14 +135,14 @@ FUNC readLinesFile(path AS String) AS Integer
   RETURN lines
 END FUNC
 
-SUB writeCsvInput(path AS String)
+FUNC writeCsvInput(path AS String) AS Nothing
   RES f AS fs::File = fs::open(path, "write")
   FOR i = 0 TO 1999
     fs::writeAll(f, toString(i) & "," & toString(i + 1) & "," & toString(i + 2) & "\n")
   NEXT
-END SUB
+END FUNC
 
-SUB writeJsonInput(path AS String)
+FUNC writeJsonInput(path AS String) AS Nothing
   RES f AS fs::File = fs::open(path, "write")
   fs::writeAll(f, "{\"nums\":[")
   MUT i AS Integer = 0
@@ -154,9 +154,9 @@ SUB writeJsonInput(path AS String)
     i = i + 1
   END WHILE
   fs::writeAll(f, "],\"tail\":5000}")
-END SUB
+END FUNC
 
-SUB writeRegexInput(path AS String)
+FUNC writeRegexInput(path AS String) AS Nothing
   RES f AS fs::File = fs::open(path, "write")
   MUT i AS Integer = 0
   WHILE i < 200
@@ -166,7 +166,7 @@ SUB writeRegexInput(path AS String)
     fs::writeAll(f, toString(i))
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 
 ' ===========================================================================
 ' GROUP: recurse

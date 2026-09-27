@@ -200,7 +200,7 @@ FUNC padNumber(n AS Integer, width AS Integer) AS String
   RETURN strings::padLeft(toString(n), width, "0")
 END FUNC
 
-SUB drawFrame(rows AS Integer, columns AS Integer, score AS Integer, level AS Integer)
+FUNC drawFrame(rows AS Integer, columns AS Integer, score AS Integer, level AS Integer) AS Nothing
   term::setBold(FALSE)
   term::setForeground(color::rgb(120, 180, 220))
   term::drawBox(term::LineStyle.Light, 0, 0, rows - 1, columns - 1)
@@ -214,9 +214,9 @@ SUB drawFrame(rows AS Integer, columns AS Integer, score AS Integer, level AS In
   term::drawText(0, (columns - len(titleText)) / 2, titleText)
   term::drawText(0, columns - 2 - len(scoreText), scoreText)
   term::setBold(FALSE)
-END SUB
+END FUNC
 
-SUB drawField(grass AS List OF Plant, bug AS Point, bugGlyph AS String, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer)
+FUNC drawField(grass AS List OF Plant, bug AS Point, bugGlyph AS String, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer) AS Nothing
   FOR EACH plant IN grass
     term::drawText(plant.spot.row, plant.spot.column, plant.glyph)
   NEXT
@@ -234,10 +234,10 @@ SUB drawField(grass AS List OF Plant, bug AS Point, bugGlyph AS String, bugVisib
   NEXT
 
   IF bugVisible THEN term::drawText(bug.row, bug.column, bugGlyph)
-END SUB
+END FUNC
 
 ' A centred box over the field: a bold title and a line of key hints.
-SUB drawBanner(rows AS Integer, columns AS Integer, title AS String, hint AS String, fill AS color::Color)
+FUNC drawBanner(rows AS Integer, columns AS Integer, title AS String, hint AS String, fill AS color::Color) AS Nothing
   LET width AS Integer = 28
   LET top AS Integer = rows / 2 - 2
   LET left AS Integer = (columns - width) / 2
@@ -250,7 +250,7 @@ SUB drawBanner(rows AS Integer, columns AS Integer, title AS String, hint AS Str
   term::setBold(FALSE)
   term::drawText(top + 3, left + (width - len(hint)) / 2, hint)
   term::setBackground(color::rgb(0, 0, 0))
-END SUB
+END FUNC
 
 ' The next key within `ms` milliseconds: "ESC" for Escape, the text any other
 ' key types, "" when no key came in time (or the key typed nothing, or was a

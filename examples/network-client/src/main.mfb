@@ -90,7 +90,7 @@ FUNC argAt(args AS List OF String, i AS Integer) AS String
   RETURN collections::getOr(args, i, "")
 END FUNC
 
-SUB usage()
+FUNC usage() AS Nothing
   io::print("network-client — try TCP, UDP, and TLS against examples/network-server.")
   io::print("")
   io::print("USAGE")
@@ -108,15 +108,15 @@ SUB usage()
   io::print("Every transport is attempted in turn — TCP, UDP, TLS — and each attempt")
   io::print("runs to completion before the next one starts. The client leaves after")
   io::print("the fifth Update line.")
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- TCP --
 
-SUB runTcp(host AS String, port AS Integer, pid AS String)
+FUNC runTcp(host AS String, port AS Integer, pid AS String) AS Nothing
   io::print("[tcp " & host & ":" & toString(port) & "]")
   RES sock AS tcp::Socket = tcp::connect(host, port, connectTimeoutMs()) TRAP(e)
     io::print("Failed " & pid & " " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("Connected " & pid)
 
@@ -151,15 +151,15 @@ SUB runTcp(host AS String, port AS Integer, pid AS String)
     RECOVER
   END TRAP
   io::print("Disconnected " & pid)
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- TLS --
 
-SUB runTls(host AS String, port AS Integer, serverName AS String, allowSelfSigned AS Boolean, pid AS String)
+FUNC runTls(host AS String, port AS Integer, serverName AS String, allowSelfSigned AS Boolean, pid AS String) AS Nothing
   io::print("[tls " & host & ":" & toString(port) & "]")
   RES sock AS tls::Socket = tls::connect(host, port, connectTimeoutMs(), serverName, allowSelfSigned) TRAP(e)
     io::print("Failed " & pid & " " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("Connected " & pid)
 
@@ -194,11 +194,11 @@ SUB runTls(host AS String, port AS Integer, serverName AS String, allowSelfSigne
     RECOVER
   END TRAP
   io::print("Disconnected " & pid)
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------- UDP --
 
-SUB runUdp(host AS String, port AS Integer, pid AS String)
+FUNC runUdp(host AS String, port AS Integer, pid AS String) AS Nothing
   io::print("[udp " & host & ":" & toString(port) & "]")
 
   ' UDP has no handshake, so "connecting" is announcing ourselves and seeing
@@ -206,21 +206,21 @@ SUB runUdp(host AS String, port AS Integer, pid AS String)
   ' missing server, which is exactly what the failure line reports.
   LET resolved AS List OF net::Address = net::lookup(host, port) TRAP(e)
     io::print("Failed " & pid & " " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   IF len(resolved) = 0 THEN
     io::print("Failed " & pid & " " & host & " has no IPv4 address")
-    EXIT SUB
+    RETURN
   END IF
   LET peer AS net::Address = collections::get(resolved, 0)
 
   RES sock AS udp::Socket = udp::bind("0.0.0.0", 0) TRAP(e)
     io::print("Failed " & pid & " " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   udp::send(sock, peer, "HELLO\n") TRAP(e)
     io::print("Failed " & pid & " " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
 
   MUT greeted AS Boolean = FALSE
@@ -264,11 +264,11 @@ SUB runUdp(host AS String, port AS Integer, pid AS String)
     END TRAP
     io::print("Disconnected " & pid)
   END IF
-END SUB
+END FUNC
 
 ' --------------------------------------------------------------------- main --
 
-SUB main()
+FUNC main() AS Nothing
   LET args AS List OF String = os::args()
   MUT host AS String = "127.0.0.1"
   MUT port AS Integer = 7000
@@ -280,7 +280,7 @@ SUB main()
     LET arg AS String = collections::get(args, i)
     IF arg = "--help" OR arg = "-h" THEN
       usage()
-      EXIT SUB
+      RETURN
     ELSEIF arg = "--host" THEN
       host = argAt(args, i + 1)
       IF host = "" THEN
@@ -321,4 +321,4 @@ SUB main()
   runTcp(host, port, pid)
   runUdp(host, port, pid)
   runTls(host, port, serverName, allowSelfSigned, pid)
-END SUB
+END FUNC

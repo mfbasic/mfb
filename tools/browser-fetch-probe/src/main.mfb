@@ -22,7 +22,7 @@ IMPORT thread
 ' Sub-issue 2 — resolveHref, the five inputs from bug-706's Failing
 ' Reproduction. Printed as "label|actual" lines; run.sh compares each against
 ' its RFC-3986-correct expected value.
-SUB checkResolveHref()
+FUNC checkResolveHref() AS Nothing
   LET base AS String = "http://example.com/a/b/page.html?old=1"
   io::print("resolve|a|" & fetch::resolveHref(base, "/redirect?next=http://evil.example/x"))
   io::print("resolve|a2|" & fetch::resolveHref(base, "search?next=http://evil.example/x"))
@@ -30,7 +30,7 @@ SUB checkResolveHref()
   io::print("resolve|b2|" & fetch::resolveHref(base, "#section"))
   io::print("resolve|c|" & fetch::resolveHref(base, "../up.html"))
   io::print("resolve|plain|" & fetch::resolveHref(base, "other.html"))
-END SUB
+END FUNC
 
 ' Sub-issue 1 — fetch a page whose one stylesheet stalls forever (a "black
 ' hole" server that accepts and never writes/closes, per bug-706's Failing
@@ -38,19 +38,19 @@ END SUB
 ' fields; run.sh asserts the elapsed time is bounded and CPU time stayed low
 ' (proving no busy-spin) via `time`/`ps`, since MFBASIC has no CPU-time
 ' builtin to check that from inside the probe itself.
-SUB checkSpin(pageUrl AS String)
+FUNC checkSpin(pageUrl AS String) AS Nothing
   LET t0 AS Integer = datetime::monotonicNanos()
   RES t AS Thread OF String TO fetch::LoadResult = thread::start(fetch::fetch, pageUrl)
   LET r AS fetch::LoadResult = thread::waitFor(t)
   LET elapsedMs AS Integer = (datetime::monotonicNanos() - t0) / 1000000
   io::print("spin|ok=" & toString(r.ok) & "|filesLoaded=" & toString(r.filesLoaded) & "|filesTotal=" & toString(r.filesTotal) & "|elapsedMs=" & toString(elapsedMs))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET args AS List OF String = os::args()
   IF len(args) < 1 THEN
     io::print("usage: probe.out resolve | probe.out spin <page-url>")
-    EXIT SUB
+    RETURN
   END IF
   LET mode AS String = collections::get(args, 0)
   IF mode = "resolve" THEN
@@ -60,4 +60,4 @@ SUB main()
   ELSE
     io::print("unknown mode: " & mode)
   END IF
-END SUB
+END FUNC

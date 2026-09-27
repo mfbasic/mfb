@@ -47,11 +47,11 @@ FUNC u64le(bytes AS List OF Byte, index AS Integer) AS Integer
   RETURN low + high * 4294967296
 END FUNC
 
-PRIVATE SUB requireRoom(bytes AS List OF Byte, index AS Integer, width AS Integer)
+PRIVATE FUNC requireRoom(bytes AS List OF Byte, index AS Integer, width AS Integer) AS Nothing
   IF index < 0 OR index + width > len(bytes) THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(width) & "-byte field at " & toString(index) & " runs past a " & toString(len(bytes)) & "-byte block")
   END IF
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' The write side. Each appends one little-endian field to a growing list, which
@@ -93,8 +93,8 @@ FUNC putBytes(out AS List OF Byte, extra AS List OF Byte) AS List OF Byte
   RETURN acc
 END FUNC
 
-PRIVATE SUB requireFits(value AS Integer, limit AS Integer, width AS Integer)
+PRIVATE FUNC requireFits(value AS Integer, limit AS Integer, width AS Integer) AS Nothing
   IF value < 0 OR value > limit THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: " & toString(value) & " does not fit an unsigned " & toString(width) & "-bit field")
   END IF
-END SUB
+END FUNC

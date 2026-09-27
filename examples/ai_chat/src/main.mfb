@@ -546,7 +546,7 @@ END FUNC
 ' Rendering
 ' ---------------------------------------------------------------------------
 
-SUB setColorFor(kind AS Integer)
+FUNC setColorFor(kind AS Integer) AS Nothing
   IF kind = 0 THEN
     term::setBold(TRUE)
     term::setForeground(color::rgb(0, 200, 255))        ' You header (cyan)
@@ -566,13 +566,13 @@ SUB setColorFor(kind AS Integer)
     term::setBold(FALSE)
     term::setForeground(color::rgb(255, 255, 255))
   END IF
-END SUB
+END FUNC
 
-SUB resetPen()
+FUNC resetPen() AS Nothing
   term::setBold(FALSE)
   term::setForeground(color::rgb(235, 235, 235))
   term::setBackground(color::rgb(0, 0, 0))
-END SUB
+END FUNC
 
 FUNC spinnerChar(frame AS Integer) AS String
   LET spin AS String = "|/-\\"
@@ -594,7 +594,7 @@ FUNC fitRight(s AS String, width AS Integer) AS String
   RETURN strings::mid(s, len(s) - width, width)
 END FUNC
 
-SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS Boolean, panelBottom AS Integer, frame AS Integer)
+FUNC renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS Boolean, panelBottom AS Integer, frame AS Integer) AS Nothing
   LET w AS Integer = sidebarW()
   IF focused THEN
     term::setForeground(color::rgb(120, 180, 220))
@@ -636,9 +636,9 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
   term::setForeground(color::rgb(110, 110, 130))
   term::drawText(panelBottom - 1, 1, clip(" ^N new  ^X close", inner))
   resetPen()
-END SUB
+END FUNC
 
-SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Integer, cols AS Integer)
+FUNC renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Integer, cols AS Integer) AS Nothing
   LET x0 AS Integer = sidebarW() + 1
   LET x1 AS Integer = cols - 1
   IF focused THEN
@@ -656,7 +656,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
 
   LET innerW AS Integer = x1 - x0 - 1
   LET height AS Integer = panelBottom - 1
-  IF innerW < 1 OR height < 1 THEN EXIT SUB
+  IF innerW < 1 OR height < 1 THEN RETURN
 
   LET lines AS List OF Line = transcriptLines(session.history, innerW)
   LET total AS Integer = len(lines)
@@ -706,9 +706,9 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
     IF tx > x0 THEN term::drawText(panelBottom, tx, tokStr)
   END IF
   resetPen()
-END SUB
+END FUNC
 
-SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTop AS Integer, cols AS Integer)
+FUNC renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTop AS Integer, cols AS Integer) AS Nothing
   IF focused THEN
     term::setForeground(color::rgb(120, 180, 220))
   ELSE
@@ -732,12 +732,12 @@ SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTo
     term::drawText(inputTop + 1, 2 + 2 + len(shown), "\u{2588}")
   END IF
   resetPen()
-END SUB
+END FUNC
 
 ' Draw the active modal centred over everything else: 1 = close-confirm,
 ' 2 = model picker, 3 = help. A no-op when modal = 0.
-SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS Integer)
-  IF modal = 0 THEN EXIT SUB
+FUNC renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS Integer) AS Nothing
+  IF modal = 0 THEN RETURN
 
   MUT title AS String = ""
   MUT body AS List OF String = []
@@ -812,7 +812,7 @@ SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS 
     END IF
   NEXT
   resetPen()
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Keypress handlers (pure: UiState in, KeyStep out; main executes any Intent)

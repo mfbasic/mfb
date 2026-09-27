@@ -107,7 +107,7 @@ FUNC roundTripGzip(packed AS List OF Byte) AS String
   RETURN toString(len(back)) & " " & toString(compress::crc32(back))
 END FUNC
 
-SUB runJob(mode AS String, job AS List OF Byte)
+FUNC runJob(mode AS String, job AS List OF Byte) AS Nothing
   LET count AS Integer = u32At(job, 0)
   MUT offset AS Integer = 4 + 8 * count
   ' An encode mode's outputs, written after the loop as a job of the same layout.
@@ -172,15 +172,15 @@ SUB runJob(mode AS String, job AS List OF Byte)
     END WHILE
     fs::writeBytes(outPath, outJob)
   END IF
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET jobPath AS String = os::getEnvOr("MFB_COMPRESS_JOB", "")
   IF jobPath = "" THEN
-    EXIT SUB
+    RETURN
   END IF
   RES h AS fs::File = fs::openFile(jobPath, "r")
   LET job AS List OF Byte = fs::readAllBytes(h)
   fs::close(h)
   runJob(os::getEnvOr("MFB_COMPRESS_MODE", ""), job)
-END SUB
+END FUNC

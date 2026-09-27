@@ -6,15 +6,15 @@ TYPE Conn
   sock AS RES tcp::Socket
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   RES server AS tcp::Listener = tcp::listen("127.0.0.1", 0) TRAP(e)
     EXIT PROGRAM 1
   END TRAP
   MUT conns AS List OF Conn = []
   FOR i = 0 TO 2
     RES s AS tcp::Socket = tcp::accept(server, 0) TRAP(e)
-      EXIT SUB
+      RETURN
     END TRAP
     conns = collections::append(conns, Conn[i, s])
   NEXT
-END SUB
+END FUNC

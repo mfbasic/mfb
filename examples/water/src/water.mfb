@@ -96,7 +96,7 @@ MUT gridColumns AS Integer = 0
 MUT gridRows AS Integer = 0
 
 ' Fill the pool, every drop idle.
-SUB fillPool
+FUNC fillPool AS Nothing
   dropX = []
   dropY = []
   dropVX = []
@@ -117,7 +117,7 @@ SUB fillPool
     idle = collections::append(idle, POOL_SIZE - 1 - i)
   NEXT
   idleCount = POOL_SIZE
-END SUB
+END FUNC
 
 ' How many drops are out of the pool.
 FUNC dropsOut AS Integer
@@ -143,11 +143,11 @@ FUNC release(x AS Float, y AS Float, vx AS Float, vy AS Float) AS Boolean
 END FUNC
 
 ' Put drop i back in the pool.
-SUB retire(i AS Integer)
+FUNC retire(i AS Integer) AS Nothing
   dropOut = collections::set(dropOut, i, FALSE)
   idle = collections::set(idle, idleCount, i)
   idleCount = idleCount + 1
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Falling and bouncing
@@ -155,8 +155,8 @@ END SUB
 
 ' Advance every drop that is out by dt seconds, in a window whose play area is
 ' `width` by `height`.
-SUB stepWater(dt AS Float, width AS Float, height AS Float)
-  IF dt <= 0.0 THEN EXIT SUB
+FUNC stepWater(dt AS Float, width AS Float, height AS Float) AS Nothing
+  IF dt <= 0.0 THEN RETURN
   LET h AS Float = dt / toFloat(SUBSTEPS)
   LET count AS Integer = shapeCount()
 
@@ -214,24 +214,24 @@ SUB stepWater(dt AS Float, width AS Float, height AS Float)
   NEXT
 
   spreadWater(width, height)
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Spreading
 ' ---------------------------------------------------------------------------
 
 ' Size the grid for a play area, rebuilding it only when the size changes.
-SUB sizeGrid(width AS Float, height AS Float)
+FUNC sizeGrid(width AS Float, height AS Float) AS Nothing
   LET columns AS Integer = math::floor((width + 2.0 * EDGE_MARGIN) / SPACING) + 1
   LET rows AS Integer = math::floor((height + 2.0 * EDGE_MARGIN) / SPACING) + 1
-  IF columns = gridColumns AND rows = gridRows THEN EXIT SUB
+  IF columns = gridColumns AND rows = gridRows THEN RETURN
   gridColumns = columns
   gridRows = rows
   cellHead = []
   FOR c = 1 TO columns * rows
     cellHead = collections::append(cellHead, -1)
   NEXT
-END SUB
+END FUNC
 
 FUNC columnOf(x AS Float) AS Integer
   RETURN math::clamp(math::floor((x + EDGE_MARGIN) / SPACING), 0, gridColumns - 1)
@@ -247,7 +247,7 @@ END FUNC
 ' drops apart by equal amounts along the line between them, and takes away part
 ' of the speed at which they were closing - never any speed at which they were
 ' already parting, which is what lets a splash fly apart freely.
-SUB spreadWater(width AS Float, height AS Float)
+FUNC spreadWater(width AS Float, height AS Float) AS Nothing
   sizeGrid(width, height)
 
   ' File every drop that is out under its cell.
@@ -309,7 +309,7 @@ SUB spreadWater(width AS Float, height AS Float)
       dropCell = collections::set(dropCell, i, -1)
     END IF
   NEXT
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Drawing

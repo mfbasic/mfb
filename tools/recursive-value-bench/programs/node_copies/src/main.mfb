@@ -8,11 +8,11 @@ TYPE Node
   tag AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Node = Node[kids := [], tag := 1]
   LET b AS Node = Node[kids := [a], tag := 2]
   MUT xs AS List OF Node = []
   xs = collections::append(xs, a)
   LET c AS Node = a
   io::print("b=" & toString(len(b.kids)) & " xs=" & toString(len(xs)) & " c=" & toString(c.tag) & " a=" & toString(a.tag))
-END SUB
+END FUNC

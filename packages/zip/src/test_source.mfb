@@ -57,9 +57,9 @@ END FUNC
 ' Reading through a handle that a callee closed — the case the compiler's move
 ' rules cannot prove, so the runtime closed-flag is what refuses it
 ' (`mfb spec language resource-management` §15).
-PRIVATE SUB closeHandle(RES f AS fs::File)
+PRIVATE FUNC closeHandle(RES f AS fs::File) AS Nothing
   fs::close(f)
-END SUB
+END FUNC
 
 PRIVATE FUNC readAfterClose() AS Integer
   RES f AS fs::File = fs::createTempFile()

@@ -41,7 +41,7 @@ FUNC buildMasked(word AS String, guessed AS String) AS String
 END FUNC
 
 ' Draws the gallows. Each wrong guess adds one body part (1..6).
-SUB drawHangman(wrong AS Integer)
+FUNC drawHangman(wrong AS Integer) AS Nothing
   term::setForeground(color::rgb(210, 200, 120))
   term::moveTo(2, 4)
   io::write("+----+")
@@ -83,10 +83,10 @@ SUB drawHangman(wrong AS Integer)
     term::moveTo(6, 10)
     io::write("\\")
   END IF
-END SUB
+END FUNC
 
 ' Clears and repaints the whole board.
-SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Integer, message AS String)
+FUNC drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Integer, message AS String) AS Nothing
   term::clear()
 
   term::setBold(TRUE)
@@ -118,7 +118,7 @@ SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Int
   ' term::sync() emits only the cells that changed since the last frame. Nothing
   ' is displayed until this call (mandatory present).
   term::sync()
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET words AS List OF String = ["PROGRAM", "TERMINAL", "KEYBOARD", "COMPUTER", "MOUNTAIN", "ELEPHANT", "RAINBOW", "GUITAR", "PYRAMID", "DOLPHIN", "JOURNEY", "OXYGEN", "PUZZLE", "GALAXY", "VICTORY"]

@@ -76,7 +76,7 @@ END FUNC
 ' the header -- so there is nothing to verify here. That is a property of the
 ' format, not an omission: a tar reader cannot tell you whether an entry's
 ' contents were corrupted, which is worth knowing before trusting one.
-PRIVATE SUB copyEntry(archive AS Archive, entry AS Entry, target AS String)
+PRIVATE FUNC copyEntry(archive AS Archive, entry AS Entry, target AS String) AS Nothing
   RES out AS fs::File = fs::open(target, "write")
   MUT copied AS Integer = 0
   WHILE copied < entry.size
@@ -89,10 +89,10 @@ PRIVATE SUB copyEntry(archive AS Archive, entry AS Entry, target AS String)
     copied = copied + chunk
   END WHILE
   fs::close(out)
-END SUB
+END FUNC
 
 ' plan-139-B §4.3 rules 1-4.
-PRIVATE SUB requireExtractableName(name AS String, directory AS String)
+PRIVATE FUNC requireExtractableName(name AS String, directory AS String) AS Nothing
   IF len(name) = 0 THEN
     FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
   END IF
@@ -119,7 +119,7 @@ PRIVATE SUB requireExtractableName(name AS String, directory AS String)
   IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
     FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
   END IF
-END SUB
+END FUNC
 
 PRIVATE FUNC deepestExisting(path AS String) AS String
   MUT current AS String = path

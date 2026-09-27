@@ -14,8 +14,8 @@ EXPORT FUNC plain(seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 
-EXPORT SUB helper(seed AS String)
-END SUB
+EXPORT FUNC helper(seed AS String) AS Nothing
+END FUNC
 
 EXPORT ISOLATED FUNC badNoHandle(seed AS String) AS Integer
   RETURN len(seed)

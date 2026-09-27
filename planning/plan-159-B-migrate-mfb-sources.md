@@ -84,6 +84,18 @@ Find their paths with
 `rg -l 'SUB_RETURN_FORBIDDEN|EXIT_SUB_IN_FUNC|TYPE_SUB_HAS_NO_VALUE|ISOLATED is valid only|must begin with FUNC or SUB' tests -g '*.log'`.
 Record the resolved list here in task 1.1.
 
+**Resolved (task 1.1, 2026-09-27).** That `rg` returns 4 paths; `isolated_sub_invalid` pins its
+rule through the top-level "Expected an IMPORT, LET, MUT, SUB, FUNC…" message, so it is found by
+`find tests -type d -name 'isolated_sub*'`. The "must begin with FUNC or SUB" fixture IS
+`func_isolated_requires_func_invalid` (its source has no `SUB`; only its golden message names
+it), so the list is 5, not 6:
+
+- `tests/syntax/functions/sub-value-less-invalid`
+- `tests/syntax/functions/isolated_sub_invalid`
+- `tests/syntax/control-flow/exit-sub-invalid`
+- `tests/syntax/trap/control-flow-sub-trap-invalid`
+- `tests/syntax/functions/func_isolated_requires_func_invalid` (nothing to rewrite)
+
 ## 3. Design Overview
 
 Run the A rewriter over the tree one directory at a time, regenerate the goldens that
@@ -107,17 +119,35 @@ For the textual goldens the gate is "moved only in the predicted fields".
 
 ### Phase 1 — Non-test sources (examples, packages, tools, bugs, spikes, benchmark)
 
-- [ ] 1.1 Resolve the exclusion list paths and write them into §2.
-- [ ] 1.2 Rewrite `examples/`, `benchmark/`, `bugs/` (live `bugs/*.md` repro sources
+- [x] 1.1 Resolve the exclusion list paths and write them into §2. — 5 paths (§2).
+- [x] 1.2 Rewrite `examples/`, `benchmark/`, `bugs/` (live `bugs/*.md` repro sources
       only), `spikes/`, and `tools/**/*.mfb`. Build each example once: `mfb build` on
-      each of the 19 example projects → exit 0.
-- [ ] 1.3 Rewrite `packages/**/*.mfb`, then rebuild every `.mfp` in
+      each of the 19 example projects → exit 0. — `sub-to-func.py examples benchmark
+      bugs spikes tools` → `53 file(s) changed; 0 unhandled`. The 19 were example
+      *files*; they sit in 12 top-level examples = 15 buildable projects (Corrections).
+      All build exit 0 in scratch copies: 9 single projects (`/tmp/p159/build-examples.sh`),
+      `browser` dom→fetch/display→app per its README (`/tmp/p159/build-browser.sh`: 4 ×
+      exit 0), `swat/{tui,canvas}` (ok), `audio` against a locally built rewritten
+      `packages/libsnd` + its vendored dylib, `--unsigned` → `Wrote executable`.
+- [x] 1.3 Rewrite `packages/**/*.mfb`, then rebuild every `.mfp` in
       `/tmp/p159-mfp-sub.txt` (leaves first). Re-run the §2 `pkg info` loop → 0 hits.
-      Rebuild `repository/tests/fixtures/libsnd.mfp` if it is in the list.
-- [ ] 1.4 Word the comment-prose lines the rewriter reported.
+      Rebuild `repository/tests/fixtures/libsnd.mfp` if it is in the list. — The list
+      was regenerated before any edit (`/tmp/p159/mfp-sub.sh` → `total=161 hits=38`).
+      Rewrote `packages` plus the three in-tree package sources the list is built from
+      (`tests/syntax/packages/{package-simple,package-import-as,package-shape}`), rebuilt
+      `tools/thread-package-sources/{thread_imp_print, thread_import_worker/packages/
+      thread_imp_print.mfp, thread_import_worker, thread_workers}` leaves first, then
+      `scripts/sync-package-mfp.sh` → `updated 35`; second run → `updated 0` (fixpoint).
+      Loop → `total=161 hits=0`. `libsnd.mfp` was not in the list. Three pre-existing
+      problems found on the way were landed separately first (Corrections).
+- [x] 1.4 Word the comment-prose lines the rewriter reported. — The only reports
+      outside `tests/` were 12 lines of commented-out usage examples in
+      `packages/zip/src/lib.mfb` (`' SUB main()` / `' END SUB`), now `' FUNC main() AS
+      Nothing` / `' END FUNC`; re-run → 0 prose reports.
 
 Acceptance: `rg` for SUB in these directories → 0 hits; the `.mfp` loop → 0; all examples build.
   Check: `rg -l "$R|\b(END|EXIT)\s+SUB\b" -g '*.mfb' examples packages tools bugs spikes benchmark` → empty (est. 5 s); the `.mfp` loop → 0 (est. 1 min).
+  Result (2026-09-27): `rg` exit 1 (no matches); loop `total=161 hits=0`; 15/15 example projects build.
 Commit: —
 
 ### Phase 2 — `tests/**/*.mfb` and their goldens
@@ -164,6 +194,21 @@ Commit: —
   for those fixtures is therefore "identical once the identity prefix is normalized",
   checked by diffing one such fixture's `.ncode`; every other `.ncode`/`.ncodesum` must
   stay byte-identical.
+- **2026-09-27 — "19 example projects" were 19 files (task 1.2).** `git diff --name-only
+  -- examples | awk -F/ '{print $1"/"$2}' | sort -u` → 12 examples; `browser` holds 4
+  projects and `swat` 2, so 15 builds. `browser` must be built as its README's package
+  chain, and `audio` imports the registry package `libsnd` (its `packages/` is
+  git-ignored and empty even in the main checkout), so it was built against the in-tree
+  `packages/libsnd` source with `--unsigned` and the vendored dylib placed as the
+  diagnostic asks.
+- **2026-09-27 — three package sources did not build at all (found in task 1.3; fixed
+  as `27217cbc2`).** `state_xfer_workers`, `union_xfer_workers` and
+  `union_xfer_stateless_workers` fail `EXPORT_NAMES_NON_EXPORTED_TYPE` (bug-624 B,
+  `6a6c68484`); their consumers passed only on pre-rule `.mfp` copies through a
+  same-name coincidence. Types exported, consumers name them, behaviour byte-identical.
+- **2026-09-27 — 18 `tools/` package `.mfp` were stale too (resynced as `7481a59a2`).**
+  `sync-package-mfp.sh` never refreshes the source-dir `.mfp`, only `tests/` copies;
+  none has a direct reader except one already in sync.
 - **2026-09-27 — the tree's `.mfp` copies were stale before B.** `sync-package-mfp.sh`
   on the unmodified tree updated 31 copies of 4 packages that export no SUB (landed
   alone as `a76df3d54`, with evidence). B's rebuild diff therefore starts from an

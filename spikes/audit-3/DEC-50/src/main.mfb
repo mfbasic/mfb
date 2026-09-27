@@ -23,9 +23,9 @@ FUNC tryImage() AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   io::print("before")
   LET r AS Integer = tryImage()
   io::print("after r=" & toString(r))
-END SUB
+END FUNC

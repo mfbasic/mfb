@@ -12,7 +12,7 @@ IMPORT regex
 IMPORT collections
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   LET mode AS String = collections::get(os::args(), 0)
   LET r AS Integer = toInt(collections::get(os::args(), 1))
   MUT subject AS String = ""
@@ -32,4 +32,4 @@ SUB main()
     EXIT PROGRAM 3
   END TRAP
   io::print("chars=" & toString(len(subject)) & " hits=" & toString(hits))
-END SUB
+END FUNC

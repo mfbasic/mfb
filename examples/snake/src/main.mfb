@@ -83,7 +83,7 @@ FUNC spawnFood(gridW AS Integer, gridH AS Integer, snake AS List OF Point) AS Po
   RETURN p
 END FUNC
 
-SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS Integer)
+FUNC drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS Integer) AS Nothing
   term::clear()
 
   term::setForeground(color::rgb(120, 180, 220))
@@ -120,9 +120,9 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
     term::drawGlyph(head.y + 1, head.x + 1, 9786)
   END IF
   term::setBold(FALSE)
-END SUB
+END FUNC
 
-SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Integer, paused AS Boolean, gameOver AS Boolean, won AS Boolean)
+FUNC drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Integer, paused AS Boolean, gameOver AS Boolean, won AS Boolean) AS Nothing
   MUT s AS String = " Snake  Score " & toString(score) & "  Best " & toString(best)
   IF won THEN
     s = s & "  YOU WIN - r restart  q quit"
@@ -142,7 +142,7 @@ SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Inte
   term::setBackground(color::rgb(0, 0, 0))
   term::setForeground(color::rgb(255, 255, 255))
   term::setBold(FALSE)
-END SUB
+END FUNC
 
 ' The next key within `ms` milliseconds: "UP", "DOWN", "LEFT", "RIGHT" or "ESC"
 ' for those keys, the text any other key types, "" when no key came in time (or
