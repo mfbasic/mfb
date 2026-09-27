@@ -255,6 +255,10 @@ fn assert_package_for(package: &str, target: &str, expected: &[(&str, Counts)]) 
 ///   the two regrow paths handing back the block they just drained.
 /// * `readAll`/`readAllBytes`/`writeAll`/`writeAllBytes`/`path_join` take a `File`
 ///   or a `List OF String` — no `String` argument to marshal, one result block.
+/// * `path_class` (bug-701, the failure-path classifier) copies the path it is
+///   asked about into one scratch block so it can cut it at each separator, and
+///   frees it before returning — unguarded, because the only route that skips the
+///   allocation (its failure) returns straight away and never reaches the free.
 const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_file_drain", (0, 0, 0)),
     ("_mfb_rt_fs_fs_appendBytes", (1, 1, 1)),
@@ -293,6 +297,7 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_fs_writeBytesAtomic", (3, 3, 3)),
     ("_mfb_rt_fs_fs_writeText", (1, 1, 1)),
     ("_mfb_rt_fs_fs_writeTextAtomic", (3, 3, 3)),
+    ("_mfb_rt_fs_path_class", (1, 1, 0)),
     ("_mfb_rt_fs_path_join", (1, 0, 0)),
 ];
 

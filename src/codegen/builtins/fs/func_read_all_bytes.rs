@@ -57,7 +57,8 @@ blocking descriptor should check `thread::isCancelled` between operations.
 
 `ErrReadFailed` means the host could not measure or read the file — a pipe or
 another handle that cannot be repositioned, or a file that shrinks while it is
-read — and `ErrResourceClosed` that `file` has been closed. `ErrOutOfMemory`
+read — `ErrResourceClosed` that `file` has been closed, and `ErrResourceMoved`
+that it was handed to another thread with `thread::transfer`. `ErrOutOfMemory`
 means the program ran out of memory."#;
 const EX: &str = r#"Read all remaining bytes from an open file:
 
@@ -104,7 +105,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrOutOfMemory", "ErrReadFailed", "ErrResourceClosed"],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrResourceClosed",
+                "ErrResourceMoved",
+            ],
             body: Body::abi_function(lower_fs_read_all_bytes),
         }],
     });

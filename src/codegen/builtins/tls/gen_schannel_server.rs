@@ -712,6 +712,7 @@ pub(crate) fn lower_tls_accept(
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let no_timeout = format!("{symbol}_no_timeout");
     let accept_invalid = format!("{symbol}_accept_invalid");
     let accept_ts_store = format!("{symbol}_accept_ts_clamped");
@@ -736,8 +737,13 @@ pub(crate) fn lower_tls_accept(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), LISTENFD),
         abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK), // WORK ptr
@@ -1075,6 +1081,8 @@ pub(crate) fn lower_tls_accept(
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
@@ -1099,6 +1107,7 @@ pub(crate) fn lower_tls_close_listener(
     const FRAME_SIZE: usize = 0x40;
 
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let done = format!("{symbol}_done");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
@@ -1107,8 +1116,13 @@ pub(crate) fn lower_tls_close_listener(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         // Idempotent: a closed handle returns OK.
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD),
         abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
@@ -1181,6 +1195,8 @@ pub(crate) fn lower_tls_close_listener(
     // costs nothing: lexical cleanup discards a close failure (§15), so the
     // "close once, or let the scope do it" idiom is unaffected.
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&already_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME_SIZE))
 }

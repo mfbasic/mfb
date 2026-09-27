@@ -80,11 +80,10 @@ above, or the joined path is longer than the host allows. When the file cannot
 be opened the error says why: `ErrPathNotFound` if `root` or the file does not
 exist, `ErrAccessDenied` if permission is refused or the open would pass through
 a symbolic link or leave `root`, and `ErrInvalidPath` if the path cannot name a
-file — a name that is too long, or a file used as a directory. Any other refusal
-raises `ErrWriteFailed`. `ErrOutOfMemory` means the program ran out of memory.
-The table also lists `ErrAlreadyExists` and `ErrResourceBusy` because every `fs`
-function that takes a path reports host refusals through one shared set of
-errors; no mode produces either."#;
+file — it names a directory, in any mode, a name in it is too long, or a file is
+used as a directory. Any other refusal raises `ErrReadFailed` for `"r"` and
+`ErrWriteFailed` for a mode that writes. `ErrOutOfMemory` means the program ran
+out of memory."#;
 const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for reading:
 
 ```
@@ -172,9 +171,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrPathNotFound",
                 "ErrInvalidPath",
                 "ErrAccessDenied",
-                "ErrResourceBusy",
                 "ErrInvalidArgument",
-                "ErrAlreadyExists",
+                "ErrReadFailed",
             ],
             body: Body::abi_function(lower_fs_open_within),
         }],

@@ -198,28 +198,41 @@ pub(crate) fn emit_append_to_file_buffer(
     emit_append_to_buffer(ctx, vregs, src, len, tag, write_error, &sink)
 }
 
-/// Refuse a closed `File` (x0 = File*) by branching to `closed`: the same
-/// `CLOSED != 0` guard every other handle operation opens with (bug-694 C3). The
-/// flag word also carries the moved bit, so a moved handle is refused here too.
+/// Refuse a closed `File` (x0 = File*) by branching to `closed`, and a moved one
+/// (bug-702) by branching to `closed`'s moved twin: the same guard every other
+/// handle operation opens with (bug-694 C3, `resource::closed_or_moved_guard`).
 fn emit_closed_guard(instructions: &mut Vec<CodeInstruction>, flag: impl Into<Reg>, closed: &str) {
     let flag: Reg = flag.into();
-    instructions.extend([
-        abi::load_u64(flag, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(flag, "0"),
-        abi::branch_ne(closed),
-    ]);
+    instructions.push(abi::load_u64(
+        flag,
+        abi::return_register(),
+        FILE_OFFSET_CLOSED,
+    ));
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        flag,
+        closed,
+        &moved_label(closed),
+    ));
 }
 
-/// The `closed` tail [`emit_closed_guard`] branches to: raise `ErrResourceClosed`
-/// and fall through to `done`.
+/// The moved-handle label paired with a `closed` label.
+fn moved_label(closed: &str) -> String {
+    format!("{closed}_moved")
+}
+
+/// The tails [`emit_closed_guard`] branches to: raise `ErrResourceClosed` or
+/// `ErrResourceMoved`, then fall through to `done`.
 fn emit_closed_tail(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     closed: &str,
+    done: &str,
 ) {
     instructions.push(abi::label(closed));
     raise_error_into(symbol, "ErrResourceClosed", instructions, relocations);
+    instructions.extend([abi::branch(done), abi::label(&moved_label(closed))]);
+    raise_error_into(symbol, "ErrResourceMoved", instructions, relocations);
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
@@ -245,7 +258,7 @@ pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> Result<FsBodyParts, S
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, 0))
 }
@@ -298,7 +311,7 @@ pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> Result<FsBodyParts, 
         &mut relocations,
     );
     instructions.push(abi::branch(&done));
-    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, 0))
 }
@@ -331,7 +344,7 @@ pub(crate) fn lower_fs_flush_helper(symbol: &str) -> Result<FsBodyParts, String>
         &mut relocations,
     );
     instructions.push(abi::branch(&done));
-    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed);
+    emit_closed_tail(symbol, &mut instructions, &mut relocations, &closed, &done);
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, 0))
 }

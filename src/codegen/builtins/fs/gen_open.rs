@@ -131,6 +131,84 @@ fn emit_branch_if_ascii_literal(
     instructions.extend([abi::branch(target), abi::label(&next)]);
 }
 
+/// Where [`lower_fs_open_helper`] keeps the `stat` buffer its POSIX directory
+/// refusal reads: past the 24-byte `open_how` at `sp + 0`.
+const OPEN_STAT_OFFSET: usize = 32;
+const OPEN_STAT_SIZE: usize = 256;
+
+/// bug-701: a POSIX read-only `open` of a directory succeeds, where Windows
+/// refuses it (and every POSIX write mode fails `EISDIR`). Refuse it after the
+/// open too — close the descriptor and raise `ErrInvalidPath` — so a directory
+/// where a file is required reports the same code on every host. Emitted right
+/// after a successful open, with the descriptor in `fd` and the NUL-terminated
+/// path in `c_path`; reads a `stat` buffer at `sp + OPEN_STAT_OFFSET`. Nothing on
+/// Windows, and nothing for a mode other than `read_flag`.
+#[allow(clippy::too_many_arguments)]
+fn emit_posix_directory_open_refusal(
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+    flag_val: Reg,
+    read_flag: &str,
+    c_path: Reg,
+    fd: Reg,
+    done: &str,
+) -> Result<(), String> {
+    if ctx.platform.family() == PlatformFamily::Windows {
+        return Ok(());
+    }
+    let symbol = ctx.symbol;
+    let not_directory = format!("{symbol}_not_directory");
+    let is_directory = format!("{symbol}_is_directory");
+    let (mode_reg, mask_reg, expected_reg) = (vregs.next(), vregs.next(), vregs.next());
+    ctx.instructions.extend([
+        abi::compare_immediate(flag_val, read_flag),
+        abi::branch_ne(&not_directory),
+        abi::move_register(abi::return_register(), c_path),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), OPEN_STAT_OFFSET),
+    ]);
+    ctx.platform.emit_path_stat(
+        symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.platform.emit_stat_is_kind(
+        OPEN_STAT_OFFSET,
+        FS_MODE_DIRECTORY,
+        (&mode_reg).into(),
+        (&mask_reg).into(),
+        (&expected_reg).into(),
+        &is_directory,
+        &not_directory,
+        ctx.instructions,
+    );
+    ctx.instructions.extend([
+        abi::branch(&not_directory),
+        abi::label(&is_directory),
+        abi::move_register(abi::return_register(), fd),
+    ]);
+    ctx.platform.emit_close_file(
+        symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    raise_error_into(symbol, "ErrInvalidPath", ctx.instructions, ctx.relocations);
+    ctx.instructions
+        .extend([abi::branch(done), abi::label(&not_directory)]);
+    Ok(())
+}
+
+/// The frame an open helper reserves: on POSIX, the 24-byte Linux `open_how` at
+/// `sp + 0` (built only by the no-follow opens) and the `stat` buffer
+/// [`emit_posix_directory_open_refusal`] reads past it; nothing on Windows.
+fn open_stack_size(family: PlatformFamily) -> usize {
+    match family {
+        PlatformFamily::Windows => 0,
+        _ => OPEN_STAT_OFFSET + OPEN_STAT_SIZE,
+    }
+}
+
 pub(crate) fn lower_fs_open_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -364,6 +442,21 @@ pub(crate) fn lower_fs_open_helper(
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
     ]);
+    emit_posix_directory_open_refusal(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+        (&flag_val).into(),
+        flags.read,
+        (&c_path).into(),
+        (&fd).into(),
+        &done,
+    )?;
     if windows_nofollow {
         // plan-66-E: CreateFileW followed any reparse points transparently; verify
         // the opened handle resolves to the lexically-canonical requested path and
@@ -469,11 +562,17 @@ pub(crate) fn lower_fs_open_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fs_path_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Open,
         no_follow,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::ByAccess {
+            flags: (&flag_val).into(),
+            read_only: flags.read,
+        },
         &mut instructions,
         &mut relocations,
         &done,
@@ -488,9 +587,7 @@ pub(crate) fn lower_fs_open_helper(
     );
     instructions.push(abi::return_());
 
-    // Reserve the 24-byte `open_how` scratch at sp+0 only for the Linux no-follow
-    // path that builds it; every other flavor keeps the byte-identical frame.
-    let stack_size = if linux_nofollow { 24 } else { 0 };
+    let stack_size = open_stack_size(platform.family());
     Ok((instructions, relocations, stack_size))
 }
 
@@ -561,6 +658,7 @@ pub(crate) fn lower_fs_open_within_helper(
     let mode = vregs.next();
     let root_cstr = vregs.next();
     let c_path = vregs.next(); // the PATH_MAX join buffer (canonical root + "/" + rel)
+    let joined_len = vregs.next();
     let flag_val = vregs.next();
     let fd = vregs.next();
     let len0 = vregs.next();
@@ -602,6 +700,7 @@ pub(crate) fn lower_fs_open_within_helper(
         abi::move_immediate(&root_cstr_size, "Integer", "0"),
         abi::move_immediate(&c_path, "Integer", "0"),
         abi::move_immediate(&c_path_size, "Integer", "0"),
+        abi::move_immediate(&joined_len, "Integer", "0"),
         abi::move_register(&root, abi::return_register()),
         abi::move_register(&rel, abi::mfb_return(1)),
         abi::move_register(&mode, abi::mfb_return(2)),
@@ -765,6 +864,7 @@ pub(crate) fn lower_fs_open_within_helper(
         abi::branch(&append_loop),
         abi::label(&append_done),
         abi::store_u8(abi::ZERO, &dst, 0),
+        abi::subtract_registers(&joined_len, &dst, &c_path),
         // c_path now holds the full canonical join. Match the mode → flags.
         abi::load_u64(&mode_len, &mode, 0),
     ]);
@@ -872,6 +972,21 @@ pub(crate) fn lower_fs_open_within_helper(
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
     ]);
+    emit_posix_directory_open_refusal(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+        (&flag_val).into(),
+        flags.read,
+        (&c_path).into(),
+        (&fd).into(),
+        &done,
+    )?;
     if windows {
         // plan-66-E: the join opened, but CreateFileW may have followed a reparse
         // point out of `root`. Verify containment against the root's own resolved
@@ -972,11 +1087,19 @@ pub(crate) fn lower_fs_open_within_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fs_path_errno_error_mapping(
+    // A failed `realpath` of the root leaves `joined_len` at 0, so the path it
+    // classifies is empty and the host code keeps its plain meaning.
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Open,
         true,
+        Some(FsPathArg::Bytes((&c_path).into(), (&joined_len).into())),
+        FsFallback::ByAccess {
+            flags: (&flag_val).into(),
+            read_only: flags.read,
+        },
         &mut instructions,
         &mut relocations,
         &done,
@@ -993,6 +1116,9 @@ pub(crate) fn lower_fs_open_within_helper(
         &mut relocations,
     );
     instructions.push(abi::return_());
-    let stack_size = if linux { 24 } else { 0 };
-    Ok((instructions, relocations, stack_size))
+    Ok((
+        instructions,
+        relocations,
+        open_stack_size(platform.family()),
+    ))
 }
