@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
 
     /// The `ErrorLoc.filename` for an error raised at `current_loc`: the file
     /// the node being lowered was written in. That is the function's own file
-    /// unless leaf-function inlining (plan-158-C) moved the node here from
+    /// unless leaf-function inlining (plan-161-C) moved the node here from
     /// another file, in which case the location carries that file.
     fn error_filename(&self) -> String {
         match self.current_loc.file {

@@ -1,5 +1,5 @@
 //! Leaf-function inlining — the Level-1 "Leaf function inlining" row
-//! (plan-158-C, bug-740 mechanism (c)): a call to a one-expression helper whose
+//! (plan-161-C, bug-740 mechanism (c)): a call to a one-expression helper whose
 //! arguments are plain locals or literals becomes the helper's expression, with
 //! each parameter replaced by its argument.
 //!

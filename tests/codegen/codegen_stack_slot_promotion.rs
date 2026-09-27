@@ -1,4 +1,4 @@
-//! plan-158-B (bug-740 mechanism (b)): at the default `-O1` a leaf helper's
+//! plan-161-B (bug-740 mechanism (b)): at the default `-O1` a leaf helper's
 //! locals, parameters and operand temporaries live in registers, not in frame
 //! slots — the "Stack slot promotion" row plus the allocator's live-across-call
 //! rule. brogue's `gi` (`x * DROWS + y`) stored and reloaded every one of them.

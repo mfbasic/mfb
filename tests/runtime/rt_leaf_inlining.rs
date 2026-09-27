@@ -1,4 +1,4 @@
-//! plan-158-C (bug-740 mechanism (c)): the Level-1 leaf-function inlining row
+//! plan-161-C (bug-740 mechanism (c)): the Level-1 leaf-function inlining row
 //! replaces a call to a one-expression scalar helper with the helper's
 //! expression. Every observable must be what the call produced:
 //!

@@ -384,7 +384,7 @@ pub(crate) struct NirSourceLoc {
     pub(crate) line: u32,
     pub(crate) column: u32,
     /// `0`: the owning function's file. Otherwise a [`source_file_id`] — set by
-    /// leaf-function inlining (plan-158-C) on a node it moved out of another
+    /// leaf-function inlining (plan-161-C) on a node it moved out of another
     /// file, so an error the node raises still names the file the node was
     /// written in.
     pub(crate) file: u32,

@@ -1,8 +1,8 @@
-# plan-158-C: Inline one-expression scalar helpers at the default level
+# plan-161-C: Inline one-expression scalar helpers at the default level
 
 Last updated: 2026-09-26
 Effort: large (3h–1d)
-Depends on: plan-158-B
+Depends on: plan-161-B
 
 bug-740 mechanism (c). brogue's hot loop (`cellularAutomataRound`) calls four
 one-line helpers per neighbour — `gi(x, y) = x * DROWS + y`, `nbDx`, `nbDy`,
@@ -27,7 +27,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-B complete | `ls planning/plan-158-B-*` → no match (archived) | NOT MET (2026-09-26, plan-158-B awaiting its heavy-lock gate) |
+| plan-161-B complete | `ls planning/plan-161-B-*` → no match (archived) | NOT MET (2026-09-26, plan-161-B awaiting its heavy-lock gate) |
 
 ## 1. Goal
 
@@ -36,7 +36,7 @@ References:
 - Every program's output, exit code, runtime errors (code, message, `ErrorLoc`
   file/line/char), `TRAP` routing and `--debug` report are unchanged at every
   level.
-- `tools/brogue-perf/bench.sh` ratio lower than plan-158-B's floor.
+- `tools/brogue-perf/bench.sh` ratio lower than plan-161-B's floor.
 
 ### Non-goals (explicit constraints)
 
@@ -79,7 +79,7 @@ References:
 | brogue call sites to them | 226: 123 cross-file atomic, 33 same-file atomic, 57 cross-file non-atomic, 13 same-file non-atomic | same probe |
 | inlined, same-file only (prototype) | 25 | `mfb build -v` → `Leaf function inlining: 25` |
 | inlined, with the cross-file location tag | 126 | `mfb build -v` → `Leaf function inlining: 126` |
-| ratio (lock NOT held, median of 5): plan-158-B 7.5x → same-file 6.3x → cross-file 5.9x | | `/tmp/b740-measure.py 5 oracle dev1 dev_c dev_c2` |
+| ratio (lock NOT held, median of 5): plan-161-B 7.5x → same-file 6.3x → cross-file 5.9x | | `/tmp/b740-measure.py 5 oracle dev1 dev_c dev_c2` |
 
 ## 3. Design Overview
 
@@ -169,7 +169,7 @@ Commit: —
 - Self-update arms: `rt_inplace_self_update --ignored`, narrowed
   (`MFB_SELF_UPDATE_FILTER`) — inlining changes the shape of index arguments
   those arms see (`set(grid, gi(i, j), v)` → `set(grid, i * 29 + j, v)`).
-- Cross-target: as plan-158-B (artifact gate; linux-runtime-proof on
+- Cross-target: as plan-161-B (artifact gate; linux-runtime-proof on
   2223/2229/2227; brogue on every target incl. the Windows box).
 - Final gate (once, heavy lock): `cargo test --release --no-fail-fast`,
   `scripts/artifact-gate.sh target/release/mfb all`.
@@ -188,8 +188,8 @@ Commit: —
 
 1. The draft split the location tag and walker (Phase 1) from the row (Phase 2);
    neither has another caller, so they land together as Phase 1.
-2. Developed in the scratch worktree `/tmp/b740-dev` while plan-158-A/B waited
-   on the heavy lock, and cherry-picked onto `worktree-B-740` after plan-158-B
+2. Developed in the scratch worktree `/tmp/b740-dev` while plan-161-A/B waited
+   on the heavy lock, and cherry-picked onto `worktree-B-740` after plan-161-B
    completed.
 
 ## Summary

@@ -540,7 +540,7 @@ fn linear_scan_writes_typed_phys_operands() {
     ));
 }
 
-/// plan-158-B: a value that is dead at a call inside its interval — the shape
+/// plan-161-B: a value that is dead at a call inside its interval — the shape
 /// of every checked operation's inline raise path, which calls the error
 /// builders and returns — is not forced out of the registers that call
 /// clobbers at `-O1`: nothing it still needs lives through the call. At `-O0`
@@ -582,7 +582,7 @@ fn a_value_dead_at_a_raise_call_keeps_its_register_at_level_one() {
     assert_eq!(outcome.spill_slots, vec![64], "-O0 spills across the call");
 }
 
-/// plan-158-B: register coalescing runs at the default `-O1` — a copy whose
+/// plan-161-B: register coalescing runs at the default `-O1` — a copy whose
 /// source dies at it gets the source's register and the copy disappears — and
 /// stays off at `-O0`.
 #[test]

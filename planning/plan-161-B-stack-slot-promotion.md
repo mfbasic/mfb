@@ -1,8 +1,8 @@
-# plan-158-B: Keep temporaries in registers at the default level
+# plan-161-B: Keep temporaries in registers at the default level
 
 Last updated: 2026-09-26
 Effort: large (3h–1d)
-Depends on: plan-158-A
+Depends on: plan-161-A
 
 bug-740 mechanism (b). The lowering gives every local, parameter and operand
 temporary its own 8-byte frame object and round-trips each value through it:
@@ -32,7 +32,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-A complete | `ls planning/plan-158-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-09-26, plan-158-A in progress) |
+| plan-161-A complete | `ls planning/plan-161-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-09-26, plan-161-A in progress) |
 
 ## 1. Goal
 
@@ -254,8 +254,8 @@ Commit: —
    entry block stays in memory, so even such a read is exactly what it was.
    brogue's count is unchanged by it (29,453 both ways).
 2. The code for this plan was developed in a scratch detached worktree
-   (`/tmp/b740-dev`) while plan-158-A's lock-bound gate waited in the heavy-lock
-   queue, and was cherry-picked onto `worktree-B-740` only after plan-158-A
+   (`/tmp/b740-dev`) while plan-161-A's lock-bound gate waited in the heavy-lock
+   queue, and was cherry-picked onto `worktree-B-740` only after plan-161-A
    completed — the Prerequisites row was checked at landing, not at drafting.
 
 ## Summary

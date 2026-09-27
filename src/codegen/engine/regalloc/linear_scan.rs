@@ -151,7 +151,7 @@ pub(crate) fn run(
     vregs.sort_by_key(|&(v, s, _)| (s, v));
 
     // Coalescing hints (`optimizer` catalog row "Register coalescing", Level
-    // 1 since plan-158-B — stack slot promotion leaves a copy at every former
+    // 1 since plan-161-B — stack slot promotion leaves a copy at every former
     // store and load, and this is what collapses them): for a `mov dst, src` between two vregs of this class where `src`
     // dies at the copy, giving `dst` the same physical turns the copy into
     // `mov xN, xN`, which the sweep at the end of this function deletes. The
