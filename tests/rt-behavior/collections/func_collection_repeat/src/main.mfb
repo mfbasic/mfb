@@ -1,0 +1,122 @@
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+TYPE Tag
+  name AS String
+  weight AS Integer
+END TYPE
+
+' A recursive type: every filled position holds its own tree.
+TYPE Tree
+  tag AS Integer
+  kids AS List OF Tree
+END TYPE
+
+FUNC treeSize(t AS Tree) AS Integer
+  MUT n AS Integer = 1
+  FOR EACH k IN t.kids
+    n = n + treeSize(k)
+  NEXT
+  RETURN n
+END FUNC
+
+SUB showTrees(label AS String, xs AS List OF Tree)
+  MUT parts AS List OF String = []
+  FOR EACH t IN xs
+    parts = collections::append(parts, toString(t.tag) & "/" & toString(treeSize(t)))
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+SUB showInts(label AS String, xs AS List OF Integer)
+  MUT parts AS List OF String = []
+  FOR EACH x IN xs
+    parts = collections::append(parts, toString(x))
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+SUB showFloats(label AS String, xs AS List OF Float)
+  MUT parts AS List OF String = []
+  FOR EACH x IN xs
+    parts = collections::append(parts, toString(x))
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+SUB showStrings(label AS String, xs AS List OF String)
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(xs, ", ") & "]")
+END SUB
+
+SUB showTags(label AS String, xs AS List OF Tag)
+  MUT parts AS List OF String = []
+  FOR EACH t IN xs
+    parts = collections::append(parts, t.name & ":" & toString(t.weight))
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+SUB showNested(label AS String, xs AS List OF List OF Integer)
+  MUT parts AS List OF String = []
+  FOR EACH inner IN xs
+    MUT cells AS List OF String = []
+    FOR EACH x IN inner
+      cells = collections::append(cells, toString(x))
+    NEXT
+    parts = collections::append(parts, "[" & strings::join(cells, " ") & "]")
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+FUNC main AS Integer
+  ' Integer: every shape of the range.
+  LET empty AS List OF Integer = []
+  showInts("build", collections::repeat(empty, 7, 4))
+  showInts("build empty input after", empty)
+  LET base AS List OF Integer = [1, 2, 3, 4, 5]
+  showInts("reset", collections::repeat(base, 0, len(base)))
+  showInts("middle", collections::repeat(base, 9, 2, 1))
+  showInts("past end", collections::repeat(base, 8, 4, 3))
+  showInts("count zero", collections::repeat(base, 6, 0, 2))
+  showInts("extend", collections::repeat(base, 5, 3, len(base)))
+  showInts("default start", collections::repeat(base, 4, 2))
+  showInts("count zero at end", collections::repeat(base, 6, 0, 5))
+  showInts("input after", base)
+
+  ' Float.
+  LET floats AS List OF Float = [1.5, 2.5, 3.5]
+  showFloats("float middle", collections::repeat(floats, 0.25, 1, 1))
+  showFloats("float past end", collections::repeat(floats, -1.0, 3, 2))
+  showFloats("float build", collections::repeat([], 0.0, 3))
+  showFloats("float input after", floats)
+
+  ' String: a longer value, then a shorter one, over the same elements.
+  LET words AS List OF String = ["ab", "cd", "ef", "gh"]
+  showStrings("string longer", collections::repeat(words, "wxyz-long", 2, 1))
+  showStrings("string shorter", collections::repeat(words, "q", 3, 0))
+  showStrings("string past end", collections::repeat(words, "tail", 3, 3))
+  showStrings("string build", collections::repeat([], "s", 2))
+  showStrings("string input after", words)
+
+  ' A record with a String field.
+  LET tags AS List OF Tag = [Tag[name := "a", weight := 1], Tag[name := "b", weight := 2]]
+  LET wide AS Tag = Tag[name := "a much longer name", weight := 9]
+  showTags("record overwrite", collections::repeat(tags, wide, 1, 0))
+  showTags("record past end", collections::repeat(tags, wide, 3, 1))
+  showTags("record input after", tags)
+
+  ' A nested list.
+  LET grid AS List OF List OF Integer = [[1], [2, 3]]
+  showNested("nested fill", collections::repeat(grid, [0, 0, 0], 3, 1))
+  showNested("nested input after", grid)
+
+  ' A recursive element type.
+  LET leaf AS Tree = Tree[tag := 1, kids := []]
+  LET node AS Tree = Tree[tag := 2, kids := [leaf, leaf]]
+  LET forest AS List OF Tree = [leaf, node, leaf]
+  showTrees("tree fill", collections::repeat(forest, node, 3, 1))
+  showTrees("tree build", collections::repeat([], leaf, 2))
+  showTrees("tree input after", forest)
+  RETURN 0
+END FUNC

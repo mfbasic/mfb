@@ -46,7 +46,7 @@ IR target is dequalified back to the bare native name:
 `collections::values`, `collections::hasKey`, `collections::contains`,
 `collections::forEach`, `collections::transform`, `collections::filter`,
 `collections::reduce`, `collections::sum`, `collections::find`,
-`collections::mid`, `collections::replace`. The `find`/`mid`/`replace` members
+`collections::mid`, `collections::replace`, `collections::repeat`. The `find`/`mid`/`replace` members
 here are the **List** overloads only; their `String` overloads live in
 `strings::`. The **Set** members `collections::add` (idempotent insert),
 `collections::remove` (no-op when absent), and `collections::toList` (elements in
