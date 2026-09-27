@@ -563,6 +563,15 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::LIVE_RANGES_SPLIT,
         },
         Row {
+            name: "Stack slot promotion",
+            level: 1,
+            stage: "regalloc",
+            summary: "Keeps a local or temporary that is only ever stored and \
+                      reloaded whole in a register instead of a stack slot, \
+                      leaving register allocation to decide where it lives.",
+            counter: &stats::SLOTS_PROMOTED,
+        },
+        Row {
             name: "Peephole optimization (store-to-load forwarding)",
             level: 1,
             stage: "machine",

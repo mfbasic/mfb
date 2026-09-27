@@ -164,20 +164,28 @@ Commit: —
 
 ### Phase 2 — stack slot promotion
 
-- [ ] `src/optimizer/opt2/promote.rs` (the design above) + `mod.rs` wiring.
-- [ ] `builder_registers.rs:run_register_allocation`: run it after the `-mir`
+- [x] `src/optimizer/opt2/promote.rs` (the design above) + `mod.rs` wiring.
+- [x] `builder_registers.rs:run_register_allocation`: run it after the `-mir`
       capture with the frame objects, frame size, and the post-allocation zeroed
       slots.
-- [ ] `stats.rs`/`catalog.rs`: the "Stack slot promotion" row (Level 1, stage
+- [x] `stats.rs`/`catalog.rs`: the "Stack slot promotion" row (Level 1, stage
       regalloc) and its counter.
-- [ ] Unit tests in `promote.rs`: promotes a private slot; zero store becomes
+- [x] Unit tests in `promote.rs`: promotes a private slot; zero store becomes
       `mov_imm`; pins an address-taken slot fed to a drop helper; disables the
       function for an address fed to anything else, for an unknown `sp` use, and
       for an access outside every object; pins a narrow access and a
-      zeroed-after-allocation slot; leaves a two-word object alone; off at `-O0`.
-- [ ] Codegen test `tests/codegen/codegen_stack_slot_promotion.rs`: a
+      zeroed-after-allocation slot; leaves a two-word object alone; off at `-O0`;
+      keeps a slot some path reads before writing (Correction 1).
+      `cargo test --bin mfb promote::tests` → 8 passed.
+- [x] Codegen test `tests/codegen/codegen_stack_slot_promotion.rs`: a
       `gi`-shaped function's `.ncode` has no `sp`-based `ldr_u64`/`str_u64`
-      except the `lr` save/restore at `-O1`, and still has them at `-O0`.
+      except the `lr` save/restore at `-O1`, and still has them at `-O0`; the
+      program (including an overflow inside the helper) prints the same at both.
+      `MFB_TEST_EXE=target/debug/mfb cargo test --test
+      codegen_stack_slot_promotion` → 2 passed; with the main-tip compiler
+      `a_leaf_helper_keeps_its_values_in_registers` FAILS (RED at base).
+      brogue `dig` seeds 1–8 × depths 1–40 against the oracle (debug-built
+      compiler at this phase): 320 pairs, 0 mismatches.
 
 Acceptance: the unit tests and the codegen test pass;
 `examples/brogue/check/check-terrain.sh 8 1` → 320 pairs match.
@@ -234,6 +242,19 @@ Commit: —
   changes nothing measurable and would renumber every other object.
 
 ## Corrections
+
+1. The design promoted a slot even when some path reads it before any store
+   (the register would then hold whatever it held, where the frame word held
+   whatever *it* held). Both are garbage a well-formed stream never uses, but
+   "never uses" is a claim about every lowering, not something this row proves.
+   Phase 2 adds `read_before_written`: backward liveness over the allocator's
+   CFG with loads as uses and stores as definitions; a candidate live into the
+   entry block stays in memory, so even such a read is exactly what it was.
+   brogue's count is unchanged by it (29,453 both ways).
+2. The code for this plan was developed in a scratch detached worktree
+   (`/tmp/b740-dev`) while plan-158-A's lock-bound gate waited in the heavy-lock
+   queue, and was cherry-picked onto `worktree-B-740` only after plan-158-A
+   completed — the Prerequisites row was checked at landing, not at drafting.
 
 ## Summary
 
