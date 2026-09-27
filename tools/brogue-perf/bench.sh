@@ -37,8 +37,9 @@ mfb="${MFB:-$repo/target/release/mfb}"
 # bug-740 / plan-161-B (stack slot promotion, live-across-call coloring,
 # -O1 coalescing) took it to 7.6x (lock held, median of 7, 2026-09-27; plan-161-A
 # alone measured 18.3x vs 18.0x at main -- noise). 11 keeps the same ~1.4x
-# headroom.
-BUDGET_RATIO="${BUDGET_RATIO:-11}"
+# headroom. plan-161-C (leaf function inlining) then took it to 5.6x (bench.sh
+# --runs 7, lock held, 2026-09-27; 6.0x in the stepwise run): budget 8.
+BUDGET_RATIO="${BUDGET_RATIO:-8}"
 RUNS=5
 QUIET=0
 
