@@ -800,71 +800,78 @@ impl NativePlanPlatform for Platform {
             // policy check (crypt32), the socket layer (ws2_32), and the wide-string
             // marshal for the SNI/target name (kernel32). Any tls.* call declares
             // the whole set; the merged IAT dedups.
-            call if call.starts_with("tls.") => vec![
-                // WSAStartup/WSACleanup ride the entry (needs_winsock is set for
-                // tls too, since the Schannel client opens its own raw socket).
-                import("WSAStartup", WS2_32, required_by),
-                import("WSACleanup", WS2_32, required_by),
-                import("AcquireCredentialsHandleW", SECUR32, required_by),
-                import("FreeCredentialsHandle", SECUR32, required_by),
-                import("InitializeSecurityContextW", SECUR32, required_by),
-                // Server handshake (tls.listen/accept): AcceptSecurityContext has
-                // no A/W variant (it takes no string args).
-                import("AcceptSecurityContext", SECUR32, required_by),
-                import("DeleteSecurityContext", SECUR32, required_by),
-                import("FreeContextBuffer", SECUR32, required_by),
-                import("QueryContextAttributesW", SECUR32, required_by),
-                import("ApplyControlToken", SECUR32, required_by),
-                import("EncryptMessage", SECUR32, required_by),
-                import("DecryptMessage", SECUR32, required_by),
-                import("CertGetCertificateChain", CRYPT32, required_by),
-                import("CertVerifyCertificateChainPolicy", CRYPT32, required_by),
-                import("CertFreeCertificateChain", CRYPT32, required_by),
-                import("CertFreeCertificateContext", CRYPT32, required_by),
-                // Server credential build: PEM → DER (CryptStringToBinaryA), the
-                // cert context, the PKCS#8→PKCS#1 decode, and the property that
-                // binds the private key to the cert.
-                import("CryptStringToBinaryA", CRYPT32, required_by),
-                import("CertCreateCertificateContext", CRYPT32, required_by),
-                import("CertSetCertificateContextProperty", CRYPT32, required_by),
-                import("CryptDecodeObjectEx", CRYPT32, required_by),
-                // Legacy CryptoAPI ephemeral private-key import (advapi32): the
-                // CryptImportKey-into-VERIFYCONTEXT + CERT_KEY_CONTEXT recipe.
-                import("CryptAcquireContextW", ADVAPI32, required_by),
-                import("CryptImportKey", ADVAPI32, required_by),
-                import("CryptDestroyKey", ADVAPI32, required_by),
-                import("CryptReleaseContext", ADVAPI32, required_by),
-                import("getaddrinfo", WS2_32, required_by),
-                import("freeaddrinfo", WS2_32, required_by),
-                import("socket", WS2_32, required_by),
-                import("connect", WS2_32, required_by),
-                // Server socket: bind/listen/accept + the SO_REUSEADDR toggle and
-                // the connection-wait poll.
-                import("bind", WS2_32, required_by),
-                import("listen", WS2_32, required_by),
-                import("accept", WS2_32, required_by),
-                import("setsockopt", WS2_32, required_by),
-                // plan-73-D: the client's non-blocking connect + WSAPoll timeout path
-                // needs ioctlsocket(FIONBIO) and getsockopt(SO_ERROR).
-                import("getsockopt", WS2_32, required_by),
-                import("ioctlsocket", WS2_32, required_by),
-                import("WSAPoll", WS2_32, required_by),
-                import("send", WS2_32, required_by),
-                import("recv", WS2_32, required_by),
-                import("closesocket", WS2_32, required_by),
-                // plan-110-D: tls.localAddress/tls.remoteAddress. Schannel layers
-                // over a plain SOCKET kept in the record's handle slot, so the
-                // endpoint queries reuse the `net` address emitter verbatim.
-                import("getsockname", WS2_32, required_by),
-                import("getpeername", WS2_32, required_by),
-                import("inet_ntop", WS2_32, required_by),
-                // The PEM cert/key files are read via the Win32 file API.
-                import("CreateFileW", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("CloseHandle", KERNEL32, required_by),
-                import("MultiByteToWideChar", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-            ],
+            call if call.starts_with("tls.") => {
+                let mut tls = vec![
+                    // WSAStartup/WSACleanup ride the entry (needs_winsock is set for
+                    // tls too, since the Schannel client opens its own raw socket).
+                    import("WSAStartup", WS2_32, required_by),
+                    import("WSACleanup", WS2_32, required_by),
+                    import("AcquireCredentialsHandleW", SECUR32, required_by),
+                    import("FreeCredentialsHandle", SECUR32, required_by),
+                    import("InitializeSecurityContextW", SECUR32, required_by),
+                    // Server handshake (tls.listen/accept): AcceptSecurityContext has
+                    // no A/W variant (it takes no string args).
+                    import("AcceptSecurityContext", SECUR32, required_by),
+                    import("DeleteSecurityContext", SECUR32, required_by),
+                    import("FreeContextBuffer", SECUR32, required_by),
+                    import("QueryContextAttributesW", SECUR32, required_by),
+                    import("ApplyControlToken", SECUR32, required_by),
+                    import("EncryptMessage", SECUR32, required_by),
+                    import("DecryptMessage", SECUR32, required_by),
+                    import("CertGetCertificateChain", CRYPT32, required_by),
+                    import("CertVerifyCertificateChainPolicy", CRYPT32, required_by),
+                    import("CertFreeCertificateChain", CRYPT32, required_by),
+                    import("CertFreeCertificateContext", CRYPT32, required_by),
+                    // Server credential build: PEM → DER (CryptStringToBinaryA), the
+                    // cert context, the PKCS#8→PKCS#1 decode, and the property that
+                    // binds the private key to the cert.
+                    import("CryptStringToBinaryA", CRYPT32, required_by),
+                    import("CertCreateCertificateContext", CRYPT32, required_by),
+                    import("CertSetCertificateContextProperty", CRYPT32, required_by),
+                    import("CryptDecodeObjectEx", CRYPT32, required_by),
+                    // Legacy CryptoAPI ephemeral private-key import (advapi32): the
+                    // CryptImportKey-into-VERIFYCONTEXT + CERT_KEY_CONTEXT recipe.
+                    import("CryptAcquireContextW", ADVAPI32, required_by),
+                    import("CryptImportKey", ADVAPI32, required_by),
+                    import("CryptDestroyKey", ADVAPI32, required_by),
+                    import("CryptReleaseContext", ADVAPI32, required_by),
+                    import("getaddrinfo", WS2_32, required_by),
+                    import("freeaddrinfo", WS2_32, required_by),
+                    import("socket", WS2_32, required_by),
+                    import("connect", WS2_32, required_by),
+                    // Server socket: bind/listen/accept + the SO_REUSEADDR toggle and
+                    // the connection-wait poll.
+                    import("bind", WS2_32, required_by),
+                    import("listen", WS2_32, required_by),
+                    import("accept", WS2_32, required_by),
+                    import("setsockopt", WS2_32, required_by),
+                    // plan-73-D: the client's non-blocking connect + WSAPoll timeout path
+                    // needs ioctlsocket(FIONBIO) and getsockopt(SO_ERROR).
+                    import("getsockopt", WS2_32, required_by),
+                    import("ioctlsocket", WS2_32, required_by),
+                    import("WSAPoll", WS2_32, required_by),
+                    import("send", WS2_32, required_by),
+                    import("recv", WS2_32, required_by),
+                    import("closesocket", WS2_32, required_by),
+                    // plan-110-D: tls.localAddress/tls.remoteAddress. Schannel layers
+                    // over a plain SOCKET kept in the record's handle slot, so the
+                    // endpoint queries reuse the `net` address emitter verbatim.
+                    import("getsockname", WS2_32, required_by),
+                    import("getpeername", WS2_32, required_by),
+                    import("inet_ntop", WS2_32, required_by),
+                    // The PEM cert/key files are read via the Win32 file API.
+                    import("CreateFileW", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("MultiByteToWideChar", KERNEL32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                ];
+                // bug-739: a bounded accept measures its handshake deadline.
+                if call == "tls.accept" {
+                    tls.push(import("GetTickCount64", KERNEL32, required_by));
+                }
+                tls
+            }
             _ => Vec::new(),
         };
         // bug-701: the path classifier (`gen_classify`) the host-error mapping

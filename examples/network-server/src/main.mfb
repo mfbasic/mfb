@@ -249,13 +249,14 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
   MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
 
   DO
-    ' One tls::accept deadline bounds *both* the wait for a connection and the
-    ' handshake that follows it, and a deadline that expires mid-handshake drops
-    ' the connection. So the budget is the whole remainder of the tick — which
-    ' doubles as the loop's idle wait, since accept returns the moment a client
-    ' completes — and once too little of the tick is left to finish a handshake
-    ' in, the accept is skipped rather than started and cut off. A client that
-    ' arrives inside that window waits in the kernel backlog for the next pass.
+    ' The budget is the whole remainder of the tick. It bounds the wait for a
+    ' connection, which doubles as the loop's idle wait since accept returns the
+    ' moment a client completes. tls::accept then gives the handshake the same
+    ' budget again, so a client that connects late in the tick delays the tick
+    ' while its handshake finishes instead of being cut off. Once too little of
+    ' the tick is left to finish a handshake in, the accept is skipped, and a
+    ' client that arrives inside that window waits in the kernel backlog for the
+    ' next pass.
     DO
       LET budgetMs AS Integer = (nextTick - datetime::monotonicNanos()) / 1000000
       IF budgetMs < minHandshakeMs() THEN

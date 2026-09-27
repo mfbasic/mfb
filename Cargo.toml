@@ -682,6 +682,10 @@ name = "rt_thread_accept_res_drop_closes"
 path = "tests/net/rt_thread_accept_res_drop_closes.rs"
 
 [[test]]
+name = "rt_tls_accept_handshake_budget"
+path = "tests/net/rt_tls_accept_handshake_budget.rs"
+
+[[test]]
 name = "rt_tls_connect_allow_self_signed"
 path = "tests/net/rt_tls_connect_allow_self_signed.rs"
 

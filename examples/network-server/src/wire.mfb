@@ -41,35 +41,30 @@ PUBLIC FUNC napMs() AS Integer
   RETURN 20
 END FUNC
 
-' The smallest slice of a tick worth starting a TLS handshake in. One
-' tls::accept deadline bounds both the wait for a connection and the handshake
-' that follows, and a deadline that expires mid-handshake drops the connection.
+' The smallest slice of a tick worth starting a TLS accept in. serveTls passes
+' what is left of the tick as tls::accept's timeoutMs, and that value bounds the
+' handshake as well as the wait for a connection. A slice too small to finish a
+' handshake in would drop the client, so below this the accept is skipped and
+' the client waits in the backlog for the next pass.
 PUBLIC FUNC minHandshakeMs() AS Integer
   RETURN 250
 END FUNC
 
 ' The bound on serveTlsThreaded's tls::accept call (bug-704). That thread does
-' nothing but accept — there is no tick to derive a budget from the way
-' serveTls does — so a stalled or hostile peer (an idle raw TCP connection that
-' never sends any TLS bytes) can otherwise park the only accept thread inside
-' its handshake read forever, starving every other, well-behaved client queued
+' nothing but accept, and there is no tick to derive a budget from the way
+' serveTls does. Without a bound, a stalled or hostile peer (an idle raw TCP
+' connection that never sends any TLS bytes) could hold the only accept thread
+' inside its handshake forever, starving every well-behaved client queued
 ' behind it.
 '
-' Per `mfb man tls accept`, one deadline bounds BOTH the wait for a connection
-' AND the handshake that follows — a connection that is only popped off the
-' accept queue near the tail of that deadline gets whatever sliver is left to
-' finish its handshake in, not a fresh budget. That is fine for a connection
-' that arrives at a effectively random offset into the cycle (the "near the
-' tail" sliver is a small fraction of the whole), but examples/network-client
-' probes TCP, then UDP, then TLS in strict sequence with its own fixed
-' 3000 ms connectTimeoutMs — so if this constant divided evenly into 3000, the
-' real TLS attempt would land at the SAME point in every accept cycle, cycle
-' after cycle, turning a rare edge into a reliable one. 2200 ms avoids that
-' resonance (3000 mod 2200 = 800, comfortably mid-cycle, not near either edge)
-' while still being well under network-client's own 3000 ms deadline and
-' generous for any real local handshake (a few milliseconds, measured).
+' tls::accept bounds the wait for a connection and the handshake separately,
+' each by this value, so the choice only has to suit the handshake. A real
+' handshake takes a few milliseconds locally and a few round trips over a slow
+' link, so one second is ample. It is also short enough that a client queued
+' behind a stalled peer still finishes well inside examples/network-client's
+' 3000 ms connect deadline.
 PUBLIC FUNC acceptHandshakeTimeoutMs() AS Integer
-  RETURN 2200
+  RETURN 1000
 END FUNC
 
 ' A UDP peer that has said nothing for this long is treated as gone. UDP has no

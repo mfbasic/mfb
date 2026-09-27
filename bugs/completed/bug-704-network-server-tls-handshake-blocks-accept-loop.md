@@ -27,6 +27,9 @@ per the doc's non-goal ("the `tls::accept` API surface itself... is not a
 library gap"): switched to 2200 ms, chosen so `3000 mod 2200 = 800` sits
 comfortably mid-cycle rather than at either edge — verified 10/10 plain runs
 and 5/5 attack-scenario runs clean, documented in `wire.mfb` at the constant.
+**Correction (bug-736):** the shared deadline was a macOS `tls::accept` bug, not
+intended API behaviour; bug-736 gives the handshake a fresh budget, so the
+resonance rationale no longer applies and `acceptHandshakeTimeoutMs()` is 1000 ms.
 Regression Test: `tools/network-starvation-probe/probe.sh` (committed,
 `d90b604aa`)
 
@@ -365,7 +368,8 @@ Commit: 6c1cadc85
       and `network-client` both built clean on all five targets.)
 - [x] Re-run the Phase 1 probe to confirm it now passes. (3/3 full runs
       green; separately, 10/10 plain client runs and 5/5 attack-scenario
-      manual runs green — see the resonance note above.)
+      manual runs green — see the resonance note above.) (Correction: the
+      resonance came from bug-736's shared accept deadline, fixed there.)
 - [x] Manually re-run the exact repro transcript above end-to-end (baseline /
       attack / recovery) and confirm the "attack" row now also succeeds
       within a bounded time instead of timing out. (Confirmed: attack row now
