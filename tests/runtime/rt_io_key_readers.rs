@@ -576,3 +576,48 @@ fn ctrl_c_under_the_kitty_protocol_still_interrupts_the_program() {
     assert!(out[push..].contains("\x1b[<u"), "not popped: {out:?}");
     assert!(!out.contains("<Unicode"), "Ctrl+C was returned as a key: {out:?}");
 }
+
+#[test]
+fn every_reader_builds_and_reads_in_a_mouse_program() {
+    // A program that uses the mouse wraps each reader's source read in the mouse
+    // decoder, whose escape wait asks the stdin log for readiness — as the
+    // reader's own timed wait does. The two checks once shared their labels, so
+    // any timed reader in a mouse program failed to assemble ("duplicate label
+    // `…_stdin_poll_ready_unlock`"). `term::on` carries the same pair (its
+    // keyboard-protocol probe). Build every reader, and `term::on`, into one
+    // mouse program and read a key, a line and a byte through it.
+    let exe = build_project(&temp_project(
+        "rt_io_mouse_readers",
+        r#"
+IMPORT errorCode
+IMPORT io
+IMPORT strings
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  LET k AS io::Key = io::readKey(1000)
+  LET s AS Scalar = io::readScalar(1000)
+  LET g AS String = io::readGrapheme(1000)
+  LET line AS String = io::readLine(1000)
+  LET b AS Byte = io::readRaw(1000)
+  io::print(k.grapheme & "|" & strings::fromScalars([s]) & "|" & g & "|" & line & "|" & toString(b))
+  LET more AS io::Key = io::readKey(0) TRAP(e)
+    IF e.code = errorCode::ErrEndOfFile THEN
+      io::print("eof")
+      RETURN 0
+    END IF
+    FAIL e
+  END TRAP
+  IF FALSE THEN
+    term::on()
+  END IF
+  RETURN 0
+END FUNC
+"#,
+    ));
+    // (The mouse-mode escapes around it are `enableMouse`'s own output.) The
+    // report between `b` and `c` is swallowed by the decoder, not read as keys.
+    let out = run_with_timed_stdin(&exe, &[(0, b"ab\x1b[<0;4;2Mc line\nZ")]);
+    assert!(out.contains("a|b|c| line|90\neof\n"), "{out:?}");
+}
