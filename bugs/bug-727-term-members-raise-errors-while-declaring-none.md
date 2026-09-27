@@ -5,8 +5,11 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (declared-error data disagrees with the lowering)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed (2026-09-27)
+Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
+every_term_member_declares_exactly_the_errors_its_lowering_raises`
+(`src/codegen/builtins/tests/declared_errors_all.rs`), part of bug-698's
+generalized declared-errors sweep.
 
 All 24 `term` members are registered with `errors: vec![]`
 (`grep -l 'errors: vec!\[\]' src/codegen/builtins/term/func_*.rs | wc -l` → 24), so
@@ -80,9 +83,31 @@ Census all 24 members: for each, either declare the error or confirm the path ca
 be reached from that member. Include the app backends (macOS, Linux GTK, Windows),
 whose surfaces raise in different places from the console one.
 
-## Fix
+## Fix (landed via bug-698)
 
-Phase 1 — RED test asserting declared errors match the census. Commit:
+bug-698's generalized lowering sweep
+(`every_term_member_declares_exactly_the_errors_its_lowering_raises`) measures
+every one of the 26 registered `term` members directly (this doc's "24" was
+undercounted by two — `isOn`/`didResize` were not in the original census, but
+they lower through the same shared `gen_shared.rs::lower_term_helper`). Found:
 
-Phase 2 — declare the errors, re-render the `term` pages; full suite and man-page
-goldens. Commit:
+- `on`: missing `ErrOutOfMemory` (the surface-allocation failure the DESC
+  already documented).
+- `getForeground`, `getBackground`: missing `ErrOutOfMemory` (the returned
+  `color::Color` construction can fail).
+- `terminalSize`: missing both `ErrOutOfMemory` and `ErrUnsupported`.
+- `ErrWrongMode` (`prepend_wrong_mode_gate(.., ModeRequirement::Console)`,
+  `gen_shared.rs`): real on every one of the 26 members — bug-699 confirmed
+  this class of gate exists for `term::` too, mirroring `canvas`'s — but
+  unmeasurable by the lowering sweep, whose harness fixes `build_mode` to
+  `Console`; the app-mode Rust branch that emits the raise is never compiled
+  into the probe. Declared via the sweep's `declared_extra` allowance and
+  added to all 26 descriptors, with a prose sentence on the 20 that did not
+  already carry one (`move_to`/`on`/`set_background`/`set_bold`/
+  `set_foreground`/`set_underline` already documented it).
+
+Every declared code was cross-checked against `gen_shared.rs`'s and
+`term.rs`'s actual `raise_error_into` sites, not inferred from this doc's
+table alone.
+
+Commit: (this worktree, bug-698 branch)

@@ -5,8 +5,10 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (declared-error data disagrees with the implementation)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (2026-09-27)
+Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
+every_astrings_member_declares_exactly_the_errors_its_lowering_raises` (part of
+bug-698's generalized declared-errors sweep)
 
 Every `astrings` member is registered with `errors: vec![]`
 (`grep -n 'errors: vec' src/codegen/builtins/astrings/func_*.rs`), so no `astrings`
@@ -72,9 +74,26 @@ reflected back into the declarations of the members that call it.
   the `String` overloads' and whether any helper adds a raise.
 - `readSpans`/`writeSpans` (internal) and `toMarkdown`: confirm they cannot raise.
 
-## Fix
+## Fix (landed via bug-698)
 
-Phase 1 — RED test asserting declared errors match the census above. Commit:
+`addAttribute`, `removeAttribute`, `clearAttributes` and `getAttributes` are
+`Body::Mfb` — bug-698's native-lowering sweep does not check a `Body::Mfb`
+member's declared errors (its separate `Body::Mfb` guard is not built; see
+that bug's report). Fixed directly from this doc's own hand-verified evidence
+(`helper_validate_range.rs`'s two `FAIL` sites, `func_get_attributes.rs`'s
+own): `addAttribute`/`removeAttribute`/`clearAttributes`'s three-argument
+(ranged) overload now declare `errors: vec!["ErrIndexOutOfRange",
+"ErrInvalidArgument"]`; `clearAttributes`'s two-argument (whole-string)
+overload correctly keeps `errors: vec![]`; `getAttributes` declares
+`errors: vec!["ErrIndexOutOfRange"]`. Every code was already documented in
+prose.
 
-Phase 2 — declare the errors per overload, re-render the `astrings` pages; full suite
-and man-page goldens. Commit:
+`fromString`/`writeSpans` construct an `AttributedString` record, which this
+sweep's bare `TypeModel::empty()` harness has no layout for — skipped with a
+documented reason and a repro, the same fixture gap as `canvas`'s
+`KeyPair`/`Paint`.
+
+`readSpans` (internal_only) declared no errors despite its lowering raising
+`ErrOutOfMemory`; declared it.
+
+Commit: (this worktree, bug-698 branch)
