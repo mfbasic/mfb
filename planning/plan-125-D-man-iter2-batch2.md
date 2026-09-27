@@ -226,7 +226,7 @@ go to **bug-722** rather than prose. Scope cuts have rows 72–79 in
 | writeError | 4 | CONFIRMED → **bug-722**; app-mode unchecked writes added to **bug-723**'s audit | `app_io.rs` fallback writes ignore the result | console guarantee |
 
 Found while probing, not raised by a reviewer:
-- **bug-738**: a recovered `pollInput(-1)` failure followed by a successful `pollInput`
+- **bug-742**: a recovered `pollInput(-1)` failure followed by a successful `pollInput`
   crashes the program with SIGBUS at exit (`iopollB`, `iopollE`; `iopollA`, `D`, `F`,
   `G` controls exit 0).
 
@@ -240,7 +240,7 @@ Measured at the closing commit:
 - `io` examples 22/22 with real standard input;
 - all 16 units render with none of the retired phrasings.
 
-Bugs filed from this phase: bug-738, bug-722, bug-723. Belongs-in-spec rows: 72–79.
+Bugs filed from this phase: bug-742, bug-722, bug-723. Belongs-in-spec rows: 72–79.
 Commit: 6f6c05547
 
 ### Phase 2 — astrings (17 units)
@@ -571,10 +571,16 @@ Commit: —
 - **2026-09-25: bugs 658-664 renumbered to 721-727** — main had taken 658, 659 and
   665-720 meanwhile (`git log --all --oneline | grep -oE 'bug-7[0-9][0-9]'` →
   highest 720). New bugs from here continue at 728.
-- **2026-09-26: bug-721 renumbered to bug-738** before the second merge of main:
+- **2026-09-26: bug-721 renumbered to bug-742** before the second merge of main:
   main had taken 721 for an unrelated bug (Windows arena free list) and 732-737
   meanwhile (`git ls-tree -r --name-only main bugs | grep -oE 'bug-7[2-9][0-9]'`).
-  The `io::pollInput` exit-crash bug is now **bug-738**; 722-731 did not collide.
+  It was first moved to 738, but 738-741 were already taken on unmerged branches
+  (`git log --all --oneline | grep -oE 'bug-7[3-9][0-9]'`: 738 on
+  `worktree-B-riscv-ret`, 739 `worktree-B-736`, 741 `worktree-B-735`; 740 is an
+  uncommitted doc in worktree `737`) — checking `main` alone missed them. The
+  `io::pollInput` exit-crash bug is now **bug-742**; 722-731 appear on no branch,
+  in no worktree, and in no `completed/` directory, so they did not collide. New
+  plan-125 bugs must check all refs and every worktree's `bugs/`, not just `main`.
   The historical 721 references above describe the first renumbering.
 
 ## Summary
