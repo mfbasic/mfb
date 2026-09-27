@@ -5,10 +5,61 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Security/DoS
 
-Status: Open
-Regression Test: none yet. The repro is `bugs/repro/bug-739-tls-accept-trickle-server.mfb`
-plus `bugs/repro/bug-739-tls-accept-trickle-client.py`. A fix phase should turn it into
-a `tests/net/` case like `tests/net/rt_tls_accept_handshake_budget.rs`.
+Status: Closed
+Regression Test: `tests/net/rt_tls_accept_handshake_budget.rs:tls_accept_bounds_the_whole_handshake`
+(runtime, macOS + Linux), plus the codegen pins
+`gen_openssl::error_path_release_tests::accept_bounds_the_whole_handshake_with_one_deadline`
+and `gen_schannel::schannel_tests::accept_rearms_the_handshake_timeouts_to_the_time_left`.
+Repro: `bugs/repro/bug-739-tls-accept-trickle-{server.mfb,client.py}`.
+
+STATUS: FIXED (430460963)
+
+Owner decision (2026-09-26): the whole-handshake bound on every backend, as
+this doc recommended. That is consistent with bug-736's intent that each step
+is bounded by `timeoutMs`. What shipped matches the Fix Design:
+
+- **Linux (OpenSSL):** a bounded handshake runs with the accepted fd
+  non-blocking. It calls `SSL_accept` in a loop, and on
+  `WANT_READ`/`WANT_WRITE` it polls for the time left before one
+  `CLOCK_MONOTONIC` deadline (`emit_monotonic_ms`) taken when the connection
+  is accepted. `EINTR` retries. Blocking mode is restored on success. No
+  `SO_*TIMEO` is installed any more. Omitted means one blocking `SSL_accept`;
+  `0` means one non-blocking attempt.
+- **Windows (Schannel):** `DEADLINE = GetTickCount64() + timeoutMs` (`0` gives
+  1 ms). `emit_hs_refresh` re-arms `SO_RCVTIMEO`/`SO_SNDTIMEO` to the time left
+  before every handshake `recv` and every ASC pass that may send.
+
+Deviations and findings:
+
+1. **x86-64-only codegen bug, caught before commit.** The first OpenSSL loop
+   read `SSL_get_error`'s result from `return_register()`. On aarch64 and
+   riscv64 that is the C return register. On x86-64 it is not
+   (`.ai/arch-abi.md`, "x86 native-call return uses c_return"), and every
+   bounded handshake failed with `ErrTlsFailed` under Docker amd64. The result
+   is now read from `c_return(0)`. No x86-64 Linux box was reachable
+   (2227/2228 down), so that row was run under Docker `--platform linux/amd64`
+   (qemu).
+2. **bug-743 found and fixed alongside.** On Windows the trickle case could
+   not even reach the timeout: any ClientHello that arrived in more than one
+   `recv` failed with `ErrTlsFailed` first. Filed and fixed as bug-743.
+3. **Test harness bug fixed** (`6dc8a5939`). `tests/common::build_project`
+   returned the first executable a Linux build wrote (glibc), which cannot run
+   on a musl host. Every such test failed to spawn on box 2229.
+
+Verification matrix. The repro server uses bound 1500 ms and 20 pieces of 10
+bytes, 400 ms apart; the fast control uses 50 ms apart under 20 s, and 2×3
+bytes; the late case is connect at 3000 ms and hello at 4500 ms under 4000 ms:
+
+| Environment | slow trickle | fast fragmented | late | silent |
+| --- | --- | --- | --- | --- |
+| macOS aarch64 (Network.framework) | ErrTimeout ✓ | OK ✓ | OK ✓ | ErrTimeout ✓ |
+| Linux aarch64 glibc (box 2226) | ErrTimeout at 2032 ms ✓ (unfixed: OK 4619) | OK ✓ | OK ✓ | ErrTimeout ✓ |
+| Linux riscv64 musl (box 2229), `cargo test` | test GREEN (unfixed: RED, `trickle=OK 8553`) | GREEN | GREEN | — |
+| Linux x86_64 glibc (Docker amd64, qemu) | ErrTimeout at 1952 ms ✓ (unfixed: completes after 8.6 s) | handshake OK ✓ | OK ✓ | ErrTimeout ✓ |
+| Windows x86_64 (box 2230, Schannel) | ErrTimeout ✓ | OK ✓ (needs bug-743) | OK ✓ | ErrTimeout ✓ |
+
+Not run: Linux x86_64 musl and Linux aarch64 musl as native rows (no
+reachable box); Linux x86_64 only under emulation.
 
 Found while fixing bug-736. `tls::accept(listener, timeoutMs)` now bounds two
 steps: the wait for a connection, then the handshake. On macOS the handshake
@@ -143,30 +194,34 @@ Contrast cases that already agree on every backend (measured on macOS and box
 
 ### Phase 1 — failing test + audit
 
-- [ ] A `tests/net/` trickle case (Linux row; the Windows row runs on 2230 by
-      hand) that fails today with `result=OK` after more than the bound.
+- [x] `tls_accept_bounds_the_whole_handshake` (Linux row; the Windows row was
+      run on 2230 by hand). RED on box 2229 with the unfixed compiler:
+      `trickle=OK 8553`.
 
-Commit: —
+Commit: 83b2234da (plus 6dc8a5939, the harness fix that lets it run on musl)
 
 ### Phase 2 — the fix
 
-- [ ] OpenSSL non-blocking handshake loop with a monotonic deadline.
-- [ ] Schannel per-`recv` time-left timeout.
+- [x] OpenSSL non-blocking handshake loop with a monotonic deadline.
+- [x] Schannel time-left timeouts before each handshake `recv`/send.
 
-Commit: —
+Commit: 430460963
 
 ### Phase 3 — goldens + full validation
 
-- [ ] Regenerate the four Linux and one Windows `tls` `.ncodesum` goldens; the
-      diff is limited to `tls::accept`.
-- [ ] Full `cargo test`. Run the trickle repro on 2226/2223 and 2230. Re-run
-      `tools/network-starvation-probe/probe.sh`.
-- [ ] Tighten the `mfb man tls accept` sentence and the spec bullet to the
-      whole-handshake bound.
+- [x] Regenerate the Linux and Windows goldens that reach `tls::accept`; the
+      diff is limited to them (see the goldens commit).
+- [x] Full `cargo test`. Trickle repro on 2226, 2229, Docker amd64 and 2230.
+      `tools/network-starvation-probe/probe.sh` re-run.
+- [x] `mfb man tls accept` and the spec bullet now state the whole-handshake
+      bound (in 430460963).
 
-Commit: —
+Commit: @@739P3@@
 
 ## Open Decisions
+
+**Resolved 2026-09-26 by the owner:** the whole-handshake bound on every
+backend (the recommendation below).
 
 - **Is the whole-handshake bound the contract?** Recommended: yes. The owner's
   bug-736 decision ("follow Linux and Windows") assumed those backends bound
