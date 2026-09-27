@@ -105,13 +105,25 @@ Everything below is written for a world where both hold.
 
 - Park inputs/outputs and tag 3: read `emit_park_error_block_from_registers` (2026-09-26).
 - `TRAP` adopts tag 3: read `trapped_error_tag_class` (2026-09-26).
-- UNVERIFIED: that runtime helper functions are in `code_functions` before the
-  `uses_park_error` gate runs, so a helper's `bl _mfb_rt_park_error` triggers emission
-  of the park. Phase 1 task.
-- UNVERIFIED: what `e.source` a trapped helper error carries today on the raw
-  (inline-`TRAP`) path, which does not stamp. Phase 1 records it, so tag 3 keeps parity.
-- UNVERIFIED: whether the `builder_thread_cleanup.rs` stamp site can receive a tag-3
-  helper result. Phase 1 task.
+- Runtime helpers are in `code_functions` before the park gate: the
+  `for symbol in &runtime_symbols { code_functions.push(… lower_runtime_helper …) }`
+  loop in `builder/mod.rs` runs before `let uses_park_error = code_functions.iter()…`
+  (read 2026-09-26). So a helper's `bl _mfb_rt_park_error` is seen by the gate. The
+  `_mfb_rt_fail_status` gate must run **before** `uses_park_error`, so the park sees
+  `_mfb_rt_fail_status`'s own `bl` (Phase 2 places it there).
+- The raw (inline-`TRAP`) path DOES carry the call-site location for a helper error:
+  `materialize_current_result` → `emit_trapped_error_result` with
+  `TrappedErrorSource::CurrentLocation` builds a fresh `ErrorLoc` on the rebuild
+  branch. Probe `/tmp/p158/probe1` (`LET t = fs::readText("/nonexistent/zz") TRAP(e)`
+  on line 16) printed `src=src/main.mfb:16:11`; the propagating form printed
+  `src=src/main.mfb:11:10`. A tag-3 result takes the ADOPT branch, which builds no
+  `ErrorLoc`, so the raw path needs the same re-stamp as the propagating path
+  (Corrections C2).
+- The `builder_thread_cleanup.rs` stamp site cannot receive tag 3: it serves only
+  `thread.send`/`emit`/`transferResource`/`emitResource`, whose helpers raise through
+  `raise_error_into` (tag 1). A failed message copy's own error is discarded and a
+  plain `ErrOutOfMemory` raised (`runtime_helpers_thread.rs`, the `copy_failed` arm).
+  No mirror is needed there.
 
 ## 3. Design Overview
 
@@ -224,16 +236,19 @@ Windows frame slots 160 and 168 are unused (`gen_windows.rs`: 152 = `COUNT_OFF`,
 
 ### Phase 1 — Settle the three UNVERIFIED items (no code change)
 
-- [ ] Read the `builder/mod.rs` function that pushes runtime helpers into
+- [x] Read the `builder/mod.rs` function that pushes runtime helpers into
       `code_functions`; record whether that happens before `uses_park_error`. If not,
-      note the reorder or the extra gate term Phase 2 needs.
-- [ ] Build a probe that TRAPs a helper error on the raw path (e.g.
-      `fs::readText("/nonexistent") TRAP(e)`). Print `e.source` and record it.
-- [ ] Read `builder_thread_cleanup.rs` around its `emit_stamp_current_error_source()`
-      call; record whether a tag-3 result can reach it.
+      note the reorder or the extra gate term Phase 2 needs. — before; the
+      `_mfb_rt_fail_status` gate goes ahead of `uses_park_error` (§Verified properties).
+- [x] Build a probe that TRAPs a helper error on the raw path (e.g.
+      `fs::readText("/nonexistent") TRAP(e)`). Print `e.source` and record it. —
+      `/tmp/p158/probe1/build/probe1.out` → `src=src/main.mfb:16:11` (the call site).
+- [x] Read `builder_thread_cleanup.rs` around its `emit_stamp_current_error_source()`
+      call; record whether a tag-3 result can reach it. — it cannot (§Verified properties).
 
 Acceptance: no UNVERIFIED line remains in §Verified properties.
-  Check: `grep -c UNVERIFIED planning/plan-158-A-native-error-status-messages.md` → 0 (est. 1 min).
+  Check: `grep -c '^- UNVERIFIED' planning/plan-158-A-native-error-status-messages.md` → 0
+  (est. 1 min; corrected, see Corrections C1).
 Commit: —
 
 ### Phase 2 — Primitive + call-site branch
@@ -243,16 +258,20 @@ Commit: —
 - [ ] `builder/mod.rs`: prefix relocation scan; emission gate for `_mfb_rt_fail_status`.
 - [ ] New `src/codegen/error/emission/fail_status.rs`: `lower_fail_status_helper` (§4.2).
 - [ ] `native_fail.rs`: `emit_fail_status`, `StatusFailSites`.
-- [ ] `builder_emit_helpers.rs`: the tag-3 branch (§4.3); plus the thread-cleanup site
-      per Phase 1.
+- [ ] `builder_emit_helpers.rs`: the tag-3 branch (§4.3), emitted for targets in
+      `PARKING_HELPER_PACKAGES` only (Corrections C3).
+- [x] ~~The thread-cleanup stamp site mirror~~ — moot: Phase 1 showed that site only
+      serves `thread.send`-family helpers, which raise tag 1 (§Verified properties).
+- [ ] Raw path: `emit_runtime_helper_call`'s `raw` branch re-stamps a tag-3 result
+      before `materialize_current_result`, so an inline `TRAP` keeps `e.source`
+      (Corrections C2).
 - [ ] Unit test: the helper body contains exactly one `bl _mfb_rt_park_error` and one
       `bl _mfb_arena_free` after it.
 
 Acceptance: unit tests pass; the byte-identity gate diffs only where §3 predicts.
   Check: `cargo test --bin mfb fail_status` → pass (est. 3 min); `scripts/artifact-gate.sh`
-  → every DIFF is a program with a propagating runtime-helper call. Inspect one per
-  target with `-ncode` (est. 15 min: the tag compare lands in every such program, so no
-  scoped subset would show a stray diff).
+  → every DIFF is a program that calls an `audio::` helper (Corrections C3). Inspect one
+  per target with `-ncode` (est. 15 min).
 Commit: —
 
 ### Phase 3 — Windows adoption + box proof
@@ -295,6 +314,30 @@ Commit: —
   are all 32-bit and documented in hex) vs. per-backend decimal. plan-158-B inherits it.
 
 ## Corrections
+
+- **C1 (Phase 1 check).** `grep -c UNVERIFIED` counts the Phase 1 heading and the check
+  line itself, so it can never reach 0. Corrected to `grep -c '^- UNVERIFIED'`, which
+  counts only §Verified properties bullets.
+- **C2 (raw path needs the re-stamp too).** §3 piece 2 said "the inline-`TRAP` path
+  already adopts tag 3; Phase 1 decides whether it needs the location too". Phase 1
+  measured that it does: today's raw path stamps the call site
+  (`src=src/main.mfb:16:11`, probe1), and adopting a tag-3 block with source `0` would
+  print an empty `e.source`. Added a Phase 2 task: the raw branch runs the same
+  re-stamp before `materialize_current_result`.
+- **C3 (call-site branch gated to parking packages).** §3/§4.3 put the tag compare
+  and re-stamp at *every* propagating runtime-helper call. Measured: no runtime helper
+  parks today (`grep -rln '_mfb_rt_park_error\|PARK_ERROR_SYMBOL' src/codegen/builtins
+  src/codegen/runtime | grep -v /tests/` → no files; the one test hit is
+  `fs_declared_errors.rs`'s callee allow-list), so only a helper that calls `_mfb_rt_fail_status`
+  can return tag 3. The re-stamp is a full `ErrorLoc` build, a park call and a block
+  free, so doing it unconditionally adds that sequence to the error path of every
+  runtime-helper call in every program, which undoes plan-118's error-path shrink.
+  It is gated instead on `PARKING_HELPER_PACKAGES` (`["audio"]`). The list is enforced
+  from both sides: the call-site predicate reads it, and `emit_fail_status` panics
+  when its helper symbol is outside it, so a new adopter cannot skip the branch. The
+  gate expectation narrows to match: only programs that call `audio::` diff, so a
+  stray diff anywhere else is now visible.
+- **Open Decision taken:** status format `0x%08x` (the recommended option).
 
 ## Summary
 
