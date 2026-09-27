@@ -9,7 +9,8 @@
 //! (`fs_declared_errors.rs`), unchanged by this bug.
 
 use super::declared_errors_sweep::{
-    assert_package_declares_exactly_the_errors_its_lowering_raises, Propagating,
+    assert_package_declares_exactly_the_errors_its_lowering_raises,
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on, Propagating,
 };
 
 const NONE_P: &[(&str, Propagating)] = &[];
@@ -58,4 +59,100 @@ fn every_tls_member_declares_exactly_the_errors_its_lowering_raises() {
 #[test]
 fn every_udp_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises("udp", ARENA, NONE_P, NONE_U, 1);
+}
+
+/// `_mfb_macapp_window_sync_marshal` (macOS `app::setTitle`/`setFullscreen`)
+/// asks the main thread to re-sync the window (`performSelectorOnMainThread:`)
+/// and returns nothing; it never loads an error code and its only call is
+/// external (`_objc_msgSend`, filtered by `library.is_some()` already).
+const APP_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_macapp_window_sync_marshal",
+        "asks the main thread to sync the window and returns; it makes no other \
+         internal call and loads no error code",
+    ),
+    (
+        "_mfb_macapp_reconcile_marshal",
+        "boxes the mode and marshals mfbReconcile: onto the main thread; every \
+         call it makes is external (_objc_msgSend) and it loads no error code",
+    ),
+];
+
+#[test]
+fn every_app_member_declares_exactly_the_errors_its_lowering_raises() {
+    // `app`'s GTK-mode hooks hard-`unimplemented!()` on linux-riscv64
+    // (`AppSupport::Unsupported`, plan-05: aarch64/x86-64 only) — a real,
+    // documented platform gap, not something a test-harness hook can supply.
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "app",
+        APP_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        NONE_U,
+        &["linux-riscv64"],
+        1,
+    );
+}
+
+/// `audio::xruns` shares its runtime body with `poll`/`available`/`pollTimeout`
+/// (`dispatch_query`/`Query`), whose ALSA/Windows lowerings emit one shared
+/// `<symbol>_unavailable: raise ErrAudioUnavailable` epilogue label — but
+/// `Query::Xruns`'s own arm never branches to it
+/// (`gen_alsa_io.rs::lower_query`'s `Query::Xruns` arm falls straight to
+/// `clamp`, and the equivalent Windows/macOS arms never touch the device at
+/// all), so the immediate is present in the emitted instructions yet
+/// unreachable for this member. This is the direct-body counterpart of
+/// `UNREACHABLE_VIA_CALLEE` in `fs_declared_errors.rs`, verified the same way:
+/// read the source, not re-derived by the sweep.
+const AUDIO_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
+    "xruns",
+    "ErrAudioUnavailable",
+    "shares dispatch_query's shared epilogue label with poll/available, but its \
+     own Query::Xruns arm never branches to it on any backend",
+)];
+
+#[test]
+fn every_audio_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "audio",
+        ARENA,
+        NONE_P,
+        NONE_U,
+        AUDIO_UNREACHABLE_OWN_RAISE,
+        &[],
+        1,
+    );
+}
+
+/// `tcp::listen` shares `lower_net_endpoint_helper` with `tcp::connect`
+/// (`os/socket/shared.rs`, `listen: bool` parameter). The non-blocking-connect
+/// + `poll` sequence that ends in the shared `connect_timeout` label (which
+/// raises `ErrTimeout`) lives entirely in that function's `else` (connect) arm
+/// — the `if listen { .. bind/listen syscalls .. }` arm never branches there —
+/// so the immediate is present in `listen`'s emitted instructions (one
+/// function body, one label) but structurally unreachable for it.
+const TCP_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
+    "listen",
+    "ErrTimeout",
+    "lower_net_endpoint_helper's `else` (connect) arm is the only one that ever \
+     branches to the shared connect_timeout/ErrTimeout label; the `if listen` \
+     arm (bind + listen(2)) does not",
+)];
+
+#[test]
+fn every_tcp_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "tcp",
+        ARENA,
+        NONE_P,
+        NONE_U,
+        TCP_UNREACHABLE_OWN_RAISE,
+        &[],
+        1,
+    );
 }

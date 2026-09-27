@@ -185,6 +185,12 @@ pub(crate) fn lower_body_call(
         let mut builder = harness.builder("_mfb_rt_probe", platform);
         let ctx = AbiCtx {
             call,
+            // `app::getMode`/`setMode` (and every `term::` cursor/style member)
+            // require an arena presentation-mode slot; supply a placeholder
+            // offset so those bodies lower instead of refusing, per bug-698's
+            // "make the harness lower it" (not a real arena layout, so the
+            // instructions this test scans never dereference it).
+            presentation_mode_offset: Some(0),
             ..harness.abi_ctx(platform)
         };
         let result = match implementation.body {
@@ -225,11 +231,15 @@ pub(crate) fn lower_member(
     package: &str,
     function: &RegistryFunction,
     codes: &BTreeMap<&'static str, &'static str>,
+    skip_platforms: &[&str],
     failures: &mut Vec<String>,
 ) -> (BTreeSet<&'static str>, BTreeSet<String>) {
     let mut raised = BTreeSet::new();
     let mut callees = BTreeSet::new();
     for (target, platform) in platforms() {
+        if skip_platforms.contains(&target) {
+            continue;
+        }
         for implementation in function.implementations() {
             // Only AbiFunction/AbiInline bodies lower here; Mfb bodies are
             // covered by the separate `mfb_body_declared_errors` guard.
@@ -279,6 +289,8 @@ pub(crate) fn sweep_package(
     raises_nothing: &[(&str, &str)],
     propagating: &[(&str, Propagating)],
     unreachable_via_callee: &[(&str, &str, &str)],
+    unreachable_own_raise: &[(&str, &str, &str)],
+    skip_platforms: &[&str],
 ) -> SweepResult {
     let codes = codes_by_value();
     let package = registry()
@@ -290,7 +302,7 @@ pub(crate) fn sweep_package(
     for function in package.functions() {
         own.insert(
             function.name,
-            lower_member(package_name, function, &codes, &mut failures),
+            lower_member(package_name, function, &codes, skip_platforms, &mut failures),
         );
     }
     let lowered_members = own
@@ -313,7 +325,15 @@ pub(crate) fn sweep_package(
             continue;
         }
         let (raised, callees) = &own[function.name];
-        let mut expected: BTreeSet<&'static str> = raised.clone();
+        let mut expected: BTreeSet<&'static str> = raised
+            .iter()
+            .copied()
+            .filter(|code| {
+                !unreachable_own_raise
+                    .iter()
+                    .any(|(member, error, _)| *member == function.name && error == code)
+            })
+            .collect();
         for callee in callees {
             if raises_nothing.iter().any(|(symbol, _)| symbol == callee) {
                 continue;
@@ -389,11 +409,38 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises(
     unreachable_via_callee: &[(&str, &str, &str)],
     min_lowered_members: usize,
 ) {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        package_name,
+        raises_nothing,
+        propagating,
+        unreachable_via_callee,
+        &[],
+        &[],
+        min_lowered_members,
+    );
+}
+
+/// As [`assert_package_declares_exactly_the_errors_its_lowering_raises`], but
+/// skips a named backend entirely — for a package with a member whose lowering
+/// hard-`unimplemented!()`s on that ISA by design (e.g. `app`'s GTK hooks on
+/// `linux-riscv64`, plan-05: "aarch64/x86-64 only", not a harness gap this
+/// sweep should paper over).
+pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+    package_name: &str,
+    raises_nothing: &[(&str, &str)],
+    propagating: &[(&str, Propagating)],
+    unreachable_via_callee: &[(&str, &str, &str)],
+    unreachable_own_raise: &[(&str, &str, &str)],
+    skip_platforms: &[&str],
+    min_lowered_members: usize,
+) {
     let result = sweep_package(
         package_name,
         raises_nothing,
         propagating,
         unreachable_via_callee,
+        unreachable_own_raise,
+        skip_platforms,
     );
     assert!(
         result.failures.is_empty(),
