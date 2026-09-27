@@ -640,6 +640,20 @@ fn emit_on(
     // No `emit_on` value is live across this call, so a counter scoped to it
     // cannot alias one (bug-721).
     let mut vregs = Vregs::new();
+    // bug-728: a re-entered `term::on` finds raw mode already live. Saving again
+    // would overwrite the cooked discipline with the raw one, and `term::off`
+    // would then "restore" raw mode. Keep the first save: skip straight past the
+    // configuration when the raw-active flag is already set.
+    let raw_live: Reg = vregs.next().into();
+    ctx.instructions.extend([
+        abi::load_u64(
+            &raw_live,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_RAW_ACTIVE_OFFSET,
+        ),
+        abi::compare_immediate(&raw_live, "0"),
+        abi::branch_ne(&raw_done),
+    ]);
     emit_configure_stdin_terminal(
         &mut EmitCtx {
             symbol,

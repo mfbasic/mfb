@@ -74,6 +74,14 @@ so entering TUI mode always starts from the documented defaults. The Windows bod
 reset only the first three until bug-540, which made bold, underline and a hidden
 cursor survive a `term::off` + `term::on` there and nowhere else.
 
+**The console's saved cooked termios is NOT reset by a re-entered `term::on`.**
+The first `term::on` saves the tty's line discipline into the term-state region and
+sets the raw-active flag; a later `term::on` finds the flag set and skips the save
+and the raw configuration, so `term::off` always restores the discipline from
+before the *first* `term::on`. Before bug-728 the second call saved the raw
+discipline over the cooked one, and the program exited with the user's terminal in
+single-key, no-echo mode. [[src/codegen/term/core/term.rs:emit_on]]
+
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is
 unchanged**: it stays the packed `0xBBGGRR` the emitters have always written, which

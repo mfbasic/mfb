@@ -60,10 +60,9 @@ is nothing.**
 
 `term::on` is one of the calls that are not gated, so calling it while TUI mode is
 already on runs the whole sequence again: a fresh surface sized to the
-terminal, defaults restored, and the previously drawn frame discarded.
-**Always guard a second `term::on` with `term::isOn`:** today a `term::off` after
-a repeated `term::on` leaves the terminal in single-key mode when the program
-exits.
+terminal, defaults restored, and the previously drawn frame discarded. The
+terminal's line-editing mode is still the one from before the first `term::on`,
+so `term::off` restores it however many times `term::on` ran.
 
 In an `--app` program, `term::on` — like every `term::` call — raises
 `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
