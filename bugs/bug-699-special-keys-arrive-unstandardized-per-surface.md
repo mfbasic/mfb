@@ -644,8 +644,9 @@ Commit: 7e554824c
       `term::on` for its whole duration (`emit_apply_raw_mode`); measured on box
       206 (Windows 11, `tools/key-probe`, KEY_EVENT records through
       `WriteConsoleInputW`): the full sequence arrives in reader mode and under
-      `term::on`, as `NotSupported` events (conhost answers the kitty query
-      with device attributes only).
+      `term::on`, as `NotSupported` events (the keyboard protocol stayed off —
+      no flags reply; whether conhost answered the device-attributes query or
+      the 500 ms probe ran out was not measured).
 
 Acceptance: a kitty-capable terminal (manual, named in the commit) shows releases;
 Terminal.app shows `NotSupported`; the terminal is clean after exit, including after
