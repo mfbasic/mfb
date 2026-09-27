@@ -1328,6 +1328,32 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-644: [`observe_float`](Self::observe_float) for the success value of an
+    /// inline-`TRAP`ped builtin call, which the raw lowering produces without a
+    /// `NirValue` of its own. Run INSIDE the raw capture, so a non-finite total
+    /// raises into the `TRAP`'s handler instead of arriving there as an `Ok`
+    /// result: the desugar binds that result to `$trap_resN` as a `Result OF
+    /// Float`, and the `ResultValue` the binding finally reads is no producer
+    /// `float_arith_node` answers for, so no later boundary would see it.
+    pub(crate) fn observe_float_call_result(
+        &mut self,
+        target: &str,
+        result: &ValueResult,
+    ) -> Result<(), String> {
+        if result.type_ != ParameterType::Float
+            || !crate::codegen::builtins::float_result::builtin_float_result_may_be_nonfinite(
+                target,
+            )
+        {
+            return Ok(());
+        }
+        if Self::float_is_dnative(result) {
+            self.emit_float_result_check_fp(&result.location, FloatInfinityError::Overflow)
+        } else {
+            self.emit_float_result_check(&result.location, FloatInfinityError::Overflow)
+        }
+    }
+
     /// [`observe_float`](Self::observe_float) for a **pre-lowered** `abi_inline` arg:
     /// the source `NirValue` the finiteness re-check keys on lives on the
     /// `ValueResult::origin`, so this reads it there instead of taking the raw node.

@@ -1,0 +1,73 @@
+' bug-644: an overflowing `collections::sum` behaves the same with or without an
+' inline TRAP. The Float overload used to hand the inline-TRAP machinery its
+' +Inf total as a successful result, so the handler never ran and the binding
+' held the infinity (printed as the digits of the largest finite Float). The
+' front end also warned TYPE_INLINE_TRAP_DEAD_HANDLER on every `sum`, although
+' every overload can fail.
+IMPORT io
+IMPORT collections
+IMPORT errorCode
+
+FUNC bigF() AS Float
+  RETURN 1.0e308
+END FUNC
+
+FUNC bigI() AS Integer
+  RETURN 9223372036854775807
+END FUNC
+
+FUNC overflowUntrapped() AS Float
+  RETURN collections::sum([bigF(), bigF()])
+END FUNC
+
+FUNC main() AS Integer
+  ' Non-literal elements: not a constant fold.
+  LET viaCalls AS Float = collections::sum([bigF(), bigF()]) TRAP(e)
+    io::print("D handler code=" & toString(e.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("D inline TRAP, non-literal elements = " & toString(viaCalls))
+
+  LET viaLiterals AS Float = collections::sum([1.0e308, 1.0e308]) TRAP(e2)
+    io::print("E handler code=" & toString(e2.code))
+    RECOVER -2.0
+  END TRAP
+  io::print("E inline TRAP, literal elements = " & toString(viaLiterals))
+
+  ' A finite total is untouched by the check.
+  LET fine AS Float = collections::sum([1.5, 2.25]) TRAP(e3)
+    io::print("DEAD-finite")
+    RECOVER -3.0
+  END TRAP
+  io::print("finite total = " & toString(fine))
+
+  ' The negative direction overflows to -Inf, the same error.
+  LET negative AS Float = collections::sum([-1.0e308, -1.0e308]) TRAP(e4)
+    io::print("negative handler code=" & toString(e4.code))
+    RECOVER -4.0
+  END TRAP
+  io::print("negative = " & toString(negative))
+
+  ' The Integer overload always ran its handler; only the warning was wrong.
+  LET wide AS Integer = collections::sum([bigI(), bigI()]) TRAP(e5)
+    io::print("Integer handler code=" & toString(e5.code))
+    RECOVER -5
+  END TRAP
+  io::print("Integer = " & toString(wide))
+
+  ' As an operand of an operator the total is observed at the call too: the
+  ' handler runs, where the untrapped `1.0 / sum` would recover to 0.0.
+  LET inverse AS Float = 1.0 / collections::sum([bigF(), bigF()]) TRAP(e7)
+    io::print("operand handler code=" & toString(e7.code))
+    RECOVER -7.0
+  END TRAP
+  io::print("operand = " & toString(inverse))
+
+  ' Without an inline TRAP the error still propagates to the caller's handler.
+  LET propagated AS Float = overflowUntrapped() TRAP(e6)
+    io::print("propagated code=" & toString(e6.code) & " is overflow=" & toString(e6.code = errorCode::ErrFloatOverflow))
+    RECOVER -6.0
+  END TRAP
+  io::print("propagated = " & toString(propagated))
+  RETURN 0
+END FUNC

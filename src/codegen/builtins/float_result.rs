@@ -34,6 +34,16 @@
 //!
 //! # The enumeration is TOTAL
 //!
+//! **Under an inline `TRAP` the boundary moves (bug-644).** The desugar binds the
+//! trapped call to a `Result OF Float` and the binding reads it back through
+//! `ResultValue`, which is not a producer, so the check that would have fired at
+//! the binding never runs and the handler receives `Ok(+Inf)`. An `Unconstrained`
+//! member is therefore observed inside the raw capture of its trapped form
+//! (`CodeBuilder::observe_float_call_result`, called by
+//! `lower_inline_builtin_raw`), and
+//! `every_unconstrained_member_is_observed_under_an_inline_trap` requires every
+//! such row to take that path.
+//!
 //! [`FLOAT_RESULTS`] carries one row per builtin member that can return a scalar
 //! `Float`, and `float_results_is_total` (below) walks the registry and fails if a
 //! member is missing from it, or if a row no longer names such a member. Adding a
@@ -257,6 +267,28 @@ mod tests {
             assert!(
                 !builtin_float_result_may_be_nonfinite(finite),
                 "{finite} must not be re-checked at a boundary"
+            );
+        }
+    }
+
+    /// bug-644: under an inline `TRAP`, an `Unconstrained` member's result is
+    /// observed only by `lower_inline_builtin_raw` (`observe_float_call_result`,
+    /// inside the raw capture). The trapped binding reads the value back through
+    /// `ResultValue`, which no boundary re-checks, so a member that took any other
+    /// trapped path would hand its handler an `Ok(+Inf)` — the bug. Every such row
+    /// must therefore be an inline native that the raw path takes, which this pins.
+    #[test]
+    fn every_unconstrained_member_is_observed_under_an_inline_trap() {
+        for (package, member, result) in FLOAT_RESULTS {
+            if *result != FloatResult::Unconstrained {
+                continue;
+            }
+            let target = format!("{package}.{member}");
+            assert!(
+                crate::codegen::builtins::native_builtin_target(&target).is_some()
+                    && crate::codegen::builtins::inline_builtin_raw_supported(&target, &[]),
+                "{target} can return a non-finite Float, so an inline TRAP must lower it \
+                 through lower_inline_builtin_raw, which observes it inside the capture"
             );
         }
     }

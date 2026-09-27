@@ -3458,6 +3458,14 @@ impl CodeBuilder<'_> {
                 )),
             }
         };
+        // bug-644: a member whose `Float` result may be non-finite
+        // (`float_result::FLOAT_RESULTS`, today `collections::sum`) is observed
+        // here, while the capture is still set, so an overflowed total raises into
+        // the handler. Past this point it is an `Ok` result and nothing re-checks it.
+        let lowered = lowered.and_then(|success| {
+            self.observe_float_call_result(target, &success)
+                .map(|()| success)
+        });
         self.raw_result_capture = previous;
         let success = lowered?;
         // bug-561: `materialize_current_result` COPIES this block into the

@@ -30,12 +30,10 @@ optional argument; it is a single-argument member.
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
 addition: if the running total leaves the destination range, the addition fails
 with `ErrOverflow` rather than wrapping. The `Float` overload uses IEEE-754
-double addition, and a total that overflows raises `ErrFloatOverflow`. With an
-inline `TRAP` on the call, the current build instead returns the largest finite
-`Float` (about `1.797e308`) and does not run the handler.
+double addition, and a total that overflows raises `ErrFloatOverflow`.
 
-An inline `TRAP` on an `Integer` or `Fixed` `sum` call receives the overflow and
-runs its `RECOVER`.
+An inline `TRAP` on a `sum` call receives the overflow of any overload and runs
+its `RECOVER`.
 
 To total a list of some other element type, or to accumulate with different
 rules, fold it with `collections::reduce`."#;

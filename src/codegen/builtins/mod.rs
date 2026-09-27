@@ -415,7 +415,7 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
 /// `bits::*` op (all but the variable shifts), and the pure-query /
 /// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
-/// `sum`, `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
+/// `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
 /// `List`** (bug-533 — the `String` overload of the same bare target refuses an
 /// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]), and `toInt` **on
 /// a single enum argument** (bug-679 — the ordinal the value already holds, a
@@ -485,7 +485,6 @@ pub(crate) fn inline_builtin_is_infallible(
                 | "hasKey"
                 | "keys"
                 | "values"
-                | "sum"
                 | "getOr"
                 | "append"
                 | "prepend"
@@ -1251,6 +1250,42 @@ mod tests {
         );
     }
 
+    /// bug-644: a member that DECLARES an error is fallible by the registry, and the
+    /// hand-written infallible name list must not overrule it. `sum` sat on that
+    /// list after plan-96 gave it an `ErrOverflow` check, so the front end warned
+    /// TYPE_INLINE_TRAP_DEAD_HANDLER on a handler that runs. Every other `collections`
+    /// member the list names is checked against the registry here.
+    #[test]
+    fn no_member_declaring_an_error_is_infallible() {
+        for member in [
+            "contains",
+            "hasKey",
+            "keys",
+            "values",
+            "sum",
+            "getOr",
+            "append",
+            "prepend",
+            "removeKey",
+            "replace",
+            "add",
+            "remove",
+            "toList",
+        ] {
+            let target = format!("collections.{member}");
+            if crate::codegen::registry::native_member_declares_error(&target) == Some(true) {
+                assert!(
+                    !inline_builtin_is_infallible(
+                        &target,
+                        &[ParameterType::list_of(ParameterType::Integer)],
+                        &NoTypeKinds
+                    ),
+                    "{target} declares an error, so an inline TRAP handler on it is live"
+                );
+            }
+        }
+    }
+
     #[test]
     fn inline_builtin_fallibility_census() {
         // Infallible-for-TRAP: raise no user-trappable domain error (plan-21-A).
@@ -1267,7 +1302,6 @@ mod tests {
             "collections.hasKey",
             "collections.keys",
             "collections.values",
-            "collections.sum",
             "collections.getOr",
             "collections.append",
             "collections.prepend",
@@ -1295,6 +1329,12 @@ mod tests {
             "collections.transform",
             "collections.filter",
             "collections.reduce",
+            // bug-644: every `sum` overload fails — `Integer`/`Fixed` raise
+            // `ErrOverflow`, and the `Float` total is observed inside the capture
+            // and raises `ErrFloatOverflow`. It sat on the infallible list from
+            // before plan-96 gave it an overflow check, so the front end warned
+            // TYPE_INLINE_TRAP_DEAD_HANDLER on a live handler.
+            "collections.sum",
             // bug-533: `strings.replace` and `collections.replace` dequalify to
             // one bare native target, and the `String` overload now refuses an
             // empty `old`. Untyped, the fail-closed rule answers "fallible" for
