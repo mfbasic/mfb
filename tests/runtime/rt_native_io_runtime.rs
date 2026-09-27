@@ -14,12 +14,13 @@ fn native_io_reads_from_stdin_and_preserves_input_semantics() {
         "native_io_reads_success",
         r#"
 IMPORT io
+IMPORT strings
 
 FUNC main AS Integer
   io::print(io::input("name> "))
   io::print(io::readLine())
-  io::print(io::readChar())
-  io::print(toString(io::readByte()))
+  io::print(strings::fromScalars([io::readScalar()]))
+  io::print(toString(io::readRaw()))
   RETURN 0
 END FUNC
 "#,
@@ -379,15 +380,15 @@ END FUNC
 /// is what the echo-state synchronisation below depends on.
 #[cfg(unix)]
 #[test]
-fn native_io_readchar_reads_terminal_key_without_newline_or_echo() {
+fn native_io_readgrapheme_reads_terminal_key_without_newline_or_echo() {
     let project = temp_project(
-        "native_io_readchar_keypress",
+        "native_io_readgrapheme_keypress",
         r#"
 IMPORT io
 
 FUNC main AS Integer
   io::write("ready> ")
-  LET ch AS String = io::readChar()
+  LET ch AS String = io::readGrapheme()
   IF ch = "w" THEN
     io::print("up")
   ELSE
@@ -401,11 +402,11 @@ END FUNC
     let normalized = transcript.replace("\r\n", "\n");
     assert!(
         normalized.contains("ready> up\n"),
-        "readChar did not return after one keypress: {normalized:?}"
+        "readGrapheme did not return after one keypress: {normalized:?}"
     );
     assert!(
         !normalized.contains("ready> w"),
-        "readChar echoed terminal keypress: {normalized:?}"
+        "readGrapheme echoed terminal keypress: {normalized:?}"
     );
 }
 
@@ -416,15 +417,15 @@ END FUNC
 /// is what the echo-state synchronisation below depends on.
 #[cfg(unix)]
 #[test]
-fn native_io_readbyte_reads_terminal_key_without_newline_or_echo() {
+fn native_io_readraw_reads_terminal_key_without_newline_or_echo() {
     let project = temp_project(
-        "native_io_readbyte_keypress",
+        "native_io_readraw_keypress",
         r#"
 IMPORT io
 
 FUNC main AS Integer
   io::write("ready> ")
-  LET byte AS Byte = io::readByte()
+  LET byte AS Byte = io::readRaw()
   io::print(toString(byte))
   RETURN 0
 END FUNC
@@ -434,11 +435,11 @@ END FUNC
     let normalized = transcript.replace("\r\n", "\n");
     assert!(
         normalized.contains("ready> 65\n"),
-        "readByte did not return after one keypress: {normalized:?}"
+        "readRaw did not return after one keypress: {normalized:?}"
     );
     assert!(
         !normalized.contains("ready> A"),
-        "readByte echoed terminal keypress: {normalized:?}"
+        "readRaw echoed terminal keypress: {normalized:?}"
     );
 }
 
@@ -492,13 +493,16 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let read_char = temp_project(
-        "native_io_readchar_encoding",
+    // The keystroke readers skip an ill-formed byte rather than report it (bug-699;
+    // `mfb man io readScalar`), so a lone `0x80` reads as end of input.
+    let read_scalar = temp_project(
+        "native_io_readscalar_skips_ill_formed",
         r#"
 IMPORT io
+IMPORT strings
 
 FUNC readCharWithTrap AS Nothing
-  io::print(io::readChar())
+  io::print(strings::fromScalars([io::readScalar()]))
   RETURN NOTHING
   TRAP(err)
     io::print(toString(err.code))
@@ -538,8 +542,8 @@ END FUNC
         "77020003\n"
     );
     assert_eq!(
-        run_with_stdin(&build_project(&read_char), b"\x80"),
-        "77020004\n"
+        run_with_stdin(&build_project(&read_scalar), b"\x80"),
+        "77020003\n"
     );
     assert_eq!(
         run_with_stdin(&build_project(&input), b"\xff\n"),

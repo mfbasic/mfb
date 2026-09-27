@@ -2,7 +2,7 @@ IMPORT io
 
 FUNC compileReadLine AS Integer
   IF FALSE THEN
-    RETURN len(io::readLine())
+    RETURN len(io::readLine()) + len(io::readLine(0)) + len(io::readLine(timeoutMs := 500))
   END IF
 
   RETURN 0

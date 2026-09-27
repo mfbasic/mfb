@@ -1,0 +1,37 @@
+' The --app key probe (tools/key-probe). It reads the window's keys on the
+' surface `KEYPROBE_SURFACE` names — `transcript` (the default), `tui` or
+' `canvas` — and writes what it saw to `KEYPROBE_OUT` (the environment passes
+' through every driver's launcher more simply than arguments).
+
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+IMPORT os
+IMPORT term
+
+FUNC main AS Integer
+  LET out AS String = os::getEnvOr("KEYPROBE_OUT", "")
+  IF out = "" THEN
+    io::printError("set KEYPROBE_OUT to the output file")
+    RETURN 2
+  END IF
+  LET surface AS String = os::getEnvOr("KEYPROBE_SURFACE", "transcript")
+  IF surface = "canvas" THEN
+    app::setMode(app::Mode.Canvas)
+    canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
+  ELSEIF surface = "tui" THEN
+    ' A program that calls app::setMode starts windowless; the transcript and the
+    ' TUI live in the Console window.
+    app::setMode(app::Mode.Console)
+    term::on()
+    term::drawText(0, 0, "key probe: type the sequence, q ends")
+    term::sync()
+  ELSE
+    app::setMode(app::Mode.Console)
+    io::print("key probe: type the sequence, q ends")
+  END IF
+  LET rc AS Integer = probeKeys(out)
+  IF surface = "tui" THEN term::off()
+  RETURN rc
+END FUNC

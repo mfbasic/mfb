@@ -69,9 +69,10 @@ const RUNTIME_CALLS: &[&str] = &[
     // Phase C — io console input + buffering.
     "io.input",
     "io.readLine",
-    "io.readChar",
-    "io.readByte",
-    "io.pollInput",
+    "io.readRaw",
+    "io.readScalar",
+    "io.readGrapheme",
+    "io.readKey",
     "io.flush",
     "io.isBuffered",
     "io.setBuffered",

@@ -27,13 +27,15 @@
 //! # The expected bytes
 //!
 //! Exactly what a kitty-protocol terminal sends with the progressive-enhancement
-//! flags `term::on` pushes (bug-699 Goal: disambiguate `0b1`, report event types
-//! `0b10`, report all keys as escape codes `0b1000`), per the protocol spec
+//! flags `term::on` pushes (bug-699 Goal and Decision 9: disambiguate `0b1`,
+//! report event types `0b10`, report alternate keys `0b100`, report all keys as
+//! escape codes `0b1000`, report associated text `0b10000`), per the protocol spec
 //! (<https://sw.kovidgoyal.net/kitty/keyboard-protocol/>, "Legacy functional
-//! keys", "Event types", "Modifiers"):
+//! keys", "Event types", "Modifiers", "Text as code points"):
 //!
 //! | Event | Bytes |
 //! | --- | --- |
+//! | `a` press | `CSI 97 ; ; 97 u` — "all keys as escape codes" sends a text key as `CSI u` too, and "associated text" adds the text it typed as the third field (the modifier field is left empty) |
 //! | Left press | `CSI D` — the `1;modifier` part is omitted when there are no modifiers |
 //! | Forward Delete press | `CSI 3 ~` |
 //! | F5 press | `CSI 15 ~` |
@@ -70,10 +72,10 @@ IMPORT term
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
-  LET b AS Byte = io::readByte()
+  LET b AS Byte = io::readRaw()
   app::setMode(app::Mode.Console)
   term::on()
-  LET c AS Byte = io::readByte()
+  LET c AS Byte = io::readRaw()
   term::off()
   io::print(toString(b) & toString(c))
   RETURN 0
@@ -90,15 +92,20 @@ IMPORT io
 IMPORT term
 
 FUNC main AS Integer
-  LET b AS Byte = io::readByte()
+  LET b AS Byte = io::readRaw()
   term::on()
-  LET c AS Byte = io::readByte()
+  LET c AS Byte = io::readRaw()
   term::off()
   io::print(toString(b) & toString(c))
   RETURN 0
 END FUNC
 ";
 
+/// The plain text key `a` under "report all keys as escape codes" and "report
+/// associated text". Before bug-699 Phase 3 the raw arms wrote the character
+/// itself (`a`); a text key's press, repeat and release are key events like any
+/// other, and only the kitty form can carry the event and the modifiers.
+const A_PRESS: &[u8] = b"\x1b[97;;97u";
 const LEFT_PRESS: &[u8] = b"\x1b[D";
 const DELETE_PRESS: &[u8] = b"\x1b[3~";
 const F5_PRESS: &[u8] = b"\x1b[15~";
@@ -163,6 +170,7 @@ mod appkit {
     pub const KVK_F5: u64 = 0x60;
     pub const KVK_FORWARD_DELETE: u64 = 0x75;
     pub const SHIFT: u64 = 1 << 17;
+    pub const CONTROL: u64 = 1 << 18;
     pub const NUMERIC_PAD: u64 = 1 << 21;
     pub const FUNCTION: u64 = 1 << 23;
     pub const KEY_DOWN: u64 = 10;
@@ -172,23 +180,31 @@ mod appkit {
 #[derive(Clone)]
 struct MacKey {
     characters: Vec<u16>,
+    /// `charactersIgnoringModifiers`, when it differs from `characters` (AppKit
+    /// ignores every modifier there but Shift: Ctrl+A is `"\u{1}"` / `"a"`).
+    ignoring_modifiers: Option<Vec<u16>>,
     key_code: u64,
     modifier_flags: u64,
+    repeat: bool,
 }
 
 impl MacKey {
     fn letter_a() -> MacKey {
         MacKey {
             characters: vec![u16::from(b'a')],
+            ignoring_modifiers: None,
             key_code: appkit::KVK_ANSI_A,
             modifier_flags: 0,
+            repeat: false,
         }
     }
     fn left() -> MacKey {
         MacKey {
             characters: vec![appkit::LEFT_ARROW],
+            ignoring_modifiers: None,
             key_code: appkit::KVK_LEFT_ARROW,
             modifier_flags: appkit::FUNCTION | appkit::NUMERIC_PAD,
+            repeat: false,
         }
     }
     fn shift_left() -> MacKey {
@@ -197,18 +213,37 @@ impl MacKey {
             ..MacKey::left()
         }
     }
+    fn shift_a() -> MacKey {
+        MacKey {
+            characters: vec![u16::from(b'A')],
+            modifier_flags: appkit::SHIFT,
+            ..MacKey::letter_a()
+        }
+    }
+    fn ctrl_a() -> MacKey {
+        MacKey {
+            characters: vec![0x01],
+            ignoring_modifiers: Some(vec![u16::from(b'a')]),
+            modifier_flags: appkit::CONTROL,
+            ..MacKey::letter_a()
+        }
+    }
     fn forward_delete() -> MacKey {
         MacKey {
             characters: vec![appkit::DELETE],
+            ignoring_modifiers: None,
             key_code: appkit::KVK_FORWARD_DELETE,
             modifier_flags: appkit::FUNCTION,
+            repeat: false,
         }
     }
     fn f5() -> MacKey {
         MacKey {
             characters: vec![appkit::F5],
+            ignoring_modifiers: None,
             key_code: appkit::KVK_F5,
             modifier_flags: appkit::FUNCTION,
+            repeat: false,
         }
     }
 }
@@ -230,6 +265,8 @@ enum MacObject {
 /// associated objects the bootstrap stashes (pipe fd, input mode, line buffer),
 /// and `write(2)`.
 struct MacModel {
+    /// The window's input mode (the `INPUT_MODE_KEY` associated object).
+    mode: u64,
     objects: HashMap<u64, MacObject>,
     selectors: HashMap<u64, String>,
     selector_ids: HashMap<String, u64>,
@@ -239,6 +276,7 @@ struct MacModel {
 impl MacModel {
     fn new() -> MacModel {
         MacModel {
+            mode: 2,
             objects: HashMap::new(),
             selectors: HashMap::new(),
             selector_ids: HashMap::new(),
@@ -280,8 +318,9 @@ impl Externals for MacModel {
                 let key = m.symbol_at(m.arg(1))?.to_string();
                 match key.as_str() {
                     "_mfb_macapp_pipe_key" => Some(PIPE),
-                    // INPUT_MODE_RAW_NO_ECHO: the mode `io::readByte` sets.
-                    "_mfb_macapp_inputmode_key" => Some(2),
+                    // INPUT_MODE_RAW_NO_ECHO (2) unless a test says otherwise: the
+                    // mode the key readers set.
+                    "_mfb_macapp_inputmode_key" => Some(self.mode),
                     "_mfb_macapp_inputline_key" => {
                         Some(self.object(m, MacObject::String(Vec::new())))
                     }
@@ -303,15 +342,21 @@ impl Externals for MacModel {
                     (_, "sharedApplication") => {
                         return Some(self.object(m, MacObject::Application));
                     }
-                    (Some(MacObject::Event { key, .. }), "characters")
-                    | (Some(MacObject::Event { key, .. }), "charactersIgnoringModifiers") => {
+                    (Some(MacObject::Event { key, .. }), "characters") => {
                         let text = key.characters.clone();
+                        return Some(self.object(m, MacObject::String(text)));
+                    }
+                    (Some(MacObject::Event { key, .. }), "charactersIgnoringModifiers") => {
+                        let text = key
+                            .ignoring_modifiers
+                            .clone()
+                            .unwrap_or_else(|| key.characters.clone());
                         return Some(self.object(m, MacObject::String(text)));
                     }
                     (Some(MacObject::Event { key, .. }), "keyCode") => key.key_code,
                     (Some(MacObject::Event { key, .. }), "modifierFlags") => key.modifier_flags,
                     (Some(MacObject::Event { kind, .. }), "type") => *kind,
-                    (Some(MacObject::Event { .. }), "isARepeat") => 0,
+                    (Some(MacObject::Event { key, .. }), "isARepeat") => u64::from(key.repeat),
                     (Some(MacObject::View), "textStorage") => {
                         return Some(self.object(m, MacObject::Opaque));
                     }
@@ -419,8 +464,14 @@ fn mac_surfaces() -> Vec<MacSurface> {
 
 /// Run one IMP (`void imp(id self, SEL _cmd, NSEvent *event)`) on one event.
 fn run_mac(ncode: &Value, imp: &str, key: &MacKey, kind: u64) -> Vec<u8> {
+    run_mac_in_mode(ncode, imp, key, kind, 2)
+}
+
+/// [`run_mac`] with the window in input mode `mode` (1 line, 2 raw).
+fn run_mac_in_mode(ncode: &Value, imp: &str, key: &MacKey, kind: u64, mode: u64) -> Vec<u8> {
     let mut machine = Machine::new(ncode);
     let mut model = MacModel::new();
+    model.mode = mode;
     let view = model.object(&mut machine, MacObject::View);
     let event = model.event(&mut machine, key, kind);
     machine.call(imp, &[view, 0, event], &mut model);
@@ -486,13 +537,12 @@ fn macos_a_mode_switching_program_registers_every_key_down_handler() {
             &format!("macOS {} ({imp})", surface.class),
             "a",
             &bytes,
-            b"a",
+            A_PRESS,
         );
     }
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: macOS keyDown: writes the AppKit private-use code point verbatim"]
 fn macos_left_injects_kitty_left() {
     for (surface, bytes) in mac_press(&MacKey::left()) {
         assert_injects(&surface, "Left", &bytes, LEFT_PRESS);
@@ -500,7 +550,6 @@ fn macos_left_injects_kitty_left() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: macOS keyDown: writes the AppKit private-use code point verbatim"]
 fn macos_forward_delete_injects_kitty_delete() {
     for (surface, bytes) in mac_press(&MacKey::forward_delete()) {
         assert_injects(&surface, "Delete", &bytes, DELETE_PRESS);
@@ -508,7 +557,6 @@ fn macos_forward_delete_injects_kitty_delete() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: macOS keyDown: writes the AppKit private-use code point verbatim"]
 fn macos_f5_injects_kitty_f5() {
     for (surface, bytes) in mac_press(&MacKey::f5()) {
         assert_injects(&surface, "F5", &bytes, F5_PRESS);
@@ -516,7 +564,6 @@ fn macos_f5_injects_kitty_f5() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: no macOS view registers a keyUp: handler"]
 fn macos_left_release_injects_kitty_release() {
     for surface in mac_surfaces() {
         let name = format!("macOS {} ({})", surface.class, surface.key_down);
@@ -529,10 +576,57 @@ fn macos_left_release_injects_kitty_release() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: macOS keyDown: ignores modifierFlags"]
 fn macos_shift_left_injects_kitty_shift_left() {
     for (surface, bytes) in mac_press(&MacKey::shift_left()) {
         assert_injects(&surface, "Shift+Left", &bytes, SHIFT_LEFT_PRESS);
+    }
+}
+
+/// A held key's auto-repeat is a Repeat event (`isARepeat`), not another press.
+#[test]
+fn macos_auto_repeat_injects_a_repeat() {
+    let key = MacKey {
+        repeat: true,
+        ..MacKey::left()
+    };
+    for (surface, bytes) in mac_press(&key) {
+        assert_injects(&surface, "Left repeat", &bytes, b"\x1b[1;1:2D");
+    }
+}
+
+/// A text key is a key event too: Shift+a carries the text it typed (`A`) as
+/// kitty's associated text, and its key number is the unshifted `a`.
+#[test]
+fn macos_shift_a_injects_its_text() {
+    for (surface, bytes) in mac_press(&MacKey::shift_a()) {
+        assert_injects(&surface, "Shift+a", &bytes, b"\x1b[97;2;65u");
+    }
+}
+
+/// Ctrl+A types the control character U+0001, which is not text: the event is
+/// the key `a` with Ctrl, and no text field.
+#[test]
+fn macos_ctrl_a_injects_the_key_without_text() {
+    for (surface, bytes) in mac_press(&MacKey::ctrl_a()) {
+        assert_injects(&surface, "Ctrl+a", &bytes, b"\x1b[97;5u");
+    }
+}
+
+/// In line input mode the transcript and the TUI view report no key events, so
+/// their `keyUp:` writes nothing; the canvas view is always raw.
+#[test]
+fn macos_key_up_reports_nothing_in_line_mode_except_on_the_canvas() {
+    for surface in mac_surfaces() {
+        let key_up = surface.key_up.clone().expect("every surface has keyUp:");
+        let bytes = run_mac_in_mode(surface.ncode, &key_up, &MacKey::left(), appkit::KEY_UP, 1);
+        let canvas = surface.key_down == "_mfb_macapp_canvas_keyDown";
+        let want: &[u8] = if canvas { LEFT_RELEASE } else { b"" };
+        assert_injects(
+            &format!("macOS {} ({key_up}) in line mode", surface.class),
+            "Left release",
+            &bytes,
+            want,
+        );
     }
 }
 
@@ -571,6 +665,20 @@ fn gdk_keyval_to_unicode(keyval: u64) -> u64 {
     }
 }
 
+/// `gdk_keyval_to_lower` as GDK implements it for the keys used here: ASCII and
+/// Latin-1 capitals map to their small letters, a `0x01000000 + code point`
+/// keyval to the lower-case code point's keyval, and every other keyval —
+/// function keys included — to itself.
+fn gdk_keyval_to_lower(keyval: u64) -> u64 {
+    match keyval {
+        0x41..=0x5a | 0xc0..=0xd6 | 0xd8..=0xde => keyval + 0x20,
+        0x0100_0000..=0x0110_ffff => char::from_u32((keyval - 0x0100_0000) as u32)
+            .and_then(|c| c.to_lowercase().next())
+            .map_or(keyval, |c| 0x0100_0000 + u64::from(c)),
+        _ => keyval,
+    }
+}
+
 /// `_mfb_gtkapp_state` field offsets and the raw input mode
 /// (`src/target/linux_gtk/mod.rs`: `ST_PIPE_WRITE_FD`, `ST_INPUT_MODE`,
 /// `MODE_RAW`). A layout change there makes the control test below fail.
@@ -586,6 +694,7 @@ impl Externals for GtkModel {
     fn call(&mut self, m: &mut Machine, name: &str) -> Option<u64> {
         match name {
             "gdk_keyval_to_unicode" => Some(gdk_keyval_to_unicode(m.arg(0))),
+            "gdk_keyval_to_lower" => Some(gdk_keyval_to_lower(m.arg(0))),
             "g_unichar_to_utf8" => {
                 let c = char::from_u32(m.arg(0) as u32)?;
                 let mut buf = [0u8; 4];
@@ -643,6 +752,41 @@ fn run_gtk(ncode: &Value, handler: &str, keyval: u64, keycode: u64, state: u64) 
     model.written
 }
 
+/// One GTK key event for [`run_gtk_events`]: the signal, the input mode it
+/// arrives in, and the key.
+struct GtkEvent {
+    signal: &'static str,
+    mode: u64,
+    keyval: u64,
+    keycode: u64,
+    state: u64,
+}
+
+/// Deliver `events` in order to ONE process (so the handler's own state carries
+/// from event to event), returning the bytes each wrote.
+fn run_gtk_events(ncode: &Value, events: &[GtkEvent]) -> Vec<Vec<u8>> {
+    let mut machine = Machine::new(ncode);
+    let base = machine.address_of("_mfb_gtkapp_state");
+    machine.write_uint(base + GTK_ST_PIPE_WRITE_FD, 8, PIPE);
+    let controller = machine.alloc(16);
+    let mut out = Vec::new();
+    for event in events {
+        let handlers = gtk_handlers(ncode, event.signal);
+        assert_eq!(handlers.len(), 1, "one {} handler", event.signal);
+        machine.write_uint(base + GTK_ST_INPUT_MODE, 8, event.mode);
+        let mut model = GtkModel {
+            written: Vec::new(),
+        };
+        machine.call(
+            &handlers[0],
+            &[controller, event.keyval, event.keycode, event.state, 0],
+            &mut model,
+        );
+        out.push(model.written);
+    }
+    out
+}
+
 fn gtk_press(ncode: &Value, keyval: u64, keycode: u64, state: u64) -> Vec<(String, Vec<u8>)> {
     let handlers = gtk_handlers(ncode, "key-pressed");
     assert!(!handlers.is_empty(), "no key-pressed handler is connected");
@@ -659,12 +803,11 @@ fn gtk_press(ncode: &Value, keyval: u64, keycode: u64, state: u64) -> Vec<(Strin
 fn gtk_key_pressed_handler_is_driven_by_the_model() {
     let ncode = gtk_ncode();
     for (surface, bytes) in gtk_press(ncode, gdk::KEY_A, gdk::HW_A, 0) {
-        assert_injects(&surface, "a", &bytes, b"a");
+        assert_injects(&surface, "a", &bytes, A_PRESS);
     }
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: GTK raw arm drops keys gdk_keyval_to_unicode maps to 0"]
 fn gtk_left_injects_kitty_left() {
     let ncode = gtk_ncode();
     for (surface, bytes) in gtk_press(ncode, gdk::KEY_LEFT, gdk::HW_LEFT, 0) {
@@ -673,7 +816,6 @@ fn gtk_left_injects_kitty_left() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: GTK raw arm writes gdk_keyval_to_unicode(GDK_KEY_Delete) = 0x7F"]
 fn gtk_delete_injects_kitty_delete() {
     let ncode = gtk_ncode();
     for (surface, bytes) in gtk_press(ncode, gdk::KEY_DELETE, gdk::HW_DELETE, 0) {
@@ -682,7 +824,6 @@ fn gtk_delete_injects_kitty_delete() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: GTK raw arm drops keys gdk_keyval_to_unicode maps to 0"]
 fn gtk_f5_injects_kitty_f5() {
     let ncode = gtk_ncode();
     for (surface, bytes) in gtk_press(ncode, gdk::KEY_F5, gdk::HW_F5, 0) {
@@ -691,7 +832,6 @@ fn gtk_f5_injects_kitty_f5() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: no key-released handler is connected"]
 fn gtk_left_release_injects_kitty_release() {
     let ncode = gtk_ncode();
     let handlers = gtk_handlers(ncode, "key-released");
@@ -711,11 +851,72 @@ fn gtk_left_release_injects_kitty_release() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: GTK raw arm drops Left and ignores the modifier state"]
 fn gtk_shift_left_injects_kitty_shift_left() {
     let ncode = gtk_ncode();
     for (surface, bytes) in gtk_press(ncode, gdk::KEY_LEFT, gdk::HW_LEFT, gdk::SHIFT_MASK) {
         assert_injects(&surface, "Shift+Left", &bytes, SHIFT_LEFT_PRESS);
+    }
+}
+
+/// GTK 4 reports no auto-repeat flag; a press of a key that is still down (no
+/// release in between) is the auto-repeat, and a release ends it.
+#[test]
+fn gtk_a_second_press_without_a_release_is_a_repeat() {
+    let ncode = gtk_ncode();
+    let left = |signal| GtkEvent {
+        signal,
+        mode: GTK_MODE_RAW,
+        keyval: gdk::KEY_LEFT,
+        keycode: gdk::HW_LEFT,
+        state: 0,
+    };
+    let got = run_gtk_events(
+        ncode,
+        &[
+            left("key-pressed"),
+            left("key-pressed"),
+            left("key-released"),
+            left("key-pressed"),
+        ],
+    );
+    assert_injects("GTK", "Left press", &got[0], LEFT_PRESS);
+    assert_injects("GTK", "Left held", &got[1], b"\x1b[1;1:2D");
+    assert_injects("GTK", "Left release", &got[2], LEFT_RELEASE);
+    assert_injects("GTK", "Left pressed again", &got[3], LEFT_PRESS);
+}
+
+/// A release in line input mode reports nothing (line mode has no key events),
+/// but the key is up: the next raw press is a press, not a repeat.
+#[test]
+fn gtk_a_release_in_line_mode_is_not_reported_but_ends_the_hold() {
+    let ncode = gtk_ncode();
+    let left = |signal, mode| GtkEvent {
+        signal,
+        mode,
+        keyval: gdk::KEY_LEFT,
+        keycode: gdk::HW_LEFT,
+        state: 0,
+    };
+    let got = run_gtk_events(
+        ncode,
+        &[
+            left("key-pressed", GTK_MODE_RAW),
+            left("key-released", 0),
+            left("key-pressed", GTK_MODE_RAW),
+        ],
+    );
+    assert_injects("GTK", "Left press", &got[0], LEFT_PRESS);
+    assert_injects("GTK line mode", "Left release", &got[1], b"");
+    assert_injects("GTK", "Left pressed again", &got[2], LEFT_PRESS);
+}
+
+/// Shift+a arrives as the keyval `A`; its key number is the lower-case `a` and
+/// the text it typed is `A`.
+#[test]
+fn gtk_shift_a_injects_its_text() {
+    let ncode = gtk_ncode();
+    for (surface, bytes) in gtk_press(ncode, 0x41, gdk::HW_A, gdk::SHIFT_MASK) {
+        assert_injects(&surface, "Shift+a", &bytes, b"\x1b[97;2;65u");
     }
 }
 
@@ -784,6 +985,13 @@ impl Externals for WinModel {
             }
             "CallWindowProcW" | "DefWindowProcW" => Some(0),
             "GetKeyState" | "GetAsyncKeyState" => Some(self.key_state(m.arg(0))),
+            // MAPVK_VK_TO_CHAR: the character the key types unmodified — for a
+            // letter key its capital, for a digit key the digit (the only keys the
+            // tests type through it).
+            "MapVirtualKeyW" if m.arg(1) == 2 => Some(match m.arg(0) {
+                vk @ (0x30..=0x39 | 0x41..=0x5a) => vk,
+                _ => 0,
+            }),
             "GetKeyboardState" => {
                 let buf = m.arg(0);
                 for vk in 0..256u64 {
@@ -835,6 +1043,47 @@ fn run_win(
     model.written
 }
 
+/// [`run_win`] with the window's input mode set first (`2` = RAW, what the key
+/// readers and `term::on` set; `0` = the default).
+fn run_win_in_mode(
+    ncode: &Value,
+    proc_symbol: &str,
+    messages: &[(u64, u64, u64)],
+    held: &[u64],
+    mode: u64,
+) -> Vec<u8> {
+    let mut machine = Machine::new(ncode);
+    let input_mode = machine.address_of("_mfb_winapp_input_mode");
+    machine.write_uint(input_mode, 8, mode);
+    let stdin_write = machine.address_of("_mfb_winapp_stdin_write");
+    machine.write_uint(stdin_write, 8, PIPE);
+    let mut model = WinModel {
+        written: Vec::new(),
+        held: held.to_vec(),
+    };
+    for (msg, wparam, lparam) in messages {
+        machine.call(proc_symbol, &[0x4242, *msg, *wparam, *lparam], &mut model);
+    }
+    model.written
+}
+
+fn win_each_proc_in_mode(
+    messages: &[(u64, u64, u64)],
+    held: &[u64],
+    mode: u64,
+) -> Vec<(String, Vec<u8>)> {
+    let ncode = win_ncode();
+    [WNDPROC, EDITPROC]
+        .into_iter()
+        .map(|p| {
+            (
+                format!("Windows {p} (mode {mode})"),
+                run_win_in_mode(ncode, p, messages, held, mode),
+            )
+        })
+        .collect()
+}
+
 fn win_each_proc(messages: &[(u64, u64, u64)], held: &[u64]) -> Vec<(String, Vec<u8>)> {
     let ncode = win_ncode();
     [WNDPROC, EDITPROC]
@@ -868,7 +1117,6 @@ fn windows_procs_are_driven_by_the_model() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: the window procedures handle WM_CHAR only; Left sends no WM_CHAR"]
 fn windows_left_injects_kitty_left() {
     let messages = [key_down(win32::VK_LEFT, win32::SCAN_LEFT, true)];
     for (surface, bytes) in win_each_proc(&messages, &[]) {
@@ -877,7 +1125,6 @@ fn windows_left_injects_kitty_left() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: the window procedures handle WM_CHAR only; Delete sends no WM_CHAR"]
 fn windows_delete_injects_kitty_delete() {
     let messages = [key_down(win32::VK_DELETE, win32::SCAN_DELETE, true)];
     for (surface, bytes) in win_each_proc(&messages, &[]) {
@@ -886,7 +1133,6 @@ fn windows_delete_injects_kitty_delete() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: the window procedures handle WM_CHAR only; F5 sends no WM_CHAR"]
 fn windows_f5_injects_kitty_f5() {
     let messages = [key_down(win32::VK_F5, win32::SCAN_F5, false)];
     for (surface, bytes) in win_each_proc(&messages, &[]) {
@@ -895,7 +1141,6 @@ fn windows_f5_injects_kitty_f5() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: the window procedures ignore WM_KEYUP"]
 fn windows_left_release_injects_kitty_release() {
     let messages = [(
         win32::WM_KEYUP,
@@ -908,7 +1153,6 @@ fn windows_left_release_injects_kitty_release() {
 }
 
 #[test]
-#[ignore = "bug-699 Phase 3: the window procedures handle WM_CHAR only; Left sends no WM_CHAR"]
 fn windows_shift_left_injects_kitty_shift_left() {
     let messages = [key_down(win32::VK_LEFT, win32::SCAN_LEFT, true)];
     for (surface, bytes) in win_each_proc(&messages, &[win32::VK_SHIFT]) {
@@ -916,12 +1160,116 @@ fn windows_shift_left_injects_kitty_shift_left() {
     }
 }
 
+/// `lParam` bit 30 (the key was already down) marks the auto-repeat.
+#[test]
+fn windows_auto_repeat_injects_a_repeat() {
+    let lp = win32::lparam(win32::SCAN_LEFT, true, false) | (1 << 30);
+    let messages = [(win32::WM_KEYDOWN, win32::VK_LEFT, lp)];
+    for (surface, bytes) in win_each_proc(&messages, &[]) {
+        assert_injects(&surface, "Left repeat", &bytes, b"\x1b[1;1:2D");
+    }
+}
+
+/// Enter is injected once, at its key-down: the `WM_CHAR` CR `TranslateMessage`
+/// adds for it is not delivered a second time.
+#[test]
+fn windows_enter_is_injected_once() {
+    let lp = win32::lparam(0x1C, false, false);
+    let messages = [(win32::WM_KEYDOWN, 0x0D, lp), (win32::WM_CHAR, 0x0D, lp)];
+    for mode in [0, 2] {
+        for (surface, bytes) in win_each_proc_in_mode(&messages, &[], mode) {
+            assert_injects(&surface, "Enter", &bytes, b"\x1b[13u");
+        }
+    }
+}
+
+/// In RAW mode — what the key readers set — a text key is a kitty key event like
+/// any other: its press carries the text, its release is reported.
+#[test]
+fn windows_raw_mode_text_key_is_a_key_event() {
+    let down = win32::lparam(0x1E, false, false);
+    let up = win32::lparam(0x1E, false, true);
+    let messages = [
+        (win32::WM_KEYDOWN, 0x41, down),
+        (win32::WM_CHAR, u64::from(b'a'), down),
+        (win32::WM_KEYUP, 0x41, up),
+    ];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[], 2) {
+        assert_injects(
+            &surface,
+            "a press, release",
+            &bytes,
+            b"\x1b[97;;97u\x1b[97;1:3u",
+        );
+    }
+    // Shift+a: the key is `a`, the text `A`.
+    let messages = [
+        (win32::WM_KEYDOWN, 0x41, down),
+        (win32::WM_CHAR, u64::from(b'A'), down),
+    ];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[win32::VK_SHIFT], 2) {
+        assert_injects(&surface, "Shift+a", &bytes, b"\x1b[97;2;65u");
+    }
+}
+
+/// The default mode writes a text key's text and reports no text-key release —
+/// what `io::readLine` reads there.
+#[test]
+fn windows_default_mode_text_key_is_its_text() {
+    let down = win32::lparam(0x1E, false, false);
+    let up = win32::lparam(0x1E, false, true);
+    let messages = [
+        (win32::WM_KEYDOWN, 0x41, down),
+        (win32::WM_CHAR, u64::from(b'a'), down),
+        (win32::WM_KEYUP, 0x41, up),
+    ];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[], 0) {
+        assert_injects(&surface, "a press, release", &bytes, b"a");
+    }
+}
+
+/// A Ctrl chord types a control character (or nothing), never text, so in RAW
+/// mode it is injected at its key-down, once — its `WM_CHAR` is not delivered
+/// again.
+#[test]
+fn windows_raw_mode_ctrl_chord_is_injected_once_at_key_down() {
+    let down = win32::lparam(0x1E, false, false);
+    let messages = [
+        (win32::WM_KEYDOWN, 0x41, down),
+        (win32::WM_CHAR, 0x01, down),
+    ];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[VK_CONTROL], 2) {
+        assert_injects(&surface, "Ctrl+a", &bytes, b"\x1b[97;5u");
+    }
+    // Ctrl+1 types no character at all, so only the key-down can report it.
+    let messages = [(win32::WM_KEYDOWN, 0x31, win32::lparam(0x02, false, false))];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[VK_CONTROL], 2) {
+        assert_injects(&surface, "Ctrl+1", &bytes, b"\x1b[49;5u");
+    }
+}
+
+/// AltGr is reported by Windows as Ctrl+Alt; the character it types (`@` on a
+/// German layout, AltGr+Q) is plain text, not a Ctrl+Alt chord.
+#[test]
+fn windows_raw_mode_altgr_types_plain_text() {
+    let down = win32::lparam(0x10, false, false);
+    let messages = [
+        (win32::WM_KEYDOWN, 0x51, down),
+        (win32::WM_CHAR, u64::from(b'@'), down),
+    ];
+    for (surface, bytes) in win_each_proc_in_mode(&messages, &[VK_CONTROL, VK_MENU], 2) {
+        assert_injects(&surface, "AltGr+Q", &bytes, b"\x1b[113;;64u");
+    }
+}
+
+const VK_CONTROL: u64 = 0x11;
+const VK_MENU: u64 = 0x12;
+
 /// The sibling defect on the Windows arms (bug-699 Blast Radius): `WM_CHAR`
 /// carries a UTF-16 code unit, and both arms write `wParam & 0xFF`. `é`
 /// (U+00E9) enters the pipe as the lone byte `E9` — invalid UTF-8 — and a
 /// character outside the BMP arrives as two surrogate halves, each truncated.
 #[test]
-#[ignore = "bug-699 Phase 3: WM_CHAR is written as the low byte of the UTF-16 unit"]
 fn windows_non_ascii_wm_char_is_written_as_utf8() {
     let lp = win32::lparam(0, false, false);
     let e_acute = [(win32::WM_CHAR, 0x00E9, lp)];
@@ -1056,7 +1404,7 @@ fn win_main_posted_chars(env: &[(&str, &str)]) -> Vec<u64> {
 }
 
 /// bug-699 (found measuring the key matrix on 2230): a Windows `--app` program
-/// that never calls `app::setMode` got `0` from `io::readByte` immediately and
+/// that never calls `app::setMode` got `0` from a byte read (`io::readByte`, since removed) immediately and
 /// forever. `_main`'s `MFB_WINAPP_INPUT` affordance read `GetEnvironmentVariableW`'s
 /// count from `return_register()` — `rcx` on Win64, which the call leaves
 /// undefined — instead of the C result `rax`. With the variable UNSET the count

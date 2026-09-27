@@ -23,6 +23,7 @@
 
 mod app_io;
 mod bootstrap;
+mod keys;
 mod mouse;
 mod term_draw;
 mod window;
@@ -309,7 +310,7 @@ const TERM_RESIZE_SYMBOL: &str = "_mfb_gtkapp_term_resize";
 
 // Input modes (mirror macOS `app/mod.rs` INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
-// each keystroke's bytes to the pipe immediately (`io::readChar`/`readByte`).
+// each keystroke's bytes to the pipe immediately (the keystroke readers, `io::readKey` …).
 /// Default mode: line-buffered, no echo (the zero-initialized state value).
 ///
 /// Never assigned, and that is the point: it is the value the state word
@@ -608,6 +609,9 @@ pub(crate) fn emit_app_program_entry(
         emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
+        // bug-699: the shared key translator and the key-released handler.
+        keys::emit_key_inject_helper()?,
+        keys::emit_key_released_handler()?,
         emit_window_closed_handler()?,
         emit_finish_helper(spec.debug_hooks)?,
         emit_append_helper()?,
@@ -708,6 +712,9 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
+        // bug-699: the shared key translator and the key-released handler.
+        keys::emit_key_inject_helper()?,
+        keys::emit_key_released_handler()?,
         emit_window_closed_handler()?,
         emit_finish_helper(spec.debug_hooks)?,
         emit_append_helper()?,
@@ -1046,6 +1053,10 @@ pub(crate) fn app_mode_imports(
         (GTK, "gtk_event_controller_key_new"),
         (GTK, "gtk_widget_add_controller"),
         (GTK, "gdk_keyval_to_unicode"),
+        // bug-699: a text key's unshifted code point (kitty's key number), and the
+        // capture phase that lets the window see Backspace/Delete first.
+        (GTK, "gdk_keyval_to_lower"),
+        (GTK, "gtk_event_controller_set_propagation_phase"),
         (GLIB, "g_unichar_to_utf8"),
         // term:: TUI surface: a GtkDrawingArea rendered with Cairo (libcairo).
         (GTK, "gtk_drawing_area_new"),
@@ -1171,6 +1182,7 @@ pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec
         STR_ACTIVATE,
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
+        keys::STR_KEY_RELEASED,
         STR_RESIZE,
         // plan-155-A: the surface signal the display rate is republished on.
         STR_ENTER_MONITOR,
@@ -1206,6 +1218,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),
     });
+    // bug-699: which keys are down, for GTK's missing repeat flag.
+    objects.push(keys::keys_held_data_object());
     // plan-94-D: the mouse controllers' signal names.
     if uses_mouse {
         for (symbol, text) in [

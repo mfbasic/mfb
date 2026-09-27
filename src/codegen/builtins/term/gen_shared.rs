@@ -75,6 +75,10 @@ pub(crate) fn lower_term_helper(
     // it is threaded rather than folded into `term_state_offset` — a `term::`
     // program that never touches the mouse reserves no mouse region at all.
     mouse_state_offset: Option<usize>,
+    // bug-699: `Some` in a program whose `io` readers decode keys through the
+    // input buffer — the only programs for which `term::on` switches a terminal
+    // to the kitty keyboard protocol (and `term::off` switches it back).
+    input_state_offset: Option<usize>,
     build_mode: crate::target::NativeBuildMode,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -132,6 +136,7 @@ pub(crate) fn lower_term_helper(
         symbol,
         term_state_offset,
         mouse_state_offset,
+        input_state_offset,
         build_mode.is_app(),
         platform_imports,
         platform,

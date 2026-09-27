@@ -6907,8 +6907,10 @@ mod raw_result_block_ownership {
         "fs.readText",              // String
         "fs.tempDirectory",         // String
         "io.input",                 // String
-        "io.readChar",              // String
+        "io.readGrapheme",          // String
+        "io.readKey",               // io.Key
         "io.readLine",              // String
+        "io.readScalar",            // Scalar (a nominal, so classed here like app.Mode; no block)
         "net.lookup",               // List OF net.Address
         "net.ping",                 // net.PingResult
         "net.pingAddr",             // net.PingResult
@@ -7139,7 +7141,7 @@ mod raw_result_block_ownership {
         "fs.readText",
         "fs.tempDirectory",
         "io.input",
-        "io.readChar",
+        "io.readGrapheme",
         "io.readLine",
         "os.appCachePath",
         "os.appDataPath",

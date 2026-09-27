@@ -354,23 +354,23 @@ const CANVAS_READ_ORDER_SOURCE: &str = "IMPORT app\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
-    \x20 LET a AS Byte = io::readByte()\n\
+    \x20 LET a AS Byte = io::readRaw()\n\
     \x20 IF a <> 65 THEN\n\
     \x20   RETURN 10\n\
     \x20 END IF\n\
-    \x20 LET b AS Byte = io::readByte()\n\
+    \x20 LET b AS Byte = io::readRaw()\n\
     \x20 IF b <> 66 THEN\n\
     \x20   RETURN 11\n\
     \x20 END IF\n\
-    \x20 LET c AS Byte = io::readByte()\n\
+    \x20 LET c AS Byte = io::readRaw()\n\
     \x20 IF c <> 67 THEN\n\
     \x20   RETURN 12\n\
     \x20 END IF\n\
-    \x20 LET d AS Byte = io::readByte()\n\
+    \x20 LET d AS Byte = io::readRaw()\n\
     \x20 IF d <> 10 THEN\n\
     \x20   RETURN 13\n\
     \x20 END IF\n\
-    \x20 LET e AS Byte = io::readByte() TRAP(err)\n\
+    \x20 LET e AS Byte = io::readRaw() TRAP(err)\n\
     \x20   IF err.code = errorCode::ErrEndOfFile THEN\n\
     \x20     RETURN 0\n\
     \x20   END IF\n\
@@ -381,14 +381,14 @@ const CANVAS_READ_ORDER_SOURCE: &str = "IMPORT app\n\
 
 #[cfg(target_os = "macos")]
 #[test]
-fn macos_canvas_readbyte_returns_bytes_in_order_then_eof() {
+fn macos_canvas_readraw_returns_bytes_in_order_then_eof() {
     let (project, ok, log) = build_app("app_canvas_bytes", CANVAS_READ_ORDER_SOURCE, &[]);
     assert!(ok, "build should succeed:\n{log}");
     let exe = project.join("build/app_canvas_bytes.app/Contents/MacOS/app_canvas_bytes");
     let (code, _) = run_headless_with_stdin(&exe, "ABC\n");
     assert_eq!(
         code, 0,
-        "io::readByte in Canvas must return A, B, C, LF in order (10-13 = wrong \
+        "io::readRaw in Canvas must return A, B, C, LF in order (10-13 = wrong \
          byte at that position) and then EOF (21 = no EOF, 20 = wrong error)"
     );
     let _ = fs::remove_dir_all(&project);

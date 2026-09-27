@@ -3,12 +3,12 @@
 conflate a malformed (non-UTF-8) input byte with genuine end of input.
 
 `examples/dungeon` is a `--app` canvas program, so its own binary needs a
-window and cannot be driven by piped stdin. Its key-reading functions
-(`getChar`/`ready`/`readKey`/`badByteSentinel`) touch no canvas at all, though,
-so bug-713 split them into their own file, `examples/dungeon/src/input.mfb`
+window and cannot be driven by piped stdin. Its key-reading function
+(`nextKey`, over `io::readKey` since bug-699) touches no canvas at all, though,
+so bug-713 split it into its own file, `examples/dungeon/src/input.mfb`
 (a normal source file in the real `examples/dungeon` project — it builds into
-`dungeon.app` exactly as before; the split only isolates these functions from
-the canvas-touching code around them).
+`dungeon.app` exactly as before; the split only isolates this function from
+the canvas-touching code around it).
 
 This probe builds a separate, tiny console-mode driver project and copies
 `examples/dungeon/src/input.mfb` into it **byte-for-byte** (`shutil.copy`) —
@@ -46,8 +46,8 @@ DUNGEON_INPUT_MFB = os.path.join(REPO_ROOT, "examples", "dungeon", "src", "input
 DRIVER_MAIN = """IMPORT io
 
 FUNC main AS Integer
-  LET key AS String = readKey()
-  io::print("readKey() returned: [" & key & "]")
+  LET key AS String = nextKey(5000)
+  io::print("nextKey() returned: [" & key & "]")
   RETURN 0
 END FUNC
 """
@@ -107,10 +107,10 @@ def main() -> int:
 
         # Case 1: a leading bad byte must not read as EOF.
         out, code = run_with_stdin(binary, b"\xffabc")
-        if "readKey() returned: [EOF]" in out:
+        if "nextKey() returned: [EOF]" in out:
             print(f"FAIL: a leading 0xFF byte was read as EOF (output: {out!r})")
             return 1
-        if "readKey() returned: [a]" not in out:
+        if "nextKey() returned: [a]" not in out:
             print(f"FAIL: expected the bad byte dropped and 'a' returned next "
                   f"(output: {out!r})")
             return 1
@@ -118,14 +118,14 @@ def main() -> int:
 
         # Case 2: genuine EOF (empty stdin) must still read as EOF.
         out, code = run_with_stdin(binary, b"")
-        if "readKey() returned: [EOF]" not in out:
+        if "nextKey() returned: [EOF]" not in out:
             print(f"FAIL: empty stdin should still read as EOF (output: {out!r})")
             return 1
         print("PASS: genuine end of input still reads as EOF")
 
         # Case 3: a clean stream is unaffected.
         out, code = run_with_stdin(binary, b"q")
-        if "readKey() returned: [q]" not in out:
+        if "nextKey() returned: [q]" not in out:
             print(f"FAIL: a clean 'q' byte should read back unchanged "
                   f"(output: {out!r})")
             return 1

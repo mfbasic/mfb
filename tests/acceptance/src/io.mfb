@@ -14,22 +14,27 @@ IMPORT errorCode
 '   * the terminal predicates never raise and return a Boolean (their VALUE is
 '     environment-dependent — a pipe vs a tty — so the type/no-raise contract is
 '     what is pinned, per `mfb man io`);
-'   * pollInput rejects a negative timeout (ErrInvalidArgument) and is a
-'     non-blocking Boolean at 0.
-' The blocking reads (input/readLine/readChar/readByte) are exercised for their
-' end-of-input error ONLY when pollInput(0) reports a read will not block — so an
-' interactive run skips them rather than hanging, while an automated run (stdin at
-' EOF) verifies each reports ErrEndOfFile (77020003) at end of input.
+'   * every reader rejects a negative timeout (ErrInvalidArgument).
+' The reads are exercised for their end-of-input error ONLY when an immediate
+' read (timeout 0) finds the input at its end — so an interactive run skips them
+' rather than hanging, while an automated run (stdin at EOF) verifies each
+' reports ErrEndOfFile (77020003) at end of input.
 ' =====================================================================
 
 FUNC rdLine() AS String
   RETURN io::readLine()
 END FUNC
-FUNC rdChar() AS String
-  RETURN io::readChar()
+FUNC rdRaw() AS Byte
+  RETURN io::readRaw()
 END FUNC
-FUNC rdByte() AS Byte
-  RETURN io::readByte()
+FUNC rdScalar() AS Scalar
+  RETURN io::readScalar()
+END FUNC
+FUNC rdGrapheme() AS String
+  RETURN io::readGrapheme()
+END FUNC
+FUNC rdKey() AS io::Key
+  RETURN io::readKey()
 END FUNC
 FUNC rdInput() AS String
   RETURN io::input()
@@ -39,8 +44,32 @@ FUNC rdInputPrompt() AS String
   ' the driver's report stream, and still reads (and reports EOF) like input().
   RETURN io::input("")
 END FUNC
-FUNC pollNeg() AS Boolean
-  RETURN io::pollInput(0 - 1)
+FUNC negLine() AS String
+  RETURN io::readLine(0 - 1)
+END FUNC
+FUNC negInput() AS String
+  RETURN io::input("", 0 - 1)
+END FUNC
+FUNC negRaw() AS Byte
+  RETURN io::readRaw(0 - 1)
+END FUNC
+FUNC negScalar() AS Scalar
+  RETURN io::readScalar(0 - 1)
+END FUNC
+FUNC negGrapheme() AS String
+  RETURN io::readGrapheme(0 - 1)
+END FUNC
+FUNC negKey() AS io::Key
+  RETURN io::readKey(0 - 1)
+END FUNC
+' Whether standard input is at its end: one immediate read (timeout 0), which
+' never blocks. It reads nothing at the end of input, and at most one byte
+' otherwise.
+FUNC atEnd() AS Boolean
+  LET b AS Byte = io::readRaw(0) TRAP(e)
+    RETURN e.code = errorCode::ErrEndOfFile
+  END TRAP
+  RETURN FALSE
 END FUNC
 
 TESTING
@@ -104,57 +133,64 @@ TESTING
     END TGROUP
 
     ' =================================================================
-    ' pollInput — timeout convention (§18.4)
+    ' Timeouts — the timeout convention (§18.4)
     ' =================================================================
-    TGROUP "pollInput"
-      TCASE "a negative timeout is rejected"
-        expectTrap(pollNeg(), errorCode::ErrInvalidArgument)
-      END TCASE
-      TCASE "an immediate poll is a non-blocking Boolean"
-        expectString(typeName(io::pollInput(0)), "Boolean")
-        expectNTrap(io::pollInput(0))
-      END TCASE
-      TCASE "a small positive timeout returns a Boolean and never raises"
-        ' At EOF the stream is immediately readable so this returns at once; on an
-        ' idle terminal it waits at most 5ms — either way a non-hanging Boolean.
-        expectString(typeName(io::pollInput(5)), "Boolean")
-        expectNTrap(io::pollInput(5))
+    TGROUP "timeouts"
+      TCASE "every reader rejects a negative timeout"
+        expectTrap(negLine(), errorCode::ErrInvalidArgument)
+        expectTrap(negInput(), errorCode::ErrInvalidArgument)
+        expectTrap(negRaw(), errorCode::ErrInvalidArgument)
+        expectTrap(negScalar(), errorCode::ErrInvalidArgument)
+        expectTrap(negGrapheme(), errorCode::ErrInvalidArgument)
+        expectTrap(negKey(), errorCode::ErrInvalidArgument)
       END TCASE
     END TGROUP
 
     ' =================================================================
     ' Input reads — end-of-input error, guarded so an interactive run
-    ' (no data waiting) never blocks: only read when pollInput says a read
-    ' will return immediately. Under automated runs stdin is at EOF, so
-    ' each read reports ErrEndOfFile.
+    ' (no data waiting) never blocks: only read when an immediate read finds
+    ' the input at its end. Under automated runs stdin is at EOF, so each
+    ' read reports ErrEndOfFile.
     ' =================================================================
     TGROUP "input reads at end of input"
       TCASE "readLine reports ErrEndOfFile at EOF"
-        IF io::pollInput(0) THEN
+        IF atEnd() THEN
           expectTrap(rdLine(), errorCode::ErrEndOfFile)
         END IF
         expectEqual(TRUE, TRUE)
       END TCASE
-      TCASE "readChar reports ErrEndOfFile at EOF"
-        IF io::pollInput(0) THEN
-          expectTrap(rdChar(), errorCode::ErrEndOfFile)
+      TCASE "readRaw reports ErrEndOfFile at EOF"
+        IF atEnd() THEN
+          expectTrap(rdRaw(), errorCode::ErrEndOfFile)
         END IF
         expectEqual(TRUE, TRUE)
       END TCASE
-      TCASE "readByte reports ErrEndOfFile at EOF"
-        IF io::pollInput(0) THEN
-          expectTrap(rdByte(), errorCode::ErrEndOfFile)
+      TCASE "readScalar reports ErrEndOfFile at EOF"
+        IF atEnd() THEN
+          expectTrap(rdScalar(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "readGrapheme reports ErrEndOfFile at EOF"
+        IF atEnd() THEN
+          expectTrap(rdGrapheme(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "readKey reports ErrEndOfFile at EOF"
+        IF atEnd() THEN
+          expectTrap(rdKey(), errorCode::ErrEndOfFile)
         END IF
         expectEqual(TRUE, TRUE)
       END TCASE
       TCASE "input (promptless) reports ErrEndOfFile at EOF"
-        IF io::pollInput(0) THEN
+        IF atEnd() THEN
           expectTrap(rdInput(), errorCode::ErrEndOfFile)
         END IF
         expectEqual(TRUE, TRUE)
       END TCASE
       TCASE "input (with prompt) reports ErrEndOfFile at EOF"
-        IF io::pollInput(0) THEN
+        IF atEnd() THEN
           expectTrap(rdInputPrompt(), errorCode::ErrEndOfFile)
         END IF
         expectEqual(TRUE, TRUE)

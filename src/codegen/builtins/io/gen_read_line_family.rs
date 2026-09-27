@@ -2,50 +2,131 @@
 //! `io::input` (with a prompt) and `io::readLine` (no prompt).
 //!
 //! They differ only in whether a prompt is written first, so both lower through the
-//! single [`lower_read_line_family`] here (`func_input`/`func_read_line`
-//! `use super::gen_read_line_family::lower_read_line_family`). App-mode `io::input`
-//! writes its prompt to the transcript then reads a line (`emit_app_io_input`);
-//! every other case — console input/readLine, and app-mode readLine — is the shared
-//! console reader (built on `super::gen_read_family`'s stdin machinery), which reads
-//! fd 0 (the window input pipe in app mode). Either way the body is emitted directly
-//! into the member's builder and the `abi_function` wrapper finalizes.
+//! single [`lower_read_line_family`] here. App-mode `io::input` writes its prompt to
+//! the transcript and switches the window to echoed line input, then calls
+//! `io::readLine` (`emit_app_io_input`); every other case is the body below, which
+//! reads through the shared read engine (`codegen::io::input::reader`).
+//!
+//! # Two ways to read a line (bug-699)
+//!
+//! - **Keystrokes** — an `--app` window, or a console whose standard input is a
+//!   terminal. The line is assembled from decoded key events: text keys append
+//!   their text, Backspace erases one scalar, Enter ends the line, and keys with
+//!   no text (arrows, F-keys) and releases are skipped. This is what makes a
+//!   line read correct whichever form the keys arrive in: the text a terminal's
+//!   line discipline or an app's line editor committed, or the key events of an
+//!   `--app` window in raw input mode.
+//! - **Data** — a console whose standard input is a pipe or a file. The bytes are
+//!   read as they are, up to the next LF (a CR before it is dropped), and checked
+//!   as UTF-8 as they arrive; an escape byte is just a byte.
+//!
+//! Either way an ill-formed UTF-8 sequence raises `ErrEncoding` (bug-699
+//! Decision 9a: a line reader reads data, and a dropped byte would be a silently
+//! shortened line).
+//!
+//! # Timeouts
+//!
+//! `[timeoutMs]` follows the language's timeout convention. A wait that runs out
+//! raises `ErrTimeout` and gives the part of the line read so far back to the
+//! front of the input buffer, where the next read — of any kind — finds it: a
+//! half-typed line is not lost and is not returned early. On a terminal the
+//! line discipline holds a half-typed line until Return anyway, so there is
+//! nothing to give back; an `--app` window's raw keys and a slow pipe are where
+//! it matters. A part-line longer than the buffer holds is finished without a
+//! deadline rather than lost.
 
-use super::gen_read_family::{
-    emit_stdin_byte_read, emit_utf8_sequence_read, MousePump, Utf8SeqLabels,
-};
+use super::func_read_raw::TIMEOUT_DESC;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
+use crate::codegen::io::input::buffer::emit_unread;
+use crate::codegen::io::input::decode::{
+    TEXT_GRAPHEME, TEXT_NONE, TOKEN_EVENT, TOKEN_GRAPHEME, TOKEN_GRAPHEME_LEN, TOKEN_KEY,
+    TOKEN_TEXT_KIND, TOKEN_TEXT_SCALAR,
+};
+use crate::codegen::io::input::keys::{KeyEvent, KeyName};
+use crate::codegen::io::input::reader::{
+    emit_engine, emit_reader_setup, engine_next_label, Engine, EngineLabels, ReaderSlots,
+    ENGINE_BYTE, ENGINE_TOKEN, OUT_INVALID,
+};
+use crate::codegen::io::input::{INPUT_STATE_SOURCE_OFFSET, INPUT_STATE_TOKEN_OFFSET, SOURCE_DATA};
+use crate::codegen::io::stdin::field_addr;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
-use crate::codegen::registry::AbiCtx;
+use crate::codegen::registry::{AbiCtx, DefaultValue, Parameter};
 use crate::codegen::term::core::emit_mouse_tracking_window;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+/// The `timeoutMs` parameter both line readers take.
+pub(crate) fn timeout_parameter() -> Parameter {
+    Parameter {
+        name: "timeoutMs",
+        desc: TIMEOUT_DESC,
+        aliases: &[],
+        ty: ParameterType::Integer,
+        // An omitted timeout waits without bound: the convention's sentinel,
+        // padded at the call.
+        default: DefaultValue::Fill {
+            type_name: ParameterType::Integer,
+            expr: TIMEOUT_UNBOUNDED_SENTINEL,
+        },
+    }
+}
+
+// Frame layout (sp-relative).
+const TIMEOUT: usize = 8;
+const PROMPT: usize = 16;
+const SLOTS: usize = 24;
+const TERMINAL: usize = SLOTS + ReaderSlots::BYTES;
+const TERM_ACTIVE: usize = TERMINAL;
+const TERM_SAVED_TAG: usize = TERMINAL + 8;
+const TERM_SAVED_VALUE: usize = TERMINAL + 16;
+const TERM_SAVED_MESSAGE: usize = TERMINAL + 24;
+const TERM_ORIGINAL: usize = TERMINAL + 32;
+/// Room for either platform's `struct termios` (macOS 72 bytes, Linux 60).
+const TERMIOS_BYTES: usize = 72;
+const TERM_MODIFIED: usize = TERM_ORIGINAL + TERMIOS_BYTES;
+/// The growable line buffer: pointer, capacity, length.
+const BUFFER: usize = TERM_MODIFIED + TERMIOS_BYTES;
+const CAPACITY: usize = BUFFER + 8;
+const LENGTH: usize = BUFFER + 16;
+const RESULT: usize = BUFFER + 24;
+/// The dead buffer across a grow, returned to the arena afterwards.
+const OLD_BUFFER: usize = BUFFER + 32;
+const OLD_CAPACITY: usize = BUFFER + 40;
+/// Data mode: continuation bytes the UTF-8 sequence in progress still needs,
+/// and the smallest and largest value the next one may take (the second byte of
+/// `E0`/`ED`/`F0`/`F4` sequences is narrower than `80..BF`).
+const UTF8_NEED: usize = BUFFER + 48;
+const UTF8_LOW: usize = BUFFER + 56;
+const UTF8_HIGH: usize = BUFFER + 64;
+/// The bytes to append this round, and how many.
+const APPEND_PTR: usize = BUFFER + 72;
+const APPEND_LEN: usize = BUFFER + 80;
+const FRAME: usize = BUFFER + 96;
+
 /// Shared `abi_function` body for `io::input` (with a prompt) and `io::readLine`
-/// (no prompt), selected by `with_prompt` and labeled `text`. Emits its vreg body
-/// directly into the builder; the wrapper finalizes. `console_term_state` is `None`
-/// in app mode (no tty) and the threaded `term_state_offset` in a console build
-/// (bug-149 cooked-mode restore).
+/// (no prompt), selected by `with_prompt` and labeled `text`.
 pub(crate) fn lower_read_line_family(
     builder: &mut CodeBuilder,
+    args: &[ValueResult],
     ctx: &AbiCtx,
     with_prompt: bool,
     text: &str,
 ) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol: &str = &symbol_owned;
     let app = ctx.build_mode.is_app();
     if app && with_prompt {
-        // App-mode `io::input`: append the platform prompt+read sequence directly
-        // into this member's `abi_function` body (plan-101 append shape); the
-        // wrapper finalizes. No standalone helper, no `bl` hop.
+        // App-mode `io::input`: the platform writes the prompt to the transcript,
+        // switches the window to echoed line input, and calls `io::readLine` with
+        // the timeout (plan-101 append shape); the wrapper finalizes.
         ctx.platform
-            .emit_app_io_input(&symbol, &mut builder.instructions, &mut builder.relocations)
+            .emit_app_io_input(symbol, &mut builder.instructions, &mut builder.relocations)
             .ok_or_else(|| super::app_unsupported(ctx.platform))??;
         return Ok(ValueResult {
             origin: None,
@@ -54,112 +135,90 @@ pub(crate) fn lower_read_line_family(
             text: text.to_string(),
         });
     }
-    // Console input/readLine, and app-mode readLine (reads the window pipe): the
-    // shared console line-reader vreg body, emitted directly (was emit_read_line_body).
-    let symbol: &str = &symbol;
     let platform_imports = ctx.platform_imports;
     let platform = ctx.platform;
     let app_mode = app;
     let console_term_state = if app { None } else { ctx.term_state_offset };
-    const BASE_FRAME_SIZE: usize = 256;
-    const BUFFER_OFFSET: usize = 8;
-    const CAPACITY_OFFSET: usize = 16;
-    const LENGTH_OFFSET: usize = 24;
-    const SEQ_LEN_OFFSET: usize = 32;
-    const RESULT_OFFSET: usize = 40;
-    const BYTES_OFFSET: usize = 48;
-    // plan-94-B: the mouse pump rides the lead-byte read. Emitted only when the
-    // program uses `enableMouse`/`pollMouse` — a program that never mentions the
-    // mouse keeps this helper's exact instruction stream and frame size.
-    //
-    // The clock scratch is appended PAST the base frame rather than carved out of
-    // it, so no existing slot offset moves: the 16 bytes exist only in a mouse
-    // program, which is also the only one that reads the clock.
-    let mouse_pump = ctx.mouse_state_offset.map(|state_offset| MousePump {
-        state_offset,
-        clock_scratch: BASE_FRAME_SIZE,
-    });
-    let frame_size = if mouse_pump.is_some() {
-        BASE_FRAME_SIZE + MOUSE_CLOCK_SCRATCH_BYTES
-    } else {
-        BASE_FRAME_SIZE
-    };
-    // Old line-buffer pointer/size stashed across a grow so the dead buffer can be
-    // returned to the arena free-list (plan-01 §8.3 runtime-internal reuse). The
-    // termios scratch ends at 240 (macOS) / 228 (Linux), so 240/248 are free.
-    const OLD_BUFFER_OFFSET: usize = 240;
-    const OLD_CAPACITY_OFFSET: usize = 248;
+    let state_offset = ctx.input_state_offset.ok_or_else(|| {
+        format!("'{symbol}' reads through the input buffer, which this program did not reserve")
+    })?;
     let terminal_slots = TerminalModeSlots {
-        active: 56,
-        saved_tag: 64,
-        saved_value: 72,
-        saved_message: 80,
-        original: 96,
-        modified: 168,
+        active: TERM_ACTIVE,
+        saved_tag: TERM_SAVED_TAG,
+        saved_value: TERM_SAVED_VALUE,
+        saved_message: TERM_SAVED_MESSAGE,
+        original: TERM_ORIGINAL,
+        modified: TERM_MODIFIED,
     };
-    let prompt_flush = format!("{symbol}_prompt_flush");
-    let alloc_ok = format!("{symbol}_alloc_ok");
-    let read_loop = format!("{symbol}_read_loop");
-    let read_resume = format!("{symbol}_read_resume");
-    let have_sequence = format!("{symbol}_have_sequence");
-    let grow = format!("{symbol}_grow");
-    let grow_ok = format!("{symbol}_grow_ok");
-    let grow_copy_loop = format!("{symbol}_grow_copy_loop");
-    let grow_copy_done = format!("{symbol}_grow_copy_done");
-    let append_loop = format!("{symbol}_append_loop");
-    let append_done = format!("{symbol}_append_done");
-    let trim_cr = format!("{symbol}_trim_cr");
-    let result_alloc_ok = format!("{symbol}_result_alloc_ok");
-    let result_copy_loop = format!("{symbol}_result_copy_loop");
-    let result_copy_done = format!("{symbol}_result_copy_done");
-    let output_error = format!("{symbol}_output_error");
-    let eof_error = format!("{symbol}_eof_error");
-    let input_error = format!("{symbol}_input_error");
-    let invalid_context = format!("{symbol}_invalid_context");
-    let encoding_error = format!("{symbol}_encoding_error");
-    let alloc_error = format!("{symbol}_alloc_error");
-    let done = format!("{symbol}_done");
+    let l = |name: &str| format!("{symbol}_{name}");
+    let prompt_flush = l("prompt_flush");
+    let output_error = l("output_error");
+    let invalid_argument = l("invalid_argument");
+    let timeout = l("timeout");
+    let eof = l("eof");
+    let input_error = l("input_error");
+    let invalid_context = l("invalid_context");
+    let encoding_error = l("encoding_error");
+    let alloc_error = l("alloc_error");
+    let finish = l("finish");
+    let append = l("append");
+    let done = l("done");
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
+    // The arguments, before anything clobbers them: `input(prompt, timeout)`,
+    // `readLine(timeout)`.
+    let arg = |i: usize| -> Result<Operand, String> {
+        args.get(i)
+            .map(|a| a.location.clone())
+            .ok_or_else(|| format!("'{symbol}' expects {} argument(s)", i + 1))
+    };
+    if with_prompt {
+        instructions.push(abi::store_u64(&arg(0)?, abi::stack_pointer(), PROMPT));
+        instructions.push(abi::store_u64(&arg(1)?, abi::stack_pointer(), TIMEOUT));
+    } else {
+        instructions.push(abi::store_u64(&arg(0)?, abi::stack_pointer(), TIMEOUT));
+    }
+    {
+        let t = vregs.next();
+        let sentinel = vregs.next();
+        let timeout_ok = l("timeout_ok");
+        instructions.extend([
+            abi::load_u64(t, abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate(sentinel, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers(t, sentinel),
+            abi::branch_eq(&timeout_ok),
+            abi::compare_immediate(t, "0"),
+            abi::branch_lt(&invalid_argument),
+            abi::label(&timeout_ok),
+        ]);
+    }
     // Drain any buffered stdout before blocking on input (plan-14-A §4.3 hook 2)
     // so already-produced output — including a buffered prompt — appears before
-    // the read. A no-op when buffering is off; skipped in app mode, which has no
-    // stdout buffer. The prompt pointer (x0) is parked across the drain call.
+    // the read. Skipped in app mode, which has no stdout buffer.
     if !app_mode {
-        let v40 = vregs.next();
-        if with_prompt {
-            instructions.push(abi::move_register(&v40, abi::return_register()));
-        }
         instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
         relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
-        if with_prompt {
-            instructions.push(abi::move_register(abi::return_register(), &v40));
-        }
     }
     if with_prompt {
         // Write the prompt directly and report a write failure via output_error.
-        // Like io::flush, prompt "flushing" is just the write() — the portable,
-        // platform-independent failure signal. No fsync (its errno depends on the
-        // fd type, not on the write). An empty prompt writes nothing and so
-        // cannot fail; it joins at `prompt_flush` and proceeds to the read.
-        let prompt_loop = format!("{symbol}_prompt_loop");
-        let v42 = vregs.next();
-        let v41 = vregs.next();
+        // An empty prompt writes nothing and so cannot fail.
+        let prompt_loop = l("prompt_loop");
+        let remaining = vregs.next();
+        let cursor = vregs.next();
+        let p = vregs.next();
         instructions.extend([
-            abi::load_u64(&v42, abi::return_register(), 0),
-            abi::add_immediate(&v41, abi::return_register(), 8),
+            abi::load_u64(p, abi::stack_pointer(), PROMPT),
+            abi::load_u64(&remaining, p, 0),
+            abi::add_immediate(&cursor, p, 8),
             // Loop on short writes (bug-51): write the whole prompt or report
-            // output_error; a 0 or -1 return is a failure, never success. An empty
-            // prompt writes nothing (remaining == 0) and joins at prompt_flush.
-            // %v41/%v42 (cursor/remaining) are vregs → spilled/reloaded across each
-            // `bl write`.
+            // output_error; a 0 or -1 return is a failure, never success.
             abi::label(&prompt_loop),
-            abi::compare_immediate(&v42, "0"),
+            abi::compare_immediate(&remaining, "0"),
             abi::branch_eq(&prompt_flush),
-            abi::move_register(abi::string_data_register(), &v41),
-            abi::move_register(abi::string_length_register(), &v42),
+            abi::move_register(abi::string_data_register(), &cursor),
+            abi::move_register(abi::string_length_register(), &remaining),
             abi::move_immediate(abi::return_register(), "Integer", "1"),
         ]);
         platform.emit_write(
@@ -178,23 +237,22 @@ pub(crate) fn lower_read_line_family(
             },
             abi::return_register(),
             write_uses_raw_syscall(platform),
-            &v41,
-            &v42,
+            &cursor,
+            &remaining,
             &prompt_loop,
             &output_error,
         )?;
         instructions.push(abi::label(&prompt_flush));
     }
+    let mouse = ctx.mouse_state_offset;
     // While console TUI single-key mode is active (`term::on`), stdin is in raw
     // mode; restore the saved cooked line discipline so this read waits for
-    // Return and echoes (bug-149). A no-op otherwise. Must precede the read
-    // helper's own `emit_configure_stdin_terminal` so its `tcgetattr` snapshots
-    // the cooked flags.
+    // Return and echoes (bug-149). A no-op otherwise.
     if let Some(term_state_offset) = console_term_state {
         // plan-94-B §3e: withdraw mouse tracking BEFORE the cooked restore, not
         // after. The restore re-enables echo, so a report that arrives between the
         // two would be printed onto the user's screen mid-line.
-        if mouse_pump.is_some() {
+        if mouse.is_some() {
             emit_mouse_tracking_window(
                 &mut EmitCtx {
                     symbol,
@@ -204,7 +262,24 @@ pub(crate) fn lower_read_line_family(
                     relocations: &mut relocations,
                 },
                 false,
-                // Nothing is staged before the read, so nothing to park.
+                false,
+                &mut vregs,
+            )?;
+        }
+        // bug-699 Phase 5: likewise hand the keyboard back to the terminal's
+        // ordinary encoding before the cooked restore — under the kitty protocol
+        // Return is an escape sequence, and the line discipline would never see
+        // the end of the line.
+        if ctx.input_state_offset.is_some() {
+            crate::codegen::term::core::emit_kitty_line_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                false,
                 false,
                 &mut vregs,
             )?;
@@ -224,6 +299,7 @@ pub(crate) fn lower_read_line_family(
         )?;
     }
     if !with_prompt {
+        // `io::readLine` reads with echo off, the line discipline otherwise intact.
         emit_configure_stdin_terminal(
             &mut EmitCtx {
                 symbol,
@@ -240,264 +316,488 @@ pub(crate) fn lower_read_line_family(
             &input_error,
         )?;
     }
+    // The line buffer, 32 bytes to start.
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "32"),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    let v10 = vregs.next();
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&alloc_ok),
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_immediate(&v10, "Integer", "32"),
-        abi::store_u64(&v10, abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH_OFFSET),
-    ]);
-    // plan-15: each line byte comes from the stdin broadcast log in console mode (or
-    // the window pipe in app mode). `read_loop` is the per-byte loop head (pushed by
-    // the helper); EINTR/blocking are handled inside the reader, and a 0-byte return
-    // is EOF.
-    emit_stdin_byte_read(
-        &mut EmitCtx {
+    {
+        let v = vregs.next();
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+            abi::branch_ne(&alloc_error),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER),
+            abi::move_immediate(v, "Integer", "32"),
+            abi::store_u64(v, abi::stack_pointer(), CAPACITY),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), UTF8_NEED),
+        ]);
+    }
+    let slots = ReaderSlots::at(SLOTS);
+    let engine = Engine {
+        state_offset,
+        app_mode,
+        mouse_state_offset: mouse,
+        slots,
+        events_symbol: (!app_mode).then_some(super::gen_read_key_family::INPUT_EVENTS_SYMBOL),
+    };
+    let region = |dst: VirtualRegister, instructions: &mut Vec<CodeInstruction>| {
+        field_addr(dst, ARENA_STATE_REGISTER, state_offset, instructions);
+    };
+    let token = |offset: usize| INPUT_STATE_TOKEN_OFFSET + offset;
+    {
+        let mut e = EmitCtx {
             symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
             relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET,
-        &read_loop,
-        &read_resume,
-        &input_error,
-        &invalid_context,
-        mouse_pump,
-        ctx.input_state_offset,
-        &mut vregs,
-    )?;
-    let read_eof = format!("{symbol}_read_eof");
-    let multi_start = format!("{symbol}_multi_start");
-    let line_read_third = format!("{symbol}_line_read_third");
-    let line_read_fourth = format!("{symbol}_line_read_fourth");
-    let line_three_not_e0 = format!("{symbol}_line_three_not_e0");
-    let line_three_general = format!("{symbol}_line_three_general");
-    let line_three_second_ok = format!("{symbol}_line_three_second_ok");
-    let line_four_not_f0 = format!("{symbol}_line_four_not_f0");
-    let line_four_general = format!("{symbol}_line_four_general");
-    let line_four_second_ok = format!("{symbol}_line_four_second_ok");
-    let seq_labels = Utf8SeqLabels {
-        eof: &read_eof,
-        read_second: &multi_start,
-        read_third: &line_read_third,
-        read_fourth: &line_read_fourth,
-        three_not_e0: &line_three_not_e0,
-        three_general: &line_three_general,
-        three_second_ok: &line_three_second_ok,
-        four_not_f0: &line_four_not_f0,
-        four_general: &line_four_general,
-        four_second_ok: &line_four_second_ok,
-        encoding_error: &encoding_error,
-        input_error: &input_error,
-        cont: &have_sequence,
-    };
-    emit_utf8_sequence_read(
-        symbol,
-        platform_imports,
-        platform,
-        app_mode,
-        &seq_labels,
-        BYTES_OFFSET,
-        SEQ_LEN_OFFSET,
-        Some(&trim_cr),
-        ctx.input_state_offset,
-        &mut vregs,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    let v11 = vregs.next();
-    let v12 = vregs.next();
-    let v13 = vregs.next();
-    let v9 = vregs.next();
-    let v14 = vregs.next();
+        };
+        let t = vregs.next();
+        e.instructions
+            .push(abi::load_u64(t, abi::stack_pointer(), TIMEOUT));
+        emit_reader_setup(&engine, t, &mut e, &mut vregs)?;
+        // Keystrokes (an app window or a terminal) are decoded one scalar at a
+        // time; data (a pipe or a file) is read byte by byte.
+        let v = vregs.next();
+        let mode_set = l("mode_set");
+        e.instructions.extend([
+            abi::move_immediate(v, "Integer", &ENGINE_TOKEN.to_string()),
+            abi::store_u64(v, abi::stack_pointer(), slots.mode),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), slots.flags),
+        ]);
+        if !app_mode {
+            let r = vregs.next();
+            let kind = vregs.next();
+            field_addr(r, ARENA_STATE_REGISTER, state_offset, e.instructions);
+            e.instructions.extend([
+                abi::load_u64(kind, r, INPUT_STATE_SOURCE_OFFSET),
+                abi::compare_immediate(kind, &SOURCE_DATA.to_string()),
+                abi::branch_ne(&mode_set),
+                abi::move_immediate(v, "Integer", &ENGINE_BYTE.to_string()),
+                abi::store_u64(v, abi::stack_pointer(), slots.mode),
+            ]);
+        }
+        e.instructions.push(abi::label(&mode_set));
+        emit_engine(
+            &engine,
+            &EngineLabels {
+                timeout: &timeout,
+                eof: &eof,
+                input_error: &input_error,
+                invalid_context: &invalid_context,
+            },
+            &mut e,
+            &mut vregs,
+        )?;
+    }
+    let next = engine_next_label(symbol);
+    let mode = vregs.next();
     instructions.extend([
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64(&v11, abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::add_registers(&v12, &v10, &v11),
-        abi::load_u64(&v13, abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::compare_registers(&v12, &v13),
-        abi::branch_gt(&grow),
-        abi::branch(&grow_ok),
-        abi::label(&grow),
-        // Stash the soon-to-be-dead buffer (ptr + its size = old capacity) before
-        // the new capacity overwrites CAPACITY_OFFSET, so it can be freed below.
-        abi::store_u64(&v13, abi::stack_pointer(), OLD_CAPACITY_OFFSET),
-        abi::load_u64(&v9, abi::stack_pointer(), BUFFER_OFFSET),
-        abi::store_u64(&v9, abi::stack_pointer(), OLD_BUFFER_OFFSET),
-        abi::add_registers(&v14, &v13, &v13),
-        abi::compare_registers(&v14, &v12),
-        abi::branch_ge(&format!("{symbol}_grow_size_ok")),
-        abi::move_register(&v14, &v12),
-        abi::label(&format!("{symbol}_grow_size_ok")),
-        abi::store_u64(&v14, abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::move_register(abi::return_register(), &v14),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::load_u64(mode, abi::stack_pointer(), slots.mode),
+        abi::compare_immediate(mode, &ENGINE_BYTE.to_string()),
+        abi::branch_eq(&l("byte")),
     ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    // The `bl _mfb_arena_free` that frees the old buffer (emitted at grow_copy_done
-    // below) needs its branch relocation; order in the table is irrelevant.
-    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    let v15 = vregs.next();
-    let v16 = vregs.next();
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&format!("{symbol}_grow_alloc_ok")),
-        abi::branch(&alloc_error),
-        abi::label(&format!("{symbol}_grow_alloc_ok")),
-        // `bl _mfb_arena_alloc` clobbers x10 (the live byte count to copy), so
-        // reload the length from the stack rather than trusting the register
-        // across the call — otherwise the copy loop runs off the new buffer.
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64(&v12, abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_register(&v14, abi::mfb_return(1)),
-        abi::move_immediate(&v15, "Integer", "0"),
-        abi::label(&grow_copy_loop),
-        abi::compare_registers(&v15, &v10),
-        abi::branch_eq(&grow_copy_done),
-        abi::load_u8(&v16, &v12, 0),
-        abi::store_u8(&v16, &v14, 0),
-        abi::add_immediate(&v12, &v12, 1),
-        abi::add_immediate(&v14, &v14, 1),
-        abi::add_immediate(&v15, &v15, 1),
-        abi::branch(&grow_copy_loop),
-        abi::label(&grow_copy_done),
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER_OFFSET),
-        // The old buffer's bytes are now copied into the new one and dead — return
-        // it to the free-list. arena_free clobbers x0/x1/x9–x16; grow_ok reloads
-        // everything it needs from the stack, so nothing live is lost.
-        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OLD_BUFFER_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), OLD_CAPACITY_OFFSET),
-        abi::branch_link(ARENA_FREE_SYMBOL),
-        abi::label(&grow_ok),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64(&v12, abi::stack_pointer(), BUFFER_OFFSET),
-        abi::add_registers(&v12, &v12, &v10),
-        abi::add_immediate(&v13, abi::stack_pointer(), BYTES_OFFSET),
-        abi::load_u64(&v11, abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::label(&append_loop),
-        abi::compare_immediate(&v11, "0"),
-        abi::branch_eq(&append_done),
-        abi::load_u8(&v14, &v13, 0),
-        abi::store_u8(&v14, &v12, 0),
-        abi::add_immediate(&v12, &v12, 1),
-        abi::add_immediate(&v13, &v13, 1),
-        abi::subtract_immediate(&v11, &v11, 1),
-        abi::branch(&append_loop),
-        abi::label(&append_done),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64(&v11, abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::add_registers(&v10, &v10, &v11),
-        abi::store_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::branch(&read_loop),
-        abi::label(&format!("{symbol}_read_eof")),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::compare_immediate(&v10, "0"),
-        abi::branch_eq(&eof_error),
-        abi::branch(&trim_cr),
-        abi::label(&trim_cr),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::compare_immediate(&v10, "0"),
-        abi::branch_eq(&format!("{symbol}_result_alloc")),
-        abi::load_u64(&v12, abi::stack_pointer(), BUFFER_OFFSET),
-        abi::subtract_immediate(&v13, &v10, 1),
-        abi::add_registers(&v12, &v12, &v13),
-        abi::load_u8(&v14, &v12, 0),
-        abi::compare_immediate(&v14, "13"),
-        abi::branch_ne(&format!("{symbol}_result_alloc")),
-        abi::subtract_immediate(&v10, &v10, 1),
-        abi::store_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::label(&format!("{symbol}_result_alloc")),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::add_immediate(abi::return_register(), &v10, 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&result_alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&result_alloc_ok),
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
-        abi::load_u64(&v10, abi::stack_pointer(), LENGTH_OFFSET),
-        abi::store_u64(&v10, abi::mfb_return(1), 0),
-        abi::add_immediate(&v11, abi::mfb_return(1), 8),
-        abi::load_u64(&v12, abi::stack_pointer(), BUFFER_OFFSET),
-        abi::label(&result_copy_loop),
-        abi::compare_immediate(&v10, "0"),
-        abi::branch_eq(&result_copy_done),
-        abi::load_u8(&v13, &v12, 0),
-        abi::store_u8(&v13, &v11, 0),
-        abi::add_immediate(&v11, &v11, 1),
-        abi::add_immediate(&v12, &v12, 1),
-        abi::subtract_immediate(&v10, &v10, 1),
-        abi::branch(&result_copy_loop),
-        abi::label(&result_copy_done),
-        abi::store_u8(abi::ZERO, &v11, 0),
-        // The working line buffer is now fully copied into the result String and
-        // is dead. Return it to the free-list before returning Ok, so a
-        // line-processing loop (`WHILE ... io::readLine ...`) doesn't leak
-        // max(32, ~2×line) bytes of arena on every call — an unbounded growth
-        // that scope-drop (user values only) never reclaims (bug-95).
-        // `arena_free` clobbers x0/x1/x9–x16; the result pointer/tag are reloaded
-        // from the stack immediately afterward, so nothing live is lost.
-        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BUFFER_OFFSET),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::branch_link(ARENA_FREE_SYMBOL),
-    ]);
-    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    instructions.extend([
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&output_error),
-    ]);
-    raise_error_into(
-        symbol,
-        "ErrWriteFailed",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.push(abi::branch(&done));
-    instructions.push(abi::label(&eof_error));
-    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
-    instructions.extend([abi::branch(&done), abi::label(&input_error)]);
-    raise_error_into(
-        symbol,
-        "ErrInputFailed",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::branch(&done), abi::label(&encoding_error)]);
-    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
-    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
-    raise_error_into(
-        symbol,
-        "ErrOutOfMemory",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::branch(&done), abi::label(&invalid_context)]);
-    raise_error_into(
-        symbol,
-        "ErrInvalidContext",
-        &mut instructions,
-        &mut relocations,
-    );
+
+    // ---- a key event --------------------------------------------------------
+    {
+        let outcome = vregs.next();
+        let r = vregs.next();
+        let v = vregs.next();
+        instructions.extend([
+            abi::load_u64(outcome, abi::stack_pointer(), slots.outcome),
+            abi::compare_immediate(outcome, &OUT_INVALID.to_string()),
+            abi::branch_eq(&encoding_error),
+        ]);
+        region(r, &mut instructions);
+        instructions.extend([
+            abi::load_u64(v, r, token(TOKEN_EVENT)),
+            abi::compare_immediate(v, &(KeyEvent::Release as u64).to_string()),
+            abi::branch_eq(&next),
+            abi::load_u64(v, r, token(TOKEN_KEY)),
+            abi::compare_immediate(v, &(KeyName::Enter as u64).to_string()),
+            abi::branch_eq(&finish),
+            abi::compare_immediate(v, &(KeyName::Backspace as u64).to_string()),
+            abi::branch_eq(&l("erase")),
+            // Escape is a key, not text in a line.
+            abi::compare_immediate(v, &(KeyName::Escape as u64).to_string()),
+            abi::branch_eq(&next),
+            abi::load_u64(v, r, token(TOKEN_TEXT_KIND)),
+            abi::compare_immediate(v, &TEXT_NONE.to_string()),
+            abi::branch_eq(&next),
+            abi::compare_immediate(v, &TEXT_GRAPHEME.to_string()),
+            abi::branch_eq(&l("key_grapheme")),
+        ]);
+        // The text is one scalar (an ASCII control): append its byte.
+        let one = vregs.next();
+        instructions.extend([
+            abi::load_u64(v, r, token(TOKEN_TEXT_SCALAR)),
+            abi::store_u8(v, r, token(TOKEN_GRAPHEME)),
+            abi::move_immediate(one, "Integer", "1"),
+            abi::store_u64(one, r, token(TOKEN_GRAPHEME_LEN)),
+            abi::label(&l("key_grapheme")),
+        ]);
+        let r = vregs.next();
+        let p = vregs.next();
+        let n = vregs.next();
+        region(r, &mut instructions);
+        instructions.extend([
+            abi::add_immediate(p, r, token(TOKEN_GRAPHEME)),
+            abi::load_u64(n, r, token(TOKEN_GRAPHEME_LEN)),
+            abi::store_u64(p, abi::stack_pointer(), APPEND_PTR),
+            abi::store_u64(n, abi::stack_pointer(), APPEND_LEN),
+            abi::branch(&append),
+        ]);
+        // Backspace: drop the line's last scalar (its lead byte and any
+        // continuation bytes after it).
+        let len = vregs.next();
+        let buf = vregs.next();
+        let at = vregs.next();
+        let b = vregs.next();
+        let mask = vregs.next();
+        instructions.extend([
+            abi::label(&l("erase")),
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::compare_immediate(len, "0"),
+            abi::branch_eq(&next),
+            abi::load_u64(buf, abi::stack_pointer(), BUFFER),
+            abi::move_immediate(mask, "Integer", "192"),
+            abi::label(&l("erase_scan")),
+            abi::subtract_immediate(len, len, 1),
+            abi::compare_immediate(len, "0"),
+            abi::branch_eq(&l("erase_done")),
+            abi::add_registers(at, buf, len),
+            abi::load_u8(b, at, 0),
+            abi::and_registers(b, b, mask),
+            abi::compare_immediate(b, "128"),
+            abi::branch_eq(&l("erase_scan")),
+            abi::label(&l("erase_done")),
+            abi::store_u64(len, abi::stack_pointer(), LENGTH),
+            abi::branch(&next),
+        ]);
+    }
+
+    // ---- a data byte ----------------------------------------------------------
+    {
+        instructions.push(abi::label(&l("byte")));
+        let r = vregs.next();
+        let b = vregs.next();
+        let need = vregs.next();
+        let t = vregs.next();
+        let is_cont = l("utf8_cont");
+        let lead = l("utf8_lead");
+        let set_need = l("utf8_set_need");
+        let ok = l("utf8_ok");
+        region(r, &mut instructions);
+        instructions.extend([
+            abi::load_u64(b, r, token(TOKEN_TEXT_SCALAR)),
+            abi::load_u64(need, abi::stack_pointer(), UTF8_NEED),
+            abi::compare_immediate(need, "0"),
+            abi::branch_ne(&is_cont),
+            abi::compare_immediate(b, "10"),
+            abi::branch_eq(&finish),
+            abi::compare_immediate(b, "128"),
+            abi::branch_lo(&ok),
+            abi::branch(&lead),
+            // A continuation byte, within the range the sequence allows.
+            abi::label(&is_cont),
+            abi::load_u64(t, abi::stack_pointer(), UTF8_LOW),
+            abi::compare_registers(b, t),
+            abi::branch_lo(&encoding_error),
+            abi::load_u64(t, abi::stack_pointer(), UTF8_HIGH),
+            abi::compare_registers(b, t),
+            abi::branch_hi(&encoding_error),
+            abi::subtract_immediate(need, need, 1),
+            abi::store_u64(need, abi::stack_pointer(), UTF8_NEED),
+            abi::move_immediate(t, "Integer", "128"),
+            abi::store_u64(t, abi::stack_pointer(), UTF8_LOW),
+            abi::move_immediate(t, "Integer", "191"),
+            abi::store_u64(t, abi::stack_pointer(), UTF8_HIGH),
+            abi::branch(&ok),
+            // A lead byte: how many continuation bytes, and the second byte's
+            // range (Unicode §3.9, Table 3-7).
+            abi::label(&lead),
+        ]);
+        let low = vregs.next();
+        let high = vregs.next();
+        for (first, last, count, second_low, second_high) in [
+            (0xC2u64, 0xDFu64, 1u64, 0x80u64, 0xBFu64),
+            (0xE0, 0xE0, 2, 0xA0, 0xBF),
+            (0xE1, 0xEC, 2, 0x80, 0xBF),
+            (0xED, 0xED, 2, 0x80, 0x9F),
+            (0xEE, 0xEF, 2, 0x80, 0xBF),
+            (0xF0, 0xF0, 3, 0x90, 0xBF),
+            (0xF1, 0xF3, 3, 0x80, 0xBF),
+            (0xF4, 0xF4, 3, 0x80, 0x8F),
+        ] {
+            let skip = l(&format!("utf8_not_{first:x}"));
+            instructions.extend([
+                abi::compare_immediate(b, &first.to_string()),
+                abi::branch_lo(&skip),
+                abi::compare_immediate(b, &last.to_string()),
+                abi::branch_hi(&skip),
+                abi::move_immediate(need, "Integer", &count.to_string()),
+                abi::move_immediate(low, "Integer", &second_low.to_string()),
+                abi::move_immediate(high, "Integer", &second_high.to_string()),
+                abi::branch(&set_need),
+                abi::label(&skip),
+            ]);
+        }
+        instructions.extend([
+            abi::branch(&encoding_error),
+            abi::label(&set_need),
+            abi::store_u64(need, abi::stack_pointer(), UTF8_NEED),
+            abi::store_u64(low, abi::stack_pointer(), UTF8_LOW),
+            abi::store_u64(high, abi::stack_pointer(), UTF8_HIGH),
+            abi::label(&ok),
+        ]);
+        let r = vregs.next();
+        let p = vregs.next();
+        let one = vregs.next();
+        region(r, &mut instructions);
+        instructions.extend([
+            abi::add_immediate(p, r, token(TOKEN_TEXT_SCALAR)),
+            abi::store_u64(p, abi::stack_pointer(), APPEND_PTR),
+            abi::move_immediate(one, "Integer", "1"),
+            abi::store_u64(one, abi::stack_pointer(), APPEND_LEN),
+        ]);
+    }
+
+    // ---- append APPEND_LEN bytes at APPEND_PTR to the line --------------------
+    {
+        instructions.push(abi::label(&append));
+        let len = vregs.next();
+        let add = vregs.next();
+        let want = vregs.next();
+        let cap = vregs.next();
+        let grow_ok = l("grow_ok");
+        instructions.extend([
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::load_u64(add, abi::stack_pointer(), APPEND_LEN),
+            abi::add_registers(want, len, add),
+            abi::load_u64(cap, abi::stack_pointer(), CAPACITY),
+            abi::compare_registers(want, cap),
+            abi::branch_ls(&grow_ok),
+        ]);
+        // Grow to max(2 * capacity, needed), copy, and return the old buffer.
+        let old = vregs.next();
+        let newcap = vregs.next();
+        let size_ok = l("grow_size_ok");
+        instructions.extend([
+            abi::store_u64(cap, abi::stack_pointer(), OLD_CAPACITY),
+            abi::load_u64(old, abi::stack_pointer(), BUFFER),
+            abi::store_u64(old, abi::stack_pointer(), OLD_BUFFER),
+            abi::add_registers(newcap, cap, cap),
+            abi::compare_registers(newcap, want),
+            abi::branch_ge(&size_ok),
+            abi::move_register(newcap, want),
+            abi::label(&size_ok),
+            abi::store_u64(newcap, abi::stack_pointer(), CAPACITY),
+            abi::move_register(abi::return_register(), newcap),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::branch_link(ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+        let src = vregs.next();
+        let dst = vregs.next();
+        let n = vregs.next();
+        let b = vregs.next();
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+            abi::branch_ne(&alloc_error),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUFFER),
+            abi::load_u64(dst, abi::stack_pointer(), BUFFER),
+            abi::load_u64(src, abi::stack_pointer(), OLD_BUFFER),
+            abi::load_u64(n, abi::stack_pointer(), LENGTH),
+            abi::label(&l("grow_copy")),
+            abi::compare_immediate(n, "0"),
+            abi::branch_eq(&l("grow_copied")),
+            abi::load_u8(b, src, 0),
+            abi::store_u8(b, dst, 0),
+            abi::add_immediate(src, src, 1),
+            abi::add_immediate(dst, dst, 1),
+            abi::subtract_immediate(n, n, 1),
+            abi::branch(&l("grow_copy")),
+            abi::label(&l("grow_copied")),
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OLD_BUFFER),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), OLD_CAPACITY),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        let len = vregs.next();
+        let dst = vregs.next();
+        let src = vregs.next();
+        let n = vregs.next();
+        let b = vregs.next();
+        instructions.extend([
+            abi::label(&grow_ok),
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::load_u64(dst, abi::stack_pointer(), BUFFER),
+            abi::add_registers(dst, dst, len),
+            abi::load_u64(src, abi::stack_pointer(), APPEND_PTR),
+            abi::load_u64(n, abi::stack_pointer(), APPEND_LEN),
+            abi::add_registers(len, len, n),
+            abi::store_u64(len, abi::stack_pointer(), LENGTH),
+            abi::label(&l("append_copy")),
+            abi::compare_immediate(n, "0"),
+            abi::branch_eq(&next),
+            abi::load_u8(b, src, 0),
+            abi::store_u8(b, dst, 0),
+            abi::add_immediate(src, src, 1),
+            abi::add_immediate(dst, dst, 1),
+            abi::subtract_immediate(n, n, 1),
+            abi::branch(&l("append_copy")),
+        ]);
+    }
+
+    // ---- end of input: the part line is the last line; nothing is an error ---
+    {
+        instructions.push(abi::label(&eof));
+        let len = vregs.next();
+        let need = vregs.next();
+        instructions.extend([
+            abi::load_u64(need, abi::stack_pointer(), UTF8_NEED),
+            abi::compare_immediate(need, "0"),
+            abi::branch_ne(&encoding_error),
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::compare_immediate(len, "0"),
+            abi::branch_eq(&l("eof_error")),
+            abi::branch(&finish),
+        ]);
+    }
+
+    // ---- the time ran out: give the part line back ----------------------------
+    {
+        instructions.push(abi::label(&timeout));
+        let p = vregs.next();
+        let n = vregs.next();
+        instructions.extend([
+            abi::load_u64(p, abi::stack_pointer(), BUFFER),
+            abi::load_u64(n, abi::stack_pointer(), LENGTH),
+        ]);
+        emit_unread(
+            symbol,
+            p,
+            n,
+            state_offset,
+            &l("unread_full"),
+            &mut instructions,
+            &mut vregs,
+        );
+        instructions.extend([
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), UTF8_NEED),
+            abi::branch(&l("timeout_error")),
+            // Too long to give back: finish the line with no deadline instead.
+            abi::label(&l("unread_full")),
+        ]);
+        let max = vregs.next();
+        instructions.extend([
+            abi::bitwise_not(max, abi::ZERO),
+            abi::store_u64(max, abi::stack_pointer(), slots.deadline),
+            abi::branch(&next),
+        ]);
+    }
+
+    // ---- the line: drop a CR before the LF (data mode), copy out --------------
+    {
+        instructions.push(abi::label(&finish));
+        let mode = vregs.next();
+        let len = vregs.next();
+        let at = vregs.next();
+        let b = vregs.next();
+        instructions.extend([
+            abi::load_u64(mode, abi::stack_pointer(), slots.mode),
+            abi::compare_immediate(mode, &ENGINE_BYTE.to_string()),
+            abi::branch_ne(&l("result")),
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::compare_immediate(len, "0"),
+            abi::branch_eq(&l("result")),
+            abi::load_u64(at, abi::stack_pointer(), BUFFER),
+            abi::add_registers(at, at, len),
+            // `at` is one past the end: the last byte is at -1.
+            abi::subtract_immediate(at, at, 1),
+            abi::load_u8(b, at, 0),
+            abi::compare_immediate(b, "13"),
+            abi::branch_ne(&l("result")),
+            abi::subtract_immediate(len, len, 1),
+            abi::store_u64(len, abi::stack_pointer(), LENGTH),
+            abi::label(&l("result")),
+        ]);
+        let len = vregs.next();
+        instructions.extend([
+            abi::load_u64(len, abi::stack_pointer(), LENGTH),
+            abi::add_immediate(abi::return_register(), len, 9),
+            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+            abi::branch_link(ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+        let dst = vregs.next();
+        let src = vregs.next();
+        let n = vregs.next();
+        let b = vregs.next();
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+            abi::branch_ne(&alloc_error),
+            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT),
+            abi::load_u64(dst, abi::stack_pointer(), RESULT),
+            abi::load_u64(n, abi::stack_pointer(), LENGTH),
+            abi::store_u64(n, dst, 0),
+            abi::add_immediate(dst, dst, 8),
+            abi::load_u64(src, abi::stack_pointer(), BUFFER),
+            abi::label(&l("result_copy")),
+            abi::compare_immediate(n, "0"),
+            abi::branch_eq(&l("result_copied")),
+            abi::load_u8(b, src, 0),
+            abi::store_u8(b, dst, 0),
+            abi::add_immediate(src, src, 1),
+            abi::add_immediate(dst, dst, 1),
+            abi::subtract_immediate(n, n, 1),
+            abi::branch(&l("result_copy")),
+            abi::label(&l("result_copied")),
+            abi::store_u8(abi::ZERO, dst, 0),
+            // The working buffer is dead: return it before returning Ok, so a
+            // line-processing loop does not leak it on every call (bug-95).
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BUFFER),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CAPACITY),
+            abi::branch_link(ARENA_FREE_SYMBOL),
+        ]);
+        relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
+        instructions.extend([
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+        ]);
+    }
+
+    // ---- errors -----------------------------------------------------------------
+    // Every error after the buffer exists returns it first; the ones before it
+    // (a bad timeout, a failed prompt, a failed terminal switch) have none yet —
+    // `BUFFER` is zero then.
+    let errors = [
+        (output_error.clone(), "ErrWriteFailed"),
+        (invalid_argument.clone(), "ErrInvalidArgument"),
+        (l("timeout_error"), "ErrTimeout"),
+        (l("eof_error"), "ErrEndOfFile"),
+        (input_error.clone(), "ErrInputFailed"),
+        (encoding_error.clone(), "ErrEncoding"),
+        (alloc_error.clone(), "ErrOutOfMemory"),
+        (invalid_context.clone(), "ErrInvalidContext"),
+    ];
+    for (label, error) in &errors {
+        instructions.push(abi::label(label));
+        emit_release_line_buffer(
+            symbol,
+            label,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        raise_error_into(symbol, error, &mut instructions, &mut relocations);
+        instructions.push(abi::branch(&done));
+    }
     instructions.push(abi::label(&done));
     if !with_prompt {
         emit_restore_stdin_terminal(
@@ -512,10 +812,8 @@ pub(crate) fn lower_read_line_family(
             &terminal_slots,
         )?;
     }
-    // Re-apply raw single-key mode after the line read so a `pollInput` +
-    // `readChar` TUI loop resumes seeing bare keypresses (bug-149). Guarded by
-    // the raw-active flag and preserves the staged `Result` registers across the
-    // `tcsetattr` call. A no-op outside console TUI mode.
+    // Re-apply raw single-key mode after the line read so a TUI loop resumes
+    // seeing bare keypresses (bug-149). A no-op outside console TUI mode.
     if let Some(term_state_offset) = console_term_state {
         emit_console_raw_line_mode(
             &mut EmitCtx {
@@ -530,9 +828,22 @@ pub(crate) fn lower_read_line_family(
             false,
             true,
         )?;
-        // …and re-establish it only once the raw termios is back, so the window in
-        // which a report could be echoed is closed at both ends.
-        if mouse_pump.is_some() {
+        if ctx.input_state_offset.is_some() {
+            crate::codegen::term::core::emit_kitty_line_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                true,
+                // The read's result is already in the result bank.
+                true,
+                &mut vregs,
+            )?;
+        }
+        if mouse.is_some() {
             emit_mouse_tracking_window(
                 &mut EmitCtx {
                     symbol,
@@ -550,13 +861,45 @@ pub(crate) fn lower_read_line_family(
         }
     }
     instructions.push(abi::return_());
-    builder.instructions.extend(instructions);
+    // `BUFFER` must read zero on the error paths taken before the allocation.
+    // ... and the terminal-restore flag must read zero on the paths taken before
+    // the terminal is configured (a negative timeout, a failed prompt write), or
+    // the shared restore at `done` acts on whatever the frame held.
+    let mut prologue = vec![
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), BUFFER),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TERM_ACTIVE),
+    ];
+    prologue.append(&mut instructions);
+    builder.instructions.extend(prologue);
     builder.relocations.extend(relocations);
-    builder.stack_size = frame_size;
+    builder.stack_size = FRAME;
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
         location: Operand::from("void"),
         text: text.to_string(),
     })
+}
+
+/// On an error path: return the line buffer to the arena if one was allocated.
+fn emit_release_line_buffer(
+    symbol: &str,
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) {
+    let none = format!("{tag}_no_buffer");
+    let b = vregs.next();
+    instructions.extend([
+        abi::load_u64(b, abi::stack_pointer(), BUFFER),
+        abi::compare_immediate(b, "0"),
+        abi::branch_eq(&none),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BUFFER),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CAPACITY),
+        abi::branch_link(ARENA_FREE_SYMBOL),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), BUFFER),
+        abi::label(&none),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
