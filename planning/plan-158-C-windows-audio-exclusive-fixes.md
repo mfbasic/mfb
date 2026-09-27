@@ -33,7 +33,7 @@ first: the `audio::` no-resampling s16le contract).
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-B complete (archived) | `ls planning/completed/plan-158-B-*` → one file | NOT MET |
+| plan-158-B complete (archived) | `ls planning/completed/plan-158-B-*` → one file | MET (2026-09-26: `planning/completed/plan-158-B-audio-status-macos-alsa.md`) |
 
 If plan-158-B is not complete, this plan cannot start, full stop. (plan-158-A's status
 messages are what Phase 1 reads.)
