@@ -187,6 +187,149 @@ pub(crate) fn walk_value<V: NirVisitor + ?Sized>(visitor: &mut V, value: &NirVal
     }
 }
 
+/// The mutable twin of the walk above, for rewriting passes: calls `f` on every
+/// `NirValue` reachable from `ops` — every operand of every op, match patterns
+/// and guards included, in the same complete, exhaustive order — **children
+/// before parents**, so `f` sees a node after its operands have been rewritten.
+/// A rewriting row uses this rather than hand-writing its own recursion, for the
+/// reason the read-only seam exists (bug-328).
+pub(crate) fn walk_ops_values_mut(ops: &mut [NirOp], f: &mut dyn FnMut(&mut NirValue)) {
+    for op in ops {
+        walk_op_values_mut(op, f);
+    }
+}
+
+fn walk_op_values_mut(op: &mut NirOp, f: &mut dyn FnMut(&mut NirValue)) {
+    match op {
+        NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
+            if let Some(value) = value {
+                walk_value_mut(value, f);
+            }
+        }
+        NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } => walk_value_mut(value, f),
+        NirOp::Return { value } => {
+            if let Some(value) = value {
+                walk_value_mut(value, f);
+            }
+        }
+        NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+        NirOp::ExitProgram { code } => walk_value_mut(code, f),
+        NirOp::Fail { error } => walk_value_mut(error, f),
+        NirOp::Eval { value } => walk_value_mut(value, f),
+        NirOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            walk_value_mut(condition, f);
+            walk_ops_values_mut(then_body, f);
+            walk_ops_values_mut(else_body, f);
+        }
+        NirOp::Match { value, cases } => {
+            walk_value_mut(value, f);
+            for case in cases {
+                match &mut case.pattern {
+                    NirMatchPattern::Else => {}
+                    NirMatchPattern::Value(value) => walk_value_mut(value, f),
+                    NirMatchPattern::OneOf(values) => {
+                        for value in values {
+                            walk_value_mut(value, f);
+                        }
+                    }
+                }
+                if let Some(guard) = &mut case.guard {
+                    walk_value_mut(guard, f);
+                }
+                walk_ops_values_mut(&mut case.body, f);
+            }
+        }
+        NirOp::While {
+            condition, body, ..
+        } => {
+            walk_value_mut(condition, f);
+            walk_ops_values_mut(body, f);
+        }
+        NirOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            walk_value_mut(start, f);
+            walk_value_mut(end, f);
+            walk_value_mut(step, f);
+            walk_ops_values_mut(body, f);
+        }
+        NirOp::DoUntil { body, condition } => {
+            walk_ops_values_mut(body, f);
+            walk_value_mut(condition, f);
+        }
+        NirOp::ForEach { iterable, body, .. } => {
+            walk_value_mut(iterable, f);
+            walk_ops_values_mut(body, f);
+        }
+        NirOp::Trap { body, .. } => walk_ops_values_mut(body, f),
+    }
+}
+
+/// [`walk_ops_values_mut`] for one value: its children first, then `value`.
+pub(crate) fn walk_value_mut(value: &mut NirValue, f: &mut dyn FnMut(&mut NirValue)) {
+    match value {
+        NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for capture in captures {
+                walk_value_mut(capture, f);
+            }
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            for arg in args {
+                walk_value_mut(arg, f);
+            }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => walk_value_mut(value, f),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            walk_value_mut(target, f);
+            for update in updates {
+                walk_value_mut(&mut update.value, f);
+            }
+        }
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+            for value in values {
+                walk_value_mut(value, f);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                walk_value_mut(key, f);
+                walk_value_mut(value, f);
+            }
+        }
+        NirValue::MemberAccess { target, .. } => walk_value_mut(target, f),
+        NirValue::Binary { left, right, .. } => {
+            walk_value_mut(left, f);
+            walk_value_mut(right, f);
+        }
+        NirValue::Unary { operand, .. } => walk_value_mut(operand, f),
+    }
+    f(value);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

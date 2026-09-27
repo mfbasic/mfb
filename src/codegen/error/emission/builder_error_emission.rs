@@ -125,6 +125,18 @@ impl CodeBuilder<'_> {
         self.emit_error_register_return(&code_register, message)
     }
 
+    /// The `ErrorLoc.filename` for an error raised at `current_loc`: the file
+    /// the node being lowered was written in. That is the function's own file
+    /// unless leaf-function inlining (plan-158-C) moved the node here from
+    /// another file, in which case the location carries that file.
+    fn error_filename(&self) -> String {
+        match self.current_loc.file {
+            0 => self.current_file.clone(),
+            id => crate::target::shared::nir::source_file_name(id)
+                .expect("an inlined location names an interned source file"),
+        }
+    }
+
     /// Build an `ErrorLoc` record for the current source location and return a
     /// register holding its pointer. The pointer is left null only when the
     /// allocation itself fails (OOM), where no `ErrorLoc` could be allocated
@@ -158,7 +170,7 @@ impl CodeBuilder<'_> {
         ));
         // Resolve the filename String pointer (an empty String when unknown, never
         // null — the helper dereferences it for the length) into the first arg.
-        let filename = self.current_file.clone();
+        let filename = self.error_filename();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
             self.emit(abi::move_register(abi::c_arg(0), &register));
@@ -550,7 +562,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit_load_string_address_into(abi::c_arg(4), message)?;
         // x0 = filename String pointer (empty String when the file is unknown).
-        let filename = self.current_file.clone();
+        let filename = self.error_filename();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
             self.emit(abi::move_register(abi::c_arg(0), &register));

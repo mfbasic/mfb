@@ -102,6 +102,9 @@ pub(super) static GLOBALS_LOCALIZED: AtomicU64 = AtomicU64::new(0);
 /// "Stack slot promotion" (codegen): one-word frame slots reachable only by
 /// whole-word loads and stores turned into virtual registers.
 pub(super) static SLOTS_PROMOTED: AtomicU64 = AtomicU64::new(0);
+/// "Leaf function inlining" (Opt1): calls to one-expression scalar helpers
+/// replaced by the helper's expression.
+pub(super) static LEAF_CALLS_INLINED: AtomicU64 = AtomicU64::new(0);
 /// "Literal `LET` folding" (Opt1): reads of a module-level `LET` with a scalar
 /// literal initializer replaced by that literal.
 pub(super) static LETS_FOLDED: AtomicU64 = AtomicU64::new(0);
@@ -314,6 +317,10 @@ pub(crate) fn count_globals_localized(fired: u64) {
 
 pub(crate) fn count_slots_promoted(fired: u64) {
     add(&SLOTS_PROMOTED, fired);
+}
+
+pub(crate) fn count_leaf_calls_inlined(fired: u64) {
+    add(&LEAF_CALLS_INLINED, fired);
 }
 
 pub(crate) fn count_lets_folded(fired: u64) {

@@ -623,6 +623,7 @@ fn lower_loc(loc: crate::ir::IrSourceLoc) -> NirSourceLoc {
     NirSourceLoc {
         line: loc.line,
         column: loc.column,
+        file: 0,
     }
 }
 

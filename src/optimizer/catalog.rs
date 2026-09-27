@@ -51,6 +51,17 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::LETS_FOLDED,
         },
         Row {
+            name: "Leaf function inlining",
+            level: 1,
+            stage: "NIR",
+            summary: "Replaces a call to a one-line numeric or Boolean helper \
+                      (`RETURN <expression>`, calling no function of the \
+                      program) with the helper's expression when every argument \
+                      is a plain variable or literal. An error inside it still \
+                      reports the helper's own line and column.",
+            counter: &stats::LEAF_CALLS_INLINED,
+        },
+        Row {
             name: "Constant folding",
             level: 1,
             stage: "NIR + MIR",

@@ -20,6 +20,7 @@ pub(crate) mod dce;
 pub(crate) mod fission;
 pub(crate) mod fuse;
 pub(crate) mod globals;
+pub(crate) mod inline;
 pub(crate) mod lencache;
 pub(crate) mod licm;
 pub(crate) mod local_rewrites;
@@ -66,6 +67,12 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // (`DCOLS * DROWS - 1` becomes one constant).
     timed("literal LET folding", || {
         globals::fold_literal_lets(&mut module)
+    });
+    // Leaf function inlining (Level 1) runs after it, so an inlined helper
+    // arrives with its `LET` reads already literals, and before the local
+    // rewrites, so they fold through the inlined expression.
+    timed("leaf function inlining", || {
+        inline::inline_leaf_calls(&mut module)
     });
     timed("local rewrites", || local_rewrites::apply(&mut module));
     // After the local rewrites: branch simplification (Level 2) folds the

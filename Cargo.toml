@@ -719,6 +719,10 @@ name = "rt_literal_let_folding"
 path = "tests/runtime/rt_literal_let_folding.rs"
 
 [[test]]
+name = "rt_leaf_inlining"
+path = "tests/runtime/rt_leaf_inlining.rs"
+
+[[test]]
 name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
