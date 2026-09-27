@@ -347,7 +347,18 @@ Linear scan is the only allocation method: it computes liveness over the
 lowered stream and colors the integer class by live interval, spilling to a
 stack slot under pressure (so a deeply nested expression never fails — it
 spills); a value live across a call is spilled, since no register survives an
-internal runtime helper. (The legacy `BumpAndReset` replay — the
+internal runtime helper. A spilled value is reloaded into a free scratch register
+at each use; when every allocatable register is live there, the allocator
+**evicts** one the instruction does not name — saving it to an evict slot before
+the instruction and restoring it after. The allocator runs after instruction
+selection, so on RISC-V 64 that instruction can be a compare-and-branch (`rv.br`,
+a block terminator with two successors). There the restore after the branch
+covers only the fall-through edge, so the taken edge is split: the branch is
+retargeted to a fresh label that restores the victim and jumps to the original
+target. No flag-reading branch has a register operand, so no other target ever
+evicts around a terminator.[[src/codegen/engine/regalloc/linear_scan.rs:run]]
+[[src/codegen/engine/regalloc/linear_scan.rs:fresh_label]]
+(The legacy `BumpAndReset` replay — the
 `--regalloc bump` differential oracle — was removed: with no spilling it
 miscompiled under pressure and was never a correctness baseline; the
 `--regalloc` flag went with it.)
