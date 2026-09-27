@@ -3655,19 +3655,7 @@ impl CodeBuilder<'_> {
         }
         // (`io::input`'s omitted prompt and timeout are `DefaultValue::Fill`s,
         // padded in the IR like every other optional argument — bug-699.)
-        if target == "io.pollInput" && helper_args.is_empty() {
-            // plan-73-F: the no-timeout `io::pollInput()` form BLOCKS until input is
-            // ready (the timeout convention's omit=unbounded rule) — pad the missing
-            // `timeoutMs` with the block sentinel (i64::MIN); the poll helper routes
-            // it to a poll(2) -1 (block-forever) timeout and rejects every other
-            // negative value. Before plan-73 this padded `0` (a non-blocking check)
-            // and a negative meant "block", the exact POSIX inversion the convention
-            // removes.
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::Integer,
-                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
-            });
-        } else if target == "thread.start" {
+        if target == "thread.start" {
             while helper_args.len() < 4 {
                 helper_args.push(NirValue::Const {
                     type_: ParameterType::Integer,

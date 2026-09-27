@@ -39,26 +39,6 @@ fn emit_region_address(dst: impl Into<abi::Reg>, state_offset: usize, ctx: &mut 
     field_addr(dst, ARENA_STATE_REGISTER, state_offset, ctx.instructions);
 }
 
-/// Branch to `buffered` when the calling thread's input buffer holds a byte.
-///
-/// `io::pollInput` asks this first: a buffered byte is input a read returns at
-/// once, and it is invisible to both the broadcast log and `poll(fd 0)`.
-pub(crate) fn emit_branch_if_buffered(
-    buffered: &str,
-    state_offset: usize,
-    ctx: &mut EmitCtx,
-    vregs: &mut Vregs,
-) {
-    let region = vregs.next();
-    let len = vregs.next();
-    emit_region_address(&region, state_offset, ctx);
-    ctx.instructions.extend([
-        abi::load_u64(&len, &region, INPUT_STATE_LEN_OFFSET),
-        abi::compare_immediate(&len, "0"),
-        abi::branch_ne(buffered),
-    ]);
-}
-
 /// Drop the oldest `count` bytes from the buffer (`count` <= the length): shift
 /// the rest to the front and shorten it. The buffer is small and a token is a
 /// handful of bytes, so a copy is cheaper to get right than a ring's wrap. The
@@ -100,41 +80,6 @@ pub(crate) fn emit_consume(
         abi::add_immediate(&to, &to, 1),
         abi::branch(&copy),
         abi::label(&done),
-    ]);
-}
-
-/// A plain reader's front on the buffer: when it holds a byte, take the oldest
-/// into `sp + byte_offset` and go to `got` with the result register and flags
-/// exactly as a one-byte read leaves them (`1`, compared with 0); when it is
-/// empty, fall through to the source read.
-pub(crate) fn emit_take_buffered_byte(
-    got: &str,
-    state_offset: usize,
-    byte_offset: usize,
-    ctx: &mut EmitCtx,
-    vregs: &mut Vregs,
-) {
-    let symbol = ctx.symbol;
-    let empty = format!("{symbol}_input_empty_{}", ctx.instructions.len());
-    let region = vregs.next();
-    let len = vregs.next();
-    let byte = vregs.next();
-    let one = vregs.next();
-    emit_region_address(&region, state_offset, ctx);
-    ctx.instructions.extend([
-        abi::load_u64(&len, &region, INPUT_STATE_LEN_OFFSET),
-        abi::compare_immediate(&len, "0"),
-        abi::branch_eq(&empty),
-        abi::load_u8(&byte, &region, INPUT_STATE_BUF_OFFSET),
-        abi::store_u8(&byte, abi::stack_pointer(), byte_offset),
-        abi::move_immediate(&one, "Integer", "1"),
-    ]);
-    emit_consume(&one, state_offset, ctx, vregs);
-    ctx.instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch(got),
-        abi::label(&empty),
     ]);
 }
 

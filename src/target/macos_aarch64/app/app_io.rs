@@ -268,7 +268,7 @@ pub(crate) fn emit_set_raw_input_mode(
 fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
     // C-call argument staging is spelled with role tokens, not physical
     // registers: this sequence is also injected into shared helper bodies
-    // (`io_helpers::lower_io_read_char_helper` via `emit_set_raw_input_mode`),
+    // (the keystroke readers, via `emit_set_raw_input_mode`),
     // which the plan-34-D stream guard requires to be token-pure. The tokens
     // realize to the same x0–x3 at the selection seam.
     asm.load_selector(SEL_SHARED_APPLICATION.0);

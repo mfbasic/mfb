@@ -1,44 +1,18 @@
-//! Shared clean-room stdin-read machinery for the `io` reader members.
-//!
-//! The UTF-8 lead-byte decoder (`emit_utf8_sequence_read` + its `Utf8SeqLabels`),
-//! the per-byte reader (`emit_stdin_byte_read`), and the continuation reader
-//! (`emit_continuation_read`) are reused by `io::readByte`, `io::readChar`, and the
-//! line reader (`super::gen_read_line_family`) — so they live here rather than in
-//! any one member file (`func_read_byte`/`func_read_char` and `gen_read_line_family`
-//! all `use super::gen_read_family::…`).
+//! Shared clean-room stdin-read machinery for the `io` reader members: the
+//! per-byte source read (`emit_stdin_byte_read`, with its mouse pump and its
+//! deadline wait), which the reader engine
+//! (`crate::codegen::io::input::reader`) and `term::on`'s keyboard-protocol probe
+//! both go through.
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::VirtualRegister;
-use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::MOUSE_MODE_SYMBOL;
-use crate::codegen::io::input::buffer as input_buffer;
 use crate::codegen::io::mouse::decode as mouse_decode;
 use crate::codegen::io::stdin::*;
 use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
-use std::collections::HashMap;
-/// The label set for the shared UTF-8 lead-byte decoder (bug-331 §F). The two
-/// callers (`readChar`/`readLine`) drifted to different label *names*, not just a
-/// prefix, so every label is passed explicitly to keep each site's `.ncode`/`.mir`
-/// goldens byte-identical.
-pub(crate) struct Utf8SeqLabels<'a> {
-    pub(crate) eof: &'a str,
-    pub(crate) read_second: &'a str,
-    pub(crate) read_third: &'a str,
-    pub(crate) read_fourth: &'a str,
-    pub(crate) three_not_e0: &'a str,
-    pub(crate) three_general: &'a str,
-    pub(crate) three_second_ok: &'a str,
-    pub(crate) four_not_f0: &'a str,
-    pub(crate) four_general: &'a str,
-    pub(crate) four_second_ok: &'a str,
-    pub(crate) encoding_error: &'a str,
-    pub(crate) input_error: &'a str,
-    pub(crate) cont: &'a str,
-}
-
 /// Emit one stdin byte read for a read helper, choosing the source by mode. In
 /// console mode (`!app_mode`) the byte comes from the stdin broadcast log
 /// (`_mfb_rt_stdin_next_byte`, plan-15). In app mode stdin is the window input
@@ -100,15 +74,6 @@ pub(crate) struct ReadWait {
     pub(crate) timeout_label: String,
 }
 
-///
-/// # The input buffer (bug-699)
-///
-/// `input` is the arena offset of the input-buffer region, `Some` only in a
-/// program with a reader that can leave bytes there (`io::input`). Bytes in it
-/// were pulled from the source — through the mouse decoder — by a reader that
-/// looked ahead and did not consume them; they come BEFORE anything the source
-/// has not delivered yet. So when it holds a byte, that byte is this read's and
-/// neither the mouse decoder nor the source is consulted. `None` emits nothing.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_stdin_byte_read(
     ctx: &mut EmitCtx,
@@ -119,7 +84,6 @@ pub(crate) fn emit_stdin_byte_read(
     input_error: &str,
     invalid_context: &str,
     mouse: Option<MousePump>,
-    input: Option<usize>,
     wait: Option<&ReadWait>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
@@ -127,23 +91,15 @@ pub(crate) fn emit_stdin_byte_read(
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
-    // The caller's loop head. `io::readLine` loops back to `retry_label` for every
-    // byte of a line, so it must sit ABOVE every stage that runs before the source
-    // read — the input-buffer front and the mouse pump's owed-byte drain — or
-    // the second and later bytes of a line would skip them: a byte a look-ahead
-    // reader left in the buffer would be read out of order, and a byte the mouse
-    // decoder owes (the `x` after a flushed `ESC`) would be overtaken by a fresh
-    // read, which re-enters the decoder mid-flush and repeats the `ESC` in place
-    // of the rest (bug-699: `a ESC x b` read back as `a ESC ESC ESC` under
-    // `term::enableMouse`). Placed there only when such a stage exists, so every
-    // other program's read keeps its exact instruction stream.
-    let head_first = mouse.is_some() || input.is_some();
+    // The caller's loop head. It sits ABOVE the mouse pump's owed-byte drain when
+    // there is a pump, so a caller that loops back for another byte drains a byte
+    // the decoder owes (the `x` after a flushed `ESC`) before it reads afresh —
+    // a fresh read would re-enter the decoder mid-flush (bug-699: `a ESC x b`
+    // read back as `a ESC ESC ESC` under `term::enableMouse`). Placed there only
+    // when a pump exists, so every other read keeps its exact instruction stream.
+    let head_first = mouse.is_some();
     if head_first {
         ctx.instructions.push(abi::label(retry_label));
-    }
-    let input_got = format!("{retry_label}_input_got");
-    if let Some(state_offset) = input {
-        input_buffer::emit_take_buffered_byte(&input_got, state_offset, byte_offset, ctx, vregs);
     }
 
     // The pump's outer loop head: a byte the decoder swallowed sends control back
@@ -227,9 +183,6 @@ pub(crate) fn emit_stdin_byte_read(
     }
     if let Some((pump, v)) = &pump {
         emit_pump_epilogue(ctx, pump, v, byte_offset, &pump_head, &pump_done, vregs)?;
-    }
-    if input.is_some() {
-        ctx.instructions.push(abi::label(&input_got));
     }
     Ok(())
 }
@@ -328,7 +281,7 @@ fn emit_pump_prologue(
 /// classify it as usual; if none does, the prefix was keystrokes, so release it
 /// and go back to `pump_head`, whose drain hands the bytes over in order.
 ///
-/// Readiness is asked exactly as `io::pollInput` asks it: the stdin broadcast log
+/// Readiness is asked exactly as the readers' timed wait asks it: the stdin broadcast log
 /// first in console mode (bytes staged there are invisible to `poll(fd 0)`), then
 /// the OS. The pollfd lives in the caller's clock scratch, which is free here —
 /// the clock is only read inside the decoder, after the read.
@@ -459,7 +412,7 @@ fn emit_pump_epilogue(
         abi::compare_immediate(&v.action, &mouse_decode::DECODE_PASS.to_string()),
         // Buffered or consumed as an event: the program gets nothing for this
         // byte, so go around and read another. This is what makes a mouse report
-        // invisible to `io::readChar` instead of arriving as escape garbage.
+        // invisible to the readers instead of arriving as escape garbage.
         abi::branch_ne(pump_head),
         // Pass: the byte to deliver may not be the byte just read — a flush hands
         // back the head of the buffered prefix instead.
@@ -470,305 +423,6 @@ fn emit_pump_epilogue(
         abi::compare_immediate(&v.saved_count, "0"),
         abi::move_register(abi::return_register(), &v.saved_count),
         abi::compare_immediate(abi::return_register(), "0"),
-    ]);
-    Ok(())
-}
-
-/// Emit one EINTR-guarded UTF-8 continuation-byte `read` for `io::readChar` /
-/// `io::readLine` (bug-97.2). A signal delivered mid-multibyte-sequence returns
-/// `-1`/`EINTR`; before this the bare `compare/branch_lt(<input_error>)` treated
-/// that as a fatal input error (discarding `readLine`'s partial line). This
-/// replicates the lead-read guard: `retry_label` re-issues the identical 1-byte
-/// read into `stack[byte_offset]`, and the guard leaves the `cmp x0, 0` flags
-/// live so the caller's follow-on `branch_eq(<encoding_error>)` (a 0-byte read
-/// mid-sequence is a truncated sequence) fuses on every backend. Reads always go
-/// through libc, so the guard uses the `errno`-accessor convention (both read
-/// helpers already import it for the lead read).
-#[allow(clippy::too_many_arguments)]
-fn emit_continuation_read(
-    ctx: &mut EmitCtx,
-    app_mode: bool,
-    byte_offset: usize,
-    retry_label: &str,
-    resume_label: &str,
-    input_error: &str,
-    input: Option<usize>,
-    vregs: &mut Vregs,
-) -> Result<(), String> {
-    let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    // plan-15: in console mode the continuation byte comes from the stdin broadcast
-    // log (`_mfb_rt_stdin_next_byte`); in app mode it is a direct per-byte read of
-    // the window pipe. A continuation byte from an unsubscribed thread is the same
-    // ErrInvalidContext as the lead byte, routed to the helper's shared handler.
-    emit_stdin_byte_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        app_mode,
-        byte_offset,
-        retry_label,
-        resume_label,
-        input_error,
-        &format!("{symbol}_invalid_context"),
-        // **No pump on a continuation byte**, deliberately. A continuation byte is
-        // by definition the tail of a character the lead byte already committed to,
-        // and a mouse report cannot begin there: the decoder only starts on `ESC`,
-        // which is not a valid continuation byte. Running the pump here would
-        // instead create a way to lose the tail of a real character — the decoder
-        // would buffer it, and the caller is not structured to replay it mid-
-        // sequence. The lead-byte read is the one that decides.
-        None,
-        // The input buffer, though, applies: a continuation byte a look-ahead
-        // reader left there is this character's next byte.
-        input,
-        None,
-        vregs,
-    )
-}
-
-/// Emit the shared 1/2/3/4-byte UTF-8 lead-byte decoder (bug-331 §F): validate the
-/// sequence (overlong/surrogate rejection), read continuation bytes, and store the
-/// sequence length at `sp + len_offset`, ending at the caller's `cont` label. The
-/// sole behavioural delta is `on_lf`: `readLine` passes its `trim_cr` label so a
-/// lone LF short-circuits; `readChar` passes `None`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn emit_utf8_sequence_read(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    app_mode: bool,
-    l: &Utf8SeqLabels,
-    bytes_offset: usize,
-    len_offset: usize,
-    on_lf: Option<&str>,
-    input: Option<usize>,
-    vregs: &mut Vregs,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    let v10 = vregs.next();
-    let v11 = vregs.next();
-    instructions.extend([
-        abi::branch_eq(l.eof),
-        abi::load_u8(&v10, abi::stack_pointer(), bytes_offset),
-    ]);
-    if let Some(lf) = on_lf {
-        instructions.push(abi::compare_immediate(&v10, "10"));
-        instructions.push(abi::branch_eq(lf));
-    }
-    instructions.extend([
-        abi::compare_immediate(&v10, "127"),
-        abi::branch_hi(l.read_second),
-        abi::move_immediate(&v11, "Integer", "1"),
-        abi::store_u64(&v11, abi::stack_pointer(), len_offset),
-        abi::branch(l.cont),
-        abi::label(l.read_second),
-        abi::compare_immediate(&v10, "194"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v10, "223"),
-        abi::branch_hi(l.read_third),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 1,
-        &format!("{symbol}_cont1_retry"),
-        &format!("{symbol}_cont1_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 1),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::move_immediate(&v11, "Integer", "2"),
-        abi::store_u64(&v11, abi::stack_pointer(), len_offset),
-        abi::branch(l.cont),
-        abi::label(l.read_third),
-        abi::compare_immediate(&v10, "239"),
-        abi::branch_hi(l.read_fourth),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 1,
-        &format!("{symbol}_cont2_retry"),
-        &format!("{symbol}_cont2_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 1),
-        abi::compare_immediate(&v10, "224"),
-        abi::branch_ne(l.three_not_e0),
-        abi::compare_immediate(&v11, "160"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::branch(l.three_second_ok),
-        abi::label(l.three_not_e0),
-        abi::compare_immediate(&v10, "237"),
-        abi::branch_ne(l.three_general),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "159"),
-        abi::branch_hi(l.encoding_error),
-        abi::branch(l.three_second_ok),
-        abi::label(l.three_general),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::label(l.three_second_ok),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 2,
-        &format!("{symbol}_cont3_retry"),
-        &format!("{symbol}_cont3_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 2),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::move_immediate(&v11, "Integer", "3"),
-        abi::store_u64(&v11, abi::stack_pointer(), len_offset),
-        abi::branch(l.cont),
-        abi::label(l.read_fourth),
-        abi::compare_immediate(&v10, "240"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v10, "244"),
-        abi::branch_hi(l.encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 1,
-        &format!("{symbol}_cont4_retry"),
-        &format!("{symbol}_cont4_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 1),
-        abi::compare_immediate(&v10, "240"),
-        abi::branch_ne(l.four_not_f0),
-        abi::compare_immediate(&v11, "144"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::branch(l.four_second_ok),
-        abi::label(l.four_not_f0),
-        abi::compare_immediate(&v10, "244"),
-        abi::branch_ne(l.four_general),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "143"),
-        abi::branch_hi(l.encoding_error),
-        abi::branch(l.four_second_ok),
-        abi::label(l.four_general),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::label(l.four_second_ok),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 2,
-        &format!("{symbol}_cont5_retry"),
-        &format!("{symbol}_cont5_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 2),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut *instructions,
-            relocations: &mut *relocations,
-        },
-        app_mode,
-        bytes_offset + 3,
-        &format!("{symbol}_cont6_retry"),
-        &format!("{symbol}_cont6_resume"),
-        l.input_error,
-        input,
-        vregs,
-    )?;
-    instructions.extend([
-        abi::branch_eq(l.encoding_error),
-        abi::load_u8(&v11, abi::stack_pointer(), bytes_offset + 3),
-        abi::compare_immediate(&v11, "128"),
-        abi::branch_lo(l.encoding_error),
-        abi::compare_immediate(&v11, "191"),
-        abi::branch_hi(l.encoding_error),
-        abi::move_immediate(&v11, "Integer", "4"),
-        abi::store_u64(&v11, abi::stack_pointer(), len_offset),
-        abi::label(l.cont),
     ]);
     Ok(())
 }

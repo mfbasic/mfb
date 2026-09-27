@@ -147,13 +147,11 @@ impl plan::NativePlanPlatform for Platform {
             // bug-247: the app `io::input` helper delegates to the console
             // readLine body (reading the fd-0 window pipe), which probes the
             // terminal — no-ops on a pipe (isatty(0) = 0 skips the termios
-            // calls), but the symbols must still bind. The per-call rows only
-            // declare these for a program that calls io.readLine directly, so an
-            // io::input-only program would otherwise fail codegen. The composed
-            // body's other probes (`_read`, `_tcsetattr`, `___error`) already
-            // arrive via the io.input row, and `platform_imports` resolves by
-            // symbol alone, so only these two are missing.
-            ("libSystem", "_isatty"),
+            // calls), but the symbols must still bind. The io.input row declares
+            // `_isatty` itself since bug-699 (every reader asks once what stdin
+            // is), so declaring it here too would bind it twice; `_tcgetattr` is
+            // still declared only for a program that calls io.readLine
+            // directly, so an io::input-only program needs it from here.
             ("libSystem", "_tcgetattr"),
             ("libSystem", "_pipe"),
             ("libSystem", "_dup2"),
@@ -270,8 +268,6 @@ impl plan::NativePlanPlatform for Platform {
                 | "io.setBuffered"
                 | "io.readLine"
                 | "io.input"
-                | "io.readChar"
-                | "io.readByte"
                 | "io.readRaw"
                 | "io.readScalar"
                 | "io.readGrapheme"
@@ -443,23 +439,21 @@ impl plan::NativePlanPlatform for Platform {
             // libSystem import of its own — the drain's `_write` comes from the
             // io.print arm. The old `_fsync`+`___error` imports were dead.
             "io.flush" => Vec::new(),
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.readRaw"
-            | "io.readScalar" | "io.readGrapheme" | "io.readKey" => {
+            "io.input" | "io.readLine" | "io.readRaw" | "io.readScalar" | "io.readGrapheme"
+            | "io.readKey" => {
                 let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_read".to_string(),
                     required_by: required_by.clone(),
                 }];
                 // bug-699: the timed wait (`poll` until a monotonic deadline) every
-                // reader but the two plain ones runs before each source read.
-                if !matches!(spec.call, "io.readChar" | "io.readByte") {
-                    for symbol in ["_poll", "_clock_gettime"] {
-                        imports.push(PlatformImport {
-                            library: "libSystem".to_string(),
-                            symbol: symbol.to_string(),
-                            required_by: required_by.clone(),
-                        });
-                    }
+                // reader runs before each source read.
+                for symbol in ["_poll", "_clock_gettime"] {
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: required_by.clone(),
+                    });
                 }
                 if spec.call == "io.input" {
                     imports.extend([
@@ -525,15 +519,6 @@ impl plan::NativePlanPlatform for Platform {
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
-            "io.pollInput" => {
-                let mut imports = vec![PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: "_poll".to_string(),
-                    required_by: required_by.clone(),
-                }];
-                stdin_broadcast_imports(&mut imports);
-                imports
-            }
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![PlatformImport {
                     library: "libSystem".to_string(),
@@ -593,7 +578,7 @@ impl plan::NativePlanPlatform for Platform {
             //
             // bug-669: `_poll` on every mouse member, because a mouse program's
             // `io::` reads carry the decoder's escape-delay wait, and a program
-            // may read keys without ever calling `io::pollInput`.
+            // may read keys without a timeout.
             "term.enableMouse" => ["_write", "_clock_gettime", "_getenv", "_poll"]
                 .iter()
                 .map(|symbol| PlatformImport {

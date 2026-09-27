@@ -6,10 +6,10 @@
 use super::func_read_raw::TIMEOUT_DESC;
 use super::gen_read_key_family::{lower_key_reader, KeyReader};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::types::ParameterType;
 
 pub(crate) fn lower_read_key(
@@ -20,7 +20,8 @@ pub(crate) fn lower_read_key(
     lower_key_reader(builder, args, ctx, KeyReader::Key)
 }
 
-const INTRO: &str = r#"Read the next key event — which key, what it typed, and which modifiers were held"#;
+const INTRO: &str =
+    r#"Read the next key event — which key, what it typed, and which modifiers were held"#;
 const DESC: &str = r#"`io::readKey` returns the next key event from standard input as an `io::Key`.
 It is the reader for keyboard-driven programs — games, editors, menus — and it
 answers the same way for the same keystroke on every platform: a console on any

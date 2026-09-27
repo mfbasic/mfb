@@ -32,14 +32,23 @@ The call does four things, in this order.
 3. **Switches the terminal to its alternate screen**, so the user's previous
    shell contents are preserved and restored by `term::off`, and resets the
    terminal's own colours.
-4. **Puts the terminal into single-key mode**, so an `io::pollInput` +
-   `io::readChar` loop sees each keypress as it happens instead of waiting for
-   Return, and keys are not echoed as the user types. `term::off` restores the
-   normal line-editing mode. `io::input` and `io::readLine` switch to it just for
-   that one read — waiting for Return and echoing as usual — and put single-key
-   mode back afterwards. When standard input is not a terminal — piped input, a test harness —
-   this step does nothing, and if the terminal will not change mode it is
-   skipped rather than failing the call.
+4. **Puts the terminal into single-key mode**, so a loop over `io::readKey`
+   sees each keypress as it happens instead of waiting for Return, and keys are
+   not echoed as the user types. `term::off` restores the normal line-editing
+   mode. `io::input` and `io::readLine` switch to it just for that one read —
+   waiting for Return and echoing as usual — and put single-key mode back
+   afterwards. When standard input is not a terminal — piped input, a test
+   harness — this step does nothing, and if the terminal will not change mode it
+   is skipped rather than failing the call.
+5. **Turns on full key reporting where the terminal has it.** A terminal that
+   speaks the kitty keyboard protocol (kitty, among others) is asked to report
+   every key with its modifiers, including repeats and releases; `io::readKey`
+   then returns `io::KeyEvent.Repeat` and `io::KeyEvent.Release` as well as
+   `Press`. Any other terminal is left as it is, and a key there reports
+   `io::KeyEvent.NotSupported`. Ctrl+C still interrupts the program either way.
+   `term::off` turns the reporting back off. Only a program that reads keys
+   with the `io::` readers asks, and the question takes a moment only on a
+   terminal that is slow to answer it.
 
 Drawing is **buffered**: from here on, every drawing call — including
 `io::print` and `io::write` — updates the surface rather than the terminal.

@@ -6,10 +6,10 @@
 use super::func_read_raw::TIMEOUT_DESC;
 use super::gen_read_key_family::{lower_key_reader, KeyReader};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::types::ParameterType;
 
 pub(crate) fn lower_read_grapheme(
@@ -20,7 +20,8 @@ pub(crate) fn lower_read_grapheme(
     lower_key_reader(builder, args, ctx, KeyReader::Grapheme)
 }
 
-const INTRO: &str = r#"Read the next whole character — one grapheme cluster — of text from standard input"#;
+const INTRO: &str =
+    r#"Read the next whole character — one grapheme cluster — of text from standard input"#;
 const DESC: &str = r#"`io::readGrapheme` returns the next user-perceived character of text from
 standard input as a `String` holding one extended grapheme cluster: a letter
 with its combining accents, a flag, a family emoji. It does not wait for a

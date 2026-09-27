@@ -229,8 +229,6 @@ impl LinuxPlan<'_> {
                 | "io.setBuffered"
                 | "io.readLine"
                 | "io.input"
-                | "io.readChar"
-                | "io.readByte"
                 | "io.readRaw"
                 | "io.readScalar"
                 | "io.readGrapheme"
@@ -322,15 +320,13 @@ impl LinuxPlan<'_> {
             // io.print arm. The old `fsync`+`__errno_location` imports were dead
             // (bug-71, bug-117).
             "io.flush" => Vec::new(),
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.readRaw"
-            | "io.readScalar" | "io.readGrapheme" | "io.readKey" => {
+            "io.input" | "io.readLine" | "io.readRaw" | "io.readScalar" | "io.readGrapheme"
+            | "io.readKey" => {
                 let mut imports = vec![self.libc_import("read", required_by)];
                 // bug-699: the timed wait (`poll` until a monotonic deadline) every
-                // reader but the two plain ones runs before each source read.
-                if !matches!(spec.call, "io.readChar" | "io.readByte") {
-                    imports.push(self.libc_import("poll", required_by));
-                    imports.push(self.libc_import("clock_gettime", required_by));
-                }
+                // reader runs before each source read.
+                imports.push(self.libc_import("poll", required_by));
+                imports.push(self.libc_import("clock_gettime", required_by));
                 if spec.call == "io.input" {
                     // The prompt echo.
                     write_import(&mut imports);
@@ -356,11 +352,6 @@ impl LinuxPlan<'_> {
                     // distinguish EINTR and would hard-error on it.
                     imports.push(self.libc_import("__errno_location", required_by));
                 }
-                stdin_broadcast_imports(&mut imports);
-                imports
-            }
-            "io.pollInput" => {
-                let mut imports = vec![self.libc_import("poll", required_by)];
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
@@ -426,7 +417,7 @@ impl LinuxPlan<'_> {
             //
             // bug-669: `poll` on every mouse member, because a mouse program's
             // `io::` reads carry the decoder's escape-delay wait, and a program
-            // may read keys without ever calling `io::pollInput`.
+            // may read keys without a timeout.
             "term.enableMouse" => vec![
                 self.libc_import("write", required_by),
                 self.libc_import("clock_gettime", required_by),

@@ -73,7 +73,7 @@ FUNC main() AS Integer
 
   ' Hold the panel on screen until the user presses a key. term::on has already put
   ' the tty into single-key mode, so one keypress returns without waiting for Return.
-  LET key AS String = io::readChar()
+  LET key AS io::Key = io::readKey()
 
   term::off()
 

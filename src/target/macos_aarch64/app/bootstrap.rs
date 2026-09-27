@@ -1721,7 +1721,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
 /// plan-98-A Phase 4: IMP for `MFBCanvasView acceptsFirstResponder` (returns YES).
 /// A plain `NSView` returns NO, so without this override the canvas view can never
 /// become the window's first responder and `keyDown:` is never delivered — the
-/// window would swallow every keystroke and `io::readByte` in canvas mode would
+/// window would swallow every keystroke and `io::readKey` in canvas mode would
 /// block forever.
 pub(super) fn emit_canvas_accepts_first_responder() -> CodeFunction {
     let mut asm = Asm::new(CANVAS_ACCEPTS_FR_SYMBOL);

@@ -1,5 +1,6 @@
 IMPORT collections
 IMPORT datetime
+IMPORT errorCode
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -143,36 +144,31 @@ SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Inte
   term::setBold(FALSE)
 END SUB
 
-FUNC getChar AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
-  END TRAP
-  RETURN c
-END FUNC
-
-FUNC ready(ms AS Integer) AS Boolean
-  LET r AS Boolean = io::pollInput(ms) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  RETURN r
-END FUNC
-
-FUNC readKey AS String
-  LET c AS String = getChar()
-  IF c = "" THEN RETURN "EOF"
-  IF c = "\u{1B}" THEN
-    IF NOT ready(30) THEN RETURN "ESC"
-    LET c2 AS String = getChar()
-    IF c2 = "[" OR c2 = "O" THEN
-      LET c3 AS String = getChar()
-      IF c3 = "A" THEN RETURN "UP"
-      IF c3 = "B" THEN RETURN "DOWN"
-      IF c3 = "C" THEN RETURN "RIGHT"
-      IF c3 = "D" THEN RETURN "LEFT"
+' The next key within `ms` milliseconds: "UP", "DOWN", "LEFT", "RIGHT" or "ESC"
+' for those keys, the text any other key types, "" when no key came in time (or
+' the key was a release), and "EOF" once input has ended or cannot be read.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN
+      RETURN ""
     END IF
-    RETURN "ESC"
-  END IF
-  RETURN c
+    RETURN "EOF"
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  MATCH k.key
+    CASE io::KeyName.Up
+      RETURN "UP"
+    CASE io::KeyName.Down
+      RETURN "DOWN"
+    CASE io::KeyName.Left
+      RETURN "LEFT"
+    CASE io::KeyName.Right
+      RETURN "RIGHT"
+    CASE io::KeyName.Escape
+      RETURN "ESC"
+    CASE ELSE
+      RETURN k.grapheme
+  END MATCH
 END FUNC
 
 ' Validates a requested turn against lastMoved — the direction the snake last
@@ -237,10 +233,8 @@ FUNC main AS Integer
       term::moveTo(0, 0)
       io::write("Make the terminal at least 12 columns by 9 rows. Press q to quit.")
       term::sync()
-      IF ready(100) THEN
-        LET smallKey AS String = readKey()
-        IF smallKey = "q" OR smallKey = "Q" OR smallKey = "EOF" THEN running = FALSE
-      END IF
+      LET smallKey AS String = nextKey(100)
+      IF smallKey = "q" OR smallKey = "Q" OR smallKey = "EOF" THEN running = FALSE
       CONTINUE DO
     END IF
 
@@ -275,8 +269,8 @@ FUNC main AS Integer
     IF stepWaitMs < 0 THEN stepWaitMs = 0
     IF stepWaitMs > frameDelayMs() THEN stepWaitMs = frameDelayMs()
 
-    IF ready(stepWaitMs) THEN
-      LET key AS String = readKey()
+    LET key AS String = nextKey(stepWaitMs)
+    IF key <> "" THEN
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
       ELSEIF key = " " THEN

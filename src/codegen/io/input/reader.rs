@@ -43,8 +43,8 @@ use super::decode::{
 };
 use super::{
     INPUT_BUFFER_CAPACITY, INPUT_DELAY_MS, INPUT_STATE_BUF_OFFSET, INPUT_STATE_LEN_OFFSET,
-    INPUT_STATE_PENDING_OFFSET, INPUT_STATE_SOURCE_OFFSET, INPUT_STATE_TOKEN_OFFSET,
-    SOURCE_DATA, SOURCE_KEYBOARD,
+    INPUT_STATE_PENDING_OFFSET, INPUT_STATE_SOURCE_OFFSET, INPUT_STATE_TOKEN_OFFSET, SOURCE_DATA,
+    SOURCE_KEYBOARD,
 };
 use crate::codegen::builtins::io::gen_read_family::{emit_stdin_byte_read, MousePump, ReadWait};
 use crate::codegen::engine::builder::*;
@@ -315,7 +315,13 @@ pub(crate) fn emit_engine(
     } else if let Some(events_symbol) = e.events_symbol {
         let no_events = l("no_events");
         let addr = vregs.next();
-        push_symbol_address(symbol, events_symbol, addr, ctx.instructions, ctx.relocations);
+        push_symbol_address(
+            symbol,
+            events_symbol,
+            addr,
+            ctx.instructions,
+            ctx.relocations,
+        );
         ctx.instructions.extend([
             abi::load_u64(t, addr, 0),
             abi::compare_immediate(t, "0"),
@@ -336,18 +342,15 @@ pub(crate) fn emit_engine(
         abi::add_immediate(abi::c_arg(3), r, INPUT_STATE_TOKEN_OFFSET),
         abi::branch_link(INPUT_DECODE_SYMBOL),
     ]);
-    ctx.relocations.push(internal_branch(symbol, INPUT_DECODE_SYMBOL));
+    ctx.relocations
+        .push(internal_branch(symbol, INPUT_DECODE_SYMBOL));
     // The status from the record rather than a register: the decoder's result
     // register and the caller's C-call registers are different ones on x86-64.
     let r = vregs.next();
     let status = vregs.next();
     region(r, e.state_offset, ctx);
     ctx.instructions.extend([
-        abi::load_u64(
-            status,
-            r,
-            INPUT_STATE_TOKEN_OFFSET + TOKEN_STATUS,
-        ),
+        abi::load_u64(status, r, INPUT_STATE_TOKEN_OFFSET + TOKEN_STATUS),
         abi::compare_immediate(status, &STATUS_SKIP.to_string()),
         abi::branch_eq(&skip),
         abi::compare_immediate(status, &STATUS_TOKEN.to_string()),
@@ -501,8 +504,6 @@ pub(crate) fn emit_engine(
         labels.input_error,
         labels.invalid_context,
         mouse,
-        // The engine owns the buffer: this read is of the source, never of it.
-        None,
         Some(&wait),
         vregs,
     )?;
@@ -606,7 +607,13 @@ fn emit_interrupt_key(
     let not_interrupt = format!("{symbol}_in_not_interrupt");
     let addr = vregs.next();
     let t = vregs.next();
-    push_symbol_address(symbol, events_symbol, addr, ctx.instructions, ctx.relocations);
+    push_symbol_address(
+        symbol,
+        events_symbol,
+        addr,
+        ctx.instructions,
+        ctx.relocations,
+    );
     ctx.instructions.extend([
         abi::load_u64(t, addr, 0),
         abi::compare_immediate(t, "0"),
@@ -648,7 +655,8 @@ fn emit_interrupt_key(
         ctx.instructions,
         ctx.relocations,
     )?;
-    ctx.instructions.extend([abi::branch(next), abi::label(&not_interrupt)]);
+    ctx.instructions
+        .extend([abi::branch(next), abi::label(&not_interrupt)]);
     Ok(())
 }
 

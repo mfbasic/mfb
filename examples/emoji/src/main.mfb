@@ -2,6 +2,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 IMPORT collections
+IMPORT errorCode
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -282,17 +283,23 @@ FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font)
   RETURN scene
 END FUNC
 
-' One keypress from the window, or "" when input has ended — end of input is an
-' error rather than an empty result, so the caller wants it turned back into one.
-FUNC readKey AS String
-  RETURN io::readChar()
-  TRAP(e)
-    RETURN ""
+' The next keypress from the window within `ms` milliseconds: the text it types,
+' "KEY" for a key that types nothing (an arrow, a function key), "" when no key
+' was pressed in time (a key's release is not a press), and "EOF" once the window
+' has closed — end of input is an error rather than an empty result, so the
+' caller wants it turned back into one.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
   END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  IF k.grapheme = "" THEN RETURN "KEY"
+  RETURN k.grapheme
 END FUNC
 
 ' How long to wait for a keypress before looking at the window again, in
-' milliseconds. A resize is not input, so an unbounded io::pollInput() would park
+' milliseconds. A resize is not input, so an unbounded io::readKey() would park
 ' here until the next key and only then notice the window had changed shape. A
 ' bounded wait keeps the loop responsive without spinning: a tenth of a second is
 ' below the threshold at which a redraw reads as lagging behind the drag.
@@ -332,11 +339,11 @@ FUNC main AS Integer
       stale = FALSE
     END IF
 
-    ' Wait up to pollMs for a key. FALSE just means the wait elapsed — the resize
+    ' Wait up to pollMs for a key. "" just means the wait elapsed — the resize
     ' check below is what that wait exists for.
-    IF io::pollInput(pollMs) THEN
-      LET key AS String = readKey()
-      IF key = "" OR key = "q" OR key = "Q" THEN
+    LET key AS String = nextKey(pollMs)
+    IF key <> "" THEN
+      IF key = "EOF" OR key = "q" OR key = "Q" THEN
         running = FALSE
       ELSE
         smiling = NOT smiling

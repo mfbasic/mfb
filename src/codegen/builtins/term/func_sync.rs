@@ -61,11 +61,13 @@ SUB main()
 END SUB
 ```
 
-The canonical render loop — draw the whole frame, present, then read input:
+The canonical render loop — draw the whole frame, present, then wait up to 50
+milliseconds for a key:
 
 ```
-IMPORT term
+IMPORT errorCode
 IMPORT io
+IMPORT term
 
 SUB main()
   term::on()
@@ -75,8 +77,14 @@ SUB main()
     term::moveTo(0, 0)
     io::print("press q to quit")
     term::sync()
-    IF io::pollInput(50) THEN
-      running = io::readChar() <> "q"
+    LET k AS io::Key = io::readKey(50) TRAP(e)
+      IF e.code = errorCode::ErrTimeout THEN
+        CONTINUE WHILE
+      END IF
+      EXIT WHILE
+    END TRAP
+    IF k.grapheme = "q" OR k.key = io::KeyName.Escape THEN
+      running = FALSE
     END IF
   END WHILE
   term::off()

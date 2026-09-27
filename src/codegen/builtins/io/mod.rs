@@ -35,11 +35,8 @@ mod func_is_buffered;
 mod func_is_error_terminal;
 mod func_is_input_terminal;
 mod func_is_output_terminal;
-mod func_poll_input;
 mod func_print;
 mod func_print_error;
-mod func_read_byte;
-mod func_read_char;
 mod func_read_grapheme;
 mod func_read_key;
 mod func_read_line;
@@ -77,20 +74,31 @@ external reader until flushed; flush before blocking on a read when a prompt mus
 appear first. Standard error is never buffered — it is written immediately, so it
 has no flush.
 
-Input functions read from standard input. `io::input` reads a whole line with
-normal terminal echo and an optional prompt; `io::readLine` reads a line without
-a prompt and, on a terminal, suppresses echo while it reads — which is what makes
-it the one to use for a passphrase. `io::readChar` returns one whole Unicode scalar
-value as a `String` and `io::readByte` returns one raw `Byte`, both reading a
-single unit without waiting for a newline and, on a terminal, with echo and
-canonical line mode suppressed for the read before the prior mode is restored.
-Character and line reads decode input as UTF-8 and reject ill-formed byte
-sequences rather than substituting replacement characters; `io::readByte`
-transfers bytes verbatim with no decoding. End of input is reported as an error,
-not as an empty or sentinel result, once no input is left: a final line with no
-terminator is still returned, and only the next read reports end of input. `io::pollInput` tests whether input is ready
-to read, optionally waiting up to a timeout in milliseconds, without reading
-any input.
+Input functions read from standard input, and each reads either what was typed or
+the bytes that were sent. From a terminal or an `--app` window they read keys:
+`io::readKey` returns one key as an `io::Key` — the key's name, its text, its
+modifiers, and whether it was pressed, repeated or released — so the arrows,
+Home, End, Escape, the function keys and Ctrl or Alt combinations come out the
+same on every platform. `io::readGrapheme` and `io::readScalar` return only text,
+one user-perceived character or one Unicode scalar at a time, and skip keys that
+type nothing. From a pipe or a file the same calls read the data as it is: an
+escape byte in the data is text, not a key. `io::readRaw` returns the next byte
+exactly as it arrived, whatever the source.
+
+`io::input` reads a whole line with normal terminal echo and an optional prompt;
+`io::readLine` reads a line without a prompt and, on a terminal, suppresses echo
+while it reads — which is what makes it the one to use for a passphrase. Line
+and text reads reject ill-formed UTF-8 rather than substituting replacement
+characters.
+
+Every reader takes an optional `timeoutMs`: omitted, the call waits for as long
+as it takes; `0` makes one immediate attempt, which is how a game loop asks
+"was a key pressed?" without stopping; a positive value waits up to that many
+milliseconds. A wait that runs out raises `ErrTimeout` and loses nothing — a
+half-read line is still there for the next read. End of input is reported as an
+error, not as an empty or sentinel result, once no input is left: a final line
+with no terminator is still returned, and only the next read reports end of
+input.
 
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding
@@ -251,14 +259,8 @@ fn register_key_types(pkg: &mut RegistryPackage) {
         name: KEY_EVENT_TYPE,
         export: true,
         variants: [
-            (
-                KeyEvent::Press,
-                "The key went down.",
-            ),
-            (
-                KeyEvent::Repeat,
-                "The key is held down and repeating.",
-            ),
+            (KeyEvent::Press, "The key went down."),
+            (KeyEvent::Repeat, "The key is held down and repeating."),
             (
                 KeyEvent::Release,
                 "The key came up. Its `grapheme` is still the key's character; \
@@ -343,9 +345,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_read_scalar::register(&mut pkg);
     func_read_grapheme::register(&mut pkg);
     func_read_key::register(&mut pkg);
-    func_read_char::register(&mut pkg);
-    func_read_byte::register(&mut pkg);
-    func_poll_input::register(&mut pkg);
     register_key_types(&mut pkg);
     func_is_input_terminal::register(&mut pkg);
     func_is_output_terminal::register(&mut pkg);

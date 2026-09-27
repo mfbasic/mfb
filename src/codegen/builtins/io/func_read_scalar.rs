@@ -7,10 +7,10 @@ use super::func_read_raw::TIMEOUT_DESC;
 use super::gen_read_key_family::{lower_key_reader, KeyReader};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::engine::types::type_utils::scalar_type;
+use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::codegen::error::constants::TIMEOUT_UNBOUNDED_SENTINEL;
 use crate::types::ParameterType;
 
 pub(crate) fn lower_read_scalar(

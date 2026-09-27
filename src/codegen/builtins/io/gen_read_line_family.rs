@@ -341,8 +341,7 @@ pub(crate) fn lower_read_line_family(
         app_mode,
         mouse_state_offset: mouse,
         slots,
-        events_symbol: (!app_mode)
-            .then_some(super::gen_read_key_family::INPUT_EVENTS_SYMBOL),
+        events_symbol: (!app_mode).then_some(super::gen_read_key_family::INPUT_EVENTS_SYMBOL),
     };
     let region = |dst: VirtualRegister, instructions: &mut Vec<CodeInstruction>| {
         field_addr(dst, ARENA_STATE_REGISTER, state_offset, instructions);
@@ -789,7 +788,13 @@ pub(crate) fn lower_read_line_family(
     ];
     for (label, error) in &errors {
         instructions.push(abi::label(label));
-        emit_release_line_buffer(symbol, label, &mut instructions, &mut relocations, &mut vregs);
+        emit_release_line_buffer(
+            symbol,
+            label,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
         raise_error_into(symbol, error, &mut instructions, &mut relocations);
         instructions.push(abi::branch(&done));
     }

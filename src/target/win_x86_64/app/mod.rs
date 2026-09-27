@@ -150,7 +150,7 @@ const MAIN_HWND_SYM: &str = "_mfb_winapp_main_hwnd";
 /// thread) creates the pipe and stores the write end here; the EDIT subclass
 /// (`editproc`, also UI thread) writes each typed byte to it. The worker thread
 /// drains the READ end via fd 0 (`SetStdHandle(STD_INPUT, readEnd)`), so
-/// `io::readLine`/`readChar` consume window keystrokes (plan-66-J-4).
+/// `io::readLine` and the keystroke readers consume window keystrokes (plan-66-J-4).
 const STDIN_WRITE_SYM: &str = "_mfb_winapp_stdin_write";
 /// Writable 8-byte global holding the transcript EDIT control's original window
 /// procedure (`SetWindowLongPtrW` returns it). `editproc` chains every message it
@@ -776,7 +776,7 @@ fn emit_main(
     // on Win64 that is the MFB result `rcx`, which the call leaves undefined
     // (`.ai/testing-gates.md`, "Win64 codegen invariant"). Reading `rcx` made an
     // UNSET variable look like a garbage-length string, and the loop below posted
-    // that many `WM_CHAR 0`s into the input pipe: `io::readByte` in a program that
+    // that many `WM_CHAR 0`s into the input pipe: a byte read in a program that
     // starts in `Console` returned 0 at once, forever (bug-699;
     // found independently by bug-540).
     ins.push(abi::store_u64(
@@ -3056,8 +3056,8 @@ pub(super) fn emit_app_io_input(
     let timeout = crate::codegen::engine::util::Vregs::new().next();
     instructions.push(abi::move_register(timeout, abi::mfb_arg(1)));
     call_internal(from, IO_WRITE_SYMBOL, instructions, relocations); // ARG[0] = prompt
-    // bug-699: the default input mode, where typed text reaches the pipe as UTF-8 —
-    // as macOS and GTK switch to line input for `io::input`.
+                                                                     // bug-699: the default input mode, where typed text reaches the pipe as UTF-8 —
+                                                                     // as macOS and GTK switch to line input for `io::input`.
     keys::emit_set_input_mode(from, "0", instructions, relocations);
     instructions.push(abi::move_register(abi::mfb_arg(0), timeout));
     call_internal(from, IO_READ_LINE_SYMBOL, instructions, relocations); // result in Result regs

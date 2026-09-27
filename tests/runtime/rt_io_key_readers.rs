@@ -502,10 +502,19 @@ fn term_on_switches_a_kitty_terminal_to_key_events_and_off_restores_it() {
     let out = run_on_replying_terminal(
         &exe,
         b"\x1b[?0u\x1b[?62;c",
-        &[b"\x1b[97;1:1u", b"\x1b[97;1:3u", b"\x1b[65;2:1u", b"\x1b[1;1:1D"],
+        &[
+            b"\x1b[97;1:1u",
+            b"\x1b[97;1:3u",
+            b"\x1b[65;2:1u",
+            b"\x1b[1;1:1D",
+        ],
     );
-    let push = out.find("\x1b[>31u").unwrap_or_else(|| panic!("no push: {out:?}"));
-    let pop = out.find("\x1b[<u").unwrap_or_else(|| panic!("no pop: {out:?}"));
+    let push = out
+        .find("\x1b[>31u")
+        .unwrap_or_else(|| panic!("no push: {out:?}"));
+    let pop = out
+        .find("\x1b[<u")
+        .unwrap_or_else(|| panic!("no pop: {out:?}"));
     assert!(push < pop, "{out:?}");
     assert!(
         out.contains("<Unicode a Press FALSE><Unicode a Release FALSE><Unicode A Press TRUE><Left  Press FALSE>"),
@@ -549,12 +558,10 @@ END FUNC
     ));
     // A kitty terminal: the line is typed after the pop (ordinary bytes), the key
     // after the push again (kitty form, a release).
-    let out = run_on_replying_terminal(
-        &exe,
-        b"\x1b[?0u\x1b[?62;c",
-        &[b"hi\r", b"\x1b[97;1:3u"],
-    );
-    let first_pop = out.find("\x1b[<u").unwrap_or_else(|| panic!("no pop: {out:?}"));
+    let out = run_on_replying_terminal(&exe, b"\x1b[?0u\x1b[?62;c", &[b"hi\r", b"\x1b[97;1:3u"]);
+    let first_pop = out
+        .find("\x1b[<u")
+        .unwrap_or_else(|| panic!("no pop: {out:?}"));
     assert!(
         out[first_pop..].contains("\x1b[>31u"),
         "the flags were not pushed again after the line: {out:?}"
@@ -572,9 +579,14 @@ fn ctrl_c_under_the_kitty_protocol_still_interrupts_the_program() {
     let (status, out) =
         run_on_replying_terminal_status(&exe, b"\x1b[?0u\x1b[?62;c", &[b"\x1b[99;5u"]);
     assert_eq!(status, 130, "{out:?}");
-    let push = out.find("\x1b[>31u").unwrap_or_else(|| panic!("no push: {out:?}"));
+    let push = out
+        .find("\x1b[>31u")
+        .unwrap_or_else(|| panic!("no push: {out:?}"));
     assert!(out[push..].contains("\x1b[<u"), "not popped: {out:?}");
-    assert!(!out.contains("<Unicode"), "Ctrl+C was returned as a key: {out:?}");
+    assert!(
+        !out.contains("<Unicode"),
+        "Ctrl+C was returned as a key: {out:?}"
+    );
 }
 
 #[test]

@@ -330,46 +330,38 @@ impl NativePlanPlatform for Platform {
             ],
             // Phase C — io console input. isBuffered/setBuffered make no OS call
             // (fall through). The stdin-broadcast log rides heap + SRWLOCK/condvar.
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.pollInput"
-            | "io.readRaw" | "io.readScalar" | "io.readGrapheme" | "io.readKey"
-            | "io.flush" => {
+            "io.input" | "io.readLine" | "io.readRaw" | "io.readScalar" | "io.readGrapheme"
+            | "io.readKey" | "io.flush" => {
                 let mut imports = vec![
-                import("GetStdHandle", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-                import("WaitForSingleObject", KERNEL32, required_by),
-                import("GetConsoleMode", KERNEL32, required_by),
-                import("SetConsoleMode", KERNEL32, required_by),
-                import("GetProcessHeap", KERNEL32, required_by),
-                import("HeapAlloc", KERNEL32, required_by),
-                import("HeapFree", KERNEL32, required_by),
-                import("InitializeSRWLock", KERNEL32, required_by),
-                import("AcquireSRWLockExclusive", KERNEL32, required_by),
-                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
-                import("InitializeConditionVariable", KERNEL32, required_by),
-                import("WakeConditionVariable", KERNEL32, required_by),
-                import("WakeAllConditionVariable", KERNEL32, required_by),
-                import("SleepConditionVariableSRW", KERNEL32, required_by),
-                import("CreateThread", KERNEL32, required_by),
-                import("CloseHandle", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-                // plan-66-J-4: io.pollInput on the app-mode input pipe checks queued
-                // bytes with PeekNamedPipe (WaitForSingleObject false-positives on a
-                // pipe), gated on GetFileType, backing off with Sleep.
-                import("GetFileType", KERNEL32, required_by),
-                import("PeekNamedPipe", KERNEL32, required_by),
-                import("Sleep", KERNEL32, required_by),
+                    import("GetStdHandle", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("WriteFile", KERNEL32, required_by),
+                    import("WaitForSingleObject", KERNEL32, required_by),
+                    import("GetConsoleMode", KERNEL32, required_by),
+                    import("SetConsoleMode", KERNEL32, required_by),
+                    import("GetProcessHeap", KERNEL32, required_by),
+                    import("HeapAlloc", KERNEL32, required_by),
+                    import("HeapFree", KERNEL32, required_by),
+                    import("InitializeSRWLock", KERNEL32, required_by),
+                    import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                    import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                    import("InitializeConditionVariable", KERNEL32, required_by),
+                    import("WakeConditionVariable", KERNEL32, required_by),
+                    import("WakeAllConditionVariable", KERNEL32, required_by),
+                    import("SleepConditionVariableSRW", KERNEL32, required_by),
+                    import("CreateThread", KERNEL32, required_by),
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                    // plan-66-J-4: a timed read's wait on the app-mode input pipe checks
+                    // queued bytes with PeekNamedPipe (WaitForSingleObject
+                    // false-positives on a pipe), gated on GetFileType, backing off
+                    // with Sleep.
+                    import("GetFileType", KERNEL32, required_by),
+                    import("PeekNamedPipe", KERNEL32, required_by),
+                    import("Sleep", KERNEL32, required_by),
                 ];
-                // bug-699: the timed readers wait until a monotonic deadline.
-                if matches!(
-                    spec.call,
-                    "io.input"
-                        | "io.readLine"
-                        | "io.readRaw"
-                        | "io.readScalar"
-                        | "io.readGrapheme"
-                        | "io.readKey"
-                ) {
+                // bug-699: the readers wait until a monotonic deadline.
+                if spec.call != "io.flush" {
                     imports.push(import("QueryPerformanceCounter", KERNEL32, required_by));
                     imports.push(import("QueryPerformanceFrequency", KERNEL32, required_by));
                 }

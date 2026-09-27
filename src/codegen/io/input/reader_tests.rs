@@ -236,8 +236,15 @@ fn read_key_decodes_a_sequence_split_across_the_buffer_and_the_source() {
     let mut run = Run::new(b"\x1b[1;", b"2Dz");
     let (tag, record) = run.call(READ_KEY, &[UNBOUNDED]);
     assert_eq!(tag, 0, "readKey succeeds");
-    assert_eq!(run.key(record), (3, Vec::new(), 3, 1), "Shift+Left, NotSupported");
-    assert_eq!(run.process.source.iter().copied().collect::<Vec<u8>>(), b"z");
+    assert_eq!(
+        run.key(record),
+        (3, Vec::new(), 3, 1),
+        "Shift+Left, NotSupported"
+    );
+    assert_eq!(
+        run.process.source.iter().copied().collect::<Vec<u8>>(),
+        b"z"
+    );
 }
 
 #[test]
@@ -328,8 +335,15 @@ fn a_negative_timeout_is_an_invalid_argument() {
             run.machine.write_uint(sp - 8 * word, 8, 1);
         }
         let (tag, code) = run.call(reader, &[(-5i64) as u64]);
-        assert_eq!((tag != 0, code), (true, error_code("ErrInvalidArgument")), "{reader}");
+        assert_eq!(
+            (tag != 0, code),
+            (true, error_code("ErrInvalidArgument")),
+            "{reader}"
+        );
         assert_eq!(run.process.source_reads, 0, "{reader} reads nothing");
-        assert_eq!(run.process.set_attrs, 0, "{reader} leaves the terminal alone");
+        assert_eq!(
+            run.process.set_attrs, 0,
+            "{reader} leaves the terminal alone"
+        );
     }
 }

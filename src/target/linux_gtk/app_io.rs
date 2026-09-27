@@ -740,7 +740,7 @@ pub(crate) fn emit_app_io_input(
     let v_prompt = vregs.next();
     let v_timeout = vregs.next();
     asm.push(abi::move_register(&v_prompt, abi::mfb_arg(0))); // preserve prompt
-    // bug-699: `io::input(prompt, timeoutMs)` hands its timeout on to `io::readLine`.
+                                                              // bug-699: `io::input(prompt, timeoutMs)` hands its timeout on to `io::readLine`.
     asm.push(abi::move_register(&v_timeout, abi::mfb_arg(1)));
     asm.push(abi::move_immediate(
         abi::SCRATCH[1],
@@ -776,7 +776,8 @@ pub(crate) fn emit_app_io_is_terminal(
 
 /// App-mode raw key input (plan-05 §5.4): set the transcript to RAW mode so each
 /// keystroke's bytes go straight to the input pipe. Appended inline at the start of
-/// the `io.readChar`/`io.readByte` helpers (the GTK analog of macOS
+/// the keystroke readers (`io.readKey`, `io.readScalar`, `io.readGrapheme`,
+/// `io.readRaw`; the GTK analog of macOS
 /// `emit_set_raw_input_mode`).
 pub(crate) fn emit_set_raw_input_mode(
     instructions: &mut Vec<CodeInstruction>,

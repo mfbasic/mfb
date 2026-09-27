@@ -1430,13 +1430,10 @@ pub(crate) fn lower_module_for_platform(
             &[
                 "io.readLine",
                 "io.input",
-                "io.readChar",
-                "io.readByte",
                 "io.readRaw",
                 "io.readScalar",
                 "io.readGrapheme",
                 "io.readKey",
-                "io.pollInput",
                 "thread.openStdIn",
                 "thread.closeStdIn",
             ],
@@ -1998,13 +1995,10 @@ pub(crate) fn lower_module_for_platform(
                         &[
                             "io.readLine",
                             "io.input",
-                            "io.readChar",
-                            "io.readByte",
                             "io.readRaw",
                             "io.readScalar",
                             "io.readGrapheme",
                             "io.readKey",
-                            "io.pollInput",
                             "thread.openStdIn",
                             "thread.closeStdIn",
                         ],
@@ -3402,15 +3396,14 @@ pub(crate) fn lower_runtime_helper(
                 }
             }
         };
-    // plan-62-E / plan-98-A: the console-reading `io::` helpers
-    // (`input`/`readLine`/`readChar`) are gated in an app build that uses `app::` —
+    // plan-62-E / plan-98-A: the console-reading `io::` helpers (`input`,
+    // `readLine` and the keystroke readers) are gated in an app build that uses `app::` —
     // in a mode whose window input pipe has no producer, an ungated read would block
     // forever, so they raise the trappable `ErrWrongMode` instead. The requirement is
     // `WindowedMode`, not `Console`: `Canvas` has a window whose key events feed the
     // very same fd-0 pipe, so only `None` — which has no window at all — has nowhere
     // for input to come from. The writing side (`io::print`/`io::write`) is never
-    // gated: it degrades to the fd sink in every mode. `io::readByte` is not in this
-    // list and never has been, so it is ungated in all modes (plan-98-A §2).
+    // gated: it degrades to the fd sink in every mode.
     // No-op when the program cannot leave `Console` (`presentation_mode_offset` is
     // `None`). `term::` is gated separately at its own dispatch above, and keeps the
     // `Console`-only requirement — it needs the character grid, not just input.
@@ -3418,7 +3411,6 @@ pub(crate) fn lower_runtime_helper(
         spec.call,
         "io.input"
             | "io.readLine"
-            | "io.readChar"
             | "io.readRaw"
             | "io.readScalar"
             | "io.readGrapheme"

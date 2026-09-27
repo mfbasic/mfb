@@ -72,10 +72,10 @@ IMPORT term
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
-  LET b AS Byte = io::readByte()
+  LET b AS Byte = io::readRaw()
   app::setMode(app::Mode.Console)
   term::on()
-  LET c AS Byte = io::readByte()
+  LET c AS Byte = io::readRaw()
   term::off()
   io::print(toString(b) & toString(c))
   RETURN 0
@@ -92,9 +92,9 @@ IMPORT io
 IMPORT term
 
 FUNC main AS Integer
-  LET b AS Byte = io::readByte()
+  LET b AS Byte = io::readRaw()
   term::on()
-  LET c AS Byte = io::readByte()
+  LET c AS Byte = io::readRaw()
   term::off()
   io::print(toString(b) & toString(c))
   RETURN 0
@@ -1404,7 +1404,7 @@ fn win_main_posted_chars(env: &[(&str, &str)]) -> Vec<u64> {
 }
 
 /// bug-699 (found measuring the key matrix on 2230): a Windows `--app` program
-/// that never calls `app::setMode` got `0` from `io::readByte` immediately and
+/// that never calls `app::setMode` got `0` from a byte read (`io::readByte`, since removed) immediately and
 /// forever. `_main`'s `MFB_WINAPP_INPUT` affordance read `GetEnvironmentVariableW`'s
 /// count from `return_register()` — `rcx` on Win64, which the call leaves
 /// undefined — instead of the C result `rax`. With the variable UNSET the count

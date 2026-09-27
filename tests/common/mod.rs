@@ -971,7 +971,7 @@ pub fn run_pty_prompt_interaction(executable: &Path, prompt: &str, input: &[u8])
 }
 
 /// Like `run_pty_prompt_interaction`, but for the echo-suppressing reads
-/// (`readChar`/`readByte`/`readLine`): after the prompt appears, wait until the
+/// (the keystroke readers and `readLine`): after the prompt appears, wait until the
 /// child has actually cleared the terminal `ECHO` flag before injecting input.
 ///
 /// The child writes its prompt with echo still on (the prompt is a *separate*

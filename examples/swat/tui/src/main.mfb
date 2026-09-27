@@ -1,6 +1,7 @@
 IMPORT collections
 IMPORT color
 IMPORT datetime
+IMPORT errorCode
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -251,33 +252,18 @@ SUB drawBanner(rows AS Integer, columns AS Integer, title AS String, hint AS Str
   term::setBackground(color::rgb(0, 0, 0))
 END SUB
 
-FUNC getChar AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
+' The next key within `ms` milliseconds: "ESC" for Escape, the text any other
+' key types, "" when no key came in time (or the key typed nothing, or was a
+' release), and "EOF" once input has ended or cannot be read.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
   END TRAP
-  RETURN c
-END FUNC
-
-FUNC ready(ms AS Integer) AS Boolean
-  LET r AS Boolean = io::pollInput(ms) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  RETURN r
-END FUNC
-
-' One key press. A lone escape byte is the Esc key; an escape followed by more
-' input is a key sequence (an arrow, a function key), which is read off and
-' reported as "" so it does nothing.
-FUNC readKey AS String
-  LET c AS String = getChar()
-  IF c = "" THEN RETURN "EOF"
-  IF c <> "\u{1B}" THEN RETURN c
-  IF NOT ready(30) THEN RETURN "ESC"
-  DO WHILE ready(0)
-    LET rest AS String = getChar()
-    IF rest = "" THEN RETURN "EOF"
-  LOOP
-  RETURN ""
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  IF k.key = io::KeyName.Escape THEN RETURN "ESC"
+  IF k.key <> io::KeyName.Unicode THEN RETURN ""
+  RETURN k.grapheme
 END FUNC
 
 FUNC main AS Integer
@@ -319,10 +305,8 @@ FUNC main AS Integer
       term::setForeground(color::rgb(255, 255, 255))
       term::drawText(0, 0, "Make the terminal at least 32x8. q quits.")
       term::sync()
-      IF ready(100) THEN
-        LET smallKey AS String = readKey()
-        IF smallKey = "q" OR smallKey = "Q" OR smallKey = "ESC" OR smallKey = "EOF" THEN running = FALSE
-      END IF
+      LET smallKey AS String = nextKey(100)
+      IF smallKey = "q" OR smallKey = "Q" OR smallKey = "ESC" OR smallKey = "EOF" THEN running = FALSE
       CONTINUE DO
     END IF
 
@@ -425,8 +409,8 @@ FUNC main AS Integer
     END IF
     term::sync()
 
-    IF ready(frameDelayMs()) THEN
-      LET key AS String = readKey()
+    LET key AS String = nextKey(frameDelayMs())
+    IF key <> "" THEN
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
       ELSEIF key = "ESC" AND gameOver THEN

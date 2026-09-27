@@ -67,8 +67,7 @@ pub(crate) const INPUT_STATE_TOKEN_OFFSET: usize = 24;
 /// Byte offset of the buffered bytes. One spare word follows the token record,
 /// so a NUL can always be written after its grapheme — which makes the record's
 /// `{length, bytes}` pair a complete `String` block.
-pub(crate) const INPUT_STATE_BUF_OFFSET: usize =
-    INPUT_STATE_TOKEN_OFFSET + decode::TOKEN_BYTES + 8;
+pub(crate) const INPUT_STATE_BUF_OFFSET: usize = INPUT_STATE_TOKEN_OFFSET + decode::TOKEN_BYTES + 8;
 /// Bytes the buffer holds at most. A decoded token never needs more than a key
 /// sequence (a kitty `CSI … u` with alternates and text is well under 64 bytes)
 /// or one grapheme (capped at [`GRAPHEME_CAP`]); the rest is room for a line a
@@ -111,25 +110,18 @@ pub(crate) const INPUT_BUFFER_READERS: &[&str] = &[
 
 /// Whether a program with these runtime symbols reserves the input buffer.
 pub(crate) fn program_uses_input_buffer(runtime_symbols: &[String]) -> bool {
-    #[cfg(test)]
-    if FORCE_INPUT_BUFFER.with(std::cell::Cell::get) {
-        return true;
-    }
     runtime_symbols
         .iter()
         .any(|symbol| INPUT_BUFFER_READERS.contains(&symbol.as_str()))
 }
 
 /// The readers that ask the decoder for whole grapheme clusters.
-pub(crate) const CLUSTER_READERS: &[&str] = &["_mfb_rt_io_io_readGrapheme", "_mfb_rt_io_io_readKey"];
+pub(crate) const CLUSTER_READERS: &[&str] =
+    &["_mfb_rt_io_io_readGrapheme", "_mfb_rt_io_io_readKey"];
 
 /// Whether a program with these runtime symbols needs the decoder's grapheme
 /// clusters (and so the Unicode property tables).
 pub(crate) fn program_uses_grapheme_clusters(runtime_symbols: &[String]) -> bool {
-    #[cfg(test)]
-    if FORCE_INPUT_BUFFER.with(std::cell::Cell::get) {
-        return true;
-    }
     runtime_symbols
         .iter()
         .any(|symbol| CLUSTER_READERS.contains(&symbol.as_str()))
@@ -137,10 +129,6 @@ pub(crate) fn program_uses_grapheme_clusters(runtime_symbols: &[String]) -> bool
 
 #[cfg(test)]
 thread_local! {
-    /// Test-only: reserve the input buffer in every program lowered on this
-    /// thread, so the buffered read paths can be built and run before a reader
-    /// that needs them exists.
-    pub(crate) static FORCE_INPUT_BUFFER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Test-only: where the last program lowered on this thread put the region,
     /// so a test can fill it the way a look-ahead reader would.
     pub(crate) static RESERVED_INPUT_STATE_OFFSET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };

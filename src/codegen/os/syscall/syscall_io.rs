@@ -80,7 +80,7 @@ pub(crate) fn emit_sigpipe_restore_and_raise(ctx: &mut EmitCtx, label: &str) -> 
 /// Whether this program links the platform's `errno` accessor (`___error` on
 /// macOS, `__errno_location` on Linux). Both `fs::` (a `File` only comes from
 /// `fs::openFile`, which pulls the accessor in) and the `io::` read helpers
-/// (`readByte`/`readChar`/`readLine`/`input` — their `plan.rs` arms co-import the
+/// (`readLine`/`input` and the keystroke readers — their `plan.rs` arms co-import the
 /// accessor, bug-62) link it, so their read/write/seek loops always read `errno`
 /// and retry `EINTR`. Since bug-467 the `io::` OUTPUT helpers link it too — they
 /// have to classify `EPIPE` now that SIGPIPE is ignored process-wide — which

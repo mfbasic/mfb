@@ -40,7 +40,7 @@ use crate::codegen::io::input::reader::{
     emit_engine, emit_reader_setup, engine_done_label, engine_next_label, Engine, EngineLabels,
     ReaderSlots, ENGINE_BYTE, ENGINE_TOKEN, OUT_BYTE, OUT_INVALID,
 };
-use crate::codegen::io::input::{INPUT_STATE_TOKEN_OFFSET, INPUT_STATE_LEN_OFFSET};
+use crate::codegen::io::input::{INPUT_STATE_LEN_OFFSET, INPUT_STATE_TOKEN_OFFSET};
 use crate::codegen::io::stdin::field_addr;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;

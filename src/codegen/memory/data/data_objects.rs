@@ -181,8 +181,6 @@ pub(crate) fn string_symbols(
         &[
             "io.input",
             "io.readLine",
-            "io.readChar",
-            "io.readByte",
             "io.readRaw",
             "io.readScalar",
             "io.readGrapheme",
@@ -204,14 +202,11 @@ pub(crate) fn string_symbols(
         // `io::print`/`io::write`. Without this, an `io::readLine`-only program (any
         // build) failed to link with a dangling `_mfb_str_error_output` relocation.
         push_string_value(&mut values, err_msg("ErrWriteFailed"));
-        // bug-699: the timeout convention (`timeoutMs` on every reader but the two
-        // plain ones) and the growable line / key record.
+        // bug-699: the timeout convention (`timeoutMs` on every reader) and the
+        // growable line / key record.
         push_string_value(&mut values, err_msg("ErrTimeout"));
         push_string_value(&mut values, err_msg("ErrInvalidArgument"));
         push_string_value(&mut values, err_msg("ErrOutOfMemory"));
-    }
-    if module_uses_call(module, "io.pollInput") {
-        push_string_value(&mut values, err_msg("ErrInputFailed"));
     }
     // plan-62-E: in an app build that uses `app::` (so a non-`Console` presentation
     // mode is reachable), every `term::` and console-read `io::` helper carries an

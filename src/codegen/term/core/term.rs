@@ -9,6 +9,7 @@
 //! getters, the inert default) while TUI mode is off.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::io::gen_read_key_family::INPUT_EVENTS_SYMBOL;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::Vregs;
@@ -17,7 +18,6 @@ use crate::codegen::io::mouse::decode as mouse_decode;
 use crate::codegen::io::mouse::ring as mouse_ring;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
-use crate::codegen::builtins::io::gen_read_key_family::INPUT_EVENTS_SYMBOL;
 use crate::codegen::term::grid as term_grid;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
@@ -619,8 +619,8 @@ fn emit_on(
     )?;
     // bug-149: entering interactive TUI mode also puts the console tty into
     // single-key (cbreak) mode once — `~ICANON`/`~ECHO`/`VMIN=1`/`VTIME=0` — so a
-    // `pollInput` + `readChar` loop registers bare keypresses without waiting for
-    // Return. The saved cooked discipline is parked in the term-state region (off
+    // key-reading loop (`io::readKey`, `io::readScalar`, …) sees bare keypresses
+    // without waiting for Return. The saved cooked discipline is parked in the term-state region (off
     // `ARENA_STATE_REGISTER`), from which `term::off` and `io::input`/
     // `io::readLine` restore it. When stdin is not a tty (piped input,
     // acceptance harness) `emit_configure_stdin_terminal` leaves the raw-active
@@ -900,7 +900,6 @@ fn emit_kitty_enable(
             state_offset,
             clock_scratch: KITTY_CLOCK_OFFSET,
         }),
-        None,
         Some(&wait),
         vregs,
     )?;
@@ -927,12 +926,11 @@ fn emit_kitty_enable(
     };
     ctx.instructions.push(abi::label(&state0));
     let not_esc = l("state0_input");
-    ctx.instructions.extend([
-        abi::compare_immediate(&b, ESC),
-        abi::branch_ne(&not_esc),
-    ]);
+    ctx.instructions
+        .extend([abi::compare_immediate(&b, ESC), abi::branch_ne(&not_esc)]);
     set_state(ctx, "1", vregs);
-    ctx.instructions.extend([abi::branch(&next), abi::label(&not_esc)]);
+    ctx.instructions
+        .extend([abi::branch(&next), abi::label(&not_esc)]);
     emit_kitty_keep_byte(ctx, input_state_offset, &b, &l("keep_b"), vregs);
     ctx.instructions.push(abi::branch(&next));
     // State 1: after ESC. `[` continues; anything else was a key (Alt+x, or a
@@ -944,7 +942,8 @@ fn emit_kitty_enable(
         abi::branch_ne(&not_bracket),
     ]);
     set_state(ctx, "2", vregs);
-    ctx.instructions.extend([abi::branch(&next), abi::label(&not_bracket)]);
+    ctx.instructions
+        .extend([abi::branch(&next), abi::label(&not_bracket)]);
     let esc: Reg = vregs.next().into();
     ctx.instructions
         .push(abi::move_immediate(&esc, "Integer", ESC));
@@ -955,12 +954,11 @@ fn emit_kitty_enable(
     // sequence: keep `ESC [` and look at this byte afresh.
     ctx.instructions.push(abi::label(&state2));
     let not_query = l("state2_input");
-    ctx.instructions.extend([
-        abi::compare_immediate(&b, "63"),
-        abi::branch_ne(&not_query),
-    ]);
+    ctx.instructions
+        .extend([abi::compare_immediate(&b, "63"), abi::branch_ne(&not_query)]);
     set_state(ctx, "3", vregs);
-    ctx.instructions.extend([abi::branch(&next), abi::label(&not_query)]);
+    ctx.instructions
+        .extend([abi::branch(&next), abi::label(&not_query)]);
     let esc: Reg = vregs.next().into();
     ctx.instructions
         .push(abi::move_immediate(&esc, "Integer", ESC));
@@ -989,7 +987,8 @@ fn emit_kitty_enable(
         abi::store_u64(&one, abi::stack_pointer(), KITTY_FOUND_OFFSET),
     ]);
     set_state(ctx, "0", vregs);
-    ctx.instructions.extend([abi::branch(&next), abi::label(&not_u)]);
+    ctx.instructions
+        .extend([abi::branch(&next), abi::label(&not_u)]);
     // Parameter bytes (0x30..=0x3F) keep the reply going.
     let low = l("state3_end");
     ctx.instructions.extend([
@@ -1000,7 +999,8 @@ fn emit_kitty_enable(
         abi::label(&low),
     ]);
     set_state(ctx, "0", vregs);
-    ctx.instructions.extend([abi::label(&param), abi::branch(&next)]);
+    ctx.instructions
+        .extend([abi::label(&param), abi::branch(&next)]);
 
     // The replies are in (or the wait is over): push the flags if the terminal
     // answered the flags query.

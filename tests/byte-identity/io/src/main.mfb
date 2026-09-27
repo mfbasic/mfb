@@ -22,18 +22,22 @@ FUNC main() AS Integer
   io::print(line)
   LET prompted AS String = io::input("Name: ")
   io::print(prompted)
-  LET b AS Byte = io::readByte()
-  io::print(toString(b))
-  LET ch AS String = io::readChar()
-  io::print(ch)
   LET raw AS String = io::readLine()
   io::print(raw)
+  LET timedLine AS String = io::readLine(1000)
+  io::print(timedLine)
 
-  ' Poll input (no-arg and timeout overloads).
-  LET ready AS Boolean = io::pollInput()
-  io::print(toString(ready))
-  LET readyTimeout AS Boolean = io::pollInput(1000)
-  io::print(toString(readyTimeout))
+  ' Keystroke readers (no-timeout and timeout forms).
+  LET b AS Byte = io::readRaw()
+  io::print(toString(b))
+  LET sc AS Scalar = io::readScalar()
+  io::print(toString(sc))
+  LET ch AS String = io::readGrapheme()
+  io::print(ch)
+  LET k AS io::Key = io::readKey()
+  io::print(k.grapheme)
+  LET kTimeout AS io::Key = io::readKey(1000)
+  io::print(kTimeout.grapheme)
 
   ' Terminal predicates.
   LET inTerm AS Boolean = io::isInputTerminal()

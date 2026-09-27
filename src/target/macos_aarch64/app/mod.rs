@@ -208,7 +208,7 @@ const STR_QUIT_KEY: (&str, &str) = ("_mfb_macapp_str_quitKey", "q");
 // overriding keyDown:) receives typed keys directly. Line mode accumulates keys
 // in a buffer until Return writes the buffered line to a pipe whose read end is
 // dup2'd onto fd 0. Raw mode writes each key event's UTF-8 bytes to that pipe
-// immediately so readChar/readByte do not wait for Return.
+// immediately so the keystroke readers (`io::readKey`, …) do not wait for Return.
 const SEL_UTF8_STRING: (&str, &str) = ("_mfb_macapp_sel_UTF8String", "UTF8String");
 const SEL_MAKE_FIRST_RESPONDER: (&str, &str) =
     ("_mfb_macapp_sel_makeFirstResponder", "makeFirstResponder:");
@@ -1801,7 +1801,7 @@ mod canvas_reconcile_tests {
     ///
     /// * `acceptsFirstResponder` — a plain `NSView` returns NO and so never becomes
     ///   first responder, and
-    /// * `keyDown:` — without it window keys go nowhere and `io::readByte` in canvas
+    /// * `keyDown:` — without it window keys go nowhere and `io::readKey` in canvas
     ///   mode blocks forever. Those two are why the subclass exists at all.
     /// * `setFrameSize:` — plan-98-D Phase 3: a user drag becomes a new surface size
     ///   here.

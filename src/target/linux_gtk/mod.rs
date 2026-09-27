@@ -310,7 +310,7 @@ const TERM_RESIZE_SYMBOL: &str = "_mfb_gtkapp_term_resize";
 
 // Input modes (mirror macOS `app/mod.rs` INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
-// each keystroke's bytes to the pipe immediately (`io::readChar`/`readByte`).
+// each keystroke's bytes to the pipe immediately (the keystroke readers, `io::readKey` …).
 /// Default mode: line-buffered, no echo (the zero-initialized state value).
 ///
 /// Never assigned, and that is the point: it is the value the state word
