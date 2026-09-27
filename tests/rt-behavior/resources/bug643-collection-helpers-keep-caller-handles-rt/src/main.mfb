@@ -1,0 +1,162 @@
+' bug-643: a collections helper that only re-packages the caller's handles
+' (`chunks`, `window`, `take`, ...) must never close them. Before the fix the
+' binding a `List OF RES` result was assigned to ADOPTED every handle in it as a
+' fresh close obligation, so a binding in an inner scope (the WHILE body inside
+' `chunks`/`window`'s own source, or an IF block here) closed the caller's
+' handles when that scope exited.
+'
+' Each probe opens a fresh handle, runs one helper, and then reads the handle:
+' `open` means the read reached end-of-file (the handle is still live),
+' `CLOSED` means the read raised ErrResourceClosed. The file is empty, so a
+' read can never succeed.
+IMPORT io
+IMPORT collections
+IMPORT fs
+IMPORT errorCode
+
+LET PATH AS String = "/tmp/mfb_bug643_collection_helper_handles.txt"
+
+FUNC state(RES h AS fs::File) AS String
+  LET line = fs::readLine(h) TRAP(e)
+    IF e.code = errorCode::ErrResourceClosed THEN
+      RECOVER "CLOSED"
+    END IF
+    RECOVER "open"
+  END TRAP
+  RETURN line
+END FUNC
+
+' A function copying the caller's handles into its own list, element by element:
+' the borrowed element used to be named as an owner and float into `out`, whose
+' scope then closed the caller's handles at the function's exit.
+FUNC copyEach(files AS List OF RES fs::File) AS Integer
+  MUT out AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < len(files)
+    out = collections::append(out, collections::get(files, i))
+    i = i + 1
+  END WHILE
+  RETURN len(out)
+END FUNC
+
+' The same through a named RES binding of the borrowed element.
+FUNC copyNamed(files AS List OF RES fs::File) AS Integer
+  MUT out AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < len(files)
+    RES one AS fs::File = collections::get(files, i)
+    out = collections::append(out, one)
+    i = i + 1
+  END WHILE
+  RETURN len(out)
+END FUNC
+
+SUB main()
+  fs::writeText(PATH, "")
+
+  RES a AS fs::File = fs::open(PATH, "read")
+  LET la AS List OF RES fs::File = [a]
+  LET blocks = collections::chunks(la, 1)
+  io::print("chunks: " & state(a) & " blocks=" & toString(len(blocks)))
+
+  RES b AS fs::File = fs::open(PATH, "read")
+  LET lb AS List OF RES fs::File = [b]
+  LET wins = collections::window(lb, 1)
+  io::print("window: " & state(b) & " windows=" & toString(len(wins)))
+
+  ' The stride skips the middle handle: before the fix only the two handles
+  ' copied into a window were closed.
+  RES c0 AS fs::File = fs::open(PATH, "read")
+  RES c1 AS fs::File = fs::open(PATH, "read")
+  RES c2 AS fs::File = fs::open(PATH, "read")
+  LET lc AS List OF RES fs::File = [c0, c1, c2]
+  LET strided = collections::window(lc, 1, 2)
+  io::print("window stride: " & state(c0) & " " & state(c1) & " " & state(c2) & " windows=" & toString(len(strided)))
+
+  ' A handle pulled back out of a window and closed by the program closes once:
+  ' before the fix `fs::close` raised "already closed" and the scope exit then
+  ' reported a cleanup failure.
+  RES d AS fs::File = fs::open(PATH, "read")
+  LET ld AS List OF RES fs::File = [d]
+  LET dwins = collections::window(ld, 1)
+  RES pulled AS fs::File = collections::get(collections::get(dwins, 0), 0)
+  fs::close(pulled)
+  io::print("close pulled: " & state(d))
+
+  ' The same adoption in the caller's own inner scope.
+  RES e AS fs::File = fs::open(PATH, "read")
+  LET le AS List OF RES fs::File = [e]
+  IF len(le) > 0 THEN
+    LET front = collections::take(le, 1)
+    io::print("inner take len=" & toString(len(front)))
+  END IF
+  io::print("take (inner scope): " & state(e))
+
+  RES f AS fs::File = fs::open(PATH, "read")
+  LET lf AS List OF RES fs::File = [f]
+  IF len(lf) > 0 THEN
+    LET kept = collections::filter(lf, LAMBDA(RES x AS fs::File) -> TRUE)
+    io::print("inner filter len=" & toString(len(kept)))
+  END IF
+  io::print("filter (inner scope): " & state(f))
+
+  RES g AS fs::File = fs::open(PATH, "read")
+  LET lg AS List OF RES fs::File = [g]
+  MUT i AS Integer = 0
+  WHILE i < 2
+    LET rest = collections::drop(lg, 0)
+    LET part = collections::mid(lg, 0, 1)
+    i = i + 1
+  END WHILE
+  io::print("drop/mid (loop body): " & state(g))
+
+  RES h AS fs::File = fs::open(PATH, "read")
+  LET nested AS List OF List OF RES fs::File = [[h]]
+  IF len(nested) > 0 THEN
+    LET flat = collections::flatten(nested)
+    LET inner = collections::get(nested, 0)
+    io::print("inner flatten len=" & toString(len(flat)) & " get len=" & toString(len(inner)))
+  END IF
+  io::print("flatten/get (inner scope): " & state(h))
+
+  RES k AS fs::File = fs::open(PATH, "read")
+  LET byName AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { "k" := k }
+  IF len(byName) > 0 THEN
+    LET vs = collections::values(byName)
+    io::print("inner values len=" & toString(len(vs)))
+  END IF
+  io::print("values (inner scope): " & state(k))
+
+  RES m AS fs::File = fs::open(PATH, "read")
+  LET lm AS List OF RES fs::File = [m]
+  IF len(lm) > 0 THEN
+    LET twice = collections::append(lm, m)
+    LET again = collections::prepend(lm, m)
+    io::print("inner append len=" & toString(len(twice)) & " prepend len=" & toString(len(again)))
+  END IF
+  io::print("append/prepend (inner scope): " & state(m))
+
+  RES n AS fs::File = fs::open(PATH, "read")
+  LET ln AS List OF RES fs::File = [n]
+  IF len(ln) > 0 THEN
+    LET replaced = collections::set(ln, 0, n)
+    LET shuffled = collections::removeAt(collections::insert(ln, 0, n), 0)
+    io::print("inner set len=" & toString(len(replaced)) & " insert/removeAt len=" & toString(len(shuffled)))
+  END IF
+  io::print("set/insert/removeAt (inner scope): " & state(n))
+
+  RES p AS fs::File = fs::open(PATH, "read")
+  LET lp AS List OF RES fs::File = [p]
+  io::print("copyEach copied=" & toString(copyEach(lp)) & ": " & state(p))
+
+  RES q AS fs::File = fs::open(PATH, "read")
+  LET lq AS List OF RES fs::File = [q]
+  io::print("copyNamed copied=" & toString(copyNamed(lq)) & ": " & state(q))
+
+  ' zip's body builds each Pair from two borrowed elements; it used to fail to
+  ' build ("owned-list element type 'Pair...' has no registered close op").
+  RES r AS fs::File = fs::open(PATH, "read")
+  LET lr AS List OF RES fs::File = [r]
+  LET pairs = collections::zip(lr, [1])
+  io::print("zip pairs=" & toString(len(pairs)) & ": " & state(r))
+END SUB

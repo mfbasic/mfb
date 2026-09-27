@@ -43,7 +43,7 @@ Neither argument is mutated.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit."#;
+and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Left-pad with the default space and with an explicit character:
 
@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // not fit in 64 bits. Declaring it is not just the Errors table: an
             // undeclared error makes the member read as INFALLIBLE to the
             // inline-`TRAP` census, which elides a LIVE handler.
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

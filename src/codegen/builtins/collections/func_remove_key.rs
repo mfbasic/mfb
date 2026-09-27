@@ -99,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_remove_key),
         }],
     });

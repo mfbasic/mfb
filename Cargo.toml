@@ -370,6 +370,10 @@ name = "codegen_owned_drop_free_and_null"
 path = "tests/codegen/codegen_owned_drop_free_and_null.rs"
 
 [[test]]
+name = "codegen_stack_slot_promotion"
+path = "tests/codegen/codegen_stack_slot_promotion.rs"
+
+[[test]]
 name = "app_special_keys"
 path = "tests/codegen/app_special_keys.rs"
 
@@ -711,6 +715,18 @@ name = "rt_bounds_elim_backedge"
 path = "tests/runtime/rt_bounds_elim_backedge.rs"
 
 [[test]]
+name = "rt_global_init_order_fold"
+path = "tests/runtime/rt_global_init_order_fold.rs"
+
+[[test]]
+name = "rt_literal_let_folding"
+path = "tests/runtime/rt_literal_let_folding.rs"
+
+[[test]]
+name = "rt_leaf_inlining"
+path = "tests/runtime/rt_leaf_inlining.rs"
+
+[[test]]
 name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 
@@ -839,6 +855,14 @@ name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
 [[test]]
+name = "rt_nothing_func_value_position"
+path = "tests/runtime/rt_nothing_func_value_position.rs"
+
+[[test]]
+name = "rt_nothing_collections"
+path = "tests/runtime/rt_nothing_collections.rs"
+
+[[test]]
 name = "rt_inline_trap_raising_operator"
 path = "tests/runtime/rt_inline_trap_raising_operator.rs"
 
@@ -881,6 +905,10 @@ path = "tests/runtime/rt_native_float_pow_operator_runtime.rs"
 [[test]]
 name = "rt_native_io_runtime"
 path = "tests/runtime/rt_native_io_runtime.rs"
+
+[[test]]
+name = "rt_io_key_readers"
+path = "tests/runtime/rt_io_key_readers.rs"
 
 [[test]]
 name = "rt_native_numeric_pow_div_runtime"

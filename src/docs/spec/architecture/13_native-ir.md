@@ -122,9 +122,13 @@ name). [[src/target/shared/nir/lower.rs:lower_value]]
 | `Unary` | `unary` | `op`, `operand` |
 
 `Call`, `CallResult`, `RuntimeCall`, `Binary`, and `Unary` each carry a
-`NirSourceLoc { line, column }` for runtime-error attribution; the file is on
-the owning `NirFunction::file`. The `loc` is *not* serialized to JSON.
-[[src/target/shared/nir/mod.rs:NirSourceLoc]]
+`NirSourceLoc { line, column, file }` for runtime-error attribution. `file` is
+`0` for the owning `NirFunction::file`; a non-zero value is an interned path
+(`source_file_id` / `source_file_name`) that leaf-function inlining sets on the
+nodes it moves out of another source file, and the error emission uses it for
+`ErrorLoc.filename` in place of the function's file. The `loc` is *not*
+serialized to JSON.
+[[src/target/shared/nir/mod.rs:NirSourceLoc]] [[src/target/shared/nir/mod.rs:source_file_id]] [[src/codegen/error/emission/builder_error_emission.rs:error_filename]]
 
 ### Traversal seam
 
@@ -139,7 +143,10 @@ recursion for `Match` visits the scrutinee, the pattern's values, the
 invariant (a runtime call or platform import used only in a guard still executes;
 see bug-118, bug-328). The IR value tree has the analogous depth-bounded
 `visit_value`/`visit_value_mut` seam beside `IrValue` in
-[[src/ir/value.rs]]. Scope-sensitive analyses that thread a per-branch constants
+[[src/ir/value.rs]]. A rewriting pass over NIR uses the mutable twin,
+`walk_ops_values_mut` / `walk_value_mut` (children before parents, the same
+complete order), rather than hand-writing its own recursion.
+[[src/target/shared/nir/visit.rs:walk_ops_values_mut]] Scope-sensitive analyses that thread a per-branch constants
 map, and the code-emitting lowering passes, keep that state themselves and are
 written directly against the enums rather than the shared seam.
 

@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC compilereadRaw AS Integer
+  IF FALSE THEN
+    LET waited AS Byte = io::readRaw()
+    LET polled AS Byte = io::readRaw(0)
+    LET bounded AS Byte = io::readRaw(250)
+    LET named AS Byte = io::readRaw(timeoutMs := 100)
+  END IF
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN compilereadRaw()
+END FUNC

@@ -37,21 +37,21 @@ Two interactions are worth knowing. `io::readLine` and `io::input` **suspend**
 mouse reporting while they read a line, because the terminal echoes during a line
 read and a mouse report arriving then would be printed onto the screen in the
 middle of what the user is typing; events are lost for the duration, which is the
-right trade for a program that is asking someone to type. And `io::pollInput`
-stays truthful: it still answers whether a following read will return without
-waiting, even though some of what the terminal now sends is taken off the stream
-as mouse input and never becomes a character at all.
+right trade for a program that is asking someone to type. And a timed read
+stays truthful: `io::readKey(0)` still returns a key only when there is one,
+even though some of what the terminal now sends is taken off the stream as
+mouse input and never becomes a key at all.
 
 The Esc key still works while reporting is on, a moment later than usual. A
 mouse report starts with the same Esc character the key sends, so after an Esc
 the program waits up to 25 milliseconds to see whether a report follows. If
-nothing does, `io::readChar` returns the Esc and `io::pollInput` reports it
-ready. Keys that send a longer sequence, such as the arrow keys, arrive whole
-and in order, as they always have.
+nothing does, `io::readKey` returns `io::KeyName.Escape`. Keys that send a
+longer sequence, such as the arrow keys, arrive whole and in order, as they
+always have.
 
 Turn reporting off before the program finishes so the mouse goes back to the
 user. `term::off` does that for you when it leaves TUI mode, so a program that
-pairs `term::on` with `term::off` is already tidy."#;
+pairs `term::on` with `term::off` is already tidy. In an `mfb build --app` program, `term::enableMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Ask for mouse events, then read one:
 
@@ -98,6 +98,7 @@ pub(crate) fn lower_enable_mouse(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -126,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_enable_mouse),
         }],
     });

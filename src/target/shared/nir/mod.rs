@@ -376,13 +376,48 @@ pub(crate) enum NirValue {
     },
 }
 
-/// Source location (line/column within the owning function's file) attached to
-/// NIR nodes that can originate a runtime error. The file is carried on
-/// [`NirFunction::file`].
+/// Source location (line/column) attached to NIR nodes that can originate a
+/// runtime error. The file is the owning function's ([`NirFunction::file`])
+/// unless `file` names another one.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct NirSourceLoc {
     pub(crate) line: u32,
     pub(crate) column: u32,
+    /// `0`: the owning function's file. Otherwise a [`source_file_id`] — set by
+    /// leaf-function inlining (plan-161-C) on a node it moved out of another
+    /// file, so an error the node raises still names the file the node was
+    /// written in.
+    pub(crate) file: u32,
+}
+
+/// Process-wide interned source paths for [`NirSourceLoc::file`]. Ids start at
+/// 1; the ids themselves never reach any output, only the paths they resolve to.
+fn source_files() -> &'static std::sync::Mutex<Vec<String>> {
+    static FILES: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> = std::sync::OnceLock::new();
+    FILES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// The [`NirSourceLoc::file`] id of `path` (never `0`).
+pub(crate) fn source_file_id(path: &str) -> u32 {
+    let mut files = source_files().lock().expect("source file table");
+    let index = match files.iter().position(|known| known == path) {
+        Some(index) => index,
+        None => {
+            files.push(path.to_string());
+            files.len() - 1
+        }
+    };
+    u32::try_from(index + 1).expect("source file ids fit u32")
+}
+
+/// The path a non-zero [`NirSourceLoc::file`] names.
+pub(crate) fn source_file_name(id: u32) -> Option<String> {
+    let index = usize::try_from(id.checked_sub(1)?).ok()?;
+    source_files()
+        .lock()
+        .expect("source file table")
+        .get(index)
+        .cloned()
 }
 
 #[derive(Clone)]

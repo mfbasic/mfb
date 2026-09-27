@@ -1,0 +1,233 @@
+{
+  "project": "io_key_readers_eof",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "errorCode", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "outcome",
+      "line": 10,
+      "params": [
+      { "name": "code", "type": "Integer", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrEndOfFile" } },
+        "line": 11,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "eof" }, "line": 12 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 14,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "invalid" }, "line": 15 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } },
+        "line": 17,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "timeout" }, "line": 18 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "other " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] } }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "raw",
+      "line": 23,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 23 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Byte", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 24,
+        "expression": { "kind": "call", "callee": "io.readRaw", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 25 }
+        ]
+      }, "line": 24 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "byte " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "scalar",
+      "line": 30,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 30 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Scalar", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 31,
+        "expression": { "kind": "call", "callee": "io.readScalar", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 32 }
+        ]
+      }, "line": 31 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "scalar " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "s" }] } }, "line": 34 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "grapheme",
+      "line": 37,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 37 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "g", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 38,
+        "expression": { "kind": "call", "callee": "io.readGrapheme", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 39 }
+        ]
+      }, "line": 38 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "grapheme " }, "right": { "kind": "identifier", "value": "g" } }, "line": 41 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "key",
+      "line": 44,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 44 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "k", "type": "io.Key", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 45,
+        "expression": { "kind": "call", "callee": "io.readKey", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 46 }
+        ]
+      }, "line": 45 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "key " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "k" }, "member": "grapheme" } }, "line": 48 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "line",
+      "line": 51,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 51 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "l", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 52,
+        "expression": { "kind": "call", "callee": "io.readLine", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 53 }
+        ]
+      }, "line": 52 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "line " }, "right": { "kind": "identifier", "value": "l" } }, "line": 55 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "prompted",
+      "line": 58,
+      "params": [
+      { "name": "t", "type": "Integer", "default": null, "line": 58 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "l", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 59,
+        "expression": { "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "" }, { "kind": "identifier", "value": "t" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] }, "line": 60 }
+        ]
+      }, "line": 59 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "input " }, "right": { "kind": "identifier", "value": "l" } }, "line": 62 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 65,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "waited", "type": "Byte", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 66,
+        "expression": { "kind": "call", "callee": "io.readRaw", "arguments": [] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readRaw() " }, "right": { "kind": "call", "callee": "outcome", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 67 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 68 }
+        ]
+      }, "line": 66 },
+      {
+        "kind": "forEach",
+        "name": "t",
+        "iterable": { "kind": "list", "values": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "50" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] },
+        "line": 70,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readRaw(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "raw", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 71 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readScalar(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "scalar", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 72 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readGrapheme(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "grapheme", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 73 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readKey(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "key", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 74 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readLine(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "line", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 75 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "input(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] } }, "right": { "kind": "string", "value": ") " } }, "right": { "kind": "call", "callee": "prompted", "arguments": [{ "kind": "identifier", "value": "t" }] } }] }, "line": 76 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 78 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -43,7 +43,7 @@ result list is produced, and the callback's own error is passed through
 unchanged.
 
 An inline `TRAP` on a `transform` call captures that propagated callback error
-at the call site rather than letting it auto-propagate."#;
+at the call site rather than letting it auto-propagate. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Map integers to strings, changing the element type:
 
@@ -119,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("U")),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_transform),
         }],
     });

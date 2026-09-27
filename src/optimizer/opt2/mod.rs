@@ -51,6 +51,7 @@ pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
 pub(crate) mod pre;
+pub(crate) mod promote;
 pub(crate) mod rle;
 pub(crate) mod sccp;
 pub(crate) mod simplifycfg;

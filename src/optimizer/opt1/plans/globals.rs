@@ -142,6 +142,82 @@ pub(crate) fn census(module: &NirModule) -> Census {
     census
 }
 
+/// Every function that can run while the global initializer is still running,
+/// by name — the initializer SUB itself plus everything it can reach.
+///
+/// Bindings initialize one at a time, in order (`mfb spec language
+/// modules-and-packages`), and a slot not yet initialized reads zero. So a read
+/// of a global inside one of these functions may run *before* that global's own
+/// store and observe `0`, not its initializer — a program that calls a function
+/// from an early initializer which reads a later binding sees exactly that.
+/// Replacing such a read with the initializer's literal would change the value
+/// the program computes, so neither global-folding row may rewrite a read in a
+/// function this returns (bug-747).
+///
+/// Reachability is by name and conservative: a direct call (`Call` /
+/// `CallResult`) whose target is a module function follows the edge, and so
+/// does any mention of a function as a value (`FunctionRef`, `Closure`) — a
+/// function handed to a builtin such as `collections::forEach` or
+/// `thread::start` may be invoked, and nothing here tries to prove it is not.
+/// A call to a name that is not a module function (a builtin or runtime helper)
+/// runs no user code by itself; any user function it could invoke reaches it
+/// as a value argument, which the mention rule already follows.
+pub(crate) fn initializer_reachable(module: &NirModule) -> HashSet<String> {
+    struct Mentions<'a> {
+        functions: &'a HashSet<&'a str>,
+        found: Vec<String>,
+    }
+    impl NirVisitor for Mentions<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            let named = match value {
+                NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => Some(target),
+                NirValue::FunctionRef { name, .. } | NirValue::Closure { name, .. } => Some(name),
+                _ => None,
+            };
+            if let Some(name) = named {
+                if self.functions.contains(name.as_str()) {
+                    self.found.push(name.clone());
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+
+    let functions: HashSet<&str> = module
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .collect();
+    let by_name: HashMap<&str, &crate::target::shared::nir::NirFunction> = module
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect();
+    let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut pending = vec![initializer];
+    while let Some(name) = pending.pop() {
+        if !reached.insert(name.clone()) {
+            continue;
+        }
+        let Some(function) = by_name.get(name.as_str()) else {
+            continue;
+        };
+        let mut mentions = Mentions {
+            functions: &functions,
+            found: Vec::new(),
+        };
+        mentions.visit_ops(&function.body);
+        pending.extend(
+            mentions
+                .found
+                .into_iter()
+                .filter(|found| !reached.contains(found)),
+        );
+    }
+    reached
+}
+
 /// Whether a global is visible outside this module's own function set — an
 /// exported one may be read or written by an importer, so no row may reason
 /// about its usage from this module alone.
@@ -261,5 +337,78 @@ mod tests {
         let census = census(&module);
         assert_eq!(census["seed"].reads, 1);
         assert!(!census["seed"].untouched());
+    }
+
+    fn call(target: &str) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args: vec![],
+            loc: Default::default(),
+        }
+    }
+
+    /// bug-747: the initializer SUB reaches what it calls, what those call,
+    /// and every function it mentions as a value; nothing else. A call to a
+    /// name that is no module function (a builtin) is not an edge.
+    #[test]
+    fn initializer_reachability_follows_calls_and_function_values() {
+        let initializer = crate::target::shared::nir::global_initializer_name("test");
+        let module = test_module(vec![
+            function(
+                &initializer,
+                vec![
+                    NirOp::Eval {
+                        value: call("direct"),
+                    },
+                    NirOp::Eval {
+                        value: NirValue::Call {
+                            target: "collections.forEach".to_string(),
+                            args: vec![NirValue::FunctionRef {
+                                name: "callback".to_string(),
+                                type_: ParameterType::Unknown,
+                            }],
+                            loc: Default::default(),
+                        },
+                    },
+                ],
+            ),
+            function(
+                "direct",
+                vec![NirOp::Eval {
+                    value: call("transitive"),
+                }],
+            ),
+            function("transitive", vec![]),
+            function(
+                "callback",
+                vec![NirOp::Eval {
+                    value: NirValue::Closure {
+                        name: "lambda".to_string(),
+                        type_: ParameterType::Unknown,
+                        captures: vec![],
+                    },
+                }],
+            ),
+            function("lambda", vec![]),
+            function(
+                "main",
+                vec![NirOp::Eval {
+                    value: call("direct"),
+                }],
+            ),
+            function("unrelated", vec![]),
+        ]);
+        let reached = initializer_reachable(&module);
+        let mut names: Vec<&str> = reached.iter().map(String::as_str).collect();
+        names.sort_unstable();
+        let mut expected = vec![
+            initializer.as_str(),
+            "callback",
+            "direct",
+            "lambda",
+            "transitive",
+        ];
+        expected.sort_unstable();
+        assert_eq!(names, expected);
     }
 }

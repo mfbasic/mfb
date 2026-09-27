@@ -28,6 +28,14 @@ pub(crate) fn lower_write(
     let ok_frames = format!("{symbol}_ok");
     let recover = format!("{symbol}_recover");
     let done = format!("{symbol}_done");
+    // plan-158-B: a failed `snd_pcm_recover` reports its negative errno.
+    let mut recover_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_recover_fail"),
+        ALSA_FAIL_STATUS_OFF,
+        ALSA_FAIL_PREFIX_OFF,
+    );
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
@@ -163,7 +171,7 @@ pub(crate) fn lower_write(
         // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&recover_sites.site("snd_pcm_recover", abi::return_register())),
         abi::branch(&loop_top),
         abi::label(&loop_done),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
@@ -194,6 +202,10 @@ pub(crate) fn lower_write(
         &mut relocations,
         &done,
     );
+    let v_recover = vregs.next();
+    recover_sites.emit_stubs(&v_recover, &mut instructions, &mut relocations);
+    instructions.push(abi::label(recover_sites.tail()));
+    recover_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     Ok((instructions, relocations, FRAME))
@@ -217,6 +229,14 @@ pub(crate) fn lower_read(
     let ok_frames = format!("{symbol}_ok");
     let recover = format!("{symbol}_recover");
     let done = format!("{symbol}_done");
+    // plan-158-B: a failed `snd_pcm_recover` reports its negative errno.
+    let mut recover_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_recover_fail"),
+        ALSA_FAIL_STATUS_OFF,
+        ALSA_FAIL_PREFIX_OFF,
+    );
     // Single-pass drain of frames already in the capture ring at the deadline
     // (timed read only; emitted near loop_done). Referenced from both `if timeout`
     // blocks, so declared at function scope.
@@ -519,7 +539,7 @@ pub(crate) fn lower_read(
         // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&recover_sites.site("snd_pcm_recover", abi::return_register())),
         abi::branch(&loop_top),
     ]);
     if timeout {
@@ -671,6 +691,10 @@ pub(crate) fn lower_read(
         &mut relocations,
         &done,
     );
+    let v_recover = vregs.next();
+    recover_sites.emit_stubs(&v_recover, &mut instructions, &mut relocations);
+    instructions.push(abi::label(recover_sites.tail()));
+    recover_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
     emit_fail(
         symbol,

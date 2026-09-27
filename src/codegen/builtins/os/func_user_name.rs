@@ -119,7 +119,7 @@ example under a service manager).
 
 If the effective uid has no passwd entry (as on a bare container uid),
 `os::userName` raises `ErrUnsupported`. It reads host state only and has no side
-effects."#;
+effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the user name:
 
 ```
@@ -142,7 +142,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrUnsupported"],
             body: Body::abi_function(lower_user_name),
         }],
     });

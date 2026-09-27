@@ -39,7 +39,7 @@ visited, no result list is produced, and the callback's own error is passed
 through unchanged.
 
 An inline `TRAP` on a `filter` call captures that propagated callback error at
-the call site rather than letting it auto-propagate."#;
+the call site rather than letting it auto-propagate. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Keep the even numbers with a built-in predicate:
 
@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_filter),
         }],
     });

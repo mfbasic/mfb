@@ -240,8 +240,14 @@ pub(crate) fn emit_app_io_input(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let mut asm = Asm::new(symbol);
+    // bug-699: `io::input(prompt, timeoutMs)` hands its timeout on to
+    // `io::readLine`; it lives in a vreg across the calls (the finalizer saves it).
+    let mut vregs = Vregs::new();
+    let v_timeout = vregs.next();
+    asm.push(abi::move_register(&v_timeout, abi::mfb_arg(1)));
     asm.call_internal(IO_WRITE_SYMBOL); // arg0 = prompt; renders it, result ignored
     emit_set_input_mode_instructions(&mut asm, INPUT_MODE_LINE_ECHO);
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_timeout));
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in the return registers
     asm.push(abi::return_());
     instructions.extend(asm.ins);
@@ -262,7 +268,7 @@ pub(crate) fn emit_set_raw_input_mode(
 fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
     // C-call argument staging is spelled with role tokens, not physical
     // registers: this sequence is also injected into shared helper bodies
-    // (`io_helpers::lower_io_read_char_helper` via `emit_set_raw_input_mode`),
+    // (the keystroke readers, via `emit_set_raw_input_mode`),
     // which the plan-34-D stream guard requires to be token-pure. The tokens
     // realize to the same x0–x3 at the selection seam.
     asm.load_selector(SEL_SHARED_APPLICATION.0);

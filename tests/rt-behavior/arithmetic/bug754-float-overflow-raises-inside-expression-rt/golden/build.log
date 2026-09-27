@@ -1,0 +1,28 @@
+$ mfb build -ast -ir tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt
+Wrote AST to tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt/bug754_float_overflow_raises_inside_expression_rt.ast
+Wrote IR to tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt/bug754_float_overflow_raises_inside_expression_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt
+Wrote executable to tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt/build/bug754_float_overflow_raises_inside_expression_rt.out
+[exit 0]
+$ tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt/build/bug754_float_overflow_raises_inside_expression_rt.out
+1.0 / sum: raised 77050015
+1.0 / sum = -1.00
+sum + 1.0: raised 77050015
+sum + 1.0 = -1.00
+abs(x * x): raised 77050015
+abs(x * x) = -1.00
+atan(x * x): raised 77050015
+atan(x * x) = -1.00
+min(x * x, 1.0): raised 77050015
+min(x * x, 1.0) = -1.00
+exp(-(x * x)): raised 77050015
+exp(-(x * x)) = -1.00
+vector::length: raised 77050015
+vector::length = -1.00
+1.0 / vector::distance: raised 77050015
+1.0 / vector::distance = -1.00
+1.0 / exp(1000.0): raised 77050014
+1.0 / exp(1000.0) = -1.00
+1.0 / finite sum = 0.25, abs = 6.00
+[exit 0]

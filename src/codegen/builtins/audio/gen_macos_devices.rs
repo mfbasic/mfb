@@ -27,6 +27,14 @@ pub(crate) fn lower_devices(
     let fill_loop = format!("{symbol}_fill_loop");
     let fill_done = format!("{symbol}_fill_done");
     let done = format!("{symbol}_done");
+    // plan-158-B: a failing Core Audio call reports its name and OSStatus.
+    let mut dev_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        DEVICES_FAIL_STATUS_OFF,
+        DEVICES_FAIL_PREFIX_OFF,
+    );
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
@@ -94,7 +102,7 @@ pub(crate) fn lower_devices(
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioObjectGetPropertyData", abi::return_register())),
         // count = SIZE / 4
         abi::load_u32(&v9, abi::stack_pointer(), SIZE_OFF),
         abi::shift_right_immediate(&v9, &v9, 2),
@@ -138,6 +146,7 @@ pub(crate) fn lower_devices(
         SEL_NAME,
         NAMEPTR_OFF,
         &dev_fail,
+        &mut dev_sites,
         &alloc_fail,
         &mut vregs,
     )?;
@@ -152,6 +161,7 @@ pub(crate) fn lower_devices(
         SEL_UID,
         IDPTR_OFF,
         &dev_fail,
+        &mut dev_sites,
         &alloc_fail,
         &mut vregs,
     )?;
@@ -250,8 +260,12 @@ pub(crate) fn lower_devices(
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&dev_fail),
     ]);
+    let v_scratch = vregs.next();
+    dev_sites.emit_stubs(&v_scratch, &mut instructions, &mut relocations);
+    instructions.push(abi::label(dev_sites.tail()));
+    dev_sites.emit_raise(&mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&dev_fail));
     emit_fail(
         symbol,
         "ErrAudioDevice",

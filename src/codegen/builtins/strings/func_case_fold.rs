@@ -41,7 +41,7 @@ the result is a new `String`.
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are
 dropped** — the mapping changes the scalar count within a span, so the overlay
-cannot be remapped."#;
+cannot be remapped. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Compare two strings without regard to case:
 
@@ -115,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

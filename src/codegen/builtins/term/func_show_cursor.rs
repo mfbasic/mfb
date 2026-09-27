@@ -27,7 +27,7 @@ is harmless — it is a flag, not a toggle.
 
 The flag persists until `term::hideCursor` or the next `term::on`, which resets
 the cursor to visible. The call is gated: while TUI mode is off it does nothing
-and reports no error."#;
+and reports no error. In an `mfb build --app` program, `term::showCursor` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Hide the cursor while a frame is drawn, then show it again for input:
 
@@ -65,6 +65,7 @@ pub(crate) fn lower_show_cursor(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -86,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_show_cursor),
         }],
     });

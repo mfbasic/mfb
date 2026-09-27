@@ -65,51 +65,30 @@ END FUNC
 ' Input
 ' ---------------------------------------------------------------------------
 
-FUNC pending(ms AS Integer) AS Boolean
-  RETURN io::pollInput(ms)
-END FUNC
-
-' One character of input, or "" once there is no more. Only the two failures a
-' keyboard can actually produce are answered here: the end of input, which
-' readKey turns into a quit, and a byte that is not UTF-8, which is a key this
-' program has no use for. Anything else is a real failure and goes on up.
-FUNC nextChar AS String
-  RETURN io::readChar()
-
-  TRAP(e)
-    IF e.code = errorCode::ErrEndOfFile THEN RETURN ""
-    IF e.code = errorCode::ErrEncoding THEN RETURN "\u{FFFD}"
+' The next key press within `ms` milliseconds, with the arrow keys, Backspace,
+' forward Delete and Esc named ("UP", "DOWN", "LEFT", "RIGHT", "BACKSPACE",
+' "DELETE", "ESC"), any other key that types text as that text, and any other
+' key as "OTHER". "" when no key was pressed in time (a key's release is not a
+' press), and "EOF" once the window has closed. Only the two conditions a
+' keyboard can actually produce are answered here — the wait running out and
+' the end of input; anything else is a real failure and goes on up.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN "EOF"
     PROPAGATE
   END TRAP
-END FUNC
-
-' One key press, with the arrow keys and forward delete named.
-'
-' Those keys arrive as terminal escape sequences - escape, then "[" or "O", then
-' a letter, or "3~" for delete - so a lone escape byte with nothing behind it is
-' the Esc key and one with more behind it is the start of a sequence. Anything
-' else in a sequence is read off and reported as "", which does nothing.
-FUNC readKey AS String
-  LET first AS String = nextChar()
-  IF first = "" THEN RETURN "EOF"
-  IF first <> "\u{1B}" THEN RETURN first
-  IF NOT pending(20) THEN RETURN "ESC"
-
-  LET bracket AS String = nextChar()
-  IF bracket <> "[" AND bracket <> "O" THEN RETURN ""
-  IF NOT pending(20) THEN RETURN ""
-
-  MATCH nextChar()
-    CASE "A" : RETURN "UP"
-    CASE "B" : RETURN "DOWN"
-    CASE "C" : RETURN "RIGHT"
-    CASE "D" : RETURN "LEFT"
-    CASE "3"
-      IF pending(20) THEN
-        IF nextChar() = "~" THEN RETURN "DELETE"
-      END IF
-      RETURN ""
-    CASE ELSE : RETURN ""
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  MATCH k.key
+    CASE io::KeyName.Up : RETURN "UP"
+    CASE io::KeyName.Down : RETURN "DOWN"
+    CASE io::KeyName.Left : RETURN "LEFT"
+    CASE io::KeyName.Right : RETURN "RIGHT"
+    CASE io::KeyName.Backspace : RETURN "BACKSPACE"
+    CASE io::KeyName.Delete : RETURN "DELETE"
+    CASE io::KeyName.Escape : RETURN "ESC"
+    CASE io::KeyName.Unicode : RETURN k.grapheme
+    CASE ELSE : RETURN "OTHER"
   END MATCH
 END FUNC
 
@@ -155,9 +134,8 @@ FUNC commandFor(key AS String) AS Command
     CASE "e", "E" : RETURN Spin[direction := 1.0]
     CASE "w", "W", "UP" : RETURN Resize[steps := 1.0]
     CASE "s", "S", "DOWN" : RETURN Resize[steps := -1.0]
-      ' The key marked delete on a Mac sends DEL; the one marked Backspace
-      ' elsewhere sends BS or DEL depending on the system.
-    CASE "\u{7F}", "\u{08}", "DELETE" : RETURN Remove[]
+      ' The key marked delete on a Mac is Backspace; either removes.
+    CASE "BACKSPACE", "DELETE" : RETURN Remove[]
     CASE "ESC", "EOF" : RETURN Quit[]
     CASE ELSE : RETURN Ignore[]
   END MATCH
@@ -273,8 +251,9 @@ FUNC main AS Integer
     pipe = pipeWithin(pipe, play)
     clampShapes(play, height)
 
-    DO WHILE pending(0)
-      MATCH commandFor(readKey())
+    MUT key AS String = nextKey(0)
+    DO WHILE key <> "" AND running
+      MATCH commandFor(key)
         CASE Rotate(r)
           IF selected >= 0 THEN
             stopSpin(selected)
@@ -292,6 +271,7 @@ FUNC main AS Integer
         CASE Quit : running = FALSE
         CASE Ignore
       END MATCH
+      key = nextKey(0)
     LOOP
 
     DO WHILE TRUE

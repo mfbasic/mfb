@@ -36,6 +36,8 @@ mod collection_compare;
 mod collections;
 mod corpus;
 mod data_layout;
+mod declared_errors_all;
+mod declared_errors_sweep;
 mod diagnostics;
 mod entry;
 mod fixture_projects;

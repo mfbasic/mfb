@@ -48,7 +48,7 @@ is about, and is `term::MouseButton.None` for motion and wheel events, which
 belong to no button.
 
 In a `mfb build --app` window the same events come from the window rather than
-from a terminal, and report the same cell coordinates."#;
+from a terminal, and report the same cell coordinates. In an `mfb build --app` program, `term::pollMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Poll for an event and ignore the idle answer:
 
@@ -104,6 +104,7 @@ pub(crate) fn lower_poll_mouse(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -125,7 +126,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named(super::MOUSE_EVENT_TYPE),
-            errors: vec!["ErrOutOfMemory"],
+            errors: vec!["ErrOutOfMemory", "ErrWrongMode"],
             body: Body::abi_function(lower_poll_mouse),
         }],
     });

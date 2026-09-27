@@ -390,9 +390,8 @@ pub(crate) const MOUSE_STATE_PARSE_LEN_OFFSET: usize = 24;
 ///
 /// **One-based rather than a plain index**, so that "owe the program `buf[0]`" is
 /// expressible. A zero-based cursor would spell that as `0`, which is also how it
-/// spells "nothing owed" — the two states are genuinely different and
-/// `io::pollInput` needs the first one: having read a byte to find out whether a
-/// character is ready, it must push that byte back undelivered.
+/// spells "nothing owed" — the two states are genuinely different, and a flush
+/// that owes the program the whole buffered prefix starts at `buf[0]`.
 pub(crate) const MOUSE_STATE_DRAIN_POS_OFFSET: usize = 32;
 /// Byte offset of the partial-sequence buffer itself: the bytes of an escape
 /// sequence seen so far but not yet known to be (or not to be) a complete mouse
@@ -1415,6 +1414,46 @@ pub(crate) const STRING_CONCAT_SYMBOL: &str = "_mfb_rt_string_concat";
 /// the per-thread arena slot — which is why it can be ONE function per module
 /// rather than a block per function.
 pub(crate) const PARK_ERROR_SYMBOL: &str = "_mfb_rt_park_error";
+/// plan-158-A: raise an error whose message carries an OS status. Takes the
+/// `"<registered message> (<call>: "` prefix `String` (`x0`), the status (`x1`,
+/// low 32 bits), the error code (`x2`) and the error's static registered message
+/// (`x3`). Builds `prefix + "0x" + 8 hex digits + ")"`, parks it through
+/// [`PARK_ERROR_SYMBOL`] and returns the `ERR_BLOCK` tag. On OOM it returns the
+/// loose `ERR` tag with a static message instead.
+pub(crate) const FAIL_STATUS_SYMBOL: &str = "_mfb_rt_fail_status";
+/// plan-158-A: swap the parked block a [`FAIL_STATUS_SYMBOL`] helper returned for
+/// a copy carrying the call site's `ErrorLoc`. Takes the code, the message (a
+/// pointer into the parked block) and a fresh `ErrorLoc` in the standard error
+/// registers; returns the `ERR_BLOCK` tag (or the loose `ErrOutOfMemory`) with the
+/// message register pointing into the new block.
+pub(crate) const RESTAMP_PARKED_ERROR_SYMBOL: &str = "_mfb_rt_restamp_parked_error";
+/// plan-158-A: symbol prefix of the per-(error, call) message-prefix data objects
+/// [`FAIL_STATUS_SYMBOL`] formats from (`error_status_prefix_symbol`).
+pub(crate) const ERROR_STATUS_PREFIX_SYMBOL_PREFIX: &str = "_mfb_str_errstatus_";
+/// plan-158-A: the builtin packages whose runtime helpers may return the
+/// `ERR_BLOCK` tag (through [`FAIL_STATUS_SYMBOL`]). A call site of one of these
+/// helpers re-stamps a parked error with its own location
+/// (`runtime_helper_may_park_error`); every other helper returns loose errors
+/// only, so its call sites carry no tag-3 branch. The module build refuses a
+/// function outside this list that calls `_mfb_rt_fail_status`
+/// (`builder/mod.rs`), so the two sides cannot drift apart.
+pub(crate) const PARKING_HELPER_PACKAGES: &[&str] = &["audio"];
+
+/// Whether a runtime helper call to `target` (`"audio.write"`) may return a
+/// parked error that the call site must re-stamp (plan-158-A).
+pub(crate) fn runtime_helper_may_park_error(target: &str) -> bool {
+    target
+        .split_once('.')
+        .is_some_and(|(package, _)| PARKING_HELPER_PACKAGES.contains(&package))
+}
+
+/// Whether the runtime helper `symbol` (`_mfb_rt_audio_audio_write`) belongs to a
+/// package in [`PARKING_HELPER_PACKAGES`].
+pub(crate) fn runtime_helper_symbol_may_park_error(symbol: &str) -> bool {
+    PARKING_HELPER_PACKAGES
+        .iter()
+        .any(|package| symbol.starts_with(&format!("_mfb_rt_{package}_")))
+}
 /// plan-118-E: drop one owned `String` slot — null-check, size from the block
 /// header, `arena_free`, then null the slot. `x0` is the slot's ADDRESS, not the
 /// pointer, so the helper can do the free-and-null itself.
@@ -1445,6 +1484,10 @@ pub(crate) const COLLECTION_GROW_DATA_INIT: usize = 32;
 pub(crate) const COLLECTION_GROW_DATA_TAPER: usize = 65536;
 
 pub(crate) const COLLECTION_TYPE_NONE: usize = 0;
+/// `Nothing` collection element, key or value (bug-745): a 1-byte lane that always
+/// holds `0` — the unit type has one value, so every stored payload is the same
+/// byte and every two payloads are equal. Takes the free tag 1 below `Boolean`.
+pub(crate) const COLLECTION_TYPE_NOTHING: usize = 1;
 pub(crate) const COLLECTION_TYPE_BOOLEAN: usize = 2;
 pub(crate) const COLLECTION_TYPE_INTEGER: usize = 3;
 pub(crate) const COLLECTION_TYPE_FLOAT: usize = 4;

@@ -107,7 +107,15 @@ pub(crate) fn lower_new_surface(
     ));
     builder.emit(abi::branch(&done));
 
+    // bug-698: this label used to fall straight through to `done`/`return_()`
+    // with no raise, so an allocation failure returned the RESULT_OK_TAG success
+    // path with `list_slot` never populated by `emit_alloc_byte_list` — a bogus
+    // "surface" instead of `ErrOutOfMemory`. Every sibling caller of
+    // `emit_alloc_byte_list` (`audio::gen_windows_io`/`gen_alsa_io`/
+    // `gen_macos_io`) raises `ErrOutOfMemory` at its `alloc_fail` label; this one
+    // never did.
     builder.emit(abi::label(&fail));
+    builder.raise_error_bare("ErrOutOfMemory")?;
     builder.emit(abi::label(&done));
     builder.emit(abi::return_());
 

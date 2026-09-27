@@ -191,6 +191,68 @@
     { "visibility": null, "line": 102, "name": "xs", "type": "List OF Shape" },
     { "visibility": null, "line": 103, "name": "mm", "type": "Map OF String TO Shape" }
     ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
   }
   ],
   "functions": [
@@ -805,7 +867,18 @@
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res73" } },
       "then": [
       { "op": "bind", "line": 224, "mutable": false, "name": "$trap_arg72", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res73" } } },
-      { "op": "assign", "line": 224, "name": "$trap_val75", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "$trap_arg72" }] } }
+      { "op": "bind", "line": 224, "mutable": false, "name": "$trap_res74", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "$trap_arg72" }] } },
+      {
+        "op": "if",
+        "line": 224,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res74" } },
+        "then": [
+        { "op": "assign", "line": 224, "name": "$trap_val75", "value": { "kind": "resultValue", "type": "List OF Integer", "value": { "kind": "local", "name": "$trap_res74" } } }
+        ],
+        "else": [
+        { "op": "assign", "line": 224, "name": "$trap_failed76", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ]
+      }
       ],
       "else": [
       { "op": "assign", "line": 224, "name": "$trap_failed76", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
@@ -838,7 +911,18 @@
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res80" } },
         "then": [
         { "op": "bind", "line": 227, "mutable": false, "name": "$trap_arg79", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res80" } } },
-        { "op": "assign", "line": 227, "name": "$trap_val82", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "$trap_arg79" }] } }
+        { "op": "bind", "line": 227, "mutable": false, "name": "$trap_res81", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "$trap_arg79" }] } },
+        {
+          "op": "if",
+          "line": 227,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res81" } },
+          "then": [
+          { "op": "assign", "line": 227, "name": "$trap_val82", "value": { "kind": "resultValue", "type": "List OF Integer", "value": { "kind": "local", "name": "$trap_res81" } } }
+          ],
+          "else": [
+          { "op": "assign", "line": 227, "name": "$trap_failed83", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+          ]
+        }
         ],
         "else": [
         { "op": "assign", "line": 227, "name": "$trap_failed83", "value": { "kind": "const", "type": "Boolean", "value": "true" } }

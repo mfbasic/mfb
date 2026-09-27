@@ -68,7 +68,7 @@ failing on Windows — the call raises `ErrUnsupported`.
 
 A sandboxed macOS app (one built for the Mac App Store) gets a directory
 inside its own container, because that is what the system reports as its home
-there; this is the correct place for it to write."#;
+there; this is the correct place for it to write. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Keep a downloaded copy in the cache directory:
 
 ```
@@ -107,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // Raised through `raise_error_into` (`gen_host_paths.rs`), which the
             // static descriptor scan cannot see — declared here so the page's
             // Errors section lists them (the bug-454 lesson).
-            errors: vec!["ErrUnsupported", "ErrInvalidPath"],
+            errors: vec!["ErrUnsupported", "ErrInvalidPath", "ErrOutOfMemory"],
             body: Body::abi_function(lower_app_cache_path),
         }],
     });

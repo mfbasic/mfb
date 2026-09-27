@@ -56,7 +56,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrWrongMode"],
+            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
             body: Body::abi_function(lower_publish_scene),
         }],
     });
@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrWrongMode"],
+            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
             body: Body::abi_function(lower_publish_layers),
         }],
     });

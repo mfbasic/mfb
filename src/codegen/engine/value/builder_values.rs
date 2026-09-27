@@ -98,6 +98,10 @@ impl CodeBuilder<'_> {
             &mut self.borrow_get_result,
             std::mem::take(&mut self.borrow_get_armed),
         );
+        // bug-744: whether THIS frame's value is discarded (an `Eval` statement, a
+        // `Nothing` function's `RETURN`). Taken here so every operand frame below is
+        // a value position.
+        let value_discarded = std::mem::take(&mut self.value_discarded_armed);
         // Track the source location of the node being lowered so that any error
         // freshly created while lowering it (overflow, divide-by-zero, helper
         // failure, conversion failure) stamps a real `ErrorLoc`. The save/restore
@@ -154,6 +158,28 @@ impl CodeBuilder<'_> {
             self.free_call_closure_temps(result, closure_mark, &freeable_closure_args)?
         } else {
             result
+        };
+        // bug-744: a `Nothing`-typed call lowers to a `void` location — the callee
+        // leaves no value in `RESULT_VALUE_REGISTER`, and a statement call needs
+        // none. `Nothing` is still a value (§4.6), so a `FUNC … AS Nothing` call in
+        // value position (a binding, an argument, an operand, a literal element, a
+        // field) yields the unit value `NOTHING`, which is 0 exactly as
+        // `lower_default_value` and a `NOTHING` constant make it. Done after the
+        // closure drops above, which would clobber a register made before them.
+        let result = match result {
+            Ok(result)
+                if !value_discarded
+                    && result.type_ == ParameterType::Nothing
+                    && result.location == "void" =>
+            {
+                let register = self.allocate_register();
+                self.emit(abi::move_immediate(&register, "Integer", "0"));
+                Ok(ValueResult {
+                    location: Operand::from(register),
+                    ..result
+                })
+            }
+            other => other,
         };
         // The mark a producer set while lowering THIS node. An operand's own
         // `lower_value` cleared and consumed its mark before returning, so what
@@ -2966,7 +2992,13 @@ impl CodeBuilder<'_> {
                 // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.
                 let register = self.allocate_register();
-                if self.result_payload_is_block(&type_) {
+                if type_ == ParameterType::Nothing {
+                    // bug-744: a `Nothing` callee leaves `RESULT_VALUE_REGISTER`
+                    // unset, so the payload `materialize_current_result` boxed from
+                    // it is whatever that register last held. The one `Nothing`
+                    // value is `NOTHING` (0); produce it rather than read the slot.
+                    self.emit(abi::move_immediate(&register, "Integer", "0"));
+                } else if self.result_payload_is_block(&type_) {
                     self.emit(abi::add_immediate(&register, &result.location, 16));
                 } else {
                     self.emit(abi::load_u64(&register, &result.location, 16));
@@ -3326,7 +3358,9 @@ impl CodeBuilder<'_> {
         if args.len() <= 1 {
             let mut values = Vec::with_capacity(args.len());
             for arg in args {
-                values.push(self.lower_value(arg)?);
+                let value = self.lower_value(arg)?;
+                self.observe_float(arg, &value)?;
+                values.push(value);
             }
             return Ok(values);
         }
@@ -3335,6 +3369,10 @@ impl CodeBuilder<'_> {
         let mut spilled = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             let value = self.lower_value(arg)?;
+            // bug-754: an argument is an observation boundary (plan-17), for an
+            // inline builtin exactly as for a called one (`emit_call`). Checked as
+            // each is lowered, so a later argument's effects never run first.
+            self.observe_float(arg, &value)?;
             let slot = self.allocate_stack_object(&format!("abi_inline_arg{index}"), 8);
             // Type-aware spill: a `d`-native `Float` stores from its FP register
             // (`str d`) so its bit pattern — including the sign of a `-0.0` — survives
@@ -3653,24 +3691,9 @@ impl CodeBuilder<'_> {
                 }
             }
         }
-        if target == "io.input" && helper_args.is_empty() {
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::String,
-                value: String::new(),
-            });
-        } else if target == "io.pollInput" && helper_args.is_empty() {
-            // plan-73-F: the no-timeout `io::pollInput()` form BLOCKS until input is
-            // ready (the timeout convention's omit=unbounded rule) — pad the missing
-            // `timeoutMs` with the block sentinel (i64::MIN); the poll helper routes
-            // it to a poll(2) -1 (block-forever) timeout and rejects every other
-            // negative value. Before plan-73 this padded `0` (a non-blocking check)
-            // and a negative meant "block", the exact POSIX inversion the convention
-            // removes.
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::Integer,
-                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
-            });
-        } else if target == "thread.start" {
+        // (`io::input`'s omitted prompt and timeout are `DefaultValue::Fill`s,
+        // padded in the IR like every other optional argument — bug-699.)
+        if target == "thread.start" {
             while helper_args.len() < 4 {
                 helper_args.push(NirValue::Const {
                     type_: ParameterType::Integer,

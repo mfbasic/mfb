@@ -23,7 +23,7 @@ set is the returned value, and a program observes the update only through what i
 does with that return value.
 
 Removing an absent element is a no-op rather than a failure, so `remove` raises
-no error of its own."#;
+no error of its own. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Remove a present element:
 
@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_remove),
         }],
     });

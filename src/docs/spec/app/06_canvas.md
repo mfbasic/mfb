@@ -787,8 +787,7 @@ the trappable `ErrWrongMode` elsewhere, on the same seam `term::` uses.
 The **value constructors are exempt**: `canvas::fill`, `canvas::stroke` and
 `canvas::fillStroke` build a `canvas::Paint` and touch no surface, so a program may
 assemble its paints before it presents anything. Gating them would buy no safety and
-cost real ergonomics — the same reasoning that leaves `io::readByte` outside the
-gated console-read set.
+cost real ergonomics.
 
 That list used to name `canvas::rgb` and `canvas::rgba` as well. It no longer can:
 plan-122-D removed them, and colour construction lives in `color`, which is not an

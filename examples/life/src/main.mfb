@@ -1,5 +1,6 @@
 IMPORT collections
 IMPORT datetime
+IMPORT errorCode
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -38,7 +39,7 @@ END TYPE
 ' How long each generation is displayed before the next is computed, in
 ' milliseconds. The simulation advances on this fixed wall-clock cadence
 ' (tracked via datetime::monotonicNanos(), independent of whether a key
-' arrived); io::pollInput only ever waits up to whatever is left of the
+' arrived); io::readKey only ever waits up to whatever is left of the
 ' current cadence for a keypress.
 FUNC frameDelayMs AS Integer
   RETURN 90
@@ -249,13 +250,16 @@ SUB drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Inte
   term::setBold(FALSE)
 END SUB
 
-' Read one keypress, returning "" on end-of-input or a read error so the caller
-' can quit cleanly.
-FUNC readKey AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
+' The text of the next key typed within `ms` milliseconds: "" when no key came
+' in time (or the key typed nothing, or was a release), and "EOF" on
+' end-of-input or a read error, so the caller can quit cleanly.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
   END TRAP
-  RETURN c
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  RETURN k.grapheme
 END FUNC
 
 FUNC main AS Integer
@@ -334,9 +338,9 @@ FUNC main AS Integer
     IF stepWaitMs < 0 THEN stepWaitMs = 0
     IF stepWaitMs > frameDelayMs() THEN stepWaitMs = frameDelayMs()
 
-    IF io::pollInput(stepWaitMs) THEN
-      LET key AS String = readKey()
-      IF key = "" OR key = "q" OR key = "Q" THEN
+    LET key AS String = nextKey(stepWaitMs)
+    IF key <> "" THEN
+      IF key = "EOF" OR key = "q" OR key = "Q" THEN
         running = FALSE
       ELSEIF key = " " THEN
         paused = NOT paused

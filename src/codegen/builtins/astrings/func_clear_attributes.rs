@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::named("AttributedString"),
-                errors: vec![],
+                errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument"],
                 body: Body::mfb(BODY_RANGE, "__astrings_clearAttributesRange"),
             },
         ],

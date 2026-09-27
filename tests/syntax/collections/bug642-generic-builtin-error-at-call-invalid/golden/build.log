@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid
+  20 |   LET byFlag = collections::sortBy([1, 2, 3], flagOf)
+  21 |   LET fns AS List OF FUNC(Integer) AS Boolean = [flagOf]
+  22 |   LET unique = collections::distinct(fns)
+     | ^
+tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:22 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               In the body of `collections::distinct`, instantiated by this call: Call to `collections.contains` requires a comparable type, got `FUNC(Integer) AS Boolean`.
+  11 | SUB main()
+  12 |   LET flags AS List OF Boolean = [TRUE, FALSE]
+  13 |   LET sortedFlags = collections::sort(flags)
+     | ^
+tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:13 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               In the body of `collections::sort`, instantiated by this call: Operator `<` requires numeric or String operands, got Boolean and Boolean.
+  17 |   ' A second call with the same element type reuses the instantiation, and is
+  18 |   ' reported too.
+  19 |   LET again = collections::sort([FALSE, TRUE])
+     | ^
+tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:19 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               In the body of `collections::sort`, instantiated by this call: Operator `<` requires numeric or String operands, got Boolean and Boolean.
+  14 |   ' The bug-744 lane's case: `Nothing` is not orderable either.
+  15 |   LET nothings AS List OF Nothing = [NOTHING, NOTHING]
+  16 |   LET sortedNothings = collections::sort(nothings)
+     | ^
+tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:16 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               In the body of `collections::sort`, instantiated by this call: Operator `<` requires numeric or String operands, got Nothing and Nothing.
+  18 |   ' reported too.
+  19 |   LET again = collections::sort([FALSE, TRUE])
+  20 |   LET byFlag = collections::sortBy([1, 2, 3], flagOf)
+     | ^
+tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:20 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               In the body of `collections::sortBy`, instantiated by this call: Operator `<` requires numeric or String operands, got Boolean and Boolean.
+[exit 1]

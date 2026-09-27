@@ -1,0 +1,144 @@
+{
+  "project": "bug644_inline_trap_float_sum_overflow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 },
+    { "module": "errorCode", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bigF",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1.0e308" }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bigI",
+      "line": 15,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "9223372036854775807" }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "overflowUntrapped",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "bigF", "arguments": [] }, { "kind": "call", "callee": "bigF", "arguments": [] }] }] }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "viaCalls", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 25,
+        "expression": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "bigF", "arguments": [] }, { "kind": "call", "callee": "bigF", "arguments": [] }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "D handler code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 26 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.0" } }, "line": 27 }
+        ]
+      }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "D inline TRAP, non-literal elements = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "viaCalls" }] } }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "viaLiterals", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e2",
+        "line": 31,
+        "expression": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1.0e308" }, { "kind": "number", "value": "1.0e308" }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "E handler code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e2" }, "member": "code" }] } }] }, "line": 32 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.0" } }, "line": 33 }
+        ]
+      }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "E inline TRAP, literal elements = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "viaLiterals" }] } }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "fine", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e3",
+        "line": 38,
+        "expression": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.25" }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-finite" }] }, "line": 39 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3.0" } }, "line": 40 }
+        ]
+      }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "finite total = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "fine" }] } }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "negative", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e4",
+        "line": 45,
+        "expression": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.0e308" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.0e308" } }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negative handler code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e4" }, "member": "code" }] } }] }, "line": 46 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "4.0" } }, "line": 47 }
+        ]
+      }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negative = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negative" }] } }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "wide", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e5",
+        "line": 52,
+        "expression": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "bigI", "arguments": [] }, { "kind": "call", "callee": "bigI", "arguments": [] }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Integer handler code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e5" }, "member": "code" }] } }] }, "line": 53 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } }, "line": 54 }
+        ]
+      }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Integer = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "wide" }] } }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "inverse", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e7",
+        "line": 59,
+        "expression": { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "1.0" }, "right": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "bigF", "arguments": [] }, { "kind": "call", "callee": "bigF", "arguments": [] }] }] } },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "operand handler code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e7" }, "member": "code" }] } }] }, "line": 60 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "7.0" } }, "line": 61 }
+        ]
+      }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "operand = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "inverse" }] } }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "name": "propagated", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e6",
+        "line": 66,
+        "expression": { "kind": "call", "callee": "overflowUntrapped", "arguments": [] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "propagated code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e6" }, "member": "code" }] } }, "right": { "kind": "string", "value": " is overflow=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e6" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrFloatOverflow" } }] } }] }, "line": 67 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "6.0" } }, "line": 68 }
+        ]
+      }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "propagated = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "propagated" }] } }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      ]
+    }
+    ]
+  }
+  ]
+}

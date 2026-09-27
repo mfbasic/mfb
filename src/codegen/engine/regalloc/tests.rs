@@ -540,6 +540,84 @@ fn linear_scan_writes_typed_phys_operands() {
     ));
 }
 
+/// plan-161-B: a value that is dead at a call inside its interval — the shape
+/// of every checked operation's inline raise path, which calls the error
+/// builders and returns — is not forced out of the registers that call
+/// clobbers at `-O1`: nothing it still needs lives through the call. At `-O0`
+/// the whole-interval rule still spills it.
+#[test]
+fn a_value_dead_at_a_raise_call_keeps_its_register_at_level_one() {
+    let stream = || {
+        vec![
+            CodeInstruction::new("label").field("name", "entry"),
+            CodeInstruction::new("mov_imm")
+                .physical_field("dst", &vreg_name(0))
+                .field("type", "Integer")
+                .field("value", "5"),
+            CodeInstruction::new("cmp_imm")
+                .physical_field("lhs", &vreg_name(0))
+                .field("rhs", "0"),
+            CodeInstruction::new("b.ne").field("target", "ok"),
+            // The raise path: an all-clobbering runtime call, then return.
+            CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+            CodeInstruction::new("ret"),
+            CodeInstruction::new("label").field("name", "ok"),
+            CodeInstruction::new("str_u64")
+                .physical_field("src", &vreg_name(0))
+                .physical_field("base", "sp")
+                .field("offset", "0"),
+            CodeInstruction::new("ret"),
+        ]
+    };
+    let mut optimized = stream();
+    let outcome = crate::optimizer::with_opt_level(crate::optimizer::OptLevel(1), || {
+        allocate(&mut optimized, &Aarch64RegisterModel, 64, &[])
+    });
+    assert!(outcome.spill_slots.is_empty(), "-O1 keeps it in a register");
+
+    let mut unoptimized = stream();
+    let outcome = crate::optimizer::with_opt_level(crate::optimizer::OptLevel(0), || {
+        allocate(&mut unoptimized, &Aarch64RegisterModel, 64, &[])
+    });
+    assert_eq!(outcome.spill_slots, vec![64], "-O0 spills across the call");
+}
+
+/// plan-161-B: register coalescing runs at the default `-O1` — a copy whose
+/// source dies at it gets the source's register and the copy disappears — and
+/// stays off at `-O0`.
+#[test]
+fn coalescing_removes_a_dying_copy_at_level_one() {
+    let stream = || {
+        vec![
+            CodeInstruction::new("label").field("name", "entry"),
+            CodeInstruction::new("mov_imm")
+                .physical_field("dst", &vreg_name(0))
+                .field("type", "Integer")
+                .field("value", "5"),
+            CodeInstruction::new("mov")
+                .physical_field("dst", &vreg_name(1))
+                .physical_field("src", &vreg_name(0)),
+            CodeInstruction::new("str_u64")
+                .physical_field("src", &vreg_name(1))
+                .physical_field("base", "sp")
+                .field("offset", "0"),
+            CodeInstruction::new("ret"),
+        ]
+    };
+    let copies = |level: u8| {
+        let mut instructions = stream();
+        crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+            allocate(&mut instructions, &Aarch64RegisterModel, 64, &[])
+        });
+        instructions
+            .iter()
+            .filter(|instruction| instruction.op == crate::arch::ops::CodeOp::Mov)
+            .count()
+    };
+    assert_eq!(copies(1), 0, "-O1 coalesces the copy away");
+    assert_eq!(copies(0), 1, "-O0 keeps it");
+}
+
 /// Run an allocated straight-line/branching rv64 stream on a tiny model machine
 /// (registers + `sp`-relative memory) and return the memory it wrote. Covers
 /// exactly the ops the allocator and the bug-746 fixture emit; anything else is a

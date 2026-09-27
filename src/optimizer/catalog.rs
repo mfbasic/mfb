@@ -40,6 +40,28 @@ impl Row {
 pub(crate) fn rows() -> &'static [Row] {
     static ROWS: &[Row] = &[
         Row {
+            name: "Literal `LET` folding",
+            level: 1,
+            stage: "NIR",
+            summary: "Replaces a read of a module-level `LET` whose value is a \
+                      number or Boolean literal with that literal, so the value \
+                      is an immediate instead of a memory load. Code that can \
+                      run while module-level bindings are still being \
+                      initialized keeps its reads.",
+            counter: &stats::LETS_FOLDED,
+        },
+        Row {
+            name: "Leaf function inlining",
+            level: 1,
+            stage: "NIR",
+            summary: "Replaces a call to a one-line numeric or Boolean helper \
+                      (`RETURN <expression>`, calling no function of the \
+                      program) with the helper's expression when every argument \
+                      is a plain variable or literal. An error inside it still \
+                      reports the helper's own line and column.",
+            counter: &stats::LEAF_CALLS_INLINED,
+        },
+        Row {
             name: "Constant folding",
             level: 1,
             stage: "NIR + MIR",
@@ -519,7 +541,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Register coalescing",
-            level: 2,
+            level: 1,
             stage: "regalloc",
             summary: "Gives a copy's source and destination the same register \
                       when they never hold different values, so the copy \
@@ -550,6 +572,15 @@ pub(crate) fn rows() -> &'static [Row] {
                       it one register for the first part and another for the \
                       rest, instead of spilling it to memory throughout.",
             counter: &stats::LIVE_RANGES_SPLIT,
+        },
+        Row {
+            name: "Stack slot promotion",
+            level: 1,
+            stage: "regalloc",
+            summary: "Keeps a local or temporary that is only ever stored and \
+                      reloaded whole in a register instead of a stack slot, \
+                      leaving register allocation to decide where it lives.",
+            counter: &stats::SLOTS_PROMOTED,
         },
         Row {
             name: "Peephole optimization (store-to-load forwarding)",

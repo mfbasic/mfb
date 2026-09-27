@@ -26,15 +26,15 @@ so live window resizes are reported the same way.
 Like `term::isOn`, this query is **not gated**: it reads state only and touches
 neither the terminal nor the surface. Before any `term::on` — or on a
 fixed-size app window that never resizes — it simply reads `FALSE`. A companion `term::terminalSize` call returns the new extent after
-`term::didResize` reports a change."#;
+`term::didResize` reports a change. In an `mfb build --app` program, `term::didResize` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Reflow a layout only when the terminal changes size. The check
 belongs in a frame loop, after the frame is presented: `term::sync` is what
 re-reads the terminal's size.
 
 ```
+IMPORT os
 IMPORT term
-IMPORT io
 
 SUB main()
   term::on()
@@ -43,7 +43,7 @@ SUB main()
     term::clear()
     term::drawText(0, 0, "frame " & toString(frames))
     term::sync()
-    LET ready AS Boolean = io::pollInput(100)
+    os::sleep(100)
     IF term::didResize() THEN
       term::clear()
       term::drawText(0, 0, "reflowed")
@@ -58,8 +58,9 @@ END SUB
 Read the new extent on the frame that reports the resize:
 
 ```
-IMPORT term
 IMPORT io
+IMPORT os
+IMPORT term
 
 SUB main()
   term::on()
@@ -69,7 +70,7 @@ SUB main()
     term::clear()
     term::drawText(0, 0, toString(size.columns) & "x" & toString(size.rows))
     term::sync()
-    LET ready AS Boolean = io::pollInput(100)
+    os::sleep(100)
     IF term::didResize() THEN
       size = term::terminalSize()
     END IF
@@ -95,6 +96,7 @@ pub(crate) fn lower_did_resize(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -116,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_did_resize),
         }],
     });

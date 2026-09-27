@@ -104,7 +104,7 @@ const INTRO: &str = r#"The program name from this invocation"#;
 const DESC: &str = r#"`os::prog` returns the program name exactly as the host supplied it in `argv[0]`.
 This is the invocation spelling, which can be relative or a symlink; it is not the
 absolute resolved path returned by `os::executablePath`. If the host spelling is
-not valid UTF-8, it raises `ErrEncoding`."#;
+not valid UTF-8, it raises `ErrEncoding`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the invocation name:
 
 ```
@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrEncoding", "ErrInvalidArgument"],
+            errors: vec!["ErrEncoding", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::abi_function(lower_prog),
         }],
     });

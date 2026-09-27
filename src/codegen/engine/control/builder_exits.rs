@@ -803,7 +803,14 @@ impl CodeBuilder<'_> {
         let interior_temp_watermark =
             interior_temp_watermark.unwrap_or(self.pending_temp_frees.len());
         let lowered = if let Some(value) = value {
-            Some(self.lower_returned_value(value, move_elided)?)
+            // bug-744: a returned `Nothing` travels in no register (the paths below
+            // skip it and the caller synthesizes `NOTHING`), so a returned
+            // `Nothing` call keeps its `void` location. Only a `Nothing` result is
+            // affected by the flag, so arming it for every return is exact.
+            self.value_discarded_armed = true;
+            let lowered = self.lower_returned_value(value, move_elided);
+            self.value_discarded_armed = false;
+            Some(lowered?)
         } else {
             None
         };

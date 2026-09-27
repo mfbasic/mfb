@@ -23,23 +23,34 @@
 //! other node is finite by construction".
 //!
 //! **A builtin `Call` is neither, and the premise was false for one member.**
-//! `collections::sum`'s `Float` arm folds the elements with a bare
+//! `collections::sum`'s `Float` arm folded the elements with a bare
 //! `abi::float_add_d` (`collections/func_sum.rs`) — no check, no raise — so
 //!
 //! ```text
 //! LET total AS Float = collections::sum(xs)   ' xs = [1e308, 1e308, 1e308]
 //! ```
 //!
-//! bound `+Inf` to a named local and printed `f64::MAX`'s digits, exit 0.
-//!
+//! bound `+Inf` to a named local and printed `f64::MAX`'s digits, exit 0. bug-590
+//! re-checked its result at each boundary; that left every place a boundary did
+//! not see it — `1.0 / collections::sum(xs)` recovered to `0.0`, and an inline
+//! `TRAP` received `Ok(+Inf)` (bug-644). Since bug-754 `sum` checks its own total at
+//! the call (reason 4 below), so no member is left for a boundary to re-check.
+
 //! # The enumeration is TOTAL
+//!
+//! **A member whose `Float` can leave binary64 must raise at the call.** The
+//! boundary re-check is not a substitute: it fires only where some boundary sees the
+//! value, so the same overflow raised when bound and vanished as an operand
+//! (bug-754). There is therefore no "re-check at the boundary" classification; a
+//! member that cannot prove one of the four reasons below must be fixed to raise.
 //!
 //! [`FLOAT_RESULTS`] carries one row per builtin member that can return a scalar
 //! `Float`, and `float_results_is_total` (below) walks the registry and fails if a
 //! member is missing from it, or if a row no longer names such a member. Adding a
 //! `Float`-returning builtin without classifying it is therefore a red test, not a
 //! silent hole — the lookup itself additionally fails CLOSED (an unclassified
-//! member is re-checked), so even a skipped test cannot leak an `Inf`.
+//! member is re-checked at its boundaries), so even a skipped test leaks an `Inf`
+//! only through a non-boundary position.
 //!
 //! The classification is *not* per-member folklore; every `Finite` row falls into
 //! one of four documented reasons, recorded on the row:
@@ -56,79 +67,68 @@
 //!    element, a callback's `RETURN` value, or a value the thread runtime
 //!    marshalled out of a frame that observed it.
 //! 4. **The member rejects a non-finite itself** — `toFloat` raises `ErrOverflow`
-//!    (`77050010`) rather than handing back an infinity. (Measured:
-//!    `toFloat("1e400")` exits 255 with `7-705-0010`.)
+//!    (`77050010`) rather than handing back an infinity (measured:
+//!    `toFloat("1e400")` exits 255 with `7-705-0010`), and `collections::sum`
+//!    checks its `Float` total and raises `ErrFloatOverflow` (`77050015`).
 
 use crate::codegen::registry::registry;
 
-/// Whether a builtin member's scalar `Float` result is already constrained to be
-/// finite when it reaches its caller.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum FloatResult {
-    /// The member cannot hand back a non-finite `Float` — see the four reasons in
-    /// the module docs. An observation boundary needs no re-check.
-    Finite,
-    /// The member can hand back a non-finite `Float`. Every observation boundary
-    /// that consumes the call result must re-check it.
-    Unconstrained,
-}
-
-/// Every builtin member that can return a scalar `Float`, and whether that result
-/// is already finite. Kept TOTAL by `float_results_is_total`.
+/// Every builtin member that can return a scalar `Float`, each with the reason
+/// (recorded on the row) its result is finite when it reaches its caller. Kept
+/// TOTAL by `float_results_is_total`.
 ///
 /// Keyed by member NAME, not by overload: the boundary predicate runs on an
 /// untyped NIR node, and `observe_float` has already established that *this* call
-/// produced a `Float`, so a member whose `Float` overload is unconstrained is
-/// re-checked and its `Integer`/`Fixed` overloads are never reached by the guard.
-pub(crate) const FLOAT_RESULTS: &[(&str, &str, FloatResult)] = &[
+/// produced a `Float`.
+pub(crate) const FLOAT_RESULTS: &[(&str, &str)] = &[
     // --- collections ---------------------------------------------------------
-    // THE bug-590 defect. The `Float` arm of `sum` accumulates with a bare
-    // `abi::float_add_d` and raises nothing, so a list whose running total leaves
-    // binary64 yields `±Inf` (or `NaN`, summing `+Inf` with `-Inf`).
-    ("collections", "sum", FloatResult::Unconstrained),
+    // (4) bug-754: the `Float` arm checks its total after the fold and raises
+    // `ErrFloatOverflow`. (bug-590 re-checked it at boundaries instead, which missed
+    // it as an operand and under an inline `TRAP`.)
+    ("collections", "sum"),
     // (3) A read of an element that was observed when it was stored.
-    ("collections", "get", FloatResult::Finite),
-    ("collections", "getOr", FloatResult::Finite),
+    ("collections", "get"),
+    ("collections", "getOr"),
     // (3) The accumulator is the user callback's `RETURN` value, observed in the
     // callback's frame. (Measured: reducing [1e308; 3] with `LAMBDA(a, e) -> a + e`
     // exits 255 with `7-705-0015` already.)
-    ("collections", "reduce", FloatResult::Finite),
-    ("collections", "reduceRight", FloatResult::Finite),
+    ("collections", "reduce"),
+    ("collections", "reduceRight"),
     // --- color ---------------------------------------------------------------
     // (1) `Body::Mfb` — `__color_luminance` / `__color_contrastRatio`.
-    ("color", "luminance", FloatResult::Finite),
-    ("color", "contrastRatio", FloatResult::Finite),
+    ("color", "luminance"),
+    ("color", "contrastRatio"),
     // --- general -------------------------------------------------------------
     // (4) `toFloat` raises `ErrOverflow` on text that does not fit binary64 and
     // `ErrInvalidFormat` on text naming a non-finite, per the same spec paragraph.
-    ("general", "toFloat", FloatResult::Finite),
+    ("general", "toFloat"),
     // --- math ----------------------------------------------------------------
     // (2) A `math::` kernel's `Float` overload. `abs`/`min`/`max`/`clamp` echo one
     // of their (already observed) arguments; `sqrt`/`sin`/`cos`/`tan`/`asin`/
     // `acos`/`atan`/`atan2` are finite for every finite argument; `exp`/`log`/
     // `log10`/`pow` raise `ErrFloatInf` / `ErrFloatDomain` themselves.
-    ("math", "abs", FloatResult::Finite),
-    ("math", "acos", FloatResult::Finite),
-    ("math", "asin", FloatResult::Finite),
-    ("math", "atan", FloatResult::Finite),
-    ("math", "atan2", FloatResult::Finite),
-    ("math", "clamp", FloatResult::Finite),
-    ("math", "cos", FloatResult::Finite),
-    ("math", "exp", FloatResult::Finite),
-    ("math", "log", FloatResult::Finite),
-    ("math", "log10", FloatResult::Finite),
-    ("math", "max", FloatResult::Finite),
-    ("math", "min", FloatResult::Finite),
-    ("math", "pow", FloatResult::Finite),
-    ("math", "sin", FloatResult::Finite),
-    ("math", "sqrt", FloatResult::Finite),
-    ("math", "tan", FloatResult::Finite),
+    ("math", "abs"),
+    ("math", "acos"),
+    ("math", "asin"),
+    ("math", "atan"),
+    ("math", "atan2"),
+    ("math", "clamp"),
+    ("math", "cos"),
+    ("math", "exp"),
+    ("math", "log"),
+    ("math", "log10"),
+    ("math", "max"),
+    ("math", "min"),
+    ("math", "pow"),
+    ("math", "sin"),
+    ("math", "sqrt"),
+    ("math", "tan"),
     // --- thread --------------------------------------------------------------
     // (3) The value was observed at its producer's boundary in the sending frame —
     // `thread::send`'s argument, or the worker's `RETURN`.
-    ("thread", "accept", FloatResult::Finite),
-    ("thread", "receive", FloatResult::Finite),
-    ("thread", "waitFor", FloatResult::Finite),
+    ("thread", "accept"),
+    ("thread", "receive"),
+    ("thread", "waitFor"),
     // --- vector --------------------------------------------------------------
     // (1) `Body::Mfb` — `__vector_dot_float3` and friends observe at their own
     // `RETURN`. `length`/`distance` additionally feed their sum to `math::sqrt` as
@@ -138,10 +138,10 @@ pub(crate) const FLOAT_RESULTS: &[(&str, &str, FloatResult)] = &[
     // which bypasses that `RETURN`; bug-590 made the inline arm observe the sum it
     // builds, so both paths raise. The fixture is
     // `tests/rt-error/vector/func_vector_dot_float_overflow`.
-    ("vector", "angle", FloatResult::Finite),
-    ("vector", "distance", FloatResult::Finite),
-    ("vector", "dot", FloatResult::Finite),
-    ("vector", "length", FloatResult::Finite),
+    ("vector", "angle"),
+    ("vector", "distance"),
+    ("vector", "dot"),
+    ("vector", "length"),
 ];
 
 /// Whether a call to `target` can hand back a non-finite `Float`, so an
@@ -155,10 +155,9 @@ pub(crate) fn builtin_float_result_may_be_nonfinite(target: &str) -> bool {
     let (package, member) = target.split_once('.').unwrap_or(("general", target));
     match FLOAT_RESULTS
         .iter()
-        .find(|(p, m, _)| *p == package && *m == member)
+        .find(|(p, m)| *p == package && *m == member)
     {
-        Some((_, _, FloatResult::Finite)) => false,
-        Some((_, _, FloatResult::Unconstrained)) => true,
+        Some(_) => false,
         // Fail CLOSED, but only for a member the registry actually owns and that
         // actually returns a `Float`. An unclassified builtin is re-checked (a
         // redundant check is dead code; a missing one is silently wrong output),
@@ -220,8 +219,7 @@ mod tests {
                 }
             }
         }
-        let classified: BTreeSet<(&str, &str)> =
-            FLOAT_RESULTS.iter().map(|(p, m, _)| (*p, *m)).collect();
+        let classified: BTreeSet<(&str, &str)> = FLOAT_RESULTS.iter().copied().collect();
 
         let missing: Vec<_> = census.difference(&classified).collect();
         assert!(
@@ -238,13 +236,13 @@ mod tests {
         );
     }
 
-    /// The one member the boundary must re-check, and its neighbours that it must
-    /// NOT — a `math::` kernel re-checked here would raise `ErrFloatOverflow` where
-    /// the spec assigns `ErrFloatInf`.
+    /// bug-754: no classified member is re-checked at a boundary — `sum` raises at
+    /// the call, and a `math::` kernel re-checked here would raise `ErrFloatOverflow`
+    /// where the spec assigns `ErrFloatInf`.
     #[test]
-    fn only_collections_sum_is_unconstrained() {
-        assert!(builtin_float_result_may_be_nonfinite("collections.sum"));
+    fn no_classified_member_is_rechecked_at_a_boundary() {
         for finite in [
+            "collections.sum",
             "collections.get",
             "collections.reduce",
             "color.luminance",
@@ -276,8 +274,7 @@ mod tests {
     /// census because it resolves `Arg(n)` against the overload's parameters.
     #[test]
     fn arg_returns_are_in_the_census() {
-        let classified: BTreeSet<(&str, &str)> =
-            FLOAT_RESULTS.iter().map(|(p, m, _)| (*p, *m)).collect();
+        let classified: BTreeSet<(&str, &str)> = FLOAT_RESULTS.iter().copied().collect();
         assert!(classified.contains(&("math", "sqrt")));
         assert!(classified.contains(&("math", "exp")));
     }

@@ -97,6 +97,7 @@ pub(crate) fn lower_move_to(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -133,7 +134,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_move_to),
         }],
     });

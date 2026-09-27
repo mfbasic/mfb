@@ -29,7 +29,7 @@ distinguish "off" from "on with bold disabled" by this call alone — use
 `term::isOn` for that.
 
 The call reads state only. It changes no `term::` state, draws
-nothing, and cannot fail."#;
+nothing, and cannot fail. In an `mfb build --app` program, `term::getBold` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Set bold and read it back:
 
@@ -71,6 +71,7 @@ pub(crate) fn lower_get_bold(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -92,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_get_bold),
         }],
     });

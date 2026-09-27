@@ -586,12 +586,10 @@ pub fn code_for_src_with(
         })
 }
 
-/// [`code_for_src_mode`] with the bug-699 input buffer reserved whatever the
-/// program calls, so the buffered read paths and the input decoder are lowered
-/// before a reader that needs them exists. The flag is thread-local, so it is
-/// set on the lowering thread itself.
-///
-/// Also returns where the region landed in arena state.
+/// [`code_for_src_mode`] for a program that calls a bug-699 keystroke reader
+/// (which reserves the input buffer), also returning where the region landed in
+/// arena state — so a test can fill it the way a look-ahead read leaves it. The
+/// offset is recorded thread-locally, so it is read on the lowering thread.
 pub fn code_for_src_with_input_buffer(
     source: &str,
     target: CodeTarget,
@@ -602,11 +600,10 @@ pub fn code_for_src_with_input_buffer(
         .stack_size(64 * 1024 * 1024)
         .name(format!("code_for_src_with_input_buffer({})", target.name()))
         .spawn(move || {
-            crate::codegen::io::input::FORCE_INPUT_BUFFER.with(|force| force.set(true));
             let plan = code_for_src_inner(&source, target, build_mode, Default::default());
             let offset = crate::codegen::io::input::RESERVED_INPUT_STATE_OFFSET
                 .with(std::cell::Cell::get)
-                .expect("the forced lowering reserved the input buffer");
+                .expect("the program calls a reader, so it reserved the input buffer");
             (plan, offset)
         })
         .expect("spawn the lowering thread")
@@ -662,20 +659,26 @@ pub fn nir_for_src(
     build_mode: crate::target::NativeBuildMode,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     let source = source.to_string();
+    // The dial is a THREAD-local override in tests (`optimizer::with_opt_level`),
+    // so the lowering thread below would otherwise run at the default level
+    // whatever the caller pinned. Carry the caller's level across.
+    let level = crate::optimizer::active_opt_level();
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .name(format!("nir_for_src({})", target.name()))
         .spawn(move || {
-            let ir = lower_src_concrete(&source, Some(main_entry(&source)));
-            crate::target::shared::lower::lower_project(
-                &ir,
-                target.name().to_string(),
-                &[],
-                build_mode,
-                None,
-                crate::codegen::debug::DebugOptions::OFF,
-            )
-            .map_err(|err| format!("{err:?}"))
+            crate::optimizer::with_opt_level(level, || {
+                let ir = lower_src_concrete(&source, Some(main_entry(&source)));
+                crate::target::shared::lower::lower_project(
+                    &ir,
+                    target.name().to_string(),
+                    &[],
+                    build_mode,
+                    None,
+                    crate::codegen::debug::DebugOptions::OFF,
+                )
+                .map_err(|err| format!("{err:?}"))
+            })
         })
         .expect("spawn the lowering thread")
         .join()

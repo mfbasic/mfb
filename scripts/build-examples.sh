@@ -37,6 +37,15 @@ TARGETS=(
   windows-x86_64
 )
 
+# The targets with an app-mode backend (`supports_app_mode` in src/target/**; the
+# compiler lists them when it refuses an app build on any other).
+APP_TARGETS=(
+  macos-aarch64
+  linux-aarch64
+  linux-x86_64
+  windows-x86_64
+)
+
 # Locate the compiler, building a release binary if none exists yet.
 MFB="$ROOT/target/release/mfb"
 if [[ ! -x "$MFB" ]]; then
@@ -109,8 +118,18 @@ while IFS= read -r manifest; do
 
   rel="${proj_dir#"$EXAMPLES_DIR"/}"
   example="${rel%%/*}"
+  app_mode=0
+  if grep -Eq '"mode"[[:space:]]*:[[:space:]]*"app"' "$manifest"; then
+    app_mode=1
+  fi
 
   for target in "${TARGETS[@]}"; do
+    # An app-mode example has no build for a target without an app backend
+    # (`APP_TARGETS`); that is the compiler's documented refusal, not a failure.
+    if [[ "$app_mode" -eq 1 ]] && [[ " ${APP_TARGETS[*]} " != *" $target "* ]]; then
+      echo "==> Skipping $example for $target (app mode has no $target backend)"
+      continue
+    fi
     echo "==> Building $example for $target"
 
     # Clear any prior artifacts so a copy only ever picks up this target's

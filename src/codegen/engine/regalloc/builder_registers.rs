@@ -78,6 +78,32 @@ impl CodeBuilder<'_> {
         if mir::capture_enabled() {
             mir::capture_function(&self.current_symbol, mir::lower_to_mir(&self.instructions));
         }
+        // Stack-slot promotion (Level 1, `optimizer::opt2::promote`): a frame
+        // word reachable only through whole-word loads and stores becomes a
+        // virtual register, so coloring below decides where it lives. It needs
+        // the frame objects and the prologue-zeroed slots, which only the
+        // builder knows, and runs on the neutral stream so every backend's
+        // selection sees the same promoted form. After the `-mir` capture, so
+        // that dump stays the lowering's own output.
+        {
+            let _span = crate::trace::span("stack slot promotion");
+            let object_starts: Vec<usize> = self
+                .stack_slots
+                .iter()
+                .filter_map(|slot| usize::try_from(slot.offset).ok())
+                .collect();
+            let mut zeroed: Vec<usize> = self.owned_value_slots.clone();
+            zeroed.extend(self.string_capacity_slots.values().copied());
+            let promoted = crate::optimizer::opt2::promote::promote(
+                &mut self.instructions,
+                &crate::optimizer::opt2::promote::FrameFacts {
+                    object_starts: &object_starts,
+                    frame_size: self.stack_size,
+                    zeroed_after_allocation: &zeroed,
+                },
+            );
+            crate::optimizer::stats::count_slots_promoted(promoted);
+        }
         let backend = mir::active_backend();
         // Move the (dropped-after) pre-selection stream through the MIR boundary
         // so each `fields` Vec is carried, not re-cloned (plan-84 Phase 2). The

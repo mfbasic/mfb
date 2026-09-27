@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrWriteFailed"],
                 body: Body::abi_function(lower_write),
             },
             Implementation {
@@ -103,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec![],
+                errors: vec!["ErrWriteFailed"],
                 body: Body::abi_function(lower_write),
             },
         ],

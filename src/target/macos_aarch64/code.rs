@@ -407,7 +407,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         let library = platform_imports
             .get("_poll")
-            .ok_or_else(|| "io.pollInput runtime helper requires _poll import".to_string())?
+            .ok_or_else(|| "a timed stdin read requires the _poll import".to_string())?
             .clone();
         instructions.push(abi::branch_link("_poll"));
         relocations.push(CodeRelocation {

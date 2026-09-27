@@ -36,7 +36,7 @@ after `index`, which move up one place. Assigning the result anywhere else —
 was. The result is the same either way.
 
 An index outside `0 .. len(value)` raises `ErrIndexOutOfRange`, which an inline
-`TRAP` on the call can catch."#;
+`TRAP` on the call can catch. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Insert in the middle:
 
@@ -108,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec!["ErrIndexOutOfRange"],
+            errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::abi_inline(lower_insert),
         }],
     });
@@ -148,8 +148,6 @@ pub(crate) fn lower_insert(
         index_slot,
     ));
     let item = args[2].clone();
-    // Observation boundary: a `Float` inserted element must be finite (plan-17).
-    builder.observe_float_vr(&item)?;
     if item.type_ == list.type_ {
         return Err("native collection insert expects a single item, not a list".to_string());
     }

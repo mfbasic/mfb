@@ -31,7 +31,7 @@ flag rather than a toggle.
 The flag persists until `term::showCursor` or the next `term::on`, which resets
 the cursor to visible; `term::off` also makes the cursor visible again as part of
 restoring the terminal. The call is gated: while TUI mode is off it does nothing
-and reports no error."#;
+and reports no error. In an `mfb build --app` program, `term::hideCursor` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Draw a full-screen frame with no blinking cursor:
 
@@ -65,6 +65,7 @@ pub(crate) fn lower_hide_cursor(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -86,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_hide_cursor),
         }],
     });

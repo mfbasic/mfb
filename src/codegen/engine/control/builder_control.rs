@@ -1557,10 +1557,15 @@ impl CodeBuilder<'_> {
                                 value,
                                 Some(NirValue::Call { .. } | NirValue::CallResult { .. })
                             )
+                            && !value.as_ref().is_some_and(|value| {
+                                crate::codegen::cleanup::owned::builder_owned_cleanup::call_result_holds_only_argument_resources(value)
+                            })
                         {
                             // A `List OF RES File` bound from a call adopts the
                             // resources transferred out by the callee: this scope
-                            // owns them and closes each once at exit (§15.6).
+                            // owns them and closes each once at exit (§15.6). Not
+                            // for a `collections` helper over the caller's own
+                            // handles, which transfers nothing (bug-643).
                             self.setup_owned_list(name, type_)?;
                             if let Some(element_type) =
                                 crate::codegen::engine::types::typed_list_element_type(&type_)
@@ -2431,7 +2436,12 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Eval { value } => {
-                        self.lower_value(value)?;
+                        // bug-744: a statement discards its value, so a
+                        // `Nothing` call here needs no `NOTHING` materialized.
+                        self.value_discarded_armed = true;
+                        let lowered = self.lower_value(value);
+                        self.value_discarded_armed = false;
+                        lowered?;
                     }
                     NirOp::Return { value } => {
                         // bug-567: the watermark travels with the statement so the

@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS String = io::readGrapheme("1")
+  LET tooMany AS String = io::readGrapheme(1, 2)
+  LET badName AS String = io::readGrapheme(timeout := 1)
+  RETURN 0
+END FUNC

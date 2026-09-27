@@ -76,6 +76,8 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
         INPUT_MODE_RAW_NO_ECHO,
     ));
     asm.push(abi::branch_eq("kd_raw"));
+    // Line mode edits text: an arrow or F-key is not text (bug-699).
+    super::keys::emit_skip_function_key(&mut asm, abi::LOCAL[5], "kd_done", "kd");
     asm.push(abi::compare_immediate(abi::LOCAL[5], "13")); // CR
     asm.push(abi::branch_eq("kd_commit"));
     asm.push(abi::compare_immediate(abi::LOCAL[5], "10")); // LF
@@ -202,25 +204,10 @@ pub(super) fn emit_key_down_helper() -> CodeFunction {
     // Mirrors `tkd_backspace`'s terminating branch (bug-46).
     asm.push(abi::branch("kd_done"));
 
-    // Raw read mode: write this key event's UTF-8 bytes to the input pipe now,
-    // with no transcript echo and no line buffering.
+    // Raw read mode: inject the key event in the kitty keyboard-protocol form
+    // (bug-699), with no transcript echo and no line buffering.
     asm.push(abi::label("kd_raw"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
-    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
-    asm.load_selector(SEL_UTF8_STRING.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // UTF-8 bytes for chars
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
-    asm.call_external("_strlen", LIB_SYSTEM);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq("kd_done"));
-    asm.push(abi::move_register(abi::c_arg(2), abi::c_arg(0)));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
-    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
-    asm.call_external("_write", LIB_SYSTEM);
+    super::keys::emit_inject_press(&mut asm, abi::LOCAL[4]);
     asm.push(abi::branch("kd_done"));
 
     asm.push(abi::label("kd_done"));
@@ -3681,6 +3668,8 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
         INPUT_MODE_RAW_NO_ECHO,
     ));
     asm.push(abi::branch_eq("tkd_raw"));
+    // Line mode edits text: an arrow or F-key is not text (bug-699).
+    super::keys::emit_skip_function_key(&mut asm, abi::LOCAL[5], "tkd_done", "tkd");
     asm.push(abi::compare_immediate(abi::LOCAL[5], "13")); // CR
     asm.push(abi::branch_eq("tkd_commit"));
     asm.push(abi::compare_immediate(abi::LOCAL[5], "10")); // LF
@@ -3786,24 +3775,11 @@ pub(super) fn emit_term_key_down_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::branch("tkd_done"));
 
-    // Raw read mode: write this key's UTF-8 to the input pipe; no echo/buffering.
+    // Raw read mode: inject the key event in the kitty keyboard-protocol form
+    // (bug-699); no echo, no buffering.
     asm.push(abi::label("tkd_raw"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
-    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // write fd
-    asm.load_selector(SEL_UTF8_STRING.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // UTF-8 bytes for chars
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
-    asm.call_external("_strlen", LIB_SYSTEM);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq("tkd_done"));
-    asm.push(abi::move_register(abi::c_arg(2), abi::c_arg(0)));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
-    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
-    asm.call_external("_write", LIB_SYSTEM);
+    super::keys::emit_inject_press(&mut asm, abi::LOCAL[4]);
+    asm.push(abi::branch("tkd_done"));
 
     asm.push(abi::label("tkd_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));

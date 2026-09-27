@@ -188,6 +188,7 @@ impl<'a> Monomorphizer<'a> {
                 })
                 .collect(),
             current_file: None,
+            current_instantiation_site: None,
             template_instantiation_depth: 0,
             total_instantiations: 0,
             instantiation_limit_reached: false,
@@ -807,8 +808,14 @@ impl<'a> Monomorphizer<'a> {
     ) -> Option<String> {
         let template = self.function_templates.get(name)?.clone();
         // Internal generic implementations (e.g. `collections::sort`) carry the
-        // untypeable sigil; show the readable `__` form in user-facing messages.
-        let display = crate::internal_name::display_name(name);
+        // untypeable sigil. bug-642: name the member the user called
+        // (`collections::sort`), falling back to the readable `__` form for an
+        // internal helper no user calls directly.
+        let display: std::borrow::Cow<'_, str> =
+            match crate::codegen::registry::public_member_for_rewrite(name) {
+                Some(public) => std::borrow::Cow::Owned(public),
+                None => crate::internal_name::display_name(name),
+            };
         if arg_types.len() > template.params.len() {
             self.report(
                 "TYPE_CALL_ARITY_MISMATCH",
@@ -925,13 +932,55 @@ impl<'a> Monomorphizer<'a> {
             for (param, arg) in template.template_params.iter().zip(args.iter()) {
                 full_substitutions.insert(crate::intern::Symbol::intern(param), arg.clone());
             }
-            let lowered =
+            // bug-642: a built-in package's body is attributed to the user call
+            // that instantiated it. Inside such a body the site is already set and
+            // is inherited, so a helper it instantiates points at the same call.
+            let site = self
+                .current_instantiation_site
+                .clone()
+                .or_else(|| self.user_instantiation_site(name, &display, line));
+            let saved_site = std::mem::replace(&mut self.current_instantiation_site, site.clone());
+            let mut lowered =
                 self.lower_function(template, &full_substitutions, Some(concrete_name.clone()));
+            self.current_instantiation_site = saved_site;
+            if lowered.internal_origin {
+                lowered.instantiated_at.extend(site);
+            }
             self.template_instantiation_depth -= 1;
             self.concrete_functions
                 .insert(concrete_name.clone(), lowered);
+        } else if self.current_instantiation_site.is_none() {
+            // bug-642: a later user call reusing the instantiation is a site of its
+            // own — a rule that fails inside the body fails for this call too.
+            if let Some(site) = self.user_instantiation_site(name, &display, line) {
+                if let Some(existing) = self.concrete_functions.get_mut(&concrete_name) {
+                    if existing.internal_origin && !existing.instantiated_at.contains(&site) {
+                        existing.instantiated_at.push(site);
+                    }
+                }
+            }
         }
         Some(concrete_name)
+    }
+
+    /// bug-642: the site a user-frame call to internal template `name` is
+    /// attributed to, or `None` when `name` is not a built-in package's template.
+    fn user_instantiation_site(
+        &self,
+        name: &str,
+        display: &str,
+        line: usize,
+    ) -> Option<crate::hir::InstantiationSite> {
+        let internal = self
+            .function_files
+            .get(name)
+            .is_some_and(|path| self.internal_files.contains(path));
+        let file = self.current_file.clone()?;
+        internal.then(|| crate::hir::InstantiationSite {
+            file,
+            line,
+            callee: display.to_string(),
+        })
     }
 
     fn resolve_overload(
@@ -2365,6 +2414,13 @@ impl<'a> Monomorphizer<'a> {
 
     fn report(&mut self, rule: &str, detail: &str, line: usize) {
         self.had_error = true;
+        // bug-642: inside a built-in package's body, report at the user call that
+        // instantiated it — the body's own file and lines are not the user's.
+        if let Some(site) = self.current_instantiation_site.clone() {
+            let path = self.project_dir.join(&site.file);
+            rules::show_diagnostic(rule, &site.describe(detail), &path, site.line, 1, 1);
+            return;
+        }
         // Prefer the file whose body is currently being lowered (bug-107); fall
         // back to the first project file only when the frame is unknown.
         let relative = self

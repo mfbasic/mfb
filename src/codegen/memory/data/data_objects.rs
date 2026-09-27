@@ -110,6 +110,46 @@ pub(crate) fn raise_error_into(
     push_error_message_address(from, symbol, instructions, relocations);
 }
 
+/// plan-158-A: the data-object symbol of the message prefix
+/// `"<registered message> (<call>: "` that `_mfb_rt_fail_status` completes with a
+/// status. The symbol carries both halves (`_mfb_str_errstatus_<ErrorName>_<hex>`,
+/// `<hex>` the call name's bytes in lowercase hex) so the post-codegen relocation
+/// scan can rebuild the text from the symbol alone
+/// ([`decode_error_status_prefix_symbol`]), the same way the fixed
+/// `_mfb_str_error_*` messages are emitted only when referenced.
+///
+/// `error_name` must be a known `errorCode` constant; an unknown name panics, as in
+/// [`raise_error_into`].
+pub(crate) fn error_status_prefix_symbol(error_name: &str, call: &str) -> String {
+    assert!(
+        crate::codegen::registry::runtime_error(error_name).is_some(),
+        "error_status_prefix_symbol: `{error_name}` is not an errorCode constant"
+    );
+    let hex: String = call.bytes().map(|byte| format!("{byte:02x}")).collect();
+    format!("{ERROR_STATUS_PREFIX_SYMBOL_PREFIX}{error_name}_{hex}")
+}
+
+/// Invert [`error_status_prefix_symbol`]: the prefix text
+/// `"<registered message> (<call>: "` for a well-formed symbol naming a known
+/// error, `None` for anything else (only the canonical lowercase-hex spelling is
+/// accepted, so one text has exactly one symbol).
+pub(crate) fn decode_error_status_prefix_symbol(symbol: &str) -> Option<String> {
+    let rest = symbol.strip_prefix(ERROR_STATUS_PREFIX_SYMBOL_PREFIX)?;
+    // Error names are `Err` + CamelCase, with no `_`, so the first `_` ends it.
+    let (error_name, hex) = rest.split_once('_')?;
+    let (_, message) = crate::codegen::registry::runtime_error(error_name)?;
+    let canonical = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
+    if hex.is_empty() || hex.len() % 2 != 0 || !hex.bytes().all(canonical) {
+        return None;
+    }
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(hex.get(index..index + 2)?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    let call = String::from_utf8(bytes).ok()?;
+    Some(format!("{message} ({call}: "))
+}
+
 /// The registered runtime-error message for an `errorCode` name (plan-88-D). The
 /// data-object gating below emits each fixed `_mfb_str_error_*` string; it now
 /// sources every message from `ERRORCODE_CONSTANTS` (the single metadata authority)
@@ -178,7 +218,14 @@ pub(crate) fn string_symbols(
     }
     if module_uses_any_call(
         module,
-        &["io.input", "io.readLine", "io.readChar", "io.readByte"],
+        &[
+            "io.input",
+            "io.readLine",
+            "io.readRaw",
+            "io.readScalar",
+            "io.readGrapheme",
+            "io.readKey",
+        ],
     ) {
         if module_uses_call(module, "io.input") {
             push_string_value(&mut values, String::new());
@@ -195,9 +242,11 @@ pub(crate) fn string_symbols(
         // `io::print`/`io::write`. Without this, an `io::readLine`-only program (any
         // build) failed to link with a dangling `_mfb_str_error_output` relocation.
         push_string_value(&mut values, err_msg("ErrWriteFailed"));
-    }
-    if module_uses_call(module, "io.pollInput") {
-        push_string_value(&mut values, err_msg("ErrInputFailed"));
+        // bug-699: the timeout convention (`timeoutMs` on every reader) and the
+        // growable line / key record.
+        push_string_value(&mut values, err_msg("ErrTimeout"));
+        push_string_value(&mut values, err_msg("ErrInvalidArgument"));
+        push_string_value(&mut values, err_msg("ErrOutOfMemory"));
     }
     // plan-62-E: in an app build that uses `app::` (so a non-`Console` presentation
     // mode is reachable), every `term::` and console-read `io::` helper carries an
@@ -1666,6 +1715,43 @@ mod tests {
     use super::*;
     use crate::target::shared::nir::{NirSourceLoc, NirValue};
     use std::collections::{HashMap, HashSet};
+
+    /// plan-158-A: the prefix symbol carries the error name and the call name, and
+    /// the relocation scan rebuilds the exact message prefix from it.
+    #[test]
+    fn fail_status_prefix_symbol_round_trips() {
+        let symbol = error_status_prefix_symbol("ErrAudioDevice", "IAudioRenderClient::GetBuffer");
+        assert_eq!(
+            symbol,
+            "_mfb_str_errstatus_ErrAudioDevice_49417564696f52656e646572436c69656e743a3a476574427566666572"
+        );
+        assert_eq!(
+            decode_error_status_prefix_symbol(&symbol).as_deref(),
+            Some(
+                "Audio device open, configuration, or stream operation failed. \
+                 (IAudioRenderClient::GetBuffer: "
+            )
+        );
+    }
+
+    /// plan-158-A: anything but the canonical spelling of a known error decodes to
+    /// `None`, so the scan never emits a data object for a symbol it did not mint.
+    #[test]
+    fn fail_status_prefix_symbol_rejects_malformed() {
+        for symbol in [
+            "_mfb_str_error_audio_device",
+            "_mfb_str_errstatus_ErrAudioDevice",
+            "_mfb_str_errstatus_ErrAudioDevice_",
+            "_mfb_str_errstatus_ErrAudioDevice_4",
+            "_mfb_str_errstatus_ErrAudioDevice_4G",
+            "_mfb_str_errstatus_ErrAudioDevice_4A",
+            "_mfb_str_errstatus_ErrAudioDevice_+4",
+            "_mfb_str_errstatus_ErrAudioDevice_ff",
+            "_mfb_str_errstatus_ErrNoSuchError_41",
+        ] {
+            assert_eq!(decode_error_status_prefix_symbol(symbol), None, "{symbol}");
+        }
+    }
 
     fn const_of(type_: &ParameterType) -> NirValue {
         NirValue::Const {

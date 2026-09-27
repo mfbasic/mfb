@@ -3,7 +3,7 @@
 raw error text and exit 255 when stdin ends before a read is satisfied.
 
 `hello_input`, `wide-demo`, `hangman`, and `audio` each call `io::input`/
-`io::readChar` at least once with no `TRAP` on a path reachable during normal
+a key reader at least once with no `TRAP` on a path reachable during normal
 use. When stdin runs out, `ErrEndOfFile` propagates uncaught: the process
 exits 255 and prints the compiler's raw `Error: 7-702-0003` text. For the two
 alternate-screen apps (`wide-demo`, `hangman`), that text is also written

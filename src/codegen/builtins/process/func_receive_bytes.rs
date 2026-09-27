@@ -115,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrResourceClosed"],
             body: Body::abi_function_aliased(lower_receive_bytes, &["receiveBytesFrom"]),
         }],
     });

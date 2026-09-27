@@ -46,7 +46,7 @@ In app mode (`mfb build --app`) the size comes from the application's terminal
 view rather than from the console, and follows the window as the user resizes it;
 the same `ErrUnsupported` is raised when TUI mode is off or no view is
 attached. In a macOS `--app` build a failure to produce the
-result also raises `ErrUnsupported`, never `ErrOutOfMemory`."#;
+result also raises `ErrUnsupported`, never `ErrOutOfMemory`. In an `mfb build --app` program, `term::terminalSize` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Report the surface dimensions:
 
@@ -93,6 +93,7 @@ pub(crate) fn lower_terminal_size(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -114,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named("TermSize"),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrUnsupported", "ErrWrongMode"],
             body: Body::abi_function(lower_terminal_size),
         }],
     });

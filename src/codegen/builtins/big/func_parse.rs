@@ -88,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named(INT_TYPE_ID),
-            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::abi_function(lower_parse),
         }],
     });

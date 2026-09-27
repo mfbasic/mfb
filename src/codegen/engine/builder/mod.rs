@@ -187,6 +187,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// initializer; consumed by the very next `lower_value` frame, which is that
     /// initializer's own node.
     pub(crate) borrow_get_armed: bool,
+    /// bug-744: set by a position that discards its value — an `Eval` statement, or
+    /// a `RETURN` from a `Nothing` function, whose result register is never read —
+    /// immediately before it lowers that value; consumed by the very next
+    /// `lower_value` frame (the value's own root node). Every other frame is a
+    /// value position, where a `Nothing`-typed call's `void` result is
+    /// materialized as the unit value `NOTHING` (0).
+    pub(crate) value_discarded_armed: bool,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -665,6 +672,7 @@ impl<'a> CodeBuilder<'a> {
             element_updates: ElementUpdates::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
+            value_discarded_armed: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -1430,9 +1438,10 @@ pub(crate) fn lower_module_for_platform(
             &[
                 "io.readLine",
                 "io.input",
-                "io.readChar",
-                "io.readByte",
-                "io.pollInput",
+                "io.readRaw",
+                "io.readScalar",
+                "io.readGrapheme",
+                "io.readKey",
                 "thread.openStdIn",
                 "thread.closeStdIn",
             ],
@@ -1463,6 +1472,14 @@ pub(crate) fn lower_module_for_platform(
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
     {
         data_objects.extend(term::console_data_objects());
+        // bug-699 Phase 5: `term::on`/`term::off` (and `io::readLine`'s line-mode
+        // window) switch the kitty keyboard protocol for a console program whose
+        // `io` readers decode keys — the same key that reserves the input region.
+        if !module.build_mode.is_app()
+            && crate::codegen::io::input::program_uses_input_buffer(&native_plan.runtime_symbols)
+        {
+            data_objects.extend(term::kitty_data_objects());
+        }
     }
     // plan-94-B: the mouse-tracking escapes and the injection variable's name.
     // Gated on the mouse members rather than on `term::` at all, so a program that
@@ -1756,6 +1773,21 @@ pub(crate) fn lower_module_for_platform(
             value: "00".repeat(8),
         });
     }
+    // bug-699: the process-global "the terminal reports key events" word the
+    // console readers consult (`term::on` sets it while the kitty keyboard protocol
+    // is on). Process-global because the terminal is; emitted with the input
+    // buffer, the only thing that reads it.
+    if uses_input_buffer && !module.build_mode.is_app() {
+        data_objects.push(CodeDataObject {
+            symbol: crate::codegen::builtins::io::gen_read_key_family::INPUT_EVENTS_SYMBOL
+                .to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.input_events.v1 { u64 reporting }".to_string(),
+            align: 8,
+            size: 8,
+            value: "00".repeat(8),
+        });
+    }
     // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
     // (plan-98-B put it one region past the presentation-mode word), but arena state is
     // per-thread and the graphics thread has to see what the worker published, so it
@@ -1870,7 +1902,13 @@ pub(crate) fn lower_module_for_platform(
             // symbol, while `_main` becomes the toolkit bootstrap (AppKit / GTK4)
             // that creates the window and spawns the worker.
             let app_spec = AppEntrySpec {
-                language_entry_accepts_args: entry.accepts_args,
+                // bug-743: the worker hands the entry argc/argv whenever the entry
+                // reads them — to materialize `main`'s parameter OR to capture them
+                // for `os::args`/`os::prog`. Keyed on the parameter alone, a
+                // `FUNC main AS Integer` that calls `os::args` captured the argument
+                // block's pointer as argc and a garbage argv (macOS: SIGSEGV).
+                worker_passes_args: entry.accepts_args
+                    || module_uses_any_call(module, &["os.args", "os.prog"]),
                 uses_term,
                 initial_mode,
                 uses_canvas: module_uses_canvas(module)
@@ -1971,9 +2009,10 @@ pub(crate) fn lower_module_for_platform(
                         &[
                             "io.readLine",
                             "io.input",
-                            "io.readChar",
-                            "io.readByte",
-                            "io.pollInput",
+                            "io.readRaw",
+                            "io.readScalar",
+                            "io.readGrapheme",
+                            "io.readKey",
                             "thread.openStdIn",
                             "thread.closeStdIn",
                         ],
@@ -2268,6 +2307,10 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_io_io_input"
                     | "_mfb_rt_io_io_readChar"
                     | "_mfb_rt_io_io_readByte"
+                    | "_mfb_rt_io_io_readRaw"
+                    | "_mfb_rt_io_io_readScalar"
+                    | "_mfb_rt_io_io_readGrapheme"
+                    | "_mfb_rt_io_io_readKey"
             )
         });
     if uses_stdout_buffer {
@@ -2287,6 +2330,10 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_io_io_input"
                     | "_mfb_rt_io_io_readChar"
                     | "_mfb_rt_io_io_readByte"
+                    | "_mfb_rt_io_io_readRaw"
+                    | "_mfb_rt_io_io_readScalar"
+                    | "_mfb_rt_io_io_readGrapheme"
+                    | "_mfb_rt_io_io_readKey"
                     | "_mfb_rt_io_io_pollInput"
                     | "_mfb_rt_thread_thread_openStdIn"
                     | "_mfb_rt_thread_thread_closeStdIn"
@@ -2306,7 +2353,15 @@ pub(crate) fn lower_module_for_platform(
     // buffer. Reserved and emitted together, so a program without such a reader
     // carries neither.
     if input_state_offset.is_some() {
-        code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
+        code_functions.push(crate::codegen::io::input::decode::lower_input_decode(
+            crate::codegen::io::input::program_uses_grapheme_clusters(&runtime_symbols),
+        )?);
+    }
+    // bug-699: every `--app` window key handler encodes its events through one
+    // shared encoder, so the window input pipe carries the kitty-protocol form a
+    // terminal under `term::on` sends. The handlers are part of every app build.
+    if module.build_mode.is_app() {
+        code_functions.push(crate::codegen::io::input::encode::lower_input_encode_key()?);
     }
     // App-mode io members lower their transcript-write / prompt+read / present
     // sequences inline (plan-101 append shape): each io `abi_function` body calls
@@ -2924,6 +2979,59 @@ pub(crate) fn lower_module_for_platform(
             type_model.clone(),
         )?);
     }
+    // plan-158-A: the status-message raise. Same relocation gate, and it must run
+    // BEFORE the park's gate below: `_mfb_rt_fail_status` calls the park, and that
+    // call is what makes a module whose only parker is this helper emit the park.
+    let fail_status_callers: Vec<&str> = code_functions
+        .iter()
+        .filter(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == FAIL_STATUS_SYMBOL)
+        })
+        .map(|function| function.symbol.as_str())
+        .collect();
+    if !fail_status_callers.is_empty() {
+        // A helper outside `PARKING_HELPER_PACKAGES` would return a parked error to
+        // call sites that carry no re-stamp branch: the error would lose its
+        // location. Refuse the build instead.
+        if let Some(caller) = fail_status_callers
+            .iter()
+            .find(|symbol| !runtime_helper_symbol_may_park_error(symbol))
+        {
+            return Err(format!(
+                "`{caller}` raises through `{FAIL_STATUS_SYMBOL}`, but its package is \
+                 not in PARKING_HELPER_PACKAGES, so its call sites do not re-stamp a \
+                 parked error"
+            ));
+        }
+        code_functions
+            .push(crate::codegen::error::emission::fail_status::lower_fail_status_helper());
+    }
+    // plan-158-A: the call-site re-stamp of a parked helper error. Same gate, and
+    // also ahead of the park's: it calls the park.
+    let uses_restamp_parked_error = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == RESTAMP_PARKED_ERROR_SYMBOL)
+    });
+    if uses_restamp_parked_error {
+        code_functions.push(
+            crate::codegen::error::emission::fail_status::lower_restamp_parked_error_helper(
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
+    }
     // plan-118-E: the shared error-block park, the single largest shape left in
     // the module after B/C/D. Same relocation gate.
     let uses_park_error = code_functions.iter().any(|function| {
@@ -3185,6 +3293,25 @@ pub(crate) fn lower_module_for_platform(
         }
     }
 
+    // plan-158-A: the `"<message> (<call>: "` prefixes `_mfb_rt_fail_status`
+    // formats from. Each symbol encodes its own text
+    // (`error_status_prefix_symbol`), so the scan decodes it rather than looking it
+    // up. A `BTreeSet` fixes the data-section order.
+    let referenced_status_prefixes: std::collections::BTreeSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
+            relocation.binding == "data"
+                && relocation.to.starts_with(ERROR_STATUS_PREFIX_SYMBOL_PREFIX)
+        })
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    for symbol in referenced_status_prefixes {
+        let text = decode_error_status_prefix_symbol(symbol)
+            .ok_or_else(|| format!("malformed error-status prefix symbol `{symbol}`"))?;
+        data_objects.push(string_data_object(symbol, text));
+    }
+
     // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a
     // runtime decimal exponent. Same relocation gate as the unicode tables, and
     // for the same reason — it is 10 KiB, and a program that never converts text
@@ -3369,19 +3496,26 @@ pub(crate) fn lower_runtime_helper(
                 }
             }
         };
-    // plan-62-E / plan-98-A: the console-reading `io::` helpers
-    // (`input`/`readLine`/`readChar`) are gated in an app build that uses `app::` —
+    // plan-62-E / plan-98-A: the console-reading `io::` helpers (`input`,
+    // `readLine` and the keystroke readers) are gated in an app build that uses `app::` —
     // in a mode whose window input pipe has no producer, an ungated read would block
     // forever, so they raise the trappable `ErrWrongMode` instead. The requirement is
     // `WindowedMode`, not `Console`: `Canvas` has a window whose key events feed the
     // very same fd-0 pipe, so only `None` — which has no window at all — has nowhere
     // for input to come from. The writing side (`io::print`/`io::write`) is never
-    // gated: it degrades to the fd sink in every mode. `io::readByte` is not in this
-    // list and never has been, so it is ungated in all modes (plan-98-A §2).
+    // gated: it degrades to the fd sink in every mode.
     // No-op when the program cannot leave `Console` (`presentation_mode_offset` is
     // `None`). `term::` is gated separately at its own dispatch above, and keeps the
     // `Console`-only requirement — it needs the character grid, not just input.
-    if matches!(spec.call, "io.input" | "io.readLine" | "io.readChar") {
+    if matches!(
+        spec.call,
+        "io.input"
+            | "io.readLine"
+            | "io.readRaw"
+            | "io.readScalar"
+            | "io.readGrapheme"
+            | "io.readKey"
+    ) {
         app::prepend_wrong_mode_gate(
             &mut instructions,
             &mut relocations,

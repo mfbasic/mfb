@@ -526,6 +526,8 @@ fn emit_textview_class(asm: &mut Asm) {
     asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // bug-699: keyUp: reports the release in raw input mode.
+    super::keys::emit_install_key_up(asm, abi::LOCAL[6], super::keys::KEY_UP_SYMBOL);
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -629,6 +631,8 @@ fn emit_termview_surface(asm: &mut Asm, uses_mouse: bool) {
     asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // bug-699: keyUp: reports the release in raw input mode.
+    super::keys::emit_install_key_up(asm, abi::LOCAL[6], super::keys::KEY_UP_SYMBOL);
     // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
     // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
     asm.load_selector(SEL_SET_FRAME_SIZE.0);
@@ -1503,6 +1507,8 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // bug-699: keyUp: reports every release (a canvas is always raw).
+    super::keys::emit_install_key_up(&mut asm, abi::LOCAL[2], super::keys::CANVAS_KEY_UP_SYMBOL);
     // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") —
     // plan-98-D Phase 3: a user drag becomes a new surface size here.
     //
@@ -1715,7 +1721,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
 /// plan-98-A Phase 4: IMP for `MFBCanvasView acceptsFirstResponder` (returns YES).
 /// A plain `NSView` returns NO, so without this override the canvas view can never
 /// become the window's first responder and `keyDown:` is never delivered — the
-/// window would swallow every keystroke and `io::readByte` in canvas mode would
+/// window would swallow every keystroke and `io::readKey` in canvas mode would
 /// block forever.
 pub(super) fn emit_canvas_accepts_first_responder() -> CodeFunction {
     let mut asm = Asm::new(CANVAS_ACCEPTS_FR_SYMBOL);
@@ -1740,122 +1746,33 @@ pub(super) fn emit_canvas_accepts_first_responder() -> CodeFunction {
 /// plan-98-A Phase 4: IMP for `MFBCanvasView keyDown:`
 /// (`void keyDown:(id self /*x0*/, SEL _cmd, NSEvent *event /*x2*/)`).
 ///
-/// Writes the key's UTF-8 bytes straight to the window input pipe — the very fd the
-/// worker's `io::readByte`/`readChar`/`readLine` drain as fd 0 — with **no echo and
-/// no line buffering**. That is the whole difference from the transcript and
-/// `TermView` handlers: those echo into a text surface and buffer a line so
-/// Backspace can erase it, and a canvas has no text surface to echo into. A canvas
-/// program draws its own UI, so raw delivery is the contract (the same one the
-/// TermView handler already uses in `term::`'s raw read mode).
-///
-/// Return is translated from CR to LF. `[event characters]` reports Return as
-/// `\r`, but `io::readLine` terminates on `\n`, so delivering the raw byte would
-/// make `readLine` in canvas mode hang on a line the user had already ended.
-/// `readByte` sees the same `\n`, which is what a console pipe delivers too.
+/// Injects the key event into the window input pipe — the fd the worker's `io::`
+/// readers drain as fd 0 — in the kitty keyboard-protocol form (bug-699), through
+/// the shared translator (`keys::emit_key_inject_helper`). There is **no echo and
+/// no line buffering**: that is the difference from the transcript and `TermView`
+/// handlers, which echo into a text surface and buffer a line in line mode. A
+/// canvas has no text surface, so it is always raw; `io::readLine` assembles a
+/// line from the key events itself.
 ///
 /// Runs on the main thread (AppKit event dispatch). The pipe's write end is
 /// `O_NONBLOCK` (bug-114), so a full pipe drops this key rather than deadlocking the
 /// UI thread against a worker that is not reading.
 pub(super) fn emit_canvas_key_down_helper() -> CodeFunction {
     let mut asm = Asm::new(CANVAS_KEY_DOWN_SYMBOL);
-    // Frame: lr@0, x19(app)@8, x20(chars/cstr)@16, x21(event)@24, x22(write fd)@32,
-    // x23(char code)@40, newline byte@48.
-    let frame = 64;
-    const NEWLINE_SLOT: usize = 48;
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
         0,
     ));
-    for (reg, off) in [
-        (abi::LOCAL[0], 8),
-        (abi::LOCAL[1], 16),
-        (abi::LOCAL[2], 24),
-        (abi::LOCAL[3], 32),
-        (abi::LOCAL[4], 40),
-    ] {
-        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
-    }
-    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(2))); // event
-
-    // chars = [event characters]; a modifier-only key press reports length 0.
-    asm.load_selector(SEL_CHARACTERS.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // chars
-    asm.load_selector(SEL_LENGTH.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq("ckd_done"));
-
-    // c = [chars characterAtIndex:0] — only to detect Return.
-    asm.load_selector(SEL_CHAR_AT_INDEX.0);
-    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // char code
-
-    // wfd = objc_getAssociatedObject(NSApp, PIPE_ASSOC_KEY) — the window input
-    // pipe's write end, stashed by the bootstrap.
-    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
-    asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
-    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // write fd
-
-    // Return (CR = 13) -> deliver a single LF instead of the raw CR.
-    asm.push(abi::compare_immediate(abi::LOCAL[4], "13"));
-    asm.push(abi::branch_ne("ckd_raw"));
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "10")); // '\n'
-    asm.push(abi::store_u8(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        NEWLINE_SLOT,
-    ));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
-    asm.push(abi::add_immediate(
-        abi::c_arg(1),
-        abi::stack_pointer(),
-        NEWLINE_SLOT,
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
-    asm.call_external("_write", LIB_SYSTEM);
-    asm.push(abi::branch("ckd_done"));
-
-    // Everything else: the key's own UTF-8 bytes, verbatim.
-    asm.push(abi::label("ckd_raw"));
-    asm.load_selector(SEL_UTF8_STRING.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // UTF-8 bytes
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.call_external("_strlen", LIB_SYSTEM);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq("ckd_done"));
-    asm.push(abi::move_register(abi::c_arg(2), abi::c_arg(0))); // length
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3])); // fd
-    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[1])); // bytes
-    asm.call_external("_write", LIB_SYSTEM);
-
-    asm.push(abi::label("ckd_done"));
+    // bug-699: every key event — Return and the keys with no character
+    // included — in the kitty keyboard-protocol form.
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_arg(2))); // event
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // press/repeat
+    asm.call_internal(super::keys::KEY_INJECT_SYMBOL);
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    for (reg, off) in [
-        (abi::LOCAL[0], 8),
-        (abi::LOCAL[1], 16),
-        (abi::LOCAL[2], 24),
-        (abi::LOCAL[3], 32),
-        (abi::LOCAL[4], 40),
-    ] {
-        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
-    }
-    asm.push(abi::add_stack(frame));
+    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
     CodeFunction {
         name: "macapp.canvas.keyDown".to_string(),
@@ -2085,7 +2002,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
-    if spec.language_entry_accepts_args {
+    if spec.worker_passes_args {
         // arg (x0) points at { i64 argc; char **argv }.
         asm.push(abi::load_u64(abi::c_arg(1), abi::c_arg(0), OFF_ARGV));
         asm.push(abi::load_u64(abi::c_arg(0), abi::c_arg(0), OFF_ARGC));

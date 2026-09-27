@@ -464,7 +464,7 @@ impl<'a> Machine<'a> {
                     let value = self.reg(field(instruction, "src"));
                     self.set_reg(field(instruction, "dst"), value);
                 }
-                "add" | "sub" | "and" | "orr" | "or" | "eor" | "mul" | "lsl" | "lsr" => {
+                "add" | "sub" | "and" | "orr" | "or" | "eor" | "mul" | "udiv" | "lsl" | "lsr" => {
                     let lhs = self.reg(field(instruction, "lhs"));
                     let rhs = self.reg(field(instruction, "rhs"));
                     let value = match op {
@@ -474,6 +474,8 @@ impl<'a> Machine<'a> {
                         "orr" | "or" => lhs | rhs,
                         "eor" => lhs ^ rhs,
                         "mul" => lhs.wrapping_mul(rhs),
+                        // AArch64 `udiv`: a zero divisor gives zero.
+                        "udiv" => lhs.checked_div(rhs).unwrap_or(0),
                         "lsl" => lhs.wrapping_shl(rhs as u32),
                         _ => lhs.wrapping_shr(rhs as u32),
                     };

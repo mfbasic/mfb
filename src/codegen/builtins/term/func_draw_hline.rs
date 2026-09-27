@@ -44,7 +44,7 @@ over the same cell (for example a crossing vertical line) wins. The same surface
 is rendered on the console backend and in windowed app mode.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+error. In an `mfb build --app` program, `term::drawHLine` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Draw a heavy horizontal rule across the top of the surface:
 
@@ -92,6 +92,7 @@ pub(crate) fn lower_draw_hline(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -142,7 +143,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_draw_hline),
         }],
     });

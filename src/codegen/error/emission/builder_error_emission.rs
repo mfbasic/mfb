@@ -125,6 +125,18 @@ impl CodeBuilder<'_> {
         self.emit_error_register_return(&code_register, message)
     }
 
+    /// The `ErrorLoc.filename` for an error raised at `current_loc`: the file
+    /// the node being lowered was written in. That is the function's own file
+    /// unless leaf-function inlining (plan-161-C) moved the node here from
+    /// another file, in which case the location carries that file.
+    fn error_filename(&self) -> String {
+        match self.current_loc.file {
+            0 => self.current_file.clone(),
+            id => crate::target::shared::nir::source_file_name(id)
+                .expect("an inlined location names an interned source file"),
+        }
+    }
+
     /// Build an `ErrorLoc` record for the current source location and return a
     /// register holding its pointer. The pointer is left null only when the
     /// allocation itself fails (OOM), where no `ErrorLoc` could be allocated
@@ -158,7 +170,7 @@ impl CodeBuilder<'_> {
         ));
         // Resolve the filename String pointer (an empty String when unknown, never
         // null — the helper dereferences it for the length) into the first arg.
-        let filename = self.current_file.clone();
+        let filename = self.error_filename();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
             self.emit(abi::move_register(abi::c_arg(0), &register));
@@ -466,6 +478,20 @@ impl CodeBuilder<'_> {
     /// so the call site (whose location is in `self.current_loc`) supplies it.
     /// The error code/message are preserved across the `ErrorLoc` allocation.
     pub(crate) fn emit_stamp_current_error_source(&mut self) -> Result<(), String> {
+        self.emit_stage_current_error_source()?;
+        // Design "b" origin (plan-error-block-in-slot stage 5): a raw runtime helper
+        // just returned this error in the loose registers and we have stamped its
+        // origin. Build the single owned Error block and park it so the catcher
+        // ADOPTS it (freed once) rather than rebuilding — the same funnel every
+        // domain error uses.
+        self.emit_park_error_call(ParkedErrorSource::StampedCallSite);
+        Ok(())
+    }
+
+    /// The first half of [`Self::emit_stamp_current_error_source`]: build this call
+    /// site's `ErrorLoc` into `RESULT_ERROR_SOURCE_REGISTER`, keeping the code and
+    /// message registers, and leave the loose error tag.
+    fn emit_stage_current_error_source(&mut self) -> Result<(), String> {
         let code_slot = self.allocate_stack_object("error_source_code", 8);
         let message_slot = self.allocate_stack_object("error_source_message", 8);
         self.emit(abi::store_u64(
@@ -501,12 +527,119 @@ impl CodeBuilder<'_> {
             message_slot,
         ));
         let _ = loc_register;
-        // Design "b" origin (plan-error-block-in-slot stage 5): a raw runtime helper
-        // just returned this error in the loose registers and we have stamped its
-        // origin. Build the single owned Error block and park it so the catcher
-        // ADOPTS it (freed once) rather than rebuilding — the same funnel every
-        // domain error uses.
+        Ok(())
+    }
+
+    /// plan-158-A: the [`Self::emit_stamp_current_error_source`] of a runtime
+    /// helper that returned `RESULT_ERR_BLOCK_TAG` (`_mfb_rt_fail_status`). Its
+    /// error is already one owned block parked in the current-error slot, with a
+    /// runtime-built message and no source, so stamping it the loose way would park
+    /// a second block over the first and leak it. Build this site's `ErrorLoc` and
+    /// hand the rest to `_mfb_rt_restamp_parked_error`
+    /// ([`Self::emit_restamp_parked_error_body`]), which swaps the parked block for
+    /// a stamped copy.
+    ///
+    /// Precondition: `RESULT_TAG_REGISTER` holds `RESULT_ERR_BLOCK_TAG`.
+    pub(crate) fn emit_restamp_parked_helper_error(&mut self) -> Result<(), String> {
+        self.emit_stage_current_error_source()?;
+        self.emit(abi::branch_link(RESTAMP_PARKED_ERROR_SYMBOL));
+        self.push_internal_call_relocation(RESTAMP_PARKED_ERROR_SYMBOL);
+        Ok(())
+    }
+
+    /// plan-158-A: the body of `_mfb_rt_restamp_parked_error`. Inputs: the code and
+    /// the message (a pointer INTO the parked block) in their registers, and a fresh
+    /// `ErrorLoc` (or `0` on OOM) in `RESULT_ERROR_SOURCE_REGISTER`.
+    ///
+    /// Take the old block out of the slot, park a new one built from the registers
+    /// (the park copies the message out of the old block, which is still live, and
+    /// releases the `ErrorLoc`), free the old block, and point the loose message
+    /// register at the new block's inline copy, since the one it pointed into is
+    /// gone. One extra copy, on the error path only.
+    ///
+    /// On OOM inside the park, the park returns the loose `ErrOutOfMemory` with its
+    /// static message; the old block is freed all the same, and the slot stays empty
+    /// (it was cleared when the block was taken).
+    pub(crate) fn emit_restamp_parked_error_body(&mut self) -> Result<(), String> {
+        let old_slot = self.allocate_stack_object("restamp_old_error", 8);
+        let tag_slot = self.allocate_stack_object("restamp_tag", 8);
+        let code_slot = self.allocate_stack_object("restamp_code", 8);
+        let message_slot = self.allocate_stack_object("restamp_message", 8);
+        let source_slot = self.allocate_stack_object("restamp_source", 8);
+        let loose = self.label("restamp_loose");
+        let saved = [
+            (RESULT_VALUE_REGISTER, code_slot),
+            (RESULT_ERROR_MESSAGE_REGISTER, message_slot),
+            (RESULT_ERROR_SOURCE_REGISTER, source_slot),
+        ];
+        for (register, slot) in saved {
+            self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
+        }
+        let old = self.emit_adopt_current_error_block();
+        self.emit(abi::store_u64(&old, abi::stack_pointer(), old_slot));
+        for (register, slot) in saved {
+            self.emit(abi::load_u64(register, abi::stack_pointer(), slot));
+        }
         self.emit_park_error_call(ParkedErrorSource::StampedCallSite);
+        self.emit(abi::store_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            tag_slot,
+        ));
+        for (register, slot) in saved {
+            self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
+        }
+        self.emit_free_error_block_from_slot(old_slot)?;
+        for (register, slot) in saved {
+            self.emit(abi::load_u64(register, abi::stack_pointer(), slot));
+        }
+        self.emit(abi::load_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            tag_slot,
+        ));
+        self.emit(abi::compare_immediate(
+            RESULT_TAG_REGISTER,
+            RESULT_ERR_BLOCK_TAG,
+        ));
+        self.emit(abi::branch_ne(&loose));
+        // `base + messageOffset` of the block the park just stored.
+        let addr = self.current_error_slot_address();
+        let base = self.temporary_vreg();
+        let offset = self.temporary_vreg();
+        self.emit(abi::load_u64(&base, &addr, 0));
+        self.emit(abi::load_u64(&offset, &base, 8));
+        self.emit(abi::add_registers(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            &base,
+            &offset,
+        ));
+        self.emit(abi::label(&loose));
+        Ok(())
+    }
+
+    /// plan-158-A: stamp a runtime helper's error at its call site, whichever way
+    /// the helper raised it. A helper of a package in `PARKING_HELPER_PACKAGES` may
+    /// return a parked block (tag 3) as well as a loose error (tag 1); every other
+    /// helper returns loose errors only and keeps the plain stamp.
+    ///
+    /// Precondition: `RESULT_TAG_REGISTER` holds an error tag.
+    pub(crate) fn emit_stamp_runtime_helper_error(&mut self, target: &str) -> Result<(), String> {
+        if !runtime_helper_may_park_error(target) {
+            return self.emit_stamp_current_error_source();
+        }
+        let loose = self.label("helper_error_loose");
+        let stamped = self.label("helper_error_stamped");
+        self.emit(abi::compare_immediate(
+            RESULT_TAG_REGISTER,
+            RESULT_ERR_BLOCK_TAG,
+        ));
+        self.emit(abi::branch_ne(&loose));
+        self.emit_restamp_parked_helper_error()?;
+        self.emit(abi::branch(&stamped));
+        self.emit(abi::label(&loose));
+        self.emit_stamp_current_error_source()?;
+        self.emit(abi::label(&stamped));
         Ok(())
     }
 
@@ -550,7 +683,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit_load_string_address_into(abi::c_arg(4), message)?;
         // x0 = filename String pointer (empty String when the file is unknown).
-        let filename = self.current_file.clone();
+        let filename = self.error_filename();
         if filename.is_empty() {
             let register = self.load_empty_string_constant()?;
             self.emit(abi::move_register(abi::c_arg(0), &register));

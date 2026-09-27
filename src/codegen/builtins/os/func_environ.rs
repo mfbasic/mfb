@@ -283,7 +283,7 @@ is unordered, like any `Map`. On the rare host that lists a name twice, the map
 retains one entry for that key.
 
 `os::environ` is **not pure**: its result depends on host and prior-`setEnv`
-state. It reads process state only and has no side effects."#;
+state. It reads process state only and has no side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read a value out of the environment snapshot:
 
 ```
@@ -308,7 +308,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::map_of(ParameterType::String, ParameterType::String),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_environ),
         }],
     });

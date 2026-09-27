@@ -261,6 +261,10 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&data, collection, stride_type);
         self.emit(abi::add_registers(&data, &data, offset));
         match type_ {
+            // bug-745: the unit type has one value, so two payloads are equal.
+            ParameterType::Nothing => {
+                self.emit(abi::branch(equal_label));
+            }
             ParameterType::Boolean | ParameterType::Byte => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u8(&candidate, &data, 0));
@@ -391,6 +395,10 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(cur, cur, stride_type);
         self.emit(abi::add_registers(cur, cur, tmp));
         match type_ {
+            // bug-745: the unit type has one value, so two payloads are equal.
+            ParameterType::Nothing => {
+                self.emit(abi::branch(equal_label));
+            }
             ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u8(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value));
@@ -514,6 +522,10 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(rcur, rcur, stride_type);
         self.emit(abi::add_registers(rcur, rcur, roff));
         match type_ {
+            // bug-745: the unit type has one value, so two payloads are equal.
+            ParameterType::Nothing => {
+                self.emit(abi::branch(equal_label));
+            }
             ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u8(lval, lcur, 0));
                 self.emit(abi::load_u8(rval, rcur, 0));

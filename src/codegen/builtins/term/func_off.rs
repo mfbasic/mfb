@@ -48,7 +48,7 @@ Ctrl-C or `SIGTERM` — the runtime calls `term::off` for it, so the terminal is
 restored. Call it explicitly when you want to print ordinary output after the
 TUI part of the program, or to leave and re-enter TUI mode. A `kill -9`, or a
 crash the runtime cannot intercept, still leaves the terminal on the alternate
-screen in single-key mode; `reset` at the shell recovers it."#;
+screen in single-key mode; `reset` at the shell recovers it. In an `mfb build --app` program, `term::off` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Draw one frame and restore the terminal:
 
@@ -91,6 +91,7 @@ pub(crate) fn lower_off(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -112,7 +113,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_off),
         }],
     });

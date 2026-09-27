@@ -1,0 +1,79 @@
+IMPORT errorCode
+IMPORT io
+
+' bug-699: the keystroke readers and the timed line readers, at the end of
+' input (the acceptance harness runs every program with stdin at EOF). Every
+' form ends in ErrEndOfFile — whether it waits without bound, makes one
+' immediate attempt, or waits a while — and a negative timeout is
+' ErrInvalidArgument before any input is read.
+
+FUNC outcome(code AS Integer) AS String
+  IF code = errorCode::ErrEndOfFile THEN
+    RETURN "eof"
+  END IF
+  IF code = errorCode::ErrInvalidArgument THEN
+    RETURN "invalid"
+  END IF
+  IF code = errorCode::ErrTimeout THEN
+    RETURN "timeout"
+  END IF
+  RETURN "other " & toString(code)
+END FUNC
+
+FUNC raw(t AS Integer) AS String
+  LET b AS Byte = io::readRaw(t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "byte " & toString(b)
+END FUNC
+
+FUNC scalar(t AS Integer) AS String
+  LET s AS Scalar = io::readScalar(t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "scalar " & toString(s)
+END FUNC
+
+FUNC grapheme(t AS Integer) AS String
+  LET g AS String = io::readGrapheme(t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "grapheme " & g
+END FUNC
+
+FUNC key(t AS Integer) AS String
+  LET k AS io::Key = io::readKey(t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "key " & k.grapheme
+END FUNC
+
+FUNC line(t AS Integer) AS String
+  LET l AS String = io::readLine(t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "line " & l
+END FUNC
+
+FUNC prompted(t AS Integer) AS String
+  LET l AS String = io::input("", t) TRAP(e)
+    RETURN outcome(e.code)
+  END TRAP
+  RETURN "input " & l
+END FUNC
+
+FUNC main AS Integer
+  LET waited AS Byte = io::readRaw() TRAP(e)
+    io::print("readRaw() " & outcome(e.code))
+    RECOVER 0
+  END TRAP
+  FOR EACH t IN [0, 50, -1]
+    io::print("readRaw(" & toString(t) & ") " & raw(t))
+    io::print("readScalar(" & toString(t) & ") " & scalar(t))
+    io::print("readGrapheme(" & toString(t) & ") " & grapheme(t))
+    io::print("readKey(" & toString(t) & ") " & key(t))
+    io::print("readLine(" & toString(t) & ") " & line(t))
+    io::print("input(" & toString(t) & ") " & prompted(t))
+  NEXT
+  RETURN 0
+END FUNC

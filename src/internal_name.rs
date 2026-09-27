@@ -78,6 +78,13 @@ pub fn is_hidden_default_function(name: &str) -> bool {
 /// The function and parameter index a hidden default function name encodes. The
 /// index is the text after the LAST `$`, because a monomorphized function name
 /// may itself contain `$`.
+/// The function whose parameter default a hidden default function computes, or
+/// `None` when `name` is not one (bug-642: its diagnostics belong to that
+/// function's source position).
+pub fn hidden_default_owner(name: &str) -> Option<&str> {
+    hidden_default_function_parts(name).map(|(function, _)| function)
+}
+
 fn hidden_default_function_parts(name: &str) -> Option<(&str, usize)> {
     let rest = name.strip_prefix(HIDDEN_DEFAULT_PREFIX)?;
     let (function, index) = rest.rsplit_once('$')?;

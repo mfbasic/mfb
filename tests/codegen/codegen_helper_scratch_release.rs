@@ -554,15 +554,21 @@ const TLS_HELPERS_SCHANNEL: &[(&str, Counts)] = &[
 /// the pair array: 4 free sites. Before plan-132 it was `(3, 0, 0)` everywhere — the
 /// list and the two `String`s the list's records pointed at. The other members did
 /// not move; `openInputDevice`/`openOutputDevice` only rebased their `id` read.
+///
+/// plan-158-B: a failed open used to leak the handle record it had allocated. Every
+/// open failure tail now runs `emit_open_cleanup`, which frees it, and an open has
+/// two such tails on Core Audio (the status tail and the static one): `(1, 2, 0)`.
+/// The frees are unguarded because both tails are reached only after the record's
+/// allocation, and neither hands the record back.
 const AUDIO_HELPERS_MACOS: &[(&str, Counts)] = &[
     ("_mfb_rt_audio_audio_available", (0, 0, 0)),
     ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
     ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
     ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
-    ("_mfb_rt_audio_audio_openInput", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openInputDevice", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutput", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openInput", (1, 2, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (1, 2, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (1, 2, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (1, 2, 0)),
     ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
     ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
     ("_mfb_rt_audio_audio_read", (2, 1, 0)),
@@ -574,15 +580,17 @@ const AUDIO_HELPERS_MACOS: &[(&str, Counts)] = &[
 ];
 
 /// ALSA (`gen_alsa_*`). `devices` as described on `AUDIO_HELPERS_MACOS`.
+// plan-158-B: ALSA's open has three failure tails (unavailable, the static device
+// failure, and the status tail), each freeing the handle record: `(1, 3, 0)`.
 const AUDIO_HELPERS_ALSA: &[(&str, Counts)] = &[
     ("_mfb_rt_audio_audio_available", (0, 0, 0)),
     ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
     ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
     ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
-    ("_mfb_rt_audio_audio_openInput", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openInputDevice", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutput", (1, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutputDevice", (1, 0, 0)),
+    ("_mfb_rt_audio_audio_openInput", (1, 3, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (1, 3, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (1, 3, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (1, 3, 0)),
     ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
     ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
     ("_mfb_rt_audio_audio_read", (1, 0, 0)),
@@ -594,15 +602,23 @@ const AUDIO_HELPERS_ALSA: &[(&str, Counts)] = &[
 /// WASAPI (`gen_windows_*`). `devices` as described on `AUDIO_HELPERS_MACOS`; a
 /// device whose friendly name falls back to its id frees that one block once, so
 /// the free-site count does not change with the fallback.
+///
+/// plan-158-A/-C: an open allocates the handle, the STATE block and one carry buffer
+/// (capture's tail stash, or an EXCLUSIVE output's render carry): 3 allocation
+/// sites for either direction. Its three failure tails (unavailable, device status,
+/// a failed carry allocation) each free the carry (null-guarded inside
+/// `emit_free_wasapi_state`), the STATE and the handle: 9 free sites, all reached
+/// only after the handle and STATE exist and none returning the handle. `close`
+/// frees the carry and the STATE the open allocated: `(0, 2, 0)`.
 const AUDIO_HELPERS_WASAPI: &[(&str, Counts)] = &[
     ("_mfb_rt_audio_audio_available", (0, 0, 0)),
-    ("_mfb_rt_audio_audio_closeInput", (0, 0, 0)),
-    ("_mfb_rt_audio_audio_closeOutput", (0, 0, 0)),
+    ("_mfb_rt_audio_audio_closeInput", (0, 2, 0)),
+    ("_mfb_rt_audio_audio_closeOutput", (0, 2, 0)),
     ("_mfb_rt_audio_audio_devices", (5, 4, 0)),
-    ("_mfb_rt_audio_audio_openInput", (3, 0, 0)),
-    ("_mfb_rt_audio_audio_openInputDevice", (3, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutput", (2, 0, 0)),
-    ("_mfb_rt_audio_audio_openOutputDevice", (2, 0, 0)),
+    ("_mfb_rt_audio_audio_openInput", (3, 9, 0)),
+    ("_mfb_rt_audio_audio_openInputDevice", (3, 9, 0)),
+    ("_mfb_rt_audio_audio_openOutput", (3, 9, 0)),
+    ("_mfb_rt_audio_audio_openOutputDevice", (3, 9, 0)),
     ("_mfb_rt_audio_audio_poll", (0, 0, 0)),
     ("_mfb_rt_audio_audio_pollTimeout", (0, 0, 0)),
     ("_mfb_rt_audio_audio_read", (1, 0, 0)),

@@ -32,7 +32,7 @@ target, so the value is fixed at build time and materialized directly into an
 `String`, with no host call.
 
 Pair it with `os::arch` to identify the full platform. Because the value is
-fixed per build, it is stable across runs of the same binary."#;
+fixed per build, it is stable across runs of the same binary. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the platform:
 
 ```
@@ -55,7 +55,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_name),
         }],
     });

@@ -49,7 +49,13 @@ element argument of a `collections::` insertion builtin, whose type is a resourc
 `RES`-returning function's result), becomes a synthesized
 `RES $res_tmpN AS T = <call>` placed immediately before its statement, and the
 element becomes `$res_tmpN`. From there it floats exactly like a source binding
-in that position. [[src/ir/resource_hoist.rs:hoist_resource_temporaries]]
+in that position. [[src/ir/resource_hoist.rs:hoist_resource_temporaries]] A call
+that hands back a pointer to a resource another binding already owns —
+`collections::get`/`getOr` of a `RES` element, or a `tcp`/`udp`/`tls::poll`
+borrow — is no producer and is never named: a named temporary would float the
+borrowed handle into the container, whose scope would then close the owner's
+handle (bug-643; `zip`'s body, which builds each `Pair` from two such reads, failed
+to build a drop for its result list). [[src/codegen/engine/value/builder_values.rs:target_returns_borrowed_resource]]
 
 The rewrite never reorders evaluation: a statement's element positions are
 visited in evaluation order, and hoisting stops at the first earlier expression
@@ -222,6 +228,15 @@ inner scopes do not float. Pick the **outermost** — minimum `decl_depth`, then
 minimum `decl_order` as the deterministic tiebreak. [[src/ir/resource_escape.rs:solve]]
 
 If neither phase finds a target, the owner is `Local`.
+
+A `RES` binding whose initializer is a borrowed pointer — the calls above, or a
+record's `RES` field read — skips both phases and is always `Local`: it holds no
+close obligation, so it has none to float, and codegen binds it as a non-owning
+alias. It stays in the owner table, so every ownership rule still treats it as a
+`RES` name. [[src/ir/resource_escape.rs:initializer_is_borrowed]] Before bug-643 a
+function that copied `collections::get(files, i)` into a local list floated each
+element into that list, and the list's scope closed the caller's handles when the
+function returned.
 
 ```text
 choose_owner(r):

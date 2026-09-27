@@ -154,6 +154,7 @@ pub(crate) fn run(
     // `vreg_interval` is a HashMap, so a start-only key left tied vregs in
     // per-process-random iteration order, making register/spill selection — and
     // thus the emitted bytes — nondeterministic across builds (bug-87).
+    let live_across_only = crate::optimizer::level_enabled(1);
     let mut vregs: Vec<(u32, usize, usize)> = live
         .vreg_interval
         .iter()
@@ -162,13 +163,14 @@ pub(crate) fn run(
     vregs.sort_by_key(|&(v, s, _)| (s, v));
 
     // Coalescing hints (`optimizer` catalog row "Register coalescing", Level
-    // 2): for a `mov dst, src` between two vregs of this class where `src`
+    // 1 since plan-161-B — stack slot promotion leaves a copy at every former
+    // store and load, and this is what collapses them): for a `mov dst, src` between two vregs of this class where `src`
     // dies at the copy, giving `dst` the same physical turns the copy into
     // `mov xN, xN`, which the sweep at the end of this function deletes. The
     // hint is only ever *tried* — every interference test below still has to
     // pass, so coalescing can lose a register choice but never make an unsafe
     // one.
-    let coalescing = crate::optimizer::level_enabled(2);
+    let coalescing = crate::optimizer::level_enabled(1);
     let mut copy_hint: analysis::U32Map<u32> = analysis::U32Map::default();
     if coalescing {
         for (i, instruction) in instructions.iter().enumerate() {
@@ -223,10 +225,20 @@ pub(crate) fn run(
         // Registers the calls in this value's interval destroy. The value must
         // avoid them (plan-03 §4.3); e.g. across `_mfb_arena_alloc` an FP value is
         // unrestricted (it touches no FP) while an integer value avoids `x20`–`x28`.
-        let clobbered = call_clobber_in(s, e);
+        //
+        // With the Level-1 "Stack slot promotion" row on, only the calls the
+        // value is live ACROSS count (`vreg_live_across_clobber`): a call in
+        // its interval at which it is dead (a raise path that calls the error
+        // builders and returns) destroys nothing it needs. Off, every call in
+        // `[s, e]` counts, as it always did.
+        let clobbered = if live_across_only {
+            live.vreg_live_across_clobber.get(&v).copied().unwrap_or(0)
+        } else {
+            call_clobber_in(s, e)
+        };
         let usable = |pi: u32, s: usize, e: usize, active_mask: u64| -> bool {
             (active_mask & (1u64 << pi)) == 0
-                && (call_clobber_in(s, e) & (1u64 << pi)) == 0
+                && (clobbered & (1u64 << pi)) == 0
                 && !phys_busy_in(pi, s, e)
         };
         // Coalescing first: reuse the copy source's register when it is free

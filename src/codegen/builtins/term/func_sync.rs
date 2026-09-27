@@ -43,7 +43,7 @@ frame after `term::on`, and the first after a resize, is always drawn in full.
 before `term::on` or after `term::off` is harmless. `term::off` performs a final
 present of its own, so the last frame a program draws is always shown even
 without an explicit `term::sync`. In app mode the call requests a single
-coalesced redraw of the terminal view."#;
+coalesced redraw of the terminal view. In an `mfb build --app` program, `term::sync` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Compose a frame, then present it once:
 
@@ -61,11 +61,13 @@ SUB main()
 END SUB
 ```
 
-The canonical render loop — draw the whole frame, present, then read input:
+The canonical render loop — draw the whole frame, present, then wait up to 50
+milliseconds for a key:
 
 ```
-IMPORT term
+IMPORT errorCode
 IMPORT io
+IMPORT term
 
 SUB main()
   term::on()
@@ -75,8 +77,14 @@ SUB main()
     term::moveTo(0, 0)
     io::print("press q to quit")
     term::sync()
-    IF io::pollInput(50) THEN
-      running = io::readChar() <> "q"
+    LET k AS io::Key = io::readKey(50) TRAP(e)
+      IF e.code = errorCode::ErrTimeout THEN
+        CONTINUE WHILE
+      END IF
+      EXIT WHILE
+    END TRAP
+    IF k.grapheme = "q" OR k.key = io::KeyName.Escape THEN
+      running = FALSE
     END IF
   END WHILE
   term::off()
@@ -98,6 +106,7 @@ pub(crate) fn lower_sync(
         ctx.term_state_offset,
         ctx.presentation_mode_offset,
         ctx.mouse_state_offset,
+        ctx.input_state_offset,
         ctx.build_mode,
         ctx.platform_imports,
         ctx.platform,
@@ -119,7 +128,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_sync),
         }],
     });
