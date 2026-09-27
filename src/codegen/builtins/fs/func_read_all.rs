@@ -58,8 +58,9 @@ blocking descriptor should check `thread::isCancelled` between operations.
 
 `ErrEncoding` means the bytes are not valid UTF-8, `ErrReadFailed` that the host
 could not measure or read the file — a pipe or another handle that cannot be
-repositioned, or a file that shrinks while it is read — and `ErrResourceClosed`
-that `file` has been closed. `ErrOutOfMemory` means the program ran out of
+repositioned, or a file that shrinks while it is read — `ErrResourceClosed` that
+`file` has been closed, and `ErrResourceMoved` that it was handed to another
+thread with `thread::transfer`. `ErrOutOfMemory` means the program ran out of
 memory."#;
 const EX: &str = r#"Read all remaining text from an open file:
 
@@ -111,6 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrReadFailed",
                 "ErrEncoding",
                 "ErrResourceClosed",
+                "ErrResourceMoved",
             ],
             body: Body::abi_function(lower_fs_read_all),
         }],

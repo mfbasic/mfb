@@ -93,13 +93,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "sock",
-                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.",
+                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`, and closing one handed to another thread with `thread::transfer` raises `ErrResourceMoved`.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec!["ErrResourceClosed", "ErrTlsFailed"],
+                errors: vec!["ErrResourceClosed", "ErrResourceMoved", "ErrTlsFailed"],
                 body: Body::abi_function(lower_close),
             },
             // Listener close — rewritten to the internal `tls.closeListener` body
@@ -107,13 +107,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "listener",
-                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and releases the server TLS settings it holds; safe to call while accepted sockets are still open. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.",
+                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and releases the server TLS settings it holds; safe to call while accepted sockets are still open. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`, and closing one handed to another thread with `thread::transfer` raises `ErrResourceMoved`.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,
-                errors: vec!["ErrResourceClosed", "ErrTlsFailed"],
+                errors: vec!["ErrResourceClosed", "ErrResourceMoved", "ErrTlsFailed"],
                 body: Body::abi_function_aliased(lower_close, &["closeListener"]),
             },
         ],

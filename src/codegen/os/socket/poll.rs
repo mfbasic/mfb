@@ -32,6 +32,7 @@ pub(crate) fn lower_net_poll_helper(
     const POLLFD_OFFSET: usize = 16;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let poll_retry = format!("{symbol}_poll_retry");
     let timeout_ok = format!("{symbol}_timeout_ok");
@@ -70,8 +71,13 @@ pub(crate) fn lower_net_poll_helper(
         abi::bitwise_not(&v12, abi::ZERO),
         abi::label(&timeout_ok),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         // pollfd { int fd; short events = POLLIN; short revents; }
         abi::store_u64(&v9, abi::stack_pointer(), POLLFD_OFFSET),
@@ -142,6 +148,14 @@ pub(crate) fn lower_net_poll_helper(
     emit_fail(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
         &done,
@@ -447,6 +461,7 @@ pub(crate) fn lower_net_set_timeout_helper(
     const TIMEVAL_OFFSET: usize = 16; // tv_sec (8) + tv_usec (8)
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let set_fail = format!("{symbol}_set_fail");
     let nb_ok = format!("{symbol}_nb_ok");
@@ -469,8 +484,13 @@ pub(crate) fn lower_net_set_timeout_helper(
         abi::compare_immediate(&v14, "0"),
         abi::branch_lt(&invalid),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
     ]);
@@ -575,6 +595,14 @@ pub(crate) fn lower_net_set_timeout_helper(
     emit_fail(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
         &done,

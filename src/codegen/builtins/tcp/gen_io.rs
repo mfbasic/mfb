@@ -118,6 +118,7 @@ pub(crate) fn lower_net_accept_helper(
     const RESTORE_FLAGS_OFFSET: usize = 48;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let accept_retry = format!("{symbol}_accept_retry");
     let accept_poll_retry = format!("{symbol}_accept_poll_retry");
     let accept_timeout = format!("{symbol}_accept_timeout");
@@ -136,8 +137,13 @@ pub(crate) fn lower_net_accept_helper(
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         // plan-73-C timeout convention. Bounded wait (bug-185): poll(POLLIN) on the
@@ -445,6 +451,14 @@ pub(crate) fn lower_net_accept_helper(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     // plan-73-C: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
     // from the prologue before any non-blocking-mode change, so no flags to restore.
     instructions.push(abi::label(&accept_invalid));
@@ -512,6 +526,7 @@ pub(crate) fn lower_net_read_helper(
     const READ_CHUNK_CAP: &str = "1048576"; // 1 MiB
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let read_size_ok = format!("{symbol}_read_size_ok");
     let peer_closed = format!("{symbol}_peer_closed");
@@ -555,8 +570,13 @@ pub(crate) fn lower_net_read_helper(
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
@@ -801,6 +821,14 @@ pub(crate) fn lower_net_read_helper(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&result_alloc_fail));
     emit_free_read_buffer(&mut instructions);
     instructions.push(abi::label(&alloc_fail));
@@ -835,6 +863,7 @@ pub(crate) fn lower_net_write_helper(
     const REMAINING_OFFSET: usize = 24;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let write_loop = format!("{symbol}_write_loop");
     let write_done = format!("{symbol}_write_done");
     let write_fail = format!("{symbol}_write_fail");
@@ -850,10 +879,17 @@ pub(crate) fn lower_net_write_helper(
     let v12 = vregs.next();
     let v13 = vregs.next();
     let v14 = vregs.next();
+    instructions.extend([abi::load_u64(
+        &v9,
+        abi::return_register(),
+        FILE_OFFSET_CLOSED,
+    )]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
     instructions.extend([
-        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
     ]);
@@ -994,6 +1030,14 @@ pub(crate) fn lower_net_write_helper(
     emit_fail(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
         &done,

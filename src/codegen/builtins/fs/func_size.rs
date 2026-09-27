@@ -41,7 +41,8 @@ Measuring the length requires a handle the host can reposition, so `fs::size` on
 works on a seekable handle — a regular file on disk. On a pipe, a socket, or
 another non-seekable handle the host cannot report a length, and the call raises
 `ErrReadFailed`; `fs::eof` behaves the same way on the same handles. Calling
-`fs::size` on a `File` that has already been closed raises `ErrResourceClosed`.
+`fs::size` on a `File` that has already been closed raises `ErrResourceClosed`,
+and on one handed to another thread with `thread::transfer`, `ErrResourceMoved`.
 
 The size reported is the file's length on disk at the moment of the call. Bytes
 written through `file` but still held in its write buffer are not counted until
@@ -95,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Integer,
-            errors: vec!["ErrReadFailed", "ErrResourceClosed"],
+            errors: vec!["ErrReadFailed", "ErrResourceClosed", "ErrResourceMoved"],
             body: Body::abi_function(lower_fs_size),
         }],
     });

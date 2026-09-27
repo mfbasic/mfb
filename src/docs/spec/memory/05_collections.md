@@ -636,6 +636,12 @@ read `byteLength` bytes and hand on the tight form.
     pass frees only the removed elements' graphs.
     [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
     [[src/codegen/collection/list/list_compact.rs:lower_list_compact_in_place]]
+  - `repeat` costs the `count` positions it writes, plus at most one grow — which,
+    like any grow, copies `x` — when the run passes the end or the tail cannot
+    take `count` more payloads. For an element type that reaches a type cycle it
+    also costs one graph copy of `item` per position, built before the first
+    write. See [`repeat`](#repeat).
+    [[src/codegen/collection/assign/builder_inplace_assign.rs:try_inplace_repeat_assign]]
   - `removeAt` shifts the entries after the index down one slot and moves no
     payload: it costs the entries after the index. On a variable-width list the
     removed payload's bytes are retracted over when they are the data tail and
@@ -825,6 +831,63 @@ built with `insert`/`prepend`/`set` packs the spliced payload at the data tail, 
 data region keeps its existing order minus the hole rather than being re-packed
 into list order; the observable value and tight sizing are unchanged.
 [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at]]
+
+### `repeat`
+
+`collections::repeat(value, item, count, start = 0)` stores `item` at list
+positions `[start, start + count)`: positions below `len(value)` are overwritten,
+the rest are appended, so the result's length is `max(len(value), start +
+count)`. `Map` and `Set` have no overload.
+
+- **Validation, before anything is written or copied.** `count < 0` raises
+  `ErrInvalidArgument`; then `start < 0` or `start > len(value)` raises
+  `ErrIndexOutOfRange` (`start == len(value)` is a pure extend). The count check
+  runs first, so a call wrong in both raises `ErrInvalidArgument`.
+  [[src/codegen/collection/list/list_repeat.rs:emit_list_repeat_validate]]
+- **Value path.** `lower_repeat` takes a tight copy of `value`
+  (`copy_collection_tight`) and runs the in-place core on the copy, the `set`
+  shape. [[src/codegen/builtins/collections/func_repeat.rs:lower_repeat]]
+- **One grow.** The core reserves for the whole call before its first write:
+  `target = max(len(value), start + count)` entries, and a data region of `target × width` for
+  a fixed-width element or `align(dataLength) + count × align(itemLength)` for a
+  variable-width one — the most tail bytes the writes can take, since each
+  append and each relocating `set` writes at most one aligned payload at the
+  tail. When either does not fit it grows once: a variable-width list first
+  tries the dead-byte reclaim (`emit_list_reclaim_before_grow`, see
+  *Compaction*), then `newCapacity = max(step(capacity), target)` and the data
+  capacity follows *Capacity Headroom and Growth* (tied to the capacity for a
+  fixed-width element), entries and data copied verbatim. The reservation is the
+  only allocation, so its `ErrOutOfMemory` is the only failure after validation.
+  [[src/codegen/collection/list/list_repeat.rs:lower_list_repeat_in_place]]
+- **In-place path.** `x = collections::repeat(x, …)` runs the same core on `x`'s
+  own block (see *Self-updates*): the operands are evaluated in source order
+  (`item`, `count`, `start`), then the validation and the one reservation, all
+  before the first write, so a failing call leaves `x` unchanged. An overwritten
+  element's graph is dropped (`x` owns it). For an element type that reaches a
+  type cycle every position needs a graph of its own, and a graph copy can fail
+  with `ErrOutOfMemory`, so the `count` copies are made first: the value path's
+  shape builds them as a private list (on an empty list, then
+  `own_collection_payload_edges`), the write loop takes element `i - start` of
+  that list instead of `item`, and afterwards only the private list's block is
+  freed. The call can grow, so at a record or `STATE` field it runs in place
+  only at the owner's last inlined field with no operand reading the owner
+  (`field_realloc_admitted`), growing the owner's block through `InlineGrow`;
+  at any other field the statement is rebuilt.
+  [[src/codegen/collection/assign/builder_inplace_assign.rs:try_inplace_repeat_assign]]
+  [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
+- **Writes.** Position by position: an index below the current `count` goes
+  through the `set` in-place primitive (same-size overwrite, or the shorter /
+  longer rules under [`set`](#set)); an index at `count` through the `append`
+  in-place primitive. Neither grows, because the reservation covers both.
+- **Element graphs.** Every position holds its own copy of `item`. On the value
+  path the tight copy's payloads are byte copies whose graph edges (a type that
+  reaches a type cycle) still belong to `value`, so the overwrite does not drop
+  the replaced element's graph (`lower_list_set_in_place_with`,
+  `drop_replaced = false`); the abi-inline dispatch then deep-copies every
+  payload's edges on the result (`own_collection_payload_edges`), which gives
+  each repeated position a graph of its own.
+  [[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place_with]]
+  [[src/codegen/memory/arena/builder_arena_transfer.rs:own_collection_payload_edges]]
 
 ### Map Updates
 

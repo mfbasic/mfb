@@ -1,11 +1,24 @@
 # bug-701: `fs` classifies the same host refusal differently by member and by platform
 
+## STATUS: FIXED (23e21c239)
+
+Implemented the recommended design and both adopted defaults (`ErrPathNotFound`
+for every missing entry, `ErrInvalidPath` for a directory where a file is
+required). Deviations: the mapper also maps POSIX `EPERM` to `ErrAccessDenied`
+(it fell to `ErrWriteFailed`), `EISDIR` and Windows `ERROR_DIRECTORY` /
+`ERROR_CANT_RESOLVE_FILENAME` to `ErrInvalidPath`, and `rmdir`'s `EEXIST` to
+`ErrResourceBusy` — the same one-condition-one-code rule applied to codes the
+table did not list; `openFile(dir, "r")` is refused on POSIX too (Windows
+already refused it), so no handle to a directory exists to read through. The
+Windows link-loop row is unmeasured (no symlink privilege on box 2230) and the
+Linux x86_64 column is unmeasured (boxes 2227/2228 down).
+
 Last updated: 2026-09-25
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **decided 2026-09-25 (owner): every target raises the same error for the
+Status: Fixed (see Phases) — **decided 2026-09-25 (owner): every target raises the same error for the
 same condition. No per-platform error differences, and no man page documents one.**
 Regression Test: extend the bug-694 probe matrix into `tests/runtime/` per sub-issue (Phase 1)
 
@@ -145,25 +158,75 @@ with one code on every host.
 
 ### Phase 1: failing tests + measurement (no behavior change)
 
-- [ ] Commit the probe as a runtime test per row (macOS/Linux in `cargo test`;
+- [x] Commit the probe as a runtime test per row (macOS/Linux in `cargo test`;
       the Windows column as a recorded box-2230 run). Each test asserts the one code
       below, so the same expectation runs on every host.
-- [ ] Confirm or refute the C2 hypothesis (`strace` the Linux read).
+      `tests/runtime/rt_fs_host_error_classification.rs` — one program, one row per
+      line of the target table (17 on Unix; the link-loop row needs a symlink, so it
+      is Unix-only), fixtures built with `std::fs`. RED at 0cd2db799
+      (`MFB_TEST_EXE=<base>/target/debug/mfb cargo test --test
+      rt_fs_host_error_classification`: 12 of 17 rows wrong, e.g. `readText dir:
+      77020001`, `writeText missing dir: 77050004`, `openFile r dir: ok`), GREEN
+      after. The full bug-694 probe is committed as `tools/fs-error-matrix/`.
+- [x] Confirm or refute the C2 hypothesis (`strace` the Linux read).
+      **Confirmed** on box 2226 (Debian 12 aarch64, ext4), base build:
+      `openat("/tmp/l701c2", O_RDONLY) = 3`, `lseek(3, 0, SEEK_END) =
+      9223372036854775807`, then `mmap(NULL, 9223372036854779904, …) = -1 ENOMEM`,
+      and the program printed `readText dir 77010001`.
+- [x] Raw Windows codes, measured on box 2230 with a PowerShell P/Invoke of the
+      same Win32 calls (2026-09-26): a read or write open of a directory,
+      `DeleteFileW` of a directory and `MoveFileExW` onto one → 5; a missing parent,
+      a file used as a directory (at any depth) and an over-long name → 3 (as does
+      `GetFileAttributesW` for all three); a missing final entry → 2;
+      `RemoveDirectoryW`/`SetCurrentDirectoryW`/`FindFirstFileW` given a file → 267;
+      a non-empty `rmdir` → 145; `CreateDirectoryW` over a file → 183. So Windows
+      cannot tell a missing parent from a file used as a directory by code alone.
 
-Commit: —
+Commit: see Phase 2 (test and fix land together)
 
 ### Phase 2: the fix
 
-- [ ] Replace the two mappers with the operation-aware one; fix the directory
+- [x] Replace the two mappers with the operation-aware one; fix the directory
       read; update the Errors tables (the guard forces this) and the pages.
+      `gen_shared::emit_fs_host_error_mapping(op: FsHostOp, path, fallback)`
+      replaces `emit_errno_error_mapping` and `emit_fs_path_errno_error_mapping`
+      at all twelve sites, and `createDirectories`' private mapper. Where the host
+      code names two conditions (Windows 3 and 5, POSIX `EPERM` from `unlink`) it
+      asks a new shared helper, `_mfb_rt_fs_path_class`
+      (`gen_classify.rs`), on the failure path only: *directory*, *unusable*
+      (a component over 255 — UTF-16 units on Windows — or the nearest existing
+      ancestor is not a directory), or *other*. The directory read: a POSIX
+      read-only open of a directory succeeds, so the `open` family `stat`s after a
+      successful read-only open and refuses a directory, and `readText`/`readBytes`
+      classify on their read-failure paths (no cost on the success path). New
+      arms beyond the table, same rule: POSIX `EPERM` → `ErrAccessDenied` (was the
+      `ErrWriteFailed` fallback), `EISDIR` → `ErrInvalidPath`, Windows 267 and 1921
+      → `ErrInvalidPath`, `rmdir` `EEXIST` → `ErrResourceBusy`. The declared lists
+      shrank to what each call can reach (no `ErrAlreadyExists`/`ErrResourceBusy`
+      on a read, open or `unlink`), and the "the table also lists …" sentences went
+      with them; no `fs` page names a platform in its errors paragraph. Spec: new
+      topic `mfb spec stdlib fs-host-errors`.
 
-Commit: —
+Commit: 23e21c239; 41c9ed2f1 (the new helper classified in
+`codegen_helper_scratch_release`)
 
 ### Phase 3: validation
 
-- [ ] Full `cargo test`; artifact gate; the probe on all three hosts.
+- [x] Full `cargo test`; artifact gate; the probe on all three hosts.
+      Probe (`tools/fs-error-matrix`): macOS (local) and Linux aarch64 glibc (box
+      2226) identical on every row; Windows (box 2230) identical on every row of the
+      target table — its remaining differences are fixtures Windows cannot make
+      (symlink loops without privilege; the `ro`/`nox` ACL fixtures). Linux x86_64
+      boxes 2227/2228 were down (ssh refused) — that column is unmeasured; its
+      errno numbers are Linux's, the same as aarch64's.
+      `scripts/artifact-gate.sh target/release/mfb all` at 23e21c239: 40 diffs in 8
+      fixtures, all reaching a changed lowering (regenerated in 3ea85fa20). Full
+      `cargo test --no-fail-fast` at 3ea85fa20: 243 binaries ok, one red
+      (`every_fs_helper_releases_the_path_it_marshalled` — the new
+      `_mfb_rt_fs_path_class` helper was unclassified), fixed in 41c9ed2f1 and
+      green re-run alone.
 
-Commit: —
+Commit: 3ea85fa20 (goldens)
 
 ## Validation Plan
 

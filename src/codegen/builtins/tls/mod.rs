@@ -114,7 +114,8 @@ Each is closed automatically when its binding goes out of scope, so
 calling it again on a handle it already closed raises `ErrResourceClosed`. Either handle may be handed to another thread on a thread's
 resource plane, so a server can accept on one thread and give each connection to
 a worker. The thread that receives a handle is the one that closes it, and the
-sending thread can no longer use it. Neither can be
+sending thread can no longer use it: any call it makes on the handle raises
+`ErrResourceMoved`. Neither can be
 carried in a record. Both may be collection elements when the element type is
 spelled `RES` (a bare `List OF tls::Socket` is rejected with
 `TYPE_RESOURCE_REQUIRES_RES`); `List OF RES tls::Socket` is what the `tls::poll`

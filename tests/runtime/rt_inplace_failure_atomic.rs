@@ -175,6 +175,20 @@ const CASES: &[(&str, &str, &str, &str, &str)] = &[
         "showInts",
         "1,2,3,",
     ),
+    (
+        "repeat with a negative count (plan-153-B)",
+        "MUT x AS List OF Integer = [1, 2, 3]",
+        "x = collections::repeat(x, 9, -1)",
+        "showInts",
+        "1,2,3,",
+    ),
+    (
+        "repeat starting past the end, String list (plan-153-B)",
+        "MUT x AS List OF String = [\"a\", \"b\", \"c\"]",
+        "x = collections::repeat(x, \"zz\", 2, 4)",
+        "showStrs",
+        "a,b,c,",
+    ),
 ];
 
 fn program(decl: &str, statement: &str, show: &str) -> String {

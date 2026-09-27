@@ -1,0 +1,36 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/func_collection_repeat
+Wrote AST to tests/rt-behavior/collections/func_collection_repeat/func_collection_repeat.ast
+Wrote IR to tests/rt-behavior/collections/func_collection_repeat/func_collection_repeat.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/func_collection_repeat
+Wrote executable to tests/rt-behavior/collections/func_collection_repeat/build/func_collection_repeat.out
+[exit 0]
+$ tests/rt-behavior/collections/func_collection_repeat/build/func_collection_repeat.out
+build len=4 [7, 7, 7, 7]
+build empty input after len=0 []
+reset len=5 [0, 0, 0, 0, 0]
+middle len=5 [1, 9, 9, 4, 5]
+past end len=7 [1, 2, 3, 8, 8, 8, 8]
+count zero len=5 [1, 2, 3, 4, 5]
+extend len=8 [1, 2, 3, 4, 5, 5, 5, 5]
+default start len=5 [4, 4, 3, 4, 5]
+count zero at end len=5 [1, 2, 3, 4, 5]
+input after len=5 [1, 2, 3, 4, 5]
+float middle len=3 [1.50, 0.25, 3.50]
+float past end len=5 [1.50, 2.50, -1.00, -1.00, -1.00]
+float build len=3 [0.00, 0.00, 0.00]
+float input after len=3 [1.50, 2.50, 3.50]
+string longer len=4 [ab, wxyz-long, wxyz-long, gh]
+string shorter len=4 [q, q, q, gh]
+string past end len=6 [ab, cd, ef, tail, tail, tail]
+string build len=2 [s, s]
+string input after len=4 [ab, cd, ef, gh]
+record overwrite len=2 [a much longer name:9, b:2]
+record past end len=4 [a:1, a much longer name:9, a much longer name:9, a much longer name:9]
+record input after len=2 [a:1, b:2]
+nested fill len=4 [[1], [0 0 0], [0 0 0], [0 0 0]]
+nested input after len=2 [[1], [2 3]]
+tree fill len=4 [1/1, 2/3, 2/3, 2/3]
+tree build len=2 [1/1, 1/1]
+tree input after len=3 [1/1, 2/3, 1/1]
+[exit 0]

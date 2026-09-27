@@ -99,9 +99,10 @@ enqueue success:
   `thread.transfer` as a move (`ExprMode::Transfer`). Any holder of a resource
   pointer may transfer it — a resource is owned by the outermost scope that touches
   it (§15.6) — and the transfer is tracked as a move, so a later use of the
-  transferred name is a use-after-move. The receiving thread finds the record
-  flagged `moved`, and any operation on it there reports `ErrResourceMoved` rather
-  than acting on a handle that has left.
+  transferred name is a use-after-move. The sender's record is flagged `moved`, so
+  an operation that still reaches it — through an alias the move rules do not
+  track, such as a `RES` parameter — reports `ErrResourceMoved` rather than acting
+  on a handle that has left.
   [[src/ir/verify/resources.rs:check_resource_moves]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's

@@ -365,6 +365,7 @@ pub(crate) fn lower_tls_write(
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let fail = format!("{symbol}_fail");
     // bug-483: `send` has its own failure arm now, so its Winsock error can be
     // classified. `EncryptMessage` keeps the plain `fail` — that one really is a
@@ -387,8 +388,13 @@ pub(crate) fn lower_tls_write(
         // Null until allocated, so a guarded release on any exit is safe.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), SENDBUF),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
         abi::store_u64(&v9, abi::stack_pointer(), STATE),
         // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
@@ -570,6 +576,8 @@ pub(crate) fn lower_tls_write(
     ]);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&peer_gone));
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&peer_closed));

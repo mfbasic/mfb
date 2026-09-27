@@ -30,11 +30,17 @@
 //!   callee can touch it — so `x = append(x, f())` and `s & f()` on locals stay
 //!   copy-free, and the in-place `x = append(x, <pure>)` fast path never sees a
 //!   `Call` node at all.
-//! * `value_contains_reaching_call` — some LATER operand must contain a call
-//!   that can run user code: a module function, an indirect call through a FUNC
-//!   value, or any call handed a FUNC value (a higher-order builtin invoking a
-//!   callback). A pure native builtin (`len`, `toString`, `collections.get`) can
-//!   reassign nothing, so `GS & toString(n)` stays copy-free.
+//! * `later_operands_can_free` — some LATER operand must be able to free the
+//!   block. For a global root that means reaching a `StoreGlobal` of THAT global
+//!   (`store_reach.rs`, bug-737): `collections::get(g, idx(i))` with a pure `idx`
+//!   used to copy all of `g` per read, which was 98% of the 6.1 GB one
+//!   `examples/brogue` `dig` allocated. Any other root (and a global holding a
+//!   resource, whose STATE a `StateAssign` can reallocate) keeps the broad rule,
+//!   `value_contains_reaching_call`: a call that can run user code — a module
+//!   function, an indirect call through a FUNC value, or any call handed a FUNC
+//!   value (a higher-order builtin invoking a callback). A pure native builtin
+//!   (`len`, `toString`, `collections.get`) can reassign nothing, so
+//!   `GS & toString(n)` stays copy-free either way.
 //!
 //! bug-665 adds the case with no later sibling at all: a call argument read out
 //! of a global `g` that the CALL ITSELF can reassign (`clobber(g)`, or
@@ -140,10 +146,7 @@ impl CodeBuilder<'_> {
             if !self.operand_reachable_by_later_call(operand) {
                 continue;
             }
-            if operands[index + 1..]
-                .iter()
-                .any(|later| self.value_contains_reaching_call(later))
-            {
+            if self.later_operands_can_free(operand, &operands[index + 1..]) {
                 self.operand_snapshot_wanted
                     .push(*operand as *const NirValue as usize);
             }
@@ -262,6 +265,60 @@ impl CodeBuilder<'_> {
             }
             _ => false,
         }
+    }
+
+    /// Whether evaluating `later` (the operands lowered after `operand`) can free
+    /// the block `operand` points into.
+    ///
+    /// bug-737: for an operand rooted in a module-level global, only a call that
+    /// can reach a `StoreGlobal` of THAT global frees its block — the question
+    /// bug-665 already asks with `store_reach.rs` — so a pure index helper after
+    /// it (`collections::get(g, idx(i))`) no longer copies all of `g` per read.
+    /// A resource global keeps the broad rule: its STATE block can also be
+    /// reallocated by a `StateAssign` through another alias, which is not a
+    /// `StoreGlobal`. Every other reachable root (a by-ref, address-taken or
+    /// resource local) keeps the broad rule too: a callee reaches it through a
+    /// reference, not by name.
+    fn later_operands_can_free(&self, operand: &NirValue, later: &[&NirValue]) -> bool {
+        if let Some(global) = global_root(operand) {
+            let holds_resource = self
+                .globals
+                .get(global)
+                .is_none_or(|declared| self.type_reaches_resource(&declared.type_));
+            if !holds_resource {
+                return later.iter().any(|value| {
+                    self.values_reach_store(std::slice::from_ref(*value), StoreLeaf::Global(global))
+                });
+            }
+        }
+        later
+            .iter()
+            .any(|value| self.value_contains_reaching_call(value))
+    }
+
+    /// Whether a resource handle is reachable from `type_` — the type itself, a
+    /// field, a variant payload or a collection element. Any such value can hold
+    /// a STATE block that a `StateAssign` through another alias reallocates.
+    fn type_reaches_resource(&self, type_: &ParameterType) -> bool {
+        let mut stack = vec![type_.clone()];
+        let mut visited = std::collections::HashSet::new();
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current.clone()) {
+                continue;
+            }
+            if matches!(current, ParameterType::ThreadHandle { .. })
+                || self.type_is_resource_handle(&current)
+            {
+                return true;
+            }
+            stack.extend(
+                crate::codegen::collection::layout::builder_collection_layout::type_components(
+                    &self.type_model,
+                    &current,
+                ),
+            );
+        }
+        false
     }
 
     fn type_is_resource_handle(&self, type_: &ParameterType) -> bool {
