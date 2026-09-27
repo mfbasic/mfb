@@ -1,20 +1,31 @@
 # bug-699: keyboard input differs on every input surface — special keys arrive in a different encoding or not at all, and `io`'s key readers cannot be uniform
 
-Last updated: 2026-09-25 (Phases 1–2)
+## STATUS: FIXED (0ef602045)
+
+All seven phases landed on `worktree-B-699`: `--app` key injection in the kitty
+form (e2a1a0fbd), the six readers and timeouts (7e554824c), the kitty keyboard
+protocol in `term::on`/`term::off` (c724dab58), the removal of
+`readChar`/`readByte`/`pollInput` with every caller migrated (0ef602045, spec
+203cf66ec), and the cross-platform probe (9e6d3b4e3). Final gate on the merged tip
+(5869e312d): `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs over
+2170 goldens; `cargo test --no-fail-fast` → EXIT=0, 249 test results ok, 0 failed;
+`cargo test --bin mfb spec` 44 passed; `scripts/man-census.sh --memory-scope`
+0 unclassified.
+
+Last updated: 2026-09-27 (all phases)
 Effort: huge (>3d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — **redesigned 2026-09-25 (owner).** Originally "special keys arrive
-unstandardised per surface"; the owner widened it into one uniform `io` keyboard-input
-surface, and folded in plan-69 (`term::` key down/up, deleted — see "plan-69").
-Phases 1 and 2 are done (2026-09-25; landed on `main` via `800a1b966`, full suite green there); the Open details were settled by the owner
-(2026-09-25, Decision 9); Phases 3–7 remain.
-Regression Test: `tests/codegen/app_special_keys.rs` (`cargo test --test
-app_special_keys`; the Phase 3 cases are `#[ignore]`d until then), the decoder corpus
-and reader tests (`cargo test --bin mfb codegen::io::input`), and
-`tests/runtime/rt_native_term_runtime.rs::native_term_mouse_line_read_keeps_the_bytes_after_an_escape`.
-The `io` reader function tests come with the readers (Phase 4).
+Status: Fixed (2026-09-27) — **redesigned 2026-09-25 (owner).** Originally "special
+keys arrive unstandardised per surface"; the owner widened it into one uniform `io`
+keyboard-input surface, and folded in plan-69 (`term::` key down/up, deleted — see
+"plan-69").
+Regression Test: `tests/codegen/app_special_keys.rs` (36 handler cases),
+`tests/runtime/rt_io_key_readers.rs` (pipe, pty, kitty, Ctrl+C, mouse),
+`cargo test --bin mfb codegen::io::input` (decoder corpus, encoder, reader engine),
+`tests/runtime/rt_native_term_runtime.rs`, and `tools/key-probe` for the
+cross-platform run.
 
 A program reads keys with `io::readChar` / `io::readByte`, gated by `io::pollInput`.
 What an arrow key or Delete produces depends on the input surface the program runs on:
@@ -692,12 +703,16 @@ replaced …"); `python3 tools/pty-probe/snake_life_advance_under_input.py`,
 `python3 tools/example-eof-probe/probe.py` all PASS; `mfb test
 tests/acceptance < /dev/null` 782/782 after the fix below;
 `scripts/spec-census.sh --citations` 0 missing, `--links` 0 unresolved.
-Commit: 0ef602045 (migration), plus the spec commit that follows it
+Commit: 0ef602045 (migration), 203cf66ec (spec)
 
 ### Phase 7: full validation
 
-- [ ] Full suite (`cargo test`), `cargo test --bin mfb spec`,
+- [x] Full suite (`cargo test`), `cargo test --bin mfb spec`,
       `scripts/man-census.sh --memory-scope` (0 unclassified).
+      — On the final merged tip 5869e312d under the heavy lock:
+      `cargo test --no-fail-fast` EXIT=0, 249 results ok, 0 failed; artifact gate
+      0 diffs / 2170 goldens (baseline on main 038959645 was 0); spec 44 passed;
+      memory-scope 0 unclassified.
 - [x] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
       keys by hand in `--app`.
       — `tools/key-probe` (`9e6d3b4e3`). Every run printed the same
@@ -716,7 +731,7 @@ Commit: 0ef602045 (migration), plus the spec commit that follows it
       was at the keyboard.
 
 Acceptance: full suite green; the probe prints the same key sequence everywhere.
-Commit: —
+Commit: 9e6d3b4e3 (probe), 1d4d5c94c (goldens), 782af8bc4 / 2d159151a (suite follow-ups)
 
 ## Findings for later phases (Phase 1–2, 2026-09-25)
 
