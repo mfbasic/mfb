@@ -328,6 +328,33 @@ instantiation, so it expands like any other generic function.
 names is computed once from the imports (`collections::collections_bindings`).
 Non-collections calls return the callee unchanged.
 
+### Diagnostics inside a built-in package's body
+
+Every instantiation is emitted into the project's first source file, so its
+`HirFunction::file` names that file while its statements keep the line numbers of
+the package source. A rule that fails while checking the body — an operator the
+element type does not support (`collections::sort` over `Boolean`), a
+comparability requirement (`collections::distinct` over a `FUNC`) — would cite a
+line past the end of the user's file. So an instantiation of a template declared in
+an internal (built-in package) file records every user call that reaches it,
+`HirFunction::instantiated_at`: the call's file and line and the member as the user
+spells it (`registry::public_member_for_rewrite` maps `#collections_sort` back to
+`collections::sort`). A later call that reuses the cached instantiation appends its
+own site, and an instantiation made from inside such a body inherits the outermost
+user call, so a nested helper is attributed to it too.
+[[src/monomorph/lower.rs:user_instantiation_site]] [[src/hir/mod.rs:InstantiationSite]]
+
+The three passes that can report inside the body relocate to those sites: the
+monomorphizer's own `report` (to the current site), `ir::shape`'s `emit`, and
+`ir::verify`'s `emit`, which reads the sites from `LinkSpans::instantiation_sites`
+because the IR carries no call position. Each emits the diagnostic once per site,
+at the call's line, with the detail prefixed by "In the body of `collections::sort`,
+instantiated by this call:". [[src/ir/verify/mod.rs:TypeEnv]]
+[[src/ir/lower_link.rs:LinkSpans]] The same public spelling replaces the internal
+`__collections_sort` in the call-level arity and inference messages
+`instantiate_function` reports. Before bug-642 each of these cited the body's line
+against the user's file and named no call.
+
 ## See Also
 
 * ./mfb spec architecture frontend — pass ordering and the double resolve

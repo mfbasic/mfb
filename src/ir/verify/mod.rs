@@ -277,6 +277,17 @@ fn collect_diagnostics_with(
     let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
+        // A hidden default function belongs to the function whose parameter
+        // default it computes.
+        let site_owner =
+            crate::internal_name::hidden_default_owner(&function.name).unwrap_or(&function.name);
+        env.current_sites.replace(
+            env.link_spans
+                .instantiation_sites
+                .get(site_owner)
+                .cloned()
+                .unwrap_or_default(),
+        );
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
         env.current_function.replace(function.name.clone());
@@ -527,6 +538,7 @@ fn collect_diagnostics_with(
     }
     // Global initializers are lowered into a synthetic function later; verify
     // their initializer expressions here with an empty local scope.
+    env.current_sites.replace(Vec::new());
     for binding in &project.bindings {
         env.current_file.replace(binding.file.clone());
         env.current_line.set(binding.loc.line);
@@ -742,6 +754,10 @@ struct TypeEnv {
     trap_closed: RefCell<HashSet<String>>,
     /// Project-relative file of the function currently being checked.
     current_file: RefCell<String>,
+    /// bug-642: the user calls that instantiated the built-in package body being
+    /// checked (`LinkSpans::instantiation_sites`). While non-empty, `emit` reports
+    /// at each: the body's lines are the package source's, not `current_file`'s.
+    current_sites: RefCell<Vec<crate::hir::InstantiationSite>>,
     /// Declared return type of the function currently being checked (for
     /// RETURN-type rules).
     current_return: RefCell<ParameterType>,
@@ -1008,6 +1024,7 @@ impl TypeEnv {
             current_line: Cell::new(0),
             trap_closed: RefCell::new(HashSet::new()),
             current_file: RefCell::new(String::new()),
+            current_sites: RefCell::new(Vec::new()),
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
             current_function: RefCell::new(String::new()),
@@ -1034,6 +1051,20 @@ impl TypeEnv {
         if POISONING_RULES.contains(&rule) {
             self.poisoned.set(true);
         }
+        let sites = self.current_sites.borrow();
+        if !sites.is_empty() {
+            let mut diags = self.diags.borrow_mut();
+            for site in sites.iter() {
+                diags.push(Diagnostic {
+                    rule: rule.to_string(),
+                    detail: site.describe(&detail),
+                    file: site.file.clone(),
+                    line: site.line as u32,
+                });
+            }
+            return;
+        }
+        drop(sites);
         self.diags.borrow_mut().push(Diagnostic {
             rule: rule.to_string(),
             detail,

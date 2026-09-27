@@ -316,6 +316,36 @@ pub(crate) struct HirFunction {
     /// user's first file, but it is still the package's code: the resolver exempts
     /// it from the rules an internal file is exempt from.
     pub(crate) internal_origin: bool,
+    /// bug-642: for an `internal_origin` instantiation, every user call that
+    /// reaches it, in the order monomorphization met them (one instantiation
+    /// serves every call with the same type arguments). The instantiated body's own
+    /// lines are the package source's, not the file it is emitted into, so a
+    /// diagnostic raised while checking the body is reported at each of these
+    /// instead. A nested instantiation (a helper the package body calls) inherits
+    /// the outermost user call. Empty for everything else.
+    pub(crate) instantiated_at: Vec<InstantiationSite>,
+}
+
+/// bug-642: where a built-in package's generic body was instantiated from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InstantiationSite {
+    /// The project-relative file of the user's call.
+    pub(crate) file: String,
+    /// The 1-based line of the user's call.
+    pub(crate) line: usize,
+    /// The member as the user spells it (`collections::sort`).
+    pub(crate) callee: String,
+}
+
+impl InstantiationSite {
+    /// A diagnostic's detail, reworded for the user's call: it names the member
+    /// whose body the rule failed in, since the reported line is the call's.
+    pub(crate) fn describe(&self, detail: &str) -> String {
+        format!(
+            "In the body of `{}`, instantiated by this call: {detail}",
+            self.callee
+        )
+    }
 }
 
 /// A function trap handler — the elaborated mirror of [`crate::ast::Trap`].
@@ -799,6 +829,7 @@ fn elaborate_function(function: &crate::ast::Function) -> HirFunction {
             .map(|trap| elaborate_trap(trap, type_params)),
         line: function.line,
         internal_origin: false,
+        instantiated_at: Vec::new(),
     }
 }
 

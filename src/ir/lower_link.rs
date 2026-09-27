@@ -68,10 +68,16 @@ pub(crate) struct CStructSpans {
 
 /// Every LINK declaration's spans, keyed by `(alias, name)` — the identity the
 /// IR tables carry. Empty on the package path.
+///
+/// bug-642: it also carries the one other source position the HIR knows and the
+/// IR drops — where each built-in package generic body was instantiated from,
+/// keyed by the concrete function name — so `ir::verify` reports a rule that fails
+/// inside such a body at the user's call.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LinkSpans {
     pub(crate) functions: HashMap<(String, String), LinkFunctionSpans>,
     pub(crate) cstructs: HashMap<(String, String), CStructSpans>,
+    pub(crate) instantiation_sites: HashMap<String, Vec<crate::hir::InstantiationSite>>,
 }
 
 /// Derive the LINK declarations' source spans from the HIR (which mirrors the
@@ -81,6 +87,13 @@ pub(crate) fn link_spans(hir: &crate::hir::HirProject) -> LinkSpans {
     let mut spans = LinkSpans::default();
     for file in &hir.files {
         for item in &file.items {
+            if let crate::hir::HirItem::Function(function) = item {
+                if !function.instantiated_at.is_empty() {
+                    spans
+                        .instantiation_sites
+                        .insert(function.name.clone(), function.instantiated_at.clone());
+                }
+            }
             let crate::hir::HirItem::Link(link) = item else {
                 continue;
             };

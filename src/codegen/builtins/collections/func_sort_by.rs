@@ -591,7 +591,8 @@ accepts — `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`.
 `T` carries no ordering requirement. A list of records, of nested lists, or of
 any other unordered element type sorts fine as long as `keyFn` projects it to an
 orderable `U`. If `keyFn` returns a type the `<` operator cannot order, the program does not
-compile (`TYPE_BINARY_OPERATOR_MISMATCH`)."#;
+compile: the build reports `TYPE_BINARY_OPERATOR_MISMATCH` at the `sortBy` call, naming
+`collections::sortBy`."#;
 
 const EX: &str = r#"Sort descending by negating an integer key:
 

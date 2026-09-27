@@ -3393,6 +3393,25 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 /// bare-name native members. The three `Body::Intrinsic` List overloads
 /// (`find`/`mid`/`replace`) are handled by their caller
 /// (`crate::codegen::builtins::native_builtin_target`), which shares them with `strings::`.
+/// bug-642: the member a user calls to reach an internal generic body, spelled as
+/// they write it (`collections::sort` for `#collections_sort`), or `None` when no
+/// registry member rewrites to `internal` — an internal helper such as
+/// `#collections_slice`, which a user never calls directly.
+pub(crate) fn public_member_for_rewrite(internal: &str) -> Option<String> {
+    let rewrite = format!("__{}", crate::internal_name::strip_sigil(internal)?);
+    registry().packages().iter().find_map(|package| {
+        package.functions().iter().find_map(|function| {
+            function
+                .implementations()
+                .iter()
+                .any(|implementation| {
+                    implementation.body.rewrite_target() == Some(rewrite.as_str())
+                })
+                .then(|| format!("{}::{}", package.import_name(), function.name))
+        })
+    })
+}
+
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     for implementation in &function.implementations {
@@ -5997,6 +6016,28 @@ mod tests {
         assert!(f
             .dispatch(&call(&["String", "Integer", "Integer"]))
             .is_none());
+    }
+
+    #[test]
+    fn public_member_for_rewrite_names_the_member_a_user_calls() {
+        // bug-642: a diagnostic about an instantiated body names the member the
+        // user wrote, not the internal symbol it rewrites to.
+        assert_eq!(
+            public_member_for_rewrite("#collections_sort").as_deref(),
+            Some("collections::sort")
+        );
+        assert_eq!(
+            public_member_for_rewrite("#collections_sortBy").as_deref(),
+            Some("collections::sortBy")
+        );
+        // The arity-routed second body of `findLastIndex` (bug-527) still names it.
+        assert_eq!(
+            public_member_for_rewrite("#collections_findLastIndexFromEnd").as_deref(),
+            Some("collections::findLastIndex")
+        );
+        // An internal helper is not a member anyone calls.
+        assert_eq!(public_member_for_rewrite("#collections_slice"), None);
+        assert_eq!(public_member_for_rewrite("sort"), None);
     }
 
     #[test]

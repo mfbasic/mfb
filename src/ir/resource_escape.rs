@@ -664,6 +664,7 @@ mod tests {
             trap: None,
             line: 1,
             internal_origin: false,
+            instantiated_at: Vec::new(),
         }
     }
 

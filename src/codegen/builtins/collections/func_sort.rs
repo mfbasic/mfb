@@ -595,8 +595,8 @@ the instantiated element type must be one the `<` operator accepts: `Integer`,
 against `Money`, and `Scalar` never orders against `String`.
 
 A list whose element type the `<` operator does not accept — a `Boolean`, a
-record, a nested `List`, or a `Map` — does not compile
-(`TYPE_BINARY_OPERATOR_MISMATCH`)."#;
+record, a nested `List`, or a `Map` — does not compile: the build reports
+`TYPE_BINARY_OPERATOR_MISMATCH` at the `sort` call, naming `collections::sort`."#;
 
 const EX: &str = r#"Sort a list of integers:
 

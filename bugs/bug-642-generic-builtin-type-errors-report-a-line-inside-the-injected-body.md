@@ -1,12 +1,13 @@
 # bug-642: a type error inside a source-generic builtin (`collections::sort`) is reported at a line that does not exist in the user's file
 
-Last updated: 2026-09-16
+Last updated: 2026-09-27
 Effort: medium
 Severity: MEDIUM
 Class: Diagnostics (wrong location, no call-site attribution)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed (see STATUS below)
+Regression Test: `tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid`;
+unit test `registry::tests::public_member_for_rewrite_names_the_member_a_user_calls`
 
 `collections::sort` is a source-generic member: its MFBASIC body is injected into
 the project and instantiated per element type. When the element type does not
@@ -71,6 +72,25 @@ check, so there is nothing better to report.
 Confirm by locating where `TYPE_BINARY_OPERATOR_MISMATCH` is emitted for an
 instantiated generic, and what span and file it receives.
 
+## Root cause (confirmed 2026-09-27)
+
+Reproduced at `a0082e4ae` exactly as described (`main.mfb:43` for an 8-line file),
+and for the bug-744 lane's `List OF Nothing` (`got Nothing and Nothing`, same line).
+The hypothesis holds, with one detail sharpened: monomorphization emits every
+instantiation into the project's FIRST source file
+(`Monomorphizer::into_project` → `first_file.items`), so `IrFunction::file` names
+that file while the body's statement lines stay the package source's. `ir::verify`
+reports at `(function.file, statement line)` and nothing threaded the user's call
+through. The same holds for `ir::shape` and for the monomorphizer's own `report`
+inside a body (which used the internal file's path).
+
+Census of the `Body::Mfb` generic members whose body applies a type-dependent
+rule, all reproduced at base with a nonexistent line: `sort` (`<`, line 43),
+`sortBy` (key `<`, line 98), `distinct` (`TYPE_REQUIRES_COMPARABLE` naming
+`collections.contains`, line 293). The call-level messages `instantiate_function`
+reports (arity, inference) were at the right line but named the internal
+`__collections_sort`.
+
 ## Non-goals
 
 - Changing which element types `sort`/`sortBy` accept.
@@ -91,10 +111,18 @@ instantiated generic, and what span and file it receives.
 
 ## Fix
 
-Phase 1 — RED test: the reproduction above expects the error at `main.mfb:6`
-naming `collections::sort`. Run the census. Commit:
+- [x] Phase 1 — RED test: `tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid`
+(`sort` over `Boolean` and over `Nothing`, a second `sort` call reusing the
+instantiation, `sortBy` with a `Boolean` key, `distinct` over `FUNC`s); at
+`a0082e4ae` it reports lines 43/43/98/293 and only one `sort` site. Commit: see
+Phase 2 (one commit).
 
-Phase 2 — thread the instantiation call site into diagnostics raised while
-checking an instantiated generic body, and word them against the builtin (GREEN);
-full suite and diagnostic goldens. Update the `sort` and `sortBy` man pages, which
-document the current location. Commit:
+- [x] Phase 2 — the monomorphizer records every user call that reaches an
+internal-origin instantiation (`HirFunction::instantiated_at`, inherited by nested
+instantiations), and `report`, `ir::shape::emit` and `ir::verify::emit` (via
+`LinkSpans::instantiation_sites`) report once per call site, at its line, with
+"In the body of `collections::sort`, instantiated by this call:". The member is
+spelled as the user wrote it (`registry::public_member_for_rewrite`), also in
+`instantiate_function`'s arity/inference messages. `sort`/`sortBy` man pages now say
+the error is reported at the call; spec architecture monomorphization documents it.
+Commit: COMMIT_642

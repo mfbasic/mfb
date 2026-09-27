@@ -1,0 +1,24 @@
+' bug-642: a rule that fails inside a built-in package's generic body is reported
+' at the user's call that instantiated it, naming the member — never at a line of
+' the injected body (which used to be cited against this file, past its end).
+IMPORT io
+IMPORT collections
+
+FUNC flagOf(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+SUB main()
+  LET flags AS List OF Boolean = [TRUE, FALSE]
+  LET sortedFlags = collections::sort(flags)
+  ' The bug-744 lane's case: `Nothing` is not orderable either.
+  LET nothings AS List OF Nothing = [NOTHING, NOTHING]
+  LET sortedNothings = collections::sort(nothings)
+  ' A second call with the same element type reuses the instantiation, and is
+  ' reported too.
+  LET again = collections::sort([FALSE, TRUE])
+  LET byFlag = collections::sortBy([1, 2, 3], flagOf)
+  LET fns AS List OF FUNC(Integer) AS Boolean = [flagOf]
+  LET unique = collections::distinct(fns)
+  io::print(toString(len(sortedFlags) + len(sortedNothings) + len(again) + len(byFlag) + len(unique)))
+END SUB
