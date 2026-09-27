@@ -117,7 +117,7 @@ Byte-identity is not the gate. Expected diff: the Windows audio ncodesum.
 Acceptance: §Corrections names the root cause of both bugs, with probe output.
   Check: `grep -c 'root cause' planning/plan-158-C-windows-audio-exclusive-fixes.md` → ≥ 2
   (est. 1 min).
-Commit: —
+Commit: 30d371d83
 
 ### Phase 2 — Fix EXCLUSIVE render
 
@@ -144,10 +144,14 @@ Commit: —
       `Initialize` prefixes go, `Initialize(SHARED)`/`(EXCLUSIVE)` and
       `WaitForSingleObject` come); `regen-native-goldens.sh` → only the windows sum
       changed.
-- [ ] Re-run plan-158-A's leak loop on the write path, which its C10 could not run while
+- [x] Re-run plan-158-A's leak loop on the write path, which its C10 could not run while
       the wait was unbounded: `/tmp/p158/wprobe`-style probe, a SHARED stream
       invalidated by a second open, then 10 000 failing `write`s under TRAP in a
-      `--debug` build. `arena.0.live_bytes` equal at N=10 and N=10 000.
+      `--debug` build. `arena.0.live_bytes` equal at N=10 and N=10 000. — the second
+      stream is now 44100/2 (only an EXCLUSIVE open invalidates, C2/C6). `wprobe trap 10`
+      → `write failures=10`, `live_bytes 96`; `wprobe trap 10000` → `write failures=
+      10000`, `alloc_calls 60048`, `free_calls 60044`, `live_bytes 96`. Each failing write
+      after the first returns in the 200 ms bound (the run took about 33 min).
 
 Acceptance: on the box, a 2 s 440 Hz tone written in 500-frame chunks to an EXCLUSIVE
 44100/2 stream finishes within the watchdog, and the user confirms it is audible.
@@ -156,7 +160,7 @@ Acceptance: on the box, a 2 s 440 Hz tone written in 500-frame chunks to an EXCL
   console-session runs (`schtasks /it`) → `1968`/`1967`/`1975 ms`; the user confirmed
   the three tones were audible (2026-09-27). `tone 48000 2` → `wrote 192 chunks OK in
   1979 ms`.
-Commit: —
+Commit: 9caf5a9f7 (code), 64fee39e9 (docs), 7b3b9ff57 (golden + ledger)
 
 ### Phase 3 — Preemption
 
@@ -172,7 +176,7 @@ Acceptance: probe output recorded; `11_audio.md` states the behaviour.
   Check: `grep -n 'exclusive' src/docs/spec/stdlib/11_audio.md` → the preemption
   paragraph (est. 1 min). — met (lines 142–153); the `audio` man description says the
   same for the developer.
-Commit: —
+Commit: 9caf5a9f7 (with Phase 2, C6), 64fee39e9 (spec)
 
 ## Validation Plan
 
