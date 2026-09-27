@@ -639,7 +639,13 @@ Commit: 7e554824c
 - [x] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
       `NotSupported` elsewhere; `readScalar`/`readGrapheme`/`readLine` see plain text
       either way.
-- [ ] Windows console: VT input per the Phase 1 measurement.
+- [x] Windows console: VT input per the Phase 1 measurement.
+      — The readers set `ENABLE_VIRTUAL_TERMINAL_INPUT` for their call and
+      `term::on` for its whole duration (`emit_apply_raw_mode`); measured on box
+      206 (Windows 11, `tools/key-probe`, KEY_EVENT records through
+      `WriteConsoleInputW`): the full sequence arrives in reader mode and under
+      `term::on`, as `NotSupported` events (conhost answers the kitty query
+      with device attributes only).
 
 Acceptance: a kitty-capable terminal (manual, named in the commit) shows releases;
 Terminal.app shows `NotSupported`; the terminal is clean after exit, including after
