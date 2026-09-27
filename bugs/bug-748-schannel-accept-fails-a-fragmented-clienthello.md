@@ -1,4 +1,4 @@
-# bug-743: Windows `tls::accept` fails a ClientHello that arrives in more than one piece
+# bug-748: Windows `tls::accept` fails a ClientHello that arrives in more than one piece
 
 Last updated: 2026-09-26
 Effort: small (<1h)

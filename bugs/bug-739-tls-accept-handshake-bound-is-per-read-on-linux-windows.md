@@ -39,9 +39,9 @@ Deviations and findings:
    is now read from `c_return(0)`. No x86-64 Linux box was reachable
    (2227/2228 down), so that row was run under Docker `--platform linux/amd64`
    (qemu).
-2. **bug-743 found and fixed alongside.** On Windows the trickle case could
+2. **bug-748 found and fixed alongside.** On Windows the trickle case could
    not even reach the timeout: any ClientHello that arrived in more than one
-   `recv` failed with `ErrTlsFailed` first. Filed and fixed as bug-743.
+   `recv` failed with `ErrTlsFailed` first. Filed and fixed as bug-748.
 3. **Test harness bug fixed** (`6dc8a5939`). `tests/common::build_project`
    returned the first executable a Linux build wrote (glibc), which cannot run
    on a musl host. Every such test failed to spawn on box 2229.
@@ -56,7 +56,7 @@ bytes; the late case is connect at 3000 ms and hello at 4500 ms under 4000 ms:
 | Linux aarch64 glibc (box 2226) | ErrTimeout at 2032 ms ✓ (unfixed: OK 4619) | OK ✓ | OK ✓ | ErrTimeout ✓ |
 | Linux riscv64 musl (box 2229), `cargo test` | test GREEN (unfixed: RED, `trickle=OK 8553`) | GREEN | GREEN | — |
 | Linux x86_64 glibc (Docker amd64, qemu) | ErrTimeout at 1952 ms ✓ (unfixed: completes after 8.6 s) | handshake OK ✓ | OK ✓ | ErrTimeout ✓ |
-| Windows x86_64 (box 2230, Schannel) | ErrTimeout ✓ | OK ✓ (needs bug-743) | OK ✓ | ErrTimeout ✓ |
+| Windows x86_64 (box 2230, Schannel) | ErrTimeout ✓ | OK ✓ (needs bug-748) | OK ✓ | ErrTimeout ✓ |
 
 Not run: Linux x86_64 musl and Linux aarch64 musl as native rows (no
 reachable box); Linux x86_64 only under emulation.

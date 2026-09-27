@@ -956,7 +956,7 @@ pub(crate) fn lower_tls_accept(
     // FIRSTF is set: an incomplete first call creates no context, so the retry
     // must pass NULL again. Setting FIRSTF first handed AcceptSecurityContext a
     // handle it never filled in, and a ClientHello that arrived in more than one
-    // piece failed with ErrTlsFailed (bug-743).
+    // piece failed with ErrTlsFailed (bug-748).
     branch_if_incomplete(&v15, &hs_read, &mut ins, &mut vregs);
     ins.extend([
         // context now exists → subsequent calls pass &ctxt

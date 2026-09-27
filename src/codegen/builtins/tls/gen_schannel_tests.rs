@@ -443,12 +443,12 @@ fn read_names_a_reset_peer_connection_closed() {
     }
 }
 
-// bug-743: an AcceptSecurityContext that returned SEC_E_INCOMPLETE_MESSAGE on the
+// bug-748: an AcceptSecurityContext that returned SEC_E_INCOMPLETE_MESSAGE on the
 // FIRST call created no context, but FIRSTF ("a context exists") was set before
 // the incomplete branch, so the retry handed ASC a handle it never filled in and
 // a ClientHello that arrived in more than one piece failed with ErrTlsFailed.
 // The incomplete branch back to `hs_read` must come before the FIRSTF store.
-// Execution proof is box 2230 (bug-743 doc).
+// Execution proof is box 2230 (bug-748 doc).
 #[test]
 fn accept_retries_an_incomplete_first_call_without_a_context() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
