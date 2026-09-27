@@ -1,11 +1,11 @@
 # bug-744: a `FUNC … AS Nothing` call in value position panics native codegen
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: FIXED
 Regression Test: tests/runtime/rt_nothing_func_value_position.rs
 
 Owner report: `LET y = f(1)`, where `f` is `FUNC f(x AS Integer) AS Nothing`, makes
@@ -36,6 +36,33 @@ This is not a front-end diagnostic. The spec makes it a legal program:
   that value is a `FUNC` call.
 - `mfb spec language error-model` §8 rule 13: `RECOVER` "carries a value iff that type
   is not `Nothing`" — the trapped `Nothing` expression still produces `NOTHING`.
+
+## STATUS: FIXED (945f19774)
+
+A `FUNC … AS Nothing` call used as a value yields `NOTHING`, per the owner decision
+of 2026-09-26: `Nothing` is a first-class type. `lower_value` materializes the unit
+value (`mov 0`) for a used `Nothing`/`void` call result. The `Eval` statement and
+`RETURN` mark their value as discarded, so they emit exactly what they did before.
+`NirValue::ResultValue` of `Result OF Nothing` yields 0 instead of reading the
+never-written payload, which fixes the silent inline-`TRAP` case. The spec now says
+all of this (abfb12edb). `mfb spec memory` also no longer claims that `x1` is 0 on a
+`Nothing` success.
+
+Deviations:
+- The collection-literal sibling was split out as bug-745 and fixed on the same
+  branch.
+- plan-159-A's Phase 1 diagnostic (`TYPE_NOTHING_CALL_HAS_NO_VALUE`) was withdrawn by
+  owner decision. The coordinator amended plan-159-A/B/D on main (038959645). This
+  branch's own amendment (0befabf36) was dropped again (b35d079f8).
+- One test was added beyond the original 12 shapes: the owner's round-trip example
+  (`LET b = same(a)`).
+
+Verified on the merged tip:
+- `cargo test --release --no-fail-fast`: exit 0, 250 test binaries,
+  6249 passed, 0 failed.
+- `scripts/artifact-gate.sh target/release/mfb all`: 2166 goldens, 0 diffs. As
+  predicted, no golden moves.
+- The owner's reproduction builds and prints `f`, `done`.
 
 References:
 
@@ -196,7 +223,7 @@ where the build used to fail. The `ResultValue` change replaces one `ldr` with o
 - [x] Blast-radius audit above.
 
 Acceptance: the new tests fail for the documented reason; the audit list is complete.
-Commit: —
+Commit: 6458c175f (+ 0befabf36 for the round-trip test)
 
 ### Phase 2 — the fix
 
@@ -204,19 +231,19 @@ Commit: —
       `value_discarded_armed` set by `Eval` and `RETURN`.
 - [x] `NirValue::ResultValue` of `Result OF Nothing` produces 0.
 
-Acceptance: all 14 tests pass.
-Commit: —
+Acceptance: all 14 tests pass (15 with the round-trip test).
+Commit: 945f19774
 
 ### Phase 3 — spec + full validation
 
-- [ ] `mfb spec language types` §4.6 / `subs` §7: state that a `FUNC … AS Nothing`
+- [x] `mfb spec language types` §4.6 / `subs` §7: state that a `FUNC … AS Nothing`
       call is a value expression yielding `NOTHING`.
-- [ ] Full `cargo test --release --no-fail-fast` and
+- [x] Full `cargo test --release --no-fail-fast` and
       `scripts/artifact-gate.sh target/release/mfb all`.
-- [ ] Re-run the owner's reproduction.
+- [x] Re-run the owner's reproduction.
 
 Acceptance: full suite green; any golden delta is exactly the intended change.
-Commit: —
+Commit: abfb12edb (spec). Gates were run on the merged tip (see STATUS).
 
 ## Validation Plan
 

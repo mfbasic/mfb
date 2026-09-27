@@ -1,11 +1,11 @@
 # bug-745: `List`/`Map`/`Set OF Nothing` fail the native build with "collection type … is not supported"
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: FIXED
 Regression Test: tests/runtime/rt_nothing_collections.rs
 
 Found during bug-744's sibling sweep (a `FUNC … AS Nothing` call as a collection
@@ -30,10 +30,34 @@ Nothing in the spec restricts `List OF Nothing`. The program must build and run:
 (If the owner decides instead that such collections are illegal, the correct behavior
 is a located front-end diagnostic with an error code — never this internal error.)
 
+## STATUS: FIXED (15f5aa83e)
+
+`List OF Nothing`, `Map OF K TO Nothing`, `Map OF Nothing TO V` and `Set OF Nothing`
+build and work across the `collections::` families, literals, `FOR EACH`, `len` and
+`MUT` in-place updates. A `Nothing` payload is a 1-byte lane that always holds `0`
+(identifier 1). Strict template unification now refuses a `Nothing` binding only in a
+callback's result and in thread slots.
+
+Deviations:
+- The owner asked for every collection operation to work. `collections::transform`,
+  `mapValues` and `groupBy` still reject a callback that *returns* `Nothing`: spec §7
+  and plan-159-A record that as intended, and the narrowed rule keeps it.
+  `transform` *from* a `List OF Nothing` works.
+- `collections::sort` over `Nothing` is a type error, because `Nothing` is not
+  orderable. Its diagnostic points at a line inside the injected sort body, not the
+  call. That is the pre-existing bug-642 class, not this change.
+- Effort came in at medium, not the large first estimated.
+
+Verified on the merged tip:
+- `cargo test --release --no-fail-fast`: exit 0, 250 binaries, 6249 passed,
+  0 failed.
+- `scripts/artifact-gate.sh target/release/mfb all`: 0 diffs over 2166 goldens.
+- `[NOTHING, NOTHING]` prints `2`, and the map literal repro prints `1`.
+
 References:
 
 - bugs/completed/bug-744-nothing-func-call-in-value-position-panics-codegen.md
-  (Blast Radius) — where it was found.
+  (Blast Radius): where it was found.
 - `.ai/collections.md` — collection codegen invariants.
 
 ## Failing Reproduction
@@ -158,7 +182,7 @@ Rejected alternatives:
       record fields, function boundaries and copies. RED on the pre-fix compiler:
       10/10 fail (`MFB_TEST_EXE=<old mfb> cargo test --test rt_nothing_collections`).
 
-Commit: see below
+Commit: ee728a099
 
 ### Phase 2 — the fix
 
@@ -171,14 +195,14 @@ Commit: see below
       `scripts/man-run-examples.sh types --topic --run`.
 
 Acceptance: 10/10 green.
-Commit: see below
+Commit: 15f5aa83e (fix), 39e4c8a82 (spec + man)
 
 ### Phase 3 — validation
 
-- [ ] Full `cargo test --release --no-fail-fast`; `scripts/artifact-gate.sh
-      target/release/mfb all`.
+- [x] Full `cargo test --release --no-fail-fast`; `scripts/artifact-gate.sh
+      target/release/mfb all` (0 diffs).
 
-Commit: —
+Commit: — (validation only)
 
 ## Open Decisions
 
