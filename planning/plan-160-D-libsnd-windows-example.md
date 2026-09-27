@@ -1,8 +1,8 @@
-# plan-158-D: libsnd on Windows + examples/audio
+# plan-160-D: libsnd on Windows + examples/audio
 
 Last updated: 2026-09-26
 Effort: medium (1h–2h)
-Depends on: plan-158-C
+Depends on: plan-160-C
 
 Ship the libsnd package's Windows DLL and make `examples/audio` build and play on Windows.
 **Outcome:** `mfb build --target windows-x86_64 examples/audio` succeeds, and on box
@@ -18,9 +18,9 @@ References: `packages/libsnd/project.json`, `packages/libsnd/vendor/sndfile.dll`
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-C complete (archived) | `ls planning/completed/plan-158-C-*` → one file | NOT MET |
+| plan-160-C complete (archived) | `ls planning/completed/plan-160-C-*` → one file | NOT MET |
 
-If plan-158-C is not complete, this plan cannot start, full stop.
+If plan-160-C is not complete, this plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -51,7 +51,7 @@ If plan-158-C is not complete, this plan cannot start, full stop.
   `resolved_package_file` returns. With it, the example built for macOS and
   `windows-x86_64`.
 - `examples/audio/src/main.mfb` opens `out` (48000/1) once for the whole session, and
-  plan-158-C Bug 2 shows another stream open can invalidate it.
+  plan-160-C Bug 2 shows another stream open can invalidate it.
 
 ## 3. Design Overview
 
@@ -60,7 +60,7 @@ example source). Expected diffs: none in `tests/byte-identity`.
 
 ## Phases
 
-> **NOTE — keep the checkboxes current as you go** (same rules as plan-158-A).
+> **NOTE — keep the checkboxes current as you go** (same rules as plan-160-A).
 
 ### Phase 1 — Source-dependency vendor bug
 
@@ -102,7 +102,7 @@ Commit: —
 - [ ] `examples/audio/project.json`: point at the chosen source (Open Decision 1).
 - [ ] `examples/audio/src/main.mfb`: open the 48 kHz MML stream only around each
       `audio::play` (a `SUB playTune`) instead of holding `out` for the session, so a
-      file stream cannot invalidate it (plan-158-C Bug 2).
+      file stream cannot invalidate it (plan-160-C Bug 2).
 - [ ] `examples/audio/README.md`: Windows build/run line; update §Dependency (the DLL
       now exists; version).
 - [ ] Box proof: ship `audio.exe`, `music/`, `vendor/` (tar with `COPYFILE_DISABLE=1`),
@@ -132,4 +132,4 @@ Commit: —
 
 ## Summary
 
-Low risk. The real work is plan-158-C; this letter packages and proves it end to end.
+Low risk. The real work is plan-160-C; this letter packages and proves it end to end.
