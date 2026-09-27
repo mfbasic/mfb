@@ -230,7 +230,7 @@ pub(crate) fn static_nir_value_type(
 /// own code and still falls to `OBJECT`, as the string form's tail did.
 pub(crate) fn collection_type_code(type_: &ParameterType) -> Option<usize> {
     match type_ {
-        ParameterType::Nothing => None,
+        ParameterType::Nothing => Some(COLLECTION_TYPE_NOTHING),
         ParameterType::Boolean => Some(COLLECTION_TYPE_BOOLEAN),
         ParameterType::Byte => Some(COLLECTION_TYPE_BYTE),
         ParameterType::Integer => Some(COLLECTION_TYPE_INTEGER),
