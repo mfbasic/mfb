@@ -619,6 +619,7 @@ const COLLECTION_SELF_MUTATORS: &[&str] = &[
     "collections.remove",
     "collections.removeAt",
     "collections.removeKey",
+    "collections.repeat",
 ];
 
 /// Whether one store into `dest` leaves it holding a block nothing else owns.
