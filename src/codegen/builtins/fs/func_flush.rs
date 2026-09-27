@@ -46,7 +46,8 @@ Buffering and flushing are per handle: `fs::flush(file)` drains only `file`'s
 buffer and affects no other open `File`. Each `File` carries its own buffer and
 its own enabled flag.
 
-Flushing a `File` that has been closed raises `ErrResourceClosed`."#;
+Flushing a `File` that has been closed raises `ErrResourceClosed`, and flushing
+one handed to another thread with `thread::transfer` raises `ErrResourceMoved`."#;
 const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writing:
 
 ```
@@ -81,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWriteFailed", "ErrResourceClosed"],
+            errors: vec!["ErrWriteFailed", "ErrResourceClosed", "ErrResourceMoved"],
             body: Body::abi_function(lower_fs_flush),
         }],
     });

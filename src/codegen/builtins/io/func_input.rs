@@ -64,10 +64,11 @@ const EX: &str = r#"Prompt on the same line and greet the user:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET name AS String = io::input("Name: ")
   io::print("Hello, " & name)
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Read a line without a prompt:
@@ -75,10 +76,11 @@ Read a line without a prompt:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET line AS String = io::input()
   io::print(line)
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Ask with a time limit:
@@ -87,17 +89,18 @@ Ask with a time limit:
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET name AS String = io::input("Name (10 s): ", 10000) TRAP(e)
     IF e.code = errorCode::ErrTimeout THEN
       io::print("")
       io::print("Hello, stranger")
-      EXIT SUB
+      RETURN 0
     END IF
     FAIL e
   END TRAP
   io::print("Hello, " & name)
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

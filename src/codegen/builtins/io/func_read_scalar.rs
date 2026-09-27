@@ -54,10 +54,11 @@ const EX: &str = r#"Read one character and show its code point:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET c AS Scalar = io::readScalar()
   io::print(toString(c) & " is U+" & toString(toInt(c)))
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Wait up to half a second for a key:
@@ -66,16 +67,17 @@ Wait up to half a second for a key:
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET c AS Scalar = io::readScalar(500) TRAP(e)
     IF e.code = errorCode::ErrTimeout THEN
       io::print("no key")
-      EXIT SUB
+      RETURN 0
     END IF
     FAIL e
   END TRAP
   io::print("key: " & toString(c))
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

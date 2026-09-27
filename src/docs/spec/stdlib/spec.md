@@ -80,6 +80,10 @@ built-in injection chain.
   dynamic Huffman by exact cost, package-merge code lengths and zlib's header rules, greedy and lazy
   hash-chain matching with zlib's per-level limits, the zlib and gzip header bytes, the determinism
   guarantee, and dated throughput and size measurements.
+- `fs-host-errors` — how a refused `fs` host call becomes an `errorCode`: the one
+  mapping every path-taking member uses, the operation-aware fallback, and the path
+  classification that makes the same condition raise the same code on macOS, Linux
+  and Windows.
 - `io-input` — the `io::` readers: keyboard versus data sources, the per-thread
   input buffer, the key decoder, the read engine's input delay and timeouts, what
   each reader takes and skips, the two ways a line is read, the kitty keyboard

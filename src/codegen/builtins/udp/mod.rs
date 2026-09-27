@@ -124,7 +124,8 @@ and a package cannot re-export another's types.
 The `Socket` handle is an opaque handle that closes itself when its binding goes
 out of scope; `udp::close` closes it earlier. A second `udp::close`, or any other
 use of a closed socket, raises `ErrResourceClosed`, and a socket may be handed to
-another thread with `thread::transfer`. For connection-oriented byte
+another thread with `thread::transfer` — any use of it afterwards on the sending
+thread raises `ErrResourceMoved`. For connection-oriented byte
 streams use `tcp`."#;
 
 /// Build a native `udp.*` member's body plus any code-form `os_aliases`
@@ -317,6 +318,7 @@ mod tests {
                     "ErrNetworkFailed",
                     "ErrOutOfMemory",
                     "ErrResourceClosed",
+                    "ErrResourceMoved",
                     "ErrTimeout",
                 ]],
             ),
@@ -330,6 +332,7 @@ mod tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                     ],
                     &[
@@ -338,6 +341,7 @@ mod tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                     ],
                 ],
@@ -345,7 +349,11 @@ mod tests {
             (
                 "udp.poll",
                 &[
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                     &[
                         "ErrInvalidArgument",
                         "ErrOutOfMemory",
@@ -360,15 +368,28 @@ mod tests {
             ),
             (
                 "udp.localAddress",
-                &[&["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"]],
+                &[&[
+                    "ErrAddressInvalid",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                ]],
             ),
             (
                 "udp.setReadTimeout",
-                &[&["ErrInvalidArgument", "ErrResourceClosed"]],
+                &[&[
+                    "ErrInvalidArgument",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                ]],
             ),
             (
                 "udp.setWriteTimeout",
-                &[&["ErrInvalidArgument", "ErrResourceClosed"]],
+                &[&[
+                    "ErrInvalidArgument",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                ]],
             ),
         ];
         assert_eq!(

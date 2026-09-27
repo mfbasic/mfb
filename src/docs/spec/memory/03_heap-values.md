@@ -263,10 +263,15 @@ Each still shares the `0..32` header:
 
 `closed` at **offset 16 is a compiler-enforced invariant**, not a convention: it
 is a u64 flag *set*, not a boolean — bit 0 is `closed`, bit 1 is `moved`, and 62
-bits are spare. Every guard tests the word for *non-zero* rather than for `== 1`,
-so a moved record already refuses every operation with no extra code; only a path
-that must distinguish `ErrResourceMoved` from `ErrResourceClosed` reads the
-individual bits (a moved record is flagged `moved|closed` = 3). A closed-default
+bits are spare. A moved record is flagged `moved|closed` = 3, so a test for
+*non-zero* refuses it as well as a closed one; the drop and transfer paths, which
+only need to refuse, test it that way. Every operation on a built-in handle that
+can cross a thread (`File`, the `tcp`/`udp`/`tls` sockets and listeners, a
+`Thread` view) instead opens with a guard that splits the two: a word of exactly
+`1` raises `ErrResourceClosed`, and any other non-zero word raises
+`ErrResourceMoved`. The handles that cannot cross (`Process`, the audio streams,
+`Image`, `Font`) never carry the moved bit and keep the single non-zero test.
+[[src/codegen/resource/mod.rs:closed_or_moved_guard]] A closed-default
 record is 96 zeroed bytes with this word set to 1. Compile-time asserts tie every
 per-backend resource layout to the header offsets, so a future resource whose
 `closed`/`STATE` slot drifts fails to build.

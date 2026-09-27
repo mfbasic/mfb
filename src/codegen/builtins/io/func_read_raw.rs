@@ -54,10 +54,11 @@ const EX: &str = r#"Read one byte and report its value:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET b AS Byte = io::readRaw()
   io::print(toString(b))
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Take a byte only if one is already waiting:
@@ -66,16 +67,17 @@ Take a byte only if one is already waiting:
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET b AS Byte = io::readRaw(0) TRAP(e)
     IF e.code = errorCode::ErrTimeout THEN
       io::print("nothing waiting")
-      EXIT SUB
+      RETURN 0
     END IF
     FAIL e
   END TRAP
   io::print("got " & toString(b))
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) const TIMEOUT_DESC: &str = "Optional. How long to wait for input, in milliseconds. Omit to wait for as long as it takes; `0` makes one immediate attempt; a positive value waits up to that long, then raises `ErrTimeout`. Must not be negative.";

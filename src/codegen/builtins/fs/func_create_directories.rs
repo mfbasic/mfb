@@ -59,12 +59,13 @@ characters when the host filesystem accepts those names. Each prefix is created 
 When the host refuses to create a prefix or the final component for any reason
 other than "it already exists", the walk stops there and raises the matching
 error below — leaving the directories it had already created. `ErrAccessDenied`
-means permission was refused, and `ErrNotFound` that a directory could not be
-created because its parent is missing — which, since the walk creates every
-parent, happens only when something removes one while the call runs. Every
-other refusal raises `ErrWriteFailed`, including a prefix of `path` that is a
-file (Windows reports that one as `ErrNotFound`). An empty `path`, or one
-containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
+means permission was refused, and `ErrInvalidPath` that `path` cannot name a
+directory: a prefix of it is a file, or a name in it is too long.
+`ErrPathNotFound` means a directory could not be created because its parent is
+missing — which, since the walk creates every parent, happens only when
+something removes one while the call runs. Every other refusal raises
+`ErrWriteFailed`. An empty `path`, or one containing a NUL byte, raises
+`ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Create a nested directory together with its missing parents:
 
 ```
@@ -112,8 +113,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
                 "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
             ],
             body: Body::abi_function(lower_fs_create_directories),
         }],

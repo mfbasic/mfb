@@ -57,10 +57,11 @@ const EX: &str = r#"Read one character and echo it back:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET g AS String = io::readGrapheme()
   io::print("you typed: " & g)
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Read characters until Enter:
@@ -68,7 +69,7 @@ Read characters until Enter:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   MUT word AS String = ""
   MUT g AS String = io::readGrapheme()
   WHILE g <> "\n"
@@ -76,7 +77,8 @@ SUB main()
     g = io::readGrapheme()
   END WHILE
   io::print(word)
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -1721,6 +1721,7 @@ pub(crate) fn lower_tls_accept_openssl(
     const HSTOFLAG: usize = 88; // plan-73-D: 1 if the handshake recv timed out
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let no_timeout = format!("{symbol}_no_timeout");
     let hs_timeout_set = format!("{symbol}_hs_timeout_set");
     let hs_timeout_cleared = format!("{symbol}_hs_timeout_cleared");
@@ -1740,8 +1741,13 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOFLAG),
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CTX),
@@ -2083,6 +2089,14 @@ pub(crate) fn lower_tls_accept_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
     // The record alloc is the final step; the SSL session and the accepted fd
     // are both live, so free/close them before failing — a record-alloc OOM
@@ -2158,6 +2172,7 @@ pub(crate) fn lower_tls_read_openssl(
     const REC_OFFSET: usize = 64;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer_closed");
     let read_fail = format!("{symbol}_read_fail");
@@ -2189,8 +2204,13 @@ pub(crate) fn lower_tls_read_openssl(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_SSL),
         abi::store_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
@@ -2459,6 +2479,14 @@ pub(crate) fn lower_tls_read_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&result_alloc_fail));
     emit_free_read_buffer(&mut instructions);
     instructions.push(abi::label(&alloc_fail));
@@ -2504,6 +2532,7 @@ pub(crate) fn lower_tls_poll_openssl(
     const POLLFD_OFFSET: usize = 48; // pollfd { fd; events; revents }
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let load_fail = format!("{symbol}_load_fail");
     let poll_infinite = format!("{symbol}_poll_infinite");
@@ -2519,8 +2548,13 @@ pub(crate) fn lower_tls_poll_openssl(
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_SSL),
         abi::store_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
         // Save the fd now — the record pointer in x0 is clobbered by the SSL_pending
@@ -2659,6 +2693,14 @@ pub(crate) fn lower_tls_poll_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     Ok((instructions, relocations, FRAME_SIZE))
 }
@@ -2693,6 +2735,7 @@ pub(crate) fn lower_tls_write_openssl(
     const N_OFFSET: usize = 48;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let load_fail = format!("{symbol}_load_fail");
     let write_loop = format!("{symbol}_write_loop");
     let write_done = format!("{symbol}_write_done");
@@ -2704,10 +2747,17 @@ pub(crate) fn lower_tls_write_openssl(
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
+    instructions.extend([abi::load_u64(
+        &v9,
+        abi::return_register(),
+        TLS_OFFSET_CLOSED,
+    )]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
     instructions.extend([
-        abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
         // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
         // already reported the peer's close. Raise before touching the session,
         // empty payload included; OpenSSL would otherwise hand the bytes to a
@@ -2877,6 +2927,14 @@ pub(crate) fn lower_tls_write_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     if !text {
         // bug-497: the byte form was handed a block whose header is not a
         // `List OF Byte`'s — refuse rather than read a length out of its bytes.
@@ -2916,6 +2974,7 @@ pub(crate) fn lower_tls_close_openssl(
     const FNPTR_OFFSET: usize = 48;
 
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let load_fail = format!("{symbol}_load_fail");
     let ctx_done = format!("{symbol}_ctx_done");
     let done = format!("{symbol}_done");
@@ -2926,8 +2985,13 @@ pub(crate) fn lower_tls_close_openssl(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
         // Idempotent: a closed handle returns OK.
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_SSL),
         abi::store_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CTX),
@@ -3060,6 +3124,14 @@ pub(crate) fn lower_tls_close_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&already_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))
@@ -3087,6 +3159,7 @@ pub(crate) fn lower_tls_close_listener_openssl(
     const FNPTR_OFFSET: usize = 40;
 
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let load_fail = format!("{symbol}_load_fail");
     let done = format!("{symbol}_done");
 
@@ -3096,8 +3169,13 @@ pub(crate) fn lower_tls_close_listener_openssl(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
         // Idempotent: a closed handle returns OK.
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
+    ]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_LISTENER_OFFSET_CTX),
@@ -3174,6 +3252,14 @@ pub(crate) fn lower_tls_close_listener_openssl(
     emit_fail(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&already_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
         &done,

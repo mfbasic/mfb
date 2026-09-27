@@ -84,14 +84,15 @@ const EX: &str = r#"Report one key:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET k AS io::Key = io::readKey()
   IF k.key = io::KeyName.Unicode THEN
     io::print("typed " & k.grapheme)
   ELSE
     io::print("a key with no text")
   END IF
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Move with the arrow keys; stop on Escape or `q`:
@@ -99,7 +100,7 @@ Move with the arrow keys; stop on Escape or `q`:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   MUT x AS Integer = 0
   MUT y AS Integer = 0
   MUT running AS Boolean = TRUE
@@ -125,7 +126,8 @@ SUB main()
     END IF
   END WHILE
   io::print(toString(x) & "," & toString(y))
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Poll for a key once per frame without waiting:
@@ -134,16 +136,17 @@ Poll for a key once per frame without waiting:
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET k AS io::Key = io::readKey(0) TRAP(e)
     IF e.code = errorCode::ErrTimeout THEN
       io::print("no key this frame")
-      EXIT SUB
+      RETURN 0
     END IF
     FAIL e
   END TRAP
   io::print("key " & k.grapheme)
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

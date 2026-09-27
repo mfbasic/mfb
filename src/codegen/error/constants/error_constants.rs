@@ -1300,10 +1300,10 @@ pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 /// costs no space and keeps plan-38's canonical closed-flag invariant intact
 /// (that offset is 16 since plan-80, not the original 8).
 ///
-/// The payoff is that every existing guard is `load; compare 0; branch_ne` —
-/// a *non-zero* test, not an equals-1 test — so a moved resource already refuses
-/// every operation with no new code. Only a path that wants to *distinguish*
-/// `ErrResourceMoved` from `ErrResourceClosed` reads the individual bits.
+/// A moved record is `moved|closed`, so a *non-zero* test (`load; compare 0;
+/// branch_ne`) refuses it as well as a closed one. The operations on every handle
+/// that can cross a thread report which it was — `ErrResourceMoved` or
+/// `ErrResourceClosed` — through `resource::closed_or_moved_guard` (bug-702).
 ///
 /// Bit 0 keeps meaning exactly what it meant before this existed: a record whose
 /// word is `1` is closed-and-not-moved, which is what `lower_default_value`'s

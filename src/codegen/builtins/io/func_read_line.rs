@@ -66,10 +66,11 @@ const EX: &str = r#"Read a line and echo it back:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   LET line AS String = io::readLine()
   io::print(line)
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Prompt without echoing the answer:
@@ -77,11 +78,12 @@ Prompt without echoing the answer:
 ```
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   io::write("Passphrase: ")
   LET secret AS String = io::readLine()
   io::print("")
-END SUB
+  RETURN 0
+END FUNC
 ```
 
 Give the user five seconds to answer:
@@ -90,18 +92,19 @@ Give the user five seconds to answer:
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main AS Integer
   io::write("Continue? ")
   LET answer AS String = io::readLine(5000) TRAP(e)
     IF e.code = errorCode::ErrTimeout THEN
       io::print("")
       io::print("no answer; continuing")
-      EXIT SUB
+      RETURN 0
     END IF
     FAIL e
   END TRAP
   io::print("you said " & answer)
-END SUB
+  RETURN 0
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

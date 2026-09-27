@@ -41,7 +41,8 @@ returns to `FALSE` after `fs::setBuffered(file, FALSE)`. Transferring a buffered
 handle to another thread resets it to unbuffered, so the receiving thread again
 observes `FALSE`.
 
-Calling it on a `File` that has been closed raises `ErrResourceClosed`."#;
+Calling it on a `File` that has been closed raises `ErrResourceClosed`, and on
+one handed to another thread with `thread::transfer`, `ErrResourceMoved`."#;
 const EX: &str = r#"Enable buffering only when it is not already on:
 
 ```
@@ -73,7 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrResourceClosed"],
+            errors: vec!["ErrResourceClosed", "ErrResourceMoved"],
             body: Body::abi_function(lower_fs_is_buffered),
         }],
     });
