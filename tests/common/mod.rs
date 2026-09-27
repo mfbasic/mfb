@@ -910,6 +910,12 @@ sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
 }
 
 pub fn run_under_pty(executable: &Path) -> String {
+    String::from_utf8(run_under_pty_bytes(executable)).expect("utf8 stdout")
+}
+
+/// [`run_under_pty`], returning the raw bytes the child wrote to the tty — for a
+/// test that must see output which may not be valid UTF-8 (bug-725).
+pub fn run_under_pty_bytes(executable: &Path) -> Vec<u8> {
     let output = Command::new("python3")
         .arg("-c")
         .arg(
@@ -973,7 +979,7 @@ sys.exit(proc.wait())"#,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).expect("utf8 stdout")
+    output.stdout
 }
 
 pub fn run_pty_prompt_interaction(executable: &Path, prompt: &str, input: &[u8]) -> String {

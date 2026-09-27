@@ -3548,6 +3548,15 @@ fn emit_term_draw_glyph_at(
     // point draws nothing either.
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "32"));
     ins.push(abi::branch_lt("dg_done"));
+    // bug-725: a non-scalar (above U+10FFFF, or a surrogate) is skipped too, as on
+    // the console and macOS — its UTF-16 units would be ill-formed.
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "1114111"));
+    ins.push(abi::branch_gt("dg_done"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "55296"));
+    ins.push(abi::branch_lt("dg_scalar_ok"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "57343"));
+    ins.push(abi::branch_le("dg_done"));
+    ins.push(abi::label("dg_scalar_ok"));
     win_guard_on_grid(&mut ins, &mut rel, from, SY, GridAxis::Rows, "dg_done");
     win_guard_on_grid(&mut ins, &mut rel, from, SX, GridAxis::Cols, "dg_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);

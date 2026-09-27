@@ -2305,6 +2305,15 @@ pub(super) fn emit_term_glyph_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(codepoint, abi::c_arg(2)));
     asm.push(abi::compare_immediate(codepoint, "32"));
     asm.push(abi::branch_lt("dg_ret"));
+    // bug-725: skip a non-scalar (above U+10FFFF, or a surrogate), as the console
+    // and the other app backends do — the UTF-8 encoding below would be ill-formed.
+    asm.push(abi::compare_immediate(codepoint, "1114111"));
+    asm.push(abi::branch_gt("dg_ret"));
+    asm.push(abi::compare_immediate(codepoint, "55296"));
+    asm.push(abi::branch_lt("dg_scalar_ok"));
+    asm.push(abi::compare_immediate(codepoint, "57343"));
+    asm.push(abi::branch_le("dg_ret"));
+    asm.push(abi::label("dg_scalar_ok"));
     // UTF-8 byte length from the scalar, then the packed bytes themselves.
     asm.push(abi::move_immediate(length, "Integer", "1"));
     asm.push(abi::compare_immediate(codepoint, "128"));

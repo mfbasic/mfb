@@ -915,6 +915,10 @@ name = "rt_term_on_reentry"
 path = "tests/runtime/rt_term_on_reentry.rs"
 
 [[test]]
+name = "rt_term_draw_glyph_scalar"
+path = "tests/runtime/rt_term_draw_glyph_scalar.rs"
+
+[[test]]
 name = "rt_native_numeric_pow_div_runtime"
 path = "tests/runtime/rt_native_numeric_pow_div_runtime.rs"
 

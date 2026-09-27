@@ -26,10 +26,10 @@ The cell is **bounds-checked, not clamped**: if `(row, column)` is off the surfa
 the call draws nothing and raises no error. It does not fall back to the nearest
 edge cell, so an off-by-one in your coordinates loses the glyph silently rather
 than putting it somewhere visible. Code points below U+0020, including negative ones, are **skipped**
-— they would corrupt the presented frame. Anything else is encoded exactly as
-given and is never checked, so pass a real Unicode scalar (for example `9731` for
-`☃`, or `65` for `A`): a value above `U+10FFFF` or inside the surrogate range puts
-malformed text on the terminal. The glyph is shown on the
+— they would corrupt the presented frame — and so is any value that is not a
+Unicode scalar: one above `U+10FFFF` or inside the surrogate range
+`U+D800`–`U+DFFF`. A skipped value draws nothing and raises no error. Pass a real
+scalar, for example `9731` for `☃` or `65` for `A`. The glyph is shown on the
 next `term::sync`.
 
 The call is gated: while TUI mode is off it does nothing and reports no
@@ -105,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "codepoint",
-                    desc: "The code point to stamp, as an Integer. Values below U+0020, including negative ones, are skipped; anything else is stamped as given, so pass a valid Unicode scalar.",
+                    desc: "The code point to stamp, as an Integer. Values below U+0020 (including negative ones), above U+10FFFF, and in the surrogate range U+D800–U+DFFF are skipped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

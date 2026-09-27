@@ -2760,6 +2760,19 @@ fn emit_draw_glyph(
     // Skip control code points (would corrupt the presented escape stream).
     instructions.push(abi::compare_immediate(cp, "32"));
     instructions.push(abi::branch_lt(&inactive));
+    // bug-725: skip anything that is not a Unicode scalar too — above U+10FFFF
+    // (1114111) or in the surrogate band U+D800..U+DFFF (55296..57343). The UTF-8
+    // encoder below would otherwise write an ill-formed sequence to the terminal.
+    let scalar_ok = format!("{symbol}_dg_scalar_ok");
+    instructions.extend([
+        abi::compare_immediate(cp, "1114111"),
+        abi::branch_gt(&inactive),
+        abi::compare_immediate(cp, "55296"),
+        abi::branch_lt(&scalar_ok),
+        abi::compare_immediate(cp, "57343"),
+        abi::branch_le(&inactive),
+        abi::label(&scalar_ok),
+    ]);
     emit_encode_utf8(
         cp,
         glyph,
