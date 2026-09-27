@@ -1444,6 +1444,10 @@ pub(crate) const COLLECTION_GROW_DATA_INIT: usize = 32;
 pub(crate) const COLLECTION_GROW_DATA_TAPER: usize = 65536;
 
 pub(crate) const COLLECTION_TYPE_NONE: usize = 0;
+/// `Nothing` collection element, key or value (bug-745): a 1-byte lane that always
+/// holds `0` — the unit type has one value, so every stored payload is the same
+/// byte and every two payloads are equal. Takes the free tag 1 below `Boolean`.
+pub(crate) const COLLECTION_TYPE_NOTHING: usize = 1;
 pub(crate) const COLLECTION_TYPE_BOOLEAN: usize = 2;
 pub(crate) const COLLECTION_TYPE_INTEGER: usize = 3;
 pub(crate) const COLLECTION_TYPE_FLOAT: usize = 4;

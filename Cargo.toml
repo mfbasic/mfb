@@ -839,6 +839,14 @@ name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
 [[test]]
+name = "rt_nothing_func_value_position"
+path = "tests/runtime/rt_nothing_func_value_position.rs"
+
+[[test]]
+name = "rt_nothing_collections"
+path = "tests/runtime/rt_nothing_collections.rs"
+
+[[test]]
 name = "rt_inline_trap_raising_operator"
 path = "tests/runtime/rt_inline_trap_raising_operator.rs"
 

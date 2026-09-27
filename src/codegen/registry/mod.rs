@@ -2661,14 +2661,43 @@ fn unify(
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
 ) -> bool {
+    unify_at(pattern, concrete, bindings, strict, NothingBinding::Allowed)
+}
+
+/// Whether a type variable met at this position may bind to `Nothing` under STRICT
+/// validation (bug-745).
+///
+/// `Nothing` is a first-class type (owner decision 2026-09-26), so an element, key,
+/// value or plain argument position binds it like any other type:
+/// `collections::contains(List OF Nothing, NOTHING)` is `T = Nothing`. Two positions
+/// still refuse it, each for a reason of its own:
+///
+/// * a callback's RESULT (`transform`'s `FUNC(T) AS U`): an effect-only callback
+///   collects nothing, so a `SUB` / `FUNC … AS Nothing` does not satisfy a
+///   value-producing callback (`mfb spec language subs` §7; bug-443);
+/// * a thread-handle slot: a data-only handle's `Nothing` resource plane must fail a
+///   member that captures `res` (`accept`/`transfer`), see [`thread_slot_unifies`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NothingBinding {
+    Allowed,
+    Refused,
+}
+
+fn unify_at(
+    pattern: &ParameterType,
+    concrete: &ParameterType,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
+    strict: bool,
+    nothing: NothingBinding,
+) -> bool {
     // `RES ` is transparent to unification (historically stripped by `parse` before
     // the matcher): unwrap it on either side so a `Var` binds to the unwrapped inner
     // (dropping the marker, exactly as before) and container recursion is unperturbed.
     if let ParameterType::Res(inner) = concrete {
-        return unify(pattern, inner, bindings, strict);
+        return unify_at(pattern, inner, bindings, strict, nothing);
     }
     if let ParameterType::Res(inner) = pattern {
-        return unify(inner, concrete, bindings, strict);
+        return unify_at(inner, concrete, bindings, strict, nothing);
     }
     // plan-156-E: a thread view's STATE is the view's own, not part of its channel
     // types, so a thread-handle pattern matches a stateful view by its handle (and
@@ -2678,7 +2707,7 @@ fn unify(
         if matches!(**base, ParameterType::ThreadHandle { .. })
             && !matches!(pattern, ParameterType::Var(_))
         {
-            return unify(pattern, base, bindings, strict);
+            return unify_at(pattern, base, bindings, strict, nothing);
         }
     }
     if matches!(concrete, ParameterType::Unknown) {
@@ -2690,12 +2719,17 @@ fn unify(
 
     match (pattern, concrete) {
         (ParameterType::Var(name), _) => {
-            // STRICT validation: a type variable never binds to `Nothing`. A
-            // value-returning callback parameter (`transform`'s `FUNC(T) AS U`) is not
-            // satisfied by a `SUB` / `FUNC(..) AS Nothing` argument, and no value can be
-            // "nothing" (bug-443). The lenient dispatch/inference path still binds it, so
-            // `Nothing`-returning callbacks (`forEach`) keep lowering.
-            if strict && matches!(concrete, ParameterType::Nothing) {
+            // STRICT validation: a type variable in a callback-result or thread-slot
+            // position never binds to `Nothing` — a value-returning callback
+            // parameter (`transform`'s `FUNC(T) AS U`) is not satisfied by a `SUB` /
+            // `FUNC(..) AS Nothing` argument (bug-443). Everywhere else `Nothing` is an
+            // ordinary type (bug-745, [`NothingBinding`]). The lenient
+            // dispatch/inference path binds it everywhere, so `Nothing`-returning
+            // callbacks (`forEach`) keep lowering.
+            if strict
+                && nothing == NothingBinding::Refused
+                && matches!(concrete, ParameterType::Nothing)
+            {
                 return false;
             }
             match bindings.get(name) {
@@ -2722,26 +2756,50 @@ fn unify(
                 }
             }
         }
-        (ParameterType::ListOf(elem), ParameterType::ListOf(concrete_elem)) => {
-            unify(elem, concrete_elem, bindings, strict)
-        }
-        (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
-            unify(elem, concrete_elem, bindings, strict)
-        }
+        (ParameterType::ListOf(elem), ParameterType::ListOf(concrete_elem)) => unify_at(
+            elem,
+            concrete_elem,
+            bindings,
+            strict,
+            NothingBinding::Allowed,
+        ),
+        (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => unify_at(
+            elem,
+            concrete_elem,
+            bindings,
+            strict,
+            NothingBinding::Allowed,
+        ),
         (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
-            unify(key, concrete_key, bindings, strict)
-                && unify(value, concrete_value, bindings, strict)
+            unify_at(key, concrete_key, bindings, strict, NothingBinding::Allowed)
+                && unify_at(
+                    value,
+                    concrete_value,
+                    bindings,
+                    strict,
+                    NothingBinding::Allowed,
+                )
         }
         (
             ParameterType::MapEntryOf(key, value),
             ParameterType::MapEntryOf(concrete_key, concrete_value),
         ) => {
-            unify(key, concrete_key, bindings, strict)
-                && unify(value, concrete_value, bindings, strict)
+            unify_at(key, concrete_key, bindings, strict, NothingBinding::Allowed)
+                && unify_at(
+                    value,
+                    concrete_value,
+                    bindings,
+                    strict,
+                    NothingBinding::Allowed,
+                )
         }
-        (ParameterType::ResultOf(success), ParameterType::ResultOf(concrete_success)) => {
-            unify(success, concrete_success, bindings, strict)
-        }
+        (ParameterType::ResultOf(success), ParameterType::ResultOf(concrete_success)) => unify_at(
+            success,
+            concrete_success,
+            bindings,
+            strict,
+            NothingBinding::Allowed,
+        ),
         // A user generic unifies head-then-arguments, exactly like the container arms
         // (plan-105-B). Same template name and same arity, then each argument
         // recursively — so `Stack OF T` binds `T` from `Stack OF Integer` instead of
@@ -2755,7 +2813,7 @@ fn unify(
                 && args
                     .iter()
                     .zip(concrete_args.iter())
-                    .all(|(a, c)| unify(a, c, bindings, strict))
+                    .all(|(a, c)| unify_at(a, c, bindings, strict, NothingBinding::Allowed))
         }
         (
             ParameterType::Func(params, ret, isolated),
@@ -2768,8 +2826,8 @@ fn unify(
                 && params
                     .iter()
                     .zip(concrete_params.iter())
-                    .all(|(p, c)| unify(p, c, bindings, strict))
-                && unify(ret, concrete_ret, bindings, strict)
+                    .all(|(p, c)| unify_at(p, c, bindings, strict, NothingBinding::Allowed))
+                && unify_at(ret, concrete_ret, bindings, strict, NothingBinding::Refused)
         }
         // Two thread handles unify structurally, exactly like the container arms: the
         // kind (parent `Thread` vs worker `ThreadWorker`) must match — the two never
@@ -2833,7 +2891,7 @@ fn thread_slot_unifies(
     if matches!(pattern, ParameterType::Unknown) {
         return true;
     }
-    unify(pattern, concrete, bindings, strict)
+    unify_at(pattern, concrete, bindings, strict, NothingBinding::Refused)
 }
 
 /// STATE/ownership-agnostic type equality, matching
