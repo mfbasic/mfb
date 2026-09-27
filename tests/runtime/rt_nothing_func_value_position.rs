@@ -137,6 +137,19 @@ fn a_nothing_func_call_is_an_argument() {
     assert_eq!(out, "f1\n7\ndone\n");
 }
 
+/// The owner's example (2026-09-26): `LET a = NOTHING`, then a `Nothing` value
+/// passed to a `Nothing` function whose result is bound again.
+#[test]
+fn a_nothing_value_round_trips_through_a_nothing_func() {
+    let out = build_and_run(
+        "roundtrip",
+        "FUNC same(n AS Nothing) AS Nothing\n  RETURN n\nEND FUNC\n\n\
+         SUB main()\n  LET a = NOTHING\n  LET b = same(a)\n  LET c = same(same(b))\n  \
+         IF c = NOTHING THEN io::print(\"eq\")\n  io::print(\"done\")\nEND SUB\n",
+    );
+    assert_eq!(out, "eq\ndone\n");
+}
+
 #[test]
 fn a_nothing_func_call_is_a_comparison_operand() {
     let out = build_and_run(

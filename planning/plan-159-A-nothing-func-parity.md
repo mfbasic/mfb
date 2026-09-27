@@ -17,16 +17,30 @@ a few rules that apply only to it. This letter moves the one rule worth keeping 
 than `SUB`. After that, `SUB` has no remaining benefit, and B–D can remove it without
 losing anything.
 
+> **OWNER DECISION, 2026-09-26 (bug-744). Phase 1's diagnostic is DROPPED. Do not
+> implement `TYPE_NOTHING_CALL_HAS_NO_VALUE`.** `Nothing` is a first-class type. A call
+> whose callee returns `Nothing` is an ordinary value expression that yields `NOTHING`:
+> `LET a = NOTHING`, `LET y = f(1)` and `LET b = same(a)` are all legal. The panic this
+> plan describes in §2 is fixed in codegen by
+> `bugs/completed/bug-744-nothing-func-call-in-value-position-panics-codegen.md`
+> (`lower_value` materializes `NOTHING` for a used `Nothing` call). That fix also covers
+> `LET v = io::print("x")`, a call through a `FUNC(...) AS Nothing` value, and inline
+> `TRAP` in value position. The sections below are amended to match.
+> Struck-through text records what was planned.
+
 **The single outcome for A.** `FUNC main() AS Nothing` is a valid executable entry.
-Using the value of *any* call whose callee returns `Nothing` in value position
-(`LET v = f()`, `g(f())`) is a compile error, not a compiler panic. That covers a user
-`FUNC … AS Nothing`, a `SUB` and an effect-only built-in such as `io::print`.
+~~Using the value of *any* call whose callee returns `Nothing` in value position
+(`LET v = f()`, `g(f())`) is a compile error, not a compiler panic.~~ Using the value of
+any call whose callee returns `Nothing` yields `NOTHING` (bug-744). The existing
+`SUB`-only rule `TYPE_SUB_HAS_NO_VALUE` (`2-203-0074`) stays while `SUB` exists and is
+retired with it in D. After the migration no `FUNC … AS Nothing` call is rejected for
+being used as a value.
 
 The letters, in implementation order:
 
 | Letter | Delivers | Effort |
 |---|---|---|
-| **A** (this) | value-less rule generalized to `Nothing`; `FUNC main AS Nothing` entry; the `tools/sub-to-func/` rewriter | medium |
+| **A** (this) | ~~value-less rule generalized to `Nothing`~~ (dropped, owner decision / bug-744); `FUNC main AS Nothing` entry; the `tools/sub-to-func/` rewriter | medium |
 | **B** | every `.mfb` in the tree migrated (tests, examples, packages + their `.mfp`, benchmark, bugs, spikes, tools); goldens regenerated | large |
 | **C** | every MFBASIC source embedded in Rust migrated: 821 `mfb man` examples, 34 injected built-in bodies, `mfb init`, test-harness generators, inline Rust test sources | large |
 | **D** | `SUB` deleted from the compiler, package format, `wire`, fmt, `pkg info`, doc HTML, VS Code grammar; spec + man narrative rewritten; rules retired; final gate | large |
@@ -58,10 +72,12 @@ Everything below assumes both conditions hold.
 
 - `FUNC main() AS Nothing` and `FUNC main(args AS List OF String) AS Nothing` are
   valid executable entries. On success they behave exactly like `SUB main` (exit 0).
-- A call whose callee's declared return type is `Nothing`, used in value position, is
+- ~~A call whose callee's declared return type is `Nothing`, used in value position, is
   rejected with the existing code `2-203-0074`. The rule is renamed and reworded for
-  `Nothing`. That covers user `FUNC`s, `SUB`s and built-ins alike. Statement-position
-  calls stay legal, and so does inline `TRAP` on them.
+  `Nothing`. That covers user `FUNC`s, `SUB`s and built-ins alike.~~ **Dropped (owner
+  decision 2026-09-26, bug-744):** a `Nothing` call in value position yields `NOTHING`.
+  Only a direct `SUB` call is rejected (`TYPE_SUB_HAS_NO_VALUE`, unchanged) until D
+  removes `SUB`. Statement-position calls stay legal, and so does inline `TRAP` on them.
 - `tools/sub-to-func/` exists and mechanically rewrites a `.mfb` file from `SUB` to
   `FUNC … AS Nothing`. It is proven on the fixtures listed in Phase 3.
 
@@ -70,7 +86,8 @@ Everything below assumes both conditions hold.
 - `SUB` still parses and compiles unchanged after A. Nothing is removed until D.
 - No codegen change. A touches only a verifier rule, the manifest entry check and a
   tool, so the `.ncode`/`.ncodesum` goldens must stay byte-identical.
-- The error code `2-203-0074` keeps its number. Only its name and message change.
+- The error code `2-203-0074` keeps its number, name and message through A. It is
+  `SUB`-only, and D retires it with `SUB`.
 - A function *value* of type `FUNC(...) AS Nothing` (a callback such as `forEach(xs, show)`)
   is unaffected. The rule applies only to a *call's result*.
 
@@ -149,8 +166,10 @@ Three independent pieces, each landable alone. None of them changes codegen, so 
 A `.ncodesum` diff here is a bug to root-cause (`objdump` one fixture). It never means
 the design is dead.
 
-1. **Generalize the value-less rule** from `sig.kind == "sub"` to "the callee's return
-   type is `Nothing`", for both user and built-in callees. Rename
+1. ~~**Generalize the value-less rule**~~ **DROPPED (owner decision 2026-09-26,
+   bug-744: `Nothing` is a first-class type, so its value is usable).** The text below
+   is kept only as a record. ~~Generalize the value-less rule from `sig.kind == "sub"`
+   to "the callee's return type is `Nothing`", for both user and built-in callees.~~ Rename
    `TYPE_SUB_HAS_NO_VALUE` → `TYPE_NOTHING_CALL_HAS_NO_VALUE`, keeping code
    `2-203-0074`. Message: `a call to a FUNC … AS Nothing produces no value and cannot
    be used in value position`. This also fixes the panic. **Correctness risk
@@ -174,8 +193,10 @@ the design is dead.
 **Rejected alternatives.**
 - *Keep `SUB` as sugar for `FUNC … AS Nothing`.* The user's premise is that it adds
   nothing, and sugar keeps every surface in D alive.
-- *Drop the value-less rule and let `LET v = f()` bind a `Nothing`.* Today that
-  panics codegen. Making it legal is new codegen work for a value nobody can use.
+- ~~*Drop the value-less rule and let `LET v = f()` bind a `Nothing`.* Today that
+  panics codegen. Making it legal is new codegen work for a value nobody can use.~~
+  **Adopted instead, by owner decision (2026-09-26).** `Nothing` is a first-class type
+  and its value is usable. bug-744 did the codegen work.
 - *Rewrite with the compiler's AST serializer.* It would reformat whole files and
   churn every golden. The line rewrite touches only the SUB lines.
 
@@ -187,37 +208,46 @@ the design is dead.
 
 ### Phase 1 — The value-less rule covers every `Nothing` callee (fixes the panic)
 
-- [ ] 1.1 RED first: add `tests/syntax/functions/nothing-call-value-invalid/`. It
+> **DROPPED by owner decision, 2026-09-26. Do not implement.** The panic is fixed by
+> bug-744 in codegen: a `Nothing` call's value is `NOTHING`
+> (`tests/runtime/rt_nothing_func_value_position.rs`, one test per value position).
+> Two parts still apply to `SUB` removal and move to D. First, `TYPE_SUB_HAS_NO_VALUE`
+> and `sub-value-less-invalid`'s value-position cases are deleted with `SUB`, because a
+> migrated `FUNC … AS Nothing` call in value position is legal. Second, the §2 finding
+> that `self.functions` in `ir::verify` does not cover built-ins no longer matters. No
+> rule needs it. The boxes below are struck, not done.
+
+- [x] ~~1.1 RED first: add `tests/syntax/functions/nothing-call-value-invalid/`. It
       contains a `FUNC f() AS Nothing` bound with `LET`, nested as an argument, and
       `LET v = io::print("x")`, plus a statement-position call and a statement-position
       inline-`TRAP` call that must stay clean. Its `golden/build.log` must carry three
       `2-203-0074` diagnostics. Confirm that before the fix the build panics (the
-      repro in §2).
-- [ ] 1.2 Read `ir::verify`'s signature table (`src/ir/verify/mod.rs`, the `functions`
+      repro in §2).~~ — moot: dropped by owner decision (bug-744)
+- [x] ~~1.2 Read `ir::verify`'s signature table (`src/ir/verify/mod.rs`, the `functions`
       map and its `kind` doc at l.684) and establish whether built-ins are in it. If
       they are not, resolve the built-in return type through the same oracle
-      `check_call_argument_types` uses. Record the finding under §2 Verified properties.
-- [ ] 1.3 `src/ir/verify/values.rs`: replace `sig.kind == "sub"` with a
+      `check_call_argument_types` uses. Record the finding under §2 Verified properties.~~ — moot: dropped by owner decision (bug-744)
+- [x] ~~1.3 `src/ir/verify/values.rs`: replace `sig.kind == "sub"` with a
       return-type-is-`Nothing` test covering user and built-in callees. Rename the
       `allow_sub_call` cell (`mod.rs:785`, `:1023`, `ops.rs:114,117,433,435`,
-      `values.rs:33-70`) to `allow_value_less_call`.
-- [ ] 1.4 `src/rules/table.rs:977`: rename to `TYPE_NOTHING_CALL_HAS_NO_VALUE` with the
+      `values.rs:33-70`) to `allow_value_less_call`.~~ — moot: dropped by owner decision (bug-744)
+- [x] ~~1.4 `src/rules/table.rs:977`: rename to `TYPE_NOTHING_CALL_HAS_NO_VALUE` with the
       new message, then update every reference:
-      `rg -n 'TYPE_SUB_HAS_NO_VALUE' src tests` → each hit updated.
-- [ ] 1.5 `tests/syntax/functions/sub-value-less-invalid/golden/build.log`: the rule
+      `rg -n 'TYPE_SUB_HAS_NO_VALUE' src tests` → each hit updated.~~ — moot: dropped by owner decision (bug-744)
+- [x] ~~1.5 `tests/syntax/functions/sub-value-less-invalid/golden/build.log`: the rule
       name in this golden changes. The four questions: (1) it pins `SUB` value-less
       rules; (2) a `SUB` call in value position is an error; (3) nothing else depends
       on the name (grep in 1.4); (4) proof: this plan renames the rule and the SUB
-      case still errors under the same code. Update only the renamed text.
-- [ ] 1.6 Spec: `src/docs/spec/diagnostics/01_rule-codes.md` (the 0074 row) and
+      case still errors under the same code. Update only the renamed text.~~ — moot: dropped by owner decision (bug-744)
+- [x] ~~1.6 Spec: `src/docs/spec/diagnostics/01_rule-codes.md` (the 0074 row) and
       `src/docs/spec/language/07_subs.md` / `06_functions.md`: state that a `Nothing`
-      call has no value. Cite `[[src/ir/verify/values.rs:check_value_depth]]`.
+      call has no value. Cite `[[src/ir/verify/values.rs:check_value_depth]]`.~~ — moot: dropped by owner decision (bug-744)
 
-Acceptance: the RED fixture goes green with three `2-203-0074` diagnostics and no panic,
+~~Acceptance: the RED fixture goes green with three `2-203-0074` diagnostics and no panic,
 and no `.ncodesum` moves.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc nothing-call-value-invalid sub-value-less-invalid` → both PASS (est. 1 min);
-  `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min; one unaffected fixture proves the blast radius, per `.ai/testing-gates.md`).
-Commit: —
+  `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min; one unaffected fixture proves the blast radius, per `.ai/testing-gates.md`).~~
+Commit: — (moot: dropped by owner decision; bug-744 fixed the panic in codegen)
 
 ### Phase 2 — `FUNC main … AS Nothing` is a valid entry
 
@@ -259,7 +289,7 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `nothing-call-value-invalid` (negative, 3 sites + 2 clean), the two
+- Tests: ~~`nothing-call-value-invalid` (negative, 3 sites + 2 clean)~~ (dropped, bug-744), the two
   `entry-func-nothing` fixtures, and the `manifest::entry` unit test.
 - Coverage: the new fixtures own `golden/` dirs, so `test-accept.sh` compares them.
 - Runtime proof: `mfb run` on `entry-func-nothing-valid` prints its line and exits 0.
@@ -271,13 +301,18 @@ Commit: —
 
 ## Open Decisions
 
-- Rule name for 0074: `TYPE_NOTHING_CALL_HAS_NO_VALUE` (recommended, since it names
-  what is checked) or keep `TYPE_SUB_HAS_NO_VALUE` until D. Keeping it leaves a
-  misnamed rule live for three letters.
+- ~~Rule name for 0074~~ — moot. The generalized rule is dropped (owner decision,
+  bug-744), and `TYPE_SUB_HAS_NO_VALUE` stays accurately named while `SUB` exists.
 
 ## Corrections
 
-(none yet)
+- 2026-09-26 (bug-744, owner decision): Phase 1's diagnostic is dropped. A `Nothing`
+  call in value position yields `NOTHING`, and bug-744 fixed the §2 panic in codegen.
+  Its runtime tests cover `LET`, `LET AS Nothing`, `MUT`, argument, operand, `RETURN`,
+  record field, lambda, `FUNC` value, `SUB`-as-value, a `Nothing` built-in, inline
+  `TRAP`, and `LET b = same(a)`. For D: `2-203-0074` does not stay live. It is retired
+  with `SUB` (plan-159-D §"`2-203-0074`" amended to match), and the D spec rewrite
+  must not describe `Nothing` calls as value-less.
 
 ## Summary
 
