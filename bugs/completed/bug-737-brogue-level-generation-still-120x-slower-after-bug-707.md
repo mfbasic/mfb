@@ -5,8 +5,40 @@ Effort: x-large (1d–3d)
 Severity: HIGH
 Class: Performance
 
-Status: Open
-Regression Test: tools/brogue-perf/bench.sh (existing, added by bug-707)
+Status: FIXED
+Regression Test: tests/runtime/rt_operand_snapshot.rs (`a_global_operand_before_a_call_that_cannot_store_it_is_not_copied`, `a_call_that_reaches_the_store_through_a_helper_still_snapshots`); tools/brogue-perf/bench.sh (budget 150 -> 25)
+
+## STATUS: FIXED (84ff87d37)
+
+Root cause found and fixed in the compiler, not the example. bug-496's operand
+snapshot (`src/codegen/engine/value/operand_snapshot.rs`) copied any operand
+rooted in a module-level global into a statement temporary whenever a LATER
+operand called any user function. `src/level.mfb`'s `layerAt` is
+`collections::get(pmapLayers, layerIndex(x, y, layer))`: `layerIndex` is pure,
+yet every read copied the 9,164-entry (73 KB) layer list; `cellFlagsAt`,
+`volumeAt` and `machineNumberAt` copied their 18 KB lists the same way
+(`get(pmapFlags, gi(x, y))`). The fix (`later_operands_can_free`) asks, for a
+global root, whether a later operand can reach a `StoreGlobal` of THAT global
+(the `store_reach.rs` walk bug-665/666 already use); resource-holding globals
+and local roots keep the broad rule.
+
+Measured, `dig 1 5`, `--debug` arena report: alloc_bytes 6,087,626,176 ->
+32,033,136, hit_large_bin 98,645 -> 2,348, alloc_calls 244,393 -> 148,095;
+user time 2.3 s -> 0.20 s. Harness (`bench.sh --runs 7`, heavy lock held):
+**120.1x -> 17.6x** (port 1.284 s, oracle 0.073 s). `check-terrain.sh 8 1`:
+all 320 pairs match.
+
+The 10x goal is NOT met. The remainder is not memory: a sampling profile puts
+~77% of `dig 1 20` in `cellularAutomataRound` and four one-expression leaf
+helpers (`gi`, `coordinatesAreInMap`, `nbDx`, `nbDy`), called rather than
+inlined, with every temporary spilled. Filed as **bug-740**. `bench.sh`'s
+budget is tightened from 150 to 25 (17.6 plus noise headroom), so a return of
+the copying fails the gate.
+
+Deviation: one existing test assertion corrected (the `GS & other(1)` line of
+`concat_operand_survives_a_call_that_reassigns_the_global` no longer
+snapshots — `other` stores a different global); the four-question proof is in
+the commit message of 84ff87d37.
 
 bug-707 landed both of its identified fixes for `examples/brogue`'s `dig`
 performance — hoisting `nbDx`/`nbDy`/`cDx`/`cDy` to module constants
@@ -85,7 +117,13 @@ the bytes, not the count.** Whatever is allocating the remaining ~6GB per
 
 ## Root Cause
 
-**Not yet found — this section records what has been ruled out, measured
+**Found (see STATUS above): the bug-496 operand snapshot of a global read
+through a pure index helper.** The rest of this section is the original
+investigation, kept for its measurements; its "working hypothesis"
+(self-update chains) was wrong — the copies were reads, not updates, which is
+why the `set`/`append` wrap below saw no excess.
+
+**Originally: not yet found — this section records what has been ruled out, measured
 today, and why the remaining hypotheses point at the compiler/runtime rather
 than at any specific example function.**
 
@@ -189,7 +227,7 @@ guesses at from example-only measurement.
 
 ### Phase 1 — confirm or refute the self-update hypothesis
 
-- [ ] Either instrument the compiler's arena allocator to attribute bytes to
+- [x] Either instrument the compiler's arena allocator to attribute bytes to
       call sites (even coarsely, e.g. by call depth or return address), or
       manually trace `self_update.rs`'s last-use analysis against 2-3 of
       `rooms.mfb`/`terrain.mfb`'s actual self-update chains (e.g.
@@ -199,20 +237,27 @@ guesses at from example-only measurement.
 
 Acceptance: a named call site (or a named class of call site) confirmed,
 with a measurement, to be where the remaining ~6GB/`dig` comes from.
-Commit: —
+
+Done: cumulative alloc_bytes per stage (stopping `dumpDig` after each dump)
+located the bytes at the `dumpMap` stages and the later stages that read the
+map; `--ncode` showed `operand_snapshot` slots in exactly `layerAt`,
+`cellFlagsAt`, `volumeAt`, `machineNumberAt`; hoisting the index into a `LET`
+in a throwaway copy cut alloc_bytes 6.09 GB -> 32 MB with byte-identical
+output, confirming the mechanism before the compiler fix.
+Commit: 84ff87d37 (tests RED at base: 5 + 1 snapshot slots; GREEN: 0)
 
 ### Phase 2 — fix or floor
 
-- [ ] If a fixable site/class is found: fix it, re-run `check-terrain.sh`
+- [x] If a fixable site/class is found: fix it, re-run `check-terrain.sh`
       and `tools/brogue-perf/bench.sh`.
-- [ ] If the cost is inherent at this call volume: update
+- [x] If the cost is inherent at this call volume: update
       `tools/brogue-perf/bench.sh`'s `BUDGET_RATIO` default to the confirmed
       floor, with the measurement that justifies it cited in this doc and in
       the script's own comment.
 
 Acceptance: `check-terrain.sh` clean; `bench.sh` passes against its (possibly
 revised) budget with the fix, or the budget documents why it cannot go lower.
-Commit: —
+Commit: 84ff87d37 (fix); e257b8afa (budget 25, bug-740 filed)
 
 ## Validation Plan
 

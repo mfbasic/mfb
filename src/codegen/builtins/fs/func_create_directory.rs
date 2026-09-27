@@ -51,15 +51,12 @@ characters when the host filesystem accepts those names. It must be non-empty an
 already exists at `path`, including an existing directory, the call fails with
 `ErrAlreadyExists` rather than succeeding quietly. When the host refuses the
 operation the filesystem is left unchanged and the error says why:
-`ErrPathNotFound` if a parent directory does not exist, `ErrAccessDenied` if
-the parent may not be written, and `ErrInvalidPath` if the path cannot name a
+`ErrPathNotFound` if a parent directory does not exist, `ErrAccessDenied` if the
+parent may not be written, and `ErrInvalidPath` if the path cannot name a
 directory — a name that is too long, a file used as a directory, or a loop of
-symbolic links (Windows reports most of these as `ErrPathNotFound`). Any other
-refusal raises `ErrWriteFailed`. An empty `path`, or one containing a NUL
-byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory. The table also lists
-`ErrResourceBusy` because every `fs` function that takes a path reports host
-refusals through one shared set of errors; creating a directory never
-produces it."#;
+symbolic links. Any other refusal raises `ErrWriteFailed`. An empty `path`, or
+one containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means
+the program ran out of memory."#;
 const EX: &str = r#"Create a single output directory whose parent already exists:
 
 ```
@@ -112,7 +109,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrPathNotFound",
                 "ErrInvalidPath",
                 "ErrAccessDenied",
-                "ErrResourceBusy",
                 "ErrInvalidArgument",
                 "ErrAlreadyExists",
             ],

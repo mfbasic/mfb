@@ -1,0 +1,10 @@
+IMPORT collections
+FUNC main AS Integer
+  LET a AS List OF Integer = collections::repeat([1, 2], 3)
+  LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+  LET c AS List OF Integer = collections::repeat([1, 2], "x", 3)
+  LET d AS List OF Integer = collections::repeat([1, 2], 3, 1.5)
+  LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET e AS Map OF String TO Integer = collections::repeat(m, 3, 1)
+  RETURN len(a) + len(b) + len(c) + len(d) + len(e)
+END FUNC

@@ -462,13 +462,19 @@ pub(crate) fn lower_fs_atomic_write_helper(
         abi::move_register(&errno_reg, &saved_errno),
         abi::label(&rename_error_map),
     ]);
-    // `emit_errno_error_mapping` branches to `done` in every case (including its
-    // generic `err_output` tail), so this mkstemps/rename errno path already
-    // terminates and cannot fall through into the write/sync close tail below.
-    emit_errno_error_mapping(
+    // `emit_fs_host_error_mapping` branches to `done` in every case (including
+    // its fallback), so this mkstemps/rename errno path already terminates and
+    // cannot fall through into the write/sync close tail below. Both calls act on
+    // the target's name — the temp file sits beside it — so the target is the
+    // path a host code is classified against.
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Replace,
+        false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Write,
         &mut instructions,
         &mut relocations,
         &done,
@@ -760,10 +766,14 @@ pub(crate) fn lower_fs_write_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Write,
+        false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Write,
         &mut instructions,
         &mut relocations,
         &done,
@@ -1012,7 +1022,22 @@ pub(crate) fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([abi::label(&seek_error)]);
+    // bug-701: on POSIX a read-only open of a directory succeeds, and it is the
+    // measurement or the read that fails — `EISDIR`, or on Linux ext4 a size no
+    // allocation can satisfy (the `alloc_error` exit below). Report the
+    // directory, as Windows does by refusing the open.
+    let directory = format!("{symbol}_directory");
+    let posix = platform.family() != PlatformFamily::Windows;
+    instructions.push(abi::label(&seek_error));
+    if posix {
+        emit_branch_if_directory(
+            symbol,
+            FsPathArg::String((&path).into()),
+            &directory,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::branch(&done), abi::label(&open_error)]);
     let errno_reg = vregs.next();
@@ -1023,11 +1048,14 @@ pub(crate) fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fs_path_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Read,
         false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Read,
         &mut instructions,
         &mut relocations,
         &done,
@@ -1047,12 +1075,30 @@ pub(crate) fn lower_fs_read_text_path_helper(
         // label, the pre-open C-string alloc failure, with the copy itself.
         abi::label(&alloc_error),
     ]);
+    if posix {
+        emit_branch_if_directory(
+            symbol,
+            FsPathArg::String((&path).into()),
+            &directory,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
     raise_error_into(
         symbol,
         "ErrOutOfMemory",
         &mut instructions,
         &mut relocations,
     );
+    if posix {
+        instructions.extend([abi::branch(&done), abi::label(&directory)]);
+        raise_error_into(
+            symbol,
+            "ErrInvalidPath",
+            &mut instructions,
+            &mut relocations,
+        );
+    }
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     Ok((instructions, relocations, 0))
@@ -1226,13 +1272,40 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    let restore = format!("{symbol}_restore");
+    let directory = format!("{symbol}_directory");
+    if platform.family() != PlatformFamily::Windows {
+        // bug-701: a POSIX read-only open of a directory succeeds, so the read
+        // through it is what fails (`EISDIR`, or on Linux ext4 a measured size no
+        // allocation can satisfy). Report that as the directory it is, as Windows
+        // does by refusing the open.
+        instructions.extend([
+            abi::compare_immediate(&save_tag, RESULT_OK_TAG),
+            abi::branch_eq(&restore),
+        ]);
+        emit_branch_if_directory(
+            symbol,
+            FsPathArg::String((&path).into()),
+            &directory,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
     instructions.extend([
+        abi::label(&restore),
         abi::move_register(RESULT_TAG_REGISTER, &save_tag),
         abi::move_register(RESULT_VALUE_REGISTER, &save_value),
         abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, &save_message),
         abi::branch(&done),
-        abi::label(&open_error),
+        abi::label(&directory),
     ]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidPath",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&open_error)]);
     let errno_reg = vregs.next();
     platform.emit_errno(
         symbol,
@@ -1241,11 +1314,14 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fs_path_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Read,
         false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Read,
         &mut instructions,
         &mut relocations,
         &done,

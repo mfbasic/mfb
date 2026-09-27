@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/collections/func_collection_repeat_invalid
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:3 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `collections.repeat` has 2 argument(s), expected 3 to 4.
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   2 | FUNC main AS Integer
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `collections.repeat` has 5 argument(s), expected 3 to 4.
+   2 | FUNC main AS Integer
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+   5 |   LET c AS List OF Integer = collections::repeat([1, 2], "x", 3)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.repeat` has argument type(s) (List OF Integer, String, Integer), expected List OF T, T, Integer[, Integer].
+   3 |   LET a AS List OF Integer = collections::repeat([1, 2], 3)
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+   5 |   LET c AS List OF Integer = collections::repeat([1, 2], "x", 3)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+   5 |   LET c AS List OF Integer = collections::repeat([1, 2], "x", 3)
+   6 |   LET d AS List OF Integer = collections::repeat([1, 2], 3, 1.5)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.repeat` has argument type(s) (List OF Integer, Integer, Float), expected List OF T, T, Integer[, Integer].
+   4 |   LET b AS List OF Integer = collections::repeat([1, 2], 3, 1, 0, 9)
+   5 |   LET c AS List OF Integer = collections::repeat([1, 2], "x", 3)
+   6 |   LET d AS List OF Integer = collections::repeat([1, 2], 3, 1.5)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+   6 |   LET d AS List OF Integer = collections::repeat([1, 2], 3, 1.5)
+   7 |   LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+   8 |   LET e AS Map OF String TO Integer = collections::repeat(m, 3, 1)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.repeat` has argument type(s) (Map OF String TO Integer, Integer, Integer), expected List OF T, T, Integer[, Integer].
+   6 |   LET d AS List OF Integer = collections::repeat([1, 2], 3, 1.5)
+   7 |   LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+   8 |   LET e AS Map OF String TO Integer = collections::repeat(m, 3, 1)
+     | ^
+tests/syntax/collections/func_collection_repeat_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `e` does not have a known type.
+[exit 1]

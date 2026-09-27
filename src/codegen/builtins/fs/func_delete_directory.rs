@@ -45,17 +45,14 @@ left in place.
 absolute or relative to the current working directory, and may contain Unicode
 characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
-When the host refuses the removal the filesystem is left unchanged and the
-error says why: `ErrPathNotFound` if nothing exists at `path`, `ErrResourceBusy`
-if the directory is not empty, `ErrAccessDenied` if permission is refused, and
-`ErrInvalidPath` if `path` names a file or cannot name a directory — a name
-that is too long, or a loop of symbolic links. Windows reports a file as
-`ErrWriteFailed`, and most unusable paths as `ErrPathNotFound`. Any other
-refusal raises `ErrWriteFailed`. An empty `path`, or one containing a NUL
-byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory. The table also lists
-`ErrAlreadyExists` because every `fs` function that takes a path reports host
-refusals through one shared set of errors; removing a directory never
-produces it."#;
+When the host refuses the removal the filesystem is left unchanged and the error
+says why: `ErrPathNotFound` if nothing exists at `path`, `ErrResourceBusy` if
+the directory is not empty, `ErrAccessDenied` if permission is refused, and
+`ErrInvalidPath` if `path` names a file or cannot name a directory — a name that
+is too long, a file used as a directory, or a loop of symbolic links. Any other
+refusal raises `ErrWriteFailed`. An empty `path`, or one containing a NUL byte,
+raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of
+memory."#;
 const EX: &str = r#"Remove an empty directory:
 
 ```
@@ -106,7 +103,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrAccessDenied",
                 "ErrResourceBusy",
                 "ErrInvalidArgument",
-                "ErrAlreadyExists",
             ],
             body: Body::abi_function(lower_fs_delete_directory),
         }],

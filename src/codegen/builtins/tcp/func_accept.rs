@@ -109,7 +109,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: super::socket(),
-            errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTimeout"],
+            errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
             body: super::native_body(lower_accept, &[]),
         }],
     });

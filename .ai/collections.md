@@ -638,12 +638,19 @@ bytes (`arena_free` keeps the quick-bin link at offset 0, where `byteLength` liv
 goes through, `lower_value`: on entry to a multi-operand node (`Call`, `Binary` incl. the
 fused `&` chain, literals, `Constructor`, `WithUpdate`) it records each operand that lowers
 to a pointer into storage a callee can reassign — a `Global`, a by-ref or address-taken
-local, a resource's STATE, or a member/extract of one — when a LATER operand contains a
-call that can run user code (a module function, an indirect FUNC-value call, or any call
-handed a FUNC value). When that operand is lowered it is `copy_flat_block`ed into a
+local, a resource's STATE, or a member/extract of one — when a LATER operand can free it.
+For a global that means a later call can reach a `StoreGlobal` of that global
+(`store_reach.rs`, the walk bug-665/666 use); for the other roots, and a global holding a
+resource, any call that can run user code (a module function, an indirect FUNC-value call,
+or any call handed a FUNC value). **The global case was "any user call" until bug-737, and
+that cost `examples/brogue` 98% of its bytes**: `collections::get(pmapLayers,
+layerIndex(x, y, l))` copied the 73 KB layer list on every read because `layerIndex` is a
+module function — 6.1 GB per `dig`, 2.3 s → 0.2 s once the snapshot asked the right
+question. A snapshot is an O(size) copy per evaluation, so a too-broad trigger here is a
+silent complexity bug, not a small constant. When that operand is lowered it is `copy_flat_block`ed into a
 statement-scope pending temp and the copy is what the op consumes. Matching is by node
 address, so a cloned/rewritten operand fails safe to the old behavior, never to a wrong
-copy. Two things keep it narrow, and `tests/rt_operand_snapshot.rs` pins both: a plain
+copy. Two things keep it narrow, and `tests/runtime/rt_operand_snapshot.rs` pins both: a plain
 local is unreachable (value semantics), so `x = append(x, f())` / `s & f()` on locals
 emit no snapshot and the in-place `x = append(x, <pure>)` fast path never sees a `Call`
 node at all; and a global followed only by pure native builtins (`GS & toString(n)`)

@@ -272,6 +272,21 @@ collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T5	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T6	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T7	arm
 collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V	T8	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S3	rebuild:not-last-grow
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S4	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S5	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S6	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S7	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S9	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	S10	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T1	rebuild:not-last-grow
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T2	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T3	rebuild:not-last-grow
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T4	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T5	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T6	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T7	arm
+collections::repeat(value AS List OF T, item AS T, count AS Integer, [start AS Integer]) AS List OF T	T8	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S3	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S4	arm
 collections::replace(value AS List OF T, old AS T, new AS T) AS List OF T	S5	arm
