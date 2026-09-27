@@ -159,13 +159,13 @@ Commit: 2d170c339
 
 ### Phase 2 — goldens, docs, budget
 
-- [ ] Regenerate the native goldens the row moves
+- [x] Regenerate the native goldens the row moves (`scripts/regen-native-goldens.sh target/release/mfb` after `scripts/artifact-gate.sh target/release/mfb all` gave 0 diffs at main tip b1a563acd and 168 on the branch (all five targets; .ncode/.ncodesum, 2 .mir, app-mouse-surface .nir/.nplan; no .ir/.ast); gate after regen: 1537 tests, 2170 goldens, 0 diffs (`2a009e7e5`). One fixture inspected: app-mouse-surface .nir — `#CANVAS_*` LET reads became literals, `#canvas_geoAt` calls inlined.)
       (`scripts/regen-native-goldens.sh target/release/mfb`), after classifying
       the diff against a detached main-tip baseline gate; inspect one moved
       fixture's `.ncode` to confirm the only change is load → immediate.
-- [ ] `planning/optimizations.md`: the new row; `src/docs/spec/tooling/07_cli-reference.md`:
+- [x] `planning/optimizations.md`: the new row; `src/docs/spec/tooling/07_cli-reference.md`:
       the `-O` line lists what `-O1` runs and that levels `0`–`3` exist.
-- [ ] Measure `tools/brogue-perf/bench.sh --runs 7` under the heavy lock; set
+- [x] (A alone measured 18.3x vs main 18.0x, lock held, median of 7 — noise, so the budget stays 25 for A; see plan-161-B/C for the later steps) Measure `tools/brogue-perf/bench.sh --runs 7` under the heavy lock; set
       `BUDGET_RATIO` to the new floor with the same headroom rule the file
       documents.
 

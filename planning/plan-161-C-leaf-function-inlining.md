@@ -151,11 +151,11 @@ Commit: 65781f6b9
 
 ### Phase 2 — goldens, docs, budget
 
-- [ ] Regenerate and classify the native goldens; inspect one fixture.
+- [x] Regenerate and classify the native goldens; inspect one fixture. (`scripts/regen-native-goldens.sh target/release/mfb` after `scripts/artifact-gate.sh target/release/mfb all` gave 0 diffs at main tip b1a563acd and 168 on the branch (all five targets; .ncode/.ncodesum, 2 .mir, app-mouse-surface .nir/.nplan; no .ir/.ast); gate after regen: 1537 tests, 2170 goldens, 0 diffs (`2a009e7e5`). One fixture inspected: app-mouse-surface .nir — `#CANVAS_*` LET reads became literals, `#canvas_geoAt` calls inlined.)
 - [x] Spec: `architecture native-ir` (the `file` field, the mutable walker),
       `tooling cli-reference` (`-O1` list); `planning/optimizations.md`
       ("Function inlining" row: the landed Level-1 subset).
-- [ ] `tools/brogue-perf/bench.sh`: tighten `BUDGET_RATIO` to the measured
+- [x] (A+B+C 5.6x via `bench.sh --runs 7`, lock held; budget 11 → 8, `b3ac76aa8`) `tools/brogue-perf/bench.sh`: tighten `BUDGET_RATIO` to the measured
       floor.
 
 Acceptance: `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)`.
@@ -191,6 +191,12 @@ Commit: —
 2. Developed in the scratch worktree `/tmp/b740-dev` while plan-161-A/B waited
    on the heavy lock, and cherry-picked onto `worktree-B-740` after plan-161-B
    completed.
+3. The linux-riscv64/aarch64 runtime proof caught a miscompile the unit tests
+   missed: a call through a `FUNC`-typed parameter that shares a module
+   function's name (`rt-behavior/general/typename_user_call`, `viaParam`) was
+   inlined as the module function. Fixed in `9d95b9753` (never inline a call
+   whose target names a caller local), with a unit test; the fixture passes on
+   the host, 2229 and 2226.
 
 ## Summary
 

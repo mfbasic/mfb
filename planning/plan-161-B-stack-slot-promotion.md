@@ -205,13 +205,13 @@ Commit: 71c76232a
 
 ### Phase 4 — goldens, docs, budget (largest blast radius)
 
-- [ ] Classify then regenerate the native goldens (`scripts/regen-native-goldens.sh`)
+- [x] (`scripts/regen-native-goldens.sh target/release/mfb` after `scripts/artifact-gate.sh target/release/mfb all` gave 0 diffs at main tip b1a563acd and 168 on the branch (all five targets; .ncode/.ncodesum, 2 .mir, app-mouse-surface .nir/.nplan; no .ir/.ast); gate after regen: 1537 tests, 2170 goldens, 0 diffs (`2a009e7e5`). One fixture inspected: app-mouse-surface .nir — `#CANVAS_*` LET reads became literals, `#canvas_geoAt` calls inlined.) Classify then regenerate the native goldens (`scripts/regen-native-goldens.sh`)
       against a detached main-tip baseline gate; inspect one fixture's `.ncode`.
 - [x] `planning/optimizations.md`: the new row and the coalescing level change;
       spec: `mfb spec tooling cli-reference`'s `-O` line and
       `mfb spec memory native-calling-convention`'s frame section (which values
       live in frame objects at `-O1`).
-- [ ] `tools/brogue-perf/bench.sh`: tighten `BUDGET_RATIO` to the measured floor.
+- [x] `tools/brogue-perf/bench.sh`: tighten `BUDGET_RATIO` to the measured floor — A+B 7.6x (lock held), budget 25 → 11 (`ce0964dc9`).
 
 Acceptance: `scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)`.
 Commit: —

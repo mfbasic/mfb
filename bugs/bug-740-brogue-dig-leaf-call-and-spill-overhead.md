@@ -150,7 +150,7 @@ error-location reporting and with the plan-147 `$own<mask>` variants.
 
 ### Phase 1 — pick the first mechanism and measure it alone
 
-- [ ] Re-profile at HEAD, choose (a), (b) or (c), and write its plan.
+- [x] Re-profile at HEAD, choose (a), (b) or (c), and write its plan. — all three, as plan-161-A/B/C.
 
 Acceptance: a plan with a measured prediction of its share.
 Commit: —
