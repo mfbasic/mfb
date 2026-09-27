@@ -5,10 +5,53 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness/Footgun
 
-Status: Open
-Regression Test: `bugs/repro/bug-736-tls-accept-shared-deadline.mfb` (server) +
-the Python harness in `## Failing Reproduction` below (not yet committed as a
-runnable script — see Non-goals — a fix phase should turn it into one)
+Status: Closed
+Regression Test: `tests/net/rt_tls_accept_handshake_budget.rs` (runtime, macOS +
+Linux) and `codegen::builtins::tls::gen_macos::tests::accept_handshake_gets_a_fresh_deadline_after_the_pop`
+(codegen pin, runs everywhere). The original server repro
+`bugs/repro/bug-736-tls-accept-shared-deadline.mfb` is kept; see the correction
+under Failing Reproduction.
+
+STATUS: FIXED (2143bc28d)
+
+Owner decision (2026-09-26): Option A, "follow Windows and Linux". The fix
+landed that way. `lower_tls_accept_macos` computes the connection-wait deadline
+in `emit_accept_deadline` and calls it again right after popping a connection,
+so the handshake gets a fresh `timeoutMs` measured from the pop. Omitted is
+still `DISPATCH_TIME_FOREVER` and `0` is still `DISPATCH_TIME_NOW` in both
+steps, matching Linux (`poll`, then `SO_*TIMEO` with 1 µs for `0`) and Windows
+(`WSAPoll`, then `SO_*TIMEO` with 1 ms for `0`). Linux and Windows code is
+unchanged. `mfb man tls accept` and `mfb spec stdlib transports` now describe
+the two separately bounded steps. The man change is recorded as a
+clarification, not a breaking change.
+
+Deviations and findings:
+
+1. **The doc's own repro (connect at 10 ms, ClientHello at 299 ms) is not the
+   late-pop mechanism.** That client is popped at about 10 ms, so under the
+   fix its handshake budget runs to about 310 ms, and a ClientHello at 299 ms
+   still fails. That is correct under the owner's contract: the handshake is
+   bounded from the pop. The measurement that separates buggy from fixed is a
+   connection that ARRIVES late. With connect and handshake together at 280,
+   290 or 295 ms of a 300 ms accept, the unfixed server reports
+   `FAILED 77050008` while the client-side handshake reports OK. The fixed
+   server reports `OK after 308/318/318ms` (`/tmp` probe, macOS). The committed
+   test uses wide margins instead of that edge: connect at 3000 ms, ClientHello
+   at 4500 ms, bound 4000 ms.
+2. **Linux and Windows bound each handshake read, not the whole handshake.**
+   This doc's Root Cause says both "reload the raw value" for the handshake.
+   That is true, but `SO_RCVTIMEO` is per `recv`: a peer that trickles its
+   ClientHello (1 byte every 200 ms, bound 1000 ms) completes in about 4 s on
+   Linux (box 2226, measured), while fixed macOS drops it at the bound. Filed
+   as **bug-739**. The man page is worded to be true on every backend until
+   that lands.
+3. **Example follow-up done.** `examples/network-server/src/wire.mfb`:
+   `acceptHandshakeTimeoutMs()` is 1000 ms with a plain rationale (the handshake
+   budget alone, well inside network-client's 3000 ms). `minHandshakeMs()` and
+   `serveTls` comments are rewritten, and bug-704's resonance notes carry a
+   correction. With 1000 ms, which divides 3000 exactly, the UNFIXED compiler
+   fails `tools/network-starvation-probe/probe.sh` 3/3 and the fixed compiler
+   passes (see Phase 3), so the real example is an end-to-end witness.
 
 A server that loops on `tls::accept(listener, timeoutMs)` intermittently drops
 a perfectly well-behaved TLS client with `ErrTimeout` (server side) / a reset
@@ -377,6 +420,10 @@ non-hazard as a live one for anyone reading the code as a reference pattern.
 
 ## Open Decisions
 
+**Resolved 2026-09-26 by the owner: Option A ("follow Windows and Linux").** The
+man-page wording is treated as a clarification, not a breaking change, as
+recommended. The original entries follow for the record.
+
 - **Which fix shape** — Option A (fresh budget per phase, recommended) vs.
   Option B (separate `handshakeTimeoutMs` parameter) vs. Option C (rejected,
   not implementable on macOS). This is the API-owner's call per the task
@@ -389,6 +436,44 @@ non-hazard as a live one for anyone reading the code as a reference pattern.
   on those two backends and only removes a starvation hazard on macOS.
   Recommend documenting it as a clarification/bugfix, not a breaking change,
   since the "≤ timeoutMs" wording was never actually true on 2 of 3 backends.
+
+## Phases
+
+### Phase 1 — failing test
+
+- [x] `tests/net/rt_tls_accept_handshake_budget.rs`: RED against the base
+      compiler (`MFB_TEST_EXE=<base>` gives `late=FAILED 77050008 4007`).
+
+Commit: aec8f9c95
+
+### Phase 2 — the fix
+
+- [x] `gen_macos/server.rs`: `emit_accept_deadline`, called before the
+      connection wait and again after the pop. Codegen pin
+      `accept_handshake_gets_a_fresh_deadline_after_the_pop` is RED against the
+      base `server.rs` and GREEN after.
+- [x] `mfb man tls accept` (descriptor prose) and `mfb spec stdlib transports`.
+
+Commit: 2143bc28d (fix), 563d38d4b (docs)
+
+### Phase 3 — example follow-up, goldens, full validation
+
+- [x] `examples/network-server` constants and comments, and the bug-704
+      corrections.
+- [x] Regenerated the two goldens the change moves. `scripts/artifact-gate.sh
+      <debug mfb> all` on the tip with main merged in checked 2160 goldens and
+      found 2 diffs, both `macos-aarch64.ncodesum`: `byte-identity/tls`
+      (calls `tls::accept`) and `byte-identity/http` (`http::handleRequest`'s
+      TLS body calls `tls::accept`). No other target moved.
+- [x] Full `cargo test --no-fail-fast` under the heavy lock, on the tip with
+      main merged in: `EXIT=0`, 245 `test result: ok`, none failed.
+- [x] `tools/network-starvation-probe/probe.sh`. Fixed compiler: 5/5 on the
+      merged tip; before the merge, 25/25 plus 5/5 under 8 CPU hogs (one
+      earlier failure in about 31 runs did not recur in 55 more, and was not
+      localized). Unfixed compiler with the new 1000 ms value: 3/3 OVERALL
+      FAIL. Unchanged tree at base (2200 ms): 25/25.
+
+Commit: 91da4c402 (example), d5cae981d (goldens)
 
 ## Summary
 
