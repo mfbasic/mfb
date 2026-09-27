@@ -539,3 +539,157 @@ fn linear_scan_writes_typed_phys_operands() {
         Some(Operand::Raw(_))
     ));
 }
+
+/// Run an allocated straight-line/branching rv64 stream on a tiny model machine
+/// (registers + `sp`-relative memory) and return the memory it wrote. Covers
+/// exactly the ops the allocator and the bug-746 fixture emit; anything else is a
+/// test-author error.
+fn run_allocated_rv64(instructions: &[CodeInstruction]) -> std::collections::BTreeMap<i64, i64> {
+    use std::collections::{BTreeMap, HashMap};
+    let labels: HashMap<String, usize> = instructions
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.op == crate::arch::ops::CodeOp::Label)
+        .map(|(at, i)| (i.get("name").unwrap(), at))
+        .collect();
+    let mut regs: HashMap<String, i64> = HashMap::new();
+    let mut mem: BTreeMap<i64, i64> = BTreeMap::new();
+    let read = |regs: &HashMap<String, i64>, name: &str| -> i64 {
+        if name == "zero" {
+            0
+        } else {
+            *regs
+                .get(name)
+                .unwrap_or_else(|| panic!("read of never-written register {name}"))
+        }
+    };
+    let mut pc = 0usize;
+    for _ in 0..10_000 {
+        let i = &instructions[pc];
+        pc += 1;
+        let f = |k: &str| i.get(k).unwrap();
+        match i.op.mnemonic() {
+            "label" => {}
+            "mov_imm" => {
+                regs.insert(f("dst"), f("value").parse().unwrap());
+            }
+            "mov" => {
+                let v = read(&regs, &f("src"));
+                regs.insert(f("dst"), v);
+            }
+            "str_u64" => {
+                assert_eq!(f("base"), "sp");
+                let v = read(&regs, &f("src"));
+                mem.insert(f("offset").parse().unwrap(), v);
+            }
+            "ldr_u64" => {
+                assert_eq!(f("base"), "sp");
+                let off: i64 = f("offset").parse().unwrap();
+                let v = *mem
+                    .get(&off)
+                    .unwrap_or_else(|| panic!("load of unwritten slot {off}"));
+                regs.insert(f("dst"), v);
+            }
+            "rv.br" => {
+                let (a, b) = (read(&regs, &f("lhs")), read(&regs, &f("rhs")));
+                let taken = match f("cond").as_str() {
+                    "eq" => a == b,
+                    "ne" => a != b,
+                    other => panic!("unmodelled rv.br cond {other}"),
+                };
+                if taken {
+                    pc = labels[&f("target")];
+                }
+            }
+            "b" => pc = labels[&f("target")],
+            "ret" => return mem,
+            other => panic!("unmodelled op {other}"),
+        }
+    }
+    panic!("model machine did not reach ret");
+}
+
+/// bug-746: on riscv64 a compare-and-branch is one instruction (`rv.br`), a block
+/// terminator. When it reads a spilled value while every allocatable register is
+/// live, the allocator evicts a victim around it — and restoring the victim AFTER
+/// the terminator runs only on the fall-through edge. The taken edge must see the
+/// victim's value restored too.
+///
+/// v1..v12 fill the 12-register rv64 integer pool across the branch; v0, defined
+/// last, finds the pool full and spills, so the `rv.br` reading it needs an
+/// evicted scratch. Every value is stored on both edges, so a clobbered victim
+/// shows as a wrong slot.
+#[test]
+fn eviction_around_rv64_compare_branch_restores_on_both_edges() {
+    use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
+    const LIVE: u32 = 12;
+    let build = |selector: i64| {
+        let mut s = vec![CodeInstruction::new("label").field("name", "entry")];
+        for k in 1..=LIVE {
+            s.push(
+                CodeInstruction::new("mov_imm")
+                    .physical_field("dst", &vreg_name(k))
+                    .field("type", "Integer")
+                    .field("value", &(100 + k).to_string()),
+            );
+        }
+        // Defined last, so linear scan spills it (the pool is already full).
+        s.push(
+            CodeInstruction::new("mov_imm")
+                .physical_field("dst", &vreg_name(0))
+                .field("type", "Integer")
+                .field("value", &selector.to_string()),
+        );
+        s.push(
+            CodeInstruction::new("rv.br")
+                .physical_field("lhs", &vreg_name(0))
+                .physical_field("rhs", "zero")
+                .field("cond", "eq")
+                .field("target", "taken"),
+        );
+        // Each edge stores every live value, then v0, to its own slot range.
+        for (edge, base) in [(None, 1000), (Some("taken"), 2000)] {
+            if let Some(name) = edge {
+                s.push(CodeInstruction::new("label").field("name", name));
+            }
+            for k in 1..=LIVE {
+                s.push(
+                    CodeInstruction::new("str_u64")
+                        .physical_field("src", &vreg_name(k))
+                        .physical_field("base", "sp")
+                        .field("offset", &(base + 8 * k as i64).to_string()),
+                );
+            }
+            s.push(
+                CodeInstruction::new("str_u64")
+                    .physical_field("src", &vreg_name(0))
+                    .physical_field("base", "sp")
+                    .field("offset", &base.to_string()),
+            );
+            s.push(CodeInstruction::new("ret"));
+        }
+        s
+    };
+    for (selector, base) in [(0i64, 2000i64), (1, 1000)] {
+        let mut instructions = build(selector);
+        let outcome = allocate(&mut instructions, &Riscv64RegisterModel, 64, &[]);
+        assert!(
+            !outcome.spill_slots.is_empty(),
+            "the fixture must spill to exercise eviction"
+        );
+        let mem = run_allocated_rv64(&instructions);
+        let edge = if selector == 0 {
+            "taken"
+        } else {
+            "fall-through"
+        };
+        assert_eq!(mem.get(&base), Some(&selector), "{edge} edge: v0");
+        for k in 1..=LIVE {
+            assert_eq!(
+                mem.get(&(base + 8 * k as i64)),
+                Some(&(100 + k as i64)),
+                "{edge} edge: v{k} was clobbered across the rv.br"
+            );
+        }
+    }
+}
