@@ -21,6 +21,13 @@ so it covers the whole code-point space rather than just ASCII: `中` and `é` a
 letters, while `5`, `-`, and a space are not. The test is deterministic and
 locale-independent, with no language-specific tailoring.
 
+A combining mark such as `U+0301` (combining acute accent) is not a letter, so a
+decomposed `é` — the letter `e` followed by the accent — is one letter scalar and
+one non-letter scalar, while the precomposed `U+00E9` is a single letter. Apply
+`strings::normalizeNfc` first when accented text may arrive in either form.
+Letter-like numbers such as `Ⅷ` (category `Nl`) and unassigned or private-use
+scalars are not letters either.
+
 The function is total: it returns a `Boolean` for every `Scalar` and never fails.
 
 `isLetter` classifies a *single* scalar. To ask a question about a whole string,

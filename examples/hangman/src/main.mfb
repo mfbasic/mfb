@@ -172,4 +172,11 @@ FUNC main AS Integer
   term::off()
   io::print("Thanks for playing Hangman!")
   RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("hangman: " & e.message)
+    RETURN 1
+  END TRAP
 END FUNC

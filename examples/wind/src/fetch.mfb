@@ -52,11 +52,24 @@ END TYPE
 ' The outcome of trying one cycle. A cycle that is simply not published yet is
 ' an ordinary answer rather than a failure - that is the common case on the
 ' first attempt, several times a day - so the walk back through the cycles is
-' written over a value, not over a TRAP.
+' written over a value, not over a TRAP. `winds` is only meaningful when
+' `problem` is empty: attemptCycle decodes the candidate bytes (cached or
+' freshly fetched) before it ever hands back an Attempt, so a cached file
+' that starts with the GRIB magic but does not actually decode counts as
+' this cycle's attempt failing, exactly like a cycle that has not been
+' published yet.
 TYPE Attempt
-  data AS List OF Byte
+  winds AS Winds
   problem AS String
 END TYPE
+
+' A placeholder Winds for the failure case of an Attempt, where there is no
+' real decoded data to carry. `emptyField` is main.mfb's own helper (the
+' project's top-level symbols are shared across every .mfb file), reused here
+' rather than duplicated.
+FUNC emptyWinds AS Winds
+  RETURN Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+END FUNC
 
 ' The analysis the program opens on, and the run it came from - which is the run
 ' the forecast is then fetched out of.
@@ -160,29 +173,46 @@ FUNC download(c AS Cycle, hour AS Integer, fields AS String) AS List OF Byte
   RETURN response.body
 END FUNC
 
-' One hour of one cycle, from the cache if it is there and from NOMADS if it is
-' not. A cached file is only trusted if it starts with the GRIB magic, and it is
-' written only once both requests have answered, and atomically, so a program
-' closed part of the way through leaves no half an hour to be trusted next time.
-FUNC cycleData(c AS Cycle, hour AS Integer) AS List OF Byte
+' One hour of one cycle, decoded - from the cache if it is there and decodes,
+' and from NOMADS if it is not. A cached file is only a candidate if it starts
+' with the GRIB magic; it is only trusted once it actually decodes. A cached
+' file that starts with the magic but does not decode is deleted, so the next
+' run - this one's retry to an older cycle, or a wholly separate future run -
+' does not read the same corrupt bytes again. A freshly fetched file is
+' written to the cache (atomically, so a program closed part of the way
+' through leaves no half an hour to be trusted next time) only after it has
+' decoded, so a bad fetch never touches the cache in the first place.
+FUNC cycleData(c AS Cycle, hour AS Integer) AS Winds
   LET path AS String = cachePath(c, hour)
   IF fs::fileExists(path) THEN
     LET cached AS List OF Byte = fs::readBytes(path)
-    IF len(cached) > 16 AND beInt(cached, 0, 4) = GRIB_MAGIC THEN RETURN cached
+    IF len(cached) > 16 AND beInt(cached, 0, 4) = GRIB_MAGIC THEN
+      LET winds AS Winds = windsFrom(cached, c) TRAP(e)
+        fs::deleteFile(path)
+        FAIL e
+      END TRAP
+      RETURN winds
+    END IF
   END IF
 
   LET weather AS List OF Byte = download(c, hour, WIND_AND_TEMPERATURE)
   LET rain AS List OF Byte = download(c, hour, PRECIPITATION)
   LET both AS List OF Byte = collections::append(weather, rain)
+  LET winds AS Winds = windsFrom(both, c)
   fs::writeBytesAtomic(path, both)
-  RETURN both
+  RETURN winds
 END FUNC
 
+' Trying one cycle never lets an error escape: a network failure, an
+' unpublished cycle, and a cached-or-fetched file that fails to decode are all
+' the same kind of outcome - this cycle's attempt did not pan out - and the
+' caller (loadAnalysis, fetchForecast) walks back or retries the same way for
+' all three.
 FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
-  RETURN Attempt[data := cycleData(c, hour), problem := ""]
+  RETURN Attempt[winds := cycleData(c, hour), problem := ""]
 
   TRAP(e)
-    RETURN Attempt[data := [], problem := e.message]
+    RETURN Attempt[winds := emptyWinds(), problem := e.message]
   END TRAP
 END FUNC
 
@@ -206,7 +236,7 @@ FUNC loadAnalysis AS Analysis
   FOR back = 0 TO CYCLES_TO_TRY - 1
     LET c AS Cycle = cycleAt((newest - back) * CYCLE_SECONDS)
     LET tried AS Attempt = attemptCycle(c, 0)
-    IF len(tried.data) > 0 THEN RETURN Analysis[cycle := c, winds := windsFrom(tried.data, c)]
+    IF tried.problem = "" THEN RETURN Analysis[cycle := c, winds := tried.winds]
     IF firstProblem = "" THEN firstProblem = tried.problem
   NEXT
 

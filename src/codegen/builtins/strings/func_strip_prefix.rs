@@ -15,10 +15,10 @@ removed when `value` begins with `prefix`, and returns `value` unchanged
 otherwise.
 
 The match is an exact byte comparison of the leading bytes of `value` against
-every byte of `prefix`, with no normalization and no case folding. Because both
-operands are well-formed UTF-8 and UTF-8 is self-synchronizing, a matching byte
-prefix is always a whole-scalar prefix, so the remainder is always a valid
-string.
+every byte of `prefix`, with no normalization and no case folding. A match always
+covers whole Unicode scalars, so the remainder is always a valid string — but not
+necessarily whole characters: stripping `"e"` from `"e\u{0301}"` leaves the lone
+combining accent.
 
 Exactly one copy is removed. If `value` begins with `prefix` repeated, only the
 first copy is stripped and the rest remain — call `stripPrefix` in a loop to

@@ -94,6 +94,8 @@ SUB usage()
   io::print("  --thread          Accept on the main thread, then hand each connection")
   io::print("                    to a worker thread that runs the whole session. Not")
   io::print("                    valid with --udp, which has no per-connection socket.")
+  io::print("  --debug-counts    Print the live connection/peer count once per tick.")
+  io::print("                    Not valid with --thread (the single-threaded loop only).")
   io::print("  --help            Show this text and exit.")
   io::print("")
   io::print("PROTOCOL")
@@ -109,7 +111,7 @@ END SUB
 
 ' ---------------------------------------------------------------------- TCP --
 
-SUB serveTcp(host AS String, port AS Integer)
+SUB serveTcp(host AS String, port AS Integer, debugCounts AS Boolean)
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
     io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -195,10 +197,35 @@ SUB serveTcp(host AS String, port AS Integer)
           tcp::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
+            ' bug-705: the write-failure branch used to leave the fd open —
+            ' the read-failure sweep four lines above already closes on its
+            ' own disconnect path, so this one needs the same call.
+            tcp::close(sock) TRAP(e2)
+              RECOVER
+            END TRAP
             RECOVER
           END TRAP
         END IF
       NEXT
+
+      ' 4. Splice dead slots out of every parallel list (bug-705), backwards
+      '    so an earlier removeAt never invalidates a not-yet-visited higher
+      '    index. Every tick (not every nap): that is already the cadence at
+      '    which live is authoritatively re-evaluated for broadcast, and
+      '    without this splice every list grows by one per disconnect
+      '    forever, doing O(all-time connections) work every tick.
+      FOR i = len(live) - 1 TO 0 STEP -1
+        IF NOT collections::get(live, i) THEN
+          conns = collections::removeAt(conns, i)
+          ids = collections::removeAt(ids, i)
+          counts = collections::removeAt(counts, i)
+          live = collections::removeAt(live, i)
+        END IF
+      NEXT
+
+      IF debugCounts THEN
+        io::print("DEBUG counts tcp conns=" & toString(len(conns)))
+      END IF
     END IF
 
     os::sleep(napMs())
@@ -207,7 +234,7 @@ END SUB
 
 ' ---------------------------------------------------------------------- TLS --
 
-SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String)
+SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String, debugCounts AS Boolean)
   RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
     io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -282,10 +309,28 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
           tls::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
+            ' bug-705: see serveTcp's identical write-failure branch above.
+            tls::close(sock) TRAP(e2)
+              RECOVER
+            END TRAP
             RECOVER
           END TRAP
         END IF
       NEXT
+
+      ' bug-705: see serveTcp's identical splice step above.
+      FOR i = len(live) - 1 TO 0 STEP -1
+        IF NOT collections::get(live, i) THEN
+          conns = collections::removeAt(conns, i)
+          ids = collections::removeAt(ids, i)
+          counts = collections::removeAt(counts, i)
+          live = collections::removeAt(live, i)
+        END IF
+      NEXT
+
+      IF debugCounts THEN
+        io::print("DEBUG counts tls conns=" & toString(len(conns)))
+      END IF
     END IF
 
     os::sleep(napMs())
@@ -294,7 +339,7 @@ END SUB
 
 ' ---------------------------------------------------------------------- UDP --
 
-SUB serveUdp(host AS String, port AS Integer)
+SUB serveUdp(host AS String, port AS Integer, debugCounts AS Boolean)
   RES server AS udp::Socket = udp::bind(host, port) TRAP(e)
     io::printError("Cannot bind udp " & host & ":" & toString(port) & " — " & e.message)
     EXIT PROGRAM 1
@@ -324,22 +369,32 @@ SUB serveUdp(host AS String, port AS Integer)
       LET key AS String = datagram.from.host & ":" & toString(datagram.from.port)
       MUT idx AS Integer = liveIndexOf(keys, live, key)
       IF idx < 0 THEN
-        LET id AS String = crypto::uuid4()
-        keys = collections::append(keys, key)
-        peers = collections::append(peers, datagram.from)
-        ids = collections::append(ids, id)
-        counts = collections::append(counts, 0)
-        live = collections::append(live, TRUE)
-        lastSeen = collections::append(lastSeen, now)
-        idx = len(keys) - 1
-        udp::send(server, datagram.from, "Hello " & id & "\n") TRAP(e)
-          RECOVER
-        END TRAP
-        io::print("Connected " & id)
+        ' bug-705: a UDP "connection" is invented purely from a source
+        ' address, so admission needs a hard cap independent of the
+        ' idle-eviction splice below — otherwise any party that can send from
+        ' new source ports faster than udpIdleNanos() retires old ones grows
+        ' these six lists without bound. A peer beyond the cap is refused
+        ' (its first datagram is silently ignored); see maxUdpPeers().
+        IF len(keys) < maxUdpPeers() THEN
+          LET id AS String = crypto::uuid4()
+          keys = collections::append(keys, key)
+          peers = collections::append(peers, datagram.from)
+          ids = collections::append(ids, id)
+          counts = collections::append(counts, 0)
+          live = collections::append(live, TRUE)
+          lastSeen = collections::append(lastSeen, now)
+          idx = len(keys) - 1
+          udp::send(server, datagram.from, "Hello " & id & "\n") TRAP(e)
+            RECOVER
+          END TRAP
+          io::print("Connected " & id)
+        END IF
       ELSE
         lastSeen = collections::set(lastSeen, idx, now)
       END IF
-      IF hasBye(datagram.bytes) THEN
+      ' idx stays -1 for a refused-at-the-cap peer (no slot was created for
+      ' it above) — nothing to mark dead in that case.
+      IF idx >= 0 AND hasBye(datagram.bytes) THEN
         io::print("Disconnect " & collections::get(ids, idx))
         live = collections::set(live, idx, FALSE)
       END IF
@@ -373,6 +428,27 @@ SUB serveUdp(host AS String, port AS Integer)
           END TRAP
         END IF
       NEXT
+
+      ' bug-705: splice dead peers out of all six parallel lists — no fd to
+      ' close here (one shared bound socket, net::Address holds no resource),
+      ' but every disconnect path (BYE, idle retirement, a refused broadcast)
+      ' still only flags live=FALSE, so without this the peer table only ever
+      ' grows. Backwards so an earlier removeAt never invalidates a
+      ' not-yet-visited higher index.
+      FOR i = len(live) - 1 TO 0 STEP -1
+        IF NOT collections::get(live, i) THEN
+          keys = collections::removeAt(keys, i)
+          peers = collections::removeAt(peers, i)
+          ids = collections::removeAt(ids, i)
+          counts = collections::removeAt(counts, i)
+          live = collections::removeAt(live, i)
+          lastSeen = collections::removeAt(lastSeen, i)
+        END IF
+      NEXT
+
+      IF debugCounts THEN
+        io::print("DEBUG counts udp keys=" & toString(len(keys)))
+      END IF
     END IF
 
     os::sleep(napMs())
@@ -433,11 +509,14 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
   END TRAP
 
   ' The handshake still completes here, on the main thread: tls::accept is the
-  ' handshake. Only the finished session crosses to the worker. Unlike the
-  ' single-threaded loop this one may block indefinitely in accept, because
-  ' nothing else runs on this thread that a tick could be late for.
+  ' handshake. Only the finished session crosses to the worker. This is the
+  ' only thread that ever accepts in --tls --thread mode, so the accept call
+  ' is bounded (bug-704): an idle or hostile peer that never completes its
+  ' handshake would otherwise park this thread forever, starving every other
+  ' client queued behind it. A timed-out or failed handshake is treated like
+  ' any other TRAP here — the loop just moves on to the next connection.
   DO
-    RES sock AS tls::Socket = tls::accept(server) TRAP(e)
+    RES sock AS tls::Socket = tls::accept(server, acceptHandshakeTimeoutMs()) TRAP(e)
       CONTINUE DO
     END TRAP
     thread::transfer(worker, sock) TRAP(e)
@@ -462,6 +541,7 @@ SUB main()
   MUT host AS String = "127.0.0.1"
   MUT port AS Integer = 7000
   MUT threaded AS Boolean = FALSE
+  MUT debugCounts AS Boolean = FALSE
   MUT i AS Integer = 0
 
   DO WHILE i < len(args)
@@ -486,6 +566,9 @@ SUB main()
       i = i + 3
     ELSEIF arg = "--thread" THEN
       threaded = TRUE
+      i = i + 1
+    ELSEIF arg = "--debug-counts" THEN
+      debugCounts = TRUE
       i = i + 1
     ELSEIF arg = "--host" THEN
       host = argAt(args, i + 1)
@@ -520,21 +603,27 @@ SUB main()
     EXIT PROGRAM 2
   END IF
 
+  IF threaded AND debugCounts THEN
+    io::printError("--debug-counts only applies to the single-threaded loop —")
+    io::printError("serveTcpConnections/serveTlsConnections have no equivalent hook.")
+    EXIT PROGRAM 2
+  END IF
+
   io::print("Server " & toString(os::pid()) & " (Ctrl-C to stop)")
 
   IF mode = "tcp" THEN
     IF threaded THEN
       serveTcpThreaded(host, port)
     ELSE
-      serveTcp(host, port)
+      serveTcp(host, port, debugCounts)
     END IF
   ELSEIF mode = "udp" THEN
-    serveUdp(host, port)
+    serveUdp(host, port, debugCounts)
   ELSE
     IF threaded THEN
       serveTlsThreaded(host, port, certPath, keyPath)
     ELSE
-      serveTls(host, port, certPath, keyPath)
+      serveTls(host, port, certPath, keyPath, debugCounts)
     END IF
   END IF
 END SUB

@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:astrings/overline
+
+I rendered the page, traced `func_overline.rs`’s returned `AttrFlag[AttrTypeFlag.Overline]` and `helper_md_state_at.rs`’s covering-span behavior, and ran the rendered example via `man-run-examples.sh`; it built and ran successfully, printing no program output (`examples: 1   built: 1   ran: 1   not run: 0   failed: 0`). A supplemental probe printed `styled=[^^hello^^]` and `original=[hello]`.

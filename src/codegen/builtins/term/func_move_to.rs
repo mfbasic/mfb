@@ -23,9 +23,12 @@ column** — the surface is a grid of character cells, never pixels, so there ar
 
 **Both coordinates are clamped at both ends**, on every backend. A negative value
 becomes 0, and a value at or past the edge becomes the last valid cell — `rows-1`
-for the row, `columns-1` for the column, using the current surface dimensions that
-`term::terminalSize` reports. The cursor can therefore never be placed outside the
-grid, and no error is raised for an out-of-range request.
+for the row, `columns-1` for the column, using the surface's current dimensions.
+The cursor can therefore never be placed outside the grid, and no error is raised
+for an out-of-range request. The surface takes its size from the terminal at
+`term::on` and again at each `term::sync`; between a window resize and the next
+`term::sync`, `term::terminalSize` already reports the new size while the clamp
+still uses the old one.
 
 The move is buffered, like everything else on this surface: it records the new
 cursor position and sends nothing to the terminal. The position is
@@ -33,15 +36,18 @@ honoured by the next glyph written and by the frame `term::sync` presents.
 Moving the cursor draws nothing, erases nothing, and leaves the colours and
 attributes alone.
 
-Drawing advances the cursor on its own: each glyph moves it one column right,
-wrapping to column 0 of the next row at the right edge and scrolling the surface
-up by one row at the bottom. A line feed in the drawn text moves to column 0 of
+Drawing advances the cursor on its own: each glyph moves it right by the number
+of cells it occupies — one for most characters, two for an East Asian wide
+character — wrapping to column 0 of the next row at the right edge (a wide glyph
+that would not fit in the last column wraps whole) and scrolling the surface up
+by one row at the bottom. A line feed in the drawn text moves to column 0 of
 the next row, a carriage return moves to column 0 of the same row, and
 `io::print`'s trailing newline advances a row as well. `term::clear` homes the
 cursor to (0, 0).
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+error. In a program built with `--app`, the call additionally requires
+`app::Mode.Console`; in `Mode.None` or `Mode.Canvas` it raises `ErrWrongMode`."#;
 
 const EX: &str = r#"Draw at the top-left corner:
 

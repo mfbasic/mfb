@@ -11,48 +11,19 @@
 '   e         rotate the view clockwise
 '   esc       quit
 '
-' The program is in four files:
+' The program is in five files:
 '   map.mfb        the map format, the four directions, movement, validity
 '   generate.mfb   generateDungeon(seed): rooms, halls, doors and props
 '   render.mfb     the view, the tiles, and the scene drawn from a map
-'   main.mfb       reading keys, and the loop that draws and moves
+'   input.mfb      getChar/ready/readKey — reading raw keys (bug-713)
+'   main.mfb       what a key means, and the loop that draws and moves
 
 IMPORT app
 IMPORT canvas
 IMPORT io
 
-' ---------------------------------------------------------------------------
-' Input
-' ---------------------------------------------------------------------------
-
-FUNC getChar AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
-  END TRAP
-  RETURN c
-END FUNC
-
-FUNC ready(ms AS Integer) AS Boolean
-  LET r AS Boolean = io::pollInput(ms) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  RETURN r
-END FUNC
-
-' One key press. A lone escape byte is the Esc key; an escape followed by more
-' input is a key sequence, which is read off and reported as "" so it does
-' nothing. "EOF" means the window closed.
-FUNC readKey AS String
-  LET c AS String = getChar()
-  IF c = "" THEN RETURN "EOF"
-  IF c <> "\u{1B}" THEN RETURN c
-  IF NOT ready(30) THEN RETURN "ESC"
-  DO WHILE ready(0)
-    LET rest AS String = getChar()
-    IF rest = "" THEN RETURN "EOF"
-  LOOP
-  RETURN ""
-END FUNC
+' getChar, ready, readKey are defined in input.mfb (this project's files share
+' one namespace, like map.mfb/generate.mfb/render.mfb's functions used below).
 
 ' What a key press means. Move carries a view direction, not a map one: w is
 ' up-right, d down-right, s down-left and a up-left on the screen, whichever

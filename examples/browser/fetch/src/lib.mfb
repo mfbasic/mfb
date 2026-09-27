@@ -13,9 +13,11 @@
 ' thread, and the whole recursive Node tree is deep-copied back to the app.
 
 IMPORT collections
+IMPORT datetime
 IMPORT dom
 IMPORT http
 IMPORT net
+IMPORT os
 IMPORT strings
 IMPORT thread
 
@@ -59,25 +61,153 @@ FUNC lastSlash(s AS String) AS Integer
   RETURN idx
 END FUNC
 
-' Resolve a Location header against the request URL: an absolute URL, a
-' root-relative path ("/x"), or a path relative to the current directory.
+' Index of the first occurrence of ch (a single character) in s at or after
+' start, or -1 if none.
+FUNC indexOfFrom(s AS String, ch AS String, start AS Integer) AS Integer
+  MUT i AS Integer = start
+  LET n AS Integer = len(s)
+  DO WHILE i < n
+    IF strings::mid(s, i, 1) = ch THEN RETURN i
+    i = i + 1
+  LOOP
+  RETURN -1
+END FUNC
+
+' Whether c is one of the characters a URI scheme's first character may be
+' (RFC 3986 3.1: ALPHA).
+FUNC isSchemeStart(c AS String) AS Boolean
+  RETURN strings::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", c)
+END FUNC
+
+' Whether c is one of the characters allowed after a URI scheme's first
+' character (RFC 3986 3.1: ALPHA / DIGIT / "+" / "-" / ".").
+FUNC isSchemeChar(c AS String) AS Boolean
+  RETURN strings::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.", c)
+END FUNC
+
+' Whether s has a leading URI scheme — a run of scheme characters starting
+' with a letter, terminated by ":" — before any "/", "?", or "#". This is the
+' RFC 3986 3.1 test for "is this reference absolute", unlike scanning the
+' whole string for "://" anywhere (which a relative href's query string can
+' contain, e.g. "search?next=http://example/x").
+FUNC hasLeadingScheme(s AS String) AS Boolean
+  LET n AS Integer = len(s)
+  IF n = 0 THEN RETURN FALSE
+  IF NOT isSchemeStart(strings::mid(s, 0, 1)) THEN RETURN FALSE
+  MUT i AS Integer = 1
+  DO WHILE i < n
+    LET c AS String = strings::mid(s, i, 1)
+    IF c = ":" THEN RETURN TRUE
+    IF c = "/" OR c = "?" OR c = "#" THEN RETURN FALSE
+    IF NOT isSchemeChar(c) THEN RETURN FALSE
+    i = i + 1
+  LOOP
+  RETURN FALSE
+END FUNC
+
+' Remove path's last "/"-segment (and its trailing slash), or "" if it has no
+' "/" at all.
+FUNC removeLastSegment(path AS String) AS String
+  LET slash AS Integer = lastSlash(path)
+  IF slash < 0 THEN RETURN ""
+  RETURN strings::mid(path, 0, slash)
+END FUNC
+
+' RFC 3986 5.2.4 "remove_dot_segments", applied to an absolute (leading "/")
+' merged path: removes "." and ".." segments in place, the same way a
+' conforming URI resolver would before treating the result as the effective
+' path of a merged reference.
+FUNC removeDotSegments(pathIn AS String) AS String
+  MUT input AS String = pathIn
+  MUT output AS String = ""
+  DO WHILE input <> ""
+    IF strings::startsWith(input, "../") THEN
+      input = strings::mid(input, 3, len(input) - 3)
+    ELSEIF strings::startsWith(input, "./") THEN
+      input = strings::mid(input, 2, len(input) - 2)
+    ELSEIF strings::startsWith(input, "/./") THEN
+      input = "/" & strings::mid(input, 3, len(input) - 3)
+    ELSEIF input = "/." THEN
+      input = "/"
+    ELSEIF strings::startsWith(input, "/../") THEN
+      input = "/" & strings::mid(input, 4, len(input) - 4)
+      output = removeLastSegment(output)
+    ELSEIF input = "/.." THEN
+      input = "/"
+      output = removeLastSegment(output)
+    ELSEIF input = "." OR input = ".." THEN
+      input = ""
+    ELSE
+      ' Move the first path segment (through, but not including, the next
+      ' "/") from input to output.
+      LET nextSlash AS Integer = indexOfFrom(input, "/", 1)
+      IF nextSlash < 0 THEN
+        output = output & input
+        input = ""
+      ELSE
+        output = output & strings::mid(input, 0, nextSlash)
+        input = strings::mid(input, nextSlash, len(input) - nextSlash)
+      END IF
+    END IF
+  LOOP
+  RETURN output
+END FUNC
+
+' Resolve a Location header or link href against the request URL, per RFC 3986
+' §5.3 (Component Recomposition): a reference with a leading scheme is already
+' absolute and is returned unchanged; a network-path reference ("//host/...")
+' keeps the base's scheme; a root-relative path ("/x") keeps the base's
+' authority; a query-only ("?x") or fragment-only ("#x") reference keeps the
+' base's own path (and, for a fragment-only reference, the base's query too —
+' RFC 3986 5.3 only replaces the query when the reference supplies one); and
+' anything else is merged against the base's directory. The merged path always
+' passes through remove_dot_segments (§5.2.4) before being returned.
 FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   LET target AS String = strings::trim(loc)
-  IF strings::contains(target, "://") THEN RETURN target
-  LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
+  IF hasLeadingScheme(target) THEN RETURN target
   IF strings::startsWith(target, "//") THEN
     RETURN base.scheme & ":" & target
-  ELSEIF strings::startsWith(target, "/") THEN
-    RETURN authority & target
   END IF
-  MUT dir AS String = base.path
-  LET slash AS Integer = lastSlash(dir)
-  IF slash >= 0 THEN
-    dir = strings::mid(dir, 0, slash + 1)
+  LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
+
+  ' Split the reference into its path/query/fragment parts. A fragment or
+  ' query can legally contain "/", "?", or even "://" — only the part of the
+  ' string before the first "#" or "?" is ever treated as a path.
+  MUT rest AS String = target
+  MUT fragment AS String = ""
+  LET hashIdx AS Integer = indexOfFrom(rest, "#", 0)
+  IF hashIdx >= 0 THEN
+    fragment = strings::mid(rest, hashIdx + 1, len(rest) - hashIdx - 1)
+    rest = strings::mid(rest, 0, hashIdx)
+  END IF
+  MUT query AS String = ""
+  LET qIdx AS Integer = indexOfFrom(rest, "?", 0)
+  IF qIdx >= 0 THEN
+    query = strings::mid(rest, qIdx + 1, len(rest) - qIdx - 1)
+    rest = strings::mid(rest, 0, qIdx)
+  END IF
+
+  MUT mergedPath AS String = ""
+  IF rest = "" THEN
+    mergedPath = base.path
+    IF qIdx < 0 THEN query = base.query
+  ELSEIF strings::startsWith(rest, "/") THEN
+    mergedPath = removeDotSegments(rest)
   ELSE
-    dir = "/"
+    MUT dir AS String = base.path
+    LET slash AS Integer = lastSlash(dir)
+    IF slash >= 0 THEN
+      dir = strings::mid(dir, 0, slash + 1)
+    ELSE
+      dir = "/"
+    END IF
+    mergedPath = removeDotSegments(dir & rest)
   END IF
-  RETURN authority & dir & target
+
+  MUT result AS String = authority & mergedPath
+  IF query <> "" THEN result = result & "?" & query
+  IF fragment <> "" THEN result = result & "#" & fragment
+  RETURN result
 END FUNC
 
 ' Resolve a link href against the current page URL, returning an absolute URL the app
@@ -129,11 +259,12 @@ END FUNC
 ' every stream is http::done. Finally each completed stream is parsed with
 ' http::finish into its response body.
 '
-' A stylesheet whose URL is malformed, whose connection fails, or whose response
-' errors is simply skipped, matching a page that renders without it. The
-' returned list holds only the CSS bodies that were fetched successfully. The
-' whole streams list is owned by this function's scope, so every connection is
-' closed exactly once when it returns.
+' A stylesheet whose URL is malformed, whose connection fails, whose response
+' errors, or whose exchange never completes within the drive deadline below is
+' simply skipped, matching a page that renders without it. The returned list
+' holds only the CSS bodies that were fetched successfully. The whole streams
+' list is owned by this function's scope, so every connection is closed
+' exactly once when it returns.
 FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS SheetLoad
   MUT streams AS List OF RES http::Stream STATE http::PendingState = []
 
@@ -146,26 +277,47 @@ FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS SheetLoad
     streams = collections::append(streams, s)
   NEXT
 
-  ' Drive all streams together until each has completed. Each round pumps only
-  ' the streams with data ready, so no single stream is blocked on waiting for
-  ' another; `pending` stays TRUE while any stream still needs more bytes.
+  ' Drive all streams together until each has completed, the batch's overall
+  ' deadline elapses, or (independently of the deadline) between rounds that
+  ' made no progress, back off instead of busy-spinning: http::ready/http::pump
+  ' never block (mfb man http ready/pump), so a round that finds nothing ready
+  ' would otherwise re-poll at full speed forever. `pending` stays TRUE while
+  ' any stream still needs more bytes; a stream still incomplete once the
+  ' deadline elapses is left un-done and is skipped below, exactly like a sheet
+  ' that failed to connect. The 30-second budget matches http::startRead's own
+  ' connect deadline for consistency (mfb man http startRead).
+  LET deadlineNanos AS Integer = 30 * 1000000000
+  LET startedAt AS Integer = datetime::monotonicNanos()
   MUT pending AS Boolean = TRUE
   DO WHILE pending
     pending = FALSE
+    MUT progressed AS Boolean = FALSE
     FOR EACH s IN streams
       IF http::done(s) = FALSE THEN
-        IF http::ready(s) THEN http::pump(s)
+        IF http::ready(s) THEN
+          http::pump(s)
+          progressed = TRUE
+        END IF
         pending = TRUE
       END IF
     NEXT
+    IF pending THEN
+      IF datetime::monotonicNanos() - startedAt > deadlineNanos THEN
+        pending = FALSE
+      ELSEIF NOT progressed THEN
+        os::sleep(10)
+      END IF
+    END IF
   LOOP
 
-  ' Parse each completed stream; drop any whose exchange failed. A sheet counts as
-  ' loaded on a complete HTTP 200 (see sheetLoaded); its body is kept for rule parsing
-  ' only when non-empty.
+  ' Parse each completed stream; drop any whose exchange failed or never
+  ' finished within the deadline above. A sheet counts as loaded on a complete
+  ' HTTP 200 (see sheetLoaded); its body is kept for rule parsing only when
+  ' non-empty.
   MUT cssTexts AS List OF String = []
   MUT loaded AS Integer = 0
   FOR EACH s IN streams
+    IF http::done(s) = FALSE THEN CONTINUE FOR
     LET resp AS http::Response = http::finish(s) TRAP(e)
       CONTINUE FOR
     END TRAP

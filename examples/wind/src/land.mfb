@@ -666,16 +666,29 @@ FUNC polarItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, pain
   RETURN placesItems(cutAtEdges(places), v, clip, paint)
 END FUNC
 
-' The last map drawn and the view it was drawn for.
+' The last view the map was built for, and the single canvas::Group node that
+' references it. canvas::present copies the whole scene it is handed on every
+' frame, so the map - the ocean rectangle plus every coastline ring in view,
+' several dozen items even at a world-sized zoom - is installed once with
+' canvas::setGroup rather than spliced into the per-frame scene by value.
+' Every frame then hands present two offsets and a name for the map, the same
+' as it always has for one item.
 MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0, lon0 := 0.0]
 MUT drawnMap AS List OF canvas::DrawItem = []
+
+' The name the map is installed under. One constant, one group: the map is
+' the only static sub-picture this example installs.
+LET LAND_GROUP AS String = "land"
 
 FUNC sameView(a AS View, b AS View) AS Boolean
   RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height AND a.lon0 = b.lon0
 END FUNC
 
 ' The whole underlay: the backdrop, the sea, and the land on top of it. Built
-' again only when the view has moved since the last call.
+' again only when the view has moved since the last call - and, on a rebuild,
+' installed once under LAND_GROUP rather than returned as a raw item list, so
+' canvas::present copies one canvas::Group node for it every frame instead of
+' the whole map.
 FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
   IF sameView(v, drawnView) THEN RETURN drawnMap
 
@@ -708,7 +721,8 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
     END IF
   NEXT
 
+  canvas::setGroup(LAND_GROUP, items)
   drawnView = v
-  drawnMap = items
-  RETURN items
+  drawnMap = [canvas::Group[dx := 0.0, dy := 0.0, name := LAND_GROUP]]
+  RETURN drawnMap
 END FUNC

@@ -13,8 +13,8 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Set the background colour used for subsequently drawn text"#;
 
-const DESC: &str = r#"`term::setBackground` sets the colour that subsequent text drawn through the
-`term::` surface will be written in, from a single `color::Color`.
+const DESC: &str = r#"`term::setBackground` sets the background colour of the cells that subsequent
+text drawn through the `term::` surface fills, from a single `color::Color`.
 
 **A program calling this must `IMPORT color`** as well as `term` — imports are not
 transitive and a package cannot re-export another's types.
@@ -25,22 +25,29 @@ not an error and is not clamped away; it simply has nowhere to go. Synthesizing 
 blend against whatever is already in the cell would disagree with what a canvas
 surface draws for the same colour, so the terminal does not attempt one.
 
-The colour is packed into the module's current-attribute state and **no escape
-sequence is emitted**. Like every other drawing operation on this retained
-surface, the effect becomes visible only when `term::sync` presents the frame.
+Nothing is written to the terminal by this call. Like every other drawing
+operation on this surface, the effect becomes visible only when `term::sync`
+presents the frame. While TUI mode is on, every call that writes cells takes the
+current background colour: `io::print` and `io::write`, and `term::drawText`, `drawGlyph`, `drawHLine`,
+`drawVLine`, `drawBox` and `fillRect`.
 
 Colour is per cell, not global. Each cell of the grid records the foreground,
 background, bold, and underline that were current when its glyph was written, so
 changing the background affects only text drawn *after* the call — text already in
 the surface keeps the colour it was drawn with, and is not restyled.
 
-The setting persists until the next `term::setBackground` or the next `term::on`,
-which resets the background to black (0, 0, 0). The foreground colour and the bold and underline
+The setting lasts for the current TUI session: it persists until the next
+`term::setBackground`, and is reset to black (0, 0, 0) by `term::off` and again
+by `term::on`. The foreground colour and the bold and underline
 attributes are independent and are left untouched; the current value can be read
-back with `term::getBackground`.
+back with `term::getBackground`. One exception: `term::drawText` with an
+`AttributedString` uses the colour the string carries for each run that sets one,
+and this setting for runs that do not; it restores this setting when it finishes.
 
-The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+While TUI mode is off the call is ignored and raises nothing; `term::getBackground`
+reports black (`#000000ff`) until the next `term::on`. In an `--app`
+program outside `app::Mode.Console` it raises `ErrWrongMode`, as every `term::`
+call does."#;
 
 const EX: &str = r#"Draw coloured text and present the frame:
 
@@ -58,8 +65,9 @@ SUB main()
 END SUB
 ```
 
-The colour round-trips through `term::getBackground`, so saving and restoring needs no
-channel unpacking:
+The red, green and blue channels round-trip through `term::getBackground`, so saving
+and restoring needs no channel unpacking. The colour read back always carries an
+alpha of 255, whatever alpha was passed in:
 
 ```
 IMPORT term
@@ -69,7 +77,10 @@ SUB main()
   term::on()
   LET saved AS color::Color = term::getBackground()
   term::setBackground(color::fromName("teal"))
+  term::drawText(0, 0, "teal")
   term::setBackground(saved)
+  term::drawText(1, 0, "default again")
+  term::sync()
   term::off()
 END SUB
 ```"#;
@@ -111,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "base",
-                desc: "The colour to draw in. Its alpha is ignored — a terminal \
+                desc: "The background colour for cells drawn from now on. Its alpha is ignored — a terminal \
                        cell has no alpha channel.",
                 aliases: &[],
                 ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),

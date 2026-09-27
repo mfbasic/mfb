@@ -170,6 +170,14 @@ arrives (received bytes == `Content-Length`, or a chunked body finishes). That c
 a valid empty sheet — e.g. google.com serves one `<link>` as a 200 with
 `Content-Length: 0` — and excludes a redirect or 404 error body.
 
+The stylesheets are fetched concurrently by driving all their `http::Stream`s
+together in one loop, pumping only the ones with bytes ready each round. That
+drive has a 30-second overall deadline (matching `http::startRead`'s own
+connect deadline) and backs off with a short sleep on a round that made no
+progress, so a stylesheet whose connection accepts and then never sends
+anything is skipped — the same way one that never connects at all already
+is — instead of spinning the CPU forever (bug-706).
+
 `StyleNode` is a plain **standalone record** (not a `Node` variant): `display`
 reads its fields directly to format each rule, even though a `StyleNode` is reached
 only *transitively* through `HeaderNode.rules` (a field of a `Node` variant). That

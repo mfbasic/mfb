@@ -18,8 +18,8 @@ IMPORT color
 ' and the elapsed time. The grid wraps around at the edges (a torus), so gliders
 ' and spaceships that run off one side reappear on the other.
 '
-' Controls (the console terminal stays in cooked/line mode, so a key takes effect
-' when you press it followed by Return):
+' Controls (term::on puts the terminal into single-key mode, so a key takes
+' effect the instant you press it — no Return needed):
 '   1..9   load one of nine named starting patterns
 '   0      load a random starting screen
 '   space  pause / resume the simulation
@@ -36,8 +36,10 @@ TYPE Cell
 END TYPE
 
 ' How long each generation is displayed before the next is computed, in
-' milliseconds. io::pollInput doubles as the frame timer: it waits up to this
-' long for a keypress and advances the simulation when the wait elapses.
+' milliseconds. The simulation advances on this fixed wall-clock cadence
+' (tracked via datetime::monotonicNanos(), independent of whether a key
+' arrived); io::pollInput only ever waits up to whatever is left of the
+' current cadence for a keypress.
 FUNC frameDelayMs AS Integer
   RETURN 90
 END FUNC
@@ -277,6 +279,7 @@ FUNC main AS Integer
   MUT dirty AS Boolean = TRUE
   MUT startNanos AS Integer = datetime::monotonicNanos()
   MUT running AS Boolean = TRUE
+  MUT nextStepAt AS Integer = datetime::monotonicNanos() + frameDelayMs() * 1000000
 
   DO WHILE running
     ' Track the live terminal size, reserving the last line for the status bar.
@@ -297,12 +300,14 @@ FUNC main AS Integer
       gen = 0
       startNanos = datetime::monotonicNanos()
       dirty = TRUE
+      nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
     ELSEIF newW <> gridW OR newH <> gridH THEN
       ' The terminal was resized: keep the cells that still fit.
       grid = resizeGrid(grid, gridW, gridH, newW, newH)
       gridW = newW
       gridH = newH
       dirty = TRUE
+      nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
     END IF
 
     IF dirty THEN
@@ -319,8 +324,17 @@ FUNC main AS Integer
     ' cells) per frame. Without this call nothing would appear (mandatory present).
     term::sync()
 
-    ' Wait up to one frame for a key; if none arrives, advance the simulation.
-    IF io::pollInput(frameDelayMs()) THEN
+    ' Poll for a key for whatever is left of the current step cadence — never
+    ' longer, so "did input arrive" cannot delay "is it time to step". Any key
+    ' handled here (including one with no case below) does not by itself
+    ' advance the simulation; the cadence check further down does that,
+    ' regardless of whether a key arrived this pass.
+    LET stepWaitNanos AS Integer = nextStepAt - datetime::monotonicNanos()
+    MUT stepWaitMs AS Integer = stepWaitNanos / 1000000
+    IF stepWaitMs < 0 THEN stepWaitMs = 0
+    IF stepWaitMs > frameDelayMs() THEN stepWaitMs = frameDelayMs()
+
+    IF io::pollInput(stepWaitMs) THEN
       LET key AS String = readKey()
       IF key = "" OR key = "q" OR key = "Q" THEN
         running = FALSE
@@ -331,6 +345,7 @@ FUNC main AS Integer
         gen = 0
         startNanos = datetime::monotonicNanos()
         dirty = TRUE
+        nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
       ELSEIF len(key) = 1 AND strings::contains("0123456789", key) THEN
         LET picked AS Integer = toInt(key) TRAP(e)
           RECOVER 0
@@ -340,10 +355,19 @@ FUNC main AS Integer
         gen = 0
         startNanos = datetime::monotonicNanos()
         dirty = TRUE
+        nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
       END IF
-    ELSEIF NOT paused THEN
-      grid = stepGrid(grid, gridW, gridH)
-      gen = gen + 1
+    END IF
+
+    ' Advance the simulation on its own fixed cadence, independent of whether
+    ' a key arrived above — a key on every tick (mapped or not) must not
+    ' freeze the generation counter.
+    IF datetime::monotonicNanos() >= nextStepAt THEN
+      nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
+      IF NOT paused THEN
+        grid = stepGrid(grid, gridW, gridH)
+        gen = gen + 1
+      END IF
     END IF
   LOOP
 

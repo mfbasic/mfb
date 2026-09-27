@@ -88,4 +88,10 @@ FUNC main() AS Integer
   NEXT
 
   RETURN 0
+
+  TRAP(e)
+    term::off()
+    io::printError("wide-demo: " & e.message)
+    RETURN 1
+  END TRAP
 END FUNC

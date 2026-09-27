@@ -24,9 +24,8 @@ does with that return value. Assigning straight back to the same variable —
 `set = collections::add(set, x)` — is the cheap shape: it updates the set
 rather than building a second one. The result is the same either way.
 
-`add` is **infallible**: nothing it does raises a trappable domain error,
-so an inline `TRAP` written on an `add` call has a dead handler. Running out of
-memory is not something a `TRAP` can catch."#;
+`add` raises no error of its own. Building the result needs memory, so it can
+raise `ErrOutOfMemory`."#;
 
 const EX: &str = r#"Insert a new element:
 

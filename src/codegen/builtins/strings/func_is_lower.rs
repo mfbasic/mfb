@@ -14,10 +14,14 @@ const INTRO: &str = r#"Test whether a Unicode scalar is a lowercase letter."#;
 const DESC: &str = r#"`strings::isLower` returns `TRUE` when `scalar` has the Unicode general category
 `Ll` (lowercase letter) and `FALSE` otherwise.
 
-The test is exactly `Ll`, no wider. Modifier letters (category `Lm`) and other
-letters (`Lo`, which covers uncased scripts such as Han and Arabic) are **not**
-reported as lowercase, and neither are digits, punctuation, or symbols.
-`isLower` is a category test, not a "has-no-uppercase-mapping" test.
+The test is exactly `Ll`, no wider. Modifier letters (category `Lm`), titlecase
+letters (`Lt`, such as the digraph `ǅ`) and other letters (`Lo`, which covers
+uncased scripts such as Han and Arabic) are **not** reported as lowercase, and
+neither are digits, punctuation, or symbols. `isLower` is a category test, not a
+"has-no-uppercase-mapping" test. It is also narrower than the Unicode `Lowercase`
+property that other languages' lowercase tests usually implement: `ª` (U+00AA),
+the small roman numerals `ⅰ`–`ⅿ` and the circled letters `ⓐ`–`ⓩ` are lowercase by
+that property but not category `Ll`, so `isLower` returns `FALSE` for them.
 
 Classification follows the Unicode general categories,
 so it covers the whole code-point space rather than just ASCII, and is

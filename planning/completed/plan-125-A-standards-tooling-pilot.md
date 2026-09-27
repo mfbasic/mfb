@@ -963,7 +963,7 @@ Commit: `21087f18c` (closure), preceded by `8ba8f8c5a` (iteration 1),
 
 The prompts every one of plan-125's reviewer runs uses, verbatim.
 They are generated from `planning/plan-125-prompts/*.txt`, which is what
-`doc-review-fanout.sh --prompt` actually passes to `codex exec`; run
+`doc-review-fanout.sh --prompt` actually passes to the reviewer; run
 `./scripts/plan-125-prompts-sync.sh --check` to prove this section matches.
 
 The harness substitutes `{{UNIT}}`, `{{KIND}}`, `{{TARGET}}`, `{{MFB}}` and
