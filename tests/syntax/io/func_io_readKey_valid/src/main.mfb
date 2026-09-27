@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC compilereadKey AS Integer
+  IF FALSE THEN
+    LET waited AS io::Key = io::readKey()
+    LET polled AS io::Key = io::readKey(0)
+    LET bounded AS io::Key = io::readKey(250)
+    LET named AS io::Key = io::readKey(timeoutMs := 100)
+  END IF
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN compilereadKey()
+END FUNC

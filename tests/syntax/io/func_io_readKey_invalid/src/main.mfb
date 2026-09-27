@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS io::Key = io::readKey("1")
+  LET tooMany AS io::Key = io::readKey(1, 2)
+  LET badName AS io::Key = io::readKey(timeout := 1)
+  RETURN 0
+END FUNC

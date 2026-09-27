@@ -12,8 +12,19 @@ IMPORT color
 '   ./examples/hangman/build/hangman.out
 '
 ' term::on() switches to the alternate screen; term::moveTo / term::setForeground
-' position and color the board; io::readChar() reads a single key without echo;
+' position and color the board; io::readGrapheme() reads one typed character
+' without echo (and io::readKey any key at all);
 ' term::off() restores the shell on exit.
+
+' The next key pressed — any key, typing or not. A terminal that reports key
+' releases sends one after every press; it is not a new key, so it is skipped.
+FUNC nextPress AS io::Key
+  MUT k AS io::Key = io::readKey()
+  DO WHILE k.event = io::KeyEvent.Release
+    k = io::readKey()
+  LOOP
+  RETURN k
+END FUNC
 
 ' Builds the masked word: revealed letters from `guessed`, "_" for the rest.
 FUNC buildMasked(word AS String, guessed AS String) AS String
@@ -131,7 +142,7 @@ FUNC main AS Integer
 
     DO
       drawScreen(word, guessed, missed, wrong, message)
-      LET letter AS String = strings::upper(io::readChar())
+      LET letter AS String = strings::upper(io::readGrapheme())
 
       IF letter = "Q" THEN
         quit = TRUE
@@ -161,7 +172,7 @@ FUNC main AS Integer
       ELSE
         drawScreen(word, word, missed, wrong, "Game over - the word was " & word & ". Any key to retry, Q to quit.")
       END IF
-      LET again AS String = strings::upper(io::readChar())
+      LET again AS String = strings::upper(nextPress().grapheme)
       IF again = "Q" THEN
         running = FALSE
       END IF

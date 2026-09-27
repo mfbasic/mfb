@@ -508,18 +508,14 @@ mod tests {
                         required_by: required_by.clone(),
                     }]
                 }
-                "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+                "io.input" | "io.readLine" | "io.readRaw" | "io.readScalar" | "io.readGrapheme"
+                | "io.readKey" => {
                     vec![PlatformImport {
                         library: "testRuntime".to_string(),
                         symbol: "test_input".to_string(),
                         required_by: required_by.clone(),
                     }]
                 }
-                "io.pollInput" => vec![PlatformImport {
-                    library: "testRuntime".to_string(),
-                    symbol: "test_poll".to_string(),
-                    required_by: required_by.clone(),
-                }],
                 _ => Vec::new(),
             }
         }

@@ -84,6 +84,11 @@ built-in injection chain.
   mapping every path-taking member uses, the operation-aware fallback, and the path
   classification that makes the same condition raise the same code on macOS, Linux
   and Windows.
+- `io-input` — the `io::` readers: keyboard versus data sources, the per-thread
+  input buffer, the key decoder, the read engine's input delay and timeouts, what
+  each reader takes and skips, the two ways a line is read, the kitty keyboard
+  protocol `term::on` switches a terminal to, and the one key encoding every
+  `--app` window writes.
 
 ## See Also
 

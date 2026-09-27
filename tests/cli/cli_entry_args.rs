@@ -326,3 +326,35 @@ fn os_args_rejects_malformed_host_utf8() {
     );
     let _ = fs::remove_dir_all(&project);
 }
+
+/// bug-743: `os::args` in an `--app` build. The standard entry runs on a worker
+/// thread there, and the worker handed it `argc`/`argv` only when `main` itself
+/// took an argument list — so a `FUNC main AS Integer` that called `os::args`
+/// captured the argument block's POINTER as argc and a garbage argv: SIGSEGV on
+/// macOS, an empty list on Linux GTK. Run headless on the host with two
+/// arguments; the program must see exactly those two.
+#[test]
+fn app_build_os_args_without_a_main_parameter() {
+    let name = "app_os_args";
+    let project = temp_project(
+        name,
+        "IMPORT io\nIMPORT os\nIMPORT strings\n\nFUNC main AS Integer\n  io::print(\"ARGS \" & toString(len(os::args())) & \":\" & strings::join(os::args(), \",\"))\n  RETURN 0\nEND FUNC\n",
+    );
+    let exe = common::build_app(&project, name);
+    let run = Command::new(&exe)
+        .args(["one", "two"])
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .output()
+        .expect("run the app build");
+    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+    assert!(
+        run.status.success(),
+        "app build calling os::args {}:\n{stdout}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(stdout.contains("ARGS 2:one,two"), "{stdout}");
+    let _ = fs::remove_dir_all(&project);
+}

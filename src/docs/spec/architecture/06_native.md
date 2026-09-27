@@ -83,7 +83,7 @@ All four backends declare the same set of supported native runtime calls:
   `os.cpuCount`
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.isBuffered`,
   `io.setBuffered`, `io.printError`, `io.writeError`, `io.input`, `io.readLine`,
-  `io.readChar`, `io.readByte`, `io.pollInput`, `io.isInputTerminal`,
+  `io.readRaw`, `io.readScalar`, `io.readGrapheme`, `io.readKey`, `io.isInputTerminal`,
   `io.isOutputTerminal`, `io.isErrorTerminal`
 - Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,
   `fs.createTempFile`, `fs.close`, `fs.readLine`, `fs.readAll`,

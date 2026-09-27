@@ -1415,7 +1415,11 @@ pub(crate) enum PresentationMode {
 }
 
 pub(crate) struct AppEntrySpec {
-    pub(crate) language_entry_accepts_args: bool,
+    /// Whether the worker thread passes the process's `argc`/`argv` to the
+    /// standard program entry — true when the entry reads them: to materialize
+    /// `main`'s argument list, or to capture them for `os::args`/`os::prog`
+    /// (bug-743).
+    pub(crate) worker_passes_args: bool,
     /// Whether the program uses `term::` (so the app-mode finish path should
     /// auto-`term::off()` to restore the transcript, plan-01-term.md §6.5).
     pub(crate) uses_term: bool,

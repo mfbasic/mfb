@@ -1,14 +1,15 @@
 # tools/dungeon-key-probe
 
-Regression probe for bug-713: `examples/dungeon`'s key-reading helpers
-(`getChar`/`ready`/`readKey`) must distinguish a malformed (non-UTF-8) input
-byte from genuine end of input, instead of conflating both into `""`/`"EOF"`.
+Regression probe for bug-713: `examples/dungeon`'s key-reading helper
+(`nextKey`, over `io::readKey` since bug-699) must distinguish a malformed
+(non-UTF-8) input byte from genuine end of input, instead of conflating both
+into `""`/`"EOF"`.
 
 `examples/dungeon` is a `--app` canvas program, so it needs a window and
-cannot be driven headlessly by piped stdin. Its key-reading functions live in
-their own source file, `examples/dungeon/src/input.mfb` (part of the real
+cannot be driven headlessly by piped stdin. Its key-reading function lives in
+its own source file, `examples/dungeon/src/input.mfb` (part of the real
 `examples/dungeon` project — it still builds into `dungeon.app` exactly as
-before; the split only isolates these functions, which touch no canvas API,
+before; the split only isolates this function, which touches no canvas API,
 from the rest of the game), so `probe.py` builds a small separate console-mode
 driver project and copies that file into it **byte-for-byte**
 (`shutil.copy`, verified with `filecmp.cmp` before every build) rather than

@@ -129,7 +129,7 @@ fn decoder_dump_for(target: crate::testutil::CodeTarget) -> &'static serde_json:
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     dumps.entry(target.name()).or_insert_with(|| {
         let (plan, _) = crate::testutil::code_for_src_with_input_buffer(
-            "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "IMPORT io\n\nFUNC main AS Integer\n  LET k AS io::Key = io::readKey()\n  RETURN 0\nEND FUNC\n",
             target,
             crate::target::NativeBuildMode::Console,
         );

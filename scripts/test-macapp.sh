@@ -519,7 +519,7 @@ fi
 #
 # So the check is on the square's right edge as a fraction of the window width, and
 # the two hypotheses are 8.3% versus 11.1% apart. It also proves "repaints with the
-# program blocked", since the program is parked in io::pollInput throughout.
+# program blocked", since the program is parked in io::readKey throughout.
 proj="$work/canvasresize"
 mkdir -p "$proj/src"
 scaffold_project "$proj" canvasresize
@@ -534,7 +534,9 @@ SUB main()
   canvas::present([mark])
   io::print("RESIZE_READY")
   io::flush()
-  LET ready AS Boolean = io::pollInput()
+  LET k AS io::Key = io::readKey() TRAP(e)
+    EXIT SUB
+  END TRAP
 END SUB
 MFB
 #
@@ -679,7 +681,9 @@ SUB main()
   canvas::present([green, ring])
   io::print("SOFTWARE_PRESENTED")
   io::flush()
-  LET ready AS Boolean = io::pollInput()
+  LET k AS io::Key = io::readKey() TRAP(e)
+    EXIT SUB
+  END TRAP
 END SUB
 MFB
 

@@ -121,7 +121,7 @@ encoding::punycodeDecode(asciiDomain AS String) AS String	exempt	String = "" ; F
 encoding::punycodeEncode(domain AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = encoding::punycodeEncode(x) ; x = encoding::punycodeDecode(x)	before
 fs::canonicalPath(path AS String) AS String	exempt	String = "/tmp/mfb_p146_canonical.txt" ; fs::writeText(x, "a") ; x = fs::canonicalPath(x)	x = fs::canonicalPath(x)	before
 fs::readText(path AS String) AS String	exempt	String = "/tmp/mfb_p146_read_text.txt" ; fs::writeText(x, x)	x = fs::readText(x)	before
-io::input([prompt AS String]) AS String	exempt	String = ""	x = io::input(x)	before
+io::input([prompt AS String], [timeoutMs AS Integer]) AS String	exempt	String = ""	x = io::input(x)	before
 net::percentDecode(s AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT	x = net::percentDecode(x) ; x = encoding::percentEncode(x)	before
 os::getEnv(name AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnv(x)	before
 os::getEnvOr(name AS String, fallback AS String) AS String	exempt	String = "" ; FOR k = 1 TO {M} ; x = x & "a" ; NEXT ; os::setEnv(x, x)	x = os::getEnvOr(x, "fallback")	before

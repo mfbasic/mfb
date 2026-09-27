@@ -891,6 +891,10 @@ name = "rt_native_io_runtime"
 path = "tests/runtime/rt_native_io_runtime.rs"
 
 [[test]]
+name = "rt_io_key_readers"
+path = "tests/runtime/rt_io_key_readers.rs"
+
+[[test]]
 name = "rt_native_numeric_pow_div_runtime"
 path = "tests/runtime/rt_native_numeric_pow_div_runtime.rs"
 

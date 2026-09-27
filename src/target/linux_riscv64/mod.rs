@@ -336,9 +336,11 @@ mod tests {
     #[test]
     fn mouse_aware_stdin_reads_encode() {
         for read in [
-            "LET c AS String = io::readChar()",
+            // (bug-699 replaced readChar / pollInput with the keystroke readers
+            // and a timeout on every reader; each still lowers its own pump.)
+            "LET k AS io::Key = io::readKey()",
             "LET l AS String = io::readLine()",
-            "LET b AS Boolean = io::pollInput(3)",
+            "LET b AS Byte = io::readRaw(3)",
         ] {
             let src = format!(
                 "IMPORT io\nIMPORT term\n\nFUNC main AS Integer\n  term::enableMouse(TRUE)\n  {read}\n  RETURN 0\nEND FUNC\n"

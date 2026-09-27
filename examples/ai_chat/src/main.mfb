@@ -1,5 +1,6 @@
 IMPORT term
 IMPORT color
+IMPORT errorCode
 IMPORT io
 IMPORT os
 IMPORT process
@@ -140,58 +141,42 @@ FUNC minRows() AS Integer
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' Low-level input helpers (mirrors the snake example's key decoder)
+' Low-level input helper
 ' ---------------------------------------------------------------------------
 
-FUNC getChar() AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
+' The next key within `ms` milliseconds as a symbolic name — Ctrl chords,
+' Tab/Enter/Backspace, the arrows, Home/End and PageUp/PageDown — or the text a
+' printable key types. "" when no key came in time (or the key was a release or
+' has no name here); "EOF" once input has ended or cannot be read.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
   END TRAP
-  RETURN c
-END FUNC
-
-FUNC ready(ms AS Integer) AS Boolean
-  LET r AS Boolean = io::pollInput(ms) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  RETURN r
-END FUNC
-
-' Decode one keypress into a symbolic name, or return the literal character for
-' a printable key. Recognises Ctrl chords, Tab/Enter/Backspace, arrows, and the
-' PageUp/PageDown CSI sequences.
-FUNC readKey() AS String
-  LET c AS String = getChar()
-  IF c = "" THEN RETURN "EOF"
-  IF c = "\u{03}" THEN RETURN "CTRL_C"
-  IF c = "\u{0E}" THEN RETURN "CTRL_N"
-  IF c = "\u{18}" THEN RETURN "CTRL_X"
-  IF c = "\u{09}" THEN RETURN "TAB"
-  IF c = "\r" OR c = "\n" THEN RETURN "ENTER"
-  IF c = "\u{7F}" OR c = "\u{08}" THEN RETURN "BACKSPACE"
-  IF c = "\u{1B}" THEN
-    IF NOT ready(30) THEN RETURN "ESC"
-    LET c2 AS String = getChar()
-    IF c2 = "[" OR c2 = "O" THEN
-      LET c3 AS String = getChar()
-      IF c3 = "A" THEN RETURN "UP"
-      IF c3 = "B" THEN RETURN "DOWN"
-      IF c3 = "C" THEN RETURN "RIGHT"
-      IF c3 = "D" THEN RETURN "LEFT"
-      IF c3 = "H" THEN RETURN "HOME"
-      IF c3 = "F" THEN RETURN "END"
-      IF c3 = "5" THEN
-        LET t5 AS String = getChar()   ' consume the trailing '~'
-        RETURN "PAGEUP"
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  MATCH k.key
+    CASE io::KeyName.Up : RETURN "UP"
+    CASE io::KeyName.Down : RETURN "DOWN"
+    CASE io::KeyName.Left : RETURN "LEFT"
+    CASE io::KeyName.Right : RETURN "RIGHT"
+    CASE io::KeyName.Home : RETURN "HOME"
+    CASE io::KeyName.EndKey : RETURN "END"
+    CASE io::KeyName.PageUp : RETURN "PAGEUP"
+    CASE io::KeyName.PageDown : RETURN "PAGEDOWN"
+    CASE io::KeyName.Tab : RETURN "TAB"
+    CASE io::KeyName.Enter : RETURN "ENTER"
+    CASE io::KeyName.Backspace : RETURN "BACKSPACE"
+    CASE io::KeyName.Escape : RETURN "ESC"
+    CASE io::KeyName.Unicode
+      IF k.ctrl AND NOT k.alt THEN
+        IF k.grapheme = "c" THEN RETURN "CTRL_C"
+        IF k.grapheme = "n" THEN RETURN "CTRL_N"
+        IF k.grapheme = "x" THEN RETURN "CTRL_X"
+        RETURN ""
       END IF
-      IF c3 = "6" THEN
-        LET t6 AS String = getChar()   ' consume the trailing '~'
-        RETURN "PAGEDOWN"
-      END IF
-    END IF
-    RETURN "ESC"
-  END IF
-  RETURN c
+      RETURN k.grapheme
+    CASE ELSE : RETURN ""
+  END MATCH
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -1029,9 +1014,7 @@ FUNC main() AS Integer
       term::drawText(0, 0, "Enlarge the terminal to at least " & toString(minCols()) & "x" & toString(minRows()) & ".")
       term::drawText(1, 0, "Press ^C to quit.")
       term::sync()
-      IF ready(120) THEN
-        IF readKey() = "CTRL_C" THEN running = FALSE
-      END IF
+      IF nextKey(120) = "CTRL_C" THEN running = FALSE
       CONTINUE DO
     END IF
 
@@ -1111,11 +1094,11 @@ FUNC main() AS Integer
     ' -- input: short wait while streaming so draining stays responsive ----
     MUT waitMs AS Integer = 120
     IF len(collections::keys(kids)) > 0 THEN waitMs = 15
-    IF ready(waitMs) THEN
-      LET key AS String = readKey()
+    LET key AS String = nextKey(waitMs)
+    IF key <> "" THEN
 
-      ' term::on leaves ISIG enabled, so on a normal terminal ^C is delivered as
-      ' SIGINT and the runtime's own handler restores the screen and exits -- the
+      ' ^C interrupts the program under term::on (SIGINT, on every terminal) and
+      ' the runtime's own handler restores the screen and exits -- the
       ' CTRL_C key path here is a fallback (and the reachable path for stdin EOF).
       '
       ' handleKey is pure: it returns the new UI state plus any resource Intent.

@@ -390,9 +390,8 @@ pub(crate) const MOUSE_STATE_PARSE_LEN_OFFSET: usize = 24;
 ///
 /// **One-based rather than a plain index**, so that "owe the program `buf[0]`" is
 /// expressible. A zero-based cursor would spell that as `0`, which is also how it
-/// spells "nothing owed" — the two states are genuinely different and
-/// `io::pollInput` needs the first one: having read a byte to find out whether a
-/// character is ready, it must push that byte back undelivered.
+/// spells "nothing owed" — the two states are genuinely different, and a flush
+/// that owes the program the whole buffered prefix starts at `buf[0]`.
 pub(crate) const MOUSE_STATE_DRAIN_POS_OFFSET: usize = 32;
 /// Byte offset of the partial-sequence buffer itself: the bytes of an escape
 /// sequence seen so far but not yet known to be (or not to be) a complete mouse

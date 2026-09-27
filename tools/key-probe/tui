@@ -1,0 +1,28 @@
+PRESSES: a Left Right Up Down Backspace Delete Escape F5 Shift+Left Home EndKey é q
+Unicode NotSupported 0000 61
+Unicode Release 0000 61
+Left NotSupported 0000 
+Left Release 0000 
+Right NotSupported 0000 
+Right Release 0000 
+Up NotSupported 0000 
+Up Release 0000 
+Down NotSupported 0000 
+Down Release 0000 
+Backspace NotSupported 0000 7f
+Backspace Release 0000 7f
+Delete NotSupported 0000 
+Delete Release 0000 
+Escape NotSupported 0000 1b
+Escape Release 0000 1b
+F5 NotSupported 0000 
+F5 Release 0000 
+Left NotSupported 1000 
+Left Release 1000 
+Home NotSupported 0000 
+Home Release 0000 
+EndKey NotSupported 0000 
+EndKey Release 0000 
+Unicode NotSupported 0000 c3a9
+Unicode Release 0000 c3a9
+Unicode NotSupported 0000 71

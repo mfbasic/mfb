@@ -4113,11 +4113,15 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_app_raw_input_mode(
         &self,
-        _symbol: &str,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
-        Some(app::emit_app_raw_input_mode())
+        Some(app::emit_app_raw_input_mode(
+            symbol,
+            instructions,
+            relocations,
+        ))
     }
 
     fn emit_app_io_is_terminal(
