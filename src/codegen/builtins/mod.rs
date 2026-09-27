@@ -396,6 +396,11 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
                 | "filter"
                 | "reduce"
                 | "reduceRight"
+                // `replace`'s bare target is shared with `strings::replace`, so
+                // the registry lookup above cannot answer for it. Both overloads
+                // are fallible: the `String` one refuses an empty `old` (bug-533),
+                // the `List` one allocates and raises `ErrOutOfMemory` (bug-698).
+                | "replace"
         )
     )
 }
@@ -407,22 +412,22 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// fallibility census is grounded in each member's `lower_*` method: a member is
 /// infallible here iff no success-relevant path emits a domain error
 /// (`emit_index_out_of_range_return` / `emit_not_found_return` / range /
-/// invalid-format). Allocation OOM does **not** count as trappable (umbrella Open
-/// Decision), so growth-only mutators (`append`/`prepend`) are infallible.
+/// invalid-format) or declares one. Since bug-698 every allocating member declares
+/// `ErrOutOfMemory` (owner decision: every function lists every error it can
+/// raise), and spec 8 rule 11 makes a declaring member fallible, so the
+/// allocating members (`keys`/`values`/`append`/`prepend`/`removeKey`/`replace`,
+/// Set `add`/`remove`/`toList`) are fallible and their inline-TRAP handler is live.
 ///
 /// Infallible: `len`, `typeName`, `toString` on every argument type **except**
 /// `List OF Byte` (bug-486 — that overload decodes UTF-8 and raises
 /// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
-/// `bits::*` op (all but the variable shifts), and the pure-query /
-/// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
-/// `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
-/// `List`** (bug-533 — the `String` overload of the same bare target refuses an
-/// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]), and `toInt` **on
+/// `bits::*` op (all but the variable shifts), the non-allocating pure-query /
+/// default-returning members `contains`, `hasKey` and `getOr`, and `toInt` **on
 /// a single enum argument** (bug-679 — the ordinal the value already holds, a
 /// register move that declares no error; plan-140-B).
 ///
-/// That last entry is the only one that runs the other way: the two above take
-/// infallibility AWAY from a name that has it by default, while `toInt` is
+/// That last entry is the only one that runs the other way: the `toString`
+/// entry above takes infallibility AWAY from a name that has it by default, while `toInt` is
 /// fallible by default and one overload is granted an exception. It is therefore
 /// the only entry that needs `kinds`, because an enum is not its own
 /// `ParameterType` — see [`TypeKinds`]. `NoTypeKinds` answers `false`, which is
@@ -1515,9 +1520,9 @@ mod tests {
             assert!(inline_builtin_raw_supported(name, &strings));
             assert!(!inline_trap_unsupported(name, &strings, &NoTypeKinds));
 
-            // The `List` overload keeps its infallible verdict, for every element
-            // type — including `List OF Byte`, which is `toString`'s fallible
-            // shape and must not leak across.
+            // The `List` overload is fallible too since bug-698: it allocates the
+            // result and declares `ErrOutOfMemory`, so an inline `TRAP` on it has a
+            // live handler and a raw lowering, for every element type.
             for element in [
                 ParameterType::Integer,
                 ParameterType::String,
@@ -1529,10 +1534,10 @@ mod tests {
                     element,
                 ];
                 assert!(
-                    inline_builtin_is_infallible(name, &list, &NoTypeKinds),
-                    "expected infallible: {name}{list:?}"
+                    !inline_builtin_is_infallible(name, &list, &NoTypeKinds),
+                    "expected fallible (ErrOutOfMemory): {name}{list:?}"
                 );
-                assert!(!inline_builtin_raw_supported(name, &list));
+                assert!(inline_builtin_raw_supported(name, &list));
             }
 
             // Fail closed: an untyped or unknown first argument is fallible.
