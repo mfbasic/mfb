@@ -22,9 +22,9 @@ PRESSES: a Left Right Up Down Backspace Delete Escape F5 Shift+Left Home EndKey 
 | `drive_linux_app.sh` | Linux GTK `--app` driver, run on the box: extracted AppImage under a private Xvfb, `xdotool` (XTEST) |
 | `drive_windows_app.ps1` | Windows driver, run in the interactive desktop session: `SendInput` for `--app`; `-Console` writes KEY_EVENT records into the console's input buffer (`WriteConsoleInputW`) — read the output file itself afterwards, since the script's own output does not reliably reach a redirect once it has attached to the probe's console |
 
-The `--app` program takes its settings from the environment because `os::args`
-does not work in an `--app` build today (bug-743: a crash on macOS, an empty list
-on Linux).
+The `--app` program takes its settings from the environment: `open` and the
+drivers' launchers pass an environment more easily than arguments. (It was
+written that way while `os::args` crashed in `--app` builds — bug-743, fixed.)
 
 The output file's first line is `PRESSES:` followed by every press and repeat;
 each later line is one event: `key event shift|ctrl|alt|meta grapheme-hex`.

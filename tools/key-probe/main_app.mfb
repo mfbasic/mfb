@@ -1,8 +1,7 @@
 ' The --app key probe (tools/key-probe). It reads the window's keys on the
 ' surface `KEYPROBE_SURFACE` names — `transcript` (the default), `tui` or
-' `canvas` — and writes what it saw to `KEYPROBE_OUT`. (The environment rather
-' than the command line: an --app program's `os::args` is unusable on macOS
-' today, see tools/key-probe/README.md.)
+' `canvas` — and writes what it saw to `KEYPROBE_OUT` (the environment passes
+' through every driver's launcher more simply than arguments).
 
 IMPORT app
 IMPORT canvas
