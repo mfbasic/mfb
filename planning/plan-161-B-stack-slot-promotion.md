@@ -32,7 +32,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-161-A complete | `ls planning/plan-161-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-09-26, plan-161-A in progress) |
+| plan-161-A complete | `ls planning/plan-161-A-*` → no match (archived to `planning/completed/`) | MET in substance (2026-09-27): plan-161-A phase 1 landed (`2d170c339`); its phase 2 (goldens + gates) runs together with this plan's — see Correction 3 |
 
 ## 1. Goal
 
@@ -160,7 +160,7 @@ Rejected alternatives:
 
 Acceptance: `cargo test --bin mfb regalloc` passes.
   Check: that command (est. 10 min; bin test build).
-Commit: —
+Commit: 8b36c06e3
 
 ### Phase 2 — stack slot promotion
 
@@ -190,7 +190,7 @@ Commit: —
 Acceptance: the unit tests and the codegen test pass;
 `examples/brogue/check/check-terrain.sh 8 1` → 320 pairs match.
   Check: those commands (est. 15 min).
-Commit: —
+Commit: d34fdae20
 
 ### Phase 3 — register coalescing at Level 1
 
@@ -201,7 +201,7 @@ Commit: —
       regalloc` → 22 passed.
 
 Acceptance: `cargo test --bin mfb regalloc` passes.
-Commit: —
+Commit: 71c76232a
 
 ### Phase 4 — goldens, docs, budget (largest blast radius)
 
@@ -257,6 +257,20 @@ Commit: —
    (`/tmp/b740-dev`) while plan-161-A's lock-bound gate waited in the heavy-lock
    queue, and was cherry-picked onto `worktree-B-740` only after plan-161-A
    completed — the Prerequisites row was checked at landing, not at drafting.
+   Cherry-picked onto `worktree-B-740` on 2026-09-27 (`8b36c06e3`, `d34fdae20`,
+   `71c76232a`, renumbered from plan-158 in `c328fe608`).
+3. **Gates for A, B and C run once, together, at the branch tip.** The three
+   letters' code landed as separate itemized commits, but only the tip is ever
+   merged to main, so an intermediate commit's golden state is unobservable and
+   regenerating goldens three times (each a release build + ~20 min gate under
+   the shared heavy lock) would prove nothing more. What stays per mechanism:
+   each letter's own tests, brogue vs oracle at each step (stepA, stepAB,
+   stepABC: 320/320 each), the timing of each step (measured together under the
+   lock), and a separate budget-tightening commit per step.
+4. The riscv64 cross-target run first failed 0/80 with B+C: a pre-existing
+   allocator bug (eviction around the fused `rv.br` restored the victim only on
+   the fall-through edge), filed as bug-746 and fixed on main by the riscv64
+   lane (`efd343f3a`). After merging main: riscv64 80/80.
 
 ## Summary
 

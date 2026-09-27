@@ -176,18 +176,15 @@ Commit: —
 The remaining gap is general code quality on call-dense integer loops, not a
 memory mechanism; it needs optimizer work, not an example change.
 
-## WIP status (2026-09-26, paused by coordinator)
+## Progress (2026-09-27)
 
-- Landed on `worktree-B-740`: bug-747 (fixed, archived), plan-161-A phase 1
-  (literal `LET` folding, `2d170c339`); main merged (`876128d36`). plan-161-A
-  phase 2 (golden regen, full gates, bench) not run yet.
-- Written but NOT on the branch (scratch detached worktree `/tmp/b740-dev`,
-  commits reachable by hash): plan-161-B phases 1–3 (`384d52d67`, `a501f58f5`,
-  `9a2c41a69`) and plan-161-C phase 1 (`be0d7abdb`), with their plan docs.
-  Measured (lock not held): base 17.6x → A+B 7.5x → A+B+C 5.9x; brogue 320/320
-  on the host; linux-aarch64 (2226) and windows-x86_64 (real box) 80/80.
-- Blocker before B/C can land: bug-746 (allocator eviction around riscv64
-  `rv.br` restores only on fall-through) — riscv64 brogue 0/80 with B+C.
-  Fix bug-746 first, then cherry-pick B/C, then run the heavy gates.
-- Boxes: 2223/2227/2228/2232 refused ssh; x86-64 Linux runtime to be run in
-  docker `--platform linux/amd64` (the harness mount path needs fixing).
+- On `worktree-B-740`: bug-747 (fixed, archived); plan-161-A (`2d170c339`),
+  plan-161-B (`8b36c06e3`, `d34fdae20`, `71c76232a`), plan-161-C (`65781f6b9`);
+  main merged (`f284af34d`, which brings bug-746's riscv64 fix).
+- Measured without the lock (median of 5, debug-built compiler — codegen is
+  identical to release): base 16.3x → A+B+C 5.6x.
+- brogue `dig` vs oracle, seeds 1–2 × depths 1–40: linux-x86_64 80/80 (Docker
+  `linux/amd64` emulation — boxes 2227/2228 were down all session),
+  linux-aarch64 80/80 (box 2226), linux-riscv64 80/80 (box 2229),
+  windows-x86_64 80/80 (the real Windows box 206); macOS host 320/320.
+- Remaining: goldens, full gates, bench under the lock; budget commits.

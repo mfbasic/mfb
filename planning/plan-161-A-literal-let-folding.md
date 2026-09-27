@@ -155,7 +155,7 @@ Acceptance: `cargo test --bin mfb optimizer::opt1::globals` and
 `cargo test --test rt_literal_let_folding --test rt_global_init_order_fold`
 pass.
   Check: those two commands → `test result: ok` (est. 10 min, the bin test build).
-Commit: —
+Commit: 2d170c339
 
 ### Phase 2 — goldens, docs, budget
 

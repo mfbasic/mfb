@@ -27,7 +27,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-161-B complete | `ls planning/plan-161-B-*` → no match (archived) | NOT MET (2026-09-26, plan-161-B awaiting its heavy-lock gate) |
+| plan-161-B complete | `ls planning/plan-161-B-*` → no match (archived) | MET in substance (2026-09-27): plan-161-B's code landed (`71c76232a`); gates shared — see plan-161-B Correction 3 |
 
 ## 1. Goal
 
@@ -147,7 +147,7 @@ alone would leave dead code.)
       pairs, 0 mismatches.
 
 Acceptance: those tests pass; brogue 320/320.
-Commit: —
+Commit: 65781f6b9
 
 ### Phase 2 — goldens, docs, budget
 
