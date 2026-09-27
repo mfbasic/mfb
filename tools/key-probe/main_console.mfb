@@ -1,0 +1,21 @@
+' The console key probe (tools/key-probe): `probe <out-file> [tui]`. With `tui`
+' it reads under term::on — single-key mode, and the kitty keyboard protocol on
+' a terminal that speaks it — otherwise with the reader's own single-key mode.
+
+IMPORT collections
+IMPORT io
+IMPORT os
+IMPORT term
+
+FUNC main AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) < 1 THEN
+    io::printError("usage: probe <out-file> [tui]")
+    RETURN 2
+  END IF
+  LET tui AS Boolean = len(args) > 1 AND collections::get(args, 1) = "tui"
+  IF tui THEN term::on()
+  LET rc AS Integer = probeKeys(collections::get(args, 0))
+  IF tui THEN term::off()
+  RETURN rc
+END FUNC

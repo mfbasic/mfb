@@ -8,7 +8,7 @@ FUNC main AS Integer
   MUT key AS String = ""
   io::print("Press W/A/S/D to move, or Q to quit.")
   DO
-    key = io::readChar()
+    key = io::readGrapheme()
 
     IF key = "w" OR key = "W" THEN
       io::print("↑")

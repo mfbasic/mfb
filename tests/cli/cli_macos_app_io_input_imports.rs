@@ -9,7 +9,7 @@
 //! (`src/codegen/engine/builder/mod.rs`, the `build_mode.is_app()` force-emit) to
 //! read the window input pipe. That body probes the tty via `isatty`/`tcgetattr`,
 //! but the macOS plan only declared those two symbols in the import row for
-//! programs calling `io.readLine`/`readChar`/`readByte` *directly* — so an
+//! programs calling `io.readLine` (or the other readers) *directly* — so an
 //! `io::input`-only program emitted code referencing symbols absent from the
 //! platform-imports map.
 //!

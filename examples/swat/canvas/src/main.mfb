@@ -3,6 +3,7 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT datetime
+IMPORT errorCode
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -88,7 +89,7 @@ END TYPE
 ' ---------------------------------------------------------------------------
 
 ' The tui edition has no canvas::waitFrame equivalent for term::, so it still
-' paces its loop with io::pollInput(frameDelayMs()) — see that edition's own
+' paces its loop with io::readKey(frameDelayMs()) — see that edition's own
 ' frameDelayMs. This edition is display-synced (canvas::waitFrame, after
 ' canvas::present, matching water/wind) instead, so it has no frameDelayMs of
 ' its own to pace against.
@@ -657,33 +658,18 @@ END FUNC
 ' Input
 ' ---------------------------------------------------------------------------
 
-FUNC getChar AS String
-  LET c AS String = io::readChar() TRAP(e)
-    RECOVER ""
+' The next key within `ms` milliseconds: "ESC" for Escape, the text any other
+' key types, "" when no key came in time (or the key typed nothing, or was a
+' release), and "EOF" once input has ended or cannot be read.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
   END TRAP
-  RETURN c
-END FUNC
-
-FUNC ready(ms AS Integer) AS Boolean
-  LET r AS Boolean = io::pollInput(ms) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  RETURN r
-END FUNC
-
-' One key press. A lone escape byte is the Esc key; an escape followed by more
-' input is a key sequence, which is read off and reported as "" so it does
-' nothing.
-FUNC readKey AS String
-  LET c AS String = getChar()
-  IF c = "" THEN RETURN "EOF"
-  IF c <> "\u{1B}" THEN RETURN c
-  IF NOT ready(30) THEN RETURN "ESC"
-  DO WHILE ready(0)
-    LET rest AS String = getChar()
-    IF rest = "" THEN RETURN "EOF"
-  LOOP
-  RETURN ""
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  IF k.key = io::KeyName.Escape THEN RETURN "ESC"
+  IF k.key <> io::KeyName.Unicode THEN RETURN ""
+  RETURN k.grapheme
 END FUNC
 
 ' The first of these fonts that is installed, or "" when none is: a bold face
@@ -833,8 +819,8 @@ FUNC main AS Integer
     ' after, same as those siblings' `DO WHILE pending(0)`.
     canvas::waitFrame()
 
-    DO WHILE ready(0)
-      LET key AS String = readKey()
+    MUT key AS String = nextKey(0)
+    DO WHILE key <> "" AND running
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
       ELSEIF key = "ESC" AND gameOver THEN
@@ -853,6 +839,7 @@ FUNC main AS Integer
       ELSEIF key = "r" OR key = "R" THEN
         restart = TRUE
       END IF
+      key = nextKey(0)
     LOOP
   LOOP
 

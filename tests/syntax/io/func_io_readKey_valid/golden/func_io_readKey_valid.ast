@@ -1,0 +1,52 @@
+{
+  "project": "func_io_readKey_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "compilereadKey",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": false },
+        "line": 4,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "waited", "type": "io.Key", "value": { "kind": "call", "callee": "io.readKey", "arguments": [] }, "line": 5 },
+        { "kind": "binding", "mutable": false, "name": "polled", "type": "io.Key", "value": { "kind": "call", "callee": "io.readKey", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 6 },
+        { "kind": "binding", "mutable": false, "name": "bounded", "type": "io.Key", "value": { "kind": "call", "callee": "io.readKey", "arguments": [{ "kind": "number", "value": "250" }] }, "line": 7 },
+        { "kind": "binding", "mutable": false, "name": "named", "type": "io.Key", "value": { "kind": "call", "callee": "io.readKey", "arguments": [{ "kind": "named", "name": "timeoutMs", "value": { "kind": "number", "value": "100" } }] }, "line": 8 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "compilereadKey", "arguments": [] }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

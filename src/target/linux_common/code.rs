@@ -1683,7 +1683,7 @@ mod tests {
         #[should_panic(expected = "rv64 app mode not ported")]
         fn app_program_entry() {
             let spec = AppEntrySpec {
-                language_entry_accepts_args: false,
+                worker_passes_args: false,
                 uses_term: false,
                 initial_mode: crate::codegen::engine::types::PresentationMode::Console,
                 uses_canvas: false,

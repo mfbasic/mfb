@@ -273,31 +273,21 @@ existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
 
 ### Read-path interactions
 
-- **`io::pollInput` stays honest.** Its TRUE promises that the next read will not
-  block, and with mouse on "bytes are ready" no longer implies "a character is
-  ready" — the pending bytes may be a report the decoder swallows whole. So when
-  readiness says ready, `pollInput` runs the bytes through the same decoder, puts
-  back the first byte that turns out to be the program's, and re-asks
-  (non-blocking) if what it found was mouse. It still consumes nothing. Three
-  bug-669 rules keep this honest around escapes:
-  - Bytes the decoder already owes are checked first, before any wait, because
-    neither the log nor the OS can see them. The check peeks the cursor and
-    never drains it.
-  - A put-back after a flush rewinds the cursor rather than rewriting the queue,
-    so the flushed tail survives.
-  - A byte that left a prefix buffered is followed by a re-check that waits the
-    escape delay rather than 0. If that re-check finds nothing, the held prefix
-    is released and `pollInput` answers TRUE.
-  [[src/codegen/builtins/io/func_poll_input.rs:lower_poll_input]]
-  [[src/codegen/builtins/io/func_poll_input.rs:emit_mouse_ready_verify]]
-  [[src/codegen/io/mouse/decode.rs:emit_branch_if_owed]]
-  [[src/codegen/io/mouse/decode.rs:emit_pushback_byte]]
-- **A line read loops back above the drain.** `io::readLine` returns to its
-  per-byte read for every byte of a line, and that loop head sits above the
-  pump's owed-byte drain, so each byte of the line takes owed bytes before a new
-  one. With the head below the drain (before bug-699) a flushed `ESC x` was
-  overtaken by the next fresh byte, which re-entered the decoder mid-flush and
-  came back as another `ESC`: `a ESC x b` read as `a ESC ESC ESC`.
+- **A timed read stays honest.** A read with a timeout (`timeoutMs = 0` to
+  ask "is a key there?") returns a key only when there is one, and with mouse on
+  "bytes are ready" no longer implies "a key is ready" — the pending bytes may be
+  a report the decoder swallows whole. The pump wraps the reader's one source
+  read: bytes the decoder already owes are handed over before the deadline wait
+  (neither the log nor the OS can see them), and a swallowed report sends the
+  read back to wait again, still bounded by the same deadline.
+  [[src/codegen/io/input/reader.rs:emit_engine]]
+  [[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
+- **The read loops back above the drain.** A reader returns to its source read
+  for every byte it needs, and that loop head sits above the pump's owed-byte
+  drain, so each byte takes owed bytes before a new one. With the head below the
+  drain (before bug-699) a flushed `ESC x` was overtaken by the next fresh byte,
+  which re-entered the decoder mid-flush and came back as another `ESC`:
+  `a ESC x b` read as `a ESC ESC ESC`.
   [[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
 - **`io::input`/`io::readLine` suspend tracking.** They restore the saved cooked
   line discipline for their read, which re-enables echo; a report arriving in that
@@ -455,6 +445,7 @@ runtime-synthesized classes). Twelve methods are added, then
 | `mfbDrawText:` | `v@:@` | `_mfb_macapp_term_drawText` |
 | `acceptsFirstResponder` | `c@:` | `_mfb_macapp_term_acceptsFR` |
 | `keyDown:` | `v@:@` | `_mfb_macapp_term_keyDown` |
+| `keyUp:` | `v@:@` | `_mfb_macapp_key_up` |
 | `mfbClear:` | `v@:@` | `_mfb_macapp_term_clear` |
 | `mfbPresent:` | `v@:@` | `_mfb_macapp_term_present` |
 | `setFrameSize:` | `v@:{CGSize=dd}` | `_mfb_macapp_term_setFrameSize` |
@@ -776,13 +767,16 @@ reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos
 
 Headless `term::off` skips the AppKit work and only clears `active`.
 
-### `keyDown:` (input)
+### `keyDown:` / `keyUp:` (input)
 
 `void keyDown:(id self, SEL, NSEvent *event)` — the TUI-surface analogue of the
-transcript's `keyDown:`. Input remains an `io::` concern: raw mode writes the
-key's UTF-8 to the window input pipe immediately; line mode buffers until Return,
-echoing typed characters into the surface. Runs on the main thread. The
-cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app/term_view.rs:emit_term_key_down_helper]]
+transcript's `keyDown:`. Input remains an `io::` concern: raw mode (which
+`term::on` sets) writes the key event to the window input pipe immediately, in
+the kitty keyboard-protocol form (`./mfb spec app console-io`); line mode buffers
+until Return, echoing typed characters into the surface. `keyUp:` writes the
+release, in raw mode only. Both run on the main thread. The cell/render model
+itself does not interpret keys. [[src/target/macos_aarch64/app/term_view.rs:emit_term_key_down_helper]]
+[[src/target/macos_aarch64/app/keys.rs:emit_key_up_helper]]
 
 ## Linux: `GtkDrawingArea` + Cairo
 

@@ -81,7 +81,7 @@ const SGR_BUTTON_NONE: u64 = 3;
 /// no next byte. Terminals write a report in one burst, so its tail follows
 /// within microseconds; a prefix still incomplete after this long is keystrokes.
 /// The same trade every curses library makes (its `ESCDELAY`), and the only
-/// point where a read or a `pollInput` waits longer than its caller asked.
+/// point where a read waits longer than its caller asked.
 /// It is the input decoder's one delay (bug-699 Decision 3), not a second one.
 pub(crate) const ESCAPE_DELAY_MS: u64 = crate::codegen::io::input::INPUT_DELAY_MS;
 
@@ -127,45 +127,6 @@ pub(crate) fn emit_release_prefix(mouse_state_offset: usize, ctx: &mut EmitCtx, 
             ARENA_STATE_REGISTER,
             mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
         ),
-    ]);
-}
-
-/// Report whether a byte is owed, WITHOUT taking it: branch to `owed` when the
-/// drain cursor points at a byte still in the buffer.
-///
-/// `io::pollInput` needs this rather than [`emit_drain_pending`], which advances
-/// the cursor — asking "is a byte owed?" that way hands the byte to nobody and it
-/// is lost (bug-669). A non-zero cursor alone is not enough: after the last owed
-/// byte goes out the cursor sits one past the end until the next drain resets it,
-/// and answering "owed" then would promise a read that blocks.
-pub(crate) fn emit_branch_if_owed(
-    owed: &str,
-    mouse_state_offset: usize,
-    ctx: &mut EmitCtx,
-    vregs: &mut Vregs,
-) {
-    let symbol = ctx.symbol;
-    let none = format!("{symbol}_mouse_owed_none_{}", ctx.instructions.len());
-    let pos = vregs.next();
-    let len = vregs.next();
-    ctx.instructions.extend([
-        abi::load_u64(
-            &pos,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
-        ),
-        abi::compare_immediate(&pos, "0"),
-        abi::branch_eq(&none),
-        abi::load_u64(
-            &len,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_PARSE_LEN_OFFSET,
-        ),
-        // One-based cursor: `pos` names `buf[pos - 1]`, which exists while
-        // `pos <= len`.
-        abi::compare_registers(&pos, &len),
-        abi::branch_ls(owed),
-        abi::label(&none),
     ]);
 }
 
@@ -244,10 +205,9 @@ pub(crate) fn emit_drain_pending(
         abi::add_immediate(&pos, &pos, 1),
         // That was the last owed byte (the new cursor `pos` names `buf[pos - 1]`,
         // past the end once `pos > len`): return to the resting state NOW rather
-        // than on the next drain. `io::pollInput` peeks the cursor and pushes bytes
-        // back without draining (bug-669), so a cursor left one past the end would
-        // read as "owed" there, and a stale `len` would put the next fresh byte
-        // mid-sequence in the decoder.
+        // than on the next drain. A cursor left one past the end would read as
+        // "owed" to the next check (bug-669), and a stale `len` would put the next
+        // fresh byte mid-sequence in the decoder.
         abi::compare_registers(&pos, &len),
         abi::branch_hi(&reset),
         abi::store_u64(
@@ -271,76 +231,6 @@ pub(crate) fn emit_drain_pending(
             &zero,
             ARENA_STATE_REGISTER,
             mouse_state_offset + MOUSE_STATE_PARSE_LEN_OFFSET,
-        ),
-        abi::label(&done),
-    ]);
-}
-
-/// Put one byte back, undelivered, so the next drain hands it over.
-///
-/// `io::pollInput` is the reason this exists. It has to answer "will a `readChar`
-/// return without blocking", and with mouse reporting on it cannot tell from
-/// readiness alone: the pending bytes may be a report the pump will swallow
-/// whole, leaving the follow-up `readChar` to block on a terminal that has gone
-/// quiet. The only honest way to know is to run the bytes through the decoder —
-/// and then the one byte that turns out to be the program's must not be lost.
-///
-/// Call it only on the byte a [`emit_decode_byte`] PASS just produced, having
-/// checked that nothing was owed before that decode. Two PASS shapes reach here:
-///
-/// - a plain pass: nothing is buffered, so `byte` becomes a one-byte queue;
-/// - a flush: the decode already queued the whole broken prefix plus its breaking
-///   byte, handed back `buf[0]`, and pointed the cursor at `buf[1]`. Rewriting the
-///   buffer as `[byte]` here would throw that tail away — the key after an ESC,
-///   or the `[Z` of a CSI (bug-669) — so instead the cursor is rewound to replay
-///   from `buf[0]`, which IS `byte`.
-pub(crate) fn emit_pushback_byte(
-    byte: impl Into<abi::Reg>,
-    mouse_state_offset: usize,
-    ctx: &mut EmitCtx,
-    vregs: &mut Vregs,
-) {
-    let byte: abi::Reg = byte.into();
-    let symbol = ctx.symbol;
-    let plain = format!("{symbol}_mouse_pushback_plain");
-    let done = format!("{symbol}_mouse_pushback_done");
-    let buf = vregs.next();
-    let one = vregs.next();
-    let pos = vregs.next();
-    ctx.instructions.extend([
-        abi::load_u64(
-            &pos,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
-        ),
-        abi::compare_immediate(&pos, "0"),
-        abi::branch_eq(&plain),
-        abi::move_immediate(&one, "Integer", "1"),
-        abi::store_u64(
-            &one,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
-        ),
-        abi::branch(&done),
-        abi::label(&plain),
-        abi::add_immediate(
-            &buf,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_PARSE_BUF_OFFSET,
-        ),
-        abi::store_u8(byte, &buf, 0),
-        abi::move_immediate(&one, "Integer", "1"),
-        abi::store_u64(
-            &one,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_PARSE_LEN_OFFSET,
-        ),
-        // One-based: `1` means "the next byte owed is `buf[0]`" — the state a
-        // zero-based cursor could not distinguish from "nothing owed".
-        abi::store_u64(
-            &one,
-            ARENA_STATE_REGISTER,
-            mouse_state_offset + MOUSE_STATE_DRAIN_POS_OFFSET,
         ),
         abi::label(&done),
     ]);

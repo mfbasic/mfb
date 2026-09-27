@@ -305,7 +305,7 @@ pub(super) const CORPUS: &[&str] = &[
     // rt-behavior/io
     "func_io_flush_valid",
     "func_io_isBuffered_valid",
-    "func_io_pollInput_valid",
+    "io-key-readers-eof",
     "func_io_printError_valid",
     // rt-behavior/json
     "json-behavior",
@@ -608,6 +608,11 @@ pub(super) const CORPUS: &[&str] = &[
     "func_io_isErrorTerminal_valid",
     "func_io_isInputTerminal_valid",
     "func_io_isOutputTerminal_valid",
+    "func_io_readGrapheme_valid",
+    "func_io_readKey_valid",
+    "func_io_readLine_valid",
+    "func_io_readRaw_valid",
+    "func_io_readScalar_valid",
     // syntax/lexical
     "parser-hello-world",
     // syntax/match

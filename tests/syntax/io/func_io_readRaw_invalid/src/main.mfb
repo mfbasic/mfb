@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS Byte = io::readRaw("1")
+  LET tooMany AS Byte = io::readRaw(1, 2)
+  LET badName AS Byte = io::readRaw(timeout := 1)
+  RETURN 0
+END FUNC
