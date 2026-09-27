@@ -96,6 +96,8 @@ pub(crate) enum ArmId {
     /// `s = f(s, …)` for the `String` builtins that rewrite `s`'s bytes
     /// (plan-146-E).
     StrRewrite,
+    /// `xs = repeat(xs, item, count, start)` (plan-153-B).
+    Repeat,
 }
 
 /// A binding being self-updated: which one, its type, and where its block lives.
@@ -325,6 +327,11 @@ pub(crate) const SELF_UPDATE_ARMS: &[(ArmId, ArmFn, FieldReach)] = &[
         ArmId::Insert,
         |b, s, v| b.try_inplace_insert_assign(s, v),
         FieldReach::Existing,
+    ),
+    (
+        ArmId::Repeat,
+        |b, s, v| b.try_inplace_repeat_assign(s, v),
+        FieldReach::Realloc,
     ),
     (
         ArmId::SetRemove,
@@ -1469,6 +1476,11 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[probe(C, LI, "[1, 2, 3]", "collections::insert(x, 1, 7)")],
     },
     SelfUpdateRow {
+        function: "collections::repeat",
+        kind: SelfUpdate::Arm(&[ArmId::Repeat]),
+        probes: &[probe(C, LI, "[1, 2, 3]", "collections::repeat(x, 7, 2, 2)")],
+    },
+    SelfUpdateRow {
         function: "&",
         kind: SelfUpdate::Arm(&[ArmId::Concat]),
         probes: &[probe(&[], "String", "\"a\"", "x & \"b\"")],
@@ -2355,6 +2367,7 @@ impl ArmId {
             ArmId::StrWindow => &["inplace_str_window"],
             ArmId::StrGrow => &["inplace_str_grow"],
             ArmId::StrRewrite => &["inplace_str_rewrite"],
+            ArmId::Repeat => &["inplace_repeat_item"],
         }
     }
 }
@@ -2742,6 +2755,7 @@ pub(crate) const FIELD_NEVER: &[(ArmId, &str, &[&str], &str)] = {
         (ArmId::Union, "", NOT_LAST, NOT_LAST_GROW),
         (ArmId::SymmetricDifference, "", NOT_LAST, NOT_LAST_GROW),
         (ArmId::Merge, "", NOT_LAST, NOT_LAST_GROW),
+        (ArmId::Repeat, "", NOT_LAST, NOT_LAST_GROW),
         (
             ArmId::Concat,
             "",
@@ -3190,6 +3204,10 @@ mod tests {
         assert_eq!(self_update_builtin("collections.filter"), Some("filter"));
         assert_eq!(self_update_builtin("collections.mid"), Some("mid"));
         assert_eq!(self_update_builtin("collections.append"), Some("append"));
+        // plan-153-B: `collections.repeat` and `strings.repeat` share the bare name;
+        // the collection arm declines a `String` site and the string arm a `List`.
+        assert_eq!(self_update_builtin("collections.repeat"), Some("repeat"));
+        assert_eq!(self_update_builtin("strings.repeat"), Some("repeat"));
         // `Body::Mfb` members arrive as their internalized monomorph.
         assert_eq!(
             self_update_builtin("#collections_take$Integer"),

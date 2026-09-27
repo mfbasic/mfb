@@ -3813,6 +3813,32 @@ impl CodeBuilder<'_> {
         list_type: &ParameterType,
         element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
+        self.lower_list_set_in_place_with(
+            buffer_slot,
+            index_slot,
+            item_slot,
+            list_type,
+            element_type,
+            true,
+        )
+    }
+
+    /// [`Self::lower_list_set_in_place`], with the drop of the replaced element's
+    /// graph (plan-134-H) under the caller's control. `drop_replaced` is false only
+    /// for a buffer that does not own its elements' graphs yet: a byte copy of
+    /// another list (`copy_collection_tight`) whose payload edges still point at
+    /// the source's children, and which the abi-inline dispatch deep-copies once
+    /// the builtin returns (`own_collection_payload_edges`). Dropping there would
+    /// free the source's graph.
+    pub(crate) fn lower_list_set_in_place_with(
+        &mut self,
+        buffer_slot: usize,
+        index_slot: usize,
+        item_slot: usize,
+        list_type: &ParameterType,
+        element_type: &ParameterType,
+        drop_replaced: bool,
+    ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
         let entry_stride = list_entry_stride(element_type);
@@ -3879,7 +3905,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&invalid));
         // plan-134-H: every path below discards the element at `index`, so the graph it owns
         // is freed first; the call clobbers the buffer and index registers, so reload them.
-        if self.owns_graph(element_type) {
+        if drop_replaced && self.owns_graph(element_type) {
             self.emit_drop_list_element(buffer_slot, index_slot, element_type)?;
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));

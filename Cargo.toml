@@ -528,6 +528,10 @@ name = "rt_inplace_failure_atomic"
 path = "tests/runtime/rt_inplace_failure_atomic.rs"
 
 [[test]]
+name = "rt_repeat_self_update"
+path = "tests/runtime/rt_repeat_self_update.rs"
+
+[[test]]
 name = "rt_domain_error_frees_locals"
 path = "tests/runtime/rt_domain_error_frees_locals.rs"
 

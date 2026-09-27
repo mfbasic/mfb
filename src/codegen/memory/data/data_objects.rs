@@ -660,6 +660,7 @@ pub(crate) fn string_symbols(
         || module_uses_migrated(module, "filter")
         || module_uses_migrated(module, "removeAt")
         || module_uses_migrated(module, "set")
+        || module_uses_call(module, "collections.repeat")
         || module_uses_call(module, "strings.graphemeAt")
         || crate::codegen::collection::assign::self_update::module_self_updates_with_replace(module)
     {
