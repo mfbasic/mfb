@@ -443,6 +443,43 @@ fn read_names_a_reset_peer_connection_closed() {
     }
 }
 
+// bug-743: an AcceptSecurityContext that returned SEC_E_INCOMPLETE_MESSAGE on the
+// FIRST call created no context, but FIRSTF ("a context exists") was set before
+// the incomplete branch, so the retry handed ASC a handle it never filled in and
+// a ClientHello that arrived in more than one piece failed with ErrTlsFailed.
+// The incomplete branch back to `hs_read` must come before the FIRSTF store.
+// Execution proof is box 2230 (bug-743 doc).
+#[test]
+fn accept_retries_an_incomplete_first_call_without_a_context() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _slots) =
+        lower_tls_accept("t_a", &imports, &TestPlatform).expect("lower schannel tls::accept");
+    let asc = ins
+        .iter()
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_a_hs_asc"))
+        .expect("missing t_a_hs_asc");
+    // FIRSTF is the frame slot at 48; the store of 1 is the only non-zero one.
+    let firstf_set = ins[asc..]
+        .iter()
+        .position(|i| {
+            i.op == CodeOp::StrU64
+                && i.get("offset").as_deref() == Some("48")
+                && i.get("src").as_deref() != Some(abi::ZERO_SPELLING)
+        })
+        .map(|n| n + asc)
+        .expect("the FIRSTF store after AcceptSecurityContext");
+    let retry = ins[asc..]
+        .iter()
+        .position(|i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_a_hs_read"))
+        .map(|n| n + asc)
+        .expect("the SEC_E_INCOMPLETE_MESSAGE retry");
+    assert!(
+        retry < firstf_set,
+        "an incomplete ASC must retry before FIRSTF is set, so the retry passes no context"
+    );
+}
+
 // bug-739: the handshake's SO_RCVTIMEO/SO_SNDTIMEO bounded each recv/send, so a
 // peer that trickled its ClientHello held accept indefinitely. Before every
 // handshake recv (`hs_read`) and every ASC pass that may send (`hs_asc`) the
