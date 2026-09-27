@@ -339,11 +339,11 @@ r#"FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS
   MUT unmatched AS List OF T = []
   MUT i AS Integer = 0
   WHILE i < len(value)
-    LET item AS T = collections::get(value, i)
+    ' bug-752: read, never bound — a `LET` of a `RES` element is rejected.
     IF collections::get(flags, i) THEN
-      matched = collections::append(matched, item)
+      matched = collections::append(matched, collections::get(value, i))
     ELSE
-      unmatched = collections::append(unmatched, item)
+      unmatched = collections::append(unmatched, collections::get(value, i))
     END IF
     i = i + 1
   END WHILE
@@ -382,7 +382,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::user_of("Partition", vec![ParameterType::var("T")]),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_partition", partition_fast_path),
         }],
     });

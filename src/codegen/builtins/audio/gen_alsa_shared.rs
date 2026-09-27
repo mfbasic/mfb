@@ -4,6 +4,7 @@ use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
+use crate::codegen::error::emission::StatusFailSites;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
@@ -231,6 +232,10 @@ pub(crate) const DEVLIST_CURSOR_OFF: usize = 512; // record-list builder scratch
 pub(crate) const DEVLIST_INDEX_OFF: usize = 520; // record-list builder scratch
 
 pub(crate) const DEVLIST_OFF: usize = 528; // the built list
+                                           // plan-158-B: `StatusFailSites`' two slots (a failing call's status and its
+                                           // message-prefix address), above every named slot.
+pub(crate) const ALSA_FAIL_STATUS_OFF: usize = 536;
+pub(crate) const ALSA_FAIL_PREFIX_OFF: usize = 544;
 
 /// Resolve `libasound.so.2` (dlopen), storing the handle at `DL_HANDLE_OFF`;
 /// branch to `unavailable` if it does not load.
@@ -513,7 +518,13 @@ pub(crate) fn emit_open_cleanup(
     ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
         abi::label(&cleanup_done),
+        // plan-158-B: the handle record. Every open failure that runs this cleanup
+        // comes after the record's allocation, and the failed open hands it to
+        // nobody, so it was leaked on every failed open.
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::c_arg(1), "Integer", &H_RECORD_SIZE.to_string()),
     ]);
+    crate::codegen::memory::arena::emit_arena_free(symbol, ctx.instructions, ctx.relocations);
     Ok(())
 }
 
@@ -524,7 +535,7 @@ pub(crate) fn emit_configure_hw_params(
     vregs: &mut Vregs,
     ctx: &mut EmitCtx,
     unavailable: &str,
-    dev_fail: &str,
+    dev_fail: &mut StatusFailSites,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -545,10 +556,11 @@ pub(crate) fn emit_configure_hw_params(
             PARAMS_OFF,
         ));
     };
-    let check = |ins: &mut Vec<CodeInstruction>, fail: &str| {
+    // plan-158-B: each call reports its own name and the negative errno it returned.
+    let check = |ins: &mut Vec<CodeInstruction>, sites: &mut StatusFailSites, call: &str| {
         ins.extend([
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(fail),
+            abi::branch_lt(&sites.site(call, abi::return_register())),
         ]);
     };
     // snd_pcm_hw_params_malloc(&params)
@@ -572,7 +584,7 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_malloc");
     // any
     emit_alsa_call(
         &mut *vregs,
@@ -591,7 +603,7 @@ pub(crate) fn emit_configure_hw_params(
             params(ins);
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_any");
     // set_access(INTERLEAVED)
     emit_alsa_call(
         &mut *vregs,
@@ -615,7 +627,7 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_access");
     // set_format(S16_LE)
     emit_alsa_call(
         &mut *vregs,
@@ -635,7 +647,7 @@ pub(crate) fn emit_configure_hw_params(
             ins.push(abi::move_immediate(abi::c_arg(2), "Integer", FORMAT_S16_LE));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_format");
     // set_channels(channels)
     emit_alsa_call(
         &mut *vregs,
@@ -655,7 +667,7 @@ pub(crate) fn emit_configure_hw_params(
             ins.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), CH_OFF));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params_set_channels");
     // set_rate_near(&rate, &dir)
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), SR_OFF),
@@ -689,7 +701,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_rate_near",
+    );
     // set_period_size_near(&period, &dir) — period = bufferFrames
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
@@ -723,7 +739,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_period_size_near",
+    );
     // set_buffer_size_near(&buffer) — buffer = bufferFrames * 4 (mirror macOS depth)
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
@@ -753,7 +773,11 @@ pub(crate) fn emit_configure_hw_params(
             ));
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(
+        ctx.instructions,
+        dev_fail,
+        "snd_pcm_hw_params_set_buffer_size_near",
+    );
     // commit
     emit_alsa_call(
         &mut *vregs,
@@ -772,7 +796,7 @@ pub(crate) fn emit_configure_hw_params(
             params(ins);
         },
     )?;
-    check(ctx.instructions, dev_fail);
+    check(ctx.instructions, dev_fail, "snd_pcm_hw_params");
     // get_rate(&rate) and get_channels(&chans); verify == request (§3.3).
     // The getters take `params` as their FIRST argument (unlike the setters, which
     // take `pcm` in ARG[0] and `params` in ARG[1]). Load `params` into ARG[0]
@@ -835,14 +859,15 @@ pub(crate) fn emit_configure_hw_params(
         },
     )?;
     ctx.instructions.extend([
-        abi::load_u32(&v9, abi::stack_pointer(), RATE_OFF),
+        // plan-158-B: a mismatch reports the value the device committed.
+        abi::load_u32(abi::return_register(), abi::stack_pointer(), RATE_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), SR_OFF),
-        abi::compare_registers(&v9, &v10),
-        abi::branch_ne(dev_fail),
-        abi::load_u32(&v9, abi::stack_pointer(), CHANS_OFF),
+        abi::compare_registers(abi::return_register(), &v10),
+        abi::branch_ne(&dev_fail.site("rate", abi::return_register())),
+        abi::load_u32(abi::return_register(), abi::stack_pointer(), CHANS_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), CH_OFF),
-        abi::compare_registers(&v9, &v10),
-        abi::branch_ne(dev_fail),
+        abi::compare_registers(abi::return_register(), &v10),
+        abi::branch_ne(&dev_fail.site("channels", abi::return_register())),
     ]);
     // free the hw_params object.
     emit_alsa_call(

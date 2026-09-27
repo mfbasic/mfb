@@ -164,7 +164,12 @@ blocks a later field that supplies the concrete type (bug-442). Recording the
 provisional `Unknown` rather than dropping it preserves the degenerate
 `T := Unknown` instantiation that width-agnostic native ops (e.g.
 `collections::flatten` over lists whose first inner is empty) rely on when no
-argument supplies a concrete element type. The resource slot of a `Thread` type is optional — both-present unify
+argument supplies a concrete element type. "Equal" ignores a top-level `RES`
+ownership marker, which is not part of a type: a `List OF RES fs.File` argument
+binds `T := RES fs.File`, a callback over its elements declares `FUNC(fs.File)`,
+and the two agree, keeping the marked binding whichever came first (bug-752; the
+verifier's `compatible` likewise compares a callable's parameters modulo the
+marker). [[src/ir/verify/compat.rs:compatible]] The resource slot of a `Thread` type is optional — both-present unify
 recursively, both-absent succeed, mismatched presence fails. See
 `./mfb spec language templates` for the source-level template semantics this
 implements.
@@ -327,6 +332,33 @@ instantiation, so it expands like any other generic function.
 [[src/monomorph/lower.rs:collections_internal_callee]] The set of collections binding
 names is computed once from the imports (`collections::collections_bindings`).
 Non-collections calls return the callee unchanged.
+
+### Diagnostics inside a built-in package's body
+
+Every instantiation is emitted into the project's first source file, so its
+`HirFunction::file` names that file while its statements keep the line numbers of
+the package source. A rule that fails while checking the body — an operator the
+element type does not support (`collections::sort` over `Boolean`), a
+comparability requirement (`collections::distinct` over a `FUNC`) — would cite a
+line past the end of the user's file. So an instantiation of a template declared in
+an internal (built-in package) file records every user call that reaches it,
+`HirFunction::instantiated_at`: the call's file and line and the member as the user
+spells it (`registry::public_member_for_rewrite` maps `#collections_sort` back to
+`collections::sort`). A later call that reuses the cached instantiation appends its
+own site, and an instantiation made from inside such a body inherits the outermost
+user call, so a nested helper is attributed to it too.
+[[src/monomorph/lower.rs:user_instantiation_site]] [[src/hir/mod.rs:InstantiationSite]]
+
+The three passes that can report inside the body relocate to those sites: the
+monomorphizer's own `report` (to the current site), `ir::shape`'s `emit`, and
+`ir::verify`'s `emit`, which reads the sites from `LinkSpans::instantiation_sites`
+because the IR carries no call position. Each emits the diagnostic once per site,
+at the call's line, with the detail prefixed by "In the body of `collections::sort`,
+instantiated by this call:". [[src/ir/verify/mod.rs:TypeEnv]]
+[[src/ir/lower_link.rs:LinkSpans]] The same public spelling replaces the internal
+`__collections_sort` in the call-level arity and inference messages
+`instantiate_function` reports. Before bug-642 each of these cited the body's line
+against the user's file and named no call.
 
 ## See Also
 

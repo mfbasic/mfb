@@ -88,10 +88,17 @@ enum Source {
 /// `openWithin`, `createTempFile`, and no other `fs` member returns `fs::File` (checked
 /// against the rendered `mfb man fs --all` declarations) — so the same reasoning that
 /// admits the other four packages admits this one.
+///
+/// plan-158-A: `audio` likewise. Its only members that return a resource are the four
+/// opens (`openInput`/`openOutput` and their device overloads), and each backend's open
+/// allocates a fresh `H_RECORD_SIZE` (= `RESOURCE_RECORD_SIZE`) record in this arena;
+/// the streams are not sendable, so no transfer copy exists. Missing, every audio
+/// binding leaked its 96 B record (measured: 96 B per open/close cycle on macOS and
+/// Windows).
 fn is_record_producer_target(target: &str) -> bool {
     matches!(
         target.split('.').next(),
-        Some("fs" | "tcp" | "udp" | "tls" | "thread")
+        Some("fs" | "tcp" | "udp" | "tls" | "thread" | "audio")
     )
 }
 

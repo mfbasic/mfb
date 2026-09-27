@@ -118,8 +118,8 @@ pub(super) fn build_source_dependencies(
         return Err(());
     }
 
-    for (_, dir) in dependencies {
-        build_source_dependency(options, &dir, &cache)?;
+    for (name, dir) in dependencies {
+        build_source_dependency(options, &name, &dir, &cache)?;
     }
     Ok(())
 }
@@ -188,7 +188,49 @@ fn source_dependency_dirs(
 /// importer never looks for. That mismatch is the resolver's to report, against
 /// the `IMPORT` line that needs it (`IMPORT_PACKAGE_NAME_MISMATCH`); leaving the
 /// cache without the entry is the whole of this function's part in it.
-fn build_source_dependency(options: &BuildOptions, dir: &Path, cache: &Path) -> Result<(), ()> {
+/// plan-158-D: make a source dependency's vendored native libraries available to
+/// the importer, the way `mfb pkg` does for an installed one. The flat files of
+/// `<dir>/vendor/` (the directory a package's `libraries` locators name their
+/// `source` files in) are copied to `<cache>/<name>.vendor/`, beside the `.mfp`
+/// the dependency's build wrote into the cache, which is where
+/// `vendor_source_path` looks for an imported unit's libraries. Subdirectories are
+/// skipped: a locator's `source` is a bare file name. A dependency with no
+/// `vendor/` stages nothing.
+pub(super) fn stage_source_dependency_vendor(
+    dir: &Path,
+    cache: &Path,
+    name: &str,
+) -> std::io::Result<()> {
+    let vendor = dir.join("vendor");
+    let entries = match std::fs::read_dir(&vendor) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    let staged = cache.join(format!("{name}.vendor"));
+    std::fs::create_dir_all(&staged)?;
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            std::fs::copy(entry.path(), staged.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+fn build_source_dependency(
+    options: &BuildOptions,
+    name: &str,
+    dir: &Path,
+    cache: &Path,
+) -> Result<(), ()> {
+    if let Err(err) = stage_source_dependency_vendor(dir, cache, name) {
+        eprintln!(
+            "error: failed to stage the vendored libraries of '{}': {err}",
+            dir.display()
+        );
+        return Err(());
+    }
     build_project(&BuildOptions {
         location: dir.to_path_buf(),
         outputs: Vec::new(),

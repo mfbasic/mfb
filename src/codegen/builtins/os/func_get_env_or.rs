@@ -36,7 +36,7 @@ set to the empty string and an unset variable are indistinguishable through this
 function; use `os::hasEnv` or `os::getEnv` when that distinction matters.
 
 `os::getEnvOr` is **not pure**: its result depends on host and prior-`setEnv`
-state. It reads process state only and has no side effects."#;
+state. It reads process state only and has no side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read an optional variable with a default:
 
 ```
@@ -75,7 +75,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_get_env_or),
         }],
     });

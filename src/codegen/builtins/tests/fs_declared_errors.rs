@@ -21,52 +21,13 @@
 //! [`RAISES_NOTHING`], with the reason. An unclassified callee fails the test, so
 //! a new call cannot hide a new error.
 
-use crate::codegen::engine::builder::ValueResult;
-use crate::codegen::engine::operand::Operand;
-use crate::codegen::engine::tests::test_support::BuilderHarness;
-use crate::codegen::engine::types::{
-    CodeInstruction, CodeRelocation, CodegenPlatform, PlatformFamily,
+use super::declared_errors_sweep::{
+    assert_package_declares_exactly_the_errors_its_lowering_raises, lower_body, platforms,
+    Propagating,
 };
-use crate::codegen::engine::util::vreg_frame::Vregs;
-use crate::codegen::registry::{registry, AbiCtx, Body, Implementation, RegistryFunction};
-use crate::os::linux::flavor::LinuxFlavor;
+use crate::codegen::engine::types::PlatformFamily;
+use crate::codegen::registry::registry;
 use std::collections::{BTreeMap, BTreeSet};
-
-/// The five real backends. The stub `TestPlatform` leaves the OS hooks
-/// `unimplemented!()`, and the errno mapping differs between POSIX and Windows.
-fn platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
-    vec![
-        (
-            "macos-aarch64",
-            Box::new(crate::target::macos_aarch64::code::Platform),
-        ),
-        (
-            "windows-x86_64",
-            Box::new(crate::target::win_x86_64::code::Platform),
-        ),
-        (
-            "linux-aarch64",
-            Box::new(crate::target::linux_common::code::Platform::for_test(
-                crate::target::linux_aarch64::code::Aarch64,
-                LinuxFlavor::Glibc,
-            )),
-        ),
-        (
-            "linux-x86_64",
-            Box::new(crate::target::linux_common::code::Platform::for_test(
-                crate::target::linux_x86_64::code::X86_64,
-                LinuxFlavor::Glibc,
-            )),
-        ),
-        (
-            "linux-riscv64",
-            Box::new(crate::target::linux_common::code::Platform::for_test(
-                crate::target::linux_riscv64::code::Riscv64,
-                LinuxFlavor::Glibc,
-            )),
-        ),
-    ]
-}
 
 /// Internal callees that return a status the CALLER turns into an error (so the
 /// code is already in the caller's own instructions), or that only carry an
@@ -103,15 +64,6 @@ const RAISES_NOTHING: &[(&str, &str)] = &[
     ),
 ];
 
-/// Internal callees whose own raises reach the caller's Result, and how to lower
-/// them for scanning.
-enum Propagating {
-    /// Another `fs` member's runtime helper, `_mfb_rt_fs_fs_<member>`.
-    Member(&'static str),
-    /// A standalone helper that is not a registry member.
-    Helper(fn() -> (Vec<CodeInstruction>, Vec<CodeRelocation>)),
-}
-
 const PROPAGATING: &[(&str, Propagating)] = &[
     (
         "_mfb_rt_fs_fs_readAllBytes",
@@ -143,218 +95,17 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Error codes by numeric value (`"77030001"` -> `"ErrPathNotFound"`).
-fn codes_by_value() -> BTreeMap<&'static str, &'static str> {
-    registry()
-        .resolve_package("errorCode")
-        .expect("errorCode package")
-        .constants()
-        .iter()
-        .filter_map(|constant| Some((constant.value?, constant.name)))
-        .collect()
-}
-
-/// The error codes an instruction stream loads, and the internal symbols it calls.
-fn scan(
-    instructions: &[CodeInstruction],
-    relocations: &[CodeRelocation],
-    codes: &BTreeMap<&'static str, &'static str>,
-    raised: &mut BTreeSet<&'static str>,
-    callees: &mut BTreeSet<String>,
-) {
-    for instruction in instructions {
-        if let Some(name) = instruction
-            .get("value")
-            .and_then(|value| codes.get(value.as_str()))
-        {
-            raised.insert(name);
-        }
-    }
-    for relocation in relocations {
-        // External (libc/kernel32) calls report failure through errno, which the
-        // body maps itself; `_mfb_str*` are the error-message data objects.
-        if relocation.library.is_none() && !relocation.to.starts_with("_mfb_str") {
-            callees.insert(relocation.to.clone());
-        }
-    }
-}
-
-/// Lower one implementation of an `fs` member on one backend and return the
-/// emitted instructions and relocations.
-///
-/// A body refuses when an import or string literal it needs is not declared.
-/// The plan derives both from the program, so supply each one it names and lower
-/// again until it succeeds.
-fn lower_body(
-    function: &RegistryFunction,
-    implementation: &Implementation,
-    platform: &dyn CodegenPlatform,
-) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    let call = format!("fs.{}", function.name);
-    let mut vregs = Vregs::new();
-    let args: Vec<ValueResult> = implementation
-        .params
-        .iter()
-        .map(|param| ValueResult {
-            type_: param.ty.clone(),
-            location: Operand::from(vregs.next()),
-            text: param.name.to_string(),
-            origin: None,
-        })
-        .collect();
-    let mut harness = BuilderHarness::default();
-    for _ in 0..64 {
-        let mut builder = harness.builder("_mfb_rt_probe", platform);
-        let ctx = AbiCtx {
-            call: &call,
-            ..harness.abi_ctx(platform)
-        };
-        let result = match implementation.body {
-            Body::AbiFunction { lower, .. } | Body::AbiInline(lower) => {
-                lower(&mut builder, &args, &ctx)
-            }
-            _ => Err(format!("{call}: not a native body")),
-        };
-        let error = match result {
-            Ok(_) => return Ok((builder.instructions, builder.relocations)),
-            Err(error) => error,
-        };
-        drop(builder);
-        if let Some(import) = error
-            .split_once("requires ")
-            .and_then(|(_, rest)| rest.strip_suffix(" import"))
-        {
-            harness
-                .platform_imports
-                .insert(import.to_string(), "libc".to_string());
-        } else if let Some(literal) = error
-            .strip_prefix("native code string literal '")
-            .and_then(|rest| rest.strip_suffix("' has no data object"))
-        {
-            harness
-                .string_symbols
-                .insert(literal.to_string(), "_mfb_str_probe".to_string());
-        } else {
-            return Err(error);
-        }
-    }
-    Err(format!("{call}: still refusing after supplying 64 imports"))
-}
-
-/// Lower one member's every implementation on every backend and return the codes
-/// its own instructions load plus the internal symbols it calls.
-fn lower_member(
-    function: &RegistryFunction,
-    codes: &BTreeMap<&'static str, &'static str>,
-    failures: &mut Vec<String>,
-) -> (BTreeSet<&'static str>, BTreeSet<String>) {
-    let mut raised = BTreeSet::new();
-    let mut callees = BTreeSet::new();
-    for (target, platform) in platforms() {
-        for implementation in function.implementations() {
-            match lower_body(function, implementation, platform.as_ref()) {
-                Ok((instructions, relocations)) => scan(
-                    &instructions,
-                    &relocations,
-                    codes,
-                    &mut raised,
-                    &mut callees,
-                ),
-                Err(error) => {
-                    failures.push(format!("{target} fs::{} refused: {error}", function.name))
-                }
-            }
-        }
-    }
-    (raised, callees)
-}
-
 /// Every `fs` member's descriptor `errors` equals the set of codes its lowering
 /// can raise: its own raise sites, the shared errno mappers it emits, and the
 /// raises of any helper whose Result it returns.
 #[test]
 fn every_fs_member_declares_exactly_the_errors_its_lowering_raises() {
-    let codes = codes_by_value();
-    let package = registry().resolve_package("fs").expect("fs package");
-    let mut failures = Vec::new();
-
-    let mut own = BTreeMap::new();
-    for function in package.functions() {
-        own.insert(function.name, lower_member(function, &codes, &mut failures));
-    }
-
-    let mut mismatched = Vec::new();
-    for function in package.functions() {
-        let (raised, callees) = &own[function.name];
-        let mut expected: BTreeSet<&'static str> = raised.clone();
-        for callee in callees {
-            if RAISES_NOTHING.iter().any(|(symbol, _)| symbol == callee) {
-                continue;
-            }
-            let Some((_, how)) = PROPAGATING.iter().find(|(symbol, _)| symbol == callee) else {
-                failures.push(format!(
-                    "fs::{} calls `{callee}`, which is in neither RAISES_NOTHING nor \
-                     PROPAGATING — classify it",
-                    function.name
-                ));
-                continue;
-            };
-            let inherited = match how {
-                Propagating::Member(member) => own[member].0.clone(),
-                Propagating::Helper(lower) => {
-                    let (instructions, relocations) = lower();
-                    let mut raised = BTreeSet::new();
-                    scan(
-                        &instructions,
-                        &relocations,
-                        &codes,
-                        &mut raised,
-                        &mut BTreeSet::new(),
-                    );
-                    raised
-                }
-            };
-            for code in inherited {
-                let unreachable = UNREACHABLE_VIA_CALLEE
-                    .iter()
-                    .any(|(caller, error, _)| *caller == function.name && *error == code);
-                if !unreachable {
-                    expected.insert(code);
-                }
-            }
-        }
-
-        let declared: BTreeSet<&'static str> = function
-            .implementations()
-            .iter()
-            .flat_map(|implementation| implementation.errors.iter().copied())
-            .collect();
-        if declared != expected {
-            let missing: Vec<_> = expected.difference(&declared).collect();
-            let extra: Vec<_> = declared.difference(&expected).collect();
-            mismatched.push(format!(
-                "fs::{}: undeclared {missing:?}, declared but never raised {extra:?}",
-                function.name
-            ));
-        }
-    }
-
-    assert!(
-        failures.is_empty(),
-        "the sweep could not lower or classify every fs member:\n  {}",
-        failures.join("\n  ")
-    );
-    assert!(
-        own.len() >= 42,
-        "the sweep found only {} fs members; there were 42 when this was written",
-        own.len()
-    );
-    assert!(
-        mismatched.is_empty(),
-        "{} fs member(s) declare errors that differ from what their lowering \
-         raises (fix the descriptor `errors` in src/codegen/builtins/fs/func_*.rs):\n  {}",
-        mismatched.len(),
-        mismatched.join("\n  ")
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "fs",
+        RAISES_NOTHING,
+        PROPAGATING,
+        UNREACHABLE_VIA_CALLEE,
+        42,
     );
 }
 
@@ -378,7 +129,7 @@ fn windows_canonicalization_resolves_through_an_open_handle() {
             .expect("fs member");
         for implementation in function.implementations() {
             let (_, relocations) =
-                lower_body(function, implementation, &windows).expect("lowers on Windows");
+                lower_body("fs", function, implementation, &windows).expect("lowers on Windows");
             let calls: BTreeSet<&str> = relocations
                 .iter()
                 .filter(|relocation| relocation.library.is_some())
@@ -459,7 +210,8 @@ fn every_fs_errno_mapping_compares_the_platforms_own_host_codes() {
         let family = platform.family();
         for function in package.functions() {
             for implementation in function.implementations() {
-                let Ok((instructions, _)) = lower_body(function, implementation, platform.as_ref())
+                let Ok((instructions, _)) =
+                    lower_body("fs", function, implementation, platform.as_ref())
                 else {
                     // A refusal is the declared-errors test's finding, not this one's.
                     continue;

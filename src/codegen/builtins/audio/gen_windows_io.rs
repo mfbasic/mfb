@@ -153,6 +153,134 @@ fn emit_wait_event(
     ole_call(symbol, "WaitForSingleObject", 2, platform_imports, platform, ins, rel)
 }
 
+/// plan-158-C: store the render wait's timeout at `TIMEOUT_OFF`: twice the
+/// buffer's duration, at least 200 ms. A healthy stream signals its event once a
+/// period, so a wait that outlasts two of them is a stream that will never signal
+/// again (an invalidated device, a stalled engine) and must fail rather than block
+/// forever. Reads `W_BUFFER` from the STATE at `STATE_OFF` and the rate from the
+/// handle at `HANDLE_OFF`.
+fn emit_render_wait_timeout(ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let n = ins.len();
+    let floor_ok = format!("wait_timeout_floor_{n}");
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u32(&v10, &v9, W_BUFFER),
+        abi::move_immediate(&v11, "Integer", "2000"),
+        abi::multiply_registers(&v10, &v10, &v11),
+        abi::load_u64(&v9, abi::stack_pointer(), HANDLE_OFF),
+        abi::load_u64(&v11, &v9, H_SAMPLE_RATE),
+        abi::unsigned_divide_registers(&v10, &v10, &v11),
+        abi::compare_immediate(&v10, RENDER_WAIT_FLOOR_MS),
+        abi::branch_ge(&floor_ok),
+        abi::move_immediate(&v10, "Integer", RENDER_WAIT_FLOOR_MS),
+        abi::label(&floor_ok),
+        abi::store_u64(&v10, abi::stack_pointer(), TIMEOUT_OFF),
+    ]);
+}
+
+/// Where an EXCLUSIVE submit's failures go: raised with their status (`write`), or
+/// abandoned for the best-effort flush of `close`.
+enum SubmitFail<'a> {
+    Raise(&'a mut StatusFailSites),
+    Skip(&'a str),
+}
+
+impl SubmitFail<'_> {
+    fn target(&mut self, call: &str) -> String {
+        match self {
+            SubmitFail::Raise(sites) => sites.site(call, abi::return_register()),
+            SubmitFail::Skip(label) => label.to_string(),
+        }
+    }
+}
+
+/// plan-158-C: hand the full render carry (`W_BUFFER` frames at `W_CARRY_PTR`) to an
+/// EXCLUSIVE stream. WASAPI's EXCLUSIVE event-driven render wants a whole buffer per
+/// period, and `GetCurrentPadding` is no guide there: it reports the whole buffer on
+/// every pass (plan-158-C C1), which is why the padding-driven loop spun forever.
+/// The first submit pre-rolls the stream (`GetBuffer` before `Start`), then starts
+/// it; every later one waits for the period event first.
+fn emit_exclusive_submit(
+    symbol: &str,
+    fail: &mut SubmitFail,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let n = ins.len();
+    let no_wait = format!("{symbol}_xsub_nowait_{n}");
+    let started = format!("{symbol}_xsub_started_{n}");
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_STARTED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&no_wait),
+    ]);
+    emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, ins, rel, vregs)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&fail.target("WaitForSingleObject")),
+        abi::label(&no_wait),
+    ]);
+    // render->GetBuffer(W_BUFFER, &pData)
+    spill_obj(W_SERVICE, ins, vregs);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u32(abi::c_arg(1), &v9, W_BUFFER),
+        abi::add_immediate(abi::c_arg(2), &v9, W_OUT1),
+    ]);
+    com_call(SLOT_RENDER_GET_BUFFER, 3, ins, vregs);
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&fail.target("IAudioRenderClient::GetBuffer")),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_CARRY_PTR), // src
+        abi::load_u64(&v11, &v9, W_OUT1),      // dst
+        abi::load_u32(&v12, &v9, W_BUFFER),
+        abi::load_u64(&v9, &v9, W_MIX_BPF),
+        abi::multiply_registers(&v12, &v12, &v9), // bytes
+    ]);
+    emit_copy_bytes(&v10, &v11, &v12, &format!("{symbol}_xsub_{n}"), ins, vregs);
+    // render->ReleaseBuffer(W_BUFFER, 0)
+    spill_obj(W_SERVICE, ins, vregs);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u32(abi::c_arg(1), &v9, W_BUFFER),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+    ]);
+    com_call(SLOT_RENDER_RELEASE_BUFFER, 3, ins, vregs);
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&fail.target("IAudioRenderClient::ReleaseBuffer")),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, &v9, W_CARRY_FRAMES),
+        abi::load_u64(&v10, &v9, W_STARTED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&started),
+    ]);
+    // The pre-rolled first buffer is in: start the stream.
+    spill_obj(W_CLIENT, ins, vregs);
+    com_call(SLOT_AC_START, 1, ins, vregs);
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&fail.target("IAudioClient::Start")),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u64(&v10, &v9, W_STARTED),
+        abi::label(&started),
+    ]);
+    Ok(())
+}
+
 // Conversion loop counters (distinct from every other write/read frame slot,
 // including the timeout read's DEADLINE_OFF/FINAL_LIST_OFF).
 const F_OFF: usize = 208; // conversion outer frame counter
@@ -270,6 +398,14 @@ pub(crate) fn lower_write(
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
+    // plan-158-A: a failing WASAPI call reports its name and HRESULT.
+    let mut status_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
@@ -303,13 +439,27 @@ pub(crate) fn lower_write(
         abi::unsigned_divide_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, abi::stack_pointer(), TOTAL_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF),
+    ]);
+    emit_render_wait_timeout(&mut ins, &mut vregs);
+    let exclusive_top = format!("{symbol}_excl");
+    let exclusive_room = format!("{symbol}_excl_room");
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_SHARED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&exclusive_top),
         abi::label(&loop_top),
         abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), TOTAL_OFF),
         abi::compare_registers(&v9, &v10),
         abi::branch_ge(&loop_done),
     ]);
-    emit_wait_event(symbol, None, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    // plan-158-C: bounded, so a stream that stops signalling fails instead of hanging.
+    emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&status_sites.site("WaitForSingleObject", abi::return_register())),
+    ]);
     // padding = GetCurrentPadding()
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
@@ -321,7 +471,11 @@ pub(crate) fn lower_write(
         abi::add_immediate(abi::c_arg(1), &v9, W_OUT0),
     ]);
     com_call(SLOT_AC_GET_CURRENT_PADDING, 2, &mut ins, &mut vregs);
+    // plan-158-A: unchecked, a failed call read the zeroed padding and went on to a
+    // `GetBuffer` that failed for the same reason under the wrong name.
     ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&status_sites.site("IAudioClient::GetCurrentPadding", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::load_u32(&v10, &v9, W_BUFFER),
         abi::load_u32(&v11, &v9, W_OUT0),
@@ -348,7 +502,7 @@ pub(crate) fn lower_write(
     com_call(SLOT_RENDER_GET_BUFFER, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioRenderClient::GetBuffer", abi::return_register())),
     ]);
     emit_write_fill(OFFSET_OFF, FRAMES_GOT_OFF, &mut ins, &mut vregs);
     // render->ReleaseBuffer(toWrite, 0)
@@ -360,12 +514,71 @@ pub(crate) fn lower_write(
     com_call(SLOT_RENDER_RELEASE_BUFFER, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioRenderClient::ReleaseBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::add_registers(&v9, &v9, &v10),
         abi::store_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::branch(&loop_top),
+    ]);
+    // --- EXCLUSIVE: fill the render carry, submit it whole (plan-158-C) ------
+    ins.extend([
+        abi::label(&exclusive_top),
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), TOTAL_OFF),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_ge(&loop_done),
+        // n = min(total - offset, W_BUFFER - carry)
+        abi::subtract_registers(&v12, &v10, &v9),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+        abi::load_u32(&v13, &v11, W_BUFFER),
+        abi::load_u64(&v14, &v11, W_CARRY_FRAMES),
+        abi::subtract_registers(&v13, &v13, &v14),
+        abi::compare_registers(&v12, &v13),
+        abi::branch_le(&exclusive_room),
+        abi::move_register(&v12, &v13),
+        abi::label(&exclusive_room),
+        abi::store_u64(&v12, abi::stack_pointer(), FRAMES_GOT_OFF),
+        // copy n frames: src + offset*bpf -> carry + carry*bpf
+        abi::load_u64(&v13, abi::stack_pointer(), BPF_OFF),
+        abi::multiply_registers(&v10, &v9, &v13),
+        abi::load_u64(&v9, abi::stack_pointer(), SRC_OFF),
+        abi::add_registers(&v9, &v9, &v10),
+        abi::multiply_registers(&v14, &v14, &v13),
+        abi::load_u64(&v10, &v11, W_CARRY_PTR),
+        abi::add_registers(&v10, &v10, &v14),
+        abi::multiply_registers(&v12, &v12, &v13),
+    ]);
+    emit_copy_bytes(&v9, &v10, &v12, &format!("{symbol}_excl_fill"), &mut ins, &mut vregs);
+    let exclusive_partial = format!("{symbol}_excl_partial");
+    ins.extend([
+        // carry += n; offset += n
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::load_u64(&v11, &v9, W_CARRY_FRAMES),
+        abi::add_registers(&v11, &v11, &v10),
+        abi::store_u64(&v11, &v9, W_CARRY_FRAMES),
+        abi::load_u64(&v12, abi::stack_pointer(), OFFSET_OFF),
+        abi::add_registers(&v12, &v12, &v10),
+        abi::store_u64(&v12, abi::stack_pointer(), OFFSET_OFF),
+        // Only a full carry is submitted; a partial one waits for the next write,
+        // or for close to pad it with silence.
+        abi::load_u32(&v13, &v9, W_BUFFER),
+        abi::compare_registers(&v11, &v13),
+        abi::branch_lt(&exclusive_partial),
+    ]);
+    emit_exclusive_submit(
+        symbol,
+        &mut SubmitFail::Raise(&mut status_sites),
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+        &mut vregs,
+    )?;
+    ins.extend([
+        abi::label(&exclusive_partial),
+        abi::branch(&exclusive_top),
         abi::label(&loop_done),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -375,6 +588,9 @@ pub(crate) fn lower_write(
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&dev_fail));
     emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
+    status_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(status_sites.tail()));
+    status_sites.emit_raise(&mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     Ok((ins, rel, FRAME))
@@ -487,6 +703,14 @@ pub(crate) fn lower_read(
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
+    // plan-158-A: a failing WASAPI call reports its name and HRESULT.
+    let mut status_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
@@ -653,7 +877,7 @@ pub(crate) fn lower_read(
     com_call(SLOT_CAPTURE_GET_BUFFER, 6, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioCaptureClient::GetBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::load_u32(&v10, &v9, W_OUT0),
         abi::compare_immediate(&v10, "0"),
@@ -705,7 +929,11 @@ pub(crate) fn lower_read(
     spill_obj(W_SERVICE, &mut ins, &mut vregs);
     ins.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NAME_OFF));
     com_call(SLOT_CAPTURE_RELEASE_BUFFER, 2, &mut ins, &mut vregs);
+    // plan-158-A: unchecked, a failed release was followed by a `GetBuffer` that
+    // WASAPI refuses (the previous packet is still held), under the wrong name.
     ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&status_sites.site("IAudioCaptureClient::ReleaseBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), OFFSET_OFF),
         abi::add_registers(&v9, &v9, &v10),
@@ -773,9 +1001,41 @@ pub(crate) fn lower_read(
     emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
+    status_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(status_sites.tail()));
+    status_sites.emit_raise(&mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     Ok((ins, rel, FRAME))
+}
+
+/// plan-158-C: an EXCLUSIVE output is not started until its first full buffer is
+/// submitted, so its period event never fires before then, and a `poll` that waited
+/// on it would block forever. Such a stream can take a write at once: branch to
+/// `ready`.
+fn emit_unstarted_exclusive_output_ready(
+    symbol: &str,
+    ready: &str,
+    ins: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let wait = format!("{symbol}_poll_wait_{}", ins.len());
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), HANDLE_OFF),
+        abi::load_u64(&v10, &v9, H_KIND),
+        abi::compare_immediate(&v10, KIND_INPUT),
+        abi::branch_eq(&wait),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_SHARED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&wait),
+        abi::load_u64(&v10, &v9, W_STARTED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(ready),
+        abi::label(&wait),
+    ]);
 }
 
 pub(crate) fn lower_query(
@@ -825,6 +1085,7 @@ pub(crate) fn lower_query(
             com_call(SLOT_AC_GET_CURRENT_PADDING, 2, &mut ins, &mut vregs);
             let is_input = format!("{symbol}_isin");
             let have_avail = format!("{symbol}_avail");
+            let shared_output = format!("{symbol}_avail_shared");
             ins.extend([
                 abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
                 abi::load_u32(&v11, &v9, W_OUT0), // padding
@@ -832,6 +1093,16 @@ pub(crate) fn lower_query(
                 abi::load_u64(&v12, &v12, H_KIND),
                 abi::compare_immediate(&v12, KIND_INPUT),
                 abi::branch_eq(&is_input),
+                // plan-158-C: an EXCLUSIVE output takes whatever fits in its render
+                // carry without blocking; its padding is always the whole buffer.
+                abi::load_u64(&v12, &v9, W_SHARED),
+                abi::compare_immediate(&v12, "0"),
+                abi::branch_ne(&shared_output),
+                abi::load_u32(&v10, &v9, W_BUFFER),
+                abi::load_u64(&v11, &v9, W_CARRY_FRAMES),
+                abi::subtract_registers(&v10, &v10, &v11),
+                abi::branch(&have_avail),
+                abi::label(&shared_output),
                 abi::load_u32(&v10, &v9, W_BUFFER),
                 abi::subtract_registers(&v10, &v10, &v11),
                 abi::branch(&have_avail),
@@ -850,12 +1121,15 @@ pub(crate) fn lower_query(
             // ready, then return TRUE (the convention's readiness-query omit rule).
             // Reuses the same infinite-wait primitive the blocking read uses.
             // Callers wanting the old immediate check pass `, 0` (PollTimeout).
-            emit_wait_event(symbol, None, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
             let set = format!("{symbol}_pollset");
+            let ready = format!("{symbol}_pollready");
+            emit_unstarted_exclusive_output_ready(symbol, &ready, &mut ins, &mut vregs);
+            emit_wait_event(symbol, None, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
             ins.extend([
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
                 abi::compare_immediate(abi::return_register(), "0"),
                 abi::branch_ne(&set),
+                abi::label(&ready),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
                 abi::label(&set),
             ]);
@@ -875,12 +1149,15 @@ pub(crate) fn lower_query(
                 abi::label(&timeout_clamped),
                 abi::store_u64(&v9, abi::stack_pointer(), TIMEOUT_OFF),
             ]);
-            emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
             let set = format!("{symbol}_ptset");
+            let ready = format!("{symbol}_ptready");
+            emit_unstarted_exclusive_output_ready(symbol, &ready, &mut ins, &mut vregs);
+            emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
             ins.extend([
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
                 abi::compare_immediate(abi::return_register(), "0"),
                 abi::branch_ne(&set),
+                abi::label(&ready),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
                 abi::label(&set),
             ]);

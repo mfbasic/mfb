@@ -48,7 +48,7 @@ End of input raises `ErrEndOfFile`, never a sentinel byte, so all 256 byte value
 are data. The readers share one queue of input, so `io::readRaw` can be mixed
 with the other `io` readers without losing or reordering a byte. Standard input
 is a per-thread broadcast log; a thread other than the main thread must subscribe
-with `thread::openStdIn` before reading, or the call raises `ErrInvalidContext`."#;
+with `thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read one byte and report its value:
 
 ```
@@ -110,6 +110,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrEndOfFile",
                 "ErrInputFailed",
                 "ErrInvalidContext",
+                "ErrOutOfMemory",
                 "ErrWrongMode",
             ],
             body: Body::abi_function(lower_read_raw),

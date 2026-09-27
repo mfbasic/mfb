@@ -36,7 +36,7 @@ To test for the suffix without removing it, use `strings::endsWith`. To remove a
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit."#;
+and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Remove a file extension; a non-matching suffix changes nothing:
 
@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

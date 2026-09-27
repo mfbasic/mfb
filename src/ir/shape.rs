@@ -137,6 +137,10 @@ struct Walker<'a> {
     types: HashMap<ParameterType, TypeShape>,
     /// Project-relative path of the file being walked, for diagnostic paths.
     file: String,
+    /// bug-642: the user calls that instantiated the built-in package body being
+    /// walked. Its diagnostics are reported at each: the body's own lines belong
+    /// to the package source, not to `file`, which only hosts the instantiation.
+    sites: Vec<crate::hir::InstantiationSite>,
     /// Source line of the statement (or declaration) being walked, for the
     /// expression-level rules that report at the statement.
     current_line: usize,
@@ -912,6 +916,7 @@ impl<'a> Walker<'a> {
             handler_depth: 0,
             types,
             file: String::new(),
+            sites: Vec::new(),
             current_line: 0,
             call_typed_unknown: false,
             call_verdicts: HashMap::new(),
@@ -1223,7 +1228,11 @@ impl<'a> Walker<'a> {
                         );
                     }
                 }
-                HirItem::Function(function) => self.walk_function(function),
+                HirItem::Function(function) => {
+                    self.sites = function.instantiated_at.clone();
+                    self.walk_function(function);
+                    self.sites.clear();
+                }
                 HirItem::Link(link) => self.walk_link(link),
                 // Declarations without executable bodies: their rules are
                 // `ir::verify`'s (types, LINK blocks, resources) or the parser's.
@@ -3811,6 +3820,17 @@ impl<'a> Walker<'a> {
 
     /// Record a diagnostic at `line` of the current file.
     fn emit(&mut self, rule: &str, detail: String, line: usize) {
+        if !self.sites.is_empty() {
+            for site in &self.sites {
+                self.diagnostics.push(PendingDiagnostic {
+                    rule: rule.to_string(),
+                    detail: site.describe(&detail),
+                    path: self.project_dir.join(&site.file),
+                    line: site.line,
+                });
+            }
+            return;
+        }
         self.diagnostics.push(PendingDiagnostic {
             rule: rule.to_string(),
             detail,

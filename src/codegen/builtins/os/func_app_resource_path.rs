@@ -243,7 +243,7 @@ or `..` is rejected. A component ends at `/` on every target, and on Windows als
 at `\`, which separates directories there too — so `..\secret` is refused as
 well. A leading `/` is left as-is (it collapses under the base). If the host
 cannot determine the executable path, `os::appResourcePath` raises
-`ErrUnsupported`. It reads host state only and has no side effects."#;
+`ErrUnsupported`. It reads host state only and has no side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Open a resource shipped beside the program:
 
 ```
@@ -299,7 +299,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // method — so nothing caught it. (That scan is textual: do not spell
             // its anchor followed by two quoted strings in prose, or it flags the
             // comment.)
-            errors: vec!["ErrUnsupported", "ErrInvalidPath"],
+            errors: vec!["ErrUnsupported", "ErrInvalidPath", "ErrOutOfMemory"],
             body: Body::abi_function(lower_app_resource_path),
         }],
     });

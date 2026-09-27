@@ -51,7 +51,7 @@ always have.
 
 Turn reporting off before the program finishes so the mouse goes back to the
 user. `term::off` does that for you when it leaves TUI mode, so a program that
-pairs `term::on` with `term::off` is already tidy."#;
+pairs `term::on` with `term::off` is already tidy. In an `mfb build --app` program, `term::enableMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Ask for mouse events, then read one:
 
@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_enable_mouse),
         }],
     });

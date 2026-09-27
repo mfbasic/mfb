@@ -99,6 +99,10 @@ struct Monomorphizer<'a> {
     /// diagnostics are attributed here. Saved/restored across nested
     /// instantiation so the attribution follows the frame being lowered.
     current_file: Option<String>,
+    /// bug-642: while lowering an instantiation of a built-in package's generic
+    /// body, the user call that caused it — inherited by every instantiation made
+    /// from inside that body, so a nested helper is attributed to the same call.
+    current_instantiation_site: Option<crate::hir::InstantiationSite>,
     template_instantiation_depth: usize,
     /// Count of concrete generic instantiations (functions + user types) actually
     /// lowered so far. Bounds *wide* fan-out the per-path `template_instantiation_

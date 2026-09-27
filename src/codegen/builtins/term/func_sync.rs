@@ -43,7 +43,7 @@ frame after `term::on`, and the first after a resize, is always drawn in full.
 before `term::on` or after `term::off` is harmless. `term::off` performs a final
 present of its own, so the last frame a program draws is always shown even
 without an explicit `term::sync`. In app mode the call requests a single
-coalesced redraw of the terminal view."#;
+coalesced redraw of the terminal view. In an `mfb build --app` program, `term::sync` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Compose a frame, then present it once:
 
@@ -128,7 +128,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_sync),
         }],
     });

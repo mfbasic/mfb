@@ -55,7 +55,8 @@ half-typed line simply stays where the user is typing it. A negative
 
 Before blocking, any pending standard-output buffer is drained, so output already
 produced — including a prompt written with `io::write` — appears before the
-program waits. End of input is reported as an error, not as an empty result —
+program waits; if that drain cannot write, `readLine` raises `ErrWriteFailed`
+before it reads anything. End of input is reported as an error, not as an empty result —
 but only when it arrives before any character of the line. Input that ends
 mid-line is not lost: those characters come back as the final, unterminated
 line, with a trailing CR still removed, and the *next* call raises
@@ -126,6 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrInputFailed",
                 "ErrInvalidContext",
                 "ErrOutOfMemory",
+                "ErrWriteFailed",
                 "ErrWrongMode",
             ],
             body: Body::abi_function(lower_read_line),

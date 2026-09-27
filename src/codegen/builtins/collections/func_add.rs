@@ -95,7 +95,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_add),
         }],
     });
@@ -122,8 +122,6 @@ pub(crate) fn lower_add(
         source_slot,
     ));
     let item = args[1].clone();
-    // Observation boundary: a `Float` element must be finite (plan-17).
-    builder.observe_float_vr(&item)?;
     if item.type_ != element_type {
         return Err(format!(
             "native collection add element must be {element_type}, got {}",

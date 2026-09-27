@@ -396,6 +396,11 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
                 | "filter"
                 | "reduce"
                 | "reduceRight"
+                // `replace`'s bare target is shared with `strings::replace`, so
+                // the registry lookup above cannot answer for it. Both overloads
+                // are fallible: the `String` one refuses an empty `old` (bug-533),
+                // the `List` one allocates and raises `ErrOutOfMemory` (bug-698).
+                | "replace"
         )
     )
 }
@@ -407,22 +412,22 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// fallibility census is grounded in each member's `lower_*` method: a member is
 /// infallible here iff no success-relevant path emits a domain error
 /// (`emit_index_out_of_range_return` / `emit_not_found_return` / range /
-/// invalid-format). Allocation OOM does **not** count as trappable (umbrella Open
-/// Decision), so growth-only mutators (`append`/`prepend`) are infallible.
+/// invalid-format) or declares one. Since bug-698 every allocating member declares
+/// `ErrOutOfMemory` (owner decision: every function lists every error it can
+/// raise), and spec 8 rule 11 makes a declaring member fallible, so the
+/// allocating members (`keys`/`values`/`append`/`prepend`/`removeKey`/`replace`,
+/// Set `add`/`remove`/`toList`) are fallible and their inline-TRAP handler is live.
 ///
 /// Infallible: `len`, `typeName`, `toString` on every argument type **except**
 /// `List OF Byte` (bug-486 — that overload decodes UTF-8 and raises
 /// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
-/// `bits::*` op (all but the variable shifts), and the pure-query /
-/// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
-/// `sum`, `getOr`, `append`, `prepend`, `removeKey`, and `replace` **on a
-/// `List`** (bug-533 — the `String` overload of the same bare target refuses an
-/// empty `old`; see [`arg_type_makes_inline_builtin_fallible`]), and `toInt` **on
+/// `bits::*` op (all but the variable shifts), the non-allocating pure-query /
+/// default-returning members `contains`, `hasKey` and `getOr`, and `toInt` **on
 /// a single enum argument** (bug-679 — the ordinal the value already holds, a
 /// register move that declares no error; plan-140-B).
 ///
-/// That last entry is the only one that runs the other way: the two above take
-/// infallibility AWAY from a name that has it by default, while `toInt` is
+/// That last entry is the only one that runs the other way: the `toString`
+/// entry above takes infallibility AWAY from a name that has it by default, while `toInt` is
 /// fallible by default and one overload is granted an exception. It is therefore
 /// the only entry that needs `kinds`, because an enum is not its own
 /// `ParameterType` — see [`TypeKinds`]. `NoTypeKinds` answers `false`, which is
@@ -478,25 +483,13 @@ pub(crate) fn inline_builtin_is_infallible(
     if matches!(target, "len" | "toString" | "typeName") {
         return true;
     }
+    // The pure queries that allocate nothing. `keys`/`values`/`append`/`prepend`/
+    // `removeKey`/`replace` and the Set members `add`/`remove`/`toList` build a new
+    // collection, so they raise (and, since bug-698, declare) `ErrOutOfMemory`: an
+    // inline TRAP handler on them is live, and they are not listed here.
     matches!(
         native_builtin_target(target),
-        Some(
-            "contains"
-                | "hasKey"
-                | "keys"
-                | "values"
-                | "sum"
-                | "getOr"
-                | "append"
-                | "prepend"
-                | "removeKey"
-                | "replace"
-                // Set members (plan-63-B): pure, total — `add`/`remove` return a
-                // new set, `toList` a list; none can fail.
-                | "add"
-                | "remove"
-                | "toList"
-        )
+        Some("contains" | "hasKey" | "getOr")
     )
 }
 
@@ -1251,6 +1244,42 @@ mod tests {
         );
     }
 
+    /// bug-644: a member that DECLARES an error is fallible by the registry, and the
+    /// hand-written infallible name list must not overrule it. `sum` sat on that
+    /// list after plan-96 gave it an `ErrOverflow` check, so the front end warned
+    /// TYPE_INLINE_TRAP_DEAD_HANDLER on a handler that runs. Every other `collections`
+    /// member the list names is checked against the registry here.
+    #[test]
+    fn no_member_declaring_an_error_is_infallible() {
+        for member in [
+            "contains",
+            "hasKey",
+            "keys",
+            "values",
+            "sum",
+            "getOr",
+            "append",
+            "prepend",
+            "removeKey",
+            "replace",
+            "add",
+            "remove",
+            "toList",
+        ] {
+            let target = format!("collections.{member}");
+            if crate::codegen::registry::native_member_declares_error(&target) == Some(true) {
+                assert!(
+                    !inline_builtin_is_infallible(
+                        &target,
+                        &[ParameterType::list_of(ParameterType::Integer)],
+                        &NoTypeKinds
+                    ),
+                    "{target} declares an error, so an inline TRAP handler on it is live"
+                );
+            }
+        }
+    }
+
     #[test]
     fn inline_builtin_fallibility_census() {
         // Infallible-for-TRAP: raise no user-trappable domain error (plan-21-A).
@@ -1265,17 +1294,25 @@ mod tests {
             "bits.popCount",
             "collections.contains",
             "collections.hasKey",
+            "collections.getOr",
+        ] {
+            assert!(
+                inline_builtin_is_infallible(c, &[], &NoTypeKinds),
+                "expected infallible: {c}"
+            );
+        }
+        // Allocating collections members declare ErrOutOfMemory (bug-698), so a
+        // handler on them is live.
+        for c in [
             "collections.keys",
             "collections.values",
-            "collections.sum",
-            "collections.getOr",
             "collections.append",
             "collections.prepend",
             "collections.removeKey",
         ] {
             assert!(
-                inline_builtin_is_infallible(c, &[], &NoTypeKinds),
-                "expected infallible: {c}"
+                !inline_builtin_is_infallible(c, &[], &NoTypeKinds),
+                "expected fallible (ErrOutOfMemory): {c}"
             );
         }
         // Fallible inline members: a real domain error (index/range/not-found), an
@@ -1295,6 +1332,12 @@ mod tests {
             "collections.transform",
             "collections.filter",
             "collections.reduce",
+            // bug-644: every `sum` overload fails — `Integer`/`Fixed` raise
+            // `ErrOverflow`, and the `Float` total is observed inside the capture
+            // and raises `ErrFloatOverflow`. It sat on the infallible list from
+            // before plan-96 gave it an overflow check, so the front end warned
+            // TYPE_INLINE_TRAP_DEAD_HANDLER on a live handler.
+            "collections.sum",
             // bug-533: `strings.replace` and `collections.replace` dequalify to
             // one bare native target, and the `String` overload now refuses an
             // empty `old`. Untyped, the fail-closed rule answers "fallible" for
@@ -1414,10 +1457,21 @@ mod tests {
             "strings.right",
             "strings.padLeft",
             "strings.padRight",
+            // bug-731: these three build a new String (case-mapped/trimmed) through
+            // the same allocating path as every other result-building `strings`
+            // member, so they can raise ErrOutOfMemory too — measured directly by
+            // lowering their real body and scanning the emitted instructions for
+            // the raise (`declared_errors_all.rs`'s `every_strings_member_declares_
+            // exactly_the_errors_its_lowering_raises`), not inferred. They used to
+            // be believed infallible; that was the bug.
+            "strings.upper",
+            "strings.lower",
+            "strings.trim",
         ] {
             assert!(
                 !inline_builtin_is_infallible(name, &[], &NoTypeKinds),
-                "{name} raises ErrInvalidArgument; an infallible verdict elides a live handler"
+                "{name} raises ErrOutOfMemory (and, for left/right/padLeft/padRight, \
+                 ErrInvalidArgument too); an infallible verdict elides a live handler"
             );
             assert!(
                 inline_builtin_raw_supported(name, &[]),
@@ -1433,9 +1487,6 @@ mod tests {
         // infallible verdict. A fix that made every `strings` member fallible
         // would pass the assertions above and fail here.
         for name in [
-            "strings.upper",
-            "strings.lower",
-            "strings.trim",
             "strings.byteLen",
             "strings.contains",
             "strings.displayWidth",
@@ -1469,9 +1520,9 @@ mod tests {
             assert!(inline_builtin_raw_supported(name, &strings));
             assert!(!inline_trap_unsupported(name, &strings, &NoTypeKinds));
 
-            // The `List` overload keeps its infallible verdict, for every element
-            // type — including `List OF Byte`, which is `toString`'s fallible
-            // shape and must not leak across.
+            // The `List` overload is fallible too since bug-698: it allocates the
+            // result and declares `ErrOutOfMemory`, so an inline `TRAP` on it has a
+            // live handler and a raw lowering, for every element type.
             for element in [
                 ParameterType::Integer,
                 ParameterType::String,
@@ -1483,10 +1534,10 @@ mod tests {
                     element,
                 ];
                 assert!(
-                    inline_builtin_is_infallible(name, &list, &NoTypeKinds),
-                    "expected infallible: {name}{list:?}"
+                    !inline_builtin_is_infallible(name, &list, &NoTypeKinds),
+                    "expected fallible (ErrOutOfMemory): {name}{list:?}"
                 );
-                assert!(!inline_builtin_raw_supported(name, &list));
+                assert!(inline_builtin_raw_supported(name, &list));
             }
 
             // Fail closed: an untyped or unknown first argument is fallible.

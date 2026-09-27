@@ -126,7 +126,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWriteFailed"],
             body: Body::abi_function(lower_flush),
         }],
     });

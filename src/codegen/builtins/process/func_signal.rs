@@ -107,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrResourceClosed"],
             body: Body::abi_function(lower_signal),
         }],
     });

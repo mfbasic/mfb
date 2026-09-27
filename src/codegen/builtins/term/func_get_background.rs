@@ -35,7 +35,7 @@ with that background set" by this call alone — use `term::isOn` for that.
 This is the *current attribute*, not the colour of anything on screen. Each cell
 of the grid carries the attributes that were current when its glyph was written,
 so this call says what the next drawing will use, not what the cell under the
-cursor looks like."#;
+cursor looks like. `ErrOutOfMemory` is raised if the returned `color::Color` cannot be created. In an `mfb build --app` program, `term::getBackground` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"```
 IMPORT term
@@ -105,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrWrongMode"],
             body: Body::abi_function(lower_get_background),
         }],
     });

@@ -1,12 +1,14 @@
 # bug-644: an inline `TRAP` on a `Float` `collections::sum` turns an overflow into a silent `1.797e308` result
 
-Last updated: 2026-09-16
+Last updated: 2026-09-27
 Effort: medium
 Severity: HIGH
 Class: Correctness (silent wrong value; error handler bypassed)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt`;
+unit tests `float_result::tests::every_unconstrained_member_is_observed_under_an_inline_trap`,
+`builtins::tests::no_member_declaring_an_error_is_infallible`
 
 A `Float` `collections::sum` whose total overflows raises `ErrFloatOverflow`
 (`77050015`), exactly as ordinary `Float` arithmetic does, **unless** the call has
@@ -93,6 +95,45 @@ call cannot fail") for an inline `TRAP` on `sum`. That points to an infallibilit
 classification for this member that disagrees with its runtime behavior. Check
 whether the dead-handler classification and this silent path share a cause.
 
+## Root cause (confirmed 2026-09-27)
+
+Reproduced on macos-aarch64 at `a0082e4ae` exactly as described (D and E print the
+long number, F raises `7-705-0015`, and both trapped lines warn
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Two causes, one per symptom:
+
+1. **The handler never ran.** The desugar binds the trapped call as
+   `$trap_res0 : Result OF Float = callResult collections.sum(...)` (`--nir`), and
+   codegen lowers it through `lower_inline_builtin_raw`
+   (`src/codegen/engine/value/builder_values.rs`) because `sum` declares
+   `ErrOverflow`. The `Float` arm folds with a bare `float_add_d` and raises nothing,
+   so the raw capture tagged `+Inf` as `Ok`. bug-590's re-check lives at the
+   observation boundary (`observe_float` → `float_arith_node`), and the binding the
+   user sees reads `ResultValue($trap_res0)` through `$trap_val1`, which is not a
+   producer node, so no boundary ever looked at it. Without a `TRAP` the binding's
+   value is the `Call` itself, which IS observed — hence F.
+2. **The dead-handler warning.** `inline_builtin_is_infallible`
+   (`src/codegen/builtins/mod.rs`) still named `sum` in its hand-written infallible
+   list, written before plan-96 gave the member its `ErrOverflow` check. It was wrong
+   for every overload: the `Integer` sum's handler runs (measured `-1`) under the same
+   warning. Codegen never consulted that verdict for `sum` (the raw-supported test
+   comes first), so the warning was the only effect; the two causes do not share code.
+
+Why the value "reads as `DBL_MAX`": it does not. It is `+Inf` — `v * 0.5` on it
+raises `7-705-0015` at base — and `toString` renders an infinity with `f64::MAX`'s
+digits. A `Float` reaching `toString` non-finite is itself the invariant breach.
+
+Audit:
+- `FLOAT_RESULTS` has exactly one `Unconstrained` row, `collections::sum`; the new
+  unit test requires every such row to take the observed raw path.
+- `collections::reduce` with a `Float` accumulator under an inline `TRAP` already ran
+  its handler (`77050015`): the callback's `RETURN` observes it.
+- The other names on the infallible list are pinned against the registry by
+  `no_member_declaring_an_error_is_infallible`; none declares an error.
+- Behaviour change to note: inside a trapped expression the total is observed at the
+  call even as an operand (`1.0 / collections::sum(xs) TRAP`, which base rejected as
+  `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`), where the untrapped expression can recover to
+  `0.0`. Recorded in spec §8.
+
 ## Non-goals
 
 - Changing `Float` overflow semantics in general, or the `Integer`/`Fixed` sum paths
@@ -113,10 +154,20 @@ whether the dead-handler classification and this silent path share a cause.
 
 ## Fix
 
-Phase 1 — RED test from the reproduction (D and E must run `RECOVER`), plus the
-audit probes. Commit:
+- [x] Phase 1 — RED test from the reproduction (D and E must run `RECOVER`), plus the
+audit probes. Commit: see Phase 2 (one commit; the fixture is RED at `a0082e4ae`).
 
-Phase 2 — make the inline-`TRAP` path observe the `Float` result inside the trapped
-region, so overflow raises into the handler (GREEN); full suite and float-result
-goldens. Update the `sum` man page, which is being corrected to describe the
-as-is behavior. Commit:
+- [x] Phase 2 — `lower_inline_builtin_raw` observes an `Unconstrained` member's
+`Float` result inside the raw capture (`observe_float_call_result`,
+`src/codegen/builtins/math/gen_math.rs`), and `sum` leaves the infallible list. The
+`sum` man page and spec §8 updated; the declared-error list is bug-645's. Commit:
+54605e3b2
+
+STATUS: FIXED (54605e3b2). Deviation: the value was +Inf, not DBL_MAX; the dead-handler warning was a separate stale infallible-list entry, fixed too. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.
+
+Correction (2026-09-27, review): the Phase 2 check inside the raw capture covered
+only the trapped position; with no `TRAP`, `1.0 / collections::sum(xs)` still
+recovered to `0.0`, and the earlier version of spec §8 described that as behavior.
+bug-754 replaced the mechanism: `sum` now checks its own total at the call, and
+`observe_float_call_result` was removed. This doc's regression fixture is unchanged
+and still passes.

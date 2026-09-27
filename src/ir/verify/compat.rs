@@ -564,6 +564,23 @@ impl TypeEnv {
             (ParameterType::MapOf(ek, ev), ParameterType::MapOf(ak, av)) => {
                 return self.compatible(ek, ak) && self.compatible(ev, av);
             }
+            // bug-752: the `RES` marker is stripped from a callable's parameters
+            // too. A generic body instantiated for a `List OF RES File` declares its
+            // callback `FUNC(RES File)` (`T := RES File`), while the caller's
+            // callback over those elements is `FUNC(File)`: the same type.
+            (
+                ParameterType::Func(expected_params, expected_ret, expected_isolated),
+                ParameterType::Func(actual_params, actual_ret, actual_isolated),
+            ) if expected_params.len() == actual_params.len()
+                && expected_isolated == actual_isolated
+                && expected_ret == actual_ret
+                && expected_params
+                    .iter()
+                    .zip(actual_params.iter())
+                    .all(|(e, a)| strip_res(e) == strip_res(a)) =>
+            {
+                return true;
+            }
             _ => {}
         }
         let expected_name = expected.name();

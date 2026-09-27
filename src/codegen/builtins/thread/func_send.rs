@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{function, lowering, overload, send_params};
+use super::{function, lowering, overload_errs, send_params};
 
 const INTRO: &str = r#"Send a value to the other end of a thread's message channel."#;
 
@@ -30,7 +30,7 @@ time runs out, `send` raises `ErrTimeout`; a negative `timeoutMs` raises
 `ErrInvalidArgument`.
 
 `send` does not wait for the message to be *read* — only for room to put it. It
-also does nothing to the handle, which stays open."#;
+also does nothing to the handle, which stays open. `ErrResourceClosed` means the handle behind the thread was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. If the calling thread is cancelled with `thread::cancel` while waiting, it raises `ErrInterrupted`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Send a reply back to a worker that is waiting for one:
 
@@ -71,15 +71,31 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
         (INTRO, DESC, EX),
         vec![
-            overload(
+            overload_errs(
                 send_params(false, msg()),
                 ParameterType::Nothing,
                 Body::abi_function_aliased(lowering::lower_send, &["emit"]),
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
-            overload(
+            overload_errs(
                 send_params(true, msg()),
                 ParameterType::Nothing,
                 Body::abi_function_aliased(lowering::lower_send, &["emit"]),
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
         ],
     ));

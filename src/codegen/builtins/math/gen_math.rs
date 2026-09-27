@@ -1328,16 +1328,6 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// [`observe_float`](Self::observe_float) for a **pre-lowered** `abi_inline` arg:
-    /// the source `NirValue` the finiteness re-check keys on lives on the
-    /// `ValueResult::origin`, so this reads it there instead of taking the raw node.
-    pub(crate) fn observe_float_vr(&mut self, result: &ValueResult) -> Result<(), String> {
-        if let Some(value) = result.origin.clone() {
-            self.observe_float(&value, result)?;
-        }
-        Ok(())
-    }
-
     /// Observation-boundary check for a loop-promoted float accumulator whose
     /// value lives in `d` after an assignment update (plan-17). Uses the
     /// FP-domain variant so the store-back stays peephole-foldable, and fires

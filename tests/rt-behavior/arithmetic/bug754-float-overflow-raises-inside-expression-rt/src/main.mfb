@@ -1,0 +1,114 @@
+' bug-754: whether a Float overflow raises must not depend on where the value
+' sits in an expression. Each probe computes an overflowing value as an OPERAND
+' (or an argument of an inline builtin) with no TRAP of its own; the caller's
+' TRAP reports what propagated. Before the fix `collections::sum` handed back
+' +Inf and `1.0 / sum` recovered to 0.0, and an argument of an inline builtin
+' (`math::abs(x * x)`, `vector::length(v)`'s `math::sqrt(...)`) was never checked,
+' so the infinity reached a named binding.
+IMPORT io
+IMPORT collections
+IMPORT math
+IMPORT vector
+
+FUNC bigF() AS Float
+  RETURN 1.0e308
+END FUNC
+
+FUNC big() AS Float
+  RETURN 1.0e200
+END FUNC
+
+FUNC inverseSum() AS Float
+  RETURN 1.0 / collections::sum([bigF(), bigF()])
+END FUNC
+
+FUNC sumPlusOne() AS Float
+  LET s AS Float = collections::sum([bigF(), bigF()]) + 1.0
+  RETURN s
+END FUNC
+
+FUNC absOfSquare() AS Float
+  LET x AS Float = big()
+  RETURN math::abs(x * x)
+END FUNC
+
+FUNC atanOfSquare() AS Float
+  LET x AS Float = big()
+  RETURN math::atan(x * x)
+END FUNC
+
+FUNC minOfSquare() AS Float
+  LET x AS Float = big()
+  RETURN math::min(x * x, 1.0)
+END FUNC
+
+FUNC expOfNegSquare() AS Float
+  LET x AS Float = big()
+  RETURN math::exp(-(x * x))
+END FUNC
+
+FUNC lengthOfHuge() AS Float
+  LET v AS vector::Float3 = vector::Float3[1.0e200, 1.0e200, 1.0e200]
+  RETURN vector::length(v)
+END FUNC
+
+FUNC inverseDistance() AS Float
+  LET v AS vector::Float3 = vector::Float3[1.0e200, 1.0e200, 1.0e200]
+  LET w AS vector::Float3 = vector::Float3[-1.0e200, -1.0e200, -1.0e200]
+  RETURN 1.0 / vector::distance(v, w)
+END FUNC
+
+FUNC inverseExp() AS Float
+  RETURN 1.0 / math::exp(1000.0)
+END FUNC
+
+SUB main()
+  LET r0 AS Float = inverseSum() TRAP(e0)
+    io::print("1.0 / sum: raised " & toString(e0.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("1.0 / sum = " & toString(r0))
+  LET r1 AS Float = sumPlusOne() TRAP(e1)
+    io::print("sum + 1.0: raised " & toString(e1.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("sum + 1.0 = " & toString(r1))
+  LET r2 AS Float = absOfSquare() TRAP(e2)
+    io::print("abs(x * x): raised " & toString(e2.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("abs(x * x) = " & toString(r2))
+  LET r3 AS Float = atanOfSquare() TRAP(e3)
+    io::print("atan(x * x): raised " & toString(e3.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("atan(x * x) = " & toString(r3))
+  LET r4 AS Float = minOfSquare() TRAP(e4)
+    io::print("min(x * x, 1.0): raised " & toString(e4.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("min(x * x, 1.0) = " & toString(r4))
+  LET r5 AS Float = expOfNegSquare() TRAP(e5)
+    io::print("exp(-(x * x)): raised " & toString(e5.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("exp(-(x * x)) = " & toString(r5))
+  LET r6 AS Float = lengthOfHuge() TRAP(e6)
+    io::print("vector::length: raised " & toString(e6.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("vector::length = " & toString(r6))
+  LET r7 AS Float = inverseDistance() TRAP(e7)
+    io::print("1.0 / vector::distance: raised " & toString(e7.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("1.0 / vector::distance = " & toString(r7))
+  LET r8 AS Float = inverseExp() TRAP(e8)
+    io::print("1.0 / exp(1000.0): raised " & toString(e8.code))
+    RECOVER -1.0
+  END TRAP
+  io::print("1.0 / exp(1000.0) = " & toString(r8))
+  ' A finite total and finite arguments are untouched.
+  LET fine AS Float = 1.0 / collections::sum([1.5, 2.5])
+  io::print("1.0 / finite sum = " & toString(fine) & ", abs = " & toString(math::abs(-2.0 * 3.0)))
+END SUB

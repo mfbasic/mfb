@@ -35,7 +35,7 @@ lowercasing both operands. `value` is not mutated; the result is a new
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is uppercased as above, but **attributes are
 dropped** — a full case mapping can change the scalar count within a span, so the
-overlay cannot be remapped."#;
+overlay cannot be remapped. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Uppercase a word; uncased scalars pass through:
 
@@ -93,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

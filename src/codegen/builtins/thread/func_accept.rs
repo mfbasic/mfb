@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{accept_params, function, lowering, overload};
+use super::{accept_params, function, lowering, overload_errs};
 
 const INTRO: &str = r#"Take an open resource handed over by the other end of a thread."#;
 
@@ -40,7 +40,7 @@ page says why for each. A resource your own project
 declares may cross when it is declared `THREAD_SENDABLE`.
 
 `accept` waits for a resource specifically. `thread::poll` reports on the
-message channel and says nothing about this one."#;
+message channel and says nothing about this one. `ErrResourceClosed` means the handle behind the thread was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. If the calling thread is cancelled with `thread::cancel` while waiting, it raises `ErrInterrupted`. If the channel is empty and the other side is gone for good — the thread it belonged to has finished — `accept` raises `ErrNotFound` instead of waiting for a resource that can never arrive."#;
 
 const EX: &str = r#"A worker that is handed an open file and writes through it:
 
@@ -59,21 +59,37 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Integer"),
         (INTRO, DESC, EX),
         vec![
-            overload(
+            overload_errs(
                 accept_params(false),
                 res(),
                 Body::abi_function_aliased(
                     lowering::lower_accept,
                     &["acceptResource", "readResource"],
                 ),
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrNotFound",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
-            overload(
+            overload_errs(
                 accept_params(true),
                 res(),
                 Body::abi_function_aliased(
                     lowering::lower_accept,
                     &["acceptResource", "readResource"],
                 ),
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrNotFound",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
         ],
     ));

@@ -3358,7 +3358,9 @@ impl CodeBuilder<'_> {
         if args.len() <= 1 {
             let mut values = Vec::with_capacity(args.len());
             for arg in args {
-                values.push(self.lower_value(arg)?);
+                let value = self.lower_value(arg)?;
+                self.observe_float(arg, &value)?;
+                values.push(value);
             }
             return Ok(values);
         }
@@ -3367,6 +3369,10 @@ impl CodeBuilder<'_> {
         let mut spilled = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             let value = self.lower_value(arg)?;
+            // bug-754: an argument is an observation boundary (plan-17), for an
+            // inline builtin exactly as for a called one (`emit_call`). Checked as
+            // each is lowered, so a later argument's effects never run first.
+            self.observe_float(arg, &value)?;
             let slot = self.allocate_stack_object(&format!("abi_inline_arg{index}"), 8);
             // Type-aware spill: a `d`-native `Float` stores from its FP register
             // (`str d`) so its bit pattern — including the sign of a `-0.0` — survives

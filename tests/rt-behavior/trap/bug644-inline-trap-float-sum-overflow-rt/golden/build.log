@@ -1,0 +1,22 @@
+$ mfb build -ast -ir tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt
+Wrote AST to tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt/bug644_inline_trap_float_sum_overflow_rt.ast
+Wrote IR to tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt/bug644_inline_trap_float_sum_overflow_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt
+Wrote executable to tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt/build/bug644_inline_trap_float_sum_overflow_rt.out
+[exit 0]
+$ tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt/build/bug644_inline_trap_float_sum_overflow_rt.out
+D handler code=77050015
+D inline TRAP, non-literal elements = -1.00
+E handler code=77050015
+E inline TRAP, literal elements = -2.00
+finite total = 3.75
+negative handler code=77050015
+negative = -4.00
+Integer handler code=77050010
+Integer = -5
+operand handler code=77050015
+operand = -7.00
+propagated code=77050015 is overflow=TRUE
+propagated = -6.00
+[exit 0]

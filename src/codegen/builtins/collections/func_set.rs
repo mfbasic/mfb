@@ -42,7 +42,9 @@ either way.
 
 `set` can fail, because of the list overload's range check, so an inline `TRAP`
 on a `set` call compiles and catches that failure. A rejected index changes
-nothing: the bounds check happens before anything is written."#;
+nothing: the bounds check happens before anything is written. Building the
+result collection needs memory, so either overload can also raise
+`ErrOutOfMemory`."#;
 
 const EX: &str = r#"Replace an existing list element:
 
@@ -119,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Arg(0),
-                errors: vec!["ErrIndexOutOfRange"],
+                errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
                 body: Body::abi_inline(lower_set),
             },
             Implementation {
@@ -147,7 +149,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Arg(0),
-                errors: vec!["ErrIndexOutOfRange"],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::abi_inline(lower_set),
             },
         ],
@@ -184,9 +186,6 @@ pub(crate) fn lower_set(
             index_slot,
         ));
         let item = args[2].clone();
-        // Observation boundary: a `Float` replacement element must be finite
-        // (plan-17).
-        builder.observe_float_vr(&item)?;
         if item.type_ != element_type {
             return Err(format!(
                 "native collection set list item must be {}, got {}",
@@ -281,8 +280,6 @@ pub(crate) fn lower_set(
             map_slot,
         ));
         let key = args[1].clone();
-        // Observation boundary: a `Float` map key must be finite (plan-17).
-        builder.observe_float_vr(&key)?;
         if key.type_ != key_type {
             return Err(format!(
                 "native collection set map key must be {}, got {}",
@@ -297,8 +294,6 @@ pub(crate) fn lower_set(
             key_slot,
         ));
         let value = args[2].clone();
-        // Observation boundary: a `Float` map value must be finite (plan-17).
-        builder.observe_float_vr(&value)?;
         if value.type_ != value_type {
             return Err(format!(
                 "native collection set map value must be {}, got {}",

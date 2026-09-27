@@ -4,6 +4,8 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::{typed_is_collection_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::nir::visit::{walk_value, NirVisitor};
+use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Allocate and register a runtime owned-list for an owner collection binding
@@ -720,6 +722,134 @@ impl CodeBuilder<'_> {
     }
 }
 
+/// bug-643: whether every resource in `value`'s result is a pointer one of the
+/// call's arguments already held, so the binding it is assigned to must not adopt
+/// the handles as fresh close obligations.
+///
+/// A `List OF RES X` bound from a call adopts every handle in the list (§15.6's
+/// transfer on `RETURN`). That is right for a callee that PRODUCED them, and wrong
+/// for a `collections` member that only re-packages the caller's own pointers. Those
+/// pointers already have an owner, which encloses the binding: an argument is read at
+/// the call, so its owning scope is live there, and a parameter's owner is in a
+/// caller's frame. Adopting them made the binding's scope close the caller's handles
+/// when it exited — before their owner did, for a binding in an inner scope. The
+/// `chunks`/`window` bodies bind each block in their `WHILE` body, so every handle
+/// copied into a block was closed after that iteration.
+///
+/// True when `value` calls a `collections` member that cannot produce a resource
+/// ([`collections_member_produces_elements`]) and no argument can produce one either:
+/// each is free of calls, or is itself such a call. An argument with any other call
+/// in it (`take(makeFiles(), 1)`) keeps the adoption, because that call's handles may
+/// be fresh.
+pub(crate) fn call_result_holds_only_argument_resources(value: &NirValue) -> bool {
+    let (NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. }) = value
+    else {
+        return false;
+    };
+    let Some(member) = collections_call_member(target) else {
+        return false;
+    };
+    !collections_member_produces_elements(member) && args.iter().all(value_produces_no_resource)
+}
+
+/// An argument subtree whose resources are all pointers already bound to a name:
+/// no call at all, or only calls [`call_result_holds_only_argument_resources`]
+/// accepts. A closure's body is a separate function, so its captures are what is
+/// visited here, never its code.
+fn value_produces_no_resource(value: &NirValue) -> bool {
+    struct Calls {
+        clean: bool,
+    }
+    impl NirVisitor for Calls {
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Call { .. } | NirValue::CallResult { .. } => {
+                    if !call_result_holds_only_argument_resources(value) {
+                        self.clean = false;
+                    }
+                }
+                NirValue::RuntimeCall { .. } => self.clean = false,
+                _ => walk_value(self, value),
+            }
+        }
+    }
+    let mut calls = Calls { clean: true };
+    calls.visit_value(value);
+    calls.clean
+}
+
+/// The `collections` member a call target names: `collections.X` for a native
+/// member, `#collections_X$<types>` for an instantiated source-generic body — which
+/// includes the internal `slice` helper the `take`/`drop`/`chunks`/`window` bodies
+/// call. `None` for any other target.
+fn collections_call_member(target: &str) -> Option<&str> {
+    match target.strip_prefix("#collections_") {
+        Some(rest) => rest.split('$').next(),
+        None => target.strip_prefix("collections."),
+    }
+}
+
+/// Whether a `collections` member's result can hold a value none of its arguments
+/// held: some callback parameter returns a type that also appears in the member's
+/// return type (`transform`'s `FUNC(T) AS U` into `List OF U`, `reduce`'s
+/// accumulator, `mapValues`). Such a callback may open a resource and hand it back,
+/// and that handle is fresh. Every other member only re-packages its arguments'
+/// elements. A name the registry does not declare is an internal source helper
+/// (`slice`), which takes no callback.
+fn collections_member_produces_elements(member: &str) -> bool {
+    let Some(function) = crate::codegen::registry::registry()
+        .resolve_package("collections")
+        .and_then(|package| package.function(member))
+    else {
+        return false;
+    };
+    function.implementations.iter().any(|implementation| {
+        // `reduce` declares its return as "the type of argument 1" (the accumulator).
+        let return_type = match &implementation.return_type {
+            ParameterType::Arg(index) => implementation
+                .params
+                .get(*index)
+                .map_or(&implementation.return_type, |parameter| &parameter.ty),
+            other => other,
+        };
+        let mut returned = Vec::new();
+        type_variables(return_type, &mut returned);
+        implementation
+            .params
+            .iter()
+            .any(|parameter| match &parameter.ty {
+                ParameterType::Func(_, callback_return, _) => {
+                    let mut produced = Vec::new();
+                    type_variables(callback_return, &mut produced);
+                    produced.iter().any(|var| returned.contains(var))
+                }
+                _ => false,
+            })
+    })
+}
+
+/// The type variables `type_` mentions, at any depth of the shapes a `collections`
+/// signature uses.
+fn type_variables(type_: &ParameterType, out: &mut Vec<ParameterType>) {
+    match type_ {
+        ParameterType::Var(_) => out.push(type_.clone()),
+        ParameterType::ListOf(inner)
+        | ParameterType::SetOf(inner)
+        | ParameterType::ResultOf(inner)
+        | ParameterType::Res(inner) => type_variables(inner, out),
+        ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+            type_variables(key, out);
+            type_variables(value, out);
+        }
+        ParameterType::UserOf(_, args) => args.iter().for_each(|arg| type_variables(arg, out)),
+        ParameterType::Func(params, ret, _) => {
+            params.iter().for_each(|param| type_variables(param, out));
+            type_variables(ret, out);
+        }
+        _ => {}
+    }
+}
+
 /// The `RES`-marked field types of a record, in declaration order (plan-114-C).
 ///
 /// Only a **direct** `RES` field counts. A resource inside a nested record
@@ -836,5 +966,104 @@ mod record_container_tests {
             record_res_field_types(&model, &holder),
             vec![("handle".to_string(), ParameterType::declared("fs.File"))]
         );
+    }
+}
+
+#[cfg(test)]
+mod argument_resource_tests {
+    use super::*;
+    use crate::target::shared::nir::NirSourceLoc;
+
+    fn call(target: &str, args: Vec<NirValue>) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args,
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    fn local(name: &str) -> NirValue {
+        NirValue::Local(name.to_string())
+    }
+
+    /// bug-643: the members that re-package their arguments' elements. `slice` is the
+    /// internal helper the `chunks`/`window`/`take`/`drop` bodies call; it is not a
+    /// registry function at all. `sortBy` has a callback, but its key never becomes
+    /// an element.
+    #[test]
+    fn a_repackaging_member_produces_no_elements() {
+        for member in [
+            "chunks", "window", "take", "drop", "mid", "slice", "filter", "sortBy", "flatten",
+            "values", "append", "prepend", "insert", "set", "removeAt", "get", "getOr",
+        ] {
+            assert!(
+                !collections_member_produces_elements(member),
+                "{member} only re-packages its arguments"
+            );
+        }
+    }
+
+    /// The members whose callback result becomes (part of) the result: a handle it
+    /// opens is fresh, so a binding of the result must still adopt it.
+    #[test]
+    fn a_member_whose_callback_builds_the_result_produces_elements() {
+        for member in ["transform", "mapValues", "reduce", "reduceRight"] {
+            assert!(
+                collections_member_produces_elements(member),
+                "{member}'s callback result reaches its return value"
+            );
+        }
+    }
+
+    /// The `chunks` body's own binding: every argument is a name or a constant.
+    #[test]
+    fn a_slice_of_named_arguments_holds_only_argument_resources() {
+        let value = call(
+            "#collections_slice$RES$fs$File",
+            vec![local("value"), local("i"), local("stop")],
+        );
+        assert!(call_result_holds_only_argument_resources(&value));
+    }
+
+    /// Nesting re-packagers keeps the answer: `take(filter(xs, pred), 1)`.
+    #[test]
+    fn a_nested_repackaging_call_holds_only_argument_resources() {
+        let predicate = NirValue::Closure {
+            name: "lambda_0".to_string(),
+            type_: ParameterType::Unknown,
+            captures: Vec::new(),
+        };
+        let inner = call(
+            "#collections_filter$RES$fs$File",
+            vec![local("xs"), predicate],
+        );
+        let value = call("#collections_take$RES$fs$File", vec![inner, local("n")]);
+        assert!(call_result_holds_only_argument_resources(&value));
+    }
+
+    /// Any other call among the arguments may hand back fresh handles, so the
+    /// binding keeps adopting what it receives.
+    #[test]
+    fn an_argument_from_another_call_keeps_the_adoption() {
+        let value = call(
+            "#collections_take$RES$fs$File",
+            vec![call("makeFiles", Vec::new()), local("n")],
+        );
+        assert!(!call_result_holds_only_argument_resources(&value));
+    }
+
+    /// A user function or a producing member is never answered for: its result
+    /// may be fresh.
+    #[test]
+    fn a_user_call_or_a_producing_member_keeps_the_adoption() {
+        assert!(!call_result_holds_only_argument_resources(&call(
+            "openAll",
+            vec![local("paths")]
+        )));
+        assert!(!call_result_holds_only_argument_resources(&call(
+            "#collections_transform$String$RES$fs$File",
+            vec![local("paths"), local("opener")]
+        )));
+        assert!(!call_result_holds_only_argument_resources(&local("xs")));
     }
 }

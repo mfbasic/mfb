@@ -1,0 +1,611 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug752_res_element_callbacks_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "PATH", "line": 12, "visibility": "public", "mutable": false, "type": "String", "value": { "kind": "const", "type": "String", "value": "/tmp/mfb_bug752_res_element_callbacks.txt" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 0,
+    "visibility": "export",
+    "name": "Partition$RES$fs$File",
+    "fields": [
+    { "visibility": null, "line": 0, "name": "matched", "type": "List OF RES fs.File" },
+    { "visibility": null, "line": 0, "name": "unmatched", "type": "List OF RES fs.File" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "state",
+    "line": 14,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 14, "type": "fs.File", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "bind", "line": 15, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
+    {
+      "op": "if",
+      "line": 15,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 15, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 15, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      {
+        "op": "if",
+        "line": 16,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77030004" } },
+        "then": [
+        { "op": "assign", "line": 17, "name": "$trap_val1", "value": { "kind": "const", "type": "String", "value": "CLOSED" } }
+        ],
+        "else": [
+        { "op": "assign", "line": 19, "name": "$trap_val1", "value": { "kind": "const", "type": "String", "value": "open" } }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "line": 15, "mutable": false, "name": "line", "type": "String", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "return", "line": 21, "value": { "kind": "local", "name": "line" } }
+    ]
+  },
+  {
+    "name": "rank",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 24, "type": "fs.File", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 28,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "global", "name": "PATH" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "a", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.open", "args": [{ "kind": "global", "name": "PATH" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "b", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.open", "args": [{ "kind": "global", "name": "PATH" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "files", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "groups", "type": "Map OF Integer TO List OF Integer", "value": { "kind": "call", "type": "Map OF Integer TO List OF Integer", "target": "#collections_groupBy$RES$fs$File$Integer$Integer", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "rank", "type": "FUNC(fs.File) AS Integer" }, { "kind": "functionRef", "name": "rank", "type": "FUNC(fs.File) AS Integer" }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "groupBy groups=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "groups" }] }] } }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "parts", "type": "Partition$RES$fs$File", "value": { "kind": "call", "type": "Partition$RES$fs$File", "target": "#collections_partition$RES$fs$File", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(fs.File) AS Boolean" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "partition matched=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF RES fs.File", "target": { "kind": "local", "name": "parts" }, "member": "matched" }] }] } }, "right": { "kind": "const", "type": "String", "value": " unmatched=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF RES fs.File", "target": { "kind": "local", "name": "parts" }, "member": "unmatched" }] }] } }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "sorted", "type": "List OF RES fs.File", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_sortBy$RES$fs$File$Integer", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "rank", "type": "FUNC(fs.File) AS Integer" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sortBy len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "sorted" }] }] } }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "at", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#collections_findIndex$RES$fs$File", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(fs.File) AS Boolean" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "last", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#collections_findLastIndexFromEnd$RES$fs$File", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "$lambda2", "type": "FUNC(fs.File) AS Boolean" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "findIndex=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "at" }] } }, "right": { "kind": "const", "type": "String", "value": " findLastIndex=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "last" }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "all=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_all$RES$fs$File", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "$lambda3", "type": "FUNC(fs.File) AS Boolean" }] }] } }, "right": { "kind": "const", "type": "String", "value": " any=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$RES$fs$File", "args": [{ "kind": "local", "name": "files" }, { "kind": "functionRef", "name": "$lambda4", "type": "FUNC(fs.File) AS Boolean" }] }] } }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a: " }, "right": { "kind": "call", "type": "String", "target": "state", "args": [{ "kind": "local", "name": "a" }] } }, "right": { "kind": "const", "type": "String", "value": " b: " } }, "right": { "kind": "call", "type": "String", "target": "state", "args": [{ "kind": "local", "name": "b" }] } }] } }
+    ]
+  },
+  {
+    "name": "#collections_all$RES$fs$File",
+    "line": 157,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 157, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 157, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 158, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 159,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 160,
+        "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } },
+        "then": [
+        { "op": "return", "line": 161, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 163, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 165, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "#collections_any$RES$fs$File",
+    "line": 146,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 146, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 146, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 147, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 148,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 149,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 150, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 152, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 154, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "#collections_findIndex$RES$fs$File",
+    "line": 168,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 168, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 168, "type": "FUNC(RES fs.File) AS Boolean", "default": null },
+    { "name": "start", "line": 168, "type": "Integer", "default": { "kind": "const", "type": "Integer", "value": "0" } }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 169,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "start" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "start" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } } },
+      "then": [
+      { "op": "fail", "line": 170, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "170" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 172, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "start" } },
+    {
+      "op": "while",
+      "line": 173,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 174,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 175, "value": { "kind": "local", "name": "i" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 177, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "fail", "line": 179, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "179" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "#collections_findLastIndex$RES$fs$File",
+    "line": 186,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 186, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 186, "type": "FUNC(RES fs.File) AS Boolean", "default": null },
+    { "name": "start", "line": 186, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 187,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "start" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "start" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } } },
+      "then": [
+      { "op": "fail", "line": 188, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "188" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 190, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "start" } },
+    {
+      "op": "while",
+      "line": 191,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 192,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 193, "value": { "kind": "local", "name": "i" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 195, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "fail", "line": 197, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "197" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "#collections_findLastIndexFromEnd$RES$fs$File",
+    "line": 182,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 182, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 182, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 183, "value": { "kind": "call", "type": "Integer", "target": "#collections_findLastIndex$RES$fs$File", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "#collections_groupBy$RES$fs$File$Integer$Integer",
+    "line": 200,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 200, "type": "List OF RES fs.File", "default": null },
+    { "name": "keyFn", "line": 200, "type": "FUNC(RES fs.File) AS Integer", "default": null },
+    { "name": "valFn", "line": 200, "type": "FUNC(RES fs.File) AS Integer", "default": null }
+    ],
+    "returns": "Map OF Integer TO List OF Integer",
+    "body": [
+    { "op": "bind", "line": 201, "mutable": false, "name": "keys", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "keyFn" }] } },
+    { "op": "bind", "line": 202, "mutable": false, "name": "vals", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "valFn" }] } },
+    { "op": "bind", "line": 203, "mutable": true, "name": "result", "type": "Map OF Integer TO List OF Integer", "value": { "kind": "map", "type": "Map OF Integer TO List OF Integer", "entries": [] } },
+    { "op": "bind", "line": 204, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 205,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "keys" }] } },
+      "body": [
+      { "op": "bind", "line": 206, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 207, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "vals" }, { "kind": "local", "name": "i" }] } },
+      {
+        "op": "if",
+        "line": 208,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }] },
+        "then": [
+        { "op": "bind", "line": 209, "mutable": true, "name": "bucket", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }] } },
+        { "op": "assign", "line": 210, "name": "bucket", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "bucket" }, { "kind": "local", "name": "v" }] } },
+        { "op": "assign", "line": 211, "name": "result", "value": { "kind": "call", "type": "Map OF Integer TO List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "bucket" }] } }
+        ],
+        "else": [
+        { "op": "bind", "line": 213, "mutable": true, "name": "bucket", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+        { "op": "assign", "line": 214, "name": "bucket", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "bucket" }, { "kind": "local", "name": "v" }] } },
+        { "op": "assign", "line": 215, "name": "result", "value": { "kind": "call", "type": "Map OF Integer TO List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "bucket" }] } }
+        ]
+      },
+      { "op": "assign", "line": 217, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 219, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_partition$RES$fs$File",
+    "line": 311,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 311, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 311, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
+    ],
+    "returns": "Partition$RES$fs$File",
+    "body": [
+    { "op": "bind", "line": 318, "mutable": false, "name": "flags", "type": "List OF Boolean", "value": { "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }] } },
+    { "op": "bind", "line": 319, "mutable": true, "name": "matched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 320, "mutable": true, "name": "unmatched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 321, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 322,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 324,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.get", "args": [{ "kind": "local", "name": "flags" }, { "kind": "local", "name": "i" }] },
+        "then": [
+        { "op": "assign", "line": 325, "name": "matched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "matched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
+        ],
+        "else": [
+        { "op": "assign", "line": 327, "name": "unmatched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "unmatched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
+        ]
+      },
+      { "op": "assign", "line": 329, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 331, "mutable": false, "name": "result", "type": "Partition$RES$fs$File", "value": { "kind": "constructor", "type": "Partition$RES$fs$File", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
+    { "op": "return", "line": 332, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_sortBy$RES$fs$File$Integer",
+    "line": 73,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 73, "type": "List OF RES fs.File", "default": null },
+    { "name": "keyFn", "line": 73, "type": "FUNC(RES fs.File) AS Integer", "default": null }
+    ],
+    "returns": "List OF RES fs.File",
+    "body": [
+    { "op": "bind", "line": 74, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+    {
+      "op": "if",
+      "line": 75,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "then": [
+      { "op": "return", "line": 76, "value": { "kind": "local", "name": "value" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 78, "mutable": true, "name": "items", "type": "List OF RES fs.File", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 79, "mutable": true, "name": "keys", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "keyFn" }] } },
+    { "op": "bind", "line": 80, "mutable": true, "name": "width", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "while",
+      "line": 81,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "width" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "bind", "line": 82, "mutable": true, "name": "itemsDst", "type": "List OF RES fs.File", "value": { "kind": "local", "name": "items" } },
+      { "op": "bind", "line": 83, "mutable": true, "name": "keysDst", "type": "List OF Integer", "value": { "kind": "local", "name": "keys" } },
+      { "op": "bind", "line": 84, "mutable": true, "name": "lo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      {
+        "op": "while",
+        "line": 85,
+        "loop": "while",
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "n" } },
+        "body": [
+        { "op": "bind", "line": 86, "mutable": true, "name": "mid", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } } },
+        {
+          "op": "if",
+          "line": 87,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "mid" }, "right": { "kind": "local", "name": "n" } },
+          "then": [
+          { "op": "assign", "line": 88, "name": "mid", "value": { "kind": "local", "name": "n" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "line": 90, "mutable": true, "name": "hi", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } }, "right": { "kind": "local", "name": "width" } } },
+        {
+          "op": "if",
+          "line": 91,
+          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "hi" }, "right": { "kind": "local", "name": "n" } },
+          "then": [
+          { "op": "assign", "line": 92, "name": "hi", "value": { "kind": "local", "name": "n" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "line": 94, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "lo" } },
+        { "op": "bind", "line": 95, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "mid" } },
+        { "op": "bind", "line": 96, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "lo" } },
+        {
+          "op": "while",
+          "line": 97,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "mid" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "local", "name": "hi" } } },
+          "body": [
+          {
+            "op": "if",
+            "line": 98,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }, "right": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] } },
+            "then": [
+            { "op": "assign", "line": 99, "name": "itemsDst", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "j" }] }] } },
+            { "op": "assign", "line": 100, "name": "keysDst", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }] } },
+            { "op": "assign", "line": 101, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ],
+            "else": [
+            { "op": "assign", "line": 103, "name": "itemsDst", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "i" }] }] } },
+            { "op": "assign", "line": 104, "name": "keysDst", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] }] } },
+            { "op": "assign", "line": 105, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ]
+          },
+          { "op": "assign", "line": 107, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        {
+          "op": "while",
+          "line": 109,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "mid" } },
+          "body": [
+          { "op": "assign", "line": 110, "name": "itemsDst", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "i" }] }] } },
+          { "op": "assign", "line": 111, "name": "keysDst", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "i" }] }] } },
+          { "op": "assign", "line": 112, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 113, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        {
+          "op": "while",
+          "line": 115,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "local", "name": "hi" } },
+          "body": [
+          { "op": "assign", "line": 116, "name": "itemsDst", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "itemsDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "local", "name": "j" }] }] } },
+          { "op": "assign", "line": 117, "name": "keysDst", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "keysDst" }, { "kind": "local", "name": "k" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "keys" }, { "kind": "local", "name": "j" }] }] } },
+          { "op": "assign", "line": 118, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 119, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          ]
+        },
+        { "op": "assign", "line": 121, "name": "lo", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lo" }, "right": { "kind": "local", "name": "width" } }, "right": { "kind": "local", "name": "width" } } }
+        ]
+      },
+      { "op": "assign", "line": 123, "name": "items", "value": { "kind": "local", "name": "itemsDst" } },
+      { "op": "assign", "line": 124, "name": "keys", "value": { "kind": "local", "name": "keysDst" } },
+      { "op": "assign", "line": 125, "name": "width", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "width" }, "right": { "kind": "local", "name": "width" } } }
+      ]
+    },
+    { "op": "return", "line": 127, "value": { "kind": "local", "name": "items" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 36,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 36, "type": "fs.File", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 36, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "line": 40,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 40, "type": "fs.File", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 40, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "$lambda2",
+    "line": 41,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 41, "type": "fs.File", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 41, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "$lambda3",
+    "line": 43,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 43, "type": "fs.File", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 43, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "$lambda4",
+    "line": 43,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 43, "type": "fs.File", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 43, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  }
+  ]
+}
