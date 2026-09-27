@@ -70,8 +70,10 @@ interrupted. A worker that must stop promptly should check
 short.
 
 `ErrEndOfFile` means no bytes remain, `ErrEncoding` that the line is not valid
-UTF-8, `ErrReadFailed` that the host read failed, and `ErrResourceClosed` that
-`file` has been closed. `ErrOutOfMemory` means the program ran out of memory."#;
+UTF-8, `ErrReadFailed` that the host read failed, `ErrResourceClosed` that
+`file` has been closed, and `ErrResourceMoved` that it was handed to another
+thread with `thread::transfer`. `ErrOutOfMemory` means the program ran out of
+memory."#;
 const EX: &str = r#"Read the first line of a file:
 
 ```
@@ -125,6 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrEndOfFile",
                 "ErrEncoding",
                 "ErrResourceClosed",
+                "ErrResourceMoved",
             ],
             body: Body::abi_function(lower_fs_read_line),
         }],

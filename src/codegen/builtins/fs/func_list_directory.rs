@@ -61,12 +61,11 @@ host call cannot carry one. Apart from opening and closing the directory,
 the call only reads the filesystem and has no side effects.
 
 An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
-the directory cannot be opened the error says why: `ErrNotFound` if `path` does
-not exist, `ErrAccessDenied` if it may not be read, and `ErrWriteFailed` for any
-other refusal — including `path` naming a file. `ErrOutOfMemory` means the
-program ran out of memory. The table also lists `ErrAlreadyExists` because every
-`fs` function that takes a path reports host refusals through one shared set of
-errors; listing a directory never produces it."#;
+the directory cannot be opened the error says why: `ErrPathNotFound` if `path`
+does not exist, `ErrAccessDenied` if it may not be read, and `ErrInvalidPath` if
+`path` cannot name a directory — it names a file, a name in it is too long, or a
+file is used as a directory. Any other refusal raises `ErrReadFailed`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print every entry in a directory in sorted order:
 
 ```
@@ -117,11 +116,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::String),
             errors: vec![
                 "ErrOutOfMemory",
-                "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
-                "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
+                "ErrReadFailed",
             ],
             body: Body::abi_function(lower_fs_list_directory),
         }],

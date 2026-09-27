@@ -247,10 +247,13 @@ END FUNC
 SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
   swarm = collections::set(swarm, i, WITH collections::get(swarm, i) { lon := g.lon, lat := g.lat, age := age, life := life, speed := 0.0, startLon := g.lon, startLat := g.lat })
 
+  ' Every point of the trail starts where the particle does.
   LET base AS Integer = i * TRAIL_LENGTH
-  FOR slot = 0 TO TRAIL_LENGTH - 1
-    setTrailPoint(base + slot, g)
-  NEXT
+  LET p AS Plane = project(g, trailLon0)
+  trailLon = collections::repeat(trailLon, g.lon, TRAIL_LENGTH, base)
+  trailLat = collections::repeat(trailLat, g.lat, TRAIL_LENGTH, base)
+  trailX = collections::repeat(trailX, p.x, TRAIL_LENGTH, base)
+  trailY = collections::repeat(trailY, p.y, TRAIL_LENGTH, base)
 END SUB
 
 ' A staggered life, so that a swarm seeded all at once does not expire all at
@@ -305,15 +308,11 @@ SUB seedSwarm(count AS Integer, v AS View)
   trailHead = 0
 
   LET unplaced AS Particle = Particle[lon := 0.0, lat := 0.0, age := 0, life := 0, speed := 0.0, startLon := 0.0, startLat := 0.0]
-  FOR i = 1 TO count
-    swarm = collections::append(swarm, unplaced)
-    FOR slot = 1 TO TRAIL_LENGTH
-      trailLon = collections::append(trailLon, 0.0)
-      trailLat = collections::append(trailLat, 0.0)
-      trailX = collections::append(trailX, 0.0)
-      trailY = collections::append(trailY, 0.0)
-    NEXT
-  NEXT
+  swarm = collections::repeat(swarm, unplaced, count)
+  trailLon = collections::repeat(trailLon, 0.0, count * TRAIL_LENGTH)
+  trailLat = collections::repeat(trailLat, 0.0, count * TRAIL_LENGTH)
+  trailX = collections::repeat(trailX, 0.0, count * TRAIL_LENGTH)
+  trailY = collections::repeat(trailY, 0.0, count * TRAIL_LENGTH)
 
   FOR i = 0 TO count - 1
     IF i MOD 2 = 1 THEN

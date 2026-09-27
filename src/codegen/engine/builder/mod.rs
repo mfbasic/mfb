@@ -2342,6 +2342,20 @@ pub(crate) fn lower_module_for_platform(
             )?,
         );
     }
+    // bug-701: the path classifier the `fs` host-error mapping calls, emitted
+    // wherever a member that maps a host error is.
+    if runtime_symbols.iter().any(|symbol| {
+        symbol
+            .strip_prefix("_mfb_rt_fs_fs_")
+            .is_some_and(crate::codegen::builtins::fs::gen_classify::member_classifies_paths)
+    }) {
+        code_functions.push(
+            crate::codegen::builtins::fs::gen_classify::lower_fs_path_class_helper(
+                &platform_imports,
+                platform,
+            )?,
+        );
+    }
     // bug-474: `process::detach` reaps its one child on a dedicated thread whose
     // start routine is `_mfb_rt_process_reaper`, so that helper must be emitted
     // wherever `process.detach` is (the detach body takes its address). It replaced

@@ -363,11 +363,20 @@ pub(crate) fn lower_fs_path_operation_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_fs_path_errno_error_mapping(
+    let (op, fallback) = match operation {
+        FsPathOperation::Chdir => (FsHostOp::Chdir, FsFallback::Read),
+        FsPathOperation::Unlink => (FsHostOp::Unlink, FsFallback::Write),
+        FsPathOperation::Mkdir => (FsHostOp::Mkdir, FsFallback::Write),
+        FsPathOperation::Rmdir => (FsHostOp::Rmdir, FsFallback::Write),
+    };
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        op,
         false,
+        Some(FsPathArg::String((&path).into())),
+        fallback,
         &mut instructions,
         &mut relocations,
         &done,
@@ -415,10 +424,7 @@ pub(crate) fn lower_fs_create_directories_helper(
     let final_mkdir = format!("{symbol}_final_mkdir");
     let final_ok = format!("{symbol}_final_ok");
     let call_error = format!("{symbol}_call_error");
-    let err_not_found = format!("{symbol}_err_not_found");
-    let err_access_denied = format!("{symbol}_err_access_denied");
     let err_already_exists = format!("{symbol}_err_already_exists");
-    let err_output = format!("{symbol}_err_output");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
@@ -614,35 +620,26 @@ pub(crate) fn lower_fs_create_directories_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&call_error),
-        abi::compare_immediate(&errno_reg, "2"),
-        abi::branch_eq(&err_not_found),
     ]);
-    if windows {
-        instructions.extend([
-            abi::compare_immediate(&errno_reg, "3"), // ERROR_PATH_NOT_FOUND
-            abi::branch_eq(&err_not_found),
-            abi::compare_immediate(&errno_reg, "5"), // ERROR_ACCESS_DENIED
-            abi::branch_eq(&err_access_denied),
-        ]);
-    } else {
-        instructions.extend([
-            abi::compare_immediate(&errno_reg, "13"),
-            abi::branch_eq(&err_access_denied),
-        ]);
-    }
-    instructions.extend([abi::branch(&err_output), abi::label(&invalid_path)]);
+    // bug-701: the same mapping `fs::createDirectory` uses. A component that is a
+    // regular file answers `ENOTDIR` on POSIX and `ERROR_PATH_NOT_FOUND` on
+    // Windows, which the mapper classifies — both `ErrInvalidPath`.
+    emit_fs_host_error_mapping(
+        symbol,
+        &errno_reg,
+        platform.family(),
+        FsHostOp::Mkdir,
+        false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Write,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&invalid_path));
     raise_error_into(
         symbol,
         "ErrInvalidArgument",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::branch(&done), abi::label(&err_not_found)]);
-    raise_error_into(symbol, "ErrNotFound", &mut instructions, &mut relocations);
-    instructions.extend([abi::branch(&done), abi::label(&err_access_denied)]);
-    raise_error_into(
-        symbol,
-        "ErrAccessDenied",
         &mut instructions,
         &mut relocations,
     );
@@ -650,13 +647,6 @@ pub(crate) fn lower_fs_create_directories_helper(
     raise_error_into(
         symbol,
         "ErrAlreadyExists",
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::branch(&done), abi::label(&err_output)]);
-    raise_error_into(
-        symbol,
-        "ErrWriteFailed",
         &mut instructions,
         &mut relocations,
     );
@@ -1119,10 +1109,14 @@ pub(crate) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Resolve,
+        false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Read,
         &mut instructions,
         &mut relocations,
         &done,

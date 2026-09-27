@@ -2092,6 +2092,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                     ],
                 ),
@@ -2104,6 +2105,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrInvalidArgument",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                     ],
                 ),
@@ -2115,19 +2117,29 @@ mod tcp_tls_error_declaration_tests {
                         "ErrConnectionClosed",
                         "ErrInvalidArgument",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                     ],
                 ),
                 (
                     "write(tcp.Socket, String)",
-                    &["ErrConnectionClosed", "ErrResourceClosed", "ErrTimeout"],
+                    &[
+                        "ErrConnectionClosed",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                        "ErrTimeout",
+                    ],
                 ),
                 // Readiness is a query: the scalar form answers an expired
                 // deadline with FALSE, so it has no ErrTimeout. The list form has
                 // no value that could mean "nothing" and raises instead.
                 (
                     "poll(tcp.Socket, Integer)",
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "poll(List OF RES tcp.Socket, Integer)",
@@ -2152,23 +2164,46 @@ mod tcp_tls_error_declaration_tests {
                 ),
                 (
                     "localAddress(tcp.Socket)",
-                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "localAddress(tcp.Listener)",
-                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "remoteAddress(tcp.Socket)",
-                    &["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+                    &[
+                        "ErrAddressInvalid",
+                        "ErrOutOfMemory",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "setReadTimeout(tcp.Socket, Integer)",
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "setWriteTimeout(tcp.Socket, Integer)",
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
             ],
         );
@@ -2223,6 +2258,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                         "ErrTlsFailed",
                     ],
@@ -2235,6 +2271,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                         "ErrTlsFailed",
                     ],
@@ -2248,6 +2285,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                         "ErrTlsFailed",
                     ],
@@ -2259,6 +2297,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTimeout",
                         "ErrTlsFailed",
                     ],
@@ -2273,6 +2312,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                     ],
                 ),
                 (
@@ -2282,6 +2322,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                     ],
                 ),
                 (
@@ -2291,15 +2332,24 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                     ],
                 ),
                 (
                     "setReadTimeout(tls.Socket, Integer)",
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 (
                     "setWriteTimeout(tls.Socket, Integer)",
-                    &["ErrInvalidArgument", "ErrResourceClosed"],
+                    &[
+                        "ErrInvalidArgument",
+                        "ErrResourceClosed",
+                        "ErrResourceMoved",
+                    ],
                 ),
                 // The scalar form answers an expired deadline FALSE, so no
                 // ErrTimeout. The list form branch-links the scalar helper and
@@ -2312,6 +2362,7 @@ mod tcp_tls_error_declaration_tests {
                         "ErrNetworkFailed",
                         "ErrOutOfMemory",
                         "ErrResourceClosed",
+                        "ErrResourceMoved",
                         "ErrTlsFailed",
                     ],
                 ),
@@ -2328,10 +2379,13 @@ mod tcp_tls_error_declaration_tests {
                 ),
                 // Already correct before bug-553 (bug-525 made a second close
                 // refuse) — pinned so the audit cannot churn a right answer.
-                ("close(tls.Socket)", &["ErrResourceClosed", "ErrTlsFailed"]),
+                (
+                    "close(tls.Socket)",
+                    &["ErrResourceClosed", "ErrResourceMoved", "ErrTlsFailed"],
+                ),
                 (
                     "close(tls.Listener)",
-                    &["ErrResourceClosed", "ErrTlsFailed"],
+                    &["ErrResourceClosed", "ErrResourceMoved", "ErrTlsFailed"],
                 ),
             ],
         );

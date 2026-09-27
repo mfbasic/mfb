@@ -216,7 +216,7 @@ impl NativePlanPlatform for Platform {
         let required_by = required_by.as_str();
         // Every path-taking fs helper marshals UTF-8 → UTF-16 (MultiByteToWideChar)
         // before its `*W` Win32 call (plan-47-F §3.4).
-        match spec.call {
+        let mut imports = match spec.call {
             // ===== plan-66 A/B/C/D import arms, dropped by the stale main→P-66
             // merge (same as the mod.rs advertising); restored. =====
             // Phase A — datetime (no libc clocks on Windows).
@@ -851,7 +851,18 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             _ => Vec::new(),
+        };
+        // bug-701: the path classifier (`gen_classify`) the host-error mapping
+        // calls; it is emitted as its own code unit wherever such a member is.
+        if spec
+            .call
+            .strip_prefix("fs.")
+            .is_some_and(crate::codegen::builtins::fs::gen_classify::member_classifies_paths)
+        {
+            imports.push(import("MultiByteToWideChar", KERNEL32, required_by));
+            imports.push(import("GetFileAttributesW", KERNEL32, required_by));
         }
+        imports
     }
 
     fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {

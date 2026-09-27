@@ -1397,6 +1397,7 @@ pub(crate) fn lower_net_address_helper(
     const ABLOCK_OFFSET: usize = 224; // record marshaller scratch
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let name_fail = format!("{symbol}_name_fail");
     let addr_fail = format!("{symbol}_addr_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -1407,10 +1408,17 @@ pub(crate) fn lower_net_address_helper(
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
+    instructions.extend([abi::load_u64(
+        &v9,
+        abi::return_register(),
+        FILE_OFFSET_CLOSED,
+    )]);
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
     instructions.extend([
-        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
         abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(&v10, "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
@@ -1486,6 +1494,14 @@ pub(crate) fn lower_net_address_helper(
     emit_fail(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_moved));
+    emit_fail(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
         &done,

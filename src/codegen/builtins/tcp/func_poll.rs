@@ -137,7 +137,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     super::opt("timeoutMs", TIMEOUT_DESC, ParameterType::Integer),
                 ],
                 return_type: ParameterType::Boolean,
-                errors: vec!["ErrInvalidArgument", "ErrResourceClosed"],
+                errors: vec!["ErrInvalidArgument", "ErrResourceClosed", "ErrResourceMoved"],
                 body: super::native_body(lower_poll, &[]),
             },
             Implementation {

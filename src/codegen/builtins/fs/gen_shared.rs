@@ -1,5 +1,6 @@
-//! Shared `fs` code-generation primitives several members emit (the path->C-string copy loop and the errno->error mappings).
+//! Shared `fs` code-generation primitives several members emit (the path->C-string copy loop and the host-error mapping).
 
+use super::gen_classify::{FS_PATH_CLASS_SYMBOL, PATH_CLASS_DIRECTORY, PATH_CLASS_UNUSABLE};
 use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
@@ -109,109 +110,148 @@ pub(crate) fn emit_cstring_nul_scan(
     ]);
 }
 
-/// Generic errno mapping: a missing entry is `ErrNotFound`, a refused one
-/// `ErrAccessDenied`, an existing one `ErrAlreadyExists`, and anything else
-/// `ErrWriteFailed`. The host code is the POSIX errno, or on Windows the
-/// `GetLastError` code, which numbers the same conditions differently (bug-694 C1).
-pub(crate) fn emit_errno_error_mapping(
-    symbol: &str,
-    errno_reg: impl Into<Reg>,
-    family: PlatformFamily,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    let errno_reg: Reg = errno_reg.into();
-    let err_not_found = format!("{symbol}_errno_not_found");
-    let err_access_denied = format!("{symbol}_errno_access_denied");
-    let err_already_exists = format!("{symbol}_errno_already_exists");
-    let err_output = format!("{symbol}_errno_output");
-    match family {
-        PlatformFamily::Windows => instructions.extend([
-            abi::compare_immediate(errno_reg, "2"), // ERROR_FILE_NOT_FOUND
-            abi::branch_eq(&err_not_found),
-            abi::compare_immediate(errno_reg, "3"), // ERROR_PATH_NOT_FOUND
-            abi::branch_eq(&err_not_found),
-            abi::compare_immediate(errno_reg, "5"), // ERROR_ACCESS_DENIED
-            abi::branch_eq(&err_access_denied),
-            abi::compare_immediate(errno_reg, "80"), // ERROR_FILE_EXISTS
-            abi::branch_eq(&err_already_exists),
-            abi::compare_immediate(errno_reg, "183"), // ERROR_ALREADY_EXISTS
-            abi::branch_eq(&err_already_exists),
-        ]),
-        _ => instructions.extend([
-            abi::compare_immediate(errno_reg, "2"),
-            abi::branch_eq(&err_not_found),
-            abi::compare_immediate(errno_reg, "13"),
-            abi::branch_eq(&err_access_denied),
-            abi::compare_immediate(errno_reg, "17"),
-            abi::branch_eq(&err_already_exists),
-        ]),
-    }
-    instructions.extend([abi::branch(&err_output), abi::label(&err_not_found)]);
-    raise_error_into(symbol, "ErrNotFound", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_access_denied)]);
-    raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_already_exists)]);
-    raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_output)]);
-    raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
-    instructions.push(abi::branch(done));
+/// Which host call failed, for [`emit_fs_host_error_mapping`] (bug-701). The
+/// mapper emits only the arms that call can reach, and picks the fallback for an
+/// unlisted host code by direction: a read or a lookup never reports a write
+/// failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FsHostOp {
+    /// An open for reading (`fs::readText`, `fs::readBytes`).
+    Read,
+    /// `fs::open`/`openFile`/`openFileNoFollow`/`openWithin`: the mode is only
+    /// known at run time, so the fallback is chosen from the open flags.
+    Open,
+    /// An open for writing that creates or truncates (the writers, appenders).
+    Write,
+    /// An exclusive create (`createTempFile`, the atomic writers' temp file).
+    CreateNew,
+    /// The atomic writers' rename of the temp file over the target.
+    Replace,
+    /// `mkdir`.
+    Mkdir,
+    /// `unlink`.
+    Unlink,
+    /// `rmdir`.
+    Rmdir,
+    /// `chdir`.
+    Chdir,
+    /// A lookup that opens or resolves without reading contents
+    /// (`canonicalPath`, `isWithin`, `listDirectory`).
+    Resolve,
 }
 
-/// Filesystem-context errno mapping for path-based helpers.
+impl FsHostOp {
+    /// The call needs its path to name a file, not a directory.
+    fn requires_file(self) -> bool {
+        matches!(
+            self,
+            Self::Read | Self::Open | Self::Write | Self::CreateNew | Self::Replace | Self::Unlink
+        )
+    }
+    /// The call creates an entry, so "already exists" is a possible answer.
+    fn creates(self) -> bool {
+        matches!(self, Self::CreateNew | Self::Mkdir)
+    }
+}
+
+/// The path a failed call was given, for the classification the mapper asks
+/// [`FS_PATH_CLASS_SYMBOL`] for.
+#[derive(Clone, Copy)]
+pub(crate) enum FsPathArg {
+    /// An MFB `String` block: length at `+0`, bytes at `+8`.
+    String(Reg),
+    /// A byte pointer and a length.
+    Bytes(Reg, Reg),
+}
+
+/// What an unlisted host code reports.
+#[derive(Clone, Copy)]
+pub(crate) enum FsFallback<'a> {
+    Read,
+    Write,
+    /// `ErrReadFailed` when `flags` equals `read_only` (the read-only open mode),
+    /// else `ErrWriteFailed`.
+    ByAccess {
+        flags: Reg,
+        read_only: &'a str,
+    },
+}
+
+/// The one host-error mapping every path-taking `fs` member uses (bug-701), so a
+/// condition reports the same `errorCode` whichever member met it and whichever
+/// host it ran on:
 ///
-/// Like [`emit_errno_error_mapping`], but maps missing paths to the
-/// filesystem-specific `ErrPathNotFound` instead of the generic `ErrNotFound`,
-/// routes host errnos that indicate an unusable path string to `ErrInvalidPath`,
-/// and (for no-follow opens) maps a final-symlink `ELOOP` to `ErrAccessDenied`.
-/// The host errno is expected in `x9`, as produced by `emit_errno`.
-pub(crate) fn emit_fs_path_errno_error_mapping(
+/// * a missing entry → `ErrPathNotFound`;
+/// * a path that cannot name anything — a file used as a directory, an over-long
+///   name, an unusable byte sequence, a link loop — or a directory where a file is
+///   required, or a file where a directory is → `ErrInvalidPath`;
+/// * a refusal → `ErrAccessDenied` (a no-follow open's final-link `ELOOP` too);
+/// * an existing entry on a create → `ErrAlreadyExists`; a non-empty directory on
+///   `rmdir` → `ErrResourceBusy`;
+/// * anything else → `ErrReadFailed` for a read or lookup, `ErrWriteFailed` for a
+///   write.
+///
+/// Where the host's code does not say which of two conditions it met (Windows
+/// `ERROR_PATH_NOT_FOUND` for both a missing parent and a file used as a
+/// directory; `ERROR_ACCESS_DENIED`, and `EPERM` from `unlink`, for both a
+/// refusal and a directory where a file is required), the mapper asks
+/// [`FS_PATH_CLASS_SYMBOL`] about `path` and reports what it answers. Without a
+/// `path` it reports the host code's plain meaning.
+///
+/// Each arm branches to a `<symbol>_errno_<reason>` label; the host code is in
+/// `errno_reg` (POSIX `errno`, Windows `GetLastError`). Every arm ends at `done`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_fs_host_error_mapping(
     symbol: &str,
     errno_reg: impl Into<Reg>,
     family: PlatformFamily,
+    op: FsHostOp,
     no_follow: bool,
+    path: Option<FsPathArg>,
+    fallback: FsFallback,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
     let errno_reg: Reg = errno_reg.into();
-    // Shared error labels (family-independent).
-    let err_path_not_found = format!("{symbol}_errno_path_not_found");
-    let err_access_denied = format!("{symbol}_errno_access_denied");
-    let err_already_exists = format!("{symbol}_errno_already_exists");
-    let err_not_empty = format!("{symbol}_errno_not_empty");
-    let err_invalid_path = format!("{symbol}_errno_invalid_path");
-    let err_output = format!("{symbol}_errno_output");
-    let eloop_target = if no_follow {
-        err_access_denied.clone()
-    } else {
-        err_invalid_path.clone()
-    };
-
-    // Dispatch the host error code to a shared label. POSIX errnos are per-OS (not
-    // per-arch); Windows reports a different set through GetLastError.
+    let label = |reason: &str| format!("{symbol}_errno_{reason}");
+    let path_not_found = label("path_not_found");
+    let access_denied = label("access_denied");
+    let already_exists = label("already_exists");
+    let not_empty = label("not_empty");
+    let invalid_path = label("invalid_path");
+    let classify_missing = label("classify_missing");
+    let classify_directory = label("classify_directory");
+    let fallback_label = label("fallback");
+    let mut arms: Vec<(&str, &String)> = Vec::new();
+    let mut classify_missing_used = false;
+    let mut classify_directory_used = false;
     match family {
         PlatformFamily::Windows => {
-            instructions.extend([
-                abi::compare_immediate(errno_reg, "2"), // ERROR_FILE_NOT_FOUND
-                abi::branch_eq(&err_path_not_found),
-                abi::compare_immediate(errno_reg, "3"), // ERROR_PATH_NOT_FOUND
-                abi::branch_eq(&err_path_not_found),
-                abi::compare_immediate(errno_reg, "5"), // ERROR_ACCESS_DENIED
-                abi::branch_eq(&err_access_denied),
-                abi::compare_immediate(errno_reg, "80"), // ERROR_FILE_EXISTS
-                abi::branch_eq(&err_already_exists),
-                abi::compare_immediate(errno_reg, "183"), // ERROR_ALREADY_EXISTS
-                abi::branch_eq(&err_already_exists),
-                abi::compare_immediate(errno_reg, "145"), // ERROR_DIR_NOT_EMPTY
-                abi::branch_eq(&err_not_empty),
-                abi::compare_immediate(errno_reg, "123"), // ERROR_INVALID_NAME
-                abi::branch_eq(&err_invalid_path),
-                abi::compare_immediate(errno_reg, "206"), // ERROR_FILENAME_EXCED_RANGE
-                abi::branch_eq(&err_invalid_path),
-                abi::branch(&err_output),
-            ]);
+            arms.push(("2", &path_not_found)); // ERROR_FILE_NOT_FOUND
+            if path.is_some() {
+                arms.push(("3", &classify_missing)); // ERROR_PATH_NOT_FOUND
+                classify_missing_used = true;
+            } else {
+                arms.push(("3", &path_not_found));
+            }
+            if op.requires_file() && path.is_some() {
+                arms.push(("5", &classify_directory)); // ERROR_ACCESS_DENIED
+                classify_directory_used = true;
+            } else {
+                arms.push(("5", &access_denied));
+            }
+            if op.creates() {
+                arms.push(("80", &already_exists)); // ERROR_FILE_EXISTS
+                arms.push(("183", &already_exists)); // ERROR_ALREADY_EXISTS
+            }
+            if op == FsHostOp::Rmdir {
+                arms.push(("145", &not_empty)); // ERROR_DIR_NOT_EMPTY
+            }
+            arms.push(("123", &invalid_path)); // ERROR_INVALID_NAME
+            arms.push(("206", &invalid_path)); // ERROR_FILENAME_EXCED_RANGE
+            arms.push(("267", &invalid_path)); // ERROR_DIRECTORY
+            arms.push(("1921", &invalid_path)); // ERROR_CANT_RESOLVE_FILENAME
         }
         _ => {
             // errno values are per-OS, not per-arch.
@@ -220,38 +260,173 @@ pub(crate) fn emit_fs_path_errno_error_mapping(
             let enametoolong = if linux { "36" } else { "63" };
             let eilseq = if linux { "84" } else { "92" };
             let enotempty = if linux { "39" } else { "66" };
-            instructions.extend([
-                abi::compare_immediate(errno_reg, "2"),
-                abi::branch_eq(&err_path_not_found),
-                abi::compare_immediate(errno_reg, "13"),
-                abi::branch_eq(&err_access_denied),
-                abi::compare_immediate(errno_reg, "17"),
-                abi::branch_eq(&err_already_exists),
-                abi::compare_immediate(errno_reg, enotempty),
-                abi::branch_eq(&err_not_empty),
-                abi::compare_immediate(errno_reg, "20"),
-                abi::branch_eq(&err_invalid_path),
-                abi::compare_immediate(errno_reg, enametoolong),
-                abi::branch_eq(&err_invalid_path),
-                abi::compare_immediate(errno_reg, eilseq),
-                abi::branch_eq(&err_invalid_path),
-                abi::compare_immediate(errno_reg, eloop),
-                abi::branch_eq(&eloop_target),
-                abi::branch(&err_output),
-            ]);
+            arms.push(("2", &path_not_found)); // ENOENT
+            arms.push(("13", &access_denied)); // EACCES
+            if op == FsHostOp::Unlink && path.is_some() {
+                // macOS `unlink` of a directory is EPERM.
+                arms.push(("1", &classify_directory));
+                classify_directory_used = true;
+            } else {
+                arms.push(("1", &access_denied)); // EPERM
+            }
+            if op.creates() {
+                arms.push(("17", &already_exists)); // EEXIST
+            }
+            if op == FsHostOp::Rmdir {
+                arms.push((enotempty, &not_empty));
+                arms.push(("17", &not_empty)); // POSIX allows EEXIST for it
+            }
+            arms.push(("20", &invalid_path)); // ENOTDIR
+            if op.requires_file() {
+                arms.push(("21", &invalid_path)); // EISDIR
+            }
+            arms.push((enametoolong, &invalid_path));
+            arms.push((eilseq, &invalid_path));
+            arms.push((
+                eloop,
+                if no_follow {
+                    &access_denied
+                } else {
+                    &invalid_path
+                },
+            ));
         }
     }
-    instructions.extend([abi::label(&err_path_not_found)]);
-    raise_error_into(symbol, "ErrPathNotFound", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_access_denied)]);
-    raise_error_into(symbol, "ErrAccessDenied", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_already_exists)]);
-    raise_error_into(symbol, "ErrAlreadyExists", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_not_empty)]);
-    raise_error_into(symbol, "ErrResourceBusy", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_invalid_path)]);
-    raise_error_into(symbol, "ErrInvalidPath", instructions, relocations);
-    instructions.extend([abi::branch(done), abi::label(&err_output)]);
-    raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
-    instructions.push(abi::branch(done));
+    for (code, target) in &arms {
+        instructions.extend([
+            abi::compare_immediate(errno_reg, code),
+            abi::branch_eq(target.as_str()),
+        ]);
+    }
+    instructions.push(abi::branch(&fallback_label));
+    let path = |instructions: &mut Vec<CodeInstruction>| {
+        emit_path_arguments(
+            path.expect("a classification arm is emitted only with a path"),
+            instructions,
+        )
+    };
+    let classify = |instructions: &mut Vec<CodeInstruction>,
+                    relocations: &mut Vec<CodeRelocation>,
+                    from: &str,
+                    class: &str,
+                    matched: &str,
+                    otherwise: &str| {
+        instructions.push(abi::label(from));
+        path(instructions);
+        instructions.push(abi::branch_link(FS_PATH_CLASS_SYMBOL));
+        relocations.push(crate::codegen::engine::builder::internal_branch(
+            symbol,
+            FS_PATH_CLASS_SYMBOL,
+        ));
+        // `b.ne` first: an `errno_` label is reached from host codes only, and
+        // the class values are not host codes.
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), class),
+            abi::branch_ne(otherwise),
+            abi::branch(matched),
+        ]);
+    };
+    if classify_missing_used {
+        classify(
+            instructions,
+            relocations,
+            &classify_missing,
+            PATH_CLASS_UNUSABLE,
+            &invalid_path,
+            &path_not_found,
+        );
+    }
+    if classify_directory_used {
+        classify(
+            instructions,
+            relocations,
+            &classify_directory,
+            PATH_CLASS_DIRECTORY,
+            &invalid_path,
+            &access_denied,
+        );
+    }
+    let used = |target: &String| arms.iter().any(|(_, arm)| *arm == target);
+    let tail = |instructions: &mut Vec<CodeInstruction>,
+                relocations: &mut Vec<CodeRelocation>,
+                at: &str,
+                error: &str| {
+        instructions.push(abi::label(at));
+        raise_error_into(symbol, error, instructions, relocations);
+        instructions.push(abi::branch(done));
+    };
+    // `path_not_found`, `access_denied` and `invalid_path` are always reachable
+    // (every arm set lists them, and the classifications branch to them).
+    tail(
+        instructions,
+        relocations,
+        &path_not_found,
+        "ErrPathNotFound",
+    );
+    tail(instructions, relocations, &access_denied, "ErrAccessDenied");
+    tail(instructions, relocations, &invalid_path, "ErrInvalidPath");
+    if used(&already_exists) {
+        tail(
+            instructions,
+            relocations,
+            &already_exists,
+            "ErrAlreadyExists",
+        );
+    }
+    if used(&not_empty) {
+        tail(instructions, relocations, &not_empty, "ErrResourceBusy");
+    }
+    match fallback {
+        FsFallback::Read => tail(instructions, relocations, &fallback_label, "ErrReadFailed"),
+        FsFallback::Write => tail(instructions, relocations, &fallback_label, "ErrWriteFailed"),
+        FsFallback::ByAccess { flags, read_only } => {
+            let write_failed = label("fallback_write");
+            // Through a register: Windows packs its open flags past imm32.
+            instructions.extend([
+                abi::label(&fallback_label),
+                abi::move_immediate(abi::c_arg(0), "Integer", read_only),
+                abi::compare_registers(flags, abi::c_arg(0)),
+                abi::branch_ne(&write_failed),
+            ]);
+            raise_error_into(symbol, "ErrReadFailed", instructions, relocations);
+            instructions.push(abi::branch(done));
+            tail(instructions, relocations, &write_failed, "ErrWriteFailed");
+        }
+    }
+}
+
+/// Branch to `is_directory` when `path` names an existing directory (bug-701),
+/// by asking [`FS_PATH_CLASS_SYMBOL`]. Clobbers every caller-saved register: a
+/// caller that must keep a value across it holds it in a vreg.
+pub(crate) fn emit_branch_if_directory(
+    symbol: &str,
+    path: FsPathArg,
+    is_directory: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    emit_path_arguments(path, instructions);
+    instructions.push(abi::branch_link(FS_PATH_CLASS_SYMBOL));
+    relocations.push(crate::codegen::engine::builder::internal_branch(
+        symbol,
+        FS_PATH_CLASS_SYMBOL,
+    ));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), PATH_CLASS_DIRECTORY),
+        abi::branch_eq(is_directory),
+    ]);
+}
+
+/// Stage `path` as [`FS_PATH_CLASS_SYMBOL`]'s arguments: bytes, then length.
+fn emit_path_arguments(path: FsPathArg, instructions: &mut Vec<CodeInstruction>) {
+    match path {
+        FsPathArg::String(string) => instructions.extend([
+            abi::load_u64(abi::c_arg(1), string, 0),
+            abi::add_immediate(abi::c_arg(0), string, 8),
+        ]),
+        FsPathArg::Bytes(ptr, len) => instructions.extend([
+            abi::move_register(abi::c_arg(0), ptr),
+            abi::move_register(abi::c_arg(1), len),
+        ]),
+    }
 }

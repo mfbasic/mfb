@@ -146,7 +146,8 @@ binding goes out of scope. `tcp::close` closes one earlier — to release a
 listening port for reuse, to let a peer observe the end of the stream promptly,
 or to bound how many connections a long-running program holds open at once. Calling `tcp::close` again on a handle it already closed raises
 `ErrResourceClosed`, as does any other use of a closed handle, and a `Socket`
-may be handed to another thread with `thread::transfer`.
+or `Listener` may be handed to another thread with `thread::transfer`; any use
+of it afterwards on the sending thread raises `ErrResourceMoved`.
 
 `tcp::read` returns bytes and never text: a stream read stops wherever the
 network divided it, which need not be a Unicode-scalar boundary, so decoding belongs
