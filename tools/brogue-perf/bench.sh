@@ -32,9 +32,13 @@ mfb="${MFB:-$repo/target/release/mfb}"
 # read of a module global through a pure index helper) and fixed it in the
 # compiler: 17.6x measured (median of 7, /tmp/mfb-heavy.lock held, 2026-09-26).
 # What remains is call/spill overhead in cellularAutomataRound and its leaf
-# helpers (bug-740). 25 leaves headroom over 17.6 for run-to-run noise on this
+# helpers (bug-740). 25 left headroom over 17.6 for run-to-run noise on this
 # shared machine while still failing on any return of the copying.
-BUDGET_RATIO="${BUDGET_RATIO:-25}"
+# bug-740 / plan-161-B (stack slot promotion, live-across-call coloring,
+# -O1 coalescing) took it to 7.6x (lock held, median of 7, 2026-09-27; plan-161-A
+# alone measured 18.3x vs 18.0x at main -- noise). 11 keeps the same ~1.4x
+# headroom.
+BUDGET_RATIO="${BUDGET_RATIO:-11}"
 RUNS=5
 QUIET=0
 
