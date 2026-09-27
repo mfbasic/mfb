@@ -90,41 +90,56 @@ Acceptance: the test passes; the example builds against the source package.
   copy of `examples/audio` with `"source": "file:…/packages/libsnd"` →
   `Wrote executable to /tmp/p158/audiofile/build/audio.out`, and
   `build/packages/libsnd.vendor/` holds the vendored libraries.
-Commit: —
+Commit: bfe54e51c
 
 ### Phase 2 — libsnd Windows locator + release
 
-- [ ] `packages/libsnd/project.json`: add `{ "os": "windows", "arch": "x86_64", "type":
+- [x] `packages/libsnd/project.json`: add `{ "os": "windows", "arch": "x86_64", "type":
       "vendor", "source": "sndfile.dll" }`; bump `version` per Open Decision 1; update
-      `description` (it lists the vendored targets).
-- [ ] Check the DLL's imports are system-only:
+      `description` (it lists the vendored targets). — 1.6.0; the description no longer
+      claims `buildLibsndfile.sh` produced every library (it builds only macOS/Linux;
+      the DLL came in with plan-50-G, C3).
+- [x] Check the DLL's imports are system-only:
       `llvm-objdump -p packages/libsnd/vendor/sndfile.dll | grep 'DLL Name'`. Record the
-      result here. A codec DLL dependency is a blocker to report.
-- [ ] Per Open Decision 1: publish the new version as user `jzaun` (the user authorized
-      this on 2026-09-26), or keep it local.
+      result here. A codec DLL dependency is a blocker to report. — `objdump -p` (the
+      host's objdump is llvm-objdump) → `DLL Name: KERNEL32.dll` only.
+- [x] Per Open Decision 1: publish the new version as user `jzaun` (the user authorized
+      this on 2026-09-26), or keep it local. — user re-confirmed publishing on
+      2026-09-27. `mfb repo auth jzaun`, then `mfb repo publish jzaun packages/libsnd` →
+      `Published jzaun#libsnd@1.6.0 as 49a72c875bfd93ce66a498b395b724fa284d308dfc2b16f6d5dbcd2bb68dcdaa`,
+      `Vendor blobs: 1 uploaded, 7 already present`, inclusion verified at log index 27.
 
 Acceptance: the Windows build of the example links the DLL.
   Check: `mfb build --target windows-x86_64 examples/audio` → `Wrote executable …audio.exe`,
-  and `examples/audio/build/vendor/libsnd-sndfile.dll` exists (est. 2 min).
-Commit: —
+  and `examples/audio/build/vendor/libsnd-sndfile.dll` exists (est. 2 min). — met
+  (`Wrote executable to examples/audio/build/audio.exe`; `build/vendor/libsnd-sndfile.dll`).
+Commit: b4114b039
 
 ### Phase 3 — examples/audio
 
-- [ ] `examples/audio/project.json`: point at the chosen source (Open Decision 1).
-- [ ] `examples/audio/src/main.mfb`: open the 48 kHz MML stream only around each
+- [x] `examples/audio/project.json`: point at the chosen source (Open Decision 1). —
+      `mfb pkg update "jzaun#libsnd@1.6.0" --pin --yes` → `Updated jzaun#libsnd 1.5.0 ->
+      1.6.0 (pinned)`, `Downloaded 8 vendor libraries`.
+- [x] `examples/audio/src/main.mfb`: open the 48 kHz MML stream only around each
       `audio::play` (a `SUB playTune`) instead of holding `out` for the session, so a
-      file stream cannot invalidate it (plan-158-C Bug 2).
-- [ ] `examples/audio/README.md`: Windows build/run line; update §Dependency (the DLL
+      file stream cannot invalidate it (plan-158-C Bug 2). — `FUNC playTune` and
+      `FUNC playTracks … AS Nothing`, not `SUB` (plan-159 removes `SUB`, C2).
+- [x] `examples/audio/README.md`: Windows build/run line; update §Dependency (the DLL
       now exists; version).
-- [ ] Box proof: ship `audio.exe`, `music/`, `vendor/` (tar with `COPYFILE_DISABLE=1`),
-      and have the user play items 1–4 on "Speakers (2- Synaptics HD Audio)".
+- [x] Box proof: ship `audio.exe`, `music/`, `vendor/` (tar with `COPYFILE_DISABLE=1`),
+      and have the user play items 1–4 on "Speakers (2- Synaptics HD Audio)". — run in
+      the console session (`schtasks /it`): items 2–4 in one run (`Playing 44100 Hz, 2
+      channel(s), 23288808 frames`, then `11229460 frames`, `Done`, `exit=0`), item 1
+      in a second (`Done`, `exit=0`); the user confirmed all four audible
+      ("Everything works. MML and ogg files"; Twinkle confirmed separately).
 
 Acceptance: user confirms all four items are audible on the box; no error lines.
   Check: `ssh test@192.168.1.206 "cd audio-test && audio.exe < in.txt"` with input
   `1\n1\n2\n3\n4\nQ\n` → ends with `Done` (est. 20 min: Mozart1 alone is 23 288 808
   frames at 44.1 kHz, about 8.8 min, measured from the `Playing …` line; nothing shorter
-  exercises the full file path. Use a shorter excerpt if the user prefers).
-Commit: —
+  exercises the full file path. Use a shorter excerpt if the user prefers). — met,
+  both runs end `Done` (C4 on the device prompt).
+Commit: b4114b039 (example + README) and the ledger commit that archives this plan
 
 ## Validation Plan
 
@@ -144,6 +159,18 @@ Commit: —
 - **C1 (spec location).** The source-dependency mechanism is documented in
   `mfb spec language modules-and-packages` (the `build_source_dependencies`
   paragraph), not in the CLI reference, so the staging sentence went there.
+- **C2 (FUNC, not SUB).** plan-159 (pending) removes `SUB`; the new helpers are
+  `FUNC … AS Nothing` so the example adds nothing to that migration.
+- **C3 (DLL provenance).** `buildLibsndfile.sh` has no Windows path (a case-insensitive
+  grep for dll/windows/mingw finds nothing); `sndfile.dll` was committed in plan-50-G.
+  Its strings show the Ogg Opus codec built in and it imports only KERNEL32, so "no
+  codec packages needed" holds; the description now says where each library comes from.
+- **C4 (the device prompt comes and goes).** Box 206 lists one output device when no
+  display is attached (auto-selected, no prompt) and two (`ELEFW195 (Intel(R) Display
+  Audio)`, Speakers) when one is. The plan's input assumes the prompt. The first run,
+  fed `1,2,3,4,Q` after an ssh check had shown one device, met the prompt, so its first
+  line selected Speakers and it played 2–4; item 1 was played in a second run fed
+  `1,1,Q`.
 
 ## Summary
 
