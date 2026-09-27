@@ -162,6 +162,83 @@ const TCP_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
      arm (bind + listen(2)) does not",
 )];
 
+/// `collections`' shared map/collection-lifecycle runtime helpers, none of
+/// which has a `raise_error_into`/`raise_error_bare` site in its own
+/// definition (`lower_map_bucket_put_helper`/`lower_map_probe_helper` in
+/// `codegen/engine/builder/mod.rs`, `lower_map_reclaim_helper` in
+/// `codegen/collection/map/map_bucket_remove.rs`,
+/// `lower_drop_owned_collection_helper` in
+/// `codegen/error/emission/park_error_helper.rs`).
+const COLLECTIONS_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_make_error_result",
+        "packages an error code the caller already loaded",
+    ),
+    (
+        "_mfb_rt_park_error",
+        "parks an error the caller already raised",
+    ),
+    (
+        "_mfb_rt_map_probe",
+        "FNV-1a bucket lookup; pure computation, no allocation",
+    ),
+    (
+        "_mfb_rt_map_bucket_put",
+        "maintains the incremental bucket index on set; no raise_error site",
+    ),
+    (
+        "_mfb_rt_map_reclaim",
+        "packs a map's live payloads in place, returning 0/1; no raise_error site",
+    ),
+    (
+        "_mfb_rt_drop_owned_collection",
+        "frees one owned collection slot; never fails",
+    ),
+];
+
+/// `append`/`prepend` share `lower_collection_end_insert` with `insert`
+/// (`gen_mutate.rs`), which range-checks the index before
+/// `lower_list_insert_collection` inserts — one inlined instruction stream, no
+/// callee boundary, so this is the direct-body counterpart of
+/// `UNREACHABLE_VIA_CALLEE` (see `tcp`'s `TCP_UNREACHABLE_OWN_RAISE`). For
+/// `append`/`prepend` the index is computed as the list's own current `count`
+/// or `0` — both are always within `0..=count`, the exact valid insert range —
+/// so the range-check can never fail for them; only `insert`'s caller-supplied
+/// index can be out of range.
+const COLLECTIONS_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[
+    (
+        "append",
+        "ErrIndexOutOfRange",
+        "the insertion index is the list's own count -- always == count, so the \
+         shared range-check can never fail",
+    ),
+    (
+        "prepend",
+        "ErrIndexOutOfRange",
+        "the insertion index is the constant 0 -- always within 0..=count, so \
+         the shared range-check can never fail",
+    ),
+];
+
+#[test]
+fn every_collections_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "collections",
+        COLLECTIONS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        COLLECTIONS_UNREACHABLE_OWN_RAISE,
+        &[],
+        &[],
+        1,
+    );
+}
+
 #[test]
 fn every_big_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises("big", ARENA, NONE_P, NONE_U, 1);

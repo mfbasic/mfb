@@ -36,7 +36,7 @@ the call can catch.
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not
-raise when the key is absent."#;
+raise when the key is absent. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Remove the second element:
 
@@ -103,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec!["ErrIndexOutOfRange"],
+            errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::abi_inline(lower_remove_at),
         }],
     });

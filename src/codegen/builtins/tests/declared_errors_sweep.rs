@@ -34,6 +34,7 @@ use crate::codegen::engine::types::{
 use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, AbiCtx, Body, Implementation, RegistryFunction};
 use crate::os::linux::flavor::LinuxFlavor;
+use crate::types::ParameterType;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The five real backends. The stub `TestPlatform` leaves the OS hooks
@@ -175,6 +176,40 @@ pub(crate) fn call_forms(package: &str, function: &RegistryFunction, implementat
 /// A body refuses when an import or string literal it needs is not declared.
 /// The plan derives both from the program, so supply each one it names and
 /// lower again until it succeeds.
+/// Bind every [`ParameterType::Var`] in `ty` to `Integer` — a real call site
+/// unifies a generic member's type variable against its concrete argument
+/// (`collections::get(List OF T, Integer) AS T` binding `T`); this sweep has
+/// no call site, so it picks a stand-in concrete type instead, recursing
+/// through every structural wrapper so `List OF T`/`Map OF K TO V` become
+/// `List OF Integer`/`Map OF Integer TO Integer` — concrete enough for the
+/// native collection layout to lower (`collections`/`strings`' generic
+/// members otherwise refuse with "packed payload does not support type 'T'").
+fn concretize(ty: &ParameterType) -> ParameterType {
+    match ty {
+        ParameterType::Var(_) => ParameterType::Integer,
+        ParameterType::ListOf(inner) => ParameterType::ListOf(Box::new(concretize(inner))),
+        ParameterType::SetOf(inner) => ParameterType::SetOf(Box::new(concretize(inner))),
+        ParameterType::ResultOf(inner) => ParameterType::ResultOf(Box::new(concretize(inner))),
+        ParameterType::Res(inner) => ParameterType::Res(Box::new(concretize(inner))),
+        ParameterType::MapOf(key, value) => {
+            ParameterType::MapOf(Box::new(concretize(key)), Box::new(concretize(value)))
+        }
+        ParameterType::MapEntryOf(key, value) => {
+            ParameterType::MapEntryOf(Box::new(concretize(key)), Box::new(concretize(value)))
+        }
+        ParameterType::Stateful { base, state } => ParameterType::Stateful {
+            base: Box::new(concretize(base)),
+            state: Box::new(concretize(state)),
+        },
+        ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+            params.iter().map(concretize).collect(),
+            Box::new(concretize(ret)),
+            *isolated,
+        ),
+        other => other.clone(),
+    }
+}
+
 pub(crate) fn lower_body_call(
     call: &str,
     implementation: &Implementation,
@@ -185,7 +220,7 @@ pub(crate) fn lower_body_call(
         .params
         .iter()
         .map(|param| ValueResult {
-            type_: param.ty.clone(),
+            type_: concretize(&param.ty),
             location: Operand::from(vregs.next()),
             text: param.name.to_string(),
             origin: None,

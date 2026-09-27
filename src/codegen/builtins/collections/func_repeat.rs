@@ -43,7 +43,7 @@ result is the same either way.
 
 `repeat` works on lists only; a map or set has no positions. To repeat text,
 use `strings::repeat`. To add a single element, use `collections::append`; to
-replace one, `collections::set`."#;
+replace one, `collections::set`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Build, reset, and fill part of a list:
 
@@ -131,7 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument"],
+            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::abi_inline(lower_repeat),
         }],
     });

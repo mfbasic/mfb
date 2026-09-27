@@ -65,7 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower_to_list),
         }],
     });
