@@ -237,7 +237,10 @@ fn a_sub_call_in_value_position_is_still_rejected() {
     let root = project("subdiag", &main_sub("  LET y = sb(1)\n"));
     let (ok, combined) = mfb_build(&root);
     let _ = fs::remove_dir_all(&root);
-    assert!(!ok, "a SUB call in value position must not build:\n{combined}");
+    assert!(
+        !ok,
+        "a SUB call in value position must not build:\n{combined}"
+    );
     assert!(
         combined.contains("TYPE_SUB_HAS_NO_VALUE") && !combined.contains("panicked"),
         "expected TYPE_SUB_HAS_NO_VALUE, got:\n{combined}"
