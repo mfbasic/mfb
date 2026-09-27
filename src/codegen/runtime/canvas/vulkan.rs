@@ -41,39 +41,38 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT,
-    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON,
-    GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START,
-    GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS,
-    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
-    GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
-    GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
-    GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
-    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES, GRAPHICS_OFFSET_VULKAN_QUEUE,
-    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
-    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
-    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X,
-    HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1,
-    HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
+    emit_item_arc_flags, emit_item_residual_field, emit_item_stroke_sign, push_symbol_address,
+    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT,
+    CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS,
+    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
+    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
+    GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
+    GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
+    GRAPHICS_OFFSET_VULKAN_IMAGE, GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW, GRAPHICS_OFFSET_VULKAN_INSTANCE,
+    GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER, GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
+    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
+    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
+    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
+    HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
     HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND,
     HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
-    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
-    HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
-    HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP,
-    ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START,
-    ITEM_BAND_TOP, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT,
-    ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL,
-    ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND,
+    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
+    HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
+    HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
+    ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC,
+    ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
+    ITEM_OFFSET_MISC, ITEM_OFFSET_MISC_LO, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE,
+    ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_RESIDUAL_FIELDS, ITEM_SURFACE_BLEND,
     ITEM_SURFACE_GRADIENT_KIND, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
     VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES, VULKAN_EDGE_RESIDUAL_BASE_WORDS,
     VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS, VULKAN_ITEM_BUFFER_BYTES,
@@ -524,12 +523,14 @@ const PUSH_RANGE_STAGES: usize = 0;
 const PUSH_RANGE_OFFSET: usize = 4;
 const PUSH_RANGE_BYTES: usize = 8;
 
-/// The per-draw group offset: two 32-bit words, `dx` and `dy` in 16.16 (plan-116-H).
+/// The per-draw group offset: `dx` and `dy` in 16.16 (plan-116-H), then (bug-735) their
+/// residual words, `ivec4 offset` in both stages. Four 32-bit words.
 ///
-/// Eight bytes against the 128 every implementation guarantees, so the size is not the
+/// Sixteen bytes against the 128 every implementation guarantees, so the size is not the
 /// constraint — the constraint is that it is the *only* push constant, so its offset is
-/// 0 and any future addition has to be appended rather than inserted.
-const PUSH_OFFSET_BYTES: usize = 8;
+/// 0 and any future addition has to be appended rather than inserted, as the residuals
+/// were.
+const PUSH_OFFSET_BYTES: usize = 16;
 
 /// `VkAttachmentDescription`, 36 bytes.
 const ATTACHMENT_SIZE: usize = 36;
@@ -3464,7 +3465,7 @@ fn emit_item_block(
     ));
     builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // The 16.16 fields: bounds, shape parameters, arc angles.
+    // The 16.16 fields no distance reads: the bounds and the gradient axis.
     for (item_offset, slots) in [
         (
             ITEM_OFFSET_QUAD,
@@ -3473,44 +3474,6 @@ fn emit_item_block(
                 HEADER_BOUNDS + 1,
                 HEADER_BOUNDS + 2,
                 HEADER_BOUNDS + 3,
-            ],
-        ),
-        (
-            ITEM_OFFSET_SHAPE,
-            [
-                HEADER_SHAPE,
-                HEADER_SHAPE + 1,
-                HEADER_SHAPE + 2,
-                HEADER_SHAPE + 3,
-            ],
-        ),
-        (
-            ITEM_OFFSET_ARC,
-            [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
-        ),
-        // plan-116-D: an arc's two sweep endpoints, four consecutive header slots
-        // narrowing to 16.16 exactly like the bounds — so the new `ivec4` rides this
-        // loop rather than adding a hand-written store per coordinate. Written for
-        // every kind; only a Round-capped arc reads them.
-        (
-            ITEM_OFFSET_ARC_CAPS,
-            [
-                HEADER_CAP_START_X,
-                HEADER_CAP_START_X + 1,
-                HEADER_CAP_END_X,
-                HEADER_CAP_END_X + 1,
-            ],
-        ),
-        // plan-116-E: an ellipse's rotation as cos, sin. The trailing pair repeats the
-        // sine rather than naming an unused slot, because this loop writes four words
-        // and the shader reads only x and y — the same shape the arc row above uses.
-        (
-            ITEM_OFFSET_ELLIPSE,
-            [
-                HEADER_ELLIPSE_COS,
-                HEADER_ELLIPSE_SIN,
-                HEADER_ELLIPSE_SIN,
-                HEADER_ELLIPSE_SIN,
             ],
         ),
         // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
@@ -3522,18 +3485,6 @@ fn emit_item_block(
                 HEADER_GRADIENT_FROM_X + 1,
                 HEADER_GRADIENT_FROM_X + 2,
                 HEADER_GRADIENT_FROM_X + 3,
-            ],
-        ),
-        // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
-        // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
-        // the bounds above, and no arithmetic repeated per item.
-        (
-            ITEM_OFFSET_CLIP,
-            [
-                HEADER_CLIP_X0,
-                HEADER_CLIP_Y0,
-                HEADER_CLIP_X1,
-                HEADER_CLIP_Y1,
             ],
         ),
     ] {
@@ -3554,6 +3505,38 @@ fn emit_item_block(
                 off_item + item_offset + index * 4,
             ));
         }
+    }
+
+    // bug-735: every field a distance reads -- the shape parameters, the radius and
+    // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
+    // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
+    // the loop in Metal's `emit_item_block`, from the same table.
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[1],
+    ));
+    for (slot, word, residual) in ITEM_RESIDUAL_FIELDS {
+        for instruction in
+            emit_item_residual_field(header, slot, off_item + word, off_item + residual)
+        {
+            builder.emit(instruction);
+        }
+    }
+    let positive = builder.label("vk_item_stroke_positive");
+    let signed = builder.label("vk_item_stroke_done");
+    for instruction in emit_item_stroke_sign(header, off_item, &positive, &signed) {
+        builder.emit(instruction);
+    }
+    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    let set = builder.label("vk_item_reflex_set");
+    let done = builder.label("vk_item_reflex_done");
+    for instruction in emit_item_arc_flags(header, off_item, &set, &done) {
+        builder.emit(instruction);
     }
 
     // Both colours, as whole numbers.
@@ -3579,30 +3562,14 @@ fn emit_item_block(
         }
     }
 
-    // misc = { kind, radius (16.16), strokeHalf (16.16), edgeCount }
-    for (index, slot, fixed) in [
-        (0usize, HEADER_KIND, false),
-        (1, HEADER_RADIUS, true),
-        (2, HEADER_STROKE_HALF, true),
-        (3, HEADER_AUX0, false),
-    ] {
+    // misc = { kind, radius, strokeHalf, edgeCount }: the two whole numbers here, the
+    // two 16.16 ones with their residuals above.
+    for (index, slot) in [(0usize, HEADER_KIND), (3, HEADER_AUX0)] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        if fixed {
-            builder.emit(abi::float_multiply_d(
-                abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                scale,
-            ));
-            builder.emit(abi::float_round_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
-        } else {
-            builder.emit(abi::float_convert_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
-        }
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
         builder.emit(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -5163,6 +5130,7 @@ fn emit_split_or_publish(
 ) {
     let single = builder.label("vk_publish_single");
     let done = builder.label("vk_publish_done");
+    let strokes = builder.label("vk_publish_strokes");
 
     // Split only when the mode is not Normal...
     builder.emit(abi::load_u64(
@@ -5172,7 +5140,12 @@ fn emit_split_or_publish(
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_eq(&single));
-    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16).
+    // ...and the item actually strokes: `strokeHalf` > 0, which since bug-735 is its
+    // 16.16 word > 0 or, for a word of 0, its residual > 0 -- `emit_item_stroke_sign`
+    // makes that exactly the header's f64 `half > 0.0`, the test
+    // `__canvas_blockInstances` counts two records on. Before it this read the word
+    // alone, so a blended filled item stroked thinner than 2^-16 px was counted as two
+    // records and published as one, and every later draw named the wrong blocks.
     //
     // SIGNED, and that is the whole point. `__canvas_strokeHalf` returns **-1.0** for a
     // paint that does not stroke, which is `0xFFFF0000` in 16.16 -- and `load_u32`
@@ -5193,7 +5166,17 @@ fn emit_split_or_publish(
     ));
     builder.emit(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_gt(&strokes));
+    builder.emit(abi::branch_lt(&single));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC_LO + 4,
+    ));
+    builder.emit(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_le(&single));
+    builder.emit(abi::label(&strokes));
     // ...and actually fills (fill alpha > 0). A `Line` or an `Arc` reaches here with
     // its stroke colour already moved into the fill slots and `strokeHalf` negative
     // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
@@ -5214,6 +5197,11 @@ fn emit_split_or_publish(
     // whatever the buffer pointer was, i.e. an enormous stroke band, and the Vulkan
     // harness reported `worst=215` with the GPU painting stroke pixels the oracle
     // never touched.
+    //
+    // Off is -1.0 (`0xFFFF0000`), the value `__canvas_strokeHalf` reports for a paint
+    // that does not stroke: since bug-735 the shader strokes on the word PLUS its
+    // residual, and a zero word under a positive residual would still stroke. Spelled
+    // unsigned: the store keeps the low 32 bits.
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -5224,7 +5212,13 @@ fn emit_split_or_publish(
         abi::stack_pointer(),
         off_saved_stroke,
     ));
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    // -1.0 in 16.16, spelled unsigned: the immediate is never negative, and the store
+    // keeps the low 32 bits.
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "4294901760",
+    ));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -5295,8 +5289,9 @@ fn emit_draw_list_pass(
 
     let off_push_fn = builder.allocate_stack_object("vk_push_fn", 8);
     let off_index = builder.allocate_stack_object("vk_drawlist_index", 8);
-    // The two 16.16 words, contiguous, so `pValues` can point straight at them.
-    let off_offset_pair = builder.allocate_stack_object("vk_push_offset", 8);
+    // The two 16.16 words and their residual words, contiguous, so `pValues` can point
+    // straight at them.
+    let off_offset_pair = builder.allocate_stack_object("vk_push_offset", PUSH_OFFSET_BYTES);
 
     let off_bind_fn = builder.allocate_stack_object("vk_drawlist_bind_fn", 8);
     for (name, slot) in [
@@ -5402,15 +5397,16 @@ fn emit_draw_list_pass(
     ));
     emit_call_fn(builder, off_bind_fn);
 
-    // Now the offset pair, into the slot the bind above borrowed.
-    builder.emit(abi::load_u64(&word, &entry, 16));
-    builder.emit(abi::store_u32(&word, abi::stack_pointer(), off_offset_pair));
-    builder.emit(abi::load_u64(&word, &entry, 24));
-    builder.emit(abi::store_u32(
-        &word,
-        abi::stack_pointer(),
-        off_offset_pair + 4,
-    ));
+    // Now the offset pair and (bug-735) its residual words, entry words 5 and 6, into
+    // the slot the bind above borrowed.
+    for (word_index, at) in [(2usize, 0usize), (3, 4), (5, 8), (6, 12)] {
+        builder.emit(abi::load_u64(word, entry, word_index * 8));
+        builder.emit(abi::store_u32(
+            word,
+            abi::stack_pointer(),
+            off_offset_pair + at,
+        ));
+    }
 
     // vkCmdPushConstants(cmd, layout, stageFlags, offset, size, pValues)
     builder.emit(abi::load_u64(

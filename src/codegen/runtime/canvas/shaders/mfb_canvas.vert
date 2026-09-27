@@ -22,7 +22,7 @@ struct ItemBlock {
     ivec4 fill;    // 32: RGBA 0..255
     ivec4 stroke;  // 48: RGBA 0..255
     ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
-    ivec4 arc;     // 80: startAngle, endAngle (16.16 rad), edgeBase, capStyle
+    ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
     ivec4 surface; //  96: width, height, blendMode, unused
     ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
@@ -31,6 +31,13 @@ struct ItemBlock {
     ivec4 ellipse; // 176: an ellipse's rotation cos, sin (16.16); then a gradient's
                    //      stop count and first-stop index
     ivec4 gradient; // 192: a gradient's axis startX,startY,endX,endY (16.16 px)
+    // bug-735: the residual words (units of 2^-47 px) of every field a distance reads.
+    // Declared here as well as in the fragment stage because THIS declaration sets the
+    // array stride (272); the vertex stage reads none of them.
+    ivec4 shapeLo;  // 208: of shape.xyzw
+    ivec4 capsLo;   // 224: of arcCaps.xyzw
+    ivec4 clipLo;   // 240: of clip.xyzw
+    ivec4 miscLo;   // 256: of misc.y, misc.z, ellipse.x, ellipse.y
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -50,8 +57,10 @@ layout(location = 0) flat out int vItem;
 // the fragment stage subtracts it before evaluating the distance field — because a
 // range no stage consumes is a layout the validation layers reject, which is why
 // plan-116-A deleted the range rather than leaving it empty (H4).
+//
+// bug-735: `zw` are the residual words of `xy`; only the fragment stage reads them.
 layout(push_constant) uniform Draw {
-    ivec2 offset;
+    ivec4 offset;
 } draw;
 
 const float FIXED = 65536.0;
