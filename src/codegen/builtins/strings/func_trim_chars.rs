@@ -38,7 +38,7 @@ than a set of scalars, use `strings::stripPrefix` or `strings::stripSuffix`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit."#;
+and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Trim a set of surrounding scalars:
 
@@ -252,7 +252,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

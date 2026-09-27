@@ -1414,10 +1414,21 @@ mod tests {
             "strings.right",
             "strings.padLeft",
             "strings.padRight",
+            // bug-731: these three build a new String (case-mapped/trimmed) through
+            // the same allocating path as every other result-building `strings`
+            // member, so they can raise ErrOutOfMemory too — measured directly by
+            // lowering their real body and scanning the emitted instructions for
+            // the raise (`declared_errors_all.rs`'s `every_strings_member_declares_
+            // exactly_the_errors_its_lowering_raises`), not inferred. They used to
+            // be believed infallible; that was the bug.
+            "strings.upper",
+            "strings.lower",
+            "strings.trim",
         ] {
             assert!(
                 !inline_builtin_is_infallible(name, &[], &NoTypeKinds),
-                "{name} raises ErrInvalidArgument; an infallible verdict elides a live handler"
+                "{name} raises ErrOutOfMemory (and, for left/right/padLeft/padRight, \
+                 ErrInvalidArgument too); an infallible verdict elides a live handler"
             );
             assert!(
                 inline_builtin_raw_supported(name, &[]),
@@ -1432,14 +1443,7 @@ mod tests {
         // The POSITIVE half: the neighbours that genuinely cannot fail keep their
         // infallible verdict. A fix that made every `strings` member fallible
         // would pass the assertions above and fail here.
-        for name in [
-            "strings.upper",
-            "strings.lower",
-            "strings.trim",
-            "strings.byteLen",
-            "strings.contains",
-            "strings.displayWidth",
-        ] {
+        for name in ["strings.byteLen", "strings.contains", "strings.displayWidth"] {
             assert!(
                 inline_builtin_is_infallible(name, &[], &NoTypeKinds),
                 "{name} raises nothing trappable and must stay infallible"

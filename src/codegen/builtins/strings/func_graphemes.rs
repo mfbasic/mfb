@@ -33,7 +33,7 @@ returned list and its elements are their own values.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+errors). `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"An emoji ZWJ sequence and a flag each count as one cluster:
 
@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::String),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

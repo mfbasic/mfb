@@ -35,7 +35,7 @@ cluster.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+errors). `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Retrieve a cluster by index:
 
@@ -182,7 +182,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec!["ErrIndexOutOfRange"],
+            errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

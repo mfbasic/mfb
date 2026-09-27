@@ -279,7 +279,7 @@ fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
 #[test]
 fn every_strings_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises(
-        "strings", ARENA, NONE_P, NONE_U, 1,
+        "strings", ASTRINGS_RAISES_NOTHING, NONE_P, NONE_U, 1,
     );
 }
 
