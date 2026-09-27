@@ -5,7 +5,7 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (valid program rejected)
 
-Status: Fixed (see STATUS below)
+Status: Fixed
 Regression Test: `tests/rt-behavior/collections/bug752-res-element-callbacks-rt`;
 unit test `monomorph::helpers::tests::unify_agrees_modulo_the_res_marker`
 
@@ -58,4 +58,6 @@ documents as RES-*transparent* for matching:
   keeps the marked one; `compatible` compares callable parameters modulo it;
   `partition` reads each element where it appends it instead of binding it. RED at
   `a0082e4ae` (the fixture fails to build with seven `TYPE_CALL_ARGUMENT_MISMATCH`).
-  Commit: COMMIT_752
+  Commit: e4aa704b9
+
+STATUS: FIXED (e4aa704b9, goldens e703c61e3). Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.

@@ -5,7 +5,7 @@ Effort: medium
 Severity: HIGH
 Class: Correctness (resource closed without the program asking; double close at scope exit)
 
-Status: Fixed (see STATUS below)
+Status: Fixed
 Regression Test: `tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt`;
 unit tests `builder_owned_cleanup::argument_resource_tests`
 
@@ -201,4 +201,6 @@ analysis resolves a `RES` binding initialized from one (or from a record field) 
 `Local` (`initializer_is_borrowed`). Unit test
 `resource_escape::tests::a_borrowed_element_never_floats`; fixture extended with
 `copyEach`/`copyNamed`/`zip`. Spec architecture escape-analysis updated. Commit:
-COMMIT_643B
+e84ab358b
+
+STATUS: FIXED (0224828cd, e84ab358b). Deviation: the mechanism was bind-from-call adoption, not a temporary's drop, and reached every re-packaging helper in an inner scope; a second seam (a borrowed element hoisted/floated as an owner, which also broke `zip`) was fixed as Phase 3. The user-function form is bug-750 and the call-bound block leak is bug-753, both filed. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.

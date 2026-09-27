@@ -5,7 +5,7 @@ Effort: medium
 Severity: MEDIUM
 Class: Diagnostics (wrong location, no call-site attribution)
 
-Status: Fixed (see STATUS below)
+Status: Fixed
 Regression Test: `tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid`;
 unit test `registry::tests::public_member_for_rewrite_names_the_member_a_user_calls`
 
@@ -125,4 +125,6 @@ instantiations), and `report`, `ir::shape::emit` and `ir::verify::emit` (via
 spelled as the user wrote it (`registry::public_member_for_rewrite`), also in
 `instantiate_function`'s arity/inference messages. `sort`/`sortBy` man pages now say
 the error is reported at the call; spec architecture monomorphization documents it.
-Commit: COMMIT_642
+Commit: b7f63f820
+
+STATUS: FIXED (b7f63f820). Deviation: every call site reusing an instantiation is reported, and the monomorphizer's call-level messages now name `collections::sort` rather than `__collections_sort`. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.

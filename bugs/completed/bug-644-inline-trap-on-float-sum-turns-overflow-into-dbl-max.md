@@ -5,7 +5,7 @@ Effort: medium
 Severity: HIGH
 Class: Correctness (silent wrong value; error handler bypassed)
 
-Status: Fixed (see STATUS below)
+Status: Fixed
 Regression Test: `tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt`;
 unit tests `float_result::tests::every_unconstrained_member_is_observed_under_an_inline_trap`,
 `builtins::tests::no_member_declaring_an_error_is_infallible`
@@ -161,4 +161,6 @@ audit probes. Commit: see Phase 2 (one commit; the fixture is RED at `a0082e4ae`
 `Float` result inside the raw capture (`observe_float_call_result`,
 `src/codegen/builtins/math/gen_math.rs`), and `sum` leaves the infallible list. The
 `sum` man page and spec §8 updated; the declared-error list is bug-645's. Commit:
-COMMIT_644
+54605e3b2
+
+STATUS: FIXED (54605e3b2). Deviation: the value was +Inf, not DBL_MAX; the dead-handler warning was a separate stale infallible-list entry, fixed too. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.
