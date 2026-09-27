@@ -1,12 +1,12 @@
 # bug-745: `List`/`Map`/`Set OF Nothing` fail the native build with "collection type … is not supported"
 
 Last updated: 2026-09-26
-Effort: large (3h–1d)
+Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
 Status: Open
-Regression Test: (planned) tests/runtime/rt_nothing_collections.rs
+Regression Test: tests/runtime/rt_nothing_collections.rs
 
 Found during bug-744's sibling sweep (a `FUNC … AS Nothing` call as a collection
 literal element). Any collection whose element, key or value type is `Nothing` fails
@@ -73,6 +73,15 @@ dispatches in `src/codegen/collection/layout/builder_collection_layout.rs` and
 `src/codegen/collection/compare/builder_collection_compare.rs` have no `Nothing` arm,
 and `src/codegen/collection/**` has 43 `ParameterType::Integer` arms to audit.
 
+A second, front-end layer blocks every generic member even once codegen can
+represent the type. Strict validation in `src/codegen/registry/mod.rs:unify` refused
+to bind any template variable to `Nothing` (bug-443). So `collections::contains(List
+OF Nothing, NOTHING)`, `get`, `append` and the rest were `TYPE_CALL_ARGUMENT_MISMATCH`
+at 5c4ea72e3, before codegen was reached. bug-443 only needed the refusal in two
+places: a callback's result (`transform`'s `FUNC(T) AS U` must not accept a
+`Nothing`-returning callback, spec §7) and a thread-handle slot (a `Nothing` resource
+plane means "none").
+
 ## Goal
 
 - `List OF Nothing`, `Map OF K TO Nothing`, `Map OF Nothing TO V`, `Set OF Nothing`
@@ -85,11 +94,11 @@ and `src/codegen/collection/**` has 43 `ParameterType::Integer` arms to audit.
 
 - The layout of every other element type (all `.ncodesum` goldens that do not
   involve `Nothing` must stay byte-identical).
-- bug-443's strict-unify rule (`src/codegen/registry/mod.rs:unify`) that never binds a
-  template variable to `Nothing` — so `collections::contains(List OF Nothing, NOTHING)`
-  is rejected in the front end with `TYPE_CALL_ARGUMENT_MISMATCH` today. Whether that
-  rule is too broad for element-typed (not callback-result) positions is a separate
-  owner decision; record it, do not change it silently here.
+- bug-443's purpose: `collections::transform` (and any callback-result position)
+  still rejects a `Nothing`-returning callback (spec §7). The refusal is narrowed to
+  callback results and thread slots, not dropped.
+- `Nothing` stays non-orderable: `collections::sort` over it is a type error, as for
+  `Boolean`.
 
 ## Blast Radius
 
@@ -104,36 +113,70 @@ and `src/codegen/collection/**` has 43 `ParameterType::Integer` arms to audit.
 
 ## Fix Design
 
-Recommended: represent a `Nothing` payload as an 8-byte zero scalar reusing
-`COLLECTION_TYPE_INTEGER` (a fixed-width list kind), and add `Nothing` arms beside
-`Integer` in the packed-payload store/load/compare/hash dispatches. Rejected: a
-zero-width payload (every stride/offset path assumes width ≥ 1); a new type code
-(runtime-helper ABI change for no observable gain).
+A `Nothing` payload is a **1-byte lane that always holds `0`**, with its own runtime
+identifier `COLLECTION_TYPE_NOTHING = 1` (free, below `Boolean` = 2). A `List OF
+Nothing` is a fixed-width (kind 2) list of stride 1. Per dispatch:
+
+- `collection_type_code`, `list_element_is_fixed_width` (1),
+  `collection_payload_alignment` (1): `Nothing` beside `Boolean`/`Byte`.
+- Payload length and load: beside `Boolean`/`Byte` (`ldrb`).
+- Payload **store** writes the constant `0`, not the incoming register. The unit type
+  has one value, so the stored byte never depends on where the value came from.
+- The three packed-payload **compares** (`builder_collection_compare.rs`) branch
+  straight to *equal* for `Nothing`, which the scalar-value compare already did.
+  Every two `NOTHING`s are equal without reading memory, so a `Set OF Nothing` and a
+  `Map OF Nothing TO V` collapse to one entry.
+- The map probe treats a `Nothing` key as a 1-byte probe-eligible key
+  (`gen_map.rs`).
+- `unify` → `unify_at` with a `NothingBinding` position flag. Refused only in a
+  `Func` pattern's return and in thread slots; allowed everywhere else.
+
+Rejected alternatives:
+- A zero-width payload: every stride, offset and copy path assumes width ≥ 1, and a
+  zero-size allocation is treated as one byte anyway (`mfb spec memory heap-values`).
+- Reusing the `Integer` identifier at 8 bytes: it costs 8× the space and mislabels
+  the header.
+- Dropping bug-443's refusal entirely: that would reopen `transform` with a
+  `Nothing` callback, against spec §7 and plan-159-A's recorded property.
 
 ## Phases
 
 ### Phase 1 — failing tests
 
-- [ ] `tests/runtime/rt_nothing_collections.rs`: list literal, `MUT` append, map
-      literal value, map key, set literal, `FOR EACH`, `len`, and a `FUNC … AS
-      Nothing` call as an element (bug-744's removed shapes:
-      `LET xs = [f(1), f(2)]` → `f1 f2 2 eq eq`;
-      `Map OF String TO Nothing { "a" := f(1) }` → `f1 1 a eq`).
+- [x] `tests/runtime/rt_nothing_collections.rs`, 10 tests: literal/`get`/`getOr`;
+      builders and slices (`append` both overloads, `prepend`, `insert`, `set`,
+      `removeAt`, `mid`, `take`, `drop`, `repeat`, `replace`, `distinct`,
+      `flatten`); searches and predicates (`contains`, `find`, `findIndex`,
+      `findLastIndex`, `all`, `any`, `filter`, `partition`); callbacks and regrouping
+      (`transform` from `Nothing`, `reduce`, `forEach`, `chunks`, `window`, `zip`,
+      `toSet`); a `MUT` list grown and edited in place; `Map OF String TO Nothing`
+      (`get`, `getOr`, `hasKey`, `set`, `removeKey`, `keys`, `values`, `merge`,
+      `mapValues`, `FOR EACH`); `Map OF Nothing TO Integer`; `Set OF Nothing`
+      (`add`, `contains`, `remove`, `union`, `intersection`, `difference`,
+      `symmetricDifference`, `isSubset`, `isSuperset`, `isDisjoint`, `toList`);
+      `FUNC … AS Nothing` calls as elements (bug-744's two deferred shapes); nesting,
+      record fields, function boundaries and copies. RED on the pre-fix compiler:
+      10/10 fail (`MFB_TEST_EXE=<old mfb> cargo test --test rt_nothing_collections`).
 
-Commit: —
+Commit: see below
 
 ### Phase 2 — the fix
 
-- [ ] Type code, width/alignment, packed-payload arms; spec (`mfb spec memory`
-      collection payloads) if the layout table lists per-type widths.
+- [x] Payload representation and dispatch arms (Fix Design).
+- [x] `unify_at` position flag.
+- [x] Spec: `mfb spec memory collections` (identifier table, fixed-width table, the
+      constant-byte note); `mfb spec language templates` (when a template variable
+      may bind `Nothing`). Man: `mfb man types` states that `Nothing` values bind,
+      pass and collect. Example verified with
+      `scripts/man-run-examples.sh types --topic --run`.
 
-Commit: —
+Acceptance: 10/10 green.
+Commit: see below
 
 ### Phase 3 — validation
 
 - [ ] Full `cargo test --release --no-fail-fast`; `scripts/artifact-gate.sh
-      target/release/mfb all` (expect 0 diffs — no existing fixture has a `Nothing`
-      collection).
+      target/release/mfb all`.
 
 Commit: —
 
