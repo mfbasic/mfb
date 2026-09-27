@@ -478,24 +478,13 @@ pub(crate) fn inline_builtin_is_infallible(
     if matches!(target, "len" | "toString" | "typeName") {
         return true;
     }
+    // The pure queries that allocate nothing. `keys`/`values`/`append`/`prepend`/
+    // `removeKey`/`replace` and the Set members `add`/`remove`/`toList` build a new
+    // collection, so they raise (and, since bug-698, declare) `ErrOutOfMemory`: an
+    // inline TRAP handler on them is live, and they are not listed here.
     matches!(
         native_builtin_target(target),
-        Some(
-            "contains"
-                | "hasKey"
-                | "keys"
-                | "values"
-                | "getOr"
-                | "append"
-                | "prepend"
-                | "removeKey"
-                | "replace"
-                // Set members (plan-63-B): pure, total — `add`/`remove` return a
-                // new set, `toList` a list; none can fail.
-                | "add"
-                | "remove"
-                | "toList"
-        )
+        Some("contains" | "hasKey" | "getOr")
     )
 }
 
@@ -1300,16 +1289,25 @@ mod tests {
             "bits.popCount",
             "collections.contains",
             "collections.hasKey",
+            "collections.getOr",
+        ] {
+            assert!(
+                inline_builtin_is_infallible(c, &[], &NoTypeKinds),
+                "expected infallible: {c}"
+            );
+        }
+        // Allocating collections members declare ErrOutOfMemory (bug-698), so a
+        // handler on them is live.
+        for c in [
             "collections.keys",
             "collections.values",
-            "collections.getOr",
             "collections.append",
             "collections.prepend",
             "collections.removeKey",
         ] {
             assert!(
-                inline_builtin_is_infallible(c, &[], &NoTypeKinds),
-                "expected infallible: {c}"
+                !inline_builtin_is_infallible(c, &[], &NoTypeKinds),
+                "expected fallible (ErrOutOfMemory): {c}"
             );
         }
         // Fallible inline members: a real domain error (index/range/not-found), an

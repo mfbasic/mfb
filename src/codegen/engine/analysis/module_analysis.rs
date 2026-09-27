@@ -527,8 +527,9 @@ fn value_may_emit_float_arithmetic_error(
             // "native code string literal '…' has no data object".
             // bug-754: `collections::sum` raises `ErrFloatOverflow` itself, at the call,
             // for its `Float` overload.
-            ((crate::codegen::builtins::float_result::builtin_float_result_may_be_nonfinite(target)
-                || crate::codegen::builtins::native_builtin_target(target) == Some("sum"))
+            ((crate::codegen::builtins::float_result::builtin_float_result_may_be_nonfinite(
+                target,
+            ) || crate::codegen::builtins::native_builtin_target(target) == Some("sum"))
                 && static_nir_value_type(value, locals, fields) == Some(ParameterType::Float))
                 || args
                     .iter()
