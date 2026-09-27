@@ -81,6 +81,10 @@ Commit: —
 - [ ] ALSA files: convert the status-bearing sites from Phase 1.
 - [ ] Regenerate the four `audio_codegen_cover_rt.*.ncodesum` goldens. Confirm with
       `-ncode` that each delta is confined to audio helpers.
+- [ ] Failed-open leak, macOS and ALSA: plan-158-A's audit found that neither backend's
+      open-failure path frees the handle record (or, on ALSA, the mapped STATE)
+      (plan-158-A C6 fixed the Windows twin). Measure with an `openfail N` loop in a
+      `--debug` build (N=10 vs N=100, `arena.0.live_bytes`), fix, and re-measure flat.
 - [ ] Runtime proof, macOS (local): open an output on a device id that does not exist →
       `e.message` ends with `: 0x…)`.
 - [ ] Runtime proof, Linux: the same probe on box 2223 (native aarch64 glibc), with a

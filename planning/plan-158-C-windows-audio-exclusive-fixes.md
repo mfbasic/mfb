@@ -64,6 +64,11 @@ messages are what Phase 1 reads.)
 - `lower_write` loops: `WaitForSingleObject(event, INFINITE)`, `GetCurrentPadding`,
   `avail = W_BUFFER - padding`, `GetBuffer(min(remaining, avail))`, fill,
   `ReleaseBuffer`. It is the same loop for both modes.
+- plan-158-A measured (box 206, SHARED 48000/1, a second stream opened and closed on
+  the device): the first `write` afterwards fails with
+  `(IAudioClient::GetCurrentPadding: 0x88890004)` (`AUDCLNT_E_DEVICE_INVALIDATED`), and
+  the next `write` never returns. Its `WaitForSingleObject(event, INFINITE)` waits on
+  an event the invalidated stream no longer signals (plan-158-A Corrections C10).
 - WASAPI documents that in EXCLUSIVE event-driven mode the client fills the entire
   buffer each pass, and pre-rolls one buffer before `Start()`. The current loop requests
   partial buffers and never pre-rolls. UNVERIFIED which of these causes the hang;
@@ -124,6 +129,10 @@ Commit: —
 - [ ] `gen_windows_tests.rs`: emit-inspection tests: no `Start` in the EXCLUSIVE open
       path before the first submit; `lower_write` has no INFINITE wait.
 - [ ] Regenerate the Windows audio ncodesum (expected diff).
+- [ ] Re-run plan-158-A's leak loop on the write path, which its C10 could not run while
+      the wait was unbounded: `/tmp/p158/wprobe`-style probe, a SHARED stream
+      invalidated by a second open, then 10 000 failing `write`s under TRAP in a
+      `--debug` build. `arena.0.live_bytes` equal at N=10 and N=10 000.
 
 Acceptance: on the box, a 2 s 440 Hz tone written in 500-frame chunks to an EXCLUSIVE
 44100/2 stream finishes within the watchdog, and the user confirms it is audible.

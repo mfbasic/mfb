@@ -249,50 +249,103 @@ Windows frame slots 160 and 168 are unused (`gen_windows.rs`: 152 = `COUNT_OFF`,
 Acceptance: no UNVERIFIED line remains in §Verified properties.
   Check: `grep -c '^- UNVERIFIED' planning/plan-158-A-native-error-status-messages.md` → 0
   (est. 1 min; corrected, see Corrections C1).
-Commit: —
+Commit: de2609221
 
 ### Phase 2 — Primitive + call-site branch
 
-- [ ] `data_objects.rs`: `error_status_prefix_symbol`, decode function, unit tests
-      (round trip, malformed symbol rejected).
-- [ ] `builder/mod.rs`: prefix relocation scan; emission gate for `_mfb_rt_fail_status`.
-- [ ] New `src/codegen/error/emission/fail_status.rs`: `lower_fail_status_helper` (§4.2).
-- [ ] `native_fail.rs`: `emit_fail_status`, `StatusFailSites`.
-- [ ] `builder_emit_helpers.rs`: the tag-3 branch (§4.3), emitted for targets in
-      `PARKING_HELPER_PACKAGES` only (Corrections C3).
+- [x] `data_objects.rs`: `error_status_prefix_symbol`, decode function, unit tests
+      (round trip, malformed symbol rejected). — `fail_status_prefix_symbol_round_trips`,
+      `fail_status_prefix_symbol_rejects_malformed` pass.
+- [x] `builder/mod.rs`: prefix relocation scan; emission gate for `_mfb_rt_fail_status`
+      (ahead of `uses_park_error`; the build is refused if a caller's package is not in
+      `PARKING_HELPER_PACKAGES`).
+- [x] New `src/codegen/error/emission/fail_status.rs`: `lower_fail_status_helper` (§4.2).
+      The OOM-while-formatting arm needs the static message, so the helper takes it as a
+      fourth input (`x3`).
+- [x] `native_fail.rs`: `emit_fail_status`, `StatusFailSites`.
+- [x] `builder_emit_helpers.rs`: the tag-3 branch (§4.3), emitted for targets in
+      `PARKING_HELPER_PACKAGES` only (Corrections C3); `emit_stamp_runtime_helper_error`.
+- [x] Out-of-line re-stamp `_mfb_rt_restamp_parked_error` (Corrections C4): one helper
+      per module, gated like the park and ahead of it.
 - [x] ~~The thread-cleanup stamp site mirror~~ — moot: Phase 1 showed that site only
       serves `thread.send`-family helpers, which raise tag 1 (§Verified properties).
-- [ ] Raw path: `emit_runtime_helper_call`'s `raw` branch re-stamps a tag-3 result
+- [x] Raw path: `emit_runtime_helper_call`'s `raw` branch re-stamps a tag-3 result
       before `materialize_current_result`, so an inline `TRAP` keeps `e.source`
-      (Corrections C2).
-- [ ] Unit test: the helper body contains exactly one `bl _mfb_rt_park_error` and one
-      `bl _mfb_arena_free` after it.
+      (Corrections C2). Box: `RES bad = audio::openOutput(11025, 1, 512) TRAP(e)` on
+      line 38 printed `source=src/main.mfb:38:39`.
+- [x] Unit test: the helper body contains exactly one `bl _mfb_rt_park_error` and one
+      `bl _mfb_arena_free` after it. — `fail_status_helper_parks_once_then_frees_its_temporary`
+      asserts the call sequence is exactly alloc, park, free.
 
 Acceptance: unit tests pass; the byte-identity gate diffs only where §3 predicts.
   Check: `cargo test --bin mfb fail_status` → pass (est. 3 min); `scripts/artifact-gate.sh`
   → every DIFF is a program that calls an `audio::` helper (Corrections C3). Inspect one
   per target with `-ncode` (est. 15 min).
-Commit: —
+  Result: `cargo test --release --bin mfb fail_status` → 3 passed. `scripts/artifact-gate.sh
+  /tmp/p158/mfb-phase2 all` → `1534 tests, 1713 build(s), 2166 golden(s) checked, 5 diff(s)`,
+  all five `audio_codegen_cover_rt.<target>.ncode`. Per target, a baseline built at
+  `b16aa2952` reproduces the golden sha, and `/tmp/p158/ncode_cmp.py` on base vs current
+  shows only `_mfb_fn_main`, `_mfb_ifn_audio_5FplaySamples` and the added
+  `_mfb_rt_restamp_parked_error` changed on macOS/Linux, plus on Windows the eight
+  `_mfb_rt_audio_audio_*` helpers, `_mfb_rt_fail_status`, and 22 `_mfb_str_errstatus_*`
+  data objects.
+Commit: 5540fa13e
 
 ### Phase 3 — Windows adoption + box proof
 
-- [ ] `gen_windows_open.rs` `lower_open`: 12 sites via `StatusFailSites` (names §4.4);
-      the tails keep `emit_open_cleanup`.
-- [ ] `gen_windows_io.rs`: 5 sites. `gen_windows_devices.rs`: 4 sites.
-- [ ] `gen_windows_tests.rs`: emit-inspection test that no `ErrAudioDevice` /
-      `ErrAudioUnavailable` raise in these helpers bypasses `_mfb_rt_fail_status`.
-- [ ] Regenerate `audio_codegen_cover_rt.windows-x86_64.ncodesum`; confirm with `-ncode`
-      that the delta is confined to the audio helpers and the call-site branch.
-- [ ] Box proof on 192.168.1.206. Probe under `/tmp`: open a SHARED 48000/1 stream, open
+- [x] `gen_windows_open.rs` `lower_open`: 12 sites via `StatusFailSites` (names §4.4);
+      the tails keep `emit_open_cleanup`. Plus the unchecked `GetBufferSize` (C5).
+      `CreateEventW` reports `GetLastError()` (added to the audio import set,
+      `src/target/win_x86_64/plan.rs`).
+- [x] `gen_windows_io.rs`: 5 sites → 3 status sites, plus the unchecked
+      `GetCurrentPadding` (write) and capture `ReleaseBuffer` (read) (C5). The other two
+      are closed-stream checks with no OS status and keep `emit_fail`.
+      `gen_windows_devices.rs`: 4 sites.
+- [x] `gen_windows_tests.rs`: emit-inspection test that no `ErrAudioDevice` /
+      `ErrAudioUnavailable` raise in these helpers bypasses `_mfb_rt_fail_status`. —
+      `windows_audio_failures_report_their_os_status` pins the call-name set per helper
+      and allows exactly the two closed-stream raises; `cargo test --release --bin mfb
+      windows_tests` → 6 passed.
+- [x] Failed-open leak (found in the box proof, C6): `emit_open_failure_release` frees the
+      handle, the STATE block, the mix format, the event and the carry on every failure
+      tail. Box, `openfail N`: base `live_bytes` 6832 (N=10) → 67312 (N=100); now flat.
+- [x] Windows `close` leaked the STATE block and carry (C7): `emit_free_wasapi_state`.
+      Box, `openclose N`: 288 B/cycle → 96 B/cycle (the record, next task).
+- [x] Every audio `RES` binding leaked its record (C8): `audio.AudioInput`/`AudioOutput`
+      join `resource_record_freed_at_drop`, and `audio` joins `is_record_producer_target`.
+      macOS `openclose` 10/100 → `live_bytes 0`/`0`; box `openclose` 10/100 →
+      `112`/`112`, `openfail` 10/100 → `112`/`112`.
+- [x] Man text: the `audio` package description said any use of a closed stream raises
+      `ErrResourceClosed`; `write`/`read` raise `ErrAudioDevice` on every backend (C9).
+      Probe `/tmp/p158/closedprobe` (write through a `RES` parameter after a callee closed
+      it) printed `code=77050018`.
+- [x] Doc sync: `src/docs/spec/stdlib/11_audio.md` §"The OS status in the message",
+      `src/docs/spec/language/08_error-model.md` §8.5a (helper errors, tag 3, re-stamp),
+      and the `audio` package description (Windows status paragraph). `mfb man audio`
+      renders it; `scripts/man-census.sh --memory-scope` → `unclassified memory-vocabulary
+      hits: 0`.
+- [x] Regenerate `audio_codegen_cover_rt.windows-x86_64.ncodesum`; confirm with `-ncode`
+      that the delta is confined to the audio helpers and the call-site branch. — all
+      five targets' sums regenerated (`bash scripts/regen-native-goldens.sh
+      target/release/mfb tests/byte-identity/audio` → `5 build(s), 5 golden(s)
+      rewritten, 0 failure(s)`); the per-target deltas are the ones listed under Phase 2
+      plus the audio record frees (C8).
+- [x] Box proof on 192.168.1.206. Probe under `/tmp`: open a SHARED 48000/1 stream, open
       and close a second stream on the same device, write to the first. Print `e.message`
       and `e.source` under TRAP, and once uncaught. Run the same failure 10 000 times in
       a loop under `mfb build --debug`: arena counters show no net growth. Record the
-      output in §Corrections and hand the statuses to plan-158-C.
+      output in §Corrections and hand the statuses to plan-158-C. — Probe
+      `/tmp/p158/wprobe` (C10). TRAP: `message=… (IAudioClient::GetCurrentPadding:
+      0x88890004)`, `code=77050018`, `source=src/main.mfb:14:3` (the `audio::write` line).
+      Uncaught: `Error: 7-705-0018` / `… (IAudioClient::GetCurrentPadding: 0x88890004)`.
+      Loop: `wprobe.exe openfail 10000` (10 000 raw-path + 10 000 propagated parked
+      errors) → `alloc_calls 170051`, `free_calls 170047`, `live_bytes 112`, the same 112
+      as N=10. Statuses handed to plan-158-C §2.
 
-Acceptance: the box prints `… (IAudioRenderClient::GetBuffer: 0x88890004)` with the
-call-site line in `e.source`; the loop shows no growth.
-  Check: box probe output contains `: 0x88890004)` (est. 3 min).
-Commit: —
+Acceptance: the box prints `… (IAudioClient::GetCurrentPadding: 0x88890004)` with the
+call-site line in `e.source`; the loop shows no growth (corrected from `GetBuffer`, C11).
+  Check: box probe output contains `: 0x88890004)` (est. 3 min). — met (above).
+Commit: cc4a0dd93 (adoption + Windows leaks), 46728f1c5 (audio record drop), c38ff25a9 (docs), and the goldens + ledger commit after them
 
 ## Validation Plan
 
@@ -338,6 +391,62 @@ Commit: —
   gate expectation narrows to match: only programs that call `audio::` diff, so a
   stray diff anywhere else is now visible.
 - **Open Decision taken:** status format `0x%08x` (the recommended option).
+- **C4 (re-stamp out of line).** §4.3 put the re-stamp inline at each call site. Built
+  that way, `-ncode` of `audio_codegen_cover_rt` (macos-aarch64) grew `_mfb_fn_main`'s
+  frame from `stackSize 3856` to `6576`, because every audio call site inlined the old
+  block's free, which sizes an `Error` block field by field. The re-stamp body moved into
+  one synthesized `_mfb_rt_restamp_parked_error` per module (the park's own precedent,
+  `lower_park_error_helper`): the site builds its `ErrorLoc` and calls it. Frame
+  `3856 → 4176` with the call sites unchanged in number.
+- **C5 (unchecked WASAPI calls).** §4.4 named `IAudioClient::GetBufferSize`,
+  `IAudioClient::GetCurrentPadding` and `IAudioCaptureClient::ReleaseBuffer`, but the
+  code never checked them, so the plan's grep counted no site for them. Each now raises
+  through the status sites. Unchecked, `GetBufferSize` left `W_BUFFER` at 0 (every
+  later `write` would wait forever), and a failed padding or release surfaced as the
+  next `GetBuffer` failing under the wrong name. The Windows `io` count was also wrong
+  the other way: 2 of its 5 greps are closed-stream checks (`H_CLOSED != 0`) with no OS
+  status; they keep `emit_fail`.
+- **C6 (failed-open leak).** Measured on the box before any change (baseline compiler at
+  `b16aa2952`, `wprobe openfail N`): `live_bytes` 6832 at N=10 and 67312 at N=100, the
+  same on the plan build. That is 336 B per failed open: the handle record and the
+  STATE block (never freed on a failure tail), plus the SHARED mix format when a
+  format check failed, and the event handle when a later step failed. Fixed in
+  `emit_open_failure_release` (`W_OUT0` is now zeroed at open and after its
+  `CoTaskMemFree`, so the release can tell an owned mix format).
+- **C7 (close leak, Windows).** `wprobe openclose N` on the box: 288 B per open/close
+  cycle. `lower_close` never freed the arena STATE block or the capture carry.
+  `emit_free_wasapi_state` in `lower_close`, then `H_STATE` is zeroed. Every I/O helper
+  reads `H_CLOSED` before `H_STATE`.
+- **C8 (audio records never freed, all backends).** After C7, 96 B per open/close cycle
+  remained on Windows, and macOS showed the same 96 B/cycle (`/tmp/p158/wprobe
+  openclose` on the host: 960 → 9600 B, `free_calls` flat). `fs::File` does not leak
+  (`/tmp/p158/fsprobe`: `live_bytes 0` at 10 and 100). Cause:
+  `resource_record_freed_at_drop` excluded `audio` as "not audited". The audit (every
+  producer is a 96 B record in this arena; not sendable; `H_CLOSED` read before
+  `H_STATE` everywhere; macOS close disposes the queue with `inImmediate = 1` before the
+  drop frees the record the callbacks receive) found it safe, and found that the drop
+  also needs `audio` in `is_record_producer_target` to count a binding as the owner.
+  After: macOS `live_bytes 0` at 10 and 100 cycles; box `112` at 10 and 100 for both
+  `openclose` and `openfail`. The residual 48 B per failed open seen after C6 was the
+  inline-`TRAP` closed default record, and it went with this fix.
+- **C9 (man text).** The `audio` package description said a closed stream's every other
+  use raises `ErrResourceClosed`. `write`/`read` raise `ErrAudioDevice` on all three
+  backends (each helper's `H_CLOSED` check branches to its `dev_fail`), and the queries
+  answer 0; `/tmp/p158/closedprobe` printed `code=77050018`. The description now says
+  so; the per-function pages already did.
+- **C10 (the write-failure loop cannot run yet).** After the second stream invalidates
+  the first, the first failing `write` returns the status, but the next `write` never
+  returns: its `WaitForSingleObject(event, INFINITE)` waits on an event WASAPI no longer
+  signals (the probe hung at 0.03 s CPU until killed). That is plan-158-C's bounded-wait
+  work, so the 10 000-iteration leak loop ran on the open failure path instead
+  (`openfail`: both the raw inline-`TRAP` and the propagating route through
+  `_mfb_rt_fail_status` and `_mfb_rt_restamp_parked_error`, the same code a write
+  failure takes). plan-158-C carries a task to re-run the write loop once its wait is
+  bounded.
+- **C11 (acceptance names the first failing call).** The acceptance expected
+  `IAudioRenderClient::GetBuffer`. With `GetCurrentPadding` now checked (C5), it is the
+  first call to see `AUDCLNT_E_DEVICE_INVALIDATED`, so the message names it. The check
+  (`: 0x88890004)`) is unchanged.
 
 ## Summary
 
