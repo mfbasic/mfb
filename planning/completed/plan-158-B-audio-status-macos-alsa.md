@@ -225,9 +225,13 @@ Commit: d382a92a3 (adoption, fixes, tests), 5ed78e791 (spec), 3e3547727 (goldens
 - **C7 (guard against an unemitted site).** The first Linux build failed:
   `runtime.audio.devices branches to label '…_status_unavailable_s0', which it does not
   define`. The ALSA `devices` edit registered a site but never emitted the stubs; no
-  unit test lowered that helper, and macOS builds never do. Two guards: a
-  `StatusFailSites` dropped with more sites than emitted stubs panics at the site,
-  and the new per-backend emit-inspection tests lower every audio helper.
+  unit test lowered that helper, and macOS builds never do. The guard is the new
+  per-backend emit-inspection tests: they lower every audio helper and read each
+  status call name from its prefix relocation, which only an emitted stub creates,
+  so a site whose stub is missing drops out of the expected set. (A `Drop` guard on
+  `StatusFailSites` was tried and removed in §5: a body that returns `Err` part-way —
+  an emit failure — drops its sites unemitted legitimately, and the guard turned that
+  error into a panic, failing `an_emit_failure_past_the_first_one_still_propagates`.)
 
 ## Summary
 

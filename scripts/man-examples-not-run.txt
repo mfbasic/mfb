@@ -12,6 +12,7 @@
 
 # term — the gate has no controlling terminal. `term::terminalSize`'s own page
 # documents the raise (ErrUnsupported) when standard output is not a terminal.
+term::didResize#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawBox#2  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawGlyph#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)
 term::drawHLine#1  needs a controlling terminal (raises ErrUnsupported without one, as documented)

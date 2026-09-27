@@ -66,8 +66,6 @@ pub(crate) struct StatusFailSites {
     status_off: usize,
     prefix_off: usize,
     stubs: Vec<(String, String, Reg)>,
-    /// How many of `stubs` [`Self::emit_stubs`] has emitted.
-    emitted: usize,
 }
 
 impl StatusFailSites {
@@ -88,7 +86,6 @@ impl StatusFailSites {
             status_off,
             prefix_off,
             stubs: Vec::new(),
-            emitted: 0,
         }
     }
 
@@ -109,7 +106,7 @@ impl StatusFailSites {
     /// Emit every stub. Place them where control cannot fall into them (after an
     /// unconditional branch). `scratch` is a register the stubs may clobber.
     pub(crate) fn emit_stubs(
-        &mut self,
+        &self,
         scratch: impl Into<Reg>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -136,7 +133,6 @@ impl StatusFailSites {
             ));
             instructions.push(abi::branch(&self.tail));
         }
-        self.emitted = self.stubs.len();
     }
 
     /// Raise the error the taken stub recorded, then branch to `done`. Emit it at
@@ -159,22 +155,5 @@ impl StatusFailSites {
         ));
         emit_fail_status_call(&self.symbol, self.error_name, instructions, relocations);
         instructions.push(abi::branch(done));
-    }
-}
-
-/// A site registered after (or without) [`StatusFailSites::emit_stubs`] is a branch
-/// to a label nothing defines: the module then fails to assemble with a message
-/// about a compiler-internal label, and only for the target that lowers that
-/// helper. Refuse it where it happens instead.
-impl Drop for StatusFailSites {
-    fn drop(&mut self) {
-        if !std::thread::panicking() && self.emitted != self.stubs.len() {
-            panic!(
-                "StatusFailSites `{}`: {} site(s) registered but only {} stub(s) emitted",
-                self.tail,
-                self.stubs.len(),
-                self.emitted
-            );
-        }
     }
 }
