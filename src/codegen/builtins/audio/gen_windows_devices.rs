@@ -86,6 +86,20 @@ fn emit_string_from_wstr(
 /// `canInput`/`canOutput` TRUE and both default flags FALSE; a device whose friendly
 /// name cannot be read is named by its id, and `emit_device_record` frees that
 /// shared block once.
+/// Release the COM object whose pointer is at frame slot `off`, if non-null.
+fn emit_release_frame_object(off: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let skip = format!("rel_frame_skip_{off}_{}", ins.len());
+    let v9 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), off),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_eq(&skip),
+        abi::store_u64(&v9, abi::stack_pointer(), OBJ_OFF),
+    ]);
+    com_call(SLOT_RELEASE, 1, ins, vregs);
+    ins.push(abi::label(&skip));
+}
+
 pub(crate) fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -98,6 +112,14 @@ pub(crate) fn lower_devices(
     let name_from_id = format!("{symbol}_name_id");
     let have_name = format!("{symbol}_have_name");
     let done = format!("{symbol}_done");
+    // plan-158-A: a failing enumeration call reports its name and HRESULT.
+    let mut unavailable_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioUnavailable",
+        &unavailable,
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
@@ -124,7 +146,7 @@ pub(crate) fn lower_devices(
     ole_call(symbol, "CoCreateInstance", 5, platform_imports, platform, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site("CoCreateInstance", abi::return_register())),
     ]);
     // enum->EnumAudioEndpoints(eAll, DEVICE_STATE_ACTIVE, &coll)
     ins.extend([
@@ -137,7 +159,10 @@ pub(crate) fn lower_devices(
     com_call(SLOT_ENUM_ENDPOINTS, 4, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site(
+            "IMMDeviceEnumerator::EnumAudioEndpoints",
+            abi::return_register(),
+        )),
         // coll->GetCount(&count)
         abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFF),
         abi::load_u64(&v9, abi::stack_pointer(), D_COLL),
@@ -147,7 +172,7 @@ pub(crate) fn lower_devices(
     com_call(SLOT_COLL_GET_COUNT, 2, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site("IMMDeviceCollection::GetCount", abi::return_register())),
         abi::load_u32(&v9, abi::stack_pointer(), COUNT_OFF),
         abi::store_u64(&v9, abi::stack_pointer(), COUNT_OFF),
     ]);
@@ -182,7 +207,7 @@ pub(crate) fn lower_devices(
     com_call(SLOT_COLL_ITEM, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site("IMMDeviceCollection::Item", abi::return_register())),
         // dev->GetId(&pId)
         abi::store_u64(abi::ZERO, abi::stack_pointer(), D_IDRAW),
         abi::load_u64(&v9, abi::stack_pointer(), D_DEV),
@@ -320,9 +345,16 @@ pub(crate) fn lower_devices(
     ins.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&unavailable),
     ]);
-    emit_fail(symbol, "ErrAudioUnavailable", &mut ins, &mut rel, &done);
+    unavailable_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(unavailable_sites.tail()));
+    // Every status site precedes the success path's releases, so the collection
+    // and the enumerator are still held here (or null, when their own call is the
+    // one that failed). Releasing them was missing: each failed enumeration kept
+    // two COM references.
+    emit_release_frame_object(D_COLL, &mut ins, &mut vregs);
+    emit_release_frame_object(D_ENUM, &mut ins, &mut vregs);
+    unavailable_sites.emit_raise(&mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));

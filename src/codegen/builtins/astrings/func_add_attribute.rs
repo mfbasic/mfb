@@ -90,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: ranged_attr_params(),
             return_type: ParameterType::named("AttributedString"),
-            errors: vec![],
+            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument"],
             body: Body::mfb(BODY, "__astrings_addAttribute"),
         }],
     });

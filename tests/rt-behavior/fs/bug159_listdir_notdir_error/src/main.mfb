@@ -4,7 +4,7 @@ IMPORT fs
 ' bug-159: fs::listDirectory on a regular file fails with ENOTDIR (errno 20),
 ' which is outside the ENOENT/EACCES/EEXIST set the generic errno mapper names.
 ' Before the fix, the catch-all fell through to ErrInvalidArgument (77050002);
-' it must return ErrOutput (77020002).
+' bug-701: a file used as a directory is ErrInvalidPath (77030002) everywhere.
 FUNC probe AS Integer
   fs::writeText("target/bug159_regfile", "x")
   LET names AS List OF String = fs::listDirectory("target/bug159_regfile")

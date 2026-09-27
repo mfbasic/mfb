@@ -33,7 +33,7 @@ cursor.
 shade variants read as translucent overlays at a glance; the solid block is opaque.
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+error. In an `mfb build --app` program, `term::fillRect` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
 
@@ -140,7 +140,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_fill_rect),
         }],
     });

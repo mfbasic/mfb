@@ -5,8 +5,10 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (declared-error data disagrees with the lowering)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (2026-09-27)
+Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
+every_collections_member_declares_exactly_the_errors_its_lowering_raises`
+(part of bug-698's generalized declared-errors sweep)
 
 `collections::append` is registered with `errors: vec![]` on both overloads
 (`src/codegen/builtins/collections/func_append.rs:107,128`), so its man page
@@ -121,11 +123,29 @@ allocates through a path that cannot fail that way (leave as is). Also check
 `strings` and other packages that build new collection values through the same
 helpers.
 
-## Fix
+## Fix (landed via bug-698)
 
-Phase 1 — RED test asserting descriptor/lowering agreement for the members above,
-plus the census with a verdict per member. Commit:
+bug-698's generalized lowering sweep, extended with a `concretize()` step that
+binds every generic type variable (`T`, `K`, `V`) to `Integer` before lowering
+(a real call site unifies them against a concrete argument; this sweep has
+none), lowers every native `collections` member directly and measures its real
+raise set instead of a hand census. Found 14 members declaring no errors
+despite building a new/updated list or map: `set`, `append`, `prepend`,
+`insert`, `removeAt`, `removeKey`, `keys`, `values`, `transform`, `filter`,
+`repeat`, `add`, `remove`, `toList`. Declared `ErrOutOfMemory` on each.
 
-Phase 2 — declare `ErrOutOfMemory` on the members that can raise it, re-render the
-affected man pages, and drop any remaining "infallible" prose the plan has not
-already corrected (GREEN); full suite and man-page goldens. Commit:
+`merge`, `groupBy`, `zip`, `partition`, `replace` are `Body::Mfb`/`Intrinsic`
+(not native-lowered, so this sweep cannot measure them directly — bug-698's
+separate `Body::Mfb` guard is not built; see that bug's report). Declared
+`ErrOutOfMemory` on all five directly from this doc's own hand-verified
+evidence (`copy_map_with_capacity`, `lower_map_remove_key`,
+`lower_collection_group_by_call`, `lower_list_replace`, and `partition`'s own
+call to `collections::append`). Every code was already documented in prose
+from the earlier plan-125-C pass, except `insert`/`removeAt`/`transform`/
+`filter`/`repeat`/`remove`, which got a one-clause addition.
+
+`contains`/`any`/`all`/`hasKey`/the `is*` set predicates were confirmed to
+still declare no errors — the guard passes for them because they genuinely do
+not allocate, not because they were skipped.
+
+Commit: (this worktree, bug-698 branch)

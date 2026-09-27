@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{any, function, lowering, opt, overload};
+use super::{any, function, lowering, opt, overload_errs};
 
 const INTRO: &str = r#"Stop a thread reading standard input."#;
 
@@ -26,7 +26,7 @@ it loose as soon as it is done.
 Unsubscribing a thread that is not subscribed is harmless. A thread that reads
 standard input after unsubscribing raises `ErrInvalidContext`; subscribe again
 with `thread::openStdIn` first, and note that it will rejoin at the current
-point in the stream, not where it left off."#;
+point in the stream, not where it left off. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Let a worker read input, then cut it loose before it ends:
 
@@ -64,7 +64,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "closeStdIn",
         Some("() or Thread OF Msg TO Out"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![opt(
                 "t",
                 &["thread"],
@@ -73,6 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             )],
             ParameterType::Nothing,
             Body::abi_function(lowering::lower_close_std_in),
+            vec!["ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }

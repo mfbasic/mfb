@@ -88,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrInvalidArgument", "ErrAudioDevice", "ErrAudioUnavailable"],
+            errors: vec!["ErrInvalidArgument", "ErrAudioDevice", "ErrAudioUnavailable", "ErrOutOfMemory"],
             body: super::native_body(lower_write, &[]),
         }],
     });

@@ -34,7 +34,7 @@ subsequent drawing will use are untouched; only the cells are.
 
 The call is gated: while TUI mode is off it does nothing. `term::on` already hands
 back a cleared surface, so an explicit `term::clear` is for blanking again between
-frames — which is exactly what the canonical render loop does."#;
+frames — which is exactly what the canonical render loop does. In an `mfb build --app` program, `term::clear` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Blank the surface and draw from the top of each frame:
 
@@ -106,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_clear),
         }],
     });

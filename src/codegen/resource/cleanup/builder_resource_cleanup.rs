@@ -45,7 +45,14 @@ impl CodeBuilder<'_> {
     /// `TRAP` handler after a scope exit) skips on the existing null guard.
     ///
     /// Other kinds keep the tombstone: their producers include records this
-    /// analysis has not audited (native `LINK` thunks, `audio`, `process`).
+    /// analysis has not audited (native `LINK` thunks, `process`).
+    ///
+    /// plan-158-A: `audio` streams are audited and included. Every producer is a
+    /// 96 B record in this arena (the three backends' opens and the closed default);
+    /// the streams are not sendable; every I/O helper reads `H_CLOSED` before
+    /// `H_STATE`; and the close tears down everything the record points at before
+    /// the drop frees it — macOS disposes its `AudioQueue` with `inImmediate = 1`,
+    /// so its callbacks, which receive the record, cannot run after it.
     ///
     /// bug-647: `fs.File` used to be excluded too, "shares the record with the
     /// drop's buffer reclaim". That reason was stale — and it cost two whole
@@ -82,6 +89,8 @@ impl CodeBuilder<'_> {
             "tls.Socket",
             "tls.Listener",
             "fs.File",
+            "audio.AudioInput",
+            "audio.AudioOutput",
         ]
         .iter()
         .any(|name| base.is_named(name))

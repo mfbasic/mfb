@@ -177,6 +177,13 @@ artifact — `"source": "file:<project-relative-dir>"`, `"source":
 it, so both dependency forms present the identical exported interface to the
 importer: the same signatures, exported types, resource types, isolated thread
 entries and overload sets.[[src/cli/build/source_packages.rs:build_source_dependencies]]
+A source dependency's vendored native libraries (the flat files of its `vendor/`
+directory, which its `libraries` locators name) are staged beside its compiled
+`.mfp`, in `build/packages/<name>.vendor/`, the same layout `mfb pkg` gives an
+installed package in `packages/<name>.vendor/`
+[[src/cli/build/source_packages.rs:stage_source_dependency_vendor]]; an imported
+unit's library is read from the `.vendor` directory beside whichever `.mfp` the
+build resolved it to [[src/cli/build/native_libs.rs:vendor_source_path]].
 An installed `packages/<name>.mfp` always wins over the sources beside it. A
 package may not be part of its own dependency
 graph.[[src/manifest/package.rs:resolved_package_file]]

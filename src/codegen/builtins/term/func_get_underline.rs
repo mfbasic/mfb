@@ -29,7 +29,7 @@ distinguish "off" from "on with underline disabled" by this call alone — use
 `term::isOn` for that.
 
 The call reads state only. It changes no `term::` state, draws
-nothing, and cannot fail."#;
+nothing, and cannot fail. In an `mfb build --app` program, `term::getUnderline` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Set underline and read it back:
 
@@ -99,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_get_underline),
         }],
     });

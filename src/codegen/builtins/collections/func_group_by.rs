@@ -656,7 +656,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::map_of(ParameterType::var("K"), ParameterType::list_of(ParameterType::var("V"))),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_groupBy", group_by_fast_path),
         }],
     });

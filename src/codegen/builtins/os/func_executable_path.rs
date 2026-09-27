@@ -103,7 +103,7 @@ backslash-delimited (`C:\dir\app.exe`).
 
 Use it to locate resources beside the executable, or to report the program's own
 path. If the host cannot determine the path, `os::executablePath` raises
-`ErrUnsupported`. It reads host state only and has no side effects."#;
+`ErrUnsupported`. It reads host state only and has no side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the executable path:
 
 ```
@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             // bug-454: raised on both the POSIX and Windows paths, undeclared until now.
-            errors: vec!["ErrUnsupported"],
+            errors: vec!["ErrUnsupported", "ErrOutOfMemory"],
             body: Body::abi_function(lower_executable_path),
         }],
     });

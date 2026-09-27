@@ -216,7 +216,7 @@ The arguments are captured at program startup from the values the OS passes in,
 so `os::args` reflects the invocation regardless of where in the program it is
 called. Each element is a `String` copied from the corresponding `argv` entry.
 If any host argument is not valid UTF-8, `os::args` raises `ErrEncoding` rather
-than constructing an invalid `String`."#;
+than constructing an invalid `String`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print each argument on its own line:
 
 ```
@@ -243,7 +243,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::list_of(ParameterType::String),
-            errors: vec!["ErrEncoding"],
+            errors: vec!["ErrEncoding", "ErrOutOfMemory"],
             body: Body::abi_function(lower_args),
         }],
     });

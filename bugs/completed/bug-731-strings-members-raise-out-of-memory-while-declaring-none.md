@@ -5,8 +5,10 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (declared-error data disagrees with the lowering)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (2026-09-27)
+Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
+every_strings_member_declares_exactly_the_errors_its_lowering_raises` (part of
+bug-698's generalized declared-errors sweep)
 
 No `strings` descriptor lists `ErrOutOfMemory`
 (`grep -l 'errors: vec!\[.*ErrOutOfMemory' src/codegen/builtins/strings/*.rs` → nothing),
@@ -80,8 +82,46 @@ branches; nothing checks declared errors against raise sites for this package.
 - A registry-wide check that every `raise_error*("X")` in a member's lowering is in
   its `errors` would catch the whole class; see how bug-694 verified `fs`.
 
-## Fix
+## Fix (landed via bug-698)
 
-Phase 1 — RED test asserting each listed member declares `ErrOutOfMemory`. Commit:
+bug-698's generalized lowering sweep (extended with `concretize()` so a
+generic `strings` member's `T`/`K` type variables resolve to a concrete type
+before lowering, the same fix `collections` needed) measures every native
+`strings` member's real raise set directly. Found 21 declaring no
+`ErrOutOfMemory` despite building a new `String`/`List OF Byte` result: `trim`,
+`trimStart`, `trimEnd`, `upper`, `lower`, `caseFold`, `normalizeNfc`,
+`graphemes`, `split`, `join`, `stripPrefix`, `stripSuffix`, `left`, `right`,
+`repeat`, `padLeft`, `padRight`, `graphemeAt`, `graphemesCount`, `trimChars`,
+`toBytes` (this doc's own list named 11 of the 21; the sweep's direct
+measurement found the other 10 too, including `left`/`right`/`padLeft`/
+`padRight`, which already declared `ErrInvalidArgument` but not
+`ErrOutOfMemory`). Declared it on each; added the standard prose clause to
+the 16 that lacked one.
 
-Phase 2 — add it to each descriptor (per overload); re-render the pages. Commit:
+An existing test, `codegen::builtins::mod.rs::the_raising_strings_members_are_
+not_infallible`, asserted `strings.upper`/`lower`/`trim` stay infallible —
+exactly the belief this bug disproves, verified the same way (lowering the
+real body and scanning for the raise, not inferred). Moved the three from its
+infallible-neighbours list to its raising list;
+`byteLen`/`contains`/`displayWidth` (genuinely untouched by this bug) keep
+their infallible assertion.
+
+`padLeftToWidth`/`padRightToWidth` (named in this doc's original prose) are
+`Body::Rewrite` (rewritten to an internal MFBASIC function name), a third
+non-native body kind this sweep does not check — so they were silent, not
+confirmed clean. Both already declared `ErrInvalidArgument` but not
+`ErrOutOfMemory`, despite `gen_pad.rs` raising it
+(`builder.raise_error_bare("ErrOutOfMemory")`, line 267) and both pages'
+prose already documenting the condition. Fixed directly from that evidence.
+
+**Known remaining gap:** `strings`/`astrings`/`collections` have roughly fifty
+more `Body::Mfb`/`Body::Rewrite`/`Body::Intrinsic` members this sweep cannot
+measure (`grep -rl 'Body::Rewrite\|Body::mfb\|Body::Intrinsic'
+src/codegen/builtins/{strings,astrings,collections}/*.rs`). Only the ones a
+bug doc named by hand (this bug, bug-641, bug-724) were individually
+verified against a real raise site; the rest are unmeasured, not confirmed
+correct. Building bug-698's `Body::Mfb` guard (deriving a raise set from a
+member's own `FAIL`s plus what it calls) would close this for good — tracked
+there, not solved here.
+
+Commit: (this worktree, bug-698 branch)

@@ -38,7 +38,7 @@ grows with its length — when you need both the clusters and their count, call
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+errors). `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Count user-perceived characters:
 
@@ -109,7 +109,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

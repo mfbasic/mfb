@@ -48,7 +48,7 @@ read. A negative `timeoutMs` raises `ErrInvalidArgument`. End of input raises
 
 The `io` readers share one queue of input, so they can be mixed without losing
 or reordering anything. A thread other than the main thread must subscribe with
-`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`."#;
+`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read one character and show its code point:
 
 ```
@@ -108,6 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrEndOfFile",
                 "ErrInputFailed",
                 "ErrInvalidContext",
+                "ErrOutOfMemory",
                 "ErrWrongMode",
             ],
             body: Body::abi_function(lower_read_scalar),

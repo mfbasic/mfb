@@ -42,7 +42,9 @@ either way.
 
 `set` can fail, because of the list overload's range check, so an inline `TRAP`
 on a `set` call compiles and catches that failure. A rejected index changes
-nothing: the bounds check happens before anything is written."#;
+nothing: the bounds check happens before anything is written. Building the
+result collection needs memory, so either overload can also raise
+`ErrOutOfMemory`."#;
 
 const EX: &str = r#"Replace an existing list element:
 
@@ -119,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Arg(0),
-                errors: vec!["ErrIndexOutOfRange"],
+                errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
                 body: Body::abi_inline(lower_set),
             },
             Implementation {
@@ -147,7 +149,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::Arg(0),
-                errors: vec!["ErrIndexOutOfRange"],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::abi_inline(lower_set),
             },
         ],

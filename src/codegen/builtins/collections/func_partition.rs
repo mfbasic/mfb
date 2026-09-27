@@ -382,7 +382,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::user_of("Partition", vec![ParameterType::var("T")]),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_partition", partition_fast_path),
         }],
     });

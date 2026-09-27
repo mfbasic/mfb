@@ -26,7 +26,7 @@ so live window resizes are reported the same way.
 Like `term::isOn`, this query is **not gated**: it reads state only and touches
 neither the terminal nor the surface. Before any `term::on` — or on a
 fixed-size app window that never resizes — it simply reads `FALSE`. A companion `term::terminalSize` call returns the new extent after
-`term::didResize` reports a change."#;
+`term::didResize` reports a change. In an `mfb build --app` program, `term::didResize` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Reflow a layout only when the terminal changes size. The check
 belongs in a frame loop, after the frame is presented: `term::sync` is what
@@ -118,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_did_resize),
         }],
     });

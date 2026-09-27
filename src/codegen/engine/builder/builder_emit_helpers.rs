@@ -690,6 +690,19 @@ impl CodeBuilder<'_> {
         if raw {
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
+            // plan-158-A: a parked helper error has no source yet. The trap below
+            // ADOPTS a parked block as it stands, so stamp this call site into it
+            // first: the location the loose error gets on the rebuild branch.
+            if runtime_helper_may_park_error(target) {
+                let not_parked = self.label("raw_helper_error_not_parked");
+                self.emit(abi::compare_immediate(
+                    RESULT_TAG_REGISTER,
+                    RESULT_ERR_BLOCK_TAG,
+                ));
+                self.emit(abi::branch_ne(&not_parked));
+                self.emit_restamp_parked_helper_error()?;
+                self.emit(abi::label(&not_parked));
+            }
             // bug-566: THE leak site. The helper allocated its result in this
             // thread's arena and handed back the only pointer; the `Result` is
             // built by copying it, after which nothing owned it. The predicate is
@@ -728,7 +741,7 @@ impl CodeBuilder<'_> {
         if target == "thread.waitFor" {
             self.emit_finalize_worker_error_source()?;
         } else {
-            self.emit_stamp_current_error_source()?;
+            self.emit_stamp_runtime_helper_error(target)?;
         }
         self.emit_call_error_exit()?;
         self.emit(abi::label(&ok_label));

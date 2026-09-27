@@ -5,8 +5,11 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (declared-error data disagrees with the lowering)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed (2026-09-27)
+Regression Test: `codegen::engine::tests::builtins_codegen::declared_errors_all::
+every_io_member_declares_exactly_the_errors_its_lowering_raises`
+(`src/codegen/builtins/tests/declared_errors_all.rs`), part of bug-698's
+generalized declared-errors sweep.
 
 All fifteen `io` members are registered with `errors: vec![]`, including both
 overloads of `print` and `write`:
@@ -25,19 +28,45 @@ raise:
 
 | Member | Raises | Evidence |
 |---|---|---|
-| `pollInput` | `ErrInvalidArgument` (negative timeout) | probe `/tmp/p125-ex/iopollE`: `77050002` |
-| `pollInput` | `ErrInputFailed` (the readiness query fails) | `func_poll_input.rs:lower_poll_input` (plan-125-D `pollInput` review); confirm in Phase 1 |
+| ~~`pollInput`~~ | — | removed by bug-699 (replaced by `readRaw`/`readScalar`/`readGrapheme`/`readKey`, each with a `timeoutMs` and its own declared errors) |
 | `readLine` | `ErrEndOfFile` | probe `/tmp/p125-ex/ioeof`: `77020003` after the final line |
 | `input` | `ErrEncoding` (ill-formed UTF-8) | probe `/tmp/p125-ex/ioinbad`: `77020004` |
 | `input`, `readLine` | `ErrWriteFailed`, `ErrInputFailed`, `ErrOutOfMemory`, `ErrInvalidContext` | `gen_read_line_family.rs:lower_read_line_family` raise sites (plan-125-D `input` review) |
 | `flush` | `ErrWriteFailed` | `func_flush.rs:lower_flush` calls `raise_error_into(..., "ErrWriteFailed", ...)` |
 | `printError` (and the other write-family members sharing `gen_write_family.rs`) | `ErrWriteFailed` | `gen_write_family.rs:lower_write_family` calls `raise_error_into(..., "ErrWriteFailed", ...)` (plan-125-D `printError` review) |
-| `readChar` | `ErrEncoding` (ill-formed byte, and a sequence cut short by end of input) | probe `/tmp/p125-ex/ioreads`: `0xFF` → `77020004`; `E2 82` then end of input → `77020004` |
-| `readByte` | `ErrEndOfFile` | probe `/tmp/p125-ex/ioreads`: `77020003` at end of input |
-| `readChar`, `readByte` | `ErrInvalidContext` (unsubscribed worker thread) | their man pages' prose and `stdin_broadcast.rs`; confirm in Phase 1 |
+| ~~`readChar`~~ | — | removed by bug-699 (replaced by `readScalar`/`readGrapheme`/`readKey`) |
+| ~~`readByte`~~ | — | removed by bug-699 (replaced by `readRaw`) |
 
 This is the `io` instance of the class already filed for `encoding` (bug-606), `udp`
 (bug-608), `math` per-overload (bug-617) and `collections` (bug-641).
+
+## Fix (landed via bug-698)
+
+bug-699 (merged to main `b1a563acd`, ahead of this fix) already declared
+`errors` correctly on the new readers (`readRaw`/`readScalar`/`readGrapheme`/
+`readKey`/`readLine`/`input`) for every code except `ErrWriteFailed` — none of
+them declared that the shared pending-output drain before a blocking read can
+fail. bug-698's generalized lowering sweep
+(`every_io_member_declares_exactly_the_errors_its_lowering_raises`) measures
+every member's real lowering directly (not a census) and found:
+
+- `print`, `write`, `printError`, `writeError`, `flush`: declared no errors at
+  all despite `gen_write_family.rs:lower_write_family` raising `ErrWriteFailed`.
+  Declared it on each (all four already documented the condition in prose).
+- `readLine`: missing `ErrWriteFailed` (the pre-read stdout drain can fail);
+  added the descriptor entry and a prose sentence.
+- `readRaw`, `readScalar`: missing `ErrOutOfMemory`; added the descriptor
+  entry and a prose sentence (the grapheme/key readers already had it).
+
+`ErrWrongMode` (an `--app` build outside `app::Mode.Console`) is real on the
+six console-reading members but unmeasurable by the lowering sweep, whose
+harness fixes `build_mode` to `Console` — the app-mode Rust branch that emits
+the raise is never even compiled into the probe. Declared via the sweep's
+`declared_extra` allowance (hand-verified against `gen_read_line_family.rs`'s
+`build_mode.is_app()` branch and `prepend_wrong_mode_gate`), already correctly
+present on all six from bug-699.
+
+Commit: (this worktree, bug-698 branch)
 
 **The single correct behavior a fix produces:** every `io` member declares exactly
 the errors its lowering can raise, so each page's Errors table lists them. Members

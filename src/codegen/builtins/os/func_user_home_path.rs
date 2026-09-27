@@ -58,7 +58,7 @@ A `relative` containing a `.` or `..` **path component** raises
 whole component that is exactly `.` or `..` is refused. On Windows a component
 also ends at `\`, so `..\x` is refused too. If the host cannot say where the
 folder is — no `HOME` and no account entry on macOS or Linux, or the folder
-lookup failing on Windows — the call raises `ErrUnsupported`."#;
+lookup failing on Windows — the call raises `ErrUnsupported`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Show a path in the home folder:
 
 ```
@@ -93,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // Raised through `raise_error_into` (`gen_host_paths.rs`), which the
             // static descriptor scan cannot see — declared here so the page's
             // Errors section lists them (the bug-454 lesson).
-            errors: vec!["ErrUnsupported", "ErrInvalidPath"],
+            errors: vec!["ErrUnsupported", "ErrInvalidPath", "ErrOutOfMemory"],
             body: Body::abi_function(lower_user_home_path),
         }],
     });

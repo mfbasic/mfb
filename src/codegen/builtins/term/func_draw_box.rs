@@ -41,7 +41,7 @@ collapsed cells show corner glyphs: a one-cell box leaves the bottom-right corne
 (`╝` in the `Double` style).
 
 The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+error. In an `mfb build --app` program, `term::drawBox` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Draw a light box near the top-left corner:
 
@@ -144,7 +144,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_draw_box),
         }],
     });

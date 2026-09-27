@@ -53,6 +53,8 @@ pub(crate) mod gen_macos_shared;
 pub(crate) mod gen_macos_stream;
 pub(crate) mod gen_shared;
 pub(crate) mod gen_windows;
+#[cfg(test)]
+mod status_tests;
 
 mod func_available;
 mod func_close;
@@ -144,8 +146,10 @@ opening one stream of each direction and driving both from a single loop with
 Both stream types are move-only, non-sendable resource handles: neither can
 cross a thread boundary. Each closes itself when its
 binding goes out of scope, or earlier with `audio::close`. A second `audio::close`
-on a stream it already closed raises `ErrResourceClosed`, as does any other use of
-a closed stream. A stream stays on the thread that opened it. `audio::AudioDevice` is a
+on a stream it already closed raises `ErrResourceClosed`. `audio::write` and
+`audio::read` on a closed stream raise `ErrAudioDevice`, and `audio::available`,
+`audio::poll` and `audio::xruns` answer `0` (`FALSE` for `audio::poll`). A stream
+stays on the thread that opened it. `audio::AudioDevice` is a
 plain read-only record obtained only from `audio::devices()`. The `render` and
 `play` members are pure synthesis: `render` turns one `audio::AudioNote` into `s16le`
 PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.
@@ -156,7 +160,28 @@ through a `libasound.so.2` resolved at runtime with `dlopen` — so a binary tha
 imports `audio` still starts on a Linux host without alsa-lib, and every
 `audio::` call that needs the device raises `ErrAudioUnavailable` there
 (`audio::render` needs no device, and `audio::xruns` still reports its count). A program that does not
-`IMPORT audio` gains no audio symbol and no dynamic-library dependency."#;
+`IMPORT audio` gains no audio symbol and no dynamic-library dependency.
+
+
+Windows drives WASAPI. When a system audio call fails, the `ErrAudioDevice` or
+`ErrAudioUnavailable` message ends with the name of the call and the status it
+returned, as eight hex digits. On Windows, `(IAudioRenderClient::GetBuffer:
+0x88890004)` is the status Windows gives when the device was unplugged, disabled,
+or taken over by another stream. On macOS the status is Core Audio's, as in
+`(AudioQueueStart: 0xfffefbb3)`. On Linux it is ALSA's negative error number:
+`(snd_pcm_open: 0xfffffff0)` is `-16`, the device is busy. Look the status up in
+the platform's documentation for that call. When an ALSA device cannot run the
+stream's format, the message names the setting and the value the device settled
+on instead (`rate` or `channels`). `e.code` is the same either way.
+
+
+On Windows a stream at the device's own sample rate shares the device with other
+programs and other streams. A stream at any other rate (44100 Hz on a 48000 Hz
+device, say) must take the device exclusively, and opening it ends every other
+stream on the device: their next `audio::write` or `audio::read` raises
+`ErrAudioDevice` with status `0x88890004`, and they must be reopened. To play two
+sounds at different rates on Windows, close one before opening the other, or open
+both at the device's rate."#;
 
 /// A required parameter with optional keyword aliases.
 pub(crate) fn param(
@@ -801,6 +826,13 @@ mod tests {
         let mut instructions = Vec::new();
         let mut relocations = Vec::new();
         let mut vregs = crate::codegen::engine::util::Vregs::new();
+        let mut status_sites = crate::codegen::error::emission::StatusFailSites::new(
+            "t_select_device",
+            "ErrAudioDevice",
+            "t_select_device_status_fail",
+            super::gen_macos_shared::STREAM_FAIL_STATUS_OFF,
+            super::gen_macos_shared::STREAM_FAIL_PREFIX_OFF,
+        );
         super::gen_macos_shared::emit_select_device(
             &mut crate::codegen::engine::builder::EmitCtx {
                 symbol: "t_select_device",
@@ -810,10 +842,17 @@ mod tests {
                 relocations: &mut relocations,
             },
             "t_select_device_fail",
+            &mut status_sites,
             &mut vregs,
         )
         .expect("lower the Core Audio device selection");
         assert_reads_the_inlined_id(&instructions, super::gen_macos_shared::DEVID_OFF);
+        // The caller owns the status stubs; emit them as a real open does.
+        status_sites.emit_stubs(
+            crate::target::shared::abi::c_arg(0),
+            &mut instructions,
+            &mut relocations,
+        );
     }
 
     /// plan-132: ALSA's `emit_device_cstring` reads the device name hint from the flat

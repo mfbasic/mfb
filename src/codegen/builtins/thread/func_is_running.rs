@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{any, function, lowering, overload, req};
+use super::{any, function, lowering, overload_errs, req};
 
 const INTRO: &str = r#"Report whether a thread is still running."#;
 
@@ -21,7 +21,7 @@ the thread has finished — whether or not `waitFor` has collected it — it
 answers `FALSE`.
 
 A cancelled thread is still running until it actually stops — `thread::cancel`
-asks, and the worker decides when to notice."#;
+asks, and the worker decides when to notice. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Do other work while a thread runs, then collect it:
 
@@ -46,7 +46,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "isRunning",
         Some("Thread OF Msg TO Out"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![req(
                 "t",
                 &["thread"],
@@ -55,6 +55,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             )],
             ParameterType::Boolean,
             Body::abi_function(lowering::lower_is_running),
+            vec!["ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }

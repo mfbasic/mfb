@@ -32,6 +32,30 @@ SUB playSoundFile(dev AS audio::AudioDevice, path AS String)
   audio::close(fileOut)
 END SUB
 
+' Play MML music on its own 48 kHz mono stream (the only format audio::play's
+' sequencer renders), opened for this tune and closed after it. Holding one
+' stream open for the whole session would not survive a sound file: a file at
+' another rate (Mozart is 44.1 kHz) needs the device to itself on Windows, and
+' opening it ends every other stream on the device.
+FUNC playTune(dev AS audio::AudioDevice, tune AS String) AS Nothing
+  RES out AS audio::AudioOutput = audio::openOutput(dev, 48000, 1, 512) TRAP(e)
+    io::print("Couldn't open the device:\n" & e.message)
+    RETURN
+  END TRAP
+  audio::play(out, tune)
+  audio::close(out)
+END FUNC
+
+' The multi-track form of playTune.
+FUNC playTracks(dev AS audio::AudioDevice, tracks AS List OF String) AS Nothing
+  RES out AS audio::AudioOutput = audio::openOutput(dev, 48000, 1, 512) TRAP(e)
+    io::print("Couldn't open the device:\n" & e.message)
+    RETURN
+  END TRAP
+  audio::play(out, tracks)
+  audio::close(out)
+END FUNC
+
 SUB main()
   LET devices AS List OF audio::AudioDevice = audio::devices()
   LET outDevices AS List OF audio::AudioDevice = collections::filter(devices, LAMBDA(d AS audio::AudioDevice) -> d.canOutput)
@@ -67,12 +91,6 @@ SUB main()
 
   io::print("Using device: " & seloutDevices.name)
 
-  ' Open the selected device
-  RES out AS audio::AudioOutput = audio::openOutput(seloutDevices, 48000, 1, 512) TRAP(e)
-    io::print("Couldn't open the device:\n" & e.message)
-    EXIT PROGRAM 0
-  END TRAP
-
   MUT useIn AS String
   DO
     ' Show a menu of what to play
@@ -90,7 +108,7 @@ SUB main()
     MATCH choice
       CASE 1
         LET ttls = "T160 O4 V8 I triangle C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 ) G4 G F4 F E4 E D2 G4 G F4 F E4 E ( D2 ) C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 )"
-        audio::play(out, ttls)
+        playTune(seloutDevices, ttls)
       CASE 2
         ' "Row, Row, Row Your Boat" as a three-part round.
         '
@@ -117,7 +135,7 @@ SUB main()
         LET voice2 AS String = "T120 O4 L8 V4 I triangle { P2 P4 }2 { " & tune & " }3"
         LET voice3 AS String = "T120 O4 L8 V3 I square { P2 P4 }4 { " & tune & " }3"
         LET tracks AS List OF String = [voice1, voice2, voice3]
-        audio::play(out, tracks)
+        playTracks(seloutDevices, tracks)
       CASE 3
         playSoundFile(seloutDevices, os::appResourcePath("music/Mozart1.ogg"))
       CASE 4

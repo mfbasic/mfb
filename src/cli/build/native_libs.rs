@@ -123,13 +123,24 @@ pub(super) fn vendor_source_path(
     library: &crate::codegen::link::locator::ResolvedLibrary,
 ) -> PathBuf {
     if library.declaring_unit == own_unit {
-        crate::manifest::libraries::vendor_path(project_root, &library.locator.source)
-    } else {
-        crate::manifest::libraries::imported_vendor_path(
+        return crate::manifest::libraries::vendor_path(project_root, &library.locator.source);
+    }
+    // plan-158-D: beside whichever `.mfp` this build resolves the unit to. An
+    // installed package's is `packages/<unit>.mfp` (so this is `packages/<unit>.vendor`,
+    // where `mfb pkg` put the blobs); a source dependency's is the build's package
+    // cache, where `stage_source_dependency_vendor` copied them.
+    match crate::manifest::package::resolved_package_file(project_root, &library.declaring_unit)
+        .as_deref()
+        .and_then(Path::parent)
+    {
+        Some(dir) => dir
+            .join(format!("{}.vendor", library.declaring_unit))
+            .join(&library.locator.source),
+        None => crate::manifest::libraries::imported_vendor_path(
             project_root,
             &library.declaring_unit,
             &library.locator.source,
-        )
+        ),
     }
 }
 

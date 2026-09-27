@@ -4,6 +4,7 @@ use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
+use crate::codegen::error::emission::StatusFailSites;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
 
@@ -134,6 +135,12 @@ pub(crate) fn emit_pthread1(
 
 // Stream-helper stack frame.
 pub(crate) const F: usize = 512;
+// plan-158-B: `StatusFailSites`' two slots (a failing call's status and its
+// message-prefix address) in each frame, above every named slot.
+pub(crate) const STREAM_FAIL_STATUS_OFF: usize = 488;
+pub(crate) const STREAM_FAIL_PREFIX_OFF: usize = 496;
+pub(crate) const DEVICES_FAIL_STATUS_OFF: usize = 1008;
+pub(crate) const DEVICES_FAIL_PREFIX_OFF: usize = 1016;
 
 pub(crate) const SR_OFF: usize = 8;
 
@@ -174,6 +181,7 @@ pub(crate) const UID_CSTR_OFF: usize = 176; // 256-byte C string for the device 
 pub(crate) fn emit_select_device(
     ctx: &mut EmitCtx,
     dev_fail: &str,
+    status_sites: &mut StatusFailSites,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
@@ -266,9 +274,9 @@ pub(crate) fn emit_select_device(
         ctx.relocations,
     )?;
     ctx.instructions.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), CAP_OFF),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(dev_fail),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CAP_OFF),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&status_sites.site("AudioQueueSetProperty", abi::return_register())),
     ]);
     Ok(())
 }
@@ -285,8 +293,10 @@ pub(crate) fn emit_open_cleanup(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<
 
     let v10 = vregs.next();
     let v9 = vregs.next();
-    let munmap = format!("{symbol}_cleanup_munmap");
-    let skip = format!("{symbol}_cleanup_skip");
+    // Suffixed by position: an open emits this once per failure tail.
+    let n = ctx.instructions.len();
+    let munmap = format!("{symbol}_cleanup_munmap_{n}");
+    let skip = format!("{symbol}_cleanup_skip_{n}");
     ctx.instructions.extend([
         abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
         abi::compare_immediate(&v10, "0"),
@@ -317,7 +327,15 @@ pub(crate) fn emit_open_cleanup(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<
         ctx.instructions,
         ctx.relocations,
     )?;
-    ctx.instructions.push(abi::label(&skip));
+    ctx.instructions.extend([
+        abi::label(&skip),
+        // plan-158-B: the handle record. Every open failure that runs this cleanup
+        // comes after the record's allocation, and the failed open hands it to
+        // nobody, so it was leaked on every failed open.
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::c_arg(1), "Integer", &H_RECORD_SIZE.to_string()),
+    ]);
+    crate::codegen::memory::arena::emit_arena_free(symbol, ctx.instructions, ctx.relocations);
     Ok(())
 }
 
@@ -388,6 +406,7 @@ pub(crate) fn emit_cfstring_field(
     selector: &str,
     out_off: usize,
     dev_fail: &str,
+    status_sites: &mut StatusFailSites,
     alloc_fail: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
@@ -424,7 +443,7 @@ pub(crate) fn emit_cfstring_field(
     )?;
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(dev_fail),
+        abi::branch_ne(&status_sites.site("AudioObjectGetPropertyData", abi::return_register())),
         // CFStringGetCString(cfref, CSTRBUF, 256, kCFStringEncodingUTF8)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CFREF_OFF),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CSTRBUF_OFF),

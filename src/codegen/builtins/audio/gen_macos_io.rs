@@ -30,6 +30,14 @@ pub(crate) fn lower_write(
     let copy_done = format!("{symbol}_copy_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
+    // plan-158-B: a refused enqueue reports its OSStatus.
+    let mut enqueue_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_enqueue_fail"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
@@ -219,7 +227,7 @@ pub(crate) fn lower_write(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&enqueue_sites.site("AudioQueueEnqueueBuffer", abi::return_register())),
         // Enqueued, so nothing is in hand any more.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), FILL_OFF),
         abi::branch(&write_loop),
@@ -250,6 +258,53 @@ pub(crate) fn lower_write(
         &mut relocations,
         &done,
     );
+    // plan-158-B: a refused enqueue leaves the buffer in hand. It used to be
+    // dropped (neither enqueued, pending, nor free), so each refusal shrank the free
+    // stack by one, and with every buffer gone the next write would wait on the
+    // condition forever. Give it back to the free stack under the mutex, and clear
+    // the pending slot in case the refused buffer was the one resumed from it.
+    let v18 = vregs.next();
+    enqueue_sites.emit_stubs(&v18, &mut instructions, &mut relocations);
+    instructions.push(abi::label(enqueue_sites.tail()));
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v9, &v10, S_FREE_TOP),
+        abi::add_immediate(&v11, &v10, S_FREE_BUFS),
+        abi::move_immediate(&v12, "Integer", "8"),
+        abi::multiply_registers(&v13, &v9, &v12),
+        abi::add_registers(&v11, &v11, &v13),
+        abi::load_u64(&v14, abi::stack_pointer(), BUFPTR_OFF),
+        abi::store_u64(&v14, &v11, 0),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, &v10, S_FREE_TOP),
+        abi::store_u64(abi::ZERO, &v10, S_PENDING_BUF),
+        abi::store_u64(abi::ZERO, &v10, S_PENDING_FILL),
+    ]);
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    enqueue_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     Ok((instructions, relocations, F))

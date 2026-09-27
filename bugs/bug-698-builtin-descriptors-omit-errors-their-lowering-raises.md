@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (documentation correctness)
 
-Status: Open — **decided 2026-09-25 (owner): every function must list every error it can
+Status: Open — native-body sweep DONE (2026-09-27): every package's native lowering is guarded (`declared_errors_all.rs`, 53 guards green; full suite 251/0, artifact gate 0 diffs; siblings 641/722/724/727/731 fixed and archived). REMAINING: the `Body::Mfb` guard (Phase 1, second box) and bug-645's `sum` row. Owner decision 2026-09-25 stands: every function must list every error it can
 produce.** That includes `ErrOutOfMemory` on every member that can raise it, and the
 `Body::Mfb` members' `FAIL` codes. Land after bug-702 and bug-701, which change raise sets.
 Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1)
@@ -160,8 +160,8 @@ raised by a shared emitter. bug-694 added the lowering sweep for `fs` only
 
 ### Phase 1: failing guard + complete measurement
 
-- [ ] Extend the sweep to every package; make `term`/`crypto`/`canvas`/`app`
-      lower in the harness.
+- [x] Extend the sweep to every package; make `term`/`crypto`/`canvas`/`app`
+      lower in the harness. (`declared_errors_all.rs`, one guard per package)
 - [ ] Add the `Body::Mfb` guard (see Blast Radius).
 - [ ] Record the complete per-member list here.
 
