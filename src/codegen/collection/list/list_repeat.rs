@@ -9,6 +9,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
+use crate::codegen::collection::map::map_mutate::InlineGrow;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
@@ -70,18 +71,27 @@ impl CodeBuilder<'_> {
     /// past it is appended with the `append` primitive; neither can grow again, so
     /// the reservation is the only allocation and the only failure.
     ///
-    /// `drop_replaced` is `lower_list_set_in_place_with`'s: false for a byte copy
-    /// that does not own its elements' graphs yet.
+    /// `owned` says the buffer owns its elements' graphs (plan-134): an overwritten
+    /// element's graph is dropped. It is false for the value path's byte copy,
+    /// whose edges still belong to the argument
+    /// (`lower_list_set_in_place_with`). `elements`, when `Some`, is a slot holding
+    /// a list of `count` elements whose element `k` is written at `start + k` in
+    /// place of `item_slot` — each position's own graph, built before the first
+    /// write (`try_inplace_repeat_assign`); `item_slot` then only sizes the
+    /// reservation. `inline` is the owner record's `InlineGrow` for a list inlined
+    /// in a record or `STATE` field, which the one grow reallocates instead.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_list_repeat_in_place(
         &mut self,
         buffer_slot: usize,
         item_slot: usize,
+        elements: Option<usize>,
         count_slot: usize,
         start_slot: usize,
         list_type: &ParameterType,
         element_type: &ParameterType,
-        drop_replaced: bool,
+        owned: bool,
+        inline: Option<InlineGrow>,
     ) -> Result<ValueResult, String> {
         let entry_stride = list_entry_stride(element_type);
         let layout = CollectionTypeLayout::from_type(list_type)
@@ -181,7 +191,7 @@ impl CodeBuilder<'_> {
                 extra_slot,
                 list_type,
                 element_type,
-                None,
+                inline,
                 retry,
             )?;
         }
@@ -245,6 +255,11 @@ impl CodeBuilder<'_> {
             &d,
             &size_overflow,
         );
+        // plan-121-C: an inlined field grows the RECORD, so widen the request by
+        // the record prefix.
+        if let Some(g) = &inline {
+            self.emit_inline_grow_extend_size(g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -256,6 +271,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        // For an inlined field the allocation IS the record: split it, so every
+        // line below writes through the sub-block.
+        let new_rec_slot = inline
+            .as_ref()
+            .map(|g| self.emit_inline_grow_split(g, new_buf_slot));
 
         // Header: old count / dataLength, new capacity / data capacity.
         let nb = self.temporary_vreg();
@@ -292,7 +312,13 @@ impl CodeBuilder<'_> {
             self.emit_block_copy_advance(&dst, &src, &len, &copy, "list_repeat_grow_entries");
         }
         // The buffer is uniquely owned, so nothing else references the old block.
-        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
+        // An inlined sub-block is not its own allocation: the old RECORD goes.
+        match (&inline, new_rec_slot) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(g, buffer_slot, list_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(buffer_slot, list_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
 
@@ -309,19 +335,55 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&done));
         self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&c, &base, COLLECTION_OFFSET_COUNT));
+        // The element written here: `item`, or element `index - start` of the
+        // `elements` list — a view into its data region, which the write copies.
+        let write_slot = match elements {
+            None => item_slot,
+            Some(list_slot) => {
+                let slot = self.allocate_stack_object("list_repeat_element", 8);
+                let offset = self.temporary_vreg();
+                let length = self.temporary_vreg();
+                let list = self.temporary_vreg();
+                self.emit(abi::load_u64(&b, abi::stack_pointer(), start_slot));
+                self.emit(abi::subtract_registers(&a, &a, &b));
+                self.emit(abi::move_immediate(&b, "Integer", &entry_stride.to_string()));
+                self.emit(abi::multiply_registers(&a, &a, &b));
+                self.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
+                self.emit(abi::add_registers(&a, &a, &list));
+                self.emit(abi::add_immediate(&a, &a, COLLECTION_HEADER_SIZE));
+                self.emit(abi::load_u64(
+                    &offset,
+                    &a,
+                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                ));
+                self.emit(abi::load_u64(
+                    &length,
+                    &a,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+                let payload =
+                    self.emit_load_collection_payload(element_type, &list, &offset, &length)?;
+                self.emit(abi::store_u64(&payload, abi::stack_pointer(), slot));
+                // Re-derive the branch operands the load clobbered.
+                self.emit(abi::load_u64(&a, abi::stack_pointer(), index_slot));
+                self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+                self.emit(abi::load_u64(&c, &base, COLLECTION_OFFSET_COUNT));
+                slot
+            }
+        };
         self.emit(abi::compare_registers(&a, &c));
         self.emit(abi::branch_ge(&append));
         self.lower_list_set_in_place_with(
             buffer_slot,
             index_slot,
-            item_slot,
+            write_slot,
             list_type,
             element_type,
-            drop_replaced,
+            owned,
         )?;
         self.emit(abi::branch(&advance));
         self.emit(abi::label(&append));
-        self.lower_list_append_in_place(buffer_slot, item_slot, list_type, element_type)?;
+        self.lower_list_append_in_place(buffer_slot, write_slot, list_type, element_type)?;
         self.emit(abi::label(&advance));
         let step = self.temporary_vreg();
         self.emit(abi::load_u64(&step, abi::stack_pointer(), index_slot));

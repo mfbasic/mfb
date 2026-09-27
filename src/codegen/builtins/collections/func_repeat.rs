@@ -201,10 +201,12 @@ pub(crate) fn lower_repeat(
     builder.lower_list_repeat_in_place(
         copy_slot,
         item_slot,
+        None,
         count_slot,
         start_slot,
         &collection.type_,
         &element_type,
         false,
+        None,
     )
 }

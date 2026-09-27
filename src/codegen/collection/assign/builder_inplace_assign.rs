@@ -873,6 +873,148 @@ impl CodeBuilder<'_> {
         }
         Ok(true)
     }
+
+    /// plan-153-B: `xs = collections::repeat(xs, item, count, start)` on a `List`.
+    ///
+    /// Operands in source order (item, count, start), then the range check
+    /// (`emit_list_repeat_validate`) and the one reservation, both before the
+    /// first write — the failure atomicity every arm keeps. The write is
+    /// `lower_list_repeat_in_place`, the core the value path runs on its copy.
+    ///
+    /// It grows, so a field site takes it only at its owner's last inlined field
+    /// with no operand reading the owner (`field_realloc_admitted`), growing the
+    /// owner through `InlineGrow`; any other field site rebuilds.
+    ///
+    /// The item is lowered as a plain value, not a store: its graph (a type that
+    /// reaches a type cycle) stays with its origin. Every position needs a graph
+    /// of its own, and those copies are the one allocation besides the
+    /// reservation, so they are all made before `x` is touched: `count` copies of
+    /// the item are built as a private list (the value path's shape, on an empty
+    /// list, then `own_collection_payload_edges`), their payloads are written into
+    /// `x`, and the private list's block alone is freed — `x` now holds its
+    /// elements' graphs.
+    pub(crate) fn try_inplace_repeat_assign(
+        &mut self,
+        site: &SelfUpdateSite<'_>,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        // G1–G7, G10 (the shared container gates). The IR pads the defaulted
+        // `start`, so every call arrives with four arguments.
+        let Some(target) = self.resolve_self_update(site, value, "repeat", 4) else {
+            return Ok(false);
+        };
+        let list_type = target.collection_type.clone();
+        // G9 — `repeat` mutates a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        if !self.field_realloc_admitted(site, &target.args[1..]) {
+            return Ok(false);
+        }
+        let opened = self.open_inplace_dest(&target.dest)?;
+        let item = self.lower_value(&target.args[1])?;
+        // Observation boundary: an in-place `Float` element must be finite (plan-17).
+        self.observe_float(&target.args[1], &item)?;
+        if item.type_ != element_type {
+            return Err(format!(
+                "native collection repeat item must be {element_type}, got {}",
+                item.type_
+            ));
+        }
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_repeat_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        let mut integer_slots = Vec::with_capacity(2);
+        for (arg, name) in [
+            (&target.args[2], "inplace_repeat_count"),
+            (&target.args[3], "inplace_repeat_start"),
+        ] {
+            let operand = self.lower_value(arg)?;
+            if operand.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native collection repeat {name} must be Integer, got {}",
+                    operand.type_
+                ));
+            }
+            let operand = self.materialize_value(operand)?;
+            let slot = self.allocate_stack_object(name, 8);
+            self.emit(abi::store_u64(
+                &operand.location,
+                abi::stack_pointer(),
+                slot,
+            ));
+            integer_slots.push(slot);
+        }
+        let (count_slot, start_slot) = (integer_slots[0], integer_slots[1]);
+        let buffer_slot = self.inplace_collection_slot(&opened)?;
+        let grow = self.inplace_inline_grow(&opened)?;
+        self.emit_list_repeat_validate(buffer_slot, count_slot, start_slot)?;
+        let elements = if self.needs_graph_copy(&element_type) {
+            let empty = self.lower_empty_collection(&list_type)?;
+            let copies_slot = self.allocate_stack_object("inplace_repeat_copies", 8);
+            self.emit(abi::store_u64(
+                &empty.location,
+                abi::stack_pointer(),
+                copies_slot,
+            ));
+            let zero = self.temporary_vreg();
+            let zero_slot = self.allocate_stack_object("inplace_repeat_copies_start", 8);
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), zero_slot));
+            let copies = self.lower_list_repeat_in_place(
+                copies_slot,
+                item_slot,
+                None,
+                count_slot,
+                zero_slot,
+                &list_type,
+                &element_type,
+                false,
+                None,
+            )?;
+            let copies = self.own_collection_payload_edges(copies)?;
+            self.emit(abi::store_u64(
+                &copies.location,
+                abi::stack_pointer(),
+                copies_slot,
+            ));
+            Some(copies_slot)
+        } else {
+            None
+        };
+        self.lower_list_repeat_in_place(
+            buffer_slot,
+            item_slot,
+            elements,
+            count_slot,
+            start_slot,
+            &list_type,
+            &element_type,
+            true,
+            grow,
+        )?;
+        if let Some(copies_slot) = elements {
+            // The copies' graphs now belong to `x`; only their list's block is freed.
+            let keep = self.allocate_register();
+            self.emit(abi::load_u64(&keep, abi::stack_pointer(), copies_slot));
+            let threaded = ValueResult {
+                origin: None,
+                type_: list_type.clone(),
+                location: crate::codegen::engine::operand::Operand::from(keep),
+                text: String::new(),
+            };
+            self.free_intermediate_collection(copies_slot, &list_type, threaded)?;
+        }
+        self.close_field_dest(&target.dest, &opened)?;
+        self.forget_field_owner_constant(site, &target.dest);
+        Ok(true)
+    }
 }
 
 // ---------------------------------------------------------------------------
