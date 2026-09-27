@@ -83,7 +83,10 @@ impl CodeBuilder<'_> {
     /// its type, with padding bytes unobservable.
     pub(crate) fn collection_payload_alignment(&self, type_: &ParameterType) -> usize {
         match type_ {
-            ParameterType::Boolean | ParameterType::Byte | ParameterType::String => 1,
+            ParameterType::Nothing
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::String => 1,
             ParameterType::Integer
             | ParameterType::Float
             | ParameterType::Fixed
@@ -1762,7 +1765,7 @@ impl CodeBuilder<'_> {
         let scratch10 = self.temporary_vreg();
         let len_slot = self.allocate_stack_object(label, 8);
         match &payload.type_ {
-            ParameterType::Boolean | ParameterType::Byte => {
+            ParameterType::Nothing | ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
             type_ if type_.is_named("Scalar") => {
@@ -1886,6 +1889,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch10, &scratch10, &scratch9));
 
         match &payload.type_ {
+            // bug-745: the unit value's payload is the constant byte 0, whatever
+            // register the value arrived in.
+            ParameterType::Nothing => {
+                self.emit(abi::move_immediate(&scratch12, "Integer", "0"));
+                self.emit(abi::store_u8(&scratch12, &scratch10, 0));
+            }
             ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u64(
                     &scratch12,
@@ -2254,7 +2263,7 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&data, collection_input, stride_type);
         self.emit(abi::add_registers(&data, &data, offset_input));
         let payload = match type_ {
-            ParameterType::Boolean | ParameterType::Byte => {
+            ParameterType::Nothing | ParameterType::Boolean | ParameterType::Byte => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u8(&result, &data, 0));
                 result
@@ -2417,7 +2426,7 @@ impl CodeBuilder<'_> {
 /// drift.
 pub(crate) fn list_element_is_fixed_width(element_type: &ParameterType) -> Option<usize> {
     match element_type {
-        ParameterType::Boolean | ParameterType::Byte => Some(1),
+        ParameterType::Nothing | ParameterType::Boolean | ParameterType::Byte => Some(1),
         // `Scalar` is a bare nominal, not a variant (it is a Unicode scalar
         // value, `Named("Scalar")`), so it is matched by name rather than shape.
         type_ if type_.is_named("Scalar") => Some(4),

@@ -1,4 +1,4 @@
-# plan-159-A: `FUNC … AS Nothing` parity — the value-less rule, the entry point, the rewriter
+# plan-159-A: `FUNC … AS Nothing` parity — the entry point and the rewriter
 
 Last updated: 2026-09-26
 Overall Effort: x-large (1d–3d) — the whole plan-159 "remove `SUB`" feature (guess, derived from the measured populations below)
@@ -12,21 +12,27 @@ worth its weight. It is already typed as `FUNC(...) AS Nothing` (`src/ir/lower.r
 and codegen does not tell the two apart. Measured: a `SUB` that uses `EXIT SUB`, and
 the same function written as `FUNC … AS Nothing` with a bare `RETURN`, produce
 byte-identical `.ncode` (see §2 Verified properties). What `SUB` does contribute are
-a few rules that apply only to it. This letter moves the one rule worth keeping onto
-`FUNC … AS Nothing`, and it removes the one place where `FUNC … AS Nothing` is weaker
-than `SUB`. After that, `SUB` has no remaining benefit, and B–D can remove it without
-losing anything.
+a few rules that apply only to it. This letter removes the one place where
+`FUNC … AS Nothing` is weaker than `SUB` (the entry point). After that, `SUB` has no
+remaining benefit, and B–D can remove it without losing anything.
+
+**`Nothing` is a first-class type (owner decision, 2026-09-26).** Its one value,
+`NOTHING`, binds, passes, stores, compares and collects like any other value
+(`mfb spec language types` §4.6, §4.10 defaults, §4.11 comparable; `mfb man types`).
+So the value of a call whose callee returns `Nothing` is simply `NOTHING`:
+`LET v = f()`, `g(f())`, `LET a = f(a)` and `LET v = io::print("x")` are all legal and
+bind or pass `NOTHING`. Only a `SUB` call is value-less, and that rule leaves with
+`SUB` in D. See Corrections: an earlier draft of this plan made such calls a compile
+error; that was wrong and is withdrawn.
 
 **The single outcome for A.** `FUNC main() AS Nothing` is a valid executable entry.
-Using the value of *any* call whose callee returns `Nothing` in value position
-(`LET v = f()`, `g(f())`) is a compile error, not a compiler panic. That covers a user
-`FUNC … AS Nothing`, a `SUB` and an effect-only built-in such as `io::print`.
+(The `LET v = f()` compiler panic is fixed by bug-744, not by this plan; see §2.)
 
 The letters, in implementation order:
 
 | Letter | Delivers | Effort |
 |---|---|---|
-| **A** (this) | value-less rule generalized to `Nothing`; `FUNC main AS Nothing` entry; the `tools/sub-to-func/` rewriter | medium |
+| **A** (this) | `FUNC main AS Nothing` entry; the `tools/sub-to-func/` rewriter (the old "value-less rule" phase is withdrawn — Corrections) | medium |
 | **B** | every `.mfb` in the tree migrated (tests, examples, packages + their `.mfp`, benchmark, bugs, spikes, tools); goldens regenerated | large |
 | **C** | every MFBASIC source embedded in Rust migrated: 821 `mfb man` examples, 34 injected built-in bodies, `mfb init`, test-harness generators, inline Rust test sources | large |
 | **D** | `SUB` deleted from the compiler, package format, `wire`, fmt, `pkg info`, doc HTML, VS Code grammar; spec + man narrative rewritten; rules retired; final gate | large |
@@ -58,21 +64,22 @@ Everything below assumes both conditions hold.
 
 - `FUNC main() AS Nothing` and `FUNC main(args AS List OF String) AS Nothing` are
   valid executable entries. On success they behave exactly like `SUB main` (exit 0).
-- A call whose callee's declared return type is `Nothing`, used in value position, is
-  rejected with the existing code `2-203-0074`. The rule is renamed and reworded for
-  `Nothing`. That covers user `FUNC`s, `SUB`s and built-ins alike. Statement-position
-  calls stay legal, and so does inline `TRAP` on them.
+- A call whose callee returns `Nothing`, used in value position, yields `NOTHING`
+  (user `FUNC`s and built-ins alike). **A adds no diagnostic for it.** The codegen that
+  makes it work is bug-744's; A only relies on it. A `SUB` call in value position keeps
+  `TYPE_SUB_HAS_NO_VALUE` (`2-203-0074`) until D deletes `SUB`, and D retires that
+  rule with it.
 - `tools/sub-to-func/` exists and mechanically rewrites a `.mfb` file from `SUB` to
   `FUNC … AS Nothing`. It is proven on the fixtures listed in Phase 3.
 
 ### Non-goals (explicit constraints)
 
 - `SUB` still parses and compiles unchanged after A. Nothing is removed until D.
-- No codegen change. A touches only a verifier rule, the manifest entry check and a
-  tool, so the `.ncode`/`.ncodesum` goldens must stay byte-identical.
-- The error code `2-203-0074` keeps its number. Only its name and message change.
-- A function *value* of type `FUNC(...) AS Nothing` (a callback such as `forEach(xs, show)`)
-  is unaffected. The rule applies only to a *call's result*.
+- No codegen change in A. A touches only the manifest entry check and a tool, so the
+  `.ncode`/`.ncodesum` goldens must stay byte-identical.
+- `2-203-0074` (`TYPE_SUB_HAS_NO_VALUE`) is not renamed or widened. It stays SUB-only.
+- Never make a `Nothing` value an error anywhere: not a `FUNC … AS Nothing` call's
+  result, not `NOTHING` itself, not `List`/`Map`/`Set OF Nothing` (bug-745).
 
 ## 2. Current State
 
@@ -91,9 +98,13 @@ thread 'mfb' panicked at src/target/shared/abi.rs:243:14:
 `void` is not a register operand (bug-721)
 ```
 
-The `io::print` equivalent (`LET v = io::print("x")`) panics identically. This is an
-**untracked compiler crash**: bug-721 is an unrelated, completed Windows arena bug whose
-name only appears in the panic message. It exists at HEAD today, independent of this plan.
+The `io::print` equivalent (`LET v = io::print("x")`) panics identically. This crash is
+now **tracked as bug-744** (the fix makes each such call yield `NOTHING`; 12 value-position
+shapes are covered by `tests/runtime/rt_nothing_func_value_position.rs`). Collections of
+`Nothing` (`[NOTHING, NOTHING]`, `List OF Nothing`) fail the native build with an internal
+error: **bug-745**, fixed so they work. Both are owner decisions of 2026-09-26 that
+`Nothing` is a valid, first-class type. The panic text names bug-721 because bug-721's
+typed-register change turned an older `unknown AArch64 register 'void'` into this panic.
 
 **The entry check forbids `FUNC … AS Nothing`.** `src/manifest/entry.rs` (the
 `FunctionKind` match near l.44 and the guard after it) rejects any `FUNC` entry whose
@@ -144,19 +155,14 @@ bugs 17/5, spikes 7/7, benchmark 6/2 (the loop `for d in …; rg -c "$R" -g '*.m
 
 ## 3. Design Overview
 
-Three independent pieces, each landable alone. None of them changes codegen, so the
+Two independent pieces, each landable alone. Neither changes codegen, so the
 **correctness gate is byte-identity of `.ncode`/`.ncodesum`** plus the new fixtures.
 A `.ncodesum` diff here is a bug to root-cause (`objdump` one fixture). It never means
 the design is dead.
 
-1. **Generalize the value-less rule** from `sig.kind == "sub"` to "the callee's return
-   type is `Nothing`", for both user and built-in callees. Rename
-   `TYPE_SUB_HAS_NO_VALUE` → `TYPE_NOTHING_CALL_HAS_NO_VALUE`, keeping code
-   `2-203-0074`. Message: `a call to a FUNC … AS Nothing produces no value and cannot
-   be used in value position`. This also fixes the panic. **Correctness risk
-   concentrates here.** The rule must not fire on statement-position calls, on the
-   operand of an inline `TRAP` in statement position, or on a function *reference*.
-   Rename the `allow_sub_call` cell to `allow_value_less_call`.
+1. ~~Generalize the value-less rule to every `Nothing` callee.~~ **Withdrawn**
+   (Corrections): `Nothing` is first-class, so a `Nothing` call's value is `NOTHING`.
+   bug-744 fixes the panic by lowering it that way.
 2. **Entry point:** `src/manifest/entry.rs` accepts `FunctionKind::Func` with
    `returns == Nothing` as well as `Integer`. The runtime exit-code contract for a
    `Nothing` entry is the one `SUB` uses today (`mfb spec language error-model`, entry
@@ -174,8 +180,10 @@ the design is dead.
 **Rejected alternatives.**
 - *Keep `SUB` as sugar for `FUNC … AS Nothing`.* The user's premise is that it adds
   nothing, and sugar keeps every surface in D alive.
-- *Drop the value-less rule and let `LET v = f()` bind a `Nothing`.* Today that
-  panics codegen. Making it legal is new codegen work for a value nobody can use.
+- *Make using a `Nothing` call's value a compile error.* Rejected by the owner
+  (2026-09-26): `Nothing` is a valid, first-class type, so its value must bind, pass
+  and collect like any other. It would also have rejected ordinary code such as
+  `LAMBDA(x) -> io::print(x)` and `RETURN f()` inside a `FUNC … AS Nothing`.
 - *Rewrite with the compiler's AST serializer.* It would reformat whole files and
   churn every golden. The line rewrite touches only the SUB lines.
 
@@ -185,38 +193,15 @@ the design is dead.
 > Moot = `- [x] ~~text~~ — moot: <evidence>`. Fill `Commit:` when a phase lands.
 > **An unticked box means NOT DONE.**
 
-### Phase 1 — The value-less rule covers every `Nothing` callee (fixes the panic)
+### Phase 1 — ~~The value-less rule covers every `Nothing` callee~~ — withdrawn
 
-- [ ] 1.1 RED first: add `tests/syntax/functions/nothing-call-value-invalid/`. It
-      contains a `FUNC f() AS Nothing` bound with `LET`, nested as an argument, and
-      `LET v = io::print("x")`, plus a statement-position call and a statement-position
-      inline-`TRAP` call that must stay clean. Its `golden/build.log` must carry three
-      `2-203-0074` diagnostics. Confirm that before the fix the build panics (the
-      repro in §2).
-- [ ] 1.2 Read `ir::verify`'s signature table (`src/ir/verify/mod.rs`, the `functions`
-      map and its `kind` doc at l.684) and establish whether built-ins are in it. If
-      they are not, resolve the built-in return type through the same oracle
-      `check_call_argument_types` uses. Record the finding under §2 Verified properties.
-- [ ] 1.3 `src/ir/verify/values.rs`: replace `sig.kind == "sub"` with a
-      return-type-is-`Nothing` test covering user and built-in callees. Rename the
-      `allow_sub_call` cell (`mod.rs:785`, `:1023`, `ops.rs:114,117,433,435`,
-      `values.rs:33-70`) to `allow_value_less_call`.
-- [ ] 1.4 `src/rules/table.rs:977`: rename to `TYPE_NOTHING_CALL_HAS_NO_VALUE` with the
-      new message, then update every reference:
-      `rg -n 'TYPE_SUB_HAS_NO_VALUE' src tests` → each hit updated.
-- [ ] 1.5 `tests/syntax/functions/sub-value-less-invalid/golden/build.log`: the rule
-      name in this golden changes. The four questions: (1) it pins `SUB` value-less
-      rules; (2) a `SUB` call in value position is an error; (3) nothing else depends
-      on the name (grep in 1.4); (4) proof: this plan renames the rule and the SUB
-      case still errors under the same code. Update only the renamed text.
-- [ ] 1.6 Spec: `src/docs/spec/diagnostics/01_rule-codes.md` (the 0074 row) and
-      `src/docs/spec/language/07_subs.md` / `06_functions.md`: state that a `Nothing`
-      call has no value. Cite `[[src/ir/verify/values.rs:check_value_depth]]`.
+- [x] ~~1.1–1.6: generalize `2-203-0074` to every `Nothing` callee, rename it
+      `TYPE_NOTHING_CALL_HAS_NO_VALUE`, add `nothing-call-value-invalid`.~~ — moot: owner
+      decision 2026-09-26, `Nothing` is a first-class type, so a `Nothing` call's value is
+      `NOTHING` and is legal (Corrections). **Do not implement this phase.** The panic it
+      targeted is bug-744; collections of `Nothing` are bug-745.
 
-Acceptance: the RED fixture goes green with three `2-203-0074` diagnostics and no panic,
-and no `.ncodesum` moves.
-  Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc nothing-call-value-invalid sub-value-less-invalid` → both PASS (est. 1 min);
-  `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min; one unaffected fixture proves the blast radius, per `.ai/testing-gates.md`).
+Acceptance: n/a (withdrawn). A's remaining work is Phases 2 and 3.
 Commit: —
 
 ### Phase 2 — `FUNC main … AS Nothing` is a valid entry
@@ -259,28 +244,37 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `nothing-call-value-invalid` (negative, 3 sites + 2 clean), the two
-  `entry-func-nothing` fixtures, and the `manifest::entry` unit test.
+- Tests: the two `entry-func-nothing` fixtures and the `manifest::entry` unit test.
+  (`nothing-call-value-invalid` is withdrawn with Phase 1; `Nothing`-value coverage is
+  bug-744's `tests/runtime/rt_nothing_func_value_position.rs` and bug-745's tests.)
 - Coverage: the new fixtures own `golden/` dirs, so `test-accept.sh` compares them.
 - Runtime proof: `mfb run` on `entry-func-nothing-valid` prints its line and exits 0.
-- Doc sync: `01_rule-codes.md`, `07_subs.md`, `06_functions.md`,
-  `01_project-manifest.md`, `08_error-model.md`, then `scripts/spec-census.sh --citations`.
+- Doc sync: `01_project-manifest.md`, `08_error-model.md`, then
+  `scripts/spec-census.sh --citations`. (`04_types.md` §4.6's statement that `Nothing`
+  values bind, pass and collect lands with bug-744/745.)
 - Final gate: plan-159 runs the full suite once, at the end of D. A runs the scoped
-  checks above and `cargo test --bin mfb` (est. 6 min, because the rule rename touches
-  inline verifier tests).
+  checks above and `cargo test --bin mfb`.
 
 ## Open Decisions
 
-- Rule name for 0074: `TYPE_NOTHING_CALL_HAS_NO_VALUE` (recommended, since it names
-  what is checked) or keep `TYPE_SUB_HAS_NO_VALUE` until D. Keeping it leaves a
-  misnamed rule live for three letters.
+- ~~Rule name for 0074~~ — moot: 0074 stays `TYPE_SUB_HAS_NO_VALUE`, SUB-only, and D
+  retires it with `SUB`.
 
 ## Corrections
 
-(none yet)
+- **2026-09-26 — the value-less rule for `Nothing` calls is withdrawn (owner).** The
+  first draft made using the value of any `Nothing`-returning call a compile error
+  (`TYPE_NOTHING_CALL_HAS_NO_VALUE`, §1 Goal, §3 item 1, Phase 1). That contradicts the
+  language: `Nothing` is a valid, first-class unit type whose value `NOTHING` binds,
+  passes, compares and collects (`mfb spec language types` §4.6/§4.10/§4.11,
+  `mfb man types`). The owner's ruling: `LET a = NOTHING`, `LET y = f(1)` with `f … AS
+  Nothing`, and `LET a = f(a)` must all work, as must collections of `Nothing`. The
+  panic that motivated Phase 1 is bug-744 (fixed by lowering the call to `NOTHING`);
+  collections of `Nothing` are bug-745. Phase 1 is withdrawn, the 0074 rule stays
+  SUB-only until D, and the Summary's risk moves off the verifier.
 
 ## Summary
 
-The only risk in A is the verifier change (a false positive in statement position
-would break real programs). Everything else is additive. After A, `FUNC … AS Nothing`
+A is additive: the entry check widens and a tool is added. The `Nothing`-value
+behaviour it relies on is bug-744's and bug-745's, not A's. After A, `FUNC … AS Nothing`
 can do everything `SUB` can, which is the premise B–D rest on.

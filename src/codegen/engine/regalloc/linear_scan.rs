@@ -27,6 +27,18 @@ use crate::target::shared::regmodel::{RegClass, RegisterModel};
 use super::analysis::{self, physical_busy, ClassModel, RegRef};
 use crate::optimizer::opt2::plans::mark::removable_op as mark_removable;
 
+/// A label name not yet used in this function, derived from `base` (bug-746).
+fn fresh_label(used: &mut std::collections::HashSet<String>, base: &str) -> String {
+    let mut name = base.to_string();
+    let mut n = 0usize;
+    while used.contains(&name) {
+        n += 1;
+        name = format!("{base}_{n}");
+    }
+    used.insert(name.clone());
+    name
+}
+
 pub(crate) struct RunResult {
     pub(crate) instructions: Vec<CodeInstruction>,
     pub(crate) spill_slot_count: usize,
@@ -401,6 +413,14 @@ pub(crate) fn run(
     // Set if an instruction cannot be colored (more simultaneously-live registers
     // than the pool holds); surfaced by `allocate` (bug-127.2).
     let mut alloc_error: Option<String> = None;
+    // bug-746: every label name the function already uses, so the edge-split
+    // labels minted below for an eviction around a conditional branch never
+    // collide with one (labels are function-scoped).
+    let mut label_names: std::collections::HashSet<String> = instructions
+        .iter()
+        .filter(|instruction| instruction.op == CodeOp::Label)
+        .filter_map(|instruction| instruction.get("name"))
+        .collect();
     // Consume the input stream: each instruction is moved through `substitute`,
     // which rewrites only its this-class vreg operands in place (plan-84 Phase 3),
     // so the `fields` Vec is carried rather than re-cloned once per class pass.
@@ -533,13 +553,33 @@ pub(crate) fn run(
                 None => out.push(model.emit_reload(class, scratch_for[&v].0, spill_slot[&v])),
             }
         }
-        out.push(substitute(
-            instruction,
-            class,
-            &assignment,
-            &scratch_for,
-            class_model,
-        )); // moves `instruction` (plan-84 Phase 3)
+        let mut substituted =
+            substitute(instruction, class, &assignment, &scratch_for, class_model); // moves `instruction` (plan-84 Phase 3)
+                                                                                    // bug-746: a conditional branch that reads a register is a block
+                                                                                    // terminator with TWO successors (only rv64's `rv.br` names registers;
+                                                                                    // every flag-reading branch has no register operand, so never evicts).
+                                                                                    // The victim restore emitted after it runs on the fall-through edge only,
+                                                                                    // so split the taken edge: branch to a fresh label that restores the
+                                                                                    // victims and then jumps to the original target.
+        let taken_edge = if !evictions.is_empty()
+            && analysis::is_block_terminator(substituted.op)
+            && !analysis::is_unconditional_terminator(substituted.op)
+        {
+            let target = substituted
+                .get("target")
+                .expect("a conditional branch names its target");
+            let taken = fresh_label(&mut label_names, &format!("ra_evict_{i}_taken"));
+            let join = fresh_label(&mut label_names, &format!("ra_evict_{i}_join"));
+            for (name, operand) in substituted.fields.iter_mut() {
+                if *name == "target" {
+                    *operand = Operand::from(taken.as_str());
+                }
+            }
+            Some((target, taken, join))
+        } else {
+            None
+        };
+        out.push(substituted);
         for &v in &def_spilled {
             // A rematerialized value is never reloaded from its slot, so the
             // store is dead.
@@ -550,6 +590,16 @@ pub(crate) fn run(
         }
         for (victim, slot) in evictions.iter().rev() {
             out.push(model.emit_reload(class, victim, evict_base + slot * slot_bytes));
+        }
+        if let Some((target, taken, join)) = taken_edge {
+            // Fall-through (restored above) skips the taken-edge block.
+            out.push(CodeInstruction::new("b").field("target", join.clone()));
+            out.push(CodeInstruction::new("label").field("name", taken));
+            for (victim, slot) in evictions.iter().rev() {
+                out.push(model.emit_reload(class, victim, evict_base + slot * slot_bytes));
+            }
+            out.push(CodeInstruction::new("b").field("target", target));
+            out.push(CodeInstruction::new("label").field("name", join));
         }
     }
     // "Spill-code optimization" (Level 2): the rewrite above emits a reload

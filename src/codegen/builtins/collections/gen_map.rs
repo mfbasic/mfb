@@ -99,6 +99,7 @@ impl CodeBuilder<'_> {
                 | ParameterType::Fixed
                 | ParameterType::Byte
                 | ParameterType::Boolean
+                | ParameterType::Nothing
         )
     }
 
@@ -118,7 +119,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(abi::c_arg(2), &scratch9, 0));
                 self.emit(abi::add_immediate(abi::c_arg(1), &scratch9, 8));
             }
-            ParameterType::Boolean | ParameterType::Byte => {
+            ParameterType::Nothing | ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::add_immediate(
                     abi::c_arg(1),
                     abi::stack_pointer(),

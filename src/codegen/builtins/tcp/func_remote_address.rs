@@ -81,7 +81,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::socket(),
             )],
             return_type: super::address(),
-            errors: vec!["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed"],
+            errors: vec!["ErrAddressInvalid", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved"],
             body: super::native_body(lower_remote_address, &[]),
         }],
     });

@@ -51,7 +51,8 @@ negative `offset` or `count` raises `ErrInvalidArgument`.
 Reading at a position requires a handle the host can reposition, so this only
 works on a seekable handle — a regular file on disk. On a pipe, a socket, or
 another non-seekable handle the call raises `ErrReadFailed`. Calling it on a
-`File` that has already been closed raises `ErrResourceClosed`. No decoding or
+`File` that has already been closed raises `ErrResourceClosed`, and on one
+handed to another thread with `thread::transfer`, `ErrResourceMoved`. No decoding or
 UTF-8 validation is performed, so the bytes come back exactly as stored, suitable
 for binary data. To learn how many bytes a file holds before reading, use
 `fs::size`. To read a whole file by path in one call, use `fs::readBytes`.
@@ -130,6 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrOutOfMemory",
                 "ErrReadFailed",
                 "ErrResourceClosed",
+                "ErrResourceMoved",
                 "ErrInvalidArgument",
             ],
             body: Body::abi_function(lower_fs_read_bytes_at),

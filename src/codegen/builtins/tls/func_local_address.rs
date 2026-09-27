@@ -131,6 +131,7 @@ fn overload(
             "ErrNetworkFailed",
             "ErrOutOfMemory",
             "ErrResourceClosed",
+            "ErrResourceMoved",
         ],
         body: Body::abi_function_aliased(lower_local_address, os_aliases),
     }

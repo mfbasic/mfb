@@ -62,6 +62,44 @@ The eight core primitives are scalar value types:
 `Nothing` is the unit type; its only value is `NOTHING`. A `SUB` has success type
 `Nothing`.
 
+A `Nothing` value works like any other value. You can bind it, pass it, return it,
+compare it, store it in a record field, and collect it. Calling a
+`FUNC … AS Nothing` gives you `NOTHING`, so `LET done = logLine("x")` is fine. A
+`List OF Nothing` counts its elements. Every `NOTHING` equals every other, so a
+`Set OF Nothing` holds at most one element and a `Map OF Nothing TO V` holds at
+most one entry. `Nothing` is comparable but not orderable, so
+`collections::sort` rejects it. A callback that returns `Nothing` cannot stand in
+for one that must produce a value: `collections::transform` rejects it, and
+`collections::forEach` accepts it.
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC logLine(msg AS String) AS Nothing
+  io::print(msg)
+  RETURN NOTHING
+END FUNC
+
+SUB main()
+  LET done = logLine("saved")
+  LET marks = [done, logLine("again"), NOTHING]
+  io::print(toString(len(marks)))
+  io::print(toString(len(collections::toSet(marks))))
+  IF done = NOTHING THEN io::print("done")
+END SUB
+```
+
+prints:
+
+```
+saved
+again
+3
+1
+done
+```
+
 See `mfb man types numeric` for numeric literal defaults, the promotion table,
 and the checked-arithmetic error rules.
 

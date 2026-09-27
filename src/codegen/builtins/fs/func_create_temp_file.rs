@@ -64,11 +64,12 @@ scope, or explicitly with `fs::close`. The file itself is not deleted on close;
 removing it is the caller's responsibility, for example with `fs::deleteFile`.
 
 An empty `directory`, or one containing a NUL byte, raises `ErrInvalidArgument`.
-When the file cannot be created the error says why: `ErrNotFound` if `directory`
-does not exist, `ErrAccessDenied` if it may not be written, `ErrAlreadyExists`
-if the generated name is already taken — which the random name makes practically
-impossible — and `ErrWriteFailed` for any other failure. `ErrOutOfMemory` means
-the program ran out of memory."#;
+When the file cannot be created the error says why: `ErrPathNotFound` if
+`directory` does not exist, `ErrAccessDenied` if it may not be written,
+`ErrInvalidPath` if `directory` cannot hold a file — it is a file itself, or a
+name in it is too long — `ErrAlreadyExists` if the generated name is already
+taken, which the random name makes practically impossible, and `ErrWriteFailed`
+for any other failure. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Create a temporary file in the host temporary directory and write to it:
 
 ```
@@ -119,8 +120,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
                 "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
             ],
             body: Body::abi_function(lower_fs_create_temp_file),
         }],

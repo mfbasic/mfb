@@ -187,6 +187,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// initializer; consumed by the very next `lower_value` frame, which is that
     /// initializer's own node.
     pub(crate) borrow_get_armed: bool,
+    /// bug-744: set by a position that discards its value — an `Eval` statement, or
+    /// a `RETURN` from a `Nothing` function, whose result register is never read —
+    /// immediately before it lowers that value; consumed by the very next
+    /// `lower_value` frame (the value's own root node). Every other frame is a
+    /// value position, where a `Nothing`-typed call's `void` result is
+    /// materialized as the unit value `NOTHING` (0).
+    pub(crate) value_discarded_armed: bool,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -665,6 +672,7 @@ impl<'a> CodeBuilder<'a> {
             element_updates: ElementUpdates::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
+            value_discarded_armed: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -2329,6 +2337,20 @@ pub(crate) fn lower_module_for_platform(
     if uses_file_buffer {
         code_functions.push(
             crate::codegen::builtins::fs::gen_handle::lower_fs_file_drain(
+                &platform_imports,
+                platform,
+            )?,
+        );
+    }
+    // bug-701: the path classifier the `fs` host-error mapping calls, emitted
+    // wherever a member that maps a host error is.
+    if runtime_symbols.iter().any(|symbol| {
+        symbol
+            .strip_prefix("_mfb_rt_fs_fs_")
+            .is_some_and(crate::codegen::builtins::fs::gen_classify::member_classifies_paths)
+    }) {
+        code_functions.push(
+            crate::codegen::builtins::fs::gen_classify::lower_fs_path_class_helper(
                 &platform_imports,
                 platform,
             )?,

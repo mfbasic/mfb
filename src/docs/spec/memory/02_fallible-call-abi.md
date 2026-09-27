@@ -4,7 +4,7 @@ A native fallible call returns its outcome in four registers:
 
 ```text
 x0  tag       0 = success, 1 = error, 2 = program exit
-x1  value     success: the result value (0 for Nothing); error: the Error code
+x1  value     success: the result value (unspecified for Nothing); error: the Error code
 x2  message   error: pointer to the error message string
 x3  source    error: pointer to the origin ErrorLoc (0 = no origin)
 ```
@@ -17,7 +17,7 @@ The program-exit tag is checked before the success/error split: at the program
 entry it routes `x1` (the exit code) to the process return register and jumps to
 exit, so it is distinct from both a normal success and an error.
 
-On success only `x0`/`x1` are meaningful. On error all of `x1` (code), `x2`
+On success only `x0`/`x1` are meaningful. A `Nothing` success leaves `x1` unspecified: a `Nothing` return writes no value register. [[src/codegen/engine/control/builder_exits.rs:emit_return_exit_inner]] A caller that uses the call's value produces `NOTHING` (`0`) itself — for the call, and for the payload of a trapped call's `Result OF Nothing` — and never reads `x1`. [[src/codegen/engine/value/builder_values.rs:lower_value]] On error all of `x1` (code), `x2`
 (message), and `x3` (source) are set. A fresh error stamps `x3` with an
 `ErrorLoc` built from the originating expression's `(file, line, char)`; a runtime
 helper error is stamped at its call site; a propagated error forwards `x3`

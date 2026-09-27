@@ -71,7 +71,8 @@ built-in resource shares): `TAG` at 0, `HANDLE` at 8 — the control block —
 
 Every thread op receives a view and reaches the block through
 `emit_control_block_of`, which answers `ErrResourceClosed` for a null or closed
-view before touching the block. The closed default an inline `TRAP` binds on the
+view, and `ErrResourceMoved` for a `Thread` view that `thread::transfer` handed to
+another thread, before touching the block. The closed default an inline `TRAP` binds on the
 error path of `thread::start` is a closed resource record with the thread tag and
 a zero `HANDLE`, so no op ever reaches a block through it.
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_THREAD]]
