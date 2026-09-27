@@ -270,6 +270,14 @@ pub(crate) fn lower_write(
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
+    // plan-158-A: a failing WASAPI call reports its name and HRESULT.
+    let mut status_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
@@ -321,7 +329,11 @@ pub(crate) fn lower_write(
         abi::add_immediate(abi::c_arg(1), &v9, W_OUT0),
     ]);
     com_call(SLOT_AC_GET_CURRENT_PADDING, 2, &mut ins, &mut vregs);
+    // plan-158-A: unchecked, a failed call read the zeroed padding and went on to a
+    // `GetBuffer` that failed for the same reason under the wrong name.
     ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&status_sites.site("IAudioClient::GetCurrentPadding", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::load_u32(&v10, &v9, W_BUFFER),
         abi::load_u32(&v11, &v9, W_OUT0),
@@ -348,7 +360,7 @@ pub(crate) fn lower_write(
     com_call(SLOT_RENDER_GET_BUFFER, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioRenderClient::GetBuffer", abi::return_register())),
     ]);
     emit_write_fill(OFFSET_OFF, FRAMES_GOT_OFF, &mut ins, &mut vregs);
     // render->ReleaseBuffer(toWrite, 0)
@@ -360,7 +372,7 @@ pub(crate) fn lower_write(
     com_call(SLOT_RENDER_RELEASE_BUFFER, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioRenderClient::ReleaseBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::add_registers(&v9, &v9, &v10),
@@ -375,6 +387,9 @@ pub(crate) fn lower_write(
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&dev_fail));
     emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
+    status_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(status_sites.tail()));
+    status_sites.emit_raise(&mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     Ok((ins, rel, FRAME))
@@ -487,6 +502,14 @@ pub(crate) fn lower_read(
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
+    // plan-158-A: a failing WASAPI call reports its name and HRESULT.
+    let mut status_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
@@ -653,7 +676,7 @@ pub(crate) fn lower_read(
     com_call(SLOT_CAPTURE_GET_BUFFER, 6, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&status_sites.site("IAudioCaptureClient::GetBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::load_u32(&v10, &v9, W_OUT0),
         abi::compare_immediate(&v10, "0"),
@@ -705,7 +728,11 @@ pub(crate) fn lower_read(
     spill_obj(W_SERVICE, &mut ins, &mut vregs);
     ins.push(abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NAME_OFF));
     com_call(SLOT_CAPTURE_RELEASE_BUFFER, 2, &mut ins, &mut vregs);
+    // plan-158-A: unchecked, a failed release was followed by a `GetBuffer` that
+    // WASAPI refuses (the previous packet is still held), under the wrong name.
     ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&status_sites.site("IAudioCaptureClient::ReleaseBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), OFFSET_OFF),
         abi::add_registers(&v9, &v9, &v10),
@@ -773,6 +800,9 @@ pub(crate) fn lower_read(
     emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
+    status_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(status_sites.tail()));
+    status_sites.emit_raise(&mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
     Ok((ins, rel, FRAME))

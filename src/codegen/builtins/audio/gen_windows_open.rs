@@ -44,10 +44,10 @@ fn emit_build_wfx(ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
 }
 
 /// `device->Activate(IID_IAudioClient, CLSCTX_ALL, NULL, &state->W_CLIENT)`.
-/// Stores the HRESULT at `HR_OFF`; branches to `dev_fail` on failure.
+/// Stores the HRESULT at `HR_OFF`; raises through `dev_fail` on failure.
 fn emit_activate_client(
     symbol: &str,
-    dev_fail: &str,
+    dev_fail: &mut StatusFailSites,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
@@ -65,7 +65,7 @@ fn emit_activate_client(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(dev_fail),
+        abi::branch_lt(&dev_fail.site("IMMDevice::Activate", abi::return_register())),
     ]);
 }
 
@@ -118,7 +118,7 @@ fn emit_initialize(exclusive: bool, mix_ptr: bool, ins: &mut Vec<CodeInstruction
 /// retry, since a client that failed `Initialize` cannot be reinitialized.
 fn emit_reactivate_client(
     symbol: &str,
-    dev_fail: &str,
+    dev_fail: &mut StatusFailSites,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
@@ -146,7 +146,20 @@ pub(crate) fn lower_open(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let init_ok = format!("{symbol}_init_ok");
     let use_shared = format!("{symbol}_use_shared");
+    let event_fail = format!("{symbol}_event_fail");
+    let carry_fail = format!("{symbol}_carry_fail");
     let done = format!("{symbol}_done");
+    // plan-158-A: every failing OS call reports its name and status. The two tails
+    // run the same COM cleanup and differ only in the error they raise.
+    let mut dev_sites =
+        StatusFailSites::new(symbol, "ErrAudioDevice", &dev_fail, FAIL_STATUS_OFF, FAIL_PREFIX_OFF);
+    let mut unavailable_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioUnavailable",
+        &unavailable,
+        FAIL_STATUS_OFF,
+        FAIL_PREFIX_OFF,
+    );
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
@@ -218,6 +231,9 @@ pub(crate) fn lower_open(
         abi::store_u64(abi::ZERO, &v15, W_STARTED),
         abi::store_u64(abi::ZERO, &v15, W_XRUNS),
         abi::store_u64(abi::ZERO, &v15, W_SHARED),
+        // plan-158-A: `W_OUT0` holds the `GetMixFormat` allocation while the SHARED
+        // fallback negotiates; null means nothing to free on a failed open.
+        abi::store_u64(abi::ZERO, &v15, W_OUT0),
         // bug-416 (2): capture carry-over, empty until the first partial packet.
         abi::store_u64(abi::ZERO, &v15, W_CARRY_PTR),
         abi::store_u64(abi::ZERO, &v15, W_CARRY_FRAMES),
@@ -242,7 +258,7 @@ pub(crate) fn lower_open(
     ole_call(symbol, "CoCreateInstance", 5, platform_imports, platform, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&unavailable),
+        abi::branch_lt(&unavailable_sites.site("CoCreateInstance", abi::return_register())),
     ]);
     // Get the IMMDevice: default endpoint, or the named endpoint (device variant).
     if device {
@@ -254,6 +270,10 @@ pub(crate) fn lower_open(
             abi::add_immediate(abi::c_arg(2), &v9, W_DEVICE),
         ]);
         com_call(SLOT_ENUM_GET_DEVICE, 3, &mut ins, &mut vregs);
+        ins.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_lt(&dev_sites.site("IMMDeviceEnumerator::GetDevice", abi::return_register())),
+        ]);
     } else {
         spill_obj(W_ENUM, &mut ins, &mut vregs);
         ins.extend([
@@ -263,12 +283,15 @@ pub(crate) fn lower_open(
             abi::add_immediate(abi::c_arg(3), &v9, W_DEVICE),
         ]);
         com_call(SLOT_GET_DEFAULT_ENDPOINT, 4, &mut ins, &mut vregs);
+        ins.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_lt(&dev_sites.site(
+                "IMMDeviceEnumerator::GetDefaultAudioEndpoint",
+                abi::return_register(),
+            )),
+        ]);
     }
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
-    ]);
-    emit_activate_client(symbol, &dev_fail, &mut ins, &mut rel, &mut vregs);
+    emit_activate_client(symbol, &mut dev_sites, &mut ins, &mut rel, &mut vregs);
     emit_build_wfx(&mut ins, &mut vregs);
     // dur = bufferFrames * REFTIMES_PER_SEC / sampleRate  -> TOTAL_OFF
     ins.extend([
@@ -296,7 +319,7 @@ pub(crate) fn lower_open(
         abi::label(&use_shared),
     ]);
     // --- SHARED fallback at the device MIX FORMAT (clearly a last resort) -----
-    emit_reactivate_client(symbol, &dev_fail, &mut ins, &mut rel, &mut vregs);
+    emit_reactivate_client(symbol, &mut dev_sites, &mut ins, &mut rel, &mut vregs);
     // GetMixFormat(&state->W_OUT0)
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
@@ -310,7 +333,7 @@ pub(crate) fn lower_open(
     com_call(SLOT_AC_GET_MIX_FORMAT, 2, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("IAudioClient::GetMixFormat", abi::return_register())),
         // Read the mix WAVEFORMATEX: nChannels @+2 (u16), nSamplesPerSec @+4 (u32),
         // nBlockAlign @+12 (u16), wBitsPerSample @+14 (u16).
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
@@ -321,38 +344,44 @@ pub(crate) fn lower_open(
         abi::store_u64(&v11, &v9, W_MIX_BPF),
         abi::move_immediate(&v11, "Integer", "1"),
         abi::store_u64(&v11, &v9, W_SHARED),
-        // No resampling: the mix rate must equal the requested rate.
-        abi::load_u32(&v11, &v10, 4), // mix rate
+        // No resampling: the mix rate must equal the requested rate. Each of these
+        // checks reports the observed device value as its status, from the return
+        // register, which the status stub reads at the branch.
+        abi::load_u32(abi::return_register(), &v10, 4), // mix rate
         abi::load_u64(&v12, abi::stack_pointer(), SR_OFF),
-        abi::compare_registers(&v11, &v12),
-        abi::branch_ne(&dev_fail),
+        abi::compare_registers(abi::return_register(), &v12),
+        abi::branch_ne(&dev_sites.site("mix rate", abi::return_register())),
         // Only a 32-bit-float mix format is convertible by the integer s16<->f32 path.
-        abi::load_u16(&v11, &v10, 14), // mix bits per sample
-        abi::compare_immediate(&v11, "32"),
-        abi::branch_ne(&dev_fail),
+        abi::load_u16(abi::return_register(), &v10, 14), // mix bits per sample
+        abi::compare_immediate(abi::return_register(), "32"),
+        abi::branch_ne(&dev_sites.site("mix bits", abi::return_register())),
         // bug-416 (3): the SHARED read converter (`emit_read_fill`) reads userCh
         // channels per frame from the device mix buffer (c in [0, userCh)); a mix
         // with fewer channels than the caller opened would read past the capture
         // buffer on the final frame. Reject mixCh < userCh — the read path cannot
         // synthesize channels the device does not provide. (The write path is safe:
         // it bounds c on mixCh and folds the user channel with `c mod userCh`.)
-        abi::load_u64(&v11, &v9, W_MIX_CH),
+        abi::load_u64(abi::return_register(), &v9, W_MIX_CH),
         abi::load_u64(&v12, abi::stack_pointer(), CH_OFF),
-        abi::compare_registers(&v11, &v12),
-        abi::branch_lt(&dev_fail),
+        abi::compare_registers(abi::return_register(), &v12),
+        abi::branch_lt(&dev_sites.site("mix channels", abi::return_register())),
     ]);
     // Initialize SHARED with the mix format (pointer at W_OUT0).
     emit_initialize(false, true, &mut ins, &mut vregs);
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("IAudioClient::Initialize", abi::return_register())),
         // CoTaskMemFree(mixWfx)
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), &v9, W_OUT0),
     ]);
     ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::label(&init_ok));
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, &v9, W_OUT0),
+        abi::label(&init_ok),
+    ]);
     // Negotiated buffer frame count.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
@@ -364,6 +393,12 @@ pub(crate) fn lower_open(
         abi::add_immediate(abi::c_arg(1), &v9, W_BUFFER),
     ]);
     com_call(SLOT_AC_GET_BUFFER_SIZE, 2, &mut ins, &mut vregs);
+    // plan-158-A: unchecked, a failure here left `W_BUFFER` at 0, so every later
+    // `write` saw zero free frames and waited forever.
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&dev_sites.site("IAudioClient::GetBufferSize", abi::return_register())),
+    ]);
     if input {
         // bug-416 (2): allocate the capture carry-over buffer — one full device
         // buffer's worth (the maximum a single `GetBuffer` packet can hold) in the
@@ -375,7 +410,7 @@ pub(crate) fn lower_open(
             abi::multiply_registers(abi::return_register(), &v10, &v11),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
-        emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+        emit_alloc(symbol, &mut ins, &mut rel, &carry_fail);
         ins.extend([
             abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
             abi::store_u64(abi::mfb_return(1), &v9, W_CARRY_PTR),
@@ -391,7 +426,7 @@ pub(crate) fn lower_open(
     emit_external_int_call(platform, "CreateEventW", symbol, 4, platform_imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&dev_fail),
+        abi::branch_eq(&event_fail),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::store_u64(abi::return_register(), &v9, W_EVENT),
     ]);
@@ -404,7 +439,7 @@ pub(crate) fn lower_open(
     com_call(SLOT_AC_SET_EVENT_HANDLE, 2, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("IAudioClient::SetEventHandle", abi::return_register())),
     ]);
     // client->GetService(IID_IAudioRenderClient|IAudioCaptureClient, &state->W_SERVICE)
     spill_obj(W_CLIENT, &mut ins, &mut vregs);
@@ -426,14 +461,14 @@ pub(crate) fn lower_open(
     com_call(SLOT_AC_GET_SERVICE, 3, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("IAudioClient::GetService", abi::return_register())),
     ]);
     // client->Start()
     spill_obj(W_CLIENT, &mut ins, &mut vregs);
     com_call(SLOT_AC_START, 1, &mut ins, &mut vregs);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_fail),
+        abi::branch_lt(&dev_sites.site("IAudioClient::Start", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::move_immediate(&v10, "Integer", "1"),
         abi::store_u64(&v10, &v9, W_STARTED),
@@ -444,12 +479,26 @@ pub(crate) fn lower_open(
         abi::label(&invalid),
     ]);
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
-    ins.push(abi::label(&unavailable));
+    // `CreateEventW` returns NULL, not a status: the status is `GetLastError()`,
+    // read before any other Win32 call can overwrite it.
+    let event_site = dev_sites.site("CreateEventW", abi::return_register());
+    ins.push(abi::label(&event_fail));
+    ole_call(symbol, "GetLastError", 0, platform_imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::branch(&event_site));
+    dev_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    unavailable_sites.emit_stubs(&v9, &mut ins, &mut rel);
+    ins.push(abi::label(unavailable_sites.tail()));
     emit_open_cleanup(&mut ins, &mut vregs);
-    emit_fail(symbol, "ErrAudioUnavailable", &mut ins, &mut rel, &done);
-    ins.push(abi::label(&dev_fail));
+    emit_open_failure_release(symbol, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    unavailable_sites.emit_raise(&mut ins, &mut rel, &done);
+    ins.push(abi::label(dev_sites.tail()));
     emit_open_cleanup(&mut ins, &mut vregs);
-    emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
+    emit_open_failure_release(symbol, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    dev_sites.emit_raise(&mut ins, &mut rel, &done);
+    ins.push(abi::label(&carry_fail));
+    emit_open_cleanup(&mut ins, &mut vregs);
+    emit_open_failure_release(symbol, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
@@ -512,6 +561,81 @@ fn emit_open_cleanup(ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
     emit_release_field(W_CLIENT, ins, vregs);
     emit_release_field(W_DEVICE, ins, vregs);
     emit_release_field(W_ENUM, ins, vregs);
+}
+
+/// plan-158-A: give back everything else a failed open acquired, after
+/// [`emit_open_cleanup`] has released the COM interfaces. Every failure tail that
+/// runs this is reached only after the handle record and the STATE block were
+/// allocated, and nothing hands them to the caller, so they are freed here with
+/// the mix format (`W_OUT0`, still held when a SHARED check failed), the event
+/// handle, and an input stream's carry buffer. Each of those is null until
+/// acquired. Measured on the box before this: 336 arena bytes per failed open.
+fn emit_open_failure_release(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let n = ins.len();
+    let no_mix = format!("{symbol}_frel_mix_{n}");
+    let no_event = format!("{symbol}_frel_event_{n}");
+    let v9 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v9, W_OUT0),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&no_mix),
+    ]);
+    ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, ins, rel)?;
+    ins.extend([
+        abi::label(&no_mix),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v9, W_EVENT),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&no_event),
+    ]);
+    ole_call(symbol, "CloseHandle", 1, platform_imports, platform, ins, rel)?;
+    ins.push(abi::label(&no_event));
+    emit_free_wasapi_state(symbol, ins, rel, vregs);
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::c_arg(1), "Integer", &H_RECORD_SIZE.to_string()),
+    ]);
+    crate::codegen::memory::arena::emit_arena_free(symbol, ins, rel);
+    Ok(())
+}
+
+/// plan-158-A: free the arena WASAPI STATE block at `STATE_OFF` and the capture
+/// carry buffer it points at (null until an input open allocates it). The carry
+/// was sized `W_BUFFER * W_MIX_BPF`, both final before it was allocated.
+fn emit_free_wasapi_state(
+    symbol: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) {
+    let no_carry = format!("{symbol}_free_state_carry_{}", ins.len());
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v9, W_CARRY_PTR),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&no_carry),
+        abi::load_u32(&v10, &v9, W_BUFFER),
+        abi::load_u64(&v11, &v9, W_MIX_BPF),
+        abi::multiply_registers(abi::c_arg(1), &v10, &v11),
+    ]);
+    crate::codegen::memory::arena::emit_arena_free(symbol, ins, rel);
+    ins.extend([
+        abi::label(&no_carry),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate(abi::c_arg(1), "Integer", &W_SIZE.to_string()),
+    ]);
+    crate::codegen::memory::arena::emit_arena_free(symbol, ins, rel);
 }
 
 /// Release the COM object at `state->field` if non-null, then null the slot.
@@ -578,8 +702,16 @@ pub(crate) fn lower_close(
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::store_u64(abi::ZERO, &v9, W_EVENT),
         abi::label(&no_event),
+    ]);
+    // plan-158-A: the STATE block is the open's arena allocation and nothing else
+    // frees it; every later operation on the handle reads `H_CLOSED` first and
+    // never reaches `H_STATE`. Measured before this: 192 arena bytes per
+    // open/close cycle on box 206.
+    emit_free_wasapi_state(symbol, &mut ins, &mut rel, &mut vregs);
+    ins.extend([
         // mark closed
         abi::load_u64(&v9, abi::stack_pointer(), HANDLE_OFF),
+        abi::store_u64(abi::ZERO, &v9, H_STATE),
         abi::move_immediate(&v10, "Integer", "1"),
         abi::store_u64(&v10, &v9, H_CLOSED),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),

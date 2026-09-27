@@ -155,3 +155,128 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
     assert_eq!(ins[2].get("lhs").as_deref(), record.as_deref());
     assert_eq!(ins[2].get("rhs").as_deref(), offset.as_deref());
 }
+
+/// plan-158-A: what a lowered helper raises. `static_raises` counts the fixed-message
+/// raises of `error_name` (`raise_error_into`: the message address loaded straight
+/// into the error-message register); `status_calls` lists the call names of the
+/// `_mfb_rt_fail_status` sites, decoded from their message-prefix symbols.
+fn raises_of(
+    ins: &[CodeInstruction],
+    rel: &[CodeRelocation],
+    error_name: &str,
+) -> (usize, std::collections::BTreeSet<String>) {
+    let (_, message_symbol) =
+        crate::codegen::registry::runtime_error_emission(error_name).expect("known error");
+    let message_register = RESULT_ERROR_MESSAGE_REGISTER.to_string();
+    let static_raises = ins
+        .iter()
+        .filter(|i| {
+            i.op == CodeOp::Adrp
+                && i.get("symbol").as_deref() == Some(message_symbol)
+                && i.get("dst").as_deref() == Some(message_register.as_str())
+        })
+        .count();
+    let prefix = format!("{ERROR_STATUS_PREFIX_SYMBOL_PREFIX}{error_name}_");
+    let status_calls = rel
+        .iter()
+        .filter(|r| r.kind == RelocIntent::DataAddrHi && r.to.starts_with(&prefix))
+        .map(|r| {
+            let text = crate::codegen::memory::data::decode_error_status_prefix_symbol(&r.to).expect("well-formed prefix");
+            let call = text.rsplit_once(" (").expect("prefix shape").1;
+            call.trim_end_matches(": ").to_string()
+        })
+        .collect();
+    (static_raises, status_calls)
+}
+
+fn set(names: &[&str]) -> std::collections::BTreeSet<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+/// plan-158-A: every Windows audio failure that has an OS status reports it. No
+/// `ErrAudioDevice` / `ErrAudioUnavailable` in these helpers is raised with the
+/// bare static message except the closed-stream refusals of `write`/`read`, which
+/// have no OS call behind them; every other one goes through
+/// `_mfb_rt_fail_status` under the call name listed here.
+#[test]
+fn windows_audio_failures_report_their_os_status() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let open_calls = [
+        "IMMDevice::Activate",
+        "IAudioClient::GetMixFormat",
+        "mix rate",
+        "mix bits",
+        "mix channels",
+        "IAudioClient::Initialize",
+        "IAudioClient::GetBufferSize",
+        "CreateEventW",
+        "IAudioClient::SetEventHandle",
+        "IAudioClient::GetService",
+        "IAudioClient::Start",
+    ];
+    for (input, device) in [(false, false), (true, false), (false, true), (true, true)] {
+        let (ins, rel, _) = lower_open("t_open", input, device, &imports, &TestPlatform)
+            .expect("lower audio::open*");
+        let mut expected = set(&open_calls);
+        expected.insert(
+            if device {
+                "IMMDeviceEnumerator::GetDevice"
+            } else {
+                "IMMDeviceEnumerator::GetDefaultAudioEndpoint"
+            }
+            .to_string(),
+        );
+        assert_eq!(
+            raises_of(&ins, &rel, "ErrAudioDevice"),
+            (0, expected),
+            "open input={input} device={device}"
+        );
+        assert_eq!(
+            raises_of(&ins, &rel, "ErrAudioUnavailable"),
+            (0, set(&["CoCreateInstance"])),
+            "open input={input} device={device}"
+        );
+    }
+    let (ins, rel, _) = lower_write("t_write", &imports, &TestPlatform).expect("lower audio::write");
+    assert_eq!(
+        raises_of(&ins, &rel, "ErrAudioDevice"),
+        (
+            1,
+            set(&[
+                "IAudioClient::GetCurrentPadding",
+                "IAudioRenderClient::GetBuffer",
+                "IAudioRenderClient::ReleaseBuffer",
+            ])
+        )
+    );
+    for timeout in [false, true] {
+        let (ins, rel, _) =
+            lower_read("t_read", timeout, &imports, &TestPlatform).expect("lower audio::read");
+        assert_eq!(
+            raises_of(&ins, &rel, "ErrAudioDevice"),
+            (
+                1,
+                set(&[
+                    "IAudioCaptureClient::GetBuffer",
+                    "IAudioCaptureClient::ReleaseBuffer",
+                ])
+            ),
+            "read timeout={timeout}"
+        );
+    }
+    let (ins, rel, _) =
+        lower_devices("t_devices", &imports, &TestPlatform).expect("lower audio::devices");
+    assert_eq!(
+        raises_of(&ins, &rel, "ErrAudioUnavailable"),
+        (
+            0,
+            set(&[
+                "CoCreateInstance",
+                "IMMDeviceEnumerator::EnumAudioEndpoints",
+                "IMMDeviceCollection::GetCount",
+                "IMMDeviceCollection::Item",
+            ])
+        )
+    );
+}

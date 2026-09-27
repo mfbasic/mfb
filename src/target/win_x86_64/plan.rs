@@ -780,6 +780,8 @@ impl NativePlanPlatform for Platform {
                 import("WaitForSingleObject", KERNEL32, required_by),
                 import("CloseHandle", KERNEL32, required_by),
                 import("GetTickCount64", KERNEL32, required_by),
+                // plan-158-A: a failed `CreateEventW` reports `GetLastError()`.
+                import("GetLastError", KERNEL32, required_by),
             ],
             // TLS client over Schannel (plan-47-J): SSPI (secur32), the cert-chain
             // policy check (crypt32), the socket layer (ws2_32), and the wide-string
