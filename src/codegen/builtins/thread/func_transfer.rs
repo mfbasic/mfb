@@ -90,7 +90,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     lowering::lower_transfer,
                     &["transferResource", "emitResource"],
                 ),
-                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
             overload_errs(
                 transfer_params(true),
@@ -99,7 +106,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     lowering::lower_transfer,
                     &["transferResource", "emitResource"],
                 ),
-                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrOutOfMemory",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
         ],
     ));

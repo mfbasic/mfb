@@ -66,7 +66,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     lowering::lower_accept,
                     &["acceptResource", "readResource"],
                 ),
-                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrNotFound", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrNotFound",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
             overload_errs(
                 accept_params(true),
@@ -75,7 +82,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     lowering::lower_accept,
                     &["acceptResource", "readResource"],
                 ),
-                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrNotFound", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
+                vec![
+                    "ErrInterrupted",
+                    "ErrInvalidArgument",
+                    "ErrNotFound",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                    "ErrTimeout",
+                ],
             ),
         ],
     ));

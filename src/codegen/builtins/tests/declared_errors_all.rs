@@ -134,12 +134,22 @@ const AUDIO_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
      own Query::Xruns arm never branches to it on any backend",
 )];
 
+/// `_mfb_rt_fail_status` (plan-158-A, `codegen/error/emission/fail_status.rs`)
+/// raises the code its call site passes in, with an OS status appended to the
+/// message, parked as an `Error` block. The call site's own code immediate is
+/// the member's raise; the helper itself adds only `ErrOutOfMemory` (the park
+/// cannot allocate the block).
+const AUDIO_PROPAGATING: &[(&str, Propagating)] = &[(
+    "_mfb_rt_fail_status",
+    Propagating::Known(&["ErrOutOfMemory"]),
+)];
+
 #[test]
 fn every_audio_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises_on(
         "audio",
         ARENA,
-        NONE_P,
+        AUDIO_PROPAGATING,
         NONE_U,
         AUDIO_UNREACHABLE_OWN_RAISE,
         &[],
@@ -302,8 +312,16 @@ const IO_RAISES_NOTHING: &[(&str, &str)] = &[
 /// for an `--app` build; unmeasurable under this sweep's one fixed
 /// `build_mode`, the mirror image of `unreachable_own_raise`.
 const IO_DECLARED_EXTRA: &[(&str, &str, &str)] = &[
-    ("input", "ErrWrongMode", "app-mode branch of gen_read_line_family.rs"),
-    ("readLine", "ErrWrongMode", "app-mode branch of gen_read_line_family.rs"),
+    (
+        "input",
+        "ErrWrongMode",
+        "app-mode branch of gen_read_line_family.rs",
+    ),
+    (
+        "readLine",
+        "ErrWrongMode",
+        "app-mode branch of gen_read_line_family.rs",
+    ),
     ("readRaw", "ErrWrongMode", "app-mode wrong-mode gate"),
     ("readScalar", "ErrWrongMode", "app-mode wrong-mode gate"),
     ("readGrapheme", "ErrWrongMode", "app-mode wrong-mode gate"),
@@ -355,32 +373,136 @@ const TERM_PROPAGATING: &[(&str, Propagating)] =
 /// pipe/non-terminal is `ErrUnsupported`, but every `term::` call in an
 /// `--app` build outside `app::Mode.Console` is `ErrWrongMode`).
 const TERM_DECLARED_EXTRA: &[(&str, &str, &str)] = &[
-    ("clear", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("didResize", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("drawBox", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("drawGlyph", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("drawHLine", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("drawText", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("drawVLine", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("enableMouse", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("fillRect", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("getBackground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("getBold", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("getForeground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("getUnderline", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("hideCursor", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("isOn", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("moveTo", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("off", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("on", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("pollMouse", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("setBackground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("setBold", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("setForeground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("setUnderline", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("showCursor", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("sync", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
-    ("terminalSize", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    (
+        "clear",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "didResize",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "drawBox",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "drawGlyph",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "drawHLine",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "drawText",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "drawVLine",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "enableMouse",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "fillRect",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "getBackground",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "getBold",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "getForeground",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "getUnderline",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "hideCursor",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "isOn",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "moveTo",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "off",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "on",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "pollMouse",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "setBackground",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "setBold",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "setForeground",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "setUnderline",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "showCursor",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "sync",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
+    (
+        "terminalSize",
+        "ErrWrongMode",
+        "app-mode ModeRequirement::Console gate (gen_shared.rs)",
+    ),
 ];
 
 #[test]
@@ -416,7 +538,11 @@ fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
 #[test]
 fn every_strings_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises(
-        "strings", ASTRINGS_RAISES_NOTHING, NONE_P, NONE_U, 1,
+        "strings",
+        ASTRINGS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        1,
     );
 }
 
@@ -624,15 +750,42 @@ const CRYPTO_IFN_PROPAGATING: &[(&str, Propagating)] = &[
     // The nine SHA cores (`grep -n 'FAIL ' src/codegen/builtins/crypto/helper_sha*.rs
     // src/codegen/builtins/crypto/gen_hash.rs` finds none): only the List OF Byte
     // result can fail, with ErrOutOfMemory.
-    ("_mfb_ifn_crypto_5Fsha1_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha224_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha256_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha384_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha3_5F224_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha3_5F256_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha3_5F384_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha3_5F512_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fsha512_5Fbytes", Propagating::Known(&["ErrOutOfMemory"])),
+    (
+        "_mfb_ifn_crypto_5Fsha1_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha224_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha256_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha384_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha3_5F224_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha3_5F256_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha3_5F384_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha3_5F512_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fsha512_5Fbytes",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
     // `helper_aes256_gcm_seal.rs`: two `FAIL error(77050002, …)` (bad key/nonce
     // length) = ErrInvalidArgument, plus ErrOutOfMemory building the result.
     (
@@ -648,12 +801,20 @@ const CRYPTO_IFN_PROPAGATING: &[(&str, Propagating)] = &[
     // plus `FAIL error(77050016, …)` (tag mismatch) = ErrAuthenticationFailed.
     (
         "_mfb_ifn_crypto_5Faes256GcmOpen",
-        Propagating::Known(&["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"]),
+        Propagating::Known(&[
+            "ErrAuthenticationFailed",
+            "ErrInvalidArgument",
+            "ErrOutOfMemory",
+        ]),
     ),
     // `helper_chacha20_poly1305_open.rs`: same shape.
     (
         "_mfb_ifn_crypto_5Fchacha20Poly1305Open",
-        Propagating::Known(&["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"]),
+        Propagating::Known(&[
+            "ErrAuthenticationFailed",
+            "ErrInvalidArgument",
+            "ErrOutOfMemory",
+        ]),
     ),
     // `helper_ed25519_sign.rs`/`helper_ed448_sign.rs`: one ErrInvalidArgument FAIL
     // each (wrong private-key length), plus ErrOutOfMemory building the signature.
@@ -669,8 +830,14 @@ const CRYPTO_IFN_PROPAGATING: &[(&str, Propagating)] = &[
     // wrong-length key/signature is `RETURN FALSE`, "never an error" per the
     // ed448 helper's own doc comment. Only ErrOutOfMemory (the working `List OF
     // Integer`/`List OF Byte` values these build).
-    ("_mfb_ifn_crypto_5Fed25519Verify", Propagating::Known(&["ErrOutOfMemory"])),
-    ("_mfb_ifn_crypto_5Fed448Verify", Propagating::Known(&["ErrOutOfMemory"])),
+    (
+        "_mfb_ifn_crypto_5Fed25519Verify",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5Fed448Verify",
+        Propagating::Known(&["ErrOutOfMemory"]),
+    ),
 ];
 
 #[test]

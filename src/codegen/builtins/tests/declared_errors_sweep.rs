@@ -159,7 +159,11 @@ pub(crate) fn lower_body(
 /// under `udp.pollList`) — a body dispatches on `ctx.call`, so an alias-only
 /// branch is invisible unless the sweep drives it under its OWN call string,
 /// not the member's public name.
-pub(crate) fn call_forms(package: &str, function: &RegistryFunction, implementation: &Implementation) -> Vec<String> {
+pub(crate) fn call_forms(
+    package: &str,
+    function: &RegistryFunction,
+    implementation: &Implementation,
+) -> Vec<String> {
     let mut calls = vec![format!("{package}.{}", function.name)];
     if let Body::AbiFunction { os_aliases, .. } = &implementation.body {
         for alias in os_aliases.iter() {
@@ -366,7 +370,13 @@ pub(crate) fn sweep_package(
         }
         own.insert(
             function.name,
-            lower_member(package_name, function, &codes, skip_platforms, &mut failures),
+            lower_member(
+                package_name,
+                function,
+                &codes,
+                skip_platforms,
+                &mut failures,
+            ),
         );
     }
     let lowered_members = own
@@ -379,15 +389,12 @@ pub(crate) fn sweep_package(
         if skip_members.contains(&function.name) {
             continue;
         }
-        let has_native_body = function
-            .implementations()
-            .iter()
-            .any(|implementation| {
-                matches!(
-                    implementation.body,
-                    Body::AbiFunction { .. } | Body::AbiInline(_)
-                )
-            });
+        let has_native_body = function.implementations().iter().any(|implementation| {
+            matches!(
+                implementation.body,
+                Body::AbiFunction { .. } | Body::AbiInline(_)
+            )
+        });
         if !has_native_body {
             continue;
         }

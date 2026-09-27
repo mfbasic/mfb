@@ -269,9 +269,15 @@ mod tests {
         ("big.shiftLeft", &["ErrInvalidArgument", "ErrOutOfMemory"]),
         ("big.shiftRight", &["ErrInvalidArgument", "ErrOutOfMemory"]),
         ("big.testBit", &["ErrInvalidArgument"]),
-        ("big.parse", &["ErrInvalidFormat", "ErrInvalidArgument", "ErrOutOfMemory"]),
+        (
+            "big.parse",
+            &["ErrInvalidFormat", "ErrInvalidArgument", "ErrOutOfMemory"],
+        ),
         ("big.toString", &["ErrOutOfMemory"]),
-        ("big.toRadixString", &["ErrInvalidArgument", "ErrOutOfMemory"]),
+        (
+            "big.toRadixString",
+            &["ErrInvalidArgument", "ErrOutOfMemory"],
+        ),
         ("big.divide", &["ErrInvalidArgument", "ErrOutOfMemory"]),
         ("big.remainder", &["ErrInvalidArgument", "ErrOutOfMemory"]),
         ("big.divMod", &["ErrInvalidArgument", "ErrOutOfMemory"]),
