@@ -74,7 +74,7 @@ errors that were never reflected back into the per-member declarations.
 ## Non-goals
 
 - Changing what any `io` member raises.
-- The `pollInput` crash after a recovered negative timeout (bug-721), which is separate.
+- The `pollInput` crash after a recovered negative timeout (bug-738), which is separate.
 
 ## Blast-radius audit
 
