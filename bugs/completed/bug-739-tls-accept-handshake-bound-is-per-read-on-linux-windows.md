@@ -216,7 +216,12 @@ Commit: 430460963
 - [x] `mfb man tls accept` and the spec bullet now state the whole-handshake
       bound (in 430460963).
 
-Commit: @@739P3@@
+Commit: 39099e32b (goldens: tls + http, all five targets; main's own
+compiler reproduces main's goldens, so every move is this branch's). Gate on
+the tip with main merged in (3662ea54f, which includes lane A's TLS guard):
+`scripts/artifact-gate.sh <release mfb> all` checked 2166 goldens with 0
+diffs; `cargo test --release --no-fail-fast` gave `EXIT=0`, 248
+`test result: ok`, 0 failed.
 
 ## Open Decisions
 

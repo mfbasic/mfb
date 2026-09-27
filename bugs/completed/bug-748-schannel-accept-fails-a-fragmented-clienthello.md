@@ -5,12 +5,18 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: `codegen::builtins::tls::gen_schannel::schannel_tests::accept_retries_an_incomplete_first_call_without_a_context`
 (codegen pin; Schannel cannot run from the Mac). The runtime proof is on box 2230,
 below. `tests/net/rt_tls_accept_handshake_budget.rs:tls_accept_bounds_the_whole_handshake`
 also sends the ClientHello in pieces as its positive control, but that test is
 macOS/Linux only.
+
+STATUS: FIXED (46945f084)
+
+Shipped as designed: the `FIRSTF` store moved after `branch_if_incomplete`. It was
+filed as bug-743 and renumbered to 748 (743 was already taken), so the fix
+commits' subjects say bug-743. No deviation.
 
 Found while fixing bug-739 on box 2230. On Windows (Schannel), `tls::accept`
 raises `ErrTlsFailed` (77070008) for a well-formed TLS client whose ClientHello
@@ -91,13 +97,13 @@ Move `FIRSTF = 1` after `branch_if_incomplete`. One instruction reorder.
 - [x] Codegen pin `accept_retries_an_incomplete_first_call_without_a_context`:
       RED against the unfixed `gen_schannel_server.rs`, GREEN after.
 
-Commit: @@743HASH@@
+Commit: 42f6ef85b
 
 ### Phase 2 — the fix
 
 - [x] Reorder in `lower_tls_accept`.
 
-Commit: @@743HASH@@
+Commit: 46945f084
 
 ### Phase 3 — validation
 
@@ -105,7 +111,8 @@ Commit: @@743HASH@@
 - [x] Windows `.ncodesum` for `tests/byte-identity/tls` regenerated (with
       bug-739's change to the same function), and the full `cargo test` run.
 
-Commit: @@743HASH@@
+Commit: 39099e32b (goldens). Full `cargo test --release` is green and the
+artifact gate has 0 diffs on the tip with main merged in.
 
 ## Summary
 
