@@ -121,15 +121,29 @@ Commit: —
 
 ### Phase 2 — Fix EXCLUSIVE render
 
-- [ ] `gen_windows.rs`: state fields for the render carry (`W_RCARRY_PTR`,
+- [x] `gen_windows.rs`: state fields for the render carry (`W_RCARRY_PTR`,
       `W_RCARRY_FRAMES`), placed in unused STATE-block offsets or by extending `W_SIZE`.
-- [ ] `gen_windows_open.rs`: skip `Start()` for EXCLUSIVE render; allocate the carry.
-- [ ] `gen_windows_io.rs` `lower_write`: the EXCLUSIVE path as designed (§3), plus the
-      bounded wait on both paths.
-- [ ] `gen_windows_open.rs` `lower_close`: flush the carry tail, then `Stop`.
-- [ ] `gen_windows_tests.rs`: emit-inspection tests: no `Start` in the EXCLUSIVE open
-      path before the first submit; `lower_write` has no INFINITE wait.
-- [ ] Regenerate the Windows audio ncodesum (expected diff).
+      — the existing `W_CARRY_PTR`/`W_CARRY_FRAMES` serve (C3); `RENDER_WAIT_FLOOR_MS`
+      added.
+- [x] `gen_windows_open.rs`: skip `Start()` for EXCLUSIVE render; allocate the carry.
+- [x] `gen_windows_io.rs` `lower_write`: the EXCLUSIVE path as designed (§3), plus the
+      bounded wait on both paths. — `emit_exclusive_submit`, `emit_render_wait_timeout`.
+- [x] `gen_windows_open.rs` `lower_close`: flush the carry tail, then `Stop`.
+- [x] `available`/`poll` for an unstarted EXCLUSIVE output (C4): `available` reports
+      the carry's room; `poll`/`pollTimeout` answer TRUE before the first submit
+      (`emit_unstarted_exclusive_output_ready`).
+- [x] `gen_windows_tests.rs`: emit-inspection tests: no `Start` in the EXCLUSIVE open
+      path before the first submit; `lower_write` has no INFINITE wait. —
+      `exclusive_output_open_does_not_start_the_stream`, `write_has_no_infinite_wait`;
+      `windows_audio_failures_report_their_os_status` updated for the new call names
+      (C5). `cargo test --release --bin mfb audio` → 24 passed.
+- [x] Regenerate the Windows audio ncodesum (expected diff). — base (`54e7a1efa`) vs
+      current `-ncode` changes only `_mfb_rt_audio_audio_{available,closeInput,
+      closeOutput,openInput,openInputDevice,openOutput,openOutputDevice,poll,
+      pollTimeout,write}` and the `_mfb_str_errstatus_*` set (the `mix *` and bare
+      `Initialize` prefixes go, `Initialize(SHARED)`/`(EXCLUSIVE)` and
+      `WaitForSingleObject` come); `regen-native-goldens.sh` → only the windows sum
+      changed.
 - [ ] Re-run plan-158-A's leak loop on the write path, which its C10 could not run while
       the wait was unbounded: `/tmp/p158/wprobe`-style probe, a SHARED stream
       invalidated by a second open, then 10 000 failing `write`s under TRAP in a
@@ -138,16 +152,26 @@ Commit: —
 Acceptance: on the box, a 2 s 440 Hz tone written in 500-frame chunks to an EXCLUSIVE
 44100/2 stream finishes within the watchdog, and the user confirms it is audible.
   Check: box probe prints `wrote N chunks OK` in under 5 s (est. 3 min).
+  — met: `cprobe tone 44100 2` → `wrote 176 chunks OK in 1972 ms` (ssh) and three
+  console-session runs (`schtasks /it`) → `1968`/`1967`/`1975 ms`; the user confirmed
+  the three tones were audible (2026-09-27). `tone 48000 2` → `wrote 192 chunks OK in
+  1979 ms`.
 Commit: —
 
 ### Phase 3 — Preemption
 
-- [ ] Implement the Open Decision below. Test: the SHARED-stream + second-stream probe
-      either no longer fails, or fails with a documented, named status.
+- [x] Implement the Open Decision below. Test: the SHARED-stream + second-stream probe
+      either no longer fails, or fails with a documented, named status. — SHARED-first
+      (landed with Phase 2's open, C6). `cprobe preempt 48000 1` → `first after: wrote
+      192 chunks OK in 1979 ms` (no longer fails); `preempt 44100 2` (the second must be
+      EXCLUSIVE) → `second: wrote 176 chunks OK`, then `first after failed: …
+      (IAudioClient::GetCurrentPadding: 0x88890004)`, the status `11_audio.md`
+      §"Windows share modes and preemption" names.
 
 Acceptance: probe output recorded; `11_audio.md` states the behaviour.
   Check: `grep -n 'exclusive' src/docs/spec/stdlib/11_audio.md` → the preemption
-  paragraph (est. 1 min).
+  paragraph (est. 1 min). — met (lines 142–153); the `audio` man description says the
+  same for the developer.
 Commit: —
 
 ## Validation Plan
@@ -160,6 +184,8 @@ Commit: —
 
 ## Open Decisions
 
+- **Decided (user, 2026-09-27): SHARED-first.** The measured fact that decided it: an
+  EXCLUSIVE attempt invalidates SHARED streams even when it fails (C2).
 - **Preemption:** try SHARED first whenever the requested rate equals the mix rate, and
   use EXCLUSIVE only when SHARED cannot serve the format (recommended: MML at 48 kHz then
   never grabs the device, and only a 44.1 kHz file does) vs. keep EXCLUSIVE-first and
@@ -194,6 +220,34 @@ EXCLUSIVE, 1001 = SHARED). Probe `/tmp/p158/cprobe` on box 206, default output
   attempt invalidates every SHARED stream on the endpoint, even when it fails and
   the open falls back to SHARED. Under EXCLUSIVE-first, opening ANY stream kills
   the others.
+- **C3 (no new state fields).** The render carry reuses `W_CARRY_PTR`/`W_CARRY_FRAMES`:
+  the capture carry is input-only and a stream has one direction, both carries are
+  one device buffer in the device format (`W_BUFFER * W_MIX_BPF`, with
+  `W_MIX_BPF = BPF` in EXCLUSIVE), so `emit_free_wasapi_state` and the failed-open
+  release already free it correctly. `W_SIZE` is unchanged.
+- **C4 (poll/available would have hung or lied).** Not starting an EXCLUSIVE output at
+  open means its event never fires until the first submit, so `poll` (an INFINITE
+  wait by the convention) would block forever on a fresh stream, and `available`
+  (`W_BUFFER - padding`, padding always the whole buffer, C1) would report 0 forever.
+  Both now answer from the carry for an EXCLUSIVE output. Not in the plan's task list;
+  added.
+- **C5 (the Windows status call names changed).** SHARED-first makes the mix checks
+  choose the mode instead of failing, so the `mix rate`/`mix bits`/`mix channels`
+  status sites are gone, and `Initialize` is reported as `Initialize(SHARED)` or
+  `Initialize(EXCLUSIVE)`. `write` gains `WaitForSingleObject` (the bounded wait) and
+  `IAudioClient::Start` (the pre-rolled first submit). plan-158-A's
+  `windows_audio_failures_report_their_os_status` pinned the old set; its expectation
+  is updated to the decided design (the test was written in this plan family; its old
+  set described EXCLUSIVE-first, which the user's decision replaced). The `mix rate`
+  examples in `11_audio.md` and the man page are replaced.
+- **C6 (Phase 3 landed with Phase 2).** SHARED-first is a rewrite of the same part of
+  `lower_open` as Phase 2's pre-roll (the init block, the Start and the carry), so the
+  two were written and committed together; `emit_reactivate_client` (the retry after a
+  failed EXCLUSIVE `Initialize`) has no caller any more and is deleted.
+- **C7 (acceptance measured over ssh and at the console).** The ssh session reaches the
+  device (writes pace at real time), but audibility was checked in the logged-in
+  console session through `schtasks /it`, as `.ai/remote_systems.md` prescribes for
+  box 206.
 
 ## Summary
 
