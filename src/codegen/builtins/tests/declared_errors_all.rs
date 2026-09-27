@@ -239,6 +239,50 @@ fn every_collections_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
+/// `astrings::fromString`/`writeSpans` construct an `AttributedString` record,
+/// which this sweep's bare `TypeModel::empty()` has no layout for -- the same
+/// fixture gap as `canvas`'s `KeyPair`/`Paint`. Repro: run without the skip
+/// and read the "native record type 'AttributedString' does not resolve"
+/// refusal.
+const ASTRINGS_SKIP_MEMBERS: &[&str] = &["fromString", "writeSpans"];
+
+const ASTRINGS_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_make_error_result",
+        "packages an error code the caller already loaded",
+    ),
+    (
+        "_mfb_rt_park_error",
+        "parks an error the caller already raised",
+    ),
+];
+
+#[test]
+fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "astrings",
+        ASTRINGS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        NONE_U,
+        &[],
+        ASTRINGS_SKIP_MEMBERS,
+        1,
+    );
+}
+
+#[test]
+fn every_strings_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "strings", ARENA, NONE_P, NONE_U, 1,
+    );
+}
+
 #[test]
 fn every_big_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises("big", ARENA, NONE_P, NONE_U, 1);

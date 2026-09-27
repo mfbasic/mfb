@@ -92,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::named("Attribute")),
-            errors: vec![],
+            errors: vec!["ErrIndexOutOfRange"],
             body: Body::mfb(BODY, "__astrings_getAttributes"),
         }],
     });
