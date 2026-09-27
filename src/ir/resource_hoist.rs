@@ -189,7 +189,18 @@ fn hoist_element(
     line: usize,
 ) {
     if matches!(expr, HirExpression::Call { callee, .. } if !is_insertion_builtin(callee)) {
-        if *ordered {
+        // bug-643: a call that hands back a pointer to a resource another binding
+        // already owns — `collections::get`/`getOr` of a `RES` element, a
+        // `tcp`/`udp`/`tls::poll` borrow — is no producer. Naming it would make the
+        // temporary an owner, float it into the container, and close the caller's
+        // handle when the container's scope exits (and, for a record element such
+        // as `zip`'s `Pair`, fail to build a drop for it). It stays in place.
+        let borrowed = matches!(
+            expr,
+            HirExpression::Call { callee, .. }
+                if crate::codegen::engine::builder::CodeBuilder::target_returns_borrowed_resource(callee)
+        );
+        if *ordered && !borrowed {
             if let Some(resource) = expression_type(expr, locals, context)
                 .and_then(|type_| resource_binding_type(&type_, context))
             {

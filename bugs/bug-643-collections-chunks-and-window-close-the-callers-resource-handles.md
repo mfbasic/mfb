@@ -134,6 +134,14 @@ an `IF`, `drop`/`mid` in a `WHILE` body, `flatten`/`get` of a `List OF List OF R
 already fine. The closed-pulled crash (`fs::close` "already closed", then
 `Cleanup failure: 7-703-0004`) is the drain re-closing a handle the program closed.
 
+A second seam of the same defect (Phase 3): a BORROWED element treated as an owner.
+The bug-695 hoist named every resource-typed call in an element position
+`RES $res_tmpN = <call>` — including `collections::get` of a `RES` element — and
+the escape analysis floated that name (and a source `RES one = collections::get(…)`)
+into the enclosing collection, whose owned-list drain then closed the handle the
+caller owns. In `zip`'s body the float target was a `List OF Pair OF RES …`, for
+which no drop exists, so every `zip` over a `List OF RES` failed to build.
+
 Out of this doc's reach and filed separately: a USER function that hands back a
 handle (or list of handles) it was passed is adopted the same way — `RES y = ident(a)`
 or `LET p = same(xs)` in an inner scope closes the caller's handle (bug-750).
@@ -169,8 +177,9 @@ Audit results (2026-09-27, base `a0082e4ae` vs the fix):
 | `values` of a `Map OF K TO RES` in an `IF` | open | open |
 | `take(fresh(), 1)` of a user function's fresh handles | open | open (still adopted) |
 | `groupBy`/`partition`/`sortBy` with a callback over the `RES` element | does not type-check — bug-752 | same |
-| `zip` of a `List OF RES` | internal build error — bug-751 | same |
+| `zip` of a `List OF RES` | internal build error (`owned-list element type 'Pair$RES$fs$File$Integer' has no registered close op`) | builds, handle open (Phase 3) |
 | `transform` | produces its result from the callback, so it keeps adopting | — |
+| a function copying `collections::get(files, i)` into a local list (element written inline, or bound `RES one = …` first) | CLOSED at the function's exit | open (Phase 3) |
 
 ## Fix
 
@@ -184,4 +193,12 @@ no other call adopts nothing (`call_result_holds_only_argument_resources`,
 `src/codegen/cleanup/owned/builder_owned_cleanup.rs`); a member counts as producing
 only when a callback's return type reaches its return type (`transform`, `mapValues`,
 `reduce`, `reduceRight`), derived from the registry signature. `chunks`/`window` man
-pages and spec §15.6 updated. Commit: COMMIT_643
+pages and spec §15.6 updated. Commit: 0224828cd
+
+- [x] Phase 3 — a borrowed element is never an owner: `resource_hoist` leaves a
+borrowed call (`target_returns_borrowed_resource`) in place, and the escape
+analysis resolves a `RES` binding initialized from one (or from a record field) to
+`Local` (`initializer_is_borrowed`). Unit test
+`resource_escape::tests::a_borrowed_element_never_floats`; fixture extended with
+`copyEach`/`copyNamed`/`zip`. Spec architecture escape-analysis updated. Commit:
+COMMIT_643B

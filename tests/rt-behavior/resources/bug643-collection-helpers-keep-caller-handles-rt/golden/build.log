@@ -23,4 +23,7 @@ inner append len=2 prepend len=2
 append/prepend (inner scope): open
 inner set len=1 insert/removeAt len=1
 set/insert/removeAt (inner scope): open
+copyEach copied=1: open
+copyNamed copied=1: open
+zip pairs=1: open
 [exit 0]

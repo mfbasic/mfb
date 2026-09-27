@@ -26,6 +26,31 @@ FUNC state(RES h AS fs::File) AS String
   RETURN line
 END FUNC
 
+' A function copying the caller's handles into its own list, element by element:
+' the borrowed element used to be named as an owner and float into `out`, whose
+' scope then closed the caller's handles at the function's exit.
+FUNC copyEach(files AS List OF RES fs::File) AS Integer
+  MUT out AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < len(files)
+    out = collections::append(out, collections::get(files, i))
+    i = i + 1
+  END WHILE
+  RETURN len(out)
+END FUNC
+
+' The same through a named RES binding of the borrowed element.
+FUNC copyNamed(files AS List OF RES fs::File) AS Integer
+  MUT out AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < len(files)
+    RES one AS fs::File = collections::get(files, i)
+    out = collections::append(out, one)
+    i = i + 1
+  END WHILE
+  RETURN len(out)
+END FUNC
+
 SUB main()
   fs::writeText(PATH, "")
 
@@ -119,4 +144,19 @@ SUB main()
     io::print("inner set len=" & toString(len(replaced)) & " insert/removeAt len=" & toString(len(shuffled)))
   END IF
   io::print("set/insert/removeAt (inner scope): " & state(n))
+
+  RES p AS fs::File = fs::open(PATH, "read")
+  LET lp AS List OF RES fs::File = [p]
+  io::print("copyEach copied=" & toString(copyEach(lp)) & ": " & state(p))
+
+  RES q AS fs::File = fs::open(PATH, "read")
+  LET lq AS List OF RES fs::File = [q]
+  io::print("copyNamed copied=" & toString(copyNamed(lq)) & ": " & state(q))
+
+  ' zip's body builds each Pair from two borrowed elements; it used to fail to
+  ' build ("owned-list element type 'Pair...' has no registered close op").
+  RES r AS fs::File = fs::open(PATH, "read")
+  LET lr AS List OF RES fs::File = [r]
+  LET pairs = collections::zip(lr, [1])
+  io::print("zip pairs=" & toString(len(pairs)) & ": " & state(r))
 END SUB

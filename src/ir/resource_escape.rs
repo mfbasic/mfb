@@ -124,6 +124,11 @@ struct Routing {
 
 struct Analyzer {
     res_names: HashSet<String>,
+    /// bug-643: the `RES` bindings initialized from a borrowed pointer
+    /// ([`initializer_is_borrowed`]). They stay `RES` names — every ownership rule
+    /// still applies to them — but always resolve `Local`: they hold no close
+    /// obligation to float.
+    borrowed: HashSet<String>,
     /// Declaration depth (block nesting) of every local binding, by name.
     decl_depth: HashMap<String, usize>,
     /// Declaration order index of every local binding, for deterministic ties.
@@ -183,6 +188,7 @@ pub fn analyze_function_with(
 ) -> FunctionEscape {
     let mut analyzer = Analyzer {
         res_names: HashSet::new(),
+        borrowed: HashSet::new(),
         decl_depth: HashMap::new(),
         decl_order: HashMap::new(),
         decl_type: HashMap::new(),
@@ -273,9 +279,16 @@ impl Analyzer {
                         .entry(name.clone())
                         .or_insert_with(|| type_.clone());
                 }
+                // bug-643: a binding of a BORROWED pointer holds no close obligation,
+                // so it has none to float. Routing it made the container's owned-list
+                // close a handle another scope owns — the caller's own, when a
+                // function copied `collections::get(files, i)` into a local list.
                 if *resource {
                     self.res_names.insert(name.clone());
                     self.res_depth.insert(name.clone(), depth);
+                    if value.as_ref().is_some_and(initializer_is_borrowed) {
+                        self.borrowed.insert(name.clone());
+                    }
                 }
                 if let Some(value) = value {
                     self.record_routing(Target::Var(name.clone()), value);
@@ -478,6 +491,10 @@ impl Analyzer {
 
         let mut owners = HashMap::new();
         for resource in &self.res_names {
+            if self.borrowed.contains(resource) {
+                owners.insert(resource.clone(), ResOwner::Local);
+                continue;
+            }
             // A resource that flows into a returned collection still floats to
             // that collection's scope (so it is closed on error exits); the
             // `RETURN` of the collection transfers its owned-list to the caller
@@ -604,6 +621,21 @@ fn is_res_marked_resource_collection(type_: &crate::types::ParameterType) -> boo
     match type_ {
         ParameterType::ListOf(element) => matches!(element.as_ref(), ParameterType::Res(_)),
         ParameterType::MapOf(_, value) => matches!(value.as_ref(), ParameterType::Res(_)),
+        _ => false,
+    }
+}
+
+/// bug-643: whether a `RES` binding's initializer is a pointer to a resource that
+/// another binding already owns — a `collections::get`/`getOr` of a `RES` element,
+/// a `tcp`/`udp`/`tls::poll` borrow, or a record's `RES` field — the same shapes
+/// codegen binds as a non-owning alias (`value_aliases_live_resource`). Such a
+/// binding closes nothing at its own scope, so it must not float either.
+fn initializer_is_borrowed(value: &HirExpression) -> bool {
+    match value {
+        HirExpression::Call { callee, .. } => {
+            crate::codegen::engine::builder::CodeBuilder::target_returns_borrowed_resource(callee)
+        }
+        HirExpression::MemberAccess { .. } => true,
         _ => false,
     }
 }
@@ -1157,6 +1189,48 @@ mod tests {
             },
         ]));
         assert_eq!(result.owner("f"), ResOwner::Local);
+    }
+
+    /// bug-643: a `RES` binding of a BORROWED element holds no close obligation, so
+    /// appending it to an outer collection must not float it there — the
+    /// collection's owned-list would close a handle another scope owns. It stays a
+    /// `RES` name (resolved `Local`), so every ownership rule still sees it.
+    #[test]
+    fn a_borrowed_element_never_floats() {
+        let get = HirExpression::Call {
+            callee: "collections.get".to_string(),
+            arguments: vec![
+                HirCallArg::Positional(ident("files")),
+                HirCallArg::Positional(HirExpression::Number("0".to_string())),
+            ],
+            line: 1,
+            column: 1,
+        };
+        let result = analyze_function(&func(vec![
+            list("out", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("one", get),
+                    HirStatement::Assign {
+                        name: "out".to_string(),
+                        value: append("out", "one"),
+                        line: 1,
+                    },
+                    // The control: a produced handle in the same position floats.
+                    res("fresh", open()),
+                    HirStatement::Assign {
+                        name: "out".to_string(),
+                        value: append("out", "fresh"),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("one"), ResOwner::Local);
+        assert_eq!(result.owner("fresh"), ResOwner::Float("out".to_string()));
     }
 
     #[test]
