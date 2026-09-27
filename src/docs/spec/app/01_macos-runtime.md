@@ -140,8 +140,9 @@ discarded; the worker is never joined). [[src/target/macos_aarch64/app/bootstrap
 
 `void *_mfb_macapp_worker(void *arg)` is the pthread start routine. It pushes an
 autorelease pool (`objc_autoreleasePoolPush`, preserving the arg pointer across the
-call on a 16-byte temp frame), then, when the language entry accepts args
-(`AppEntrySpec.language_entry_accepts_args`), unpacks the `{argc, argv}` block:
+call on a 16-byte temp frame), then, when the program entry reads its arguments
+— `main` takes an argument list, or the program calls `os::args`/`os::prog`
+(`AppEntrySpec.worker_passes_args`, bug-743) — unpacks the `{argc, argv}` block:
 `argv` from `[arg+OFF_ARGV]` into `x1`, `argc` from `[arg+OFF_ARGC]` into `x0`. It
 then tail-calls the standard program entry `_mfb_macapp_program`
 (`MACAPP_PROGRAM_SYMBOL`), which never returns. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]

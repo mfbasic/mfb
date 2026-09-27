@@ -2002,7 +2002,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
-    if spec.language_entry_accepts_args {
+    if spec.worker_passes_args {
         // arg (x0) points at { i64 argc; char **argv }.
         asm.push(abi::load_u64(abi::c_arg(1), abi::c_arg(0), OFF_ARGV));
         asm.push(abi::load_u64(abi::c_arg(0), abi::c_arg(0), OFF_ARGC));

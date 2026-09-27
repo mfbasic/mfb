@@ -803,7 +803,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, Stri
         abi::stack_pointer(),
         0,
     ));
-    if spec.language_entry_accepts_args {
+    if spec.worker_passes_args {
         // The real argv that reached `g_application_run`, published to the state
         // by `_mfb_gtkapp_main` (bug-240). Load argv first: `load_state` clobbers
         // x9, not x0/x1, but keeping argc last mirrors the macOS shim.

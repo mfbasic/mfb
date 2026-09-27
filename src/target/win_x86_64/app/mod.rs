@@ -5480,7 +5480,7 @@ mod tests {
 
     fn spec() -> AppEntrySpec {
         AppEntrySpec {
-            language_entry_accepts_args: false,
+            worker_passes_args: false,
             uses_term: false,
             initial_mode: PresentationMode::Console,
             uses_canvas: true,
@@ -5899,7 +5899,7 @@ mod canvas_reconcile_tests {
 
     fn spec(initial_mode: PresentationMode) -> AppEntrySpec {
         AppEntrySpec {
-            language_entry_accepts_args: false,
+            worker_passes_args: false,
             uses_term: false,
             initial_mode,
             uses_canvas: true,
@@ -6254,7 +6254,7 @@ mod canvas_reconcile_tests {
                     // bug-540 WIN-02 added the `term::` resize arm.
                     for uses_term in [false, true] {
                         let spec = AppEntrySpec {
-                            language_entry_accepts_args: false,
+                            worker_passes_args: false,
                             uses_term,
                             initial_mode: PresentationMode::Console,
                             uses_canvas,

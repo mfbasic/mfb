@@ -126,7 +126,8 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 
 `_mfb_gtkapp_worker(void *arg)` is the pthread start routine. It calls
 `code::MACAPP_PROGRAM_SYMBOL` (the standard program entry). If
-`spec.language_entry_accepts_args`, it loads the **real** `argc`/`argv` from
+`spec.worker_passes_args` (`main` takes an argument list, or the program calls
+`os::args`/`os::prog` — bug-743), it loads the **real** `argc`/`argv` from
 `ST_ARGC`/`ST_ARGV` — the values that reached `g_application_run`, published to
 the state by `_mfb_gtkapp_main` (bug-240). The program normally ends via `FINISH_SYMBOL`,
 so the function tail (`return NULL`) is only reached defensively.

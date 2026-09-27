@@ -1894,7 +1894,13 @@ pub(crate) fn lower_module_for_platform(
             // symbol, while `_main` becomes the toolkit bootstrap (AppKit / GTK4)
             // that creates the window and spawns the worker.
             let app_spec = AppEntrySpec {
-                language_entry_accepts_args: entry.accepts_args,
+                // bug-743: the worker hands the entry argc/argv whenever the entry
+                // reads them — to materialize `main`'s parameter OR to capture them
+                // for `os::args`/`os::prog`. Keyed on the parameter alone, a
+                // `FUNC main AS Integer` that calls `os::args` captured the argument
+                // block's pointer as argc and a garbage argv (macOS: SIGSEGV).
+                worker_passes_args: entry.accepts_args
+                    || module_uses_any_call(module, &["os.args", "os.prog"]),
                 uses_term,
                 initial_mode,
                 uses_canvas: module_uses_canvas(module)

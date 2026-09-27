@@ -1,17 +1,35 @@
 # bug-743: `os::args` in an `--app` build crashes the program on macOS and returns an empty list on Linux GTK
 
+## STATUS: FIXED (see the commit that archives this doc)
+
+The worker shims (macOS and GTK) now hand the program entry `argc`/`argv`
+whenever the entry reads them — `main` takes an argument list OR the program
+calls `os::args`/`os::prog` (`AppEntrySpec.worker_passes_args`, set in
+`src/codegen/engine/builder/mod.rs`). The root cause below is confirmed: with
+the fix reverted the regression test dies with SIGSEGV on macOS.
+
+- **RED → GREEN:** `tests/cli/cli_entry_args.rs::app_build_os_args_without_a_main_parameter`
+  (host `--app` build run headless with `one two`, expects `ARGS 2:one,two`):
+  "killed by signal 11 (SIGSEGV)" without the builder change, passes with it.
+- **Measured after the fix:** macOS headless and windowed → `2:one,two`;
+  Linux GTK aarch64 on box 2226 (AppImage under Xvfb) → `2:one,two`; Windows 11
+  `--app` on box 206 → `2:one,two` (Windows was never affected: its entry builds
+  argv from `GetCommandLineW`, `defers_arg_capture`).
+- **Goldens:** none predicted to move — no app-mode golden fixture calls
+  `os::args`/`os::prog` (`grep -rl "os::args\|os::prog" tests/syntax/app` → none).
+
 Last updated: 2026-09-26
 Effort: small
 Severity: HIGH
 Class: Correctness (process crash on macOS; wrong result on Linux)
 
-Status: Open
-Regression Test: none yet — see Fix
+Status: Fixed (2026-09-26)
+Regression Test: `tests/cli/cli_entry_args.rs::app_build_os_args_without_a_main_parameter`
 
 Found by bug-699 Phase 7 while writing the `--app` key probe
 (`tools/key-probe`), which had to take its settings from the environment instead
-of the command line because of this. Filed, not fixed there: it belongs to the
-app bootstrap / `os` entry path, not to `io` input.
+of the command line because of this. Fixed in the same worktree after bug-699
+(fixbug rule 12).
 
 ## Reproduction
 

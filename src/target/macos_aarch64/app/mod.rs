@@ -1937,7 +1937,7 @@ mod canvas_reconcile_tests {
     #[test]
     fn canvas_key_imps_are_emitted_with_the_reconcile_helpers() {
         let spec = AppEntrySpec {
-            language_entry_accepts_args: false,
+            worker_passes_args: false,
             uses_term: false,
             initial_mode: PresentationMode::None,
             uses_canvas: true,
