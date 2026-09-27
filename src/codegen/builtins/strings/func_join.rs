@@ -16,7 +16,8 @@ const INTRO: &str = r#"Concatenate a list of strings, inserting a delimiter betw
 const DESC: &str = r#"`strings::join` walks `parts` from first to last and concatenates the elements
 into one `String`, placing a single copy of `delimiter` between each adjacent
 pair. The delimiter goes *between* elements only — never before the first and
-never after the last — so a list of N elements produces exactly N − 1 delimiters.
+never after the last — so a list of N ≥ 1 elements produces exactly N − 1 delimiters, and the empty list
+produces none.
 
 Concatenation copies the raw UTF-8 bytes of each element and of the delimiter
 verbatim. No trimming, normalization, or case folding is performed. Placing one

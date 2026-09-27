@@ -12,22 +12,22 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Return the raw UTF-8 bytes backing a string, one element per byte."#;
+const INTRO: &str = r#"Return a string's UTF-8 encoding as a list, one element per byte."#;
 
 const DESC: &str = r#"`strings::toBytes` returns the UTF-8 octets that back `value` as a
 `List OF Byte`, one element per byte, in encoding order. It is the byte-level
 view of a string: no decoding, validation, or transformation is performed, and
 the bytes are copied verbatim into a freshly built list.
 
-The result length is exactly `strings::byteLen(value)`, which is generally larger
-than `len(value)`: an ASCII scalar contributes one element, while a non-ASCII
+The result length is exactly `strings::byteLen(value)`, which is never smaller
+than `len(value)` and equals it only when every scalar is ASCII: an ASCII scalar contributes one element, while a non-ASCII
 scalar contributes the two, three, or four bytes of its UTF-8 encoding. For
 `"héllo"` the list has six elements, because `é` encodes as the two bytes `195`
 and `169`. The empty string yields the empty list.
 
-`toBytes` is the inverse of `toString(List OF Byte)` and the foundation the
-`encoding` package's Unicode codecs are built on; `encoding::utf8EncodeBytes`
-produces the same octets for the same string.
+`toBytes` is the inverse of `toString(List OF Byte)`: `toString(strings::toBytes(s))`
+gives back `s`. `encoding::utf8Encode` returns the same bytes for the same
+string.
 
 `value` is not mutated. The returned `List OF Byte` is its own value, so
 mutating it does not affect the string it came from.
@@ -263,7 +263,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The string whose UTF-8 storage is returned. Any `String` is accepted, including the empty string.",
+                desc: "The string to encode. Any `String` is accepted, including the empty string, which gives an empty list.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

@@ -32,7 +32,10 @@ original for display and use the folded form only as a comparison key.
 Folding does not normalize. Strings that differ in Unicode normalization form can
 still differ after folding, so apply `strings::normalizeNfc` first when
 normalization-insensitive matching is required. The mapping is deterministic and
-locale-independent, with no language-specific tailoring. `value` is not mutated;
+locale-independent, with no language-specific tailoring. In particular the
+Turkish dotted capital `İ` (`U+0130`) folds to `i` followed by combining dot above
+(`U+0307`), not to plain `i`, so `strings::caseFold("İ") = strings::caseFold("i")`
+is `FALSE`. `value` is not mutated;
 the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an

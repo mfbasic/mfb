@@ -489,6 +489,24 @@ batch; the example ledger accounts for every example, 0 unaccounted; no
 examples confirming it).
 Commit: —
 
+### Phase 6 — pages main changed after they were reviewed (11 units)
+
+Added 2026-09-25. `main` was merged into this branch mid-letter (`a24a3894b`, 812
+commits); it had changed the lowering or prose under pages Phases 1-3 had already
+closed, and added two `term` members. Units:
+`planning/plan-125-units/D-phase6.txt` — `io` `input`, `pollInput`, `readByte`,
+`readChar`, `readLine`, `setBuffered` (mouse-aware reads, plan-94-B, bug-669);
+`term` `overview`, `types`, `isOn`, and the new `enableMouse` and `pollMouse`.
+
+- [ ] 11 units reviewed and applied; ledger recorded.
+- [ ] Every example on the 11 pages compiled and run (`term` and mouse ones on a
+      pty), terminal restored.
+- [ ] `--memory-scope` and `--scope` clean for `io` and `term`.
+
+Acceptance: `--reconcile --letter D-phase6` → 11 units, 0 unaccounted; sweeps
+clean; examples run.
+Commit: —
+
 ## Validation Plan
 
 - Tests: none (man prose); pinned-text tests updated in the same commit if
@@ -536,6 +554,20 @@ Commit: —
   (`term/isOn`, first Fable row) was re-run; `--reconcile` reads the last row. The
   same sweep deleted the Phase 3 pty runner and probes under `/tmp/p125-ex`; the
   runner was rebuilt under `/tmp/p125-tools/`.
+- **2026-09-25: main merged mid-letter (`a24a3894b`).** Main was 812 commits
+  ahead, with 99 changed files under D's five packages (`git diff --stat
+  HEAD...main -- src/codegen/builtins/{io,astrings,term,strings,fs}`): bug-694 gave
+  every `fs` member its declared errors, plan-94-B added mouse input (`term`
+  `enableMouse`/`pollMouse`, mouse-aware `io` reads), and several `strings`
+  lowerings changed. The prerequisite "this branch's pages are current" had gone
+  false, so reviewing on without merging would have applied findings to stale
+  pages. Consequences: the 9 `fs` reviews already back (stale base) were discarded
+  and all 43 re-run on the merged tree; 22 `strings` units whose lowering or prose
+  main changed were re-run (`D-phase4-postmerge.txt`); the closed `io`/`term` pages
+  main touched get Phase 6. `term` is now 26 pages + overview + types = 28 units.
+  Conflicts: `term/mod.rs` (main's `MouseEvent` paragraph kept, this letter's
+  overview example after it) and `collections/append.rs` (main's corrected cost
+  rule kept, plus this branch's `TYPE_ASSIGN_REQUIRES_MUT` sentence).
 - **2026-09-25: bugs 658-664 renumbered to 721-727** — main had taken 658, 659 and
   665-720 meanwhile (`git log --all --oneline | grep -oE 'bug-7[0-9][0-9]'` →
   highest 720). New bugs from here continue at 728.

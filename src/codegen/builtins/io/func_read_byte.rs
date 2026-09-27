@@ -37,8 +37,10 @@ to raise — this is the difference from `io::readChar`, which always returns on
 whole Unicode scalar value. Use `io::readByte` for binary input or protocol
 framing, and `io::readChar` for text.
 
-End of input is reported as an error, not as a sentinel value such as `0` or
-`-1`, which keeps every one of the 256 byte values usable as data. Use
+End of input raises `ErrEndOfFile` rather than returning a sentinel value such as
+`0` or `-1`, which keeps every one of the 256 byte values usable as data. Trap it
+with `IF e.code = errorCode::ErrEndOfFile` when the end of a pipe or file is
+expected. Use
 `io::pollInput` to test for readiness when the program must not block. A worker thread must subscribe with `thread::openStdIn` before reading, or the call
 raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read one byte and report its value:

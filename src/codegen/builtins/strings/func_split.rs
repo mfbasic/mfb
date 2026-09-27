@@ -41,8 +41,9 @@ the rule. `value` is not mutated; the returned list and its elements are their
 own values.
 
 `delimiter` is also accepted under the name `separator`. Joining the result with
-the same non-empty delimiter reproduces `value` exactly — `split` and
-`strings::join` are inverses.
+the same non-empty delimiter reproduces `value` exactly. The reverse does not
+hold in general: joining a list whose elements contain the delimiter and splitting
+again yields more pieces than you started with.
 
 `delimiter` is a literal, matched byte for byte, and there is no `limit`: every
 piece is always returned. When the separator is a *run* rather than a fixed
@@ -83,7 +84,8 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Split and rejoin to round-trip the value:
+Split on a multi-byte delimiter, rejoin with the same one to get the value back,
+and with a different one to change it:
 
 ```
 IMPORT io
@@ -91,6 +93,7 @@ IMPORT strings
 
 FUNC main() AS Integer
   LET parts AS List OF String = strings::split("a😀b😀c", "😀")
+  io::print(toString(strings::join(parts, "😀") = "a😀b😀c"))
   io::print(strings::join(parts, "-"))
   RETURN 0
 END FUNC

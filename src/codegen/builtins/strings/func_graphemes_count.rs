@@ -20,13 +20,16 @@ An extended grapheme cluster is one user-perceived character, and it may be buil
 from several Unicode scalar values: a base letter followed by combining marks, a
 flag formed from a pair of regional indicators, or an emoji built from a base
 symbol joined to modifiers by zero-width joiners. Each such cluster counts as
-one.
+one. The pair `"\r\n"` is also a single cluster, so text with Windows line
+endings counts one cluster per line break, not two.
 
 The count is therefore a third measure, distinct from both `len(value)`, which
 counts Unicode scalar values, and `strings::byteLen(value)`, which counts UTF-8
-bytes. For text with combining marks, emoji, or characters outside the Basic
-Multilingual Plane, all three can differ: `"e"` plus `U+0301` plus `"fg"` has
-three clusters but four scalars.
+bytes. A cluster and a scalar differ only when several scalars combine into one
+user-perceived character — combining marks, flags, emoji modifier and joiner
+sequences, Hangul jamo; a single emoji outside the Basic Multilingual Plane is
+still one scalar and one cluster, and only its byte length differs. `"e"` plus
+`U+0301` plus `"fg"` has three clusters but four scalars.
 
 The empty string yields `0`. `value` is not mutated and the call never fails.
 Counting means walking the whole string, so unlike `strings::byteLen` the cost
