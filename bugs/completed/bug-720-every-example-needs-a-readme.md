@@ -5,10 +5,9 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (docs)
 
-Status: Open
-Regression Test: extend `scripts/build-examples.sh` with a README-presence
-check per executable project (Phase 1), or a new `cargo test` under
-`tests/scripts/` if a shell check doesn't fit — see Fix Design.
+Status: FIXED (563c1c59b)
+Regression Test: `tests/guards/example_readmes.rs` (`cargo test --test
+example_readmes`) — see Deviation from Fix Design, below.
 
 Of the 18 top-level directories under `examples/` (plus 2 sub-projects inside
 `examples/bugs/`), only 4 ship a `README.md`: `examples/brogue`,
@@ -304,55 +303,127 @@ new script file.
 
 ## Phases
 
+### Deviation from Fix Design
+
+This doc's Fix Design proposed extending `scripts/build-examples.sh` with a
+detect-only README-presence check. The fix instead landed as a Rust guard,
+`tests/guards/example_readmes.rs` (`cargo test --test example_readmes`),
+following the shape of the existing `tests/guards/example_project_names.rs`
+guard: it walks every `examples/**/project.json`, filters to `"kind":
+"executable"`, and fails listing every one with no `README.md` in its own
+directory or (for a multi-project example directory, the `examples/browser`
+case) at the shared parent directory. This keeps the check in the same
+`cargo test` surface as the sibling guard it mirrors, runs without a host
+`mfb` build, and needed no `scripts/README.md` change since no file under
+`scripts/` was touched.
+
+The doc's Blast Radius list also predates several fixes landed on `main`
+since it was written, re-confirmed before Phase 2:
+- `examples/bugs/{tui,canvas}` is now `examples/swat/{tui,canvas}`
+  (`swat-tui`/`swat-canvas`, bug-718) — both still needed a README, now at
+  their new paths.
+- `examples/dungeon/CREDITS.md` already exists (Kenney tile set, CC0,
+  bug-714, trimmed to the 28 tiles the example actually loads) — linked from
+  `examples/dungeon/README.md` rather than re-authored.
+- `network-server`'s default port (7000) matches what this doc already
+  recorded; `network-client`'s new README cites it directly rather than
+  duplicating the number without attribution.
+- `audio`'s `jzaun#libsnd` package and `mfb.lock` are git-ignored, so a fresh
+  checkout needs an install step before it builds. See Correction below —
+  the first pass here got the exact step wrong.
+
+### Correction (post-review)
+
+The first version of `examples/audio/README.md` claimed "a plain `mfb build
+examples/audio` resolves and builds" based on a build run in a worktree
+where `examples/audio/packages/` and `mfb.lock` had already been copied over
+from the main checkout by hand — not a real fresh-clone test. Review caught
+this: a genuinely fresh `git worktree add --detach` checkout has neither
+file (both are `.gitignore`d — `examples/**/packages/` and
+`examples/**/*.lock`), and `mfb build examples/audio` there fails with
+`IMPORT_PACKAGE_NOT_INSTALLED`.
+
+Re-verified from two independent fresh detached worktrees (`git worktree add
+--detach <tmp> worktree-B-720`, no prior `packages/`/`mfb.lock` present): the
+correct sequence is `mfb pkg update`, run **inside** `examples/audio` (it
+takes no project-path argument — `mfb pkg update <path>` errors with "failed
+to read './project.json'"), then `mfb build examples/audio` from the repo
+root as before. `mfb pkg update` needs network access to the package
+registry: it resolved `libsnd 1.5.0` and downloaded its 7 vendor libraries
+both times. `mfb pkg install [path]` (the other candidate) is for
+re-installing from an *existing* `mfb.lock` by hash and does not resolve a
+new one, so it does not help a first-time fresh checkout.
+`examples/audio/README.md` now documents this exact two-step sequence and
+notes that a checkout where the package was already resolved (e.g. this
+repo's own long-lived working tree) can skip straight to `mfb build`.
+
+Checked every other README the same way (fresh detached worktree, run the
+documented commands verbatim): `examples/browser`'s existing
+`dom`→`fetch`/`display`→`app` package-build sequence and
+`examples/yaml-json`'s package-then-build sequence both work unmodified from
+a fresh checkout (their local `.mfp` packages build from source with `mfb
+build`, no registry step, no `--unsigned` needed). No other new README in
+this fix depends on git-ignored build state — `audio` was the only
+`"packages"` declaration among them.
+
 ### Phase 1 — failing check + audit (no behavior change)
 
-- [ ] Add the README-presence check to `scripts/build-examples.sh` in
-      detect-only mode (print `MISSING README: $example` and increment
-      `fail_count`, without otherwise changing build behavior).
-- [ ] Run it and confirm it currently reports exactly the 14 top-level
-      examples plus `bugs/tui` and `bugs/canvas` from the Blast Radius list
-      above, and no others.
-- [ ] Blast-radius audit above is already complete as part of this doc.
+- [x] Add the README-presence check — as `tests/guards/example_readmes.rs`
+      (see Deviation above), not `scripts/build-examples.sh`.
+- [x] Run it and confirm it currently reports exactly the 15 executable
+      projects from the re-measured Blast Radius (13 top-level examples plus
+      `swat/tui` and `swat/canvas`), and no others.
+- [x] Blast-radius audit re-measured against current `main` (see Deviation
+      above).
 
-Acceptance: the script's new check fails (non-zero exit, one `MISSING
-README:` line per project) for precisely the 16 projects listed as "needs
-README" above; the 4 projects with existing READMEs (plus `browser`'s
-multi-project layout) produce no failure line.
-Commit: —
+Acceptance: the guard fails (panic, one line per project) for precisely the
+15 projects listed as "needs README" above; the 4 projects with existing
+READMEs (plus `browser`'s multi-project layout) produce no failure line.
+Commit: 4c620c1b4
 
 ### Phase 2 — write the READMEs
 
-- [ ] `examples/audio/README.md` first (priority): what it demonstrates,
+- [x] `examples/audio/README.md` first (priority): what it demonstrates,
       build/run per platform, the `jzaun#libsnd` package note (vendored, no
-      `--unsigned` needed — cite the verified build output above), controls
-      (if any interactive controls exist — verify via source before
-      writing).
-- [ ] `examples/ai_chat/README.md` (priority): note the `claude` CLI
-      prerequisite verified above.
-- [ ] The remaining 14 (`dungeon`, `emoji`, `hangman`, `hello_input`,
+      `--unsigned` needed — reconfirmed by an actual build in this fix's own
+      worktree), no interactive controls beyond its numeric menu (verified
+      via source).
+- [x] `examples/ai_chat/README.md` (priority): the `claude` CLI prerequisite,
+      reconfirmed against source; controls cross-checked against the actual
+      key-code handling (`\u{0E}` etc.), not just the header comment.
+- [x] The remaining 13 (`dungeon`, `emoji`, `hangman`, `hello_input`,
       `hello_world`, `life`, `network-client`, `snake`, `water`,
-      `wide-demo`, `wind`, `bugs/tui`, `bugs/canvas`), each meeting the
+      `wide-demo`, `wind`, `swat/tui`, `swat/canvas`), each meeting the
       minimum content bar, each verified against actual source/controls
       before writing (no invented behavior).
 
 Acceptance: every project the Phase 1 check flagged now has a `README.md`
 meeting the minimum content bar; re-running the Phase 1 check produces zero
-`MISSING README:` lines.
-Commit: —
+failures.
+Commit: 563c1c59b
 
 ### Phase 3 — validation
 
-- [ ] Re-run the Phase 1 check standalone to confirm zero misses.
-- [ ] Run `bash scripts/build-examples.sh` in full (or at least the host
-      target) to confirm the added check does not break any existing build,
-      and that it now gates on README presence going forward.
-- [ ] Update the `scripts/README.md` `build-examples.sh` bullet to mention
-      the README-presence check.
+- [x] Re-ran the Phase 1 check standalone (`cargo test --test
+      example_readmes`) — GREEN, zero misses.
+- [x] Built every touched example on the host (`macos-aarch64`) with this
+      worktree's own `target/release/mfb`, confirming each README's exact
+      build command actually works (`--app` where documented); also
+      cross-built one console and one app example for `windows-x86_64` to
+      confirm the `.exe` artifact name used in every README.
+- [x] No `scripts/` file was touched, so `scripts/README.md` needs no edit —
+      see Deviation above.
+- [x] Full-suite gate: `cargo test --release` under the machine-wide heavy
+      lock — one incidental failure
+      (`rt_compress_bounds::decode_time_is_linear_in_output_size`, a timing
+      assertion), re-run alone and it passed
+      (`test result: ok. 2 passed; 0 failed`) — confirmed machine-contention
+      noise from the other five lanes sharing the host, not a regression
+      from this fix (this fix touches no `src/` code the test exercises).
 
-Acceptance: `scripts/build-examples.sh` exits 0 on a tree with all READMEs
-present; the README check is live in the script; `scripts/README.md`
-reflects it.
-Commit: —
+Acceptance: the guard is GREEN; every documented build command was run for
+real; the full suite is green modulo the confirmed-noise timing test.
+Commit: 563c1c59b (doc-only follow-up folded into the same archival commit)
 
 ## Validation Plan
 

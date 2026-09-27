@@ -18,8 +18,8 @@ element per code point.
 Each element is one `Scalar` — a 32-bit Unicode scalar value — not a grapheme
 cluster. A base letter followed by a combining mark is two separate elements,
 while an astral character such as an emoji is a single element. The element count
-therefore equals `len(value)` and is generally smaller than
-`strings::byteLen(value)`. Use `strings::graphemes` when user-perceived
+therefore equals `len(value)`. It never exceeds `strings::byteLen(value)`, and
+equals it only when every character is ASCII. Use `strings::graphemes` when user-perceived
 characters are what matters.
 
 This is the entry point for walking a string one scalar at a time: compare each

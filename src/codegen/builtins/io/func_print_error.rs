@@ -31,18 +31,17 @@ call adds. An empty `String` emits nothing but that newline.
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
 
-Standard error is **never buffered**. `io::setBuffered` controls standard output
-only, so error output is always issued immediately and can never sit unseen in a
-buffer; there is correspondingly no flush for standard error. It is also never
-retained by `term::` TUI mode — the shadow-grid routing applies to standard
-output alone — so an error message written while a TUI frame is being composed
-goes straight to the terminal rather than into the frame.
+Standard error is **never buffered** by `io::setBuffered`, which controls standard
+output only, so there is no flush for standard error. In a console program, error
+output is written immediately and is not captured by `term::` TUI mode, so an error
+message written while a TUI frame is being composed goes straight to the terminal.
+In app mode, error output is handed to the application window, and while TUI mode
+is active it is drawn on the TUI surface like standard output.
 
-The underlying write loops until every byte has been transferred: a short write
-advances the cursor and re-issues, and an interruption is resumed rather than losing
-bytes. A zero-byte or failing write raises `ErrWriteFailed`. Output goes to standard error
-in a console program, and to the application transcript in app mode
-(`mfb build --app`)."#;
+In a console program every byte is written, even across short writes and
+interruptions, and a write that fails or transfers nothing raises `ErrWriteFailed`.
+Output goes to standard error in a console program, and to the application
+transcript in app mode (`mfb build --app`), where it is prefixed with `[stderr] `."#;
 const EX: &str = r#"Report a failure on the error stream:
 
 ```

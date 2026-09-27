@@ -18,29 +18,24 @@ each element into a running total, returning that total.
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is
 no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
-any other element type fails to resolve at compile time, and the call
-rejects it a second time.
+any other element type is a compile-time error.
 
 The accumulator is initialized to zero of the element type and the elements are
 added in list order, so an empty `value` yields `0`, `0.0`, or `0.0F`
 respectively without any addition being performed.
 
-`value` is neither modified nor closed. `sum` takes no callback and has no
+`value` is not modified. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
 addition: if the running total leaves the destination range, the addition fails
-with `ErrOverflow` rather than wrapping. `Fixed` shares the `Integer` path
-because it is a scaled 64-bit integer. The `Float` overload uses IEEE-754
-double addition and never raises — an out-of-range total becomes `±Inf` in the
-usual floating-point way.
+with `ErrOverflow` rather than wrapping. The `Float` overload uses IEEE-754
+double addition, and a total that overflows raises `ErrFloatOverflow`. With an
+inline `TRAP` on the call, the current build instead returns the largest finite
+`Float` (about `1.797e308`) and does not run the handler.
 
-Note a wrinkle worth knowing before writing a handler: the compiler's inline-
-`sum` is treated as **infallible** for the purpose of inline `TRAP`, so attaching an
-inline `TRAP` to a `sum` call raises the `TYPE_INLINE_TRAP_DEAD_HANDLER`
-diagnostic and that handler does not receive the overflow. The overflow is still
-raised at run time and still propagates out of the enclosing function, where an
-ordinary function-level `TRAP` can handle it.
+An inline `TRAP` on an `Integer` or `Fixed` `sum` call receives the overflow and
+runs its `RECOVER`.
 
 To total a list of some other element type, or to accumulate with different
 rules, fold it with `collections::reduce`."#;

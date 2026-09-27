@@ -15,9 +15,12 @@ const DESC: &str = r#"`strings::startsWith` returns `TRUE` when `value` begins w
 them match.
 
 No normalization, case folding, or other transformation is applied to either
-operand, so `startsWith("Hello", "hello")` is `FALSE`. Because both operands are
-well-formed UTF-8 and UTF-8 is self-synchronizing, a matching byte prefix is
-always also a whole-scalar prefix — a match can never land mid-scalar.
+operand, so `startsWith("Hello", "hello")` is `FALSE`. Matching is by Unicode
+scalar: a match always covers whole scalars, but not necessarily whole
+characters: it can begin or end inside a combining sequence, an emoji sequence or
+a flag, so `startsWith("e\u{0301}", "e")` is `TRUE`. Apply
+`strings::normalizeNfc` to both operands first if composed and decomposed
+spellings must compare equal.
 
 The boundary cases follow from the byte comparison. A `prefix` longer than
 `value` cannot match and returns `FALSE`. The empty `prefix` matches every

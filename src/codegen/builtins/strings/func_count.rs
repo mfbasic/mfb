@@ -27,7 +27,9 @@ plus a combining accent. A reported occurrence always begins and ends on a scala
 boundary, so a count can never be inflated by a match landing inside a multi-byte
 scalar.
 
-A `needle` longer than `value` yields `0`, as does an empty `value`. An empty
+A `needle` longer than `value` yields `0`, as does an empty `value` — unless
+`needle` is also empty, in which case the empty-needle rule wins and the call
+raises. An empty
 `needle` is refused with `ErrInvalidArgument`: it occurs at every position, which
 is not a count worth reporting. `strings::split` refuses an empty delimiter for
 the same reason, while `strings::contains` and `strings::find` answer for an empty
@@ -169,7 +171,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The string to scan. May be empty, in which case the result is `0`.",
+                    desc: "The string to scan. May be empty; with a non-empty `needle` the result is then `0`.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

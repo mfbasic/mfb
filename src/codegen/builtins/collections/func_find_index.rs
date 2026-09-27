@@ -38,10 +38,8 @@ On an empty list every legal `start` is `0`, which is `len(value)`, so
 `predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
 `FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
 inside `predicate` propagates out of the `collections::findIndex` call to the
-caller rather than being reported as a non-match. Note that a lambda passed here
-may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findIndex`.It
-does not mutate `value`.
+caller rather than being reported as a non-match. A lambda passed here cannot use a `MUT` binding from the surrounding function;
+see `mfb man lambda`.
 
 `T` is inferred from the element type of `value` and may be any type;
 `findIndex` imposes no comparability or orderability constraint on `T`, because

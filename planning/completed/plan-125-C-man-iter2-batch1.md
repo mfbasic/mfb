@@ -677,10 +677,78 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
 
 ### Phase 4 — collections (50 units)
 
-- [ ] 49 function pages + overview.
-      **Progress (2026-09-15):** 4 of 50 reviewed and applied (overview, `add`,
-      `all`, `any`). The Codex usage limit stopped the batch; the other 46 are in
+- [x] 49 function pages + overview.
+      **Progress (2026-09-16):** 49 of 50 reviewed and applied. Round 3 (22):
+      `merge`, `mid`, `partition`, `prepend`, `reduce`, `reduceRight`, `remove`,
+      `removeAt`, `removeKey`, `replace`, `set`, `sort`, `sortBy`, `sum`,
+      `symmetricDifference`, `take`, `toList`, `toSet`, `transform`, `union`, `values`
+      (no findings), `zip`. The Codex usage limit stopped the batch on its last unit,
+      `window`, which is the only entry left in
+      `planning/plan-125-units/C-phase4-retry.txt`. My own probe-verified `window`
+      fixes are applied without its review: the run-together sentence, and the
+      bug-643 statement that the call closes resource handles.
+      Round-3 probes: `/tmp/p125-ex/colmix5`, `colmix6`, `colmerge`, `colprep`,
+      `colprep2`, `colsortf`, `colsortb`, `colsortby`, `colsumtrap`, `colsumfixed`,
+      `colsumflt`, `colsumflt2`, `colsumflt3`, `colmid`, `colrr`, `colrk`, `colrepf`,
+      `coltakeres`, `coltolist`, `coltransfn`, `colwin`, `colwin2`, `colwin3`,
+      `colchunkclose`.
+      Rejected in round 3: `set` #3/#4 and `replace` #1 — true "cheap shape" and
+      copy-cost guidance that plan-108-D kept deliberately (its ledger row names
+      `set`); `symmetricDifference` #3 — the "`T` is inferred… must be comparable"
+      sentence stays identical across all seven set pages.
+      Bugs filed in round 3:
+      - **bug-642**: a type error inside a source-generic builtin (`sort` over
+        `Boolean`) is reported at `main.mfb:43` in an 8-line file;
+      - **bug-643**: `chunks` and `window` close the caller's resource handles during
+        the call (`take`/`mid` controls stay open);
+      - **bug-644**: an inline `TRAP` on an overflowing `Float` `sum` returns
+        `1.797e308` instead of raising or recovering;
+      - **bug-645**: per-overload declared errors are wrong (`set` map overload,
+        `sum` `Float` overload).
+      bug-641 now lists every confirmed `ErrOutOfMemory` raise path.
+      Every "can raise `ErrOutOfMemory`" sentence added to a page is backed by a
+      traced raise site (`lower_collection_end_insert`, `lower_map_set_in_place`,
+      `lower_map_projection`, `lower_reserved_list`, `lower_list_replace`,
+      `func_zip.rs:175`).
+      Correction to my own round-2 edit: the `chunks` page said a block "holds an
+      alias of the same open resource". The bug-643 probe showed the call itself
+      closes the handles, so the page now states that as-is.
+      Not a bug after checking: an inline `TRAP` on `sum` catches `Integer` and
+      `Fixed` overflow; `prepend` rejects a flat list item at the call
+      (`TYPE_CALL_ARGUMENT_MISMATCH`), the first probe's error was only masked by a
+      downstream one.
+      **Earlier (2026-09-15):** 27 of 50 reviewed and applied. Round 1 (4):
+      overview, `add`, `all`, `any`. Round 2 (23): `append`, `chunks`, `contains`,
+      `difference`, `distinct`, `drop`, `filter`, `find`, `findIndex`,
+      `findLastIndex`, `flatten`, `forEach`, `get`, `getOr`, `groupBy`, `hasKey`,
+      `insert`, `intersection`, `isDisjoint`, `isSubset`, `isSuperset`, `keys`,
+      `mapValues` (no findings). The Codex usage limit stopped both batches
+      (second reset 9:47 PM); the remaining 23 are in
       `planning/plan-125-units/C-phase4-retry.txt`.
+      Round-2 probes, each finding verified before it was applied:
+      `/tmp/p125-ex/colmix`, `colmix2`, `colmix3`, `colmix4`, `colfli`,
+      `colfli_lambda`, `colapp`, `colapplet`, `coldrop`, `colfind`, `coldist`,
+      `colcmp`, `colnest`, `colres`, `colget`, `colgetor`, `colhas`, `colinter`,
+      `colsub`, `colkeys`, `colfe`, `colreduce`, `coltrans`, `coladd`.
+      Rejected in round 2: `add` #1 and `insert` #3/#4 — the `Float` error is
+      raised by the argument's own arithmetic before the call (`coladd`:
+      `LET inf AS Float = big * big` alone raises `77050015`); `add` #2, because
+      plan-108-D kept "the cheap shape" deliberately
+      (`planning/completed/plan-108-D-verify-filled-batch-1.md:160`); and
+      `groupBy` #1's claim that `ErrOutOfMemory` cannot be caught, since
+      `src/docs/spec/memory/04_arenas.md:213` says it surfaces as an ordinary
+      language-level error.
+      Applied beyond the findings, on reviewed pages only, each class already
+      fixed on a sibling page: "dead handler" (`add`, `hasKey`, `keys`),
+      "neither copied nor mutated" (`contains`, `get`, `getOr`), "does not
+      resolve" (`difference`, `intersection`, `isSuperset`), and the two pages
+      that claimed running out of memory cannot be trapped (`add`, `keys`).
+      **bug-641** filed: `collections` helpers raise `ErrOutOfMemory` while their
+      descriptors declare no errors (the `collections` instance of bug-606's class).
+      Process note: one edit used an open-ended regex and swallowed a `DESC`
+      terminator in `func_group_by.rs`; the release build caught it
+      (`E0425: cannot find value EX`) and it was repaired before any check ran.
+      Doc edits now use literal anchors with an exact-count assert.
       Contract probes, run before any review landed, all matching the pages:
       - `/tmp/p125-ex/colcontract`: copying keeps bindings apart (`xs` 3, `ys` 4);
         `FOR EACH` walks the list as of loop start (3 iterations, final length 6);
@@ -715,15 +783,191 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
       `get`, `getOr`, `groupBy`, `hasKey`, `insert`, `merge`, `mid`, `partition`,
       `prepend`, `reduce`, `removeKey`, `replace`, `sum`, `transform`, `values`,
       `window`. The Phase 4 ledger marks each of these rows.
-- [ ] Every example compiled and run; every mutation/ordering/identity claim
+- [x] Every example compiled and run; every mutation/ordering/identity claim
       probe-verified against the `.ai/collections.md` developer contract
       (never against its internals).
-- [ ] Ledger recorded.
+      My pass, done:
+      - `./scripts/man-run-examples.sh collections --run` → 140/140 after each
+        round; the overview's new example ran separately (`/tmp/p125-ex/colover`),
+        and so did the replaced `toList` example (`coltolist`: `3`, `1`, `2`).
+      - The developer contract taken from `.ai/collections.md` (observable
+        behavior only), probed by `colcontract`:
+        - a list value is a copy: after `ys = append(ys, 4)`, `xs` is still 3
+          elements and `ys` is 4;
+        - `FOR EACH` walks the list as of loop start (3 iterations; final length 6);
+        - `global = append(global, f())` reads the global before `f` runs
+          (length 3, first `1`).
+      - Mutation claims (`colmix`, `colmix3`, `colmix4`, `colget`, `colkeys`):
+        every helper returns a new value and leaves its argument unchanged.
+        `set` on an existing map key moves it last; `merge` keeps key order.
+      - Ordering claims (`colmix2`, `colmix5`, `colsortf`): insertion order for
+        `toSet`/`toList`/`keys`/`values`; stable `sortBy`; byte-order `sort`;
+        first-set-first `union`/`symmetricDifference`; left-to-right `reduce`,
+        right-to-left `reduceRight`.
+      - Identity claims (`colcmp`, `colhas`, `colsub`, `colrepf`, `colnest`,
+        `coldist`): `Float` membership is by bit pattern (`-0.0` ≠ `0.0`); lists,
+        sets and resources are not comparable. Resource handles alias through
+        `mid`/`take` (`colmerge`, `coltakeres`), and `chunks`/`window` close them
+        (bug-643).
+- [x] Ledger recorded. All 50 reviews are triaged below, over three dispatch rounds
+      plus one single-unit retry; every verdict carries its evidence.
+
+#### Phase 4 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase4/`)
+
+★ marks the 25 function pages plus the overview whose source changed after
+plan-108-D closed (`git diff --stat 734646ce6 HEAD -- src/codegen/builtins/collections`;
+see Correction 1). Those got the closest reading.
+
+Probes, all in `/tmp/p125-ex/`: `colcontract`, `coltrans`, `coltrans_tostring`,
+`coltrans_sub`, `colfli`, `colfli_lambda`, `coladd`, `colover`, `colmix`,
+`colmix2`, `colmix3`, `colmix4`, `colmix5`, `colreduce`, `colapp`, `colapplet`,
+`coldrop`, `colfind`, `coldist`, `colcmp`, `colnest`, `colres`, `colget`, `colgetor`,
+`colhas`, `colinter`, `colsub`, `colkeys`, `colfe`, `colmerge`, `colprep`,
+`colprep2`, `colsortf`, `colsortb`, `colsortby`, `colsumtrap`, `colsumfixed`,
+`colsumflt`, `colsumflt2`, `colsumflt3`, `colmid`, `colrr`, `colrk`, `colrepf`,
+`coltakeres`, `coltolist`, `coltransfn`, `colwin`, `colwin2`, `colwin3`,
+`colchunkclose`.
+Rejection classes: the derived Errors-table message (carve-out 2), and true
+cheap-shape/copy-cost guidance that plan-108-D kept deliberately
+(`planning/completed/plan-108-D-verify-filled-batch-1.md:160`, which names
+`append`, `set`, `remove`, `prepend`, `add`).
+A "scope cut" is a true sentence removed under `.ai/man-content.md` §3; its
+`planning/plan-125-belongs-in-spec.md` row is given.
+
+| Page | # | Verdict | Evidence | Applied |
+|---|---|---|---|---|
+| overview ★ | 1 | CONFIRMED | `coltrans`: `set` leaves the original (`10` vs `99`) | "mutation" → "updates" |
+| overview ★ | 2–5 | REJECTED | derived Errors-table messages (carve-out 2) | — |
+| overview ★ | 6 | CONFIRMED | no example rendered | example added; `colover` printed `20,99`, `3,1,2`, `2` |
+| overview ★ | 7 | CONFIRMED (scope cut) | "reads without copying the collection" is internal | cut (row 46) |
+| add ★ | 1 | REJECTED | `coladd`: `LET inf AS Float = big * big` alone raises `77050015` before `add` runs; a finite `Float` adds normally | — |
+| add ★ | 2 | REJECTED | plan-108-D kept the cheap-shape fact | — |
+| all | 1 | CONFIRMED (scope cut) | `colfli_lambda`: a `MUT`-capturing lambda is `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`; "proven non-escaping" is internal | rule kept, rationale cut (row 47) |
+| all | 2 | CONFIRMED | run-together sentence | fixed |
+| any | 1 | CONFIRMED (scope cut) | as `all` #1 | row 47 |
+| append ★ | 1 | CONFIRMED | `colapp`: appending `[3, 4]` to a list-of-lists gives 2 elements; to a flat list, 4 | parameter |
+| append ★ | 2 | CONFIRMED → **bug-641** | `list_mutate.rs:145-147` raises `ErrOutOfMemory`; `func_append.rs` declares `errors: vec![]` | "infallible" replaced |
+| append ★ | 3 | CONFIRMED (scope cut) | overload-selection explanation | reworded (row 49) |
+| append ★ | 4 | CONFIRMED | `colapplet`: assigning to a `LET` is `TYPE_ASSIGN_REQUIRES_MUT` | "`MUT` local" |
+| chunks | 1 | CONFIRMED → **bug-643** | `colres`, `colchunkclose`: the call closes the caller's handles (`77030004`; the `take` control stays open) | as-is statement, corrected in round 3 |
+| contains ★ | 1, 2, 5 | CONFIRMED | `colmix`: set membership `TRUE`; `colcmp`: empty set `FALSE` | intro, parameter, empty set |
+| contains ★ | 3 | CONFIRMED | `colcmp`: `0.0 = -0.0` is `TRUE` but `contains([0.0], -0.0)` is `FALSE` | parameter |
+| contains ★ | 4 | CONFIRMED | `colnest`: a nested list is `TYPE_REQUIRES_COMPARABLE` | identity bullet replaced |
+| contains ★ | 6 | CONFIRMED (scope cut) | overload selection | row 48 |
+| contains ★ | 7 | CONFIRMED | "dead handler" vocabulary | reworded (row 59) |
+| difference | 1 | CONFIRMED (scope cut) | "classified infallible" plus a run-together sentence | row 51 |
+| distinct ★ | 1 | CONFIRMED | `colmix2`: map keys come back in insertion order | implementation-defined caveat |
+| distinct ★ | 2 | CONFIRMED | `coldist`: `List OF Set OF Integer` is `TYPE_REQUIRES_COMPARABLE` | `Set` named; list marked non-exhaustive |
+| drop | 1 | CONFIRMED | run-together sentence | fixed |
+| drop | 2 | CONFIRMED (scope cut) | `coldrop`: −1 and 0 → all, 1 → tail, 3 and 99 → empty | clamping rule stated (row 50) |
+| filter ★ | 1 | CONFIRMED | truncated sentence "…and again in the." | completed |
+| filter ★ | 2 | CONFIRMED → **bug-641** | `gen_mutate.rs:lower_reserved_list` raises `ErrOutOfMemory` | "can fail only" corrected |
+| filter ★ | 3 | CONFIRMED | "nor closed" on a list | reworded |
+| find ★ | 1, 2 | CONFIRMED | `colfind`: `find(xs, [20, 30])` → `1` | parameter covers the sublist form |
+| find ★ | 3 | CONFIRMED | `colfind`: an empty needle at `start = len` → `3`; −1 and 4 → `77050001` | parameter range |
+| find ★ | 4 | CONFIRMED | the reviewer's build shows `contains` rejects a list needle | `contains` pointer limited to element search |
+| find ★ | 5 | CONFIRMED | "nor closed", "no new collection" | reworded |
+| findIndex ★ | 1 | CONFIRMED (scope cut) | as `all` #1 | row 47 |
+| findLastIndex ★ | 1 | CONFIRMED | `start` is the scan origin | intro "start position" |
+| findLastIndex ★ | 2 | CONFIRMED (scope cut) | `colfli`, `colfli_lambda` | row 47; run-together sentence fixed |
+| flatten | 1 | CONFIRMED | the native path does not call `append` (a false claim, not a scope cut); `colmix2` flatten → 3 | behavior stated |
+| forEach ★ | 1 | CONFIRMED | `colfe`: a `MUT`-capturing lambda totals `6` | `LAMBDA` named |
+| forEach ★ | 2, 3 | CONFIRMED (scope cut) | direct-callable path; no-cleanup sentence | rows 52, 53 |
+| get ★ | 1 | CONFIRMED | `colmix`, `colget`: out of range, negative, and empty list → `77050001` | parameter |
+| get ★ | 2, 3 | CONFIRMED (scope cut) | "raw-supported"; probe-versus-scan | rows 54, 55 |
+| get ★ | 4 | CONFIRMED | `colget`: the copy changed to `9`, the original stayed `1` | "yours to keep" → "a copy" |
+| getOr ★ | 1, 2 | CONFIRMED | `colgetor`: −1, past end, and empty list → default (`71`, `72`, `73`) | both parameter rows |
+| getOr ★ | 3 | CONFIRMED | `colgetor`: `default = 1 / zero` raises `77050002`, caught inline | "dead handler" claim removed |
+| getOr ★ | 4 | CONFIRMED | "yours to keep" | "a copy" |
+| getOr ★ | 5 | CONFIRMED (scope cut) | probe-versus-scan | row 55 |
+| groupBy ★ | 1 | CONFIRMED in part | the `ErrOutOfMemory` raise is real; the claim that it "cannot be caught by TRAP" is REJECTED (`src/docs/spec/memory/04_arenas.md:213`: an ordinary language-level error) | memory sentence |
+| groupBy ★ | 2, 3 | CONFIRMED | the reviewer's probe: no result map, keys in first-seen order | wording, order caveat |
+| groupBy ★ | 4, 5 | CONFIRMED (scope cut) | template-parameter inference | row 57 |
+| hasKey ★ | 1, 2 | CONFIRMED | `colhas`: `-0.0` does not match a stored `0.0`; keys −1, 0, `""` work | parameter |
+| hasKey ★ | 3 | CONFIRMED (scope cut) | copy detail | row 56 |
+| insert ★ | 1 | CONFIRMED | `builder_inplace_assign.rs:try_inplace_insert_assign` exists, so "every call copies" is false | sentence removed |
+| insert ★ | 2 | CONFIRMED | a list item is `TYPE_CALL_ARGUMENT_MISMATCH`; the quoted message is never reached | reworded |
+| insert ★ | 3, 4 | REJECTED | the `Float` error comes from the argument's arithmetic (`coladd`) | bounds paragraph reworded only |
+| intersection | 1, 2 | CONFIRMED | `colinter`: an empty set on either side → empty | parameters |
+| intersection | 3 | CONFIRMED (scope cut) | "classified infallible" | row 51 |
+| isDisjoint | 1 | CONFIRMED | run-together sentence | fixed |
+| isDisjoint | 2 | CONFIRMED (scope cut) | "does not resolve" | row 58 |
+| isSubset | 1, 2 | CONFIRMED | `colsub`: empty against empty `TRUE`, non-empty against empty `FALSE`; a `-0.0` set is not a subset of a `0.0` set | parameter, `Float` note |
+| isSubset | 3 | CONFIRMED | run-together sentence | fixed |
+| isSuperset | 1 | CONFIRMED | run-together sentence | fixed |
+| keys | 1 | CONFIRMED | `colkeys`: `get` keeps order; `set` on an existing key moves it last | ordering sentence |
+| mapValues | — | NO FINDINGS | `colmix4`: `mapValues` leaves the original | — |
+| merge ★ | 1 | CONFIRMED → **bug-641** | `func_merge.rs:copy_map_with_capacity` raises `ErrOutOfMemory`; `colmerge`: key order kept on overwrite | memory sentence |
+| mid ★ | 1–3 | CONFIRMED | `colmid`: empty `(0, 0)` ok, `(0, 1)` raises; negative count and `start = len + 1` raise | three parameter rows |
+| mid ★ | 4 | CONFIRMED | `colmerge`: closing the handle from `mid`'s result closes the original (`77030004`) | alias statement |
+| partition ★ | 1, 2 | CONFIRMED (scope cut) | non-escaping rationale; "classified infallible" | rows 47, 51; memory sentence via `append` |
+| prepend ★ | 1 | CONFIRMED | `colsumfixed`: nested prepend → 2 elements; `colprep2`: a flat item is `TYPE_CALL_ARGUMENT_MISMATCH` | reworded |
+| prepend ★ | 2, 3 | CONFIRMED (scope cut) | compiler-proof paragraph; lookup-entry shift | rows 60, 61; O(n) guidance kept |
+| prepend ★ | 4 | CONFIRMED | empty list → one element | parameter |
+| reduce ★ | 1 | CONFIRMED (scope cut) | cleanup sentence | row 64 |
+| reduceRight | 1 | CONFIRMED | `colrr`: visited `3,2` then stopped | once-per-item qualified |
+| remove | 1 | CONFIRMED (scope cut) | compiler-proof cheap shape | row 60 |
+| removeAt | 1 | CONFIRMED | `try_inplace_remove_at_assign` exists, so "every call copies" is false | sentence removed |
+| removeAt | 2 | CONFIRMED (scope cut) | bounds-before-build | row 62 |
+| removeKey ★ | 1 | CONFIRMED → **bug-641** | `gen_mutate.rs:lower_map_remove_key` raises `ErrOutOfMemory`; `colrk`: `-0.0` leaves `0.0` | memory sentence |
+| removeKey ★ | 2 | CONFIRMED (scope cut) | count-and-copy walkthrough | row 63 |
+| removeKey ★ | 3 | CONFIRMED | "same map object" | reworded |
+| replace ★ | 1 | REJECTED | true guidance: there is no `try_inplace_replace` arm; plan-108-D class | — |
+| replace ★ | 2 | CONFIRMED | `colrepf`: replacing `0.0` in `[-0.0, 0.0]` leaves `-0.0` | `Float` note; `builder_strings.rs` `ErrOutOfMemory` raise traced |
+| set | 1 | CONFIRMED | the map overload reused the list-index text | parameter; key-order note (`colkeys`) |
+| set | 2 | CONFIRMED → **bug-645** | the map overload never raises `ErrIndexOutOfRange` (registry data) | — |
+| set | 3, 4 | REJECTED | plan-108-D:160 names `set` | — |
+| sort | 1 | CONFIRMED | `colmix5`: `A,B,a,b` byte order | `String` ordering |
+| sort | 2, 3 | CONFIRMED (scope cut) | merge mechanics | row 66 |
+| sort | 4, 5 | CONFIRMED (scope cut) → **bug-642** | `colsortb`: reported at `main.mfb:43` of an 8-line file | "does not compile" (row 67) |
+| sortBy | 1, 2 | CONFIRMED | `colsortby`: `keyFn` 0 calls for empty, 1 for one element; a failing `keyFn` propagates | wording |
+| sortBy | 3 | CONFIRMED | run-together sentence | fixed |
+| sortBy | 4, 5 | CONFIRMED (scope cut) | merge mechanics; diagnostic location | rows 66–68 |
+| sum ★ | 1 | CONFIRMED in part → **bug-644** | `colsumflt2`: no `TRAP` raises `77050015`; `colsumflt3`: with an inline `TRAP` it returns `1.797e308` | as-is statement |
+| sum ★ | 2 | CONFIRMED | `colsumtrap`, `colsumfixed`: the inline `TRAP` receives `Integer` and `Fixed` overflow | paragraph replaced |
+| sum ★ | 3 | CONFIRMED → **bug-645** | `ErrOverflow` declared on the `Float` overload | — |
+| sum ★ | 4, 5 | CONFIRMED (scope cut) | "rejects it a second time"; "shares the `Integer` path" | rows 69, 70 |
+| symmetricDifference | 1, 2, 4 | CONFIRMED (scope cut) | fold walkthrough; "classified infallible"; "does not resolve" | rows 71, 51, 58 |
+| symmetricDifference | 3 | REJECTED | the sentence is kept identical across the seven set pages | — |
+| take | 1 | CONFIRMED | `coltakeres`: closing the copy closes the original | alias statement |
+| take | 2 | CONFIRMED (scope cut) | `colmix4`: take −1/0/2/99 → 0/0/2/3 | clamping rule (row 50) |
+| toList | 1 | CONFIRMED | the example printed only a count | example replaced; `coltolist` printed `3`, `1`, `2` |
+| toSet | 1 | CONFIRMED (scope cut) | "classified infallible" | row 51 |
+| transform ★ | 1 | CONFIRMED | `coltransfn`: a `FUNC` parameter as `f` → `8` | callable-value sentence |
+| transform ★ | 2 | CONFIRMED (scope cut) | partial-output discard (also on `filter`) | row 65 |
+| union | 1, 2 | CONFIRMED (scope cut) | "classified infallible"; run-together sentence | row 51 |
+| values ★ | — | NO FINDINGS | `colkeys`: values stay index-aligned | wording pass: "dead handler", memory sentence |
+| zip | 1 | CONFIRMED → **bug-641** | `func_zip.rs:175` raises `ErrOutOfMemory` | memory sentence |
+| window ★ | 1 | CONFIRMED → **bug-643** | `colwinpart`: with `window(handles, 1, 2)` the two handles in windows report `77030004` and the skipped one still reads `one`; `colwin`: default stride gives 4 windows from 5 elements; `chunks` keeps a short final block (3 blocks, last length 1) | closure limited to handles in emitted windows; run-together sentence fixed |
+
+Applied beyond the findings, each on a reviewed page and each a class already fixed on
+a sibling page: "dead handler", "neither copied nor mutated", "does not resolve",
+"proven non-escaping", "nor closed", and the claim that running out of memory cannot be
+trapped. Every "can raise `ErrOutOfMemory`" sentence is backed by a traced raise site
+(bug-641's table).
 
 Acceptance: 50 units `exit 0`; sweeps clean for `collections`;
 `--reconcile` exits 0 over the whole 150-unit batch; the example ledger
 accounts for all 150 examples with 0 unaccounted.
-Commit: —
+*Correction (2026-09-16):* "150 examples" conflates the 150 review units with the
+examples. The measured example total for the batch is 339, all run.
+
+Measured at the closing commit:
+- `--reconcile` → C-phase1 `units=22`, C-phase2 `units=32`, C-phase3 `units=46`,
+  C-phase4 `units=50`; each `unaccounted=0 orphans=0`;
+- examples run: `math` 21/21, `encoding` 62/62, `datetime` 116/116 (under
+  `TZ=America/New_York`), `collections` 140/140 — 339, 0 failed;
+- `./scripts/man-census.sh --fill math encoding datetime collections` → 144/144
+  pages, parameter descriptions 340/340, type descriptions 29/29 and 40/40;
+- `--memory-scope` 0 unclassified (datetime's 16 CARVE-1 borrow lines classified);
+  `--scope` 0;
+- `mfb man <pkg> --all` exits 0 for all four packages.
+
+Bugs filed from this phase: bug-641 (`ErrOutOfMemory` undeclared), bug-642 (generic
+builtin error location), bug-643 (`chunks`/`window` close resource handles),
+bug-644 (inline `TRAP` on a `Float` `sum`), bug-645 (per-overload declared errors).
+Belongs-in-spec rows appended: 46–71.
+Commit: 1be49c8bf (Correction 1, box 2), ffb969f01 (4 of 50), 36671aebc (27 of 50), 8e212ddb7 (49 of 50), c420fec6c (closed)
 
 ## Validation Plan
 

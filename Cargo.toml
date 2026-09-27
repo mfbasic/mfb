@@ -496,6 +496,10 @@ name = "example_project_names"
 path = "tests/guards/example_project_names.rs"
 
 [[test]]
+name = "example_readmes"
+path = "tests/guards/example_readmes.rs"
+
+[[test]]
 name = "no_operator_strings"
 path = "tests/guards/no_operator_strings.rs"
 

@@ -19,8 +19,9 @@ const DESC: &str = r#"`fromString` builds an `AttributedString` whose visible te
 changing `text` afterwards cannot affect it.
 
 Recover the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
-constructed value has no attributes until `astrings::addAttribute` (and the other
-mutation members) records some."#;
+constructed value has no attributes: `astrings::addAttribute` and the other
+attribute members leave it as it is and return a new `AttributedString` carrying
+the attribute."#;
 
 const EX: &str = r#"Build an attributed string and print its visible text:
 

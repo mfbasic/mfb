@@ -31,8 +31,7 @@ given as the new accumulator, and that is safe to do.
 `reduce` raises no domain error of its own. It can fail only
 because a failing `f` propagates: when the reducer fails,
 the fold stops immediately at that element, later elements are never visited,
-and the reducer's own error is passed through unchanged. No cleanup runs on that
-path, since the accumulator may still be the `initial` value you passed in.
+and the reducer's own error is passed through unchanged.
 
 An inline `TRAP` on a `reduce` call captures that propagated reducer error at
 the call site rather than letting it auto-propagate."#;

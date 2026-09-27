@@ -31,16 +31,16 @@ newline-free counterpart of `io::printError`.
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
 
-Standard error is **never buffered**. `io::setBuffered` controls standard output
-only, so this call always issues its bytes immediately and there is no flush for
-standard error. It is also never retained by `term::` TUI mode — the shadow-grid
-routing covers standard output alone.
+Standard error is **never buffered** by `io::setBuffered`, which controls standard
+output only, so there is no flush for standard error. In a console program, error
+output is written immediately and is not captured by `term::` TUI mode. In app mode,
+error output is handed to the application window, and while TUI mode is active it is
+drawn on the TUI surface like standard output.
 
-The underlying write loops until every byte has been transferred: a short write
-advances the cursor and re-issues, and an interruption is resumed rather than losing
-bytes. A zero-byte or failing write raises `ErrWriteFailed`. Output goes to standard error
-in a console program, and to the application transcript in app mode
-(`mfb build --app`)."#;
+In a console program every byte is written, even across short writes and
+interruptions, and a write that fails or transfers nothing raises `ErrWriteFailed`.
+Output goes to standard error in a console program, and to the application
+transcript in app mode (`mfb build --app`), where it is prefixed with `[stderr] `."#;
 const EX: &str = r#"Emit a progress marker on the error stream without breaking the line:
 
 ```

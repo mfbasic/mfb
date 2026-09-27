@@ -11,15 +11,13 @@ use crate::codegen::registry::{
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
+const INTO_CONTAINS: &str = "Test whether a list or set holds an item equal to a given value.";
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
 as soon as an element matches `item`, or `FALSE` after every element has been
-examined without a match. The list is neither copied nor mutated, and no element
-is copied out — the scan just compares.
+examined without a match. The collection is not modified.
 
-`contains` also has a **`Set OF T`** overload. Both forms take
-`(collection, element) AS Boolean` and answer the same membership question; the
-compiler picks the overload from the static type of the first argument. On a
+`contains` also has a **`Set OF T`** overload. Both forms answer the same
+membership question: pass either a list or a set as the first argument. On a
 `List` the scan is linear (below); on a `Set` membership is an O(1)-average
 lookup for `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, and `String`
 elements and a linear scan for any other element type. It does not
@@ -33,14 +31,16 @@ Equality depends on the element type:
 - `String` compares length first, then bytes, so the match is exact and
   byte-oriented — no case folding, trimming, or Unicode normalization is applied.
 - A record element is compared field by field.
-- A resource handle, or a nested collection that holds one, is compared by
-  identity — whether it is the same handle — rather than by its contents.
+
+The element type must be comparable, so a list of lists, sets, or resource
+handles cannot be searched: such a call is rejected at compile time with
+`TYPE_REQUIRES_COMPARABLE`.
 
 Because `Float` compares by bit pattern, searching for `-0.0` does not match a
 stored `0.0`, even though `0.0 = -0.0` is `TRUE`.
 
-An empty list always yields `FALSE`. `collections::contains` raises no trappable domain error, so an inline
-`TRAP` on a `contains` call has a dead handler.
+An empty list or set always yields `FALSE`. `collections::contains` raises no
+trappable domain error.
 
 `contains` answers only whether a match exists. Use `collections::find` when the
 position of the match is needed."#;
@@ -114,14 +114,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "The list to search. Not modified.",
+                        desc: "The collection to search. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to look for. Compared with `=`, so it must be comparable with the element type.",
+                        desc: "The element to look for. Its type must be comparable with the element type; `Float` matches by exact bit pattern, so `-0.0` does not find a stored `0.0`.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -135,14 +135,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "The list to search. Not modified.",
+                        desc: "The collection to search. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::set_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "The element to look for. Compared with `=`, so it must be comparable with the element type.",
+                        desc: "The element to look for. Its type must be comparable with the element type; `Float` matches by exact bit pattern, so `-0.0` does not find a stored `0.0`.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,

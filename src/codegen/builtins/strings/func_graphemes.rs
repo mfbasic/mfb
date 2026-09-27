@@ -43,9 +43,10 @@ IMPORT strings
 IMPORT collections
 
 FUNC main() AS Integer
-  LET parts AS List OF String = strings::graphemes("👨‍👩‍👧‍👦x")
+  LET parts AS List OF String = strings::graphemes("👨‍👩‍👧‍👦🇺🇸x")
   io::print(toString(len(parts)))
   io::print(collections::get(parts, 0))
+  io::print(collections::get(parts, 1))
   RETURN 0
 END FUNC
 ```

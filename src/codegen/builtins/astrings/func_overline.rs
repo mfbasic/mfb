@@ -9,7 +9,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Construct the overline flag `astrings::Attribute`."#;
 
 const DESC: &str = r#"`overline` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Overline`. Pass it
-to `astrings::addAttribute` to mark a scalar range overlined. A flag attribute carries no value — a
+to `astrings::addAttribute` to mark an inclusive, zero-based scalar range overlined; that page
+states which ranges are valid and what an invalid one raises. A flag attribute carries no value — a
 scalar is overlined when any covering span carries the overline flag."#;
 
 const EX: &str = r#"```

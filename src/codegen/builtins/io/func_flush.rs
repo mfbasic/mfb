@@ -79,10 +79,9 @@ const INTRO: &str = r#"Drain the per-thread standard-output buffer"#;
 const DESC: &str = r#"`io::flush` writes out any bytes currently held in this thread's MFBASIC
 standard-output buffer and returns nothing. It takes no arguments.
 
-The call is **drain-only**. It issues the pending bytes with a `write` loop and
-reports whether that write succeeded; it deliberately does *not* `fsync` or
-otherwise ask the host to sync standard output. The buffer drain's `write` is the
-one portable failure signal, identical on every platform and libc.
+The call is **drain-only**: it hands the pending output on to the terminal or the
+receiving program. It does not ask the host to commit that output to permanent
+storage.
 
 It follows that `io::flush` is a **no-op when buffering is off** — the default.
 Without `io::setBuffered(TRUE)` there is no MFBASIC buffer to drain, every
@@ -90,17 +89,16 @@ Without `io::setBuffered(TRUE)` there is no MFBASIC buffer to drain, every
 call succeeds having done nothing. It is likewise a no-op when buffering is on
 but nothing is pending.
 
-The drain loops until the buffer is empty: a short write advances the cursor and
-re-issues, and an interruption is resumed. If a write genuinely fails, the
-still-unflushed bytes are slid back to the base of the buffer and kept, so a later
-`io::flush` resumes from exactly where this one stopped — and this call raises
-`ErrWriteFailed`.
+If pending output cannot be written, this call raises `ErrWriteFailed`. The output
+not yet written stays pending, so a later `io::flush` tries again from where this
+one stopped.
 
 An explicit flush is rarely required even under buffering: the buffer is also
 drained when it fills, before every standard-input read, on
 `io::setBuffered(FALSE)`, and at program exit. Standard error is never buffered
 and is written immediately, so it has no corresponding flush. In app mode
-transcript writes are synchronous, so this call succeeds immediately."#;
+transcript writes are synchronous; while `term::` TUI mode is active, this call
+also asks for the current frame to be presented."#;
 const EX: &str = r#"Make buffered output visible at a checkpoint:
 
 ```

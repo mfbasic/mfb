@@ -7,7 +7,7 @@ spec surface final and this letter certifies it).
 
 The last letter. Two jobs:
 
-1. **Certify the spec surface** — six lenses, each one `codex exec` run over
+1. **Certify the spec surface** — six lenses, each one Fable 5.1 review run over
    the whole rendered specification with exactly one question, because no
    single run reads 26,482 lines usefully with six questions at once. One of
    those lenses is the one no earlier letter could run: **do `mfb man` and
@@ -39,6 +39,14 @@ References:
 ## Prerequisites
 
 See plan-125-A. Additionally:
+
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -74,7 +82,7 @@ The spec certificate, pasted into this file with each command's output:
 And the plan-125 closeout:
 
 - **The whole-plan certificate**: units reviewed across all fourteen letters
-  (897 `codex exec` runs), findings raised / confirmed / rejected, per
+  (897 reviewer runs), findings raised / confirmed / rejected, per
   surface and per iteration — the evidence for whether the three-iteration
   structure earned its cost, on both surfaces.
 - **The tooling is left in a state the next author lands in**:
@@ -115,7 +123,7 @@ any comparison of the two finished surfaces against each other.
 | man units reviewed across A/B/C/D/E/F/G | **699** | plan-125-H §2 |
 | lens runs in this letter | 6 | plan-125-A §4.4 |
 | `mfb spec --all` (global) | renders 0 lines | `./target/release/mfb spec --all \| wc -l` — the artifact is built from 12 per-package renderings |
-| total `codex exec` runs across plan-125 | **897** | 869 unit runs + 16 consistency runs (B, G, I, M) + 12 final-lens runs (H, N) |
+| total reviewer runs across plan-125 (Codex, then Fable 5.1) | **897** | 869 unit runs + 16 consistency runs (B, G, I, M) + 12 final-lens runs (H, N) |
 
 ### Verified properties
 
@@ -230,7 +238,9 @@ Commit: —
       rejected — **per surface and per iteration** — and state plainly whether
       each iteration earned its cost, citing plan-125-G Phase 4 and plan-125-M
       Phase 4's seam/fact ratios.
-- [ ] Record the Codex banner(s) used across the plan.
+- [ ] Record the reviewer banners used, from each letter's manifest `banner`
+      column: Codex (`OpenAI Codex v…/<model>`) through plan-125-D Phase 3's first
+      14 units, Claude Fable 5.1 (`Claude Code v…/claude-fable-5-1`) after.
 - [ ] List every bug filed via `write-bug` during plan-125, with its number
       and current state.
 
@@ -304,6 +314,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 
