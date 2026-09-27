@@ -20,7 +20,7 @@ The plan-wide prerequisites are in plan-159-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-159-A complete | `ls planning/plan-159-A-*` → no match (it has moved to `planning/completed/`) | NOT MET |
+| plan-159-A complete | `ls planning/plan-159-A-*` → no match (it has moved to `planning/completed/`) | MET (2026-09-27: A archived to `planning/completed/`) |
 
 ## 1. Goal
 
@@ -63,7 +63,11 @@ Population, measured with the full decl regex from A (`R='^\s*(PUBLIC\s+|PRIVATE
 | `.info` (`pkg info`) | 2 | `package-shape/golden/package_shape.info`, `package-simple/golden/package_simple.info` | `SUB name` → `FUNC name` |
 | `.mfp` with SUB exports | 38 of 161 tracked | `for f in $(git ls-files '*.mfp'); do mfb pkg info "$f" \| grep -q '\bSUB\b' && echo $f; done \| wc -l` → 38 (list saved at `/tmp/p159-mfp-sub.txt`) | export kind 2 → 1, `FUNCTION_FLAG_SUB` cleared, ABI hash of those exports changes |
 
-**Expected byte-identical:** every `.ncode` and `.ncodesum`. A proved it on one pair
+**Expected byte-identical:** every `.ncode` and `.ncodesum` — **except** a fixture that
+links a rebuilt SUB-exporting `.mfp`: its package functions' names and symbols carry the
+package identity id (`package_identity_id`, a hash over the package payload), which a
+SUB→FUNC export changes, so those `.ncode` move in that 16-hex prefix and nowhere else
+(measured in plan-159-A 3.2; Corrections). A proved it on one pair
 and on the three rewriter fixtures. Any `.ncodesum` diff is a bug trigger: `objdump`
 ONE fixture, find the cause, fix the cause, and continue.
 
@@ -151,7 +155,19 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+- **2026-09-27 — rebuilt packages move their consumers' symbol prefix (from plan-159-A
+  3.2).** §1 Goal's "`.ncode`/`.ncodesum` byte-identical" does not hold for a fixture
+  that links a SUB-exporting `.mfp`: the package identity id in every package symbol
+  hashes the package payload, and the export kind/flag/`sigHash` in that payload change.
+  A measured it: a consumer of `package_simple.mfp` rebuilt from the rewritten source
+  differs from the original only in `f5a6da2ca244f894` → `14f370a06b0d4625`. The gate
+  for those fixtures is therefore "identical once the identity prefix is normalized",
+  checked by diffing one such fixture's `.ncode`; every other `.ncode`/`.ncodesum` must
+  stay byte-identical.
+- **2026-09-27 — the tree's `.mfp` copies were stale before B.** `sync-package-mfp.sh`
+  on the unmodified tree updated 31 copies of 4 packages that export no SUB (landed
+  alone as `a76df3d54`, with evidence). B's rebuild diff therefore starts from an
+  in-sync tree.
 
 ## Summary
 

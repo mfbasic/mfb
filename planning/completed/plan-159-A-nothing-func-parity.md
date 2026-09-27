@@ -244,7 +244,7 @@ Commit: —
 Acceptance: both new fixtures pass with the expected exit codes.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc 'entry-func-nothing*'` → 2 PASS (est. 1 min); `cargo test --bin mfb manifest::entry` → pass (est. 2 min).
   Result (2026-09-27): `acceptance tests passed (2 test(s) ran)`; `11 passed; 0 failed`.
-Commit: —
+Commit: 19b6d4aac
 
 ### Phase 3 — `tools/sub-to-func/` rewriter
 
@@ -279,7 +279,7 @@ Acceptance: all three rewritten copies compile, and their `.ncode` is byte-ident
 prefix — a hash of the package's own bytes — is normalized; Corrections).
   Check: the three `cmp` commands from 3.2 → identical (est. 3 min).
   Result (2026-09-27): 2 × `IDENTICAL`; package consumer `IDENTICAL modulo package hash`.
-Commit: —
+Commit: fdd856db5
 
 ## Validation Plan
 
@@ -292,7 +292,8 @@ Commit: —
   `scripts/spec-census.sh --citations`. (`04_types.md` §4.6's statement that `Nothing`
   values bind, pass and collect lands with bug-744/745.)
 - Final gate: plan-159 runs the full suite once, at the end of D. A runs the scoped
-  checks above and `cargo test --bin mfb`.
+  checks above and `cargo test --bin mfb`. — Result (2026-09-27, after Phase 3):
+  `test result: ok. 4475 passed; 0 failed; 1 ignored`.
 
 ## Open Decisions
 
