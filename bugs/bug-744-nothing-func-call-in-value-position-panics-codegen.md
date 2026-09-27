@@ -234,9 +234,9 @@ Commit: —
   `NOTHING`, and a `Nothing` value may be passed as an argument (`LET b = same(a)`,
   test `a_nothing_value_round_trips_through_a_nothing_func`). plan-159-A (main,
   78e0eb6f0) had planned the opposite: a `2-203-0074` error for every `Nothing` call in
-  value position. That diagnostic is dropped, and plan-159-A is amended on this branch
-  to say so. For one pass the owner had first chosen plan-159-A's rule. That work was
-  abandoned before commit and never landed.
+  value position. That diagnostic is dropped. The coordinator amended plan-159-A/B/D on main
+  (038959645) to say so. The owner briefly chose plan-159-A's rule instead. That work was abandoned
+  uncommitted.
 - Correction to an earlier note in this doc: it claimed the `Eval`/`RETURN` discard
   marking "keeps `LAMBDA(x) -> io::print(x)` legal". That was wrong. The return path
   never read a `Nothing` location, and the lambda compiled at HEAD. The marking only
