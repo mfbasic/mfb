@@ -144,8 +144,10 @@ opening one stream of each direction and driving both from a single loop with
 Both stream types are move-only, non-sendable resource handles: neither can
 cross a thread boundary. Each closes itself when its
 binding goes out of scope, or earlier with `audio::close`. A second `audio::close`
-on a stream it already closed raises `ErrResourceClosed`, as does any other use of
-a closed stream. A stream stays on the thread that opened it. `audio::AudioDevice` is a
+on a stream it already closed raises `ErrResourceClosed`. `audio::write` and
+`audio::read` on a closed stream raise `ErrAudioDevice`, and `audio::available`,
+`audio::poll` and `audio::xruns` answer `0` (`FALSE` for `audio::poll`). A stream
+stays on the thread that opened it. `audio::AudioDevice` is a
 plain read-only record obtained only from `audio::devices()`. The `render` and
 `play` members are pure synthesis: `render` turns one `audio::AudioNote` into `s16le`
 PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.
@@ -156,7 +158,17 @@ through a `libasound.so.2` resolved at runtime with `dlopen` — so a binary tha
 imports `audio` still starts on a Linux host without alsa-lib, and every
 `audio::` call that needs the device raises `ErrAudioUnavailable` there
 (`audio::render` needs no device, and `audio::xruns` still reports its count). A program that does not
-`IMPORT audio` gains no audio symbol and no dynamic-library dependency."#;
+`IMPORT audio` gains no audio symbol and no dynamic-library dependency.
+
+
+Windows drives WASAPI. When a Windows audio call fails, the `ErrAudioDevice` or
+`ErrAudioUnavailable` message ends with the name of the call and the status it
+returned, as eight hex digits: `(IAudioRenderClient::GetBuffer: 0x88890004)` is
+the status Windows gives when the device was unplugged, disabled, or taken over by
+another stream. Look the status up in Microsoft's documentation for that call.
+When the device cannot run the stream's format, the message names the setting and
+the value the device runs at instead: `(mix rate: 0x0000bb80)` is a device fixed
+at 48000 Hz (`0xbb80`). `e.code` is the same either way."#;
 
 /// A required parameter with optional keyword aliases.
 pub(crate) fn param(

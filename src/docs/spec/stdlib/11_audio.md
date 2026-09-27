@@ -146,6 +146,26 @@ starts where alsa-lib is absent, and every `audio::` call there raises
 The two audio codes are registered in the constant registry by the diagnostics
 topic; see `mfb spec diagnostics error-codes`.
 
+### The OS status in the message
+
+On Windows, an `ErrAudioDevice` or `ErrAudioUnavailable` caused by a failed OS call
+names the call and its status after the registered message:
+`Audio device open, configuration, or stream operation failed. (IAudioRenderClient::GetBuffer: 0x88890004)`.
+The status is the low 32 bits of the call's result as 8 hex digits: the `HRESULT`
+of a COM call, `GetLastError()` for `CreateEventW`, and, for the three SHARED-mode
+format checks named `mix rate`, `mix bits` and `mix channels`, the value the device
+reported (`mix rate: 0x0000bb80` is a 48 kHz device). `e.code` is unchanged. The
+failure sites raise through `StatusFailSites`
+[[src/codegen/error/emission/native_fail.rs:StatusFailSites]], which calls
+`_mfb_rt_fail_status` [[src/codegen/error/emission/fail_status.rs:lower_fail_status_helper]]. That helper
+builds the text and parks it as an owned `Error` block, the same route
+`FAIL <Error value>` takes (`mfb spec language errors`). The call names are
+pinned by `windows_audio_failures_report_their_os_status`
+[[src/codegen/builtins/audio/gen_windows_tests.rs:windows_audio_failures_report_their_os_status]].
+A failure with no OS call behind it (a `write` or `read` on a closed stream, a
+parameter out of range) keeps the bare registered message. If the message cannot
+be allocated, the error is raised with the bare registered message instead.
+
 ## See Also
 
 * ./mfb man audio — the per-function API reference
