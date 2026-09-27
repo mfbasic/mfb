@@ -92,7 +92,7 @@ reports 30 files. Four of them are false positives: `arch/x86_64/encode/emitter.
 - `2-203-0042 TYPE_SUB_CANNOT_RETURN_VALUE` (l.561): already dead. Nothing emits it.
 - `2-203-0073 SUB_RETURN_FORBIDDEN` (l.971).
 - `2-203-0077 EXIT_SUB_IN_FUNC` (l.995).
-- `2-203-0074 TYPE_SUB_HAS_NO_VALUE` (l.977): retire it with `SUB`. **Amended 2026-09-26 (bug-744, owner decision):** A no longer renames or generalizes it. A `Nothing` call in value position yields `NOTHING`, so once `SUB` is gone this rule has nothing to check.
+- `2-203-0074`: renamed in A. It stays live.
 - The message text of `1-103-0002 DOC_BAD_HEADER` (l.1384, "FUNC, SUB, TYPE…") and
   `2-205-0019 DOC_GROUP_INVALID_CONTEXT` (l.1511) mentions SUB.
 
