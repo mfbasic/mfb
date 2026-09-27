@@ -208,6 +208,37 @@ plus a handshake and a peer identity.
   connection borrows; it does not request or verify a client certificate.
 * **The key may be PKCS#8 or PKCS#1**, on every platform, unencrypted. One PEM
   therefore serves every target.
+* **`tls::accept`'s `timeoutMs` bounds two steps, each by the full value.** The
+  wait for an inbound connection is bounded by `timeoutMs`; once a connection
+  is taken, its handshake is bounded by `timeoutMs` again, measured from that
+  moment. Time the wait used is not taken from the handshake, so one call can
+  take longer than `timeoutMs`. The timeout convention applies to each
+  step: omitted blocks in both, `0` is one immediate attempt at each (a
+  handshake essentially never completes at once, so `0` raises `ErrTimeout`
+  even when a client is queued), and expiry of either step raises
+  `ErrTimeout`. Each step is one absolute deadline, so a peer cannot extend
+  the handshake by sending a little at a time, and one call takes at most
+  about `2 × timeoutMs`. The mechanism differs by backend. On macOS the
+  connection wait and the handshake wait are each a `dispatch_semaphore_wait`
+  against an absolute deadline, and the handshake deadline is computed afresh
+  when the connection is popped from the listener's ring.
+  [[src/codegen/builtins/tls/gen_macos/server.rs:emit_accept_deadline]]
+  [[src/codegen/builtins/tls/gen_macos/server.rs:lower_tls_accept_macos]]
+  On Linux the connection wait is `poll` with `timeoutMs`; a bounded handshake
+  then runs with the accepted fd non-blocking, calling `SSL_accept` and, on
+  `WANT_READ`/`WANT_WRITE`, polling for the time left before a
+  `CLOCK_MONOTONIC` deadline taken when the connection was accepted. The fd's
+  blocking mode is restored afterwards. `0` makes one non-blocking
+  `SSL_accept` attempt.
+  [[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_accept_openssl]]
+  [[src/codegen/builtins/tls/gen_openssl.rs:emit_monotonic_ms]]
+  On Windows the connection wait is `WSAPoll`; before every handshake `recv`
+  and every `AcceptSecurityContext` pass that may send, `SO_RCVTIMEO`/`SO_SNDTIMEO`
+  are re-armed to the time left before a `GetTickCount64` deadline (`0` is a
+  1 ms deadline, since Winsock reads a zero timeout as infinite), and cleared
+  after the handshake.
+  [[src/codegen/builtins/tls/gen_schannel_server.rs:lower_tls_accept]]
+  [[src/codegen/builtins/tls/gen_schannel_server.rs:emit_hs_refresh]]
 * **A mismatched cert/key pair is not rejected at listen.** No backend verifies
   the pair while building the credential; the mismatch surfaces as `ErrTlsFailed`
   from the first `tls::accept`.

@@ -17,12 +17,20 @@ The `listener` stays open — you still close it — and is available for the ne
 accepted socket shares the listener's server TLS settings; closing the socket leaves them intact, and the listener releases them once when it closes, so accepted sockets may be closed in any order while the
 listener and its siblings stay live.
 
-The optional `timeoutMs` bounds how long `accept` waits for both an inbound
-connection and the handshake to complete, following the language timeout
-convention. When it is **omitted, `accept` blocks** until a connection is ready
-and handshaken. `0` is one immediate attempt. A positive value fails with
-`ErrTimeout` if no connection arrives, or the handshake does not finish, within
-that many milliseconds. A negative `timeoutMs` raises `ErrInvalidArgument`. A
+The optional `timeoutMs` follows the language timeout convention and bounds the
+two steps of `accept` **separately**: first the wait for an inbound connection,
+then the handshake with the client that arrived. Time spent waiting for the
+connection does not count against the handshake, so a client that connects just
+before the wait runs out still gets the full `timeoutMs` for its handshake. One
+call can therefore take longer than `timeoutMs`; allow for that when `accept`
+runs inside a timed loop. When `timeoutMs` is **omitted, `accept` blocks** in
+both steps until a connection is ready and handshaken. `0` is one immediate
+attempt at each step: it succeeds only if a client is already waiting and its
+handshake completes at once, which in practice it almost never does, so use a
+positive value. A positive value fails with `ErrTimeout` if no connection arrives
+within that many milliseconds, or if the client that arrived does not finish its
+handshake within that many milliseconds more, however it paces its bytes. A
+negative `timeoutMs` raises `ErrInvalidArgument`. A
 handshake that fails raises `ErrTlsFailed`, and the accepted connection is closed
 before the error is returned; the listener stays open, so the server can continue
 accepting.
@@ -85,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "timeoutMs",
-                    desc: "Optional. The maximum time to wait for a connection and its handshake, in milliseconds. Omit to block until ready; `0` is one immediate attempt; a positive value bounds the wait; a negative value raises `ErrInvalidArgument`.",
+                    desc: "Optional. In milliseconds, the longest `accept` waits for a connection, and then, separately, the time it gives that connection's handshake. Omit to block until ready; `0` is one immediate attempt at each step; a positive value bounds each step on its own, so one call can take longer than this; a negative value raises `ErrInvalidArgument`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::Fill {

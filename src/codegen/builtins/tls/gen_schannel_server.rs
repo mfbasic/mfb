@@ -682,6 +682,34 @@ pub(crate) fn lower_tls_listen(
     Ok((ins, rel, FRAME_SIZE))
 }
 
+/// bug-739: re-arm the handshake's socket timeouts to the time left before the
+/// deadline at `sp + deadline_off`, or branch to `expired` when none is left.
+/// A no-op when `timeoutMs` (at `sp + timeout_off`) is the unbounded sentinel.
+/// `tag` keeps the call sites' labels apart.
+#[allow(clippy::too_many_arguments)]
+fn emit_hs_refresh(symbol: &str, tag: &str, timeout_off: usize, deadline_off: usize, fd_off: usize, tv_off: usize, expired: &str, imports: &HashMap<String, String>, platform: &dyn CodegenPlatform, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>, vregs: &mut Vregs) -> Result<(), String> {
+    let t = vregs.next();
+    let s = vregs.next();
+    let skip = format!("{symbol}_hs_refresh_{tag}_skip");
+    ins.extend([
+        abi::load_u64(&t, abi::stack_pointer(), timeout_off),
+        abi::move_immediate(&s, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(&t, &s),
+        abi::branch_eq(&skip),
+    ]);
+    crate::codegen::os::ffi::emit_external_int_call(platform, "GetTickCount64", symbol, 0, imports, ins, rel)?;
+    ins.extend([
+        abi::load_u64(&t, abi::stack_pointer(), deadline_off),
+        abi::subtract_registers(&t, &t, abi::return_register()),
+        abi::compare_immediate(&t, "0"),
+        abi::branch_le(expired),
+        abi::store_u64(&t, abi::stack_pointer(), tv_off),
+    ]);
+    super::gen_shared::emit_set_sock_timeouts(&mut EmitCtx { symbol, platform_imports: imports, platform, instructions: ins, relocations: rel }, fd_off, tv_off)?;
+    ins.push(abi::label(&skip));
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // tls.accept(listener, timeoutMs) -> Socket
 // ---------------------------------------------------------------------------
@@ -709,6 +737,7 @@ pub(crate) fn lower_tls_accept(
     const POLLFD: usize = 56; // WSAPOLLFD { SOCKET fd; SHORT events; SHORT revents }
     const HSTV: usize = 64; // plan-73-D: handshake SO_*TIMEO DWORD-ms scratch
     const HSTOF: usize = 72; // plan-73-D: 1 if the handshake recv timed out (WSAETIMEDOUT)
+    const DEADLINE: usize = 80; // bug-739: GetTickCount64 ms by which the handshake must finish
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
@@ -795,9 +824,14 @@ pub(crate) fn lower_tls_accept(
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CONNFD),
     ]);
-    // plan-73-D: bound the handshake recv by SO_RCVTIMEO/SO_SNDTIMEO — sentinel =>
-    // unbounded (omit); `0` => 1µs (near-immediate); `> 0` => the timeval. Cleared
-    // after the handshake (hs_done) so the returned socket's read/write are unbounded.
+    // plan-73-D / bug-739: bound the WHOLE handshake by one deadline, taken now
+    // that the connection is accepted: DEADLINE = GetTickCount64() + timeoutMs.
+    // Before every handshake recv and send, `emit_hs_refresh` re-installs
+    // SO_RCVTIMEO/SO_SNDTIMEO as the time LEFT, so a peer that trickles bytes
+    // cannot reset the bound with each one. Sentinel => unbounded (omit); `0` =>
+    // a 1 ms deadline (Winsock reads a 0 DWORD as infinite), one near-immediate
+    // attempt. Cleared after the handshake (hs_done) so the returned socket's
+    // read/write are unbounded.
     {
         let hs_ts_ok = format!("{symbol}_hs_ts_ok");
         let hs_ts_skip = format!("{symbol}_hs_ts_skip");
@@ -806,26 +840,18 @@ pub(crate) fn lower_tls_accept(
             abi::move_immediate(&v15, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers(&v14, &v15),
             abi::branch_eq(&hs_ts_skip),
-            // Winsock SO_*TIMEO is a DWORD of milliseconds; 0 means infinite, so the
-            // convention's `0` (non-blocking) uses 1 ms.
+        ]);
+        crate::codegen::os::ffi::emit_external_int_call(platform, "GetTickCount64", symbol, 0, imports, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64(&v14, abi::stack_pointer(), TIMEOUT),
             abi::compare_immediate(&v14, "0"),
             abi::branch_ne(&hs_ts_ok),
             abi::move_immediate(&v14, "Integer", "1"),
             abi::label(&hs_ts_ok),
-            abi::store_u64(&v14, abi::stack_pointer(), HSTV),
+            abi::add_registers(&v14, &v14, abi::return_register()),
+            abi::store_u64(&v14, abi::stack_pointer(), DEADLINE),
+            abi::label(&hs_ts_skip),
         ]);
-        super::gen_shared::emit_set_sock_timeouts(
-            &mut EmitCtx {
-                symbol,
-                platform_imports: imports,
-                platform,
-                instructions: &mut ins,
-                relocations: &mut rel,
-            },
-            CONNFD,
-            HSTV,
-        )?;
-        ins.push(abi::label(&hs_ts_skip));
     }
 
     // Allocate the per-connection STATE block (zeroed header) + mark it server-side.
@@ -848,8 +874,10 @@ pub(crate) fn lower_tls_accept(
     ]);
 
     // Handshake: recv (client sends ClientHello first), AcceptSecurityContext, send.
+    let hs_expired = format!("{symbol}_hs_expired");
+    ins.push(abi::label(&hs_read));
+    emit_hs_refresh(symbol, "r", TIMEOUT, DEADLINE, CONNFD, HSTV, &hs_expired, imports, platform, &mut ins, &mut rel, &mut vregs)?;
     ins.extend([
-        abi::label(&hs_read),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD),
         abi::load_u64(&v10, abi::stack_pointer(), STATE),
         abi::load_u64(&v11, &v10, st::RECV_LEN),
@@ -873,6 +901,8 @@ pub(crate) fn lower_tls_accept(
     ins.extend([
         abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
         abi::branch_ne(&tls_fail),
+        // bug-739: no time left before a recv or send is the same timeout.
+        abi::label(&hs_expired),
         abi::move_immediate(&v9, "Integer", "1"),
         abi::store_u64(&v9, abi::stack_pointer(), HSTOF),
         abi::branch(&tls_fail),
@@ -882,6 +912,10 @@ pub(crate) fn lower_tls_accept(
         abi::add_registers(&v11, &v11, abi::return_register()),
         abi::store_u64(&v11, &v10, st::RECV_LEN),
         abi::label(&hs_asc),
+    ]);
+    // bug-739: this pass may send a token; give the send only the time left.
+    emit_hs_refresh(symbol, "s", TIMEOUT, DEADLINE, CONNFD, HSTV, &hs_expired, imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    ins.extend([
         // in SecBuffer[0] = {recv_len, TOKEN, &RECV}; [1] = {0, EMPTY, NULL}
         abi::load_u64(&v10, abi::stack_pointer(), STATE),
         abi::load_u64(&v11, &v10, st::RECV_LEN),
@@ -923,14 +957,17 @@ pub(crate) fn lower_tls_accept(
         &mut ins,
         &mut rel,
      &mut vregs)?;
+    ins.push(abi::move_register(&v15, abi::return_register()));
+    // SEC_E_INCOMPLETE_MESSAGE: read more and call again. This must come BEFORE
+    // FIRSTF is set: an incomplete first call creates no context, so the retry
+    // must pass NULL again. Setting FIRSTF first handed AcceptSecurityContext a
+    // handle it never filled in, and a ClientHello that arrived in more than one
+    // piece failed with ErrTlsFailed (bug-748).
+    branch_if_incomplete(&v15, &hs_read, &mut ins, &mut vregs);
     ins.extend([
-        abi::move_register(&v15, abi::return_register()),
         // context now exists → subsequent calls pass &ctxt
         abi::move_immediate(&v9, "Integer", "1"),
         abi::store_u64(&v9, abi::stack_pointer(), FIRSTF),
-    ]);
-    branch_if_incomplete(&v15, &hs_read, &mut ins, &mut vregs);
-    ins.extend([
         abi::compare_immediate(&v15, "0"),
         abi::branch_lt(&tls_fail),
     ]);

@@ -611,6 +611,38 @@ fn accept_failure_exits_drain_to_cancelled() {
     }
 }
 
+// bug-736: `accept` computed one absolute deadline before the connection wait
+// and reused it for the handshake wait, so a connection popped late in the
+// window got only the remainder and a healthy handshake was cut off with
+// `ErrTimeout`. The handshake deadline must be computed afresh between popping
+// the connection and waiting for `ready`: `dispatch_time` is resolved in that
+// window, and the window ends in its own deadline block. The runtime proof is
+// `tests/net/rt_tls_accept_handshake_budget.rs` (macOS only); this pin runs
+// everywhere.
+#[test]
+fn accept_handshake_gets_a_fresh_deadline_after_the_pop() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _r, _s) =
+        lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
+    let win = window(&ins, "t_a_pop", "t_a_hs_wait");
+    assert!(
+        resolves_in(win, "dispatch_time"),
+        "the handshake deadline must be computed after the connection is popped, \
+         not inherited from the connection wait"
+    );
+    assert!(
+        has_label(win, "t_a_hs_deadline_ready"),
+        "the handshake must use its own deadline block (sentinel / 0 / positive)"
+    );
+    // The connection wait keeps its own deadline, computed before the wait.
+    let before = window(&ins, "t_a_conn_deadline_ready", "t_a_pop");
+    assert!(
+        has_label(before, "t_a_wait"),
+        "the connection wait must follow its own deadline block"
+    );
+}
+
 // bug-412: `closeListener` cancels the listener (`nw_listener_cancel` is
 // asynchronous) and used to return immediately. The listener's state handler
 // runs over the arena-allocated LCTX and still fires the `cancelled`

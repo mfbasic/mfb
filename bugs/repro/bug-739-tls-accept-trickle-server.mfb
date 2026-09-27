@@ -1,0 +1,30 @@
+' bug-739 repro server: one tls::accept(listener, <ms read from stdin>) on
+' 127.0.0.1:18737, printing OK/FAILED and the elapsed ms. Needs cert.pem/key.pem
+' next to it. Pair with bug-739-tls-accept-trickle-client.py.
+IMPORT datetime
+IMPORT io
+IMPORT net
+IMPORT tls
+
+FUNC nowMs AS Integer
+  RETURN datetime::monotonicNanos() / 1000000
+END FUNC
+
+FUNC timedAccept(RES listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String
+  RES conn = tls::accept(listener, timeoutMs)
+  LET took AS Integer = nowMs() - started
+  tls::write(conn, "payload" & toString([toByte(10)]))
+  tls::close(conn)
+  RETURN "OK " & toString(took)
+  TRAP(err)
+    RETURN "FAILED " & toString(err.code) & " " & toString(nowMs() - started)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES listener = tls::listen("127.0.0.1", 18737, "cert.pem", "key.pem")
+  LET ms AS Integer = toInt(io::input())
+  io::print("accepting")
+  io::print("result=" & timedAccept(listener, ms, nowMs()))
+  RETURN 0
+END FUNC
