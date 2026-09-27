@@ -267,6 +267,9 @@ Commit: 9a387e555
   `scripts/test-accept.sh target/debug/mfb target/accept-actual` plus
   `cargo test` (est. 40 min; it is the only run that covers every golden a
   shared-codegen change can move, `.ai/testing-gates.md`).
+  Measured (2026-09-26, after merging `main` at 4 new commits): `acceptance tests passed (1560 test(s) ran)`;
+  `cargo test --no-fail-fast` exit 0, 245 `test result: ok` lines, no `FAILED`; `cargo fmt --all -- --check`
+  clean in both workspaces. No existing golden changed.
 
 ## Open Decisions
 
