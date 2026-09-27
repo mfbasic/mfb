@@ -124,14 +124,17 @@ a `cargo test` target, another script, or a person.
 - **test-canvas-gpu-rows.sh** — The bug-686 scale rows (5,000 quads, 40,000 polygon
   edges, 4,200 gradient stops, a tilemap, a 1080p background, 300-64,000-edge polygons,
   layers), plus bug-687's shapes over black (three star polygons, the large-polygon scene
-  without its grey ground, 140 small polygons, 140 rectangles), on the Vulkan backend: each scene in
+  without its grey ground, 140 small polygons, 140 rectangles), and bug-735's (every other
+  shape kind over black, transformed and clipped shapes, rectangle and clip edges beside a
+  coverage step, a blended hairline stroke), on the Vulkan backend: each scene in
   `tests/canvas/scenes/` must draw on the GPU (`gpuFrames` non-zero) and agree with the
   software oracle within tolerance. Every run
   sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows run the `rt_canvas_geo_native`
   programs, including the publish race, so the shared native geometry paths are checked
   on x86-64 and AArch64 Linux and Windows (bug-688). Usage:
   `bash scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target linux-x86_64|linux-aarch64|windows-x86_64] [--box <port>] [--libc glibc|musl] [--icd auto|<manifest>] [--rows <a,b>]`.
-  Run by: by hand (box 2226 for linux-aarch64, 2230 for windows-x86_64).
+  Run by: by hand (box 2226 for linux-aarch64; box 206, the real Intel GPU, for
+  windows-x86_64 -- not 2230, whose lavapipe faults intermittently, bug-741).
 - **test-canvas-vulkan.sh** — Runtime acceptance for the canvas Vulkan backend: renders
   the same scenes on a Linux box with and without `MFB_CANVAS_GPU=1` and requires the
   frames to agree within tolerance, including resize, group and polyline scenes (the
@@ -141,8 +144,9 @@ a `cargo test` target, another script, or a person.
   `--libc musl --icd auto`).
 - **test-winapp.sh** — Runtime acceptance for Windows `--app` builds: app-mode startup,
   file writes, environment, canvas software and Vulkan frames, resize and `term`
-  gating, run on the Windows box. Usage: `bash scripts/test-winapp.sh <mfb-exe> [--box <port>]`.
-  Run by: by hand (box 2230).
+  gating, run on the Windows box. Usage: `bash scripts/test-winapp.sh <mfb-exe> [--box <port>] [--gpu-box <port>]`.
+  Run by: by hand (box 2230; its two Vulkan runs go to `--gpu-box`, default box 206, the
+  real Intel GPU, since 2230's lavapipe faults intermittently, bug-741).
 - **test-winleak.sh** — Runtime leak check for the Windows backend's UTF-16
   marshalling (bug-696): builds one `--debug` probe that drives every path and
   environment seam (and each shared consumer of a seam's result), runs each mode on

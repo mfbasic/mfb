@@ -8,9 +8,14 @@
 # `SUB main() END SUB` died with `0xC0000005` — four defects and a fifth, all shipped,
 # all invisible to a green `cargo test` on a macOS host.
 #
-# Usage: scripts/test-winapp.sh <mfb-exe> [--box <port>]
+# Usage: scripts/test-winapp.sh <mfb-exe> [--box <port>] [--gpu-box <port>]
 #
-#   --box <port>   ssh port of the Windows box (default 2230).
+#   --box <port>       ssh port of the Windows box (default 2230; 22 is box 206).
+#   --gpu-box <port>   ssh port of the box the two Vulkan (MFB_CANVAS_GPU=1) runs use:
+#                      22, the default, is box 206 (`test@192.168.1.206`, a real Intel
+#                      UHD 630); any other port is a box forwarded to 127.0.0.1. Owner
+#                      decision (bug-741): 2230's lavapipe faults inside
+#                      `vulkan_lvp.dll` in about 1 GPU run in 7, so GPU runs moved off it.
 #
 # The box needs no GPU and no display: `MFB_WINAPP_HEADLESS=1` skips the window and
 # the program's own output is what is checked. That is deliberate — it is what makes
@@ -18,12 +23,23 @@
 set -euo pipefail
 . "$(dirname "$0")/remote-common.sh"
 
-MFB_EXE="${1:?usage: test-winapp.sh <mfb-exe> [--box <port>]}"
+MFB_EXE="${1:?usage: test-winapp.sh <mfb-exe> [--box <port>] [--gpu-box <port>]}"
 shift || true
 PORT=2230
-rc_parse_box test-winapp "$@"
+GPU_PORT=22
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --box) PORT="$2"; shift 2 ;;
+    --gpu-box) GPU_PORT="$2"; shift 2 ;;
+    *) echo "test-winapp: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
 
+# Port 22 is box 206 on the LAN; every other port is a box forwarded to 127.0.0.1.
 host="test@127.0.0.1"
+[ "$PORT" = 22 ] && host="test@192.168.1.206"
+gpu_host="test@127.0.0.1"
+[ "$GPU_PORT" = 22 ] && gpu_host="test@192.168.1.206"
 remote='C:\mfbwin'
 rc_workdir
 
@@ -72,7 +88,7 @@ echo rc=%errorlevel%
 type winapp.out
 BAT
 
-echo "--- running on box $PORT ---"
+echo "--- running on $host port $PORT (Vulkan runs: $gpu_host port $GPU_PORT) ---"
 remote_ssh "$PORT" "$host" "del /q $remote\\winapp.txt $remote\\winapp.out 2>nul" >/dev/null 2>&1 || true
 win_ship "$PORT" "$host" "$remote" "$proj/build/winapp.exe" "$work/runner.bat"
 out="$(remote_ssh "$PORT" "$host" "$remote\\runner.bat" 2>&1 || true)"
@@ -227,9 +243,11 @@ type wincanvas.gpu.out
 type C:\mfbwin\wincanvas.stats
 BAT
 
-remote_ssh "$PORT" "$host" "del /q $remote\\wincanvas.gpu.raw $remote\\wincanvas.stats 2>nul" >/dev/null 2>&1 || true
-remote_scp "$PORT" "$work/canvasgpu.bat" "$host:C:/mfbwin/canvasgpu.bat" >/dev/null
-gout="$(remote_ssh "$PORT" "$host" "$remote\\canvasgpu.bat" 2>&1 || true)"
+# On the GPU box (`--gpu-box`), which may not be the box the software frame came from:
+# the same binary and scene render the same software frame anywhere.
+remote_ssh "$GPU_PORT" "$gpu_host" "del /q $remote\\wincanvas.gpu.raw $remote\\wincanvas.stats 2>nul" >/dev/null 2>&1 || true
+win_ship "$GPU_PORT" "$gpu_host" "$remote" "$cproj/build/wincanvas.exe" "$work/canvasgpu.bat"
+gout="$(remote_ssh "$GPU_PORT" "$gpu_host" "$remote\\canvasgpu.bat" 2>&1 || true)"
 echo "$gout" | sed 's/^/    /'
 
 case "$gout" in
@@ -245,7 +263,7 @@ case "$gout" in
   *) fail "the Vulkan canvas program did not exit 0" ;;
 esac
 
-remote_scp "$PORT" "$host:C:/mfbwin/wincanvas.gpu.raw" "$work/wincanvas.gpu.raw" >/dev/null 2>&1 || true
+remote_scp "$GPU_PORT" "$gpu_host:C:/mfbwin/wincanvas.gpu.raw" "$work/wincanvas.gpu.raw" >/dev/null 2>&1 || true
 if [ -f "$work/wincanvas.gpu.raw" ] && [ -f "$work/wincanvas.raw" ]; then
   # The GPU frame must contain the scene in its own right — two blank frames agree.
   gprobe() { od -An -tu1 -j "$1" -N 4 "$work/wincanvas.gpu.raw" | tr -s ' ' | sed 's/^ //;s/ $//'; }
@@ -278,7 +296,7 @@ fi
 # The frame's LENGTH is the assertion that matters: MFB_CANVAS_DUMP overwrites, so
 # the file left behind is the second frame, and 640*480*4 can only be produced by a
 # render target that was actually rebuilt at the new size.
-resize_run() { # $1 = tag, $2 = extra env line
+resize_run() { # $1 = tag, $2 = extra env line, $3 $4 = the box's port and host
   # The Windows paths are built HERE, not inside the here-document. An unquoted
   # here-doc still honours `\$` as an escape, so `C:\mfbwin\$1.raw` written inline
   # collapses to the literal `C:\mfbwin$1.raw` — the dump lands in a file called
@@ -300,13 +318,13 @@ wincanvas.exe > $1.out 2>&1
 echo rc=%errorlevel%
 type $stats_path
 BAT
-  remote_ssh "$PORT" "$host" "del /q $remote\\$1.raw $remote\\$1.stats 2>nul" >/dev/null 2>&1 || true
-  remote_scp "$PORT" "$work/rs.bat" "$host:C:/mfbwin/rs.bat" >/dev/null
-  remote_ssh "$PORT" "$host" "$remote\\rs.bat" 2>&1 || true
+  remote_ssh "$3" "$4" "del /q $remote\\$1.raw $remote\\$1.stats 2>nul" >/dev/null 2>&1 || true
+  remote_scp "$3" "$work/rs.bat" "$4:C:/mfbwin/rs.bat" >/dev/null
+  remote_ssh "$3" "$4" "$remote\\rs.bat" 2>&1 || true
 }
 
-rsw="$(resize_run rssw '')"
-rsg="$(resize_run rsgpu 'set MFB_CANVAS_GPU=1')"
+rsw="$(resize_run rssw '' "$PORT" "$host")"
+rsg="$(resize_run rsgpu 'set MFB_CANVAS_GPU=1' "$GPU_PORT" "$gpu_host")"
 echo "$rsg" | sed 's/^/    /'
 
 case "$rsg" in
@@ -319,7 +337,8 @@ case "$rsg" in
 esac
 
 for tag in rssw rsgpu; do
-  remote_scp "$PORT" "$host:C:/mfbwin/$tag.raw" "$work/$tag.raw" >/dev/null 2>&1 || true
+  if [ "$tag" = rsgpu ]; then tport=$GPU_PORT; thost=$gpu_host; else tport=$PORT; thost=$host; fi
+  remote_scp "$tport" "$thost:C:/mfbwin/$tag.raw" "$work/$tag.raw" >/dev/null 2>&1 || true
   if [ -f "$work/$tag.raw" ]; then
     size="$(wc -c < "$work/$tag.raw" | tr -d ' ')"
     [ "$size" = "1228800" ] && pass "$tag repainted at 640x480 (1228800 bytes)" \
