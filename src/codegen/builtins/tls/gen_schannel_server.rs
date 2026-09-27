@@ -951,14 +951,17 @@ pub(crate) fn lower_tls_accept(
         &mut ins,
         &mut rel,
      &mut vregs)?;
+    ins.push(abi::move_register(&v15, abi::return_register()));
+    // SEC_E_INCOMPLETE_MESSAGE: read more and call again. This must come BEFORE
+    // FIRSTF is set: an incomplete first call creates no context, so the retry
+    // must pass NULL again. Setting FIRSTF first handed AcceptSecurityContext a
+    // handle it never filled in, and a ClientHello that arrived in more than one
+    // piece failed with ErrTlsFailed (bug-743).
+    branch_if_incomplete(&v15, &hs_read, &mut ins, &mut vregs);
     ins.extend([
-        abi::move_register(&v15, abi::return_register()),
         // context now exists → subsequent calls pass &ctxt
         abi::move_immediate(&v9, "Integer", "1"),
         abi::store_u64(&v9, abi::stack_pointer(), FIRSTF),
-    ]);
-    branch_if_incomplete(&v15, &hs_read, &mut ins, &mut vregs);
-    ins.extend([
         abi::compare_immediate(&v15, "0"),
         abi::branch_lt(&tls_fail),
     ]);
