@@ -843,6 +843,16 @@ impl LinuxPlan<'_> {
             }
             _ => Vec::new(),
         });
+        // bug-701: the path classifier (`gen_classify`) the host-error mapping
+        // calls; it is emitted as its own code unit wherever such a member is.
+        if spec
+            .call
+            .strip_prefix("fs.")
+            .is_some_and(crate::codegen::builtins::fs::gen_classify::member_classifies_paths)
+        {
+            imports.push(self.libc_import("stat", required_by));
+            imports.push(self.libc_import("access", required_by));
+        }
         imports
     }
 }

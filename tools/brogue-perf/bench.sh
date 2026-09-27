@@ -27,13 +27,14 @@ brogue="$(cd "$here/../../examples/brogue" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 mfb="${MFB:-$repo/target/release/mfb}"
 
-# bug-707's proposed goal was "within 10x of the oracle"; its two identified
-# fixes (landed) cut allocation count 96.3% but left the ratio at ~120x on a
-# quiet machine (median of 7, tools/brogue-perf lock held) -- see bug-737,
-# which picks up the remaining gap as a compiler/runtime question rather than
-# re-litigating this budget. 150 leaves headroom over that measurement so the
-# gate fails only on a real regression, not on ordinary run-to-run noise.
-BUDGET_RATIO="${BUDGET_RATIO:-150}"
+# bug-707's proposed goal was "within 10x of the oracle". bug-737 found the
+# copy behind the ~120x its fixes left (a whole-list operand snapshot on every
+# read of a module global through a pure index helper) and fixed it in the
+# compiler: 17.6x measured (median of 7, /tmp/mfb-heavy.lock held, 2026-09-26).
+# What remains is call/spill overhead in cellularAutomataRound and its leaf
+# helpers (bug-740). 25 leaves headroom over 17.6 for run-to-run noise on this
+# shared machine while still failing on any return of the copying.
+BUDGET_RATIO="${BUDGET_RATIO:-25}"
 RUNS=5
 QUIET=0
 

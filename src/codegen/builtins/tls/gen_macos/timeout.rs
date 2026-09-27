@@ -26,6 +26,7 @@ pub(crate) fn lower_tls_set_timeout_macos(
     const FRAME_SIZE: usize = 32;
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
 
@@ -47,8 +48,13 @@ pub(crate) fn lower_tls_set_timeout_macos(
         abi::branch_lt(&invalid),
         abi::label(&format!("{symbol}_ts_ok")),
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         // The deadline lives on the per-connection ctx, not on the record: the
         // waits that consume it already hold the ctx pointer, and an accepted
         // socket and a connected one share the same ctx shape.
@@ -62,6 +68,8 @@ pub(crate) fn lower_tls_set_timeout_macos(
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME_SIZE))
 }

@@ -1,11 +1,17 @@
 # bug-702: operations on a moved handle report `ErrResourceClosed`; the spec says `ErrResourceMoved`
 
+## STATUS: FIXED (1be50389c)
+
+Code fixed, spec kept (Phase 1: the case is reachable through a `RES`
+parameter). No deviation from the doc's fix design; the tls `close` members,
+which the doc did not list, got the split too.
+
 Last updated: 2026-09-24
 Effort: medium (1h–2h)
 Severity: LOW
 Class: Correctness (spec/code disagreement)
 
-Status: Open
+Status: Fixed (see STATUS)
 Regression Test: a runtime test transferring a handle through an untracked alias, then using it (Phase 1)
 
 `mfb spec language resource-management` §15 says a moved handle that reaches an
@@ -93,13 +99,60 @@ only `close` reports it, and why.
 
 ### Phase 1: can a moved handle reach an operation?
 
-- [ ] Build the reproduction above; record the compiler's answer here.
+- [x] Build the reproduction above; record the compiler's answer here.
 
-Commit: —
+**Answer: reachable.** The compiler accepts the transfer of a `RES` parameter,
+and the caller's binding stays usable. Measured 2026-09-26 at 0cd2db799
+(`/tmp/lane702/r1`, the reproduction above with an `ISOLATED FUNC` that accepts
+the file): `fs::readLine(f)` after `giveAway(f, t)` printed
+`readLine code 77030004` (ErrResourceClosed). So the code is fixed, not the spec.
+The same probe widened to every guarded family (all eleven `File` members,
+`tcp::localAddress`/`accept` on a `Listener`, `udp::setReadTimeout`/`poll`,
+`thread::isRunning` on a transferred `Thread`, and `tls::localAddress`/`accept`/
+`close` on a `Listener`) reported 77030004 everywhere except `fs::close`.
+
+Regression test: `tests/runtime/rt_moved_handle_guards.rs` (2 tests). RED at the
+base compiler (`MFB_TEST_EXE=<base>/target/debug/mfb cargo test --test
+rt_moved_handle_guards`: every line 77030004 except `close`), GREEN after.
+
+Commit: see Phase 2 (test and fix land together)
 
 ### Phase 2: fix code or spec, per Phase 1
 
-Commit: —
+- [x] One shared guard, `resource::closed_or_moved_guard(flag, closed, moved)`:
+      `flag == 1` → closed, any other non-zero → moved (bit 1 set). Every guard on a
+      handle that can cross a thread uses it: `fs` (`gen_handle::emit_closed_guard`
+      and the eight in `gen_read_write.rs`), `tcp` (`gen_io.rs` accept/read/write),
+      the shared socket helpers (`os/socket/poll.rs` poll + set-timeout,
+      `os/socket/shared.rs` address), `udp` (`gen_io.rs` receive/send), every `tls`
+      backend (OpenSSL, Network.framework, Schannel: accept, read, write, poll,
+      address, timeouts, close, closeListener — `tls::close` was the one close
+      that did not split), and the `Thread` view (`control_block.rs`
+      `emit_control_block_of` / `emit_view_closed_exit`).
+- [x] Declare `ErrResourceMoved` on each such member (fs descriptors, forced by
+      `every_fs_member_declares_exactly_the_errors_its_lowering_raises`; tcp/tls/udp
+      descriptors and their pinned tables) and say so in the prose.
+- [x] Spec: `memory heap-values` (the flag word), `threading control-block`,
+      `threading queue-semantics` (which said the *receiving* thread finds the
+      record moved — it is the sender's record), `language resource-management`.
+
+Cross-target: the same probe programs (`/tmp/lane702/r2` — fs, tcp, udp, thread;
+`/tmp/lane702/r3` — a `tls::Listener`) cross-built and run on Linux aarch64 glibc
+(box 2226, OpenSSL) and Windows 11 (box 2230, Schannel) print `77030009` on every
+line, as on macOS (Network.framework). Linux x86_64 boxes 2227/2228 were down.
+
+Not changed, by design: `process::Process`, the audio streams, `canvas::Image`
+and `canvas::Font` cannot cross a thread, so their records never carry the moved
+bit and keep the single non-zero test. `pollList` has no per-socket flag guard.
+The `thread` members declare no errors (`thread/mod.rs:overload`), so there is no
+descriptor list to extend there.
+
+Commit: 1be50389c (fix + test); 3ea85fa20 (the 40 native goldens it and bug-701
+move: fs/tcp/udp/tls/thread/http/resource-xfer-slots covers, app-mouse-surface).
+Gate: `cargo test --no-fail-fast` at 3ea85fa20 — 243 binaries `test result: ok`
+(including `artifact_gate_all` and the `mfb` unit tests, 4395 passed), one red
+(`codegen_helper_scratch_release`, bug-701's new helper unclassified, fixed in
+41c9ed2f1 and re-run green alone).
 
 ## Open Decisions
 

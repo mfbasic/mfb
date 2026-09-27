@@ -66,6 +66,14 @@ REALLOC_NEW = {"union", "symmetricDifference", "merge"}
 # not-last field.
 EXISTING_GROW = {"add", "append", "insert", "prepend"}
 
+# Arms added after plan-144's audit, so they have no findings row: the op name and
+# whether the arm can grow. A growing arm is `arm` at every field site except the
+# not-last ones (S3/T1/T3), which rebuild (`G17`, `field_realloc_admitted`) for the
+# reason EXISTING_GROW's do; a non-growing one is `arm` everywhere.
+POST_AUDIT = {
+    "repeat": True,  # plan-153-B: extends the list when the run passes its end.
+}
+
 ORDER = "BCDEFGH"
 # The plan-145 letters that have landed: a pair whose closing letter is here is
 # `arm`, not `copy:<letter>`. A letter adds itself when it flips its lines.
@@ -189,6 +197,11 @@ def main():
                     target = resolve(s, decl_type)
                     # The findings name the operator row by its shape, not a signature.
                     row = rows.get(target) or rows.get({"& (value AS String, other AS String) AS String": "s & t"}.get(target))
+                    if row is None and op_name(target) in POST_AUDIT:
+                        grows = POST_AUDIT[op_name(target)]
+                        not_last = site in ("S3", "T1", "T3")
+                        expects.append(("rebuild", "not-last-grow") if grows and not_last else ("arm", None))
+                        continue
                     if row is None:
                         sys.exit(f"{target}: no findings row")
                     expects.append(cell_expect(target, site, row[site]))

@@ -993,6 +993,7 @@ pub(crate) fn lower_tls_read_macos(
     const DEADLINE: usize = 152; // plan-110-D: computed dispatch_time for the read wait
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer_closed");
     let load_fail = format!("{symbol}_load_fail");
@@ -1022,8 +1023,13 @@ pub(crate) fn lower_tls_read_macos(
     ins.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX),
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), REC_CONN),
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
@@ -1399,6 +1405,8 @@ pub(crate) fn lower_tls_read_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
@@ -1434,6 +1442,7 @@ pub(crate) fn lower_tls_write_macos(
     const DEADLINE: usize = 120; // plan-110-D: computed dispatch_time for the send wait
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let write_fail = format!("{symbol}_write_fail");
     let load_fail = format!("{symbol}_load_fail");
     let empty = format!("{symbol}_empty");
@@ -1448,10 +1457,13 @@ pub(crate) fn lower_tls_write_macos(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    ins.extend([abi::load_u64(&v9, abi::return_register(), REC_CLOSED)]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
     ins.extend([
-        abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), REC_CONN),
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
@@ -1749,6 +1761,8 @@ pub(crate) fn lower_tls_write_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     if !text {
         // bug-497: the byte form was handed a block whose header is not a
         // `List OF Byte`'s — refuse rather than read a length out of its bytes.
@@ -1801,6 +1815,7 @@ pub(crate) fn lower_tls_poll_macos(
     const BLOCK: usize = 104; // 104..144
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -1823,8 +1838,13 @@ pub(crate) fn lower_tls_poll_macos(
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), REC_CONN),
         abi::store_u64(&v9, abi::stack_pointer(), CONN),
         abi::load_u64(&v9, abi::return_register(), REC_CTX),
@@ -2111,6 +2131,8 @@ pub(crate) fn lower_tls_poll_macos(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         Ok((ins, rel, FRAME_SIZE))
@@ -2135,6 +2157,7 @@ pub(crate) fn lower_tls_close_macos(
     const CTX: usize = 40;
     let cancel_drain = format!("{symbol}_cancel_drain");
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let load_fail = format!("{symbol}_load_fail");
     let done = format!("{symbol}_done");
     // plan-76-B Phase 4: free/release the poll-receive pending state on close.
@@ -2146,9 +2169,12 @@ pub(crate) fn lower_tls_close_macos(
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
     ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
     emit_dlopen_maclib(
         &mut EmitCtx {
             symbol,
@@ -2355,6 +2381,8 @@ pub(crate) fn lower_tls_close_macos(
     // costs nothing: lexical cleanup discards a close failure (§15), so the
     // "close once, or let the scope do it" idiom is unaffected.
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&already_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         Ok((ins, rel, FRAME_SIZE))

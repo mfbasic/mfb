@@ -1472,6 +1472,7 @@ pub(crate) fn lower_tls_accept_macos(
     const SBLOCK: usize = 96; // 96..136: per-connection state block literal
 
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let wait_loop = format!("{symbol}_wait");
@@ -1494,9 +1495,12 @@ pub(crate) fn lower_tls_accept_macos(
     ins.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&closed),
     ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &closed,
+        &closed_moved,
+    ));
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front (nothing
         // allocated yet). The omitted overload pads the unbounded sentinel (→ FOREVER
@@ -1901,6 +1905,8 @@ pub(crate) fn lower_tls_accept_macos(
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected
     // up front, nothing allocated).
     ins.push(abi::label(&accept_invalid));
@@ -1939,6 +1945,7 @@ pub(crate) fn lower_tls_close_listener_macos(
     const WAITFN: usize = 72;
 
     let already = format!("{symbol}_already");
+    let already_moved = format!("{symbol}_already_moved");
     let load_fail = format!("{symbol}_load_fail");
     let drain_loop = format!("{symbol}_drain");
     let drained = format!("{symbol}_drained");
@@ -1955,8 +1962,13 @@ pub(crate) fn lower_tls_close_listener_macos(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
         // Idempotent: a closed handle returns OK.
         abi::load_u64(&v9, abi::return_register(), REC_CLOSED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_ne(&already),
+    ]);
+    ins.extend(crate::codegen::resource::closed_or_moved_guard(
+        &v9,
+        &already,
+        &already_moved,
+    ));
+    ins.extend([
         abi::load_u64(&v9, abi::return_register(), REC_CTX),
         abi::store_u64(&v9, abi::stack_pointer(), LCTX),
     ]);
@@ -2142,6 +2154,8 @@ pub(crate) fn lower_tls_close_listener_macos(
     // costs nothing: lexical cleanup discards a close failure (§15), so the
     // "close once, or let the scope do it" idiom is unaffected.
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&already_moved));
+    emit_fail(symbol, "ErrResourceMoved", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
         Ok((ins, rel, FRAME_SIZE))

@@ -11,6 +11,7 @@
 - ssh -p 2230 test@127.0.0.1 # Win11 x86_64
 - ssh -p 2231 test@127.0.0.1 # Android aarch64
 - ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
+- ssh test@192.168.1.206 # Win11 x86_64, REAL hardware + real Vulkan GPU (Intel UHD 630) — see below
 
 ## Which boxes have a Rust toolchain — probe, do not read
 
@@ -108,16 +109,18 @@ Linux-host only, so it cannot run on the Mac). `tools/math-kernels/rvv-qemu-runn
 build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
 `tools/math-kernels/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
 
-## Vulkan: every reachable driver is a CPU one
+## Vulkan: one real GPU (box 206); every other driver is a CPU one
 
-Probed 2026-09-24 (bug-688). **No reachable box has a Vulkan GPU**, so a Vulkan frame
-rate measured here is a CPU rasteriser's, not a GPU's; correctness (the software-oracle
-comparison) is meaningful, performance is not.
+Probed 2026-09-24 (bug-688); box 206 added 2026-09-26. **Box 206 is the only reachable
+Vulkan GPU** — use it for every Windows GPU/Vulkan row and for any Vulkan performance
+number. On every other box a Vulkan frame rate is a CPU rasteriser's, not a GPU's;
+correctness (the software-oracle comparison) is meaningful there, performance is not.
 
 | box | GPU as the VM sees it | Vulkan driver | display |
 |---|---|---|---|
 | 2226 Debian 12 aarch64 glibc | virtio GPU | Mesa lavapipe, system ICD (`lvp_icd.aarch64.json`) | a live GNOME **Wayland** session (`/run/user/1001/wayland-0`) |
 | 2230 Win11 x86_64 (emulated) | Red Hat VirtIO GPU DOD | Mesa lavapipe under `C:\mfbvk\mesa\x64`, registered in `HKLM\SOFTWARE\Khronos\Vulkan\Drivers` | none used (headless) |
+| 206 Win11 x86_64 (real hardware, Intel Coffee Lake 6-core) | Intel UHD Graphics 630 | the real Intel driver, Vulkan 1.3 (`vulkaninfo --summary` works) | `test` logged in at the console (session 5); launch into it with `schtasks /it` (below) |
 
 * 2226 runs aarch64 natively, so it is the fast box for Vulkan rows
   (`scripts/test-canvas-gpu-rows.sh --target linux-aarch64`). It also compiles SPIR-V:
@@ -126,8 +129,35 @@ comparison) is meaningful, performance is not.
   did not change rather than committing the churn.
 * 2230 is x86-64 under emulation: a software-oracle render of a large polygon scene takes
   tens of minutes there. Order the geometry rows first when time matters.
+* **Do not run Windows GPU rows on 2230** (owner, 2026-09-26): its lavapipe faults in about 1
+  of 7 GPU runs whatever the scene, at base too, and never on 206's real driver (0 of 40;
+  bug-741). 2230 stays the box for non-GPU Windows tests (console, `--app`, TLS, fs).
 * Probe: `ls /usr/share/vulkan/icd.d` (Linux); on Windows,
   `Get-ItemProperty HKLM:\SOFTWARE\Khronos\Vulkan\Drivers` from PowerShell.
+
+## Box 206 (Windows, real GPU)
+
+`ssh test@192.168.1.206` with this Mac's default key (installed 2026-09-26, owner-approved;
+the credentials are the owner's and are not stored in the repo). Windows 11 (10.0.26200) on
+a real Intel Coffee Lake 6-core with an Intel UHD Graphics 630. `test` is not an
+administrator (WMI/`Get-CimInstance` is access-denied; probe with `ver`, `vulkaninfo
+--summary`, `reg query`). Home is `C:\Users\test`. The cmd.exe quirks listed for 2230 below
+apply here too.
+
+**A visible window from ssh.** An ssh session has no desktop, but `test` is logged in at the
+console, so a scheduled task with `/it` runs inside that desktop session (verified: the task's
+`query session` shows `>console test 5 Active`). `scp` a CRLF `.cmd` that runs the exe and
+redirects its output to a file, then:
+
+```
+schtasks /create /f /tn <name> /tr C:\Users\test\<x>.cmd /sc once /st 23:59 /it
+schtasks /run /tn <name>
+(poll the output file)
+schtasks /delete /f /tn <name>
+```
+
+This needs `test` to stay logged in; after a reboot or logout, windowed runs fail until
+someone logs in at the console.
 
 ## Box 2230 (Windows): ssh quirks and crash diagnosis without a debugger
 
