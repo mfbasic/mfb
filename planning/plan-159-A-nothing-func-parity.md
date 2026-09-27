@@ -248,19 +248,37 @@ Commit: —
 
 ### Phase 3 — `tools/sub-to-func/` rewriter
 
-- [ ] 3.1 `tools/sub-to-func/sub-to-func.py`, plus `README.md` (usage, the three
+- [x] 3.1 `tools/sub-to-func/sub-to-func.py`, plus `README.md` (usage, the three
       rewrites, `--check`, the prose-report). Per AGENTS.md this is a tool, not a
-      `scripts/` gate, so no `scripts/README.md` entry is needed.
-- [ ] 3.2 Prove it on copies: run it on scratch copies of
+      `scripts/` gate, so no `scripts/README.md` entry is needed. — Done. Added
+      beyond the design: `DOC` block headers (`SUB name(T)` → `FUNC name(T)`, no
+      `AS Nothing`) and `EXAMPLE` code (Corrections), `REM` comments, and string
+      default values in a header. Tree dry run: `python3 tools/sub-to-func/sub-to-func.py
+      --check tests examples packages tools bugs spikes benchmark` → `273 file(s) would
+      change; 0 unhandled line(s)`, 33 `[comment]` + 1 `[string]` report lines.
+- [x] 3.2 Prove it on copies: run it on scratch copies of
       `tests/syntax/functions/sub-template-valid` (template header `SUB consume OF T(value AS T)`),
       `tests/syntax/packages/package-simple` (`EXPORT SUB`, overloads) and
       `tests/rt-behavior/trap/func-bare-trap-rt` (`EXIT SUB` in a `TRAP`). Build each
-      copy, then `cmp` its `.ncode` against the unmodified fixture's `.ncode`.
-- [ ] 3.3 Idempotence: running it twice leaves the second run with 0 changes
-      (`--check` exit 0).
+      copy, then `cmp` its `.ncode` against the unmodified fixture's `.ncode`. — Done
+      (`/tmp/p159/prove.sh`, `/tmp/p159/prove-pkg.sh`): `sub-template-valid` →
+      `cmp sub_template_valid.ncode: IDENTICAL`; `func-bare-trap-rt` → `cmp
+      func-bare-trap-rt.ncode: IDENTICAL`. `package-simple` is `kind: package` and
+      cannot emit `.ncode` (`PACKAGE_NATIVE_OUTPUT_UNSUPPORTED`), so each copy was built
+      to `.mfp` and linked into one consumer executable calling `mark()`,
+      `mark(Vec2[…])` and `score()`: the consumer `.ncode`s differ ONLY in the package
+      identity prefix (`f5a6da2ca244f894` → `14f370a06b0d4625`; after `sed` of each to
+      `PKGHASH`, `cmp` → identical), and `pkg info` differs only in `SUB mark$…` →
+      `FUNC mark$…`, their `sigHash`es and the package/content hashes (Corrections).
+- [x] 3.3 Idempotence: running it twice leaves the second run with 0 changes
+      (`--check` exit 0). — All three copies: `0 file(s) would change`, `second-run
+      --check exit 0`.
 
-Acceptance: all three rewritten copies compile, and their `.ncode` is byte-identical to the originals.
+Acceptance: all three rewritten copies compile, and their `.ncode` is byte-identical to the originals
+(for the package fixture: its consumer's `.ncode` is identical once the package identity
+prefix — a hash of the package's own bytes — is normalized; Corrections).
   Check: the three `cmp` commands from 3.2 → identical (est. 3 min).
+  Result (2026-09-27): 2 × `IDENTICAL`; package consumer `IDENTICAL modulo package hash`.
 Commit: —
 
 ## Validation Plan
@@ -282,6 +300,25 @@ Commit: —
   retires it with `SUB`.
 
 ## Corrections
+
+- **2026-09-27 — `package-simple` has no `.ncode`, and a rebuilt package's consumers
+  move by design (task 3.2).** A `kind: package` project cannot write a native plan
+  (`PACKAGE_NATIVE_OUTPUT_UNSUPPORTED`), so 3.2's `cmp` was proved through a consumer
+  executable instead. That consumer's `.ncode` changes in exactly one field: every symbol
+  and name of the package's functions carries the package identity id
+  (`package_identity_id`, `src/binary_repr/reader.rs`: SHA-256 over name/version/ident
+  plus the whole binary-repr payload). A SUB→FUNC export changes the export kind, flag
+  and `sigHash` inside that payload, so the id changes; all other bytes are identical
+  (measured above). **This falsifies plan-159-B's "every `.ncode`/`.ncodesum` is
+  byte-identical" for fixtures that link a rebuilt SUB-exporting `.mfp`**; B §2 is
+  corrected to predict it.
+- **2026-09-27 — the rewriter needs DOC-block awareness (task 3.1).** `DOC … END DOC`
+  blocks name their callable with a `SUB name(Type, …)` header line, which the resolver
+  matches against the declaration's kind (`resolver/resolution.rs`, `want_sub`), so a
+  converted declaration needs a `FUNC name(Type, …)` header — without `AS Nothing`,
+  which is not header syntax. `EXAMPLE … END EXAMPLE` bodies inside DOC blocks are
+  ordinary code (`packages/tar/src/doc.mfb`). The tool follows the lexer's
+  `try_capture_doc_block` rules for both.
 
 - **2026-09-27 — rt fixtures have no `run.log` golden (task 2.1).** A rt-behavior
   fixture's program output and exit code live in `golden/build.log`; an empty
