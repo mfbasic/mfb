@@ -180,8 +180,9 @@ one central policy over several calls.
 ## Program entry points
 
 An executable entry point may handle errors with `TRAP` like any other function.
-If an entry point returns an uncaught `Err`, the runtime writes
-`Code: <err.code> Message: <err.message>` to stderr and exits with status 255.
+If an entry point returns an uncaught `Err`, the program writes `Error:` and the
+error code on one line of stderr, the message on the next, and exits with
+status 255.
 
 ## Errors
 

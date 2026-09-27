@@ -1,0 +1,27 @@
+{
+  "project": "entry_func_nothing_fail_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 6 },
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "intentional failure out of main" }] }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

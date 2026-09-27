@@ -49,10 +49,10 @@ References:
 
 These conditions gate the whole of plan-159. B, C and D point here.
 
-| Must be true | Command | Status (2026-09-26) |
+| Must be true | Command | Status (2026-09-27, re-measured at start of execution) |
 |---|---|---|
-| No other plan-159 exists | `find . /private/tmp -name 'plan-159*' -not -path './target/*'` → only these four files | MET |
-| `main` builds | `cargo build --release` → exit 0 | MET (`target/release/mfb` built 2026-09-26 21:16) |
+| No other plan-159 exists | `find . /private/tmp -name 'plan-159*' -not -path './target/*'` → only these four files | MET (2026-09-27: the only other hits are byte-identical copies of these four files in other checkouts — `.claude/worktrees/735`, `/private/tmp/b740-base`, `/private/tmp/l754-base`; `cmp` → same for all 12) |
+| `main` builds | `cargo build --release` → exit 0 | MET (2026-09-27: `cargo build --release` in `.claude/worktrees/P-159` → `Finished release`, exit 0) |
 
 Everything below assumes both conditions hold.
 
@@ -149,6 +149,13 @@ bugs 17/5, spikes 7/7, benchmark 6/2 (the loop `for d in …; rg -c "$R" -g '*.m
   are validation-only (`src/target/shared/validate/names.rs:81,112`) and internal
   constructors (`src/target/shared/nir/lower.rs:219` for global initializers, test
   builders in `plan/mod.rs:556` and `validate/mod.rs:253`). The sites were read.
+- **The native entry wrapper keys off the return type, not the kind** (task 2.2).
+  `validate_entry_point` produces `ir::EntryPoint { returns: Nothing }` for a `SUB` entry
+  and for a `FUNC … AS Nothing` entry alike; codegen's `lower_program_entry`
+  (`src/codegen/engine/function/entry.rs`) reads only `language_entry_returns`
+  (`rg -n language_entry_returns src`), and the package writer's entry flag
+  (`binary_repr/writer.rs`, `entry.returns == Integer`) likewise. So the two entries
+  lower identically.
 - **UNVERIFIED, task 1.2:** whether `self.functions` in `ir::verify` holds built-in
   signatures. The `io::print` panic shows the check does not currently cover them, and
   the fix has to.
@@ -206,23 +213,37 @@ Commit: —
 
 ### Phase 2 — `FUNC main … AS Nothing` is a valid entry
 
-- [ ] 2.1 RED: add `tests/rt-behavior/functions/entry-func-nothing-valid/` with
+- [x] 2.1 RED: add `tests/rt-behavior/functions/entry-func-nothing-valid/` with
       `FUNC main() AS Nothing` printing one line, and golden `run.log`/exit 0. Add
       `tests/rt-behavior/functions/entry-func-nothing-fail-rt/`, where `main` does
       `FAIL`, whose golden must match the exit code/stderr `SUB main` gives for the same
       `FAIL`. Take that expectation from a sibling `SUB main` fixture, not from the new
-      code.
-- [ ] 2.2 `src/manifest/entry.rs`: accept `Func` whose `returns` is `Integer` **or**
+      code. — Done: no tracked `SUB main` fixture FAILs out of `main` (every rt fixture
+      with a non-zero `[exit` uses `FUNC main AS Integer`), so the expectation was
+      measured on the unchanged compiler with a scratch `SUB main` (`/tmp/p159/subfail`:
+      `SUB main` → `io::print("before")` → `FAIL error(700, …)`), run → `before` /
+      `Error: 700` / message / `[exit 255]`. The two `build.log` goldens were hand-written
+      from that before any code change; RED run: `test-accept.sh … 'entry-func-nothing*'`
+      → `2 mismatch(es)`, both `PROJECT_ENTRY_INVALID … must return Integer.`
+- [x] 2.2 `src/manifest/entry.rs`: accept `Func` whose `returns` is `Integer` **or**
       `Nothing`. Update the message to `must return Integer or Nothing`. Confirm that
       the runtime entry wrapper keys off the return type, not the kind, by reading the
-      entry lowering the `SUB` case uses. Record it in Verified properties.
-- [ ] 2.3 Unit test in `src/manifest/entry.rs` tests (next to the `SUB main` case at
-      l.198): `FUNC main AS Nothing` accepted, `FUNC main AS String` rejected.
-- [ ] 2.4 Spec: `src/docs/spec/tooling/01_project-manifest.md:346` and the entry
-      contract in `language/08_error-model.md`.
+      entry lowering the `SUB` case uses. Record it in Verified properties. — Done;
+      recorded in §2 Verified properties (the wrapper is `lower_program_entry`).
+- [x] 2.3 Unit test in `src/manifest/entry.rs` tests (next to the `SUB main` case at
+      l.198): `FUNC main AS Nothing` accepted, `FUNC main AS String` rejected. — Added
+      `func_entry_returning_nothing_is_accepted`; the `AS String` rejection is the
+      existing `func_entry_not_returning_integer_is_error`. `cargo test --bin mfb
+      manifest::entry` → `11 passed; 0 failed`.
+- [x] 2.4 Spec: `src/docs/spec/tooling/01_project-manifest.md:346` and the entry
+      contract in `language/08_error-model.md`. — Done, plus `architecture/02_frontend.md`
+      (a third copy of the Integer-only rule, `rg -n 'must return .?Integer' src/docs`)
+      and the stale uncaught-error banner (Corrections). `scripts/spec-census.sh
+      --citations` → `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`.
 
 Acceptance: both new fixtures pass with the expected exit codes.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc 'entry-func-nothing*'` → 2 PASS (est. 1 min); `cargo test --bin mfb manifest::entry` → pass (est. 2 min).
+  Result (2026-09-27): `acceptance tests passed (2 test(s) ran)`; `11 passed; 0 failed`.
 Commit: —
 
 ### Phase 3 — `tools/sub-to-func/` rewriter
@@ -261,6 +282,20 @@ Commit: —
   retires it with `SUB`.
 
 ## Corrections
+
+- **2026-09-27 — rt fixtures have no `run.log` golden (task 2.1).** A rt-behavior
+  fixture's program output and exit code live in `golden/build.log`; an empty
+  `golden/<pkg>.run` is only the marker that makes `test-accept.sh` execute the binary
+  (`scripts/test-accept.sh`, the `.run` comment block). The two fixtures follow that
+  convention. Their `.ast`/`.ir` goldens were adopted from the first green run (they are
+  dumps, not the behaviour under test).
+- **2026-09-27 — the spec's uncaught-entry-error banner was stale (found in 2.4, fixed).**
+  `08_error-model.md` (rule 10 and the §8.7 table) and `mfb man errors` said stderr gets
+  `Code: <err.code> Message: <err.message>`. The runtime writes `Error: <code>`, a
+  newline, then the message (`ENTRY_ERROR_PREFIX` in
+  `src/codegen/error/constants/error_constants.rs`; measured: `/tmp/p159/subfail` →
+  `Error: 700` / `intentional failure out of main`; every rt golden agrees, e.g.
+  `process/spawn-fail-trap`). Spec and man corrected to the measured shape.
 
 - **2026-09-26 — the value-less rule for `Nothing` calls is withdrawn (owner).** The
   first draft made using the value of any `Nothing`-returning call a compile error

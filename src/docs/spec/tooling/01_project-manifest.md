@@ -343,13 +343,16 @@ rules — each failure emits `PROJECT_ENTRY_INVALID`: [[src/manifest/entry.rs:va
 | --- | --- |
 | no function named `entry` | must declare an entry point named `<entry>` |
 | more than one matching function | must declare exactly one entry point |
-| `FUNC` entry whose return type ≠ `Integer` | entry `FUNC` must return Integer |
+| `FUNC` entry whose return type is neither `Integer` nor `Nothing` | entry `FUNC` must return Integer or Nothing |
 | a single parameter whose type ≠ `List OF String` | parameter must have type `List OF String` |
 | more than one parameter | must declare zero params or one `args AS List OF String` |
 | the `args` parameter declares a default value | args parameter must not declare a default |
 
 A `SUB` entry is accepted (its `returns` is `Nothing`); a `FUNC` entry must
-return `Integer`. The accepted parameter shapes are exactly: zero parameters, or
+return `Integer` or `Nothing`. A `FUNC … AS Nothing` entry and a `SUB` entry
+produce the same `ir::EntryPoint` (`returns` is `Nothing` for both), and the
+native entry wrapper branches on `returns` alone, never on the function kind.
+[[src/codegen/engine/function/entry.rs:lower_program_entry]] The accepted parameter shapes are exactly: zero parameters, or
 one `args AS List OF String` parameter (no default). The resolved entry becomes
 `ir::EntryPoint { name, returns, accepts_args }`. [[src/manifest/entry.rs:validate_entry_point]]
 

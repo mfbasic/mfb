@@ -210,7 +210,7 @@ END FUNC
 
 Rules enforced by the implementation:
 
-- A `FUNC` executable entry must return `Integer`.
+- A `FUNC` executable entry must return `Integer` or `Nothing`.
 - The entry may have zero parameters or one `List OF String` parameter.
 - The args parameter must not declare a default value.
 - Missing or invalid executable entries are compile-time errors.[[src/manifest/entry.rs:validate_entry_point]]
