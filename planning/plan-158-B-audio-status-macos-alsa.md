@@ -4,7 +4,7 @@ Last updated: 2026-09-26
 Effort: medium (1h–2h)
 Depends on: plan-158-A
 
-Extends plan-158-A's `emit_fail_status` to the two remaining `audio::` backends, so a
+Extends plan-158-A's `StatusFailSites` to the two remaining `audio::` backends, so a
 failed Core Audio or ALSA call reports its call name and OS status the way Windows does.
 **Outcome:** on macOS and Linux, an `audio::` failure's `e.message` ends in
 `(<call>: 0x<status>)`, and `e.code` is unchanged.
@@ -24,7 +24,7 @@ If plan-158-A is not complete, this plan cannot start, full stop.
 ## 1. Goal
 
 - Every OS-status failure site in the macOS and ALSA audio backends raises through
-  `emit_fail_status` / `StatusFailSites`.
+  `StatusFailSites` (plan-158-A deleted the single-site `emit_fail_status`: no site needed it).
 
 ### Non-goals
 
@@ -135,26 +135,56 @@ Commit: —
 
 ### Phase 2 — Adopt
 
-- [ ] macOS files: convert the status-bearing sites from Phase 1.
-- [ ] ALSA files: convert the status-bearing sites from Phase 1.
-- [ ] Regenerate the four `audio_codegen_cover_rt.*.ncodesum` goldens. Confirm with
-      `-ncode` that each delta is confined to audio helpers.
-- [ ] Failed-open leak, macOS and ALSA: plan-158-A's audit found that neither backend's
+- [x] macOS files: convert the status-bearing sites from Phase 1. — 13 `ret` rows via
+      `StatusFailSites` (slots 488/496, devices 1008/1016). The refused-enqueue tail in
+      `write` also returns the buffer to the free stack (C4).
+- [x] ALSA files: convert the status-bearing sites from Phase 1. — 13 `ret` + 2 `value`
+      rows (slots 536/544).
+- [x] Regenerate the four `audio_codegen_cover_rt.*.ncodesum` goldens. Confirm with
+      `-ncode` that each delta is confined to audio helpers. — `/tmp/p158/cmp_targets.py`
+      against a baseline built at `54e7a1efa` (each baseline reproduces its golden sha):
+      macOS changes `_mfb_rt_audio_audio_{devices,openInput,openInputDevice,openOutput,
+      openOutputDevice,write}`; Linux (3 targets) changes `…_{devices,openInput,
+      openInputDevice,openOutput,openOutputDevice,read,readTimeout,write}`; each adds
+      `_mfb_rt_fail_status` and `_mfb_str_errstatus_*` data only; windows-x86_64 is
+      unchanged. `bash scripts/regen-native-goldens.sh target/release/mfb
+      tests/byte-identity/audio` → `5 golden(s) rewritten, 0 failure(s)`, four changed.
+- [x] Emit-inspection tests pinning each backend's status call names and its static
+      raises (C7): `macos_audio_failures_report_their_os_status`,
+      `alsa_audio_failures_report_their_os_status` in `audio/status_tests.rs`
+      (`cargo test --release --bin mfb audio` → 22 passed).
+- [x] Failed-open leak, macOS and ALSA: plan-158-A's audit found that neither backend's
       open-failure path frees the handle record (or, on ALSA, the mapped STATE)
       (plan-158-A C6 fixed the Windows twin). Measure with an `openfail N` loop in a
       `--debug` build (N=10 vs N=100, `arena.0.live_bytes`), fix, and re-measure flat.
-- [ ] Runtime proof, macOS (local): open an output on a device id that does not exist →
-      `e.message` ends with `: 0x…)`.
-- [ ] Runtime proof, Linux: the same probe on box 2223 (native aarch64 glibc), with a
-      bogus ALSA device name.
+      — Both `emit_open_cleanup`s free the handle record (ALSA already unmapped its
+      STATE). Measured absolute rather than as a slope, which is stronger: the macOS
+      probe's 3 failed opens and the Linux probe's 12 leave `arena.0.live_bytes 0`
+      (every allocation freed), C5.
+- [x] Runtime proof, macOS (local): open an output on a device id that does not exist →
+      `e.message` ends with `: 0x…)`. — A device id cannot be constructed (C3), so
+      `/tmp/p158/macprobe` opens every input-only device as an output and the speakers
+      as an input: `output: … (AudioQueueStart: 0xfffefbb3)` (source
+      `src/main.mfb:12:39`), `input: … (AudioQueueStart: 0xfffefbbc)` (source
+      `src/main.mfb:22:38`), `live_bytes 0`.
+- [x] Runtime proof, Linux: the same probe on box 2223 (native aarch64 glibc), with a
+      bogus ALSA device name. — Box 2223 refused connections; ran on 2226 (Debian
+      aarch64 glibc, HDA card) instead (C2). `/tmp/p158/linprobe` opens every hint:
+      `device hw:CARD=Intel,DEV=0: … (snd_pcm_open: 0xfffffff0)` (-EBUSY, pipewire holds
+      the card), `device dsnoop:…: … (snd_pcm_open: 0xffffffea)` (-EINVAL), 12 failures,
+      `live_bytes 0`.
 
 Acceptance: both probes print the status suffix.
   Check: `./build/probe.out` → a line matching `\(.*: 0x[0-9a-f]{8}\)` (est. 2 min per box).
+  — met on both (above).
 Commit: —
 
 ## Validation Plan
 
 - Doc sync: `src/docs/spec/stdlib/11_audio.md` backend sections name the macOS/ALSA calls.
+  — done: §"The OS status in the message" per backend; the `audio` man description
+  gives an example per platform (`mfb man audio` renders it; `man-census.sh
+  --memory-scope` → 0 unclassified; `spec-census.sh --citations` → 0 misses).
 - Final gate: `scripts/artifact-gate.sh` (est. 15 min: audio goldens on four targets).
 
 ## Open Decisions
@@ -171,6 +201,33 @@ Commit: —
   (`grep -c 'check(ctx.instructions, dev_fail)' src/codegen/builtins/audio/gen_alsa_shared.rs`
   → 9). Each is its own status site with its own call name, so the table has 41 rows,
   not 33, and the acceptance count is corrected to match (a stronger check).
+- **C2 (Linux box).** `ssh -p 2223 test@127.0.0.1` → `Connection refused` (2228 too).
+  Box 2226 is the same class, native aarch64 glibc, and has `libasound.so.2` and an HDA
+  card (`aplay -l`), so the Linux proof ran there.
+- **C3 (no bogus device id).** `audio::AudioDevice[...]` is rejected with
+  `TYPE_READ_ONLY_RECORD_CONSTRUCTOR`: a program cannot name a device that
+  `audio::devices()` did not return. The macOS proof instead points a queue at a real
+  device for the wrong direction, which Core Audio refuses at `AudioQueueStart`; the
+  Linux proof opens real hints that are busy or wrong-direction.
+- **C4 (refused enqueue dropped a buffer).** `lower_write` (macOS) lost the buffer in
+  hand when `AudioQueueEnqueueBuffer` failed: not enqueued, not pending, not free. Each
+  refusal shrank the free stack by one, and with it empty the next write would wait on
+  the condition forever. The status tail now returns it to the free stack under the
+  mutex and clears the pending slot (the refused buffer may be the resumed one).
+- **C5 (failed-open record leak).** plan-158-A's audit: macOS and ALSA
+  `emit_open_cleanup` never freed the handle record. Both now do; every caller of each
+  is an open failure tail after the record's allocation. macOS's cleanup labels are
+  now suffixed by position, since an open now runs it from two tails (the first build
+  failed with a duplicate `…_cleanup_munmap`).
+- **C6 (no single-site form).** Every site in all three backends is a
+  `StatusFailSites` site, so plan-158-A's `emit_fail_status` had no caller and was
+  deleted (no dead code), and this plan's text now names `StatusFailSites`.
+- **C7 (guard against an unemitted site).** The first Linux build failed:
+  `runtime.audio.devices branches to label '…_status_unavailable_s0', which it does not
+  define`. The ALSA `devices` edit registered a site but never emitted the stubs; no
+  unit test lowered that helper, and macOS builds never do. Two guards: a
+  `StatusFailSites` dropped with more sites than emitted stubs panics at the site,
+  and the new per-backend emit-inspection tests lower every audio helper.
 
 ## Summary
 

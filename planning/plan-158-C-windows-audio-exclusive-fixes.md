@@ -96,7 +96,7 @@ Expected design, to be confirmed by Phase 1:
   period before `Stop`.
 - **Bounded wait:** every wait gets a timeout of 2 × buffer duration (min 200 ms). On
   timeout, raise `ErrAudioDevice` with status `WAIT_TIMEOUT` (0x102) through
-  `emit_fail_status`.
+  `StatusFailSites` (plan-158-B deleted the unused single-site `emit_fail_status`).
 
 Byte-identity is not the gate. Expected diff: the Windows audio ncodesum.
 
