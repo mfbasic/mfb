@@ -30,7 +30,7 @@ off leaves it `FALSE`; `term::on` while already on resets the surface again, but
 the answer stays `TRUE` throughout.
 
 The call reads state only: it touches neither the terminal, the alternate screen,
-nor the surface, and it cannot fail."#;
+nor the surface, and it cannot fail. In an `mfb build --app` program, `term::isOn` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Enter TUI mode only once:
 
@@ -105,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_is_on),
         }],
     });

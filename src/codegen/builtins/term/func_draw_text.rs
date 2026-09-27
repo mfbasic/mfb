@@ -51,7 +51,7 @@ style that changes **inside** a cluster splits it, and its parts land in separat
 cells. Your own current bold, underline, foreground
 and background settings are put back afterwards, so like the `String` overload the
 call leaves the pen it found. Using this overload requires `IMPORT astrings` (the
-only way to build an `AttributedString`)."#;
+only way to build an `AttributedString`). In an `mfb build --app` program, `term::drawText` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Draw a title and a status line at fixed positions:
 
@@ -145,7 +145,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_draw_text),
         }],
     });

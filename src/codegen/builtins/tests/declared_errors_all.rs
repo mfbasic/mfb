@@ -110,6 +110,7 @@ fn every_app_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_P,
         NONE_U,
         NONE_U,
+        &[],
         &["linux-riscv64"],
         &[],
         1,
@@ -141,6 +142,7 @@ fn every_audio_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_P,
         NONE_U,
         AUDIO_UNREACHABLE_OWN_RAISE,
+        &[],
         &[],
         &[],
         1,
@@ -235,6 +237,7 @@ fn every_collections_member_declares_exactly_the_errors_its_lowering_raises() {
         COLLECTIONS_UNREACHABLE_OWN_RAISE,
         &[],
         &[],
+        &[],
         1,
     );
 }
@@ -262,6 +265,139 @@ const ASTRINGS_RAISES_NOTHING: &[(&str, &str)] = &[
     ),
 ];
 
+/// `io`'s three shared stdin/stdout runtime helpers, none of which has a
+/// `raise_error_into`/`raise_error_bare` site of its own -- each returns a
+/// status/tag the CALLER (already declaring the corresponding code) raises
+/// off, the same `_mfb_arena_alloc` shape `fs_declared_errors.rs` documents.
+/// `_mfb_rt_stdin_next_byte`'s own doc comment says as much: "an EOF error
+/// result ... or traps ErrInvalidContext" is the value it returns, not a
+/// raise it performs.
+const IO_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_rt_io_stdout_drain",
+        "drains buffered stdout bytes; no raise_error site of its own",
+    ),
+    (
+        "_mfb_rt_input_decode",
+        "decodes buffered bytes into a scalar/grapheme/key value; no raise_error site",
+    ),
+    (
+        "_mfb_rt_stdin_next_byte",
+        "returns an EOF/ErrInvalidContext status the caller raises off, per its own \
+         doc comment; no raise_error site of its own",
+    ),
+];
+
+/// `prepend_wrong_mode_gate` (`app/hook/app.rs`) only emits its
+/// `ErrWrongMode` raise when `presentation_mode_offset` is `Some` AND the
+/// caller's own Rust-level dispatch took the app-mode branch (an `if
+/// ctx.build_mode.is_app() { .. }` in `gen_read_line_family.rs`/the reader
+/// bodies) -- this sweep's harness fixes `build_mode` to `Console`, so that
+/// branch's code is never even emitted, not merely unreached at runtime. Real
+/// for an `--app` build; unmeasurable under this sweep's one fixed
+/// `build_mode`, the mirror image of `unreachable_own_raise`.
+const IO_DECLARED_EXTRA: &[(&str, &str, &str)] = &[
+    ("input", "ErrWrongMode", "app-mode branch of gen_read_line_family.rs"),
+    ("readLine", "ErrWrongMode", "app-mode branch of gen_read_line_family.rs"),
+    ("readRaw", "ErrWrongMode", "app-mode wrong-mode gate"),
+    ("readScalar", "ErrWrongMode", "app-mode wrong-mode gate"),
+    ("readGrapheme", "ErrWrongMode", "app-mode wrong-mode gate"),
+    ("readKey", "ErrWrongMode", "app-mode wrong-mode gate"),
+];
+
+#[test]
+fn every_io_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "io",
+        IO_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        NONE_U,
+        IO_DECLARED_EXTRA,
+        &[],
+        &[],
+        1,
+    );
+}
+
+/// `term::on` subscribes the calling thread to stdin (kitty-protocol probe),
+/// reaching the same `_mfb_rt_stdin_next_byte` `io` classifies (an EOF/
+/// ErrInvalidContext status the CALLER raises off, per its own doc comment --
+/// no raise_error site of its own).
+const TERM_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_rt_stdin_next_byte",
+        "returns an EOF/ErrInvalidContext status the caller raises off, per its own \
+         doc comment; no raise_error site of its own",
+    ),
+];
+
+/// `term::off`'s final present calls `term::sync`'s own runtime helper.
+const TERM_PROPAGATING: &[(&str, Propagating)] =
+    &[("_mfb_rt_term_term_sync", Propagating::Member("sync"))];
+
+/// Every `term::` member goes through `gen_shared.rs::lower_term_helper`,
+/// which prepends `prepend_wrong_mode_gate(.., ModeRequirement::Console)` --
+/// but the gate's own raise only emits when the Rust-level dispatch takes the
+/// app-mode branch, which this sweep's fixed `build_mode: Console` harness
+/// never does (the same "real but unmeasured under one fixed build_mode"
+/// shape as `IO_DECLARED_EXTRA`; bug-727's own evidence: `terminalSize` on a
+/// pipe/non-terminal is `ErrUnsupported`, but every `term::` call in an
+/// `--app` build outside `app::Mode.Console` is `ErrWrongMode`).
+const TERM_DECLARED_EXTRA: &[(&str, &str, &str)] = &[
+    ("clear", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("didResize", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("drawBox", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("drawGlyph", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("drawHLine", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("drawText", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("drawVLine", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("enableMouse", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("fillRect", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("getBackground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("getBold", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("getForeground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("getUnderline", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("hideCursor", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("isOn", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("moveTo", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("off", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("on", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("pollMouse", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("setBackground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("setBold", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("setForeground", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("setUnderline", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("showCursor", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("sync", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+    ("terminalSize", "ErrWrongMode", "app-mode ModeRequirement::Console gate (gen_shared.rs)"),
+];
+
+#[test]
+fn every_term_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "term",
+        TERM_RAISES_NOTHING,
+        TERM_PROPAGATING,
+        NONE_U,
+        NONE_U,
+        TERM_DECLARED_EXTRA,
+        &[],
+        &[],
+        1,
+    );
+}
+
 #[test]
 fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises_on(
@@ -270,6 +406,7 @@ fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_P,
         NONE_U,
         NONE_U,
+        &[],
         &[],
         ASTRINGS_SKIP_MEMBERS,
         1,
@@ -458,6 +595,7 @@ fn every_canvas_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_P,
         NONE_U,
         NONE_U,
+        &[],
         &["linux-riscv64"],
         CANVAS_SKIP_MEMBERS,
         1,
@@ -544,6 +682,7 @@ fn every_crypto_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_U,
         NONE_U,
         &[],
+        &[],
         CRYPTO_SKIP_MEMBERS,
         1,
     );
@@ -557,6 +696,7 @@ fn every_tcp_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_P,
         NONE_U,
         TCP_UNREACHABLE_OWN_RAISE,
+        &[],
         &[],
         &[],
         1,

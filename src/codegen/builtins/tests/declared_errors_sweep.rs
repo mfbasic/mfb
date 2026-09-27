@@ -227,6 +227,7 @@ pub(crate) fn lower_body_call(
         })
         .collect();
     let mut harness = BuilderHarness::default();
+    let mut last_error = String::new();
     for _ in 0..64 {
         let mut builder = harness.builder("_mfb_rt_probe", platform);
         let ctx = AbiCtx {
@@ -239,6 +240,11 @@ pub(crate) fn lower_body_call(
             // so the instructions this test scans never dereference it).
             presentation_mode_offset: Some(0),
             mouse_state_offset: Some(0),
+            // `io`'s new readKey/readRaw/readScalar/readGrapheme and every
+            // `term::` member need the arena input-state slot (bug-699).
+            input_state_offset: Some(0),
+            // Every `term::` member needs the arena term-state slot.
+            term_state_offset: Some(0),
             ..harness.abi_ctx(platform)
         };
         let result = match implementation.body {
@@ -255,6 +261,7 @@ pub(crate) fn lower_body_call(
         if let Some(import) = error
             .split_once("requires ")
             .and_then(|(_, rest)| rest.strip_suffix(" import"))
+            .map(|rest| rest.strip_prefix("the ").unwrap_or(rest))
         {
             harness
                 .platform_imports
@@ -269,8 +276,11 @@ pub(crate) fn lower_body_call(
         } else {
             return Err(error);
         }
+        last_error = error;
     }
-    Err(format!("{call}: still refusing after supplying 64 imports"))
+    Err(format!(
+        "{call}: still refusing after supplying 64 imports (last: {last_error})"
+    ))
 }
 
 /// Lower one member's every implementation on every backend and return the
@@ -338,6 +348,7 @@ pub(crate) fn sweep_package(
     propagating: &[(&str, Propagating)],
     unreachable_via_callee: &[(&str, &str, &str)],
     unreachable_own_raise: &[(&str, &str, &str)],
+    declared_extra: &[(&str, &'static str, &str)],
     skip_platforms: &[&str],
     skip_members: &[&str],
 ) -> SweepResult {
@@ -433,6 +444,18 @@ pub(crate) fn sweep_package(
                 }
             }
         }
+        // A code this sweep's single fixed harness configuration (Console
+        // build_mode, no app-mode variant) cannot make reachable, but that a
+        // real build config does raise -- verified by reading the source
+        // (`declared_extra`'s reason string cites the exact gate), the same
+        // evidentiary bar as `unreachable_own_raise`, just the mirror image:
+        // that one REMOVES a measured-but-unreachable code, this one ADDS a
+        // real-but-unmeasured one.
+        for (member, code, _reason) in declared_extra {
+            if *member == function.name {
+                expected.insert(code);
+            }
+        }
 
         let declared: BTreeSet<&'static str> = function
             .implementations()
@@ -474,6 +497,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises(
         &[],
         &[],
         &[],
+        &[],
         min_lowered_members,
     );
 }
@@ -489,6 +513,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises_on(
     propagating: &[(&str, Propagating)],
     unreachable_via_callee: &[(&str, &str, &str)],
     unreachable_own_raise: &[(&str, &str, &str)],
+    declared_extra: &[(&str, &'static str, &str)],
     skip_platforms: &[&str],
     skip_members: &[&str],
     min_lowered_members: usize,
@@ -499,6 +524,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises_on(
         propagating,
         unreachable_via_callee,
         unreachable_own_raise,
+        declared_extra,
         skip_platforms,
         skip_members,
     );

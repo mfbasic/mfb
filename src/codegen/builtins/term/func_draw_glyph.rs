@@ -36,7 +36,7 @@ The call is gated: while TUI mode is off it does nothing and reports no
 error.
 
 A Linux terminal and all three app backends — macOS, Linux and Windows — draw
-this call."#;
+this call. In an `mfb build --app` program, `term::drawGlyph` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Place a marker character at the centre of the surface:
 
@@ -112,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWrongMode"],
             body: Body::abi_function(lower_draw_glyph),
         }],
     });
