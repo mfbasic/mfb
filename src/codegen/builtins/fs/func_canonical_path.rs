@@ -53,13 +53,12 @@ resolution buffer sized to hold up to `PATH_MAX` bytes plus the terminating NUL
 The function reads filesystem metadata only; it does not open, create, or modify
 any file and has no other side effects.
 
-When `path` cannot be resolved the error says why: `ErrNotFound` if a component
-does not exist, `ErrAccessDenied` if a directory on the way may not be searched,
-and `ErrWriteFailed` for any other failure — a file used as a directory, or a
-loop of symbolic links (Windows reports both as `ErrNotFound`). `ErrOutOfMemory`
-means the program ran out of memory. The table also lists `ErrAlreadyExists`
-because every `fs` function that takes a path reports host refusals through one
-shared set of errors; resolving a path never produces it."#;
+When `path` cannot be resolved the error says why: `ErrPathNotFound` if a
+component does not exist, `ErrAccessDenied` if a directory on the way may not be
+searched, and `ErrInvalidPath` if `path` cannot name an entry — a file used as a
+directory, a name that is too long, or a loop of symbolic links. Any other
+failure raises `ErrReadFailed`. `ErrOutOfMemory` means the program ran out of
+memory."#;
 const EX: &str = r#"Resolve a relative path against the working directory:
 
 ```
@@ -108,11 +107,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::String,
             errors: vec![
                 "ErrOutOfMemory",
-                "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
-                "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
+                "ErrReadFailed",
             ],
             body: Body::abi_function(lower_fs_canonical_path),
         }],

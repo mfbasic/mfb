@@ -25,6 +25,7 @@ pub(crate) fn lower_fs_write_all_helper(
     let loop_label = format!("{symbol}_write_loop");
     let done_write = format!("{symbol}_write_done");
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let write_error = format!("{symbol}_write_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
@@ -39,9 +40,12 @@ pub(crate) fn lower_fs_write_all_helper(
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&data, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
     ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
     let mut relocations = Vec::new();
     // Reconcile the read buffer before writing: on a read+write handle
     // a write after fs::readLine must land at the true fd position, not the block
@@ -128,6 +132,13 @@ pub(crate) fn lower_fs_write_all_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&write_error)]);
     raise_error_into(
         symbol,
@@ -148,6 +159,7 @@ pub(crate) fn lower_fs_read_all_helper(
     // seek positions/length (across the alloc), and the result string (across the
     // read loop + UTF-8 validation) are vregs the allocator spills.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let seek_error = format!("{symbol}_seek_error");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let alloc_error = format!("{symbol}_alloc_error");
@@ -169,9 +181,12 @@ pub(crate) fn lower_fs_read_all_helper(
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
     ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
     let mut relocations = Vec::new();
     // Reconcile the read buffer: a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
@@ -298,6 +313,13 @@ pub(crate) fn lower_fs_read_all_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
@@ -325,6 +347,7 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
     let loop_label = format!("{symbol}_write_loop");
     let done_write = format!("{symbol}_write_done");
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let write_error = format!("{symbol}_write_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
@@ -341,9 +364,12 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&bytes, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
     ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
     let mut relocations = Vec::new();
     // Reconcile the read buffer before writing (see fs::writeAll).
     emit_reconcile_read_buffer(
@@ -435,6 +461,13 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&write_error)]);
     raise_error_into(
         symbol,
@@ -455,6 +488,7 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
     // positions/length (across the alloc), the collection and its data-region base
     // (across the read loop) are spilled vregs; the entry-init loop makes no call.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let seek_error = format!("{symbol}_seek_error");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let entry_loop = format!("{symbol}_entry_loop");
@@ -482,9 +516,12 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
     ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
     let mut relocations = Vec::new();
     // Reconcile the read buffer: a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
@@ -648,6 +685,13 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
@@ -673,6 +717,7 @@ pub(crate) fn lower_fs_eof_helper(
     // Vreg-allocated (plan-00-G Phase 2). fd is held across the three seeks, the
     // start position across the second/third — both spilled vregs.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let seek_error = format!("{symbol}_seek_error");
     let at_eof = format!("{symbol}_at_eof");
     let not_eof = format!("{symbol}_not_eof");
@@ -688,8 +733,13 @@ pub(crate) fn lower_fs_eof_helper(
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
+    ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         // Buffer-aware: unconsumed bytes in the read buffer
         // (READ_POS < READ_FILL) mean not-EOF, whatever the raw fd position. When
@@ -702,7 +752,7 @@ pub(crate) fn lower_fs_eof_helper(
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-    ];
+    ]);
     let mut relocations = Vec::new();
     platform.emit_seek_file(
         symbol,
@@ -760,6 +810,13 @@ pub(crate) fn lower_fs_eof_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&seek_error)]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -786,6 +843,7 @@ pub(crate) fn lower_fs_size_helper(
     // saved position across the second and third, the measured length across the
     // restore — all spilled vregs.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let seek_error = format!("{symbol}_seek_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
@@ -797,13 +855,18 @@ pub(crate) fn lower_fs_size_helper(
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
+    ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-    ];
+    ]);
     let mut relocations = Vec::new();
     platform.emit_seek_file(
         symbol,
@@ -853,6 +916,13 @@ pub(crate) fn lower_fs_size_helper(
         &mut instructions,
         &mut relocations,
     );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::branch(&done), abi::label(&seek_error)]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
@@ -885,6 +955,7 @@ pub(crate) fn lower_fs_read_bytes_at_helper(
     // the read loop; the collection and its data-region base across the loop; the
     // entry-init loop makes no call.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let invalid = format!("{symbol}_invalid");
     let seek_error = format!("{symbol}_seek_error");
     let restore_read_error = format!("{symbol}_restore_read_error");
@@ -922,8 +993,13 @@ pub(crate) fn lower_fs_read_bytes_at_helper(
         abi::move_register(&offset, abi::mfb_return(1)),
         abi::move_register(&count, abi::mfb_return(2)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
+    ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         // A negative offset or count is a caller mistake, not a file condition.
         abi::compare_immediate(&offset, "0"),
         abi::branch_lt(&invalid),
@@ -934,7 +1010,7 @@ pub(crate) fn lower_fs_read_bytes_at_helper(
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-    ];
+    ]);
     let mut relocations = Vec::new();
     platform.emit_seek_file(
         symbol,
@@ -1121,6 +1197,13 @@ pub(crate) fn lower_fs_read_bytes_at_helper(
     raise_error_into(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
     );
@@ -1332,6 +1415,7 @@ pub(crate) fn lower_fs_read_line_helper(
     // fd position runs ahead of the logical read position by the unconsumed buffer;
     // whole-file reads and writes reconcile that separately.
     let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
     let seek_error = format!("{symbol}_seek_error");
     let eof_error = format!("{symbol}_eof_error");
     let read_error = format!("{symbol}_read_error");
@@ -1380,8 +1464,13 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::move_immediate(&temp_cap, "Integer", "0"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
-        abi::compare_immediate(&closed_flag, "0"),
-        abi::branch_ne(&closed),
+    ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         // Ensure the read block is allocated (lazily, on first incremental read).
         abi::load_u64(&read_ptr, &file, FILE_OFFSET_READ_PTR),
@@ -1390,7 +1479,7 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::move_immediate(abi::return_register(), "Integer", &cap),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ];
+    ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
@@ -1578,6 +1667,13 @@ pub(crate) fn lower_fs_read_line_helper(
     raise_error_into(
         symbol,
         "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
         &mut instructions,
         &mut relocations,
     );

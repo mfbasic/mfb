@@ -66,14 +66,11 @@ An empty `path`, one containing a NUL byte, or a `mode` that is not one of the
 names above raises `ErrInvalidArgument`. When the file cannot be opened the
 error says why: `ErrPathNotFound` if it does not exist — or, for a mode that
 creates the file, if a directory above it does not — `ErrAccessDenied` if
-permission is refused, and `ErrInvalidPath` if the path cannot name a file — a
-name that is too long, a file used as a directory, or a loop of symbolic links
-(Windows reports most of these as `ErrPathNotFound`). Any other refusal raises
-`ErrWriteFailed`; opening a directory to write fails this way, and Windows
-reports it as `ErrAccessDenied`. `ErrOutOfMemory` means the program ran out of
-memory. The table also lists `ErrAlreadyExists` and `ErrResourceBusy` because
-every `fs` function that takes a path reports host refusals through one shared
-set of errors; no mode produces either."#;
+permission is refused, and `ErrInvalidPath` if `path` cannot name a file — it
+names a directory, in any mode, a name in it is too long, a file is used as a
+directory, or it is a loop of symbolic links. Any other refusal raises
+`ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that writes.
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Open a file for reading and close it explicitly:
 
 ```
@@ -148,9 +145,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrPathNotFound",
                 "ErrInvalidPath",
                 "ErrAccessDenied",
-                "ErrResourceBusy",
                 "ErrInvalidArgument",
-                "ErrAlreadyExists",
+                "ErrReadFailed",
             ],
             body: Body::abi_function(lower_fs_open),
         }],

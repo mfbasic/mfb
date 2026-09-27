@@ -143,7 +143,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     ),
                 ],
                 return_type: ParameterType::Boolean,
-                errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrTlsFailed"],
+                errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTlsFailed"],
                 body: Body::abi_function(lower_poll),
             },
             // Readiness multiplex: `poll(List OF RES tls.Socket[, timeoutMs]) AS

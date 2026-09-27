@@ -22,6 +22,8 @@ END SUB
 
 Template arguments are inferred only from explicit argument, parameter, field, and expected result types. The compiler binds each template parameter by structurally matching declared types against the concrete types at each use site; the matching algorithm, symbol mangling, and instantiation mechanics are specified in `./mfb spec architecture monomorphization`. There is no general inference engine, no trait system, no variance, no higher-kinded types, no boxing, and no runtime template dispatch.
 
+A template parameter of a built-in binds `Nothing` like any other type, so `collections::contains(List OF Nothing, NOTHING)` binds `T = Nothing`. Two positions refuse it. The first is a callback's result type (`transform`'s `FUNC(T) AS U`): a `Nothing`-returning callback does not satisfy a value-producing callback parameter (§7). The second is a slot of a thread handle, where a `Nothing` resource plane means "no resource plane". A refused binding is `TYPE_CALL_ARGUMENT_MISMATCH`. [[src/codegen/registry/mod.rs:unify_at]]
+
 Template predicates such as comparability, copyability, defaultability, or resource restrictions are checked against each concrete instantiation:
 
 ```basic

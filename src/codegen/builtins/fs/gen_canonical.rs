@@ -158,10 +158,14 @@ pub(crate) fn lower_fs_canonical_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Resolve,
+        false,
+        Some(FsPathArg::String((&path).into())),
+        FsFallback::Read,
         &mut instructions,
         &mut relocations,
         &done,
@@ -239,6 +243,7 @@ pub(crate) fn lower_fs_is_within_helper(
     let c_child_size = vregs.next();
     let base_buffer_size = vregs.next();
     let child_buffer_size = vregs.next();
+    let failed = vregs.next();
     let mut instructions = vec![
         // bug-574: all FOUR allocations are this helper's own scratch — it hands
         // back a `Boolean`, which carries no block at all — so all four are
@@ -349,6 +354,8 @@ pub(crate) fn lower_fs_is_within_helper(
         abi::branch(&alloc_error),
         abi::label(&child_buffer_alloc_ok),
         abi::move_register(&child_buffer, abi::mfb_return(1)),
+        // bug-701: the path a failed `realpath` is classified against.
+        abi::move_register(&failed, &base),
         abi::move_register(abi::return_register(), &c_base),
         abi::move_register(abi::c_arg(1), &base_buffer),
     ]);
@@ -363,6 +370,7 @@ pub(crate) fn lower_fs_is_within_helper(
         abi::branch_ne(&base_realpath_ok),
         abi::branch(&realpath_error),
         abi::label(&base_realpath_ok),
+        abi::move_register(&failed, &child),
         abi::move_register(abi::return_register(), &c_child),
         abi::move_register(abi::c_arg(1), &child_buffer),
     ]);
@@ -433,10 +441,14 @@ pub(crate) fn lower_fs_is_within_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(
+    emit_fs_host_error_mapping(
         symbol,
         &errno_reg,
         platform.family(),
+        FsHostOp::Resolve,
+        false,
+        Some(FsPathArg::String((&failed).into())),
+        FsFallback::Read,
         &mut instructions,
         &mut relocations,
         &done,

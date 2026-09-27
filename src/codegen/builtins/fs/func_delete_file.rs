@@ -46,16 +46,12 @@ characters when the host filesystem accepts those names. It must be non-empty an
 
 When the host refuses the removal `path` is left unchanged and the error says
 why: `ErrPathNotFound` if nothing exists at `path`, `ErrAccessDenied` if
-permission is refused, and `ErrInvalidPath` if the path cannot name an entry —
-a name that is too long, a file used as a directory, or a loop of symbolic
-links (Windows reports most of these as `ErrPathNotFound`). Any other refusal
-raises `ErrWriteFailed`. A directory is refused rather than removed —
-`ErrWriteFailed` on macOS and Linux, `ErrAccessDenied` on Windows — so use
-`fs::deleteDirectory` for a directory. An empty `path`, or one containing a
-NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory. The table also lists
-`ErrAlreadyExists` and `ErrResourceBusy` because every `fs` function that
-takes a path reports host refusals through one shared set of errors; removing
-a file never produces either."#;
+permission is refused, and `ErrInvalidPath` if `path` cannot name a file — it
+names a directory, a name in it is too long, a file is used as a directory, or
+it is a loop of symbolic links. A directory is refused rather than removed, so
+use `fs::deleteDirectory` for one. Any other refusal raises `ErrWriteFailed`. An
+empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Remove a generated output file:
 
 ```
@@ -104,9 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrPathNotFound",
                 "ErrInvalidPath",
                 "ErrAccessDenied",
-                "ErrResourceBusy",
                 "ErrInvalidArgument",
-                "ErrAlreadyExists",
             ],
             body: Body::abi_function(lower_fs_delete_file),
         }],

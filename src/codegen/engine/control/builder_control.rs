@@ -2431,7 +2431,12 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Eval { value } => {
-                        self.lower_value(value)?;
+                        // bug-744: a statement discards its value, so a
+                        // `Nothing` call here needs no `NOTHING` materialized.
+                        self.value_discarded_armed = true;
+                        let lowered = self.lower_value(value);
+                        self.value_discarded_armed = false;
+                        lowered?;
                     }
                     NirOp::Return { value } => {
                         // bug-567: the watermark travels with the statement so the

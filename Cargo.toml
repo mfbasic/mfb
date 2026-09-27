@@ -686,6 +686,10 @@ name = "rt_thread_accept_res_drop_closes"
 path = "tests/net/rt_thread_accept_res_drop_closes.rs"
 
 [[test]]
+name = "rt_tls_accept_handshake_budget"
+path = "tests/net/rt_tls_accept_handshake_budget.rs"
+
+[[test]]
 name = "rt_tls_connect_allow_self_signed"
 path = "tests/net/rt_tls_connect_allow_self_signed.rs"
 
@@ -767,6 +771,14 @@ name = "rt_fs_closed_handle_guards"
 path = "tests/runtime/rt_fs_closed_handle_guards.rs"
 
 [[test]]
+name = "rt_fs_host_error_classification"
+path = "tests/runtime/rt_fs_host_error_classification.rs"
+
+[[test]]
+name = "rt_moved_handle_guards"
+path = "tests/runtime/rt_moved_handle_guards.rs"
+
+[[test]]
 name = "rt_fs_create_directories_existing_entry"
 path = "tests/runtime/rt_fs_create_directories_existing_entry.rs"
 
@@ -841,6 +853,14 @@ path = "tests/runtime/rt_inline_trap_nested_call.rs"
 [[test]]
 name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
+
+[[test]]
+name = "rt_nothing_func_value_position"
+path = "tests/runtime/rt_nothing_func_value_position.rs"
+
+[[test]]
+name = "rt_nothing_collections"
+path = "tests/runtime/rt_nothing_collections.rs"
 
 [[test]]
 name = "rt_inline_trap_raising_operator"

@@ -85,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
             ],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrInvalidArgument", "ErrResourceClosed"],
+            errors: vec!["ErrInvalidArgument", "ErrResourceClosed", "ErrResourceMoved"],
             body: super::native_body(lower_set_write_timeout, &[]),
         }],
     });

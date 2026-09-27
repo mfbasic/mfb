@@ -65,7 +65,7 @@ does not already say.
 
 | Element type | Payload width |
 |---|---|
-| `Boolean`, `Byte` | 1 |
+| `Nothing`, `Boolean`, `Byte` | 1 |
 | `Scalar` | 4 |
 | `Integer`, `Float`, `Fixed`, `Money` | 8 |
 
@@ -159,6 +159,7 @@ by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLL
 | Type | Identifier | Payload | Align |
 |------|------------|---------|-------|
 | none/list key | 0 | — | — |
+| `Nothing` | 1 | 1 byte, always `0` | 1 |
 | `Boolean` | 2 | 1 byte | 1 |
 | `Integer` | 3 | 8 bytes | 8 |
 | `Float` | 4 | 8 bytes | 8 |
@@ -170,6 +171,12 @@ by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLL
 | `List` | 20 | inlined block | 8 |
 | `Map` | 21 | inlined block | 8 |
 | user-defined object | 22 | inlined block | 8 |
+
+> **A `Nothing` payload is the constant byte `0`.** The unit type has one value, so every
+> stored payload is identical. A store writes `0` whatever register the value arrived in,
+> and any two `Nothing` payloads compare equal without reading them. A `Set OF Nothing` or
+> a `Map OF Nothing TO V` therefore holds at most one entry.
+> [[src/codegen/error/constants/error_constants.rs:COLLECTION_TYPE_NOTHING]]
 
 > **`Scalar` is the only 4-byte element type.** Every other payload is either
 > 1-byte or 8-byte aligned, so a decoder that infers the stride from the shape of

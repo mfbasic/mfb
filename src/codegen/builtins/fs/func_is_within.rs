@@ -64,12 +64,10 @@ open a caller-supplied name that cannot escape a trusted root, use
 
 An empty `base` or `child`, or one containing a NUL byte, raises
 `ErrInvalidArgument`. When either path cannot be resolved the call raises the
-error `fs::canonicalPath` would: `ErrNotFound` if a component does not exist,
-`ErrAccessDenied` if a directory on the way may not be searched, and
-`ErrWriteFailed` for any other failure. `ErrOutOfMemory` means the program ran
-out of memory. The table also lists `ErrAlreadyExists` because every `fs`
-function that takes a path reports host refusals through one shared set of
-errors; resolving a path never produces it."#;
+error `fs::canonicalPath` would: `ErrPathNotFound` if a component does not
+exist, `ErrAccessDenied` if a directory on the way may not be searched,
+`ErrInvalidPath` if the path cannot name an entry, and `ErrReadFailed` for any
+other failure. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Guard against escaping a root directory:
 
 ```
@@ -146,11 +144,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![
                 "ErrOutOfMemory",
-                "ErrWriteFailed",
                 "ErrAccessDenied",
                 "ErrInvalidArgument",
-                "ErrNotFound",
-                "ErrAlreadyExists",
+                "ErrInvalidPath",
+                "ErrPathNotFound",
+                "ErrReadFailed",
             ],
             body: Body::abi_function(lower_fs_is_within),
         }],
