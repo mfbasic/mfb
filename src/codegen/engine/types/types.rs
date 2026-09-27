@@ -367,7 +367,7 @@ pub(crate) trait CodegenPlatform {
     /// `dlsym(handle, name)`; Windows overrides it with `GetProcAddress`.
     fn emit_lib_get_sym(
         &self,
-        handle_reg: &str,
+        handle_reg: crate::target::shared::abi::Reg,
         symbol_symbol: &str,
         from: &str,
         platform_imports: &HashMap<String, String>,
@@ -630,13 +630,20 @@ pub(crate) trait CodegenPlatform {
     /// intent-level (47-E §4.1) because a `struct termios` and its per-field
     /// offsets/flag bits are POSIX-only — Windows raw mode is a `SetConsoleMode`
     /// bitmask on a handle, with no struct to edit.
+    ///
+    /// `scratch` names two integer vregs the edit may use, minted (or owned) by
+    /// the caller: the method emits into the caller's instruction stream, so a
+    /// name it invented itself could alias one of the caller's live vregs
+    /// (bug-721).
+    #[allow(clippy::too_many_arguments)]
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: crate::target::shared::abi::Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        scratch: [crate::target::shared::abi::Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     );
     /// A terminal line-discipline control call (plan-47-G G1 chokepoint). The
@@ -724,9 +731,9 @@ pub(crate) trait CodegenPlatform {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: crate::target::shared::abi::Reg,
+        mask: crate::target::shared::abi::Reg,
+        expected: crate::target::shared::abi::Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -765,7 +772,7 @@ pub(crate) trait CodegenPlatform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: crate::target::shared::abi::Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -892,10 +899,10 @@ pub(crate) trait CodegenPlatform {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: crate::target::shared::abi::Reg,
+        namelen: crate::target::shared::abi::Reg,
+        byte: crate::target::shared::abi::Reg,
+        scratch: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     );
     fn emit_realpath(
@@ -912,7 +919,7 @@ pub(crate) trait CodegenPlatform {
     /// register) are hardcoded physicals, as a syscall requires.
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
@@ -974,10 +981,16 @@ pub(crate) trait CodegenPlatform {
     /// does `fcntl(fd, F_SETFL, flags | O_NONBLOCK)`; Windows does
     /// `ioctlsocket(fd, FIONBIO, &1)` — a different *call*, not just a different
     /// constant (47-E §3.1), which is why `O_NONBLOCK` cannot stay a constant.
+    ///
+    /// `scratch` is an integer vreg the caller minted for the `O_NONBLOCK` OR.
+    /// The method emits into the caller's instruction stream, so a name it
+    /// invented itself could alias one of the caller's live vregs (bug-721).
+    #[allow(clippy::too_many_arguments)]
     fn emit_set_nonblocking(
         &self,
         fd_offset: usize,
         flags_offset: usize,
+        scratch: crate::target::shared::abi::Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
@@ -1372,8 +1385,13 @@ pub(crate) struct ArenaLayout {
     /// program uses `enableMouse`/`pollMouse`. Reserved just past the
     /// presentation-mode word, so no existing offset moves.
     pub(crate) mouse_state_offset: Option<usize>,
+    /// bug-699: byte offset of the input-buffer region, when a reader in the
+    /// program decodes through it. Reserved just past the mouse-state region, so
+    /// no existing offset moves.
+    pub(crate) input_state_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state + the app presentation-mode slot + the mouse-state region.
+    /// `term::` state + the app presentation-mode slot + the mouse-state region +
+    /// the input-buffer region.
     /// `thread::start` sizes a worker's arena block from this so the worker's region
     /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,

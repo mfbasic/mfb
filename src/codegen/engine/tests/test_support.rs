@@ -10,7 +10,6 @@
 //! hooks are `unimplemented!()` because the helpers under test never call them.
 
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -21,7 +20,7 @@ impl CodegenPlatform for TestPlatform {
     fn target(&self) -> &'static str { "linux_aarch64" }
     fn arch(&self) -> &'static str { "aarch64" }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
+    fn emit_apply_raw_mode(&self, _b: abi::Reg, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [abi::Reg; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(&self, _from: &str, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_program_exit") }
     fn emit_write(&self, _from: &str, _pi: &HashMap<String, String>, i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // A plain `bl _write` leaving the request length in the return register
@@ -41,11 +40,11 @@ impl CodegenPlatform for TestPlatform {
     }
     fn emit_path_exists(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_path_exists") }
     fn emit_path_stat(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_path_stat") }
-    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_stat_is_kind") }
+    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: abi::Reg, _mk: abi::Reg, _e: abi::Reg, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_stat_is_kind") }
     fn emit_current_directory(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_current_directory") }
     fn emit_environ_pointer(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_environ_pointer") }
     fn emit_fs_path_operation(&self, _from: &str, _op: FsPathOperation, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_fs_path_operation") }
-    fn emit_errno(&self, _from: &str, dst: Operand, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_errno(&self, _from: &str, dst: abi::Reg, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // Leave a plausible errno value in `dst`; a plain move is enough for
         // helpers (e.g. the non-blocking connect timeout path) to lower and
         // register-allocate.
@@ -70,9 +69,9 @@ impl CodegenPlatform for TestPlatform {
     fn emit_opendir(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_opendir") }
     fn emit_readdir(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_readdir") }
     fn emit_closedir(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_closedir") }
-    fn emit_read_dir_entry(&self, _p: &str, _np: &str, _nl: &str, _b: &str, _s: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_read_dir_entry") }
+    fn emit_read_dir_entry(&self, _p: &str, _np: abi::Reg, _nl: abi::Reg, _b: abi::Reg, _s: abi::Reg, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_read_dir_entry") }
     fn emit_realpath(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_realpath") }
-    fn emit_arena_map(&self, _size_reg: &str, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_map") }
+    fn emit_arena_map(&self, _size_reg: abi::Reg, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_map") }
     fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_unmap") }
     fn addrinfo_addr_offset(&self) -> usize { 24 }
     fn sol_socket(&self) -> &'static str { "1" }
@@ -90,7 +89,7 @@ impl CodegenPlatform for TestPlatform {
     fn socket_would_block_code(&self) -> &'static str { "11" }
     fn socket_message_size_code(&self) -> &'static str { "90" }
     fn socket_in_progress_code(&self) -> &'static str { "115" }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: abi::Reg, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // The openssl non-blocking connect toggles the socket via this seam; a
         // plain `bl` lets the helper lower so the release-block tests can inspect it.
         instructions.push(abi::branch_link("_fcntl"));
@@ -356,6 +355,7 @@ impl<'a> BuilderHarness<'a> {
             term_state_offset: None,
             presentation_mode_offset: None,
             mouse_state_offset: None,
+            input_state_offset: None,
             arena_global_slots: 0,
             uses_rng: false,
             debug_arena_registry: false,

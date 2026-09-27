@@ -2,6 +2,7 @@
 
 pub mod canvas_image;
 pub mod debug_report;
+pub mod ncode_emu;
 
 use std::fs;
 use std::io::{Read, Write};
@@ -261,6 +262,30 @@ pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Valu
     assert!(
         output.status.success(),
         "mfb build -ncode -target {target} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let path = project.join(format!("{name}.ncode"));
+    let text = fs::read_to_string(&path).expect("read ncode dump");
+    serde_json::from_str(&text).expect("parse ncode json")
+}
+
+/// [`build_ncode`] for an `--app` build: the dump then carries the target's app
+/// bootstrap (window procedures, key handlers), which a console build has none of.
+pub fn build_ncode_app(project: &Path, target: &str, name: &str) -> serde_json::Value {
+    let output = Command::new(mfb_exe())
+        .arg("build")
+        .arg("-q")
+        .arg("-ncode")
+        .arg("--app")
+        .arg("-target")
+        .arg(target)
+        .arg(project)
+        .output()
+        .expect("run mfb build -ncode --app");
+    assert!(
+        output.status.success(),
+        "mfb build -ncode --app -target {target} failed:\n{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
@@ -1343,6 +1368,52 @@ pub fn is_stack_base(instruction: &serde_json::Value) -> bool {
 /// The same test, for a base register already extracted as a string.
 pub fn is_stack_register(name: &str) -> bool {
     name == "sp" || name == "rsp"
+}
+
+/// The instructions of one function's code plan that lie OFF its inline-raise
+/// error exits — for an owner count that means "one owner on the normal path".
+///
+/// bug-695 made an inline raise (a checked `+`, a failing conversion, an
+/// allocation failure) leave the function the way a failing call does: it frees
+/// the statement's pending temps at the raise site and branches to a landing pad
+/// that drops every live cleanup. Those drops run INSTEAD of the normal-path ones,
+/// never besides them, so counting them as extra owners is wrong. Two regions are
+/// skipped:
+///
+/// * a raise site's exit: from the `_mfb_rt_park_error` call that directly follows
+///   `_mfb_make_error_result` up to and including the first `ret` or unconditional
+///   `b` (stopping at the FIRST one can only keep too much, so a count errs high
+///   and fails, never low and passes);
+/// * the landing pads, all placed after the function body: everything from the
+///   first `error_return_pad*` label on.
+pub fn outside_inline_error_exits(instructions: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+    let mut kept = Vec::new();
+    let mut in_exit = false;
+    let mut previous_target: Option<&str> = None;
+    for instruction in instructions {
+        let op = instruction["op"].as_str();
+        let target = instruction["target"].as_str();
+        if op == Some("label")
+            && instruction["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("error_return_pad"))
+        {
+            break;
+        }
+        if in_exit {
+            if matches!(op, Some("ret") | Some("b")) {
+                in_exit = false;
+            }
+        } else if target == Some("_mfb_rt_park_error")
+            && previous_target == Some("_mfb_make_error_result")
+        {
+            in_exit = true;
+        } else {
+            kept.push(instruction);
+        }
+        previous_target = if op == Some("bl") { target } else { None };
+    }
+    kept
 }
 
 /// A minimal TrueType face, for tests that must construct a `canvas::Text`.

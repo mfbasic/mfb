@@ -10,7 +10,6 @@
 use super::*;
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::mir;
-use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 struct TlsReadTestPlatform;
@@ -20,7 +19,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
+    fn emit_apply_raw_mode(&self, _b: crate::target::shared::abi::Reg, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [crate::target::shared::abi::Reg; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,
     _from: &str,
@@ -69,7 +68,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_stat") }
-    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
+    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: crate::target::shared::abi::Reg, _mk: crate::target::shared::abi::Reg, _e: crate::target::shared::abi::Reg, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
     fn emit_current_directory(
     &self,
     _from: &str,
@@ -95,7 +94,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn emit_errno(
     &self,
     _from: &str,
-    _dst: Operand,
+    _dst: crate::target::shared::abi::Reg,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
@@ -219,7 +218,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_closedir") }
-    fn emit_read_dir_entry(&self, _p: &str, _np: &str, _nl: &str, _b: &str, _s: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
+    fn emit_read_dir_entry(&self, _p: &str, _np: crate::target::shared::abi::Reg, _nl: crate::target::shared::abi::Reg, _b: crate::target::shared::abi::Reg, _s: crate::target::shared::abi::Reg, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
     fn emit_realpath(
     &self,
     _from: &str,
@@ -229,7 +228,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_realpath") }
     fn emit_arena_map(
     &self,
-    _size_reg: &str,
+    _size_reg: crate::target::shared::abi::Reg,
     _instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_map") }
     fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
@@ -249,7 +248,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn socket_would_block_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_would_block_code") }
     fn socket_message_size_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_message_size_code") }
     fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _s: crate::target::shared::abi::Reg, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
     fn emit_variadic_external_call(
     &self,
@@ -548,8 +547,8 @@ fn accept_stores_zero_queue_slot() {
     // loaded queue exists by checking the record store uses the zero register.
     let stores_zero_queue = ins.iter().any(|i| {
         i.op == CodeOp::StrU64
-            && i.get("src").as_deref() == Some(abi::ZERO)
-            && i.get("base").as_deref() == Some(abi::mfb_return(1).render().as_str())
+            && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+            && i.get("base").as_deref() == Some(abi::mfb_return(1).to_string().as_str())
             && i.get("offset").as_deref() == Some(&REC_QUEUE.to_string())
     });
     assert!(
@@ -716,8 +715,8 @@ fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
     for slot in CLEANUP_SLOTS {
         let zeroed = ins[..first_fail].iter().any(|i| {
             i.get("offset").as_deref() == Some(slot)
-                && i.get("src").as_deref() == Some(abi::ZERO)
-                && i.get("base").as_deref() == Some(abi::stack_pointer())
+                && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+                && i.get("base").as_deref() == Some(abi::SP_SPELLING)
         });
         assert!(
             zeroed,
@@ -891,7 +890,7 @@ fn trampolines_publish_the_error_domain_before_the_gate() {
                 .iter()
                 .find(|f| f.symbol == symbol)
                 .unwrap_or_else(|| panic!("{symbol} is emitted (server={server})"));
-            let stores_to = |off: usize| ctx_stores(&f.instructions, abi::LOCAL[0], off);
+            let stores_to = |off: usize| ctx_stores(&f.instructions, abi::LOCAL_SPELLINGS[0], off);
             let edom = stores_to(CTX_EDOM);
             assert_eq!(edom.len(), 1, "{symbol} stores CTX_EDOM exactly once");
             let edom = edom[0].0;
@@ -998,6 +997,107 @@ fn write_loads_its_gates_by_load_acquire() {
             classify.iter().any(|i| i.op == CodeOp::LdrU32
                 && i.get("offset").as_deref() == Some(&CTX_EDOM.to_string())),
             "the payload load stays where the gate loads precede it"
+        );
+    }
+}
+
+// bug-564 (found while measuring the OPEN finding): `tls::write`'s terminal-state
+// guard (`CTX_STATE >= 4`, bug-386/483) ran AFTER `dispatch_data_create`, and
+// `write_classify`'s exits never release that content. So every write to a
+// failed connection leaked the copy of its payload `dispatch_data_create` had
+// just made — a program that TRAPs each failing write and retries grows by the
+// payload size per attempt. The guard must run before the content exists.
+#[test]
+fn write_checks_the_terminal_state_before_creating_its_content() {
+    use crate::codegen::builtins::tls::gen_macos::CTX_STATE;
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    for text in [false, true] {
+        let (ins, _rel, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, text).expect("lower");
+        let first_resolve = |name: &str| {
+            let want = sym_data_symbol(name);
+            ins.iter()
+                .position(|i| i.get("symbol").as_deref() == Some(&want))
+                .unwrap_or_else(|| panic!("tls::write resolves {name}"))
+        };
+        let create = first_resolve("dispatch_data_create");
+        let state_guard = ins
+            .iter()
+            .enumerate()
+            .position(|(n, i)| {
+                i.op == CodeOp::LdarU32
+                    && n > 0
+                    && ins[n - 1].get("imm").as_deref() == Some(&CTX_STATE.to_string())
+            })
+            .expect("tls::write keeps its terminal-state guard");
+        assert!(
+            state_guard < create,
+            "tls::write (text={text}): the terminal-state guard (index {state_guard}) must \
+             run before dispatch_data_create ({create}); its failure exit does not \
+             release the content, so a guard after the create leaks one payload copy \
+             per failed write"
+        );
+    }
+}
+
+// bug-564 (owner decision 2026-09-25): once `tls::read` has reported the peer's
+// close, every later `tls::write` raises `ErrConnectionClosed` on every target.
+// Network.framework gives the writer nothing to go on (sends complete with no
+// error, the connection stays `ready`), so the read records the close in
+// `CTX_RXEOF` and the write checks it FIRST: before any call, so it neither
+// creates the `dispatch_data` content nor posts a send. The pair is
+// store-release / load-acquire, like the handler gates.
+#[test]
+fn a_read_that_reports_the_close_makes_every_later_write_raise() {
+    use crate::codegen::builtins::tls::gen_macos::CTX_RXEOF;
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let rxeof = CTX_RXEOF.to_string();
+    let addresses_flag = |ins: &[CodeInstruction], n: usize| {
+        n > 0
+            && ins[n - 1].op == CodeOp::AddImm
+            && ins[n - 1].get("imm").as_deref() == Some(rxeof.as_str())
+            && ins[n - 1].get("dst") == ins[n].get("base")
+    };
+
+    let (ins, _rel, _s) =
+        lower_tls_read_macos("t_r", &imports, &TlsReadTestPlatform).expect("lower tls::read");
+    let from = ins
+        .iter()
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_r_peer_closed"))
+        .expect("tls::read has a peer_closed exit");
+    let sets = (from..ins.len())
+        .take_while(|&n| n == from || ins[n].op != CodeOp::Label)
+        .any(|n| ins[n].op == CodeOp::StlrU64 && addresses_flag(&ins, n));
+    assert!(
+        sets,
+        "tls::read's peer_closed exit must publish CTX_RXEOF with a store-release"
+    );
+
+    for text in [false, true] {
+        let (ins, _rel, _s) =
+            lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, text).expect("lower");
+        let check = (0..ins.len())
+            .find(|&n| ins[n].op == CodeOp::LdarU64 && addresses_flag(&ins, n))
+            .unwrap_or_else(|| {
+                panic!("tls::write (text={text}) must load CTX_RXEOF with a load-acquire")
+            });
+        assert!(
+            ins[check..(check + 4).min(ins.len())]
+                .iter()
+                .any(|i| i.op == CodeOp::BranchNe
+                    && i.get("target").as_deref() == Some("t_w_peer_closed")),
+            "tls::write (text={text}): a set CTX_RXEOF must raise ErrConnectionClosed"
+        );
+        let first_call = ins
+            .iter()
+            .position(|i| matches!(i.op, CodeOp::BranchLink | CodeOp::BranchLinkRegister))
+            .expect("tls::write calls something");
+        assert!(
+            check < first_call,
+            "tls::write (text={text}): the CTX_RXEOF check (index {check}) must come before \
+             the first call ({first_call}), so nothing is created or sent"
         );
     }
 }

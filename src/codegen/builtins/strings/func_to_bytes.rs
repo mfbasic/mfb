@@ -247,7 +247,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::list_of(ParameterType::Byte),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.toBytes".to_string(),
     })
 }

@@ -7,6 +7,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 
 fn store_cstr(ins: &mut Vec<CodeInstruction>, offset: usize, text: &str) {
@@ -95,8 +96,8 @@ pub(crate) fn lower_version(
             let digit = vregs.next();
             let write = vregs.next();
             let div_loop = |ins: &mut Vec<CodeInstruction>,
-                            n: &str,
-                            digit: &str,
+                            n: Reg,
+                            digit: Reg,
                             divisor: usize,
                             suffix: &str| {
                 let loop_l = format!("{symbol}_version_div_{suffix}");
@@ -131,7 +132,7 @@ pub(crate) fn lower_version(
                 abi::add_immediate(&write, abi::stack_pointer(), BUF),
             ]);
             for (divisor, suffix) in [(10000, "10000"), (1000, "1000"), (100, "100"), (10, "10")] {
-                div_loop(&mut instructions, &n, &digit, divisor, suffix);
+                div_loop(&mut instructions, n.into(), digit.into(), divisor, suffix);
                 instructions.extend([
                     abi::store_u8(&digit, &write, 0),
                     abi::add_immediate(&write, &write, 1),

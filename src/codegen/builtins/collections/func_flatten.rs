@@ -108,7 +108,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: inner_type.clone(),
-            location: Operand::from(result_reg.render()),
+            location: Operand::from(result_reg),
             text: format!("flatten({outer_type})"),
         })
     }

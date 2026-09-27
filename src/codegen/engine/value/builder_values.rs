@@ -34,6 +34,7 @@ impl<'a> CodeBuilder<'a> {
             presentation_mode_offset: None,
             // The mouse-state region is likewise an `abi_function` concern.
             mouse_state_offset: None,
+            input_state_offset: None,
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",
@@ -317,7 +318,7 @@ impl CodeBuilder<'_> {
         let reloaded = self.allocate_register();
         self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
         Ok(Ok(ValueResult {
-            location: Operand::from(reloaded.render()),
+            location: Operand::from(reloaded),
             ..parked_result
         }))
     }
@@ -538,7 +539,7 @@ impl CodeBuilder<'_> {
         self.pending_temp_frees.push(PendingTemp {
             type_: type_.clone(),
             slot,
-            location: Operand::from(pointer.render()),
+            location: Operand::from(pointer),
             shallow,
         });
     }
@@ -786,7 +787,7 @@ impl CodeBuilder<'_> {
         let slot = parked.expect("a reloadable escaping value was parked");
         let reloaded = self.allocate_register();
         self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
-        Ok(Some(Operand::from(reloaded.render())))
+        Ok(Some(Operand::from(reloaded)))
     }
 
     /// Lower a value that is being stored into a longer-lived or independently
@@ -873,7 +874,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
-                location: Operand::from(copied.render()),
+                location: Operand::from(copied),
                 text: result.text,
             });
         }
@@ -891,7 +892,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
-                location: Operand::from(copied.render()),
+                location: Operand::from(copied),
                 text: result.text,
             });
         }
@@ -1553,7 +1554,7 @@ impl CodeBuilder<'_> {
         let copied = ValueResult {
             origin: None,
             type_: result.type_,
-            location: Operand::from(copied.render()),
+            location: Operand::from(copied),
             text: result.text,
         };
         if owned && inline {
@@ -1716,12 +1717,6 @@ impl CodeBuilder<'_> {
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let scratch9_reg = self.temporary_vreg();
         let scratch10_reg = self.temporary_vreg();
-        // A third scratch vreg was consumed by the union-wrap data-variant
-        // field-copy loop (now removed as unreachable — every data variant
-        // returns early via `emit_wrap_record_in_union`). The allocation is kept
-        // so `next_vreg` — and therefore the byte-identical codegen it drives —
-        // is unchanged.
-        let _ = self.temporary_vreg();
         let scratch9 = &scratch9_reg;
         let scratch10 = &scratch10_reg;
         if let Some(string_value) = self.static_string_value(value) {
@@ -1729,7 +1724,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::String,
-                location: Operand::from(register.render()),
+                location: Operand::from(register),
                 text: format!("String({string_value})"),
             });
         }
@@ -1749,7 +1744,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("{type_}({value})"),
                 })
             }
@@ -1804,7 +1799,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: type_name.clone(),
-                        location: Operand::from(d.render()),
+                        location: Operand::from(d),
                         text: name.clone(),
                     });
                 }
@@ -1820,7 +1815,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_name.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: name.clone(),
                 })
             }
@@ -1846,7 +1841,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("&{name}"),
                 })
             }
@@ -1867,7 +1862,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: value_type.clone(),
-                        location: Operand::from(d.render()),
+                        location: Operand::from(d),
                         text: name.clone(),
                     });
                 }
@@ -1876,7 +1871,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: value_type.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: name.clone(),
                 })
             }
@@ -1916,7 +1911,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(closure_register.render()),
+                    location: Operand::from(closure_register),
                     text: name.clone(),
                 })
             }
@@ -2151,7 +2146,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(closure_register.render()),
+                    location: Operand::from(closure_register),
                     text: name.clone(),
                 })
             }
@@ -2165,7 +2160,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("capture[{index}]"),
                 })
             }
@@ -2204,7 +2199,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                Operand::from(register.render())
+                                Operand::from(register)
                             },
                             text: target.clone(),
                         };
@@ -2231,7 +2226,7 @@ impl CodeBuilder<'_> {
                         let callable = ValueResult {
                             origin: None,
                             type_: global.type_.clone(),
-                            location: Operand::from(register.render()),
+                            location: Operand::from(register),
                             text: target.clone(),
                         };
                         return self.emit_function_value_call(
@@ -2296,7 +2291,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::String,
-                        location: Operand::from(register.render()),
+                        location: Operand::from(register),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -2376,7 +2371,7 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     local.stack_offset,
                                 ));
-                                Operand::from(register.render())
+                                Operand::from(register)
                             },
                             text: target.clone(),
                         };
@@ -2674,7 +2669,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::String,
-                        location: Operand::from(register.render()),
+                        location: Operand::from(register),
                         text: format!("typeName({type_name})"),
                     });
                 }
@@ -2767,7 +2762,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: type_.clone(),
-                        location: Operand::from(result.render()),
+                        location: Operand::from(result),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
@@ -2843,7 +2838,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: union_type.clone(),
-                        location: Operand::from(register.render()),
+                        location: Operand::from(register),
                         text: format!("wrap {member_type} as {union_type}"),
                     });
                 }
@@ -2907,7 +2902,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: union_type.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("wrap {member_type} as {union_type}"),
                 })
             }
@@ -2921,7 +2916,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: type_.clone(),
-                        location: Operand::from(register.render()),
+                        location: Operand::from(register),
                         text: format!("extract {type_} from {}", source.text),
                     });
                 }
@@ -2934,7 +2929,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("extract {type_} from {}", source.text),
                 })
             }
@@ -2954,7 +2949,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::Boolean,
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "resultIsOk".to_string(),
                 })
             }
@@ -2979,7 +2974,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "resultValue".to_string(),
                 })
             }
@@ -2991,7 +2986,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::named("Error"),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "resultError".to_string(),
                 })
             }
@@ -3048,7 +3043,7 @@ impl CodeBuilder<'_> {
                         return Ok(ValueResult {
                             origin: None,
                             type_: ParameterType::declared(type_name),
-                            location: Operand::from(register.render()),
+                            location: Operand::from(register),
                             text: format!("{type_name}.{member}"),
                         });
                     }
@@ -3103,7 +3098,7 @@ impl CodeBuilder<'_> {
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::Boolean,
-                        location: Operand::from(register.render()),
+                        location: Operand::from(register),
                         text: format!("(NOT {})", operand.text),
                     });
                 }
@@ -3362,7 +3357,7 @@ impl CodeBuilder<'_> {
             arg_values.push(ValueResult {
                 origin,
                 type_,
-                location: Operand::from(register.render()),
+                location: Operand::from(register),
                 text,
             });
         }
@@ -3537,7 +3532,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::String,
-                location: Operand::from(register.render()),
+                location: Operand::from(register),
                 text: format!("typeName({type_name})"),
             });
         }

@@ -164,9 +164,14 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
             continue;
         }
 
-        let dst = match instructions[j].get("dst") {
-            Some(d) => d,
-            None => continue,
+        // The registers the two instructions already name, as the typed operands
+        // they carry (bug-721): the fused op reuses them, it names none of its own.
+        let register = |k: usize, field: &str| instructions[k].operand(field).map(abi::Reg::from);
+        let Some(dst) = register(j, "dst") else {
+            continue;
+        };
+        let (Some(a_reg), Some(b_reg)) = (register(i, "lhs"), register(i, "rhs")) else {
+            continue;
         };
         // `get()` already owns; the former `.to_string()` re-cloned.
         let lhs = instructions[j].get("lhs").unwrap_or_default();
@@ -176,16 +181,28 @@ pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
         // the consumer adds or subtracts. `c` is the other (addend) operand.
         let fused = if consumer_op == CodeOp::FAddD && lhs == product {
             // w = product + rhs  →  rhs + a*b
-            abi::float_multiply_add_d(&dst, &rhs, &a, &b)
+            let Some(c) = register(j, "rhs") else {
+                continue;
+            };
+            abi::float_multiply_add_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FAddD && rhs == product {
             // w = lhs + product  →  lhs + a*b
-            abi::float_multiply_add_d(&dst, &lhs, &a, &b)
+            let Some(c) = register(j, "lhs") else {
+                continue;
+            };
+            abi::float_multiply_add_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FSubD && lhs == product {
             // w = product - rhs  →  a*b - rhs
-            abi::float_multiply_sub_d(&dst, &rhs, &a, &b)
+            let Some(c) = register(j, "rhs") else {
+                continue;
+            };
+            abi::float_multiply_sub_d(dst, c, a_reg, b_reg)
         } else if consumer_op == CodeOp::FSubD && rhs == product {
             // w = lhs - product  →  lhs - a*b
-            abi::float_negate_multiply_sub_d(&dst, &lhs, &a, &b)
+            let Some(c) = register(j, "lhs") else {
+                continue;
+            };
+            abi::float_negate_multiply_sub_d(dst, c, a_reg, b_reg)
         } else {
             // `product` appears in a non-register field (should not happen for
             // fadd/fsub) — leave untouched.
@@ -212,7 +229,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, crate::codegen::engine::operand::Operand::parse(v));
         }
         inst
     }

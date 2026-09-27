@@ -35,7 +35,6 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::regalloc::analysis::{build_cfg, classify_ref, is_use_field, RegRef};
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use super::branches::{bits, verdict};
@@ -333,7 +332,7 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
     // alone — they never execute, and folding the guarding branch is what
     // exposes them to the unreachable-block row.
     enum Rewrite {
-        Constant(String, u64),
+        Constant(u64),
         Unconditional(Operand),
         Delete,
     }
@@ -362,9 +361,9 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
             continue;
         }
         match fold_one(&instructions[i], &|field| const_input(&lattice, i, field)) {
-            Step::Replace(dst, value) => planned.push((i, Rewrite::Constant(dst, value))),
-            Step::Record(dst, value) if instructions[i].op == CodeOp::Mov => {
-                planned.push((i, Rewrite::Constant(dst, value)))
+            Step::Replace(_, value) => planned.push((i, Rewrite::Constant(value))),
+            Step::Record(_, value) if instructions[i].op == CodeOp::Mov => {
+                planned.push((i, Rewrite::Constant(value)))
             }
             _ => {}
         }
@@ -374,8 +373,8 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
     let mut deleted: Vec<usize> = Vec::new();
     for (i, rewrite) in planned {
         match rewrite {
-            Rewrite::Constant(dst, value) => {
-                instructions[i] = abi::move_immediate(&dst, "Integer", &value.to_string());
+            Rewrite::Constant(value) => {
+                instructions[i] = super::constant_into_dst(&instructions[i], value);
             }
             Rewrite::Unconditional(target) => {
                 instructions[i] = CodeInstruction::new("b").field("target", target);
@@ -407,7 +406,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

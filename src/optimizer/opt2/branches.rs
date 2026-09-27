@@ -174,7 +174,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }
@@ -211,7 +211,7 @@ mod tests {
     fn an_unattributable_definition_clears_every_known_value() {
         let mut stream = vec![
             mov_imm("%v1", "3"),
-            CodeInstruction::new("mov").field("src", "%v9"),
+            CodeInstruction::new("mov").physical_field("src", "%v9"),
             ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "3")]),
             ci("b.eq", &[("target", "yes")]),
             ci("ret", &[]),

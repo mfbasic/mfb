@@ -27,6 +27,7 @@ use crate::codegen::memory::marshal::{
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // The `Certificate` ordinals, framework/library paths, dlsym-name data objects, and
@@ -136,9 +137,11 @@ fn emit_macos_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
+    v9: impl Into<Reg>,
+    vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let v9: Reg = v9.into();
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let load_fail = format!("{symbol}_load_fail");
@@ -403,6 +406,7 @@ fn emit_macos_ec(
         Some(COLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -418,6 +422,7 @@ fn emit_macos_ec(
         Some(PUBCOLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -444,6 +449,7 @@ fn emit_macos_ec(
         &scratch,
         RESULT_VALUE_REGISTER,
         &alloc_fail,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
@@ -460,6 +466,7 @@ fn emit_macos_ec(
         COLL,
         BYTELEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -469,6 +476,7 @@ fn emit_macos_ec(
         PUBCOLL,
         PUBLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -512,6 +520,7 @@ fn emit_macos_ec(
         COLL,
         BYTELEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -521,6 +530,7 @@ fn emit_macos_ec(
         PUBCOLL,
         PUBLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -570,13 +580,16 @@ fn emit_linux_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
+    v9: impl Into<Reg>,
+    v10: impl Into<Reg>,
+    v11: impl Into<Reg>,
+    v12: impl Into<Reg>,
+    v13: impl Into<Reg>,
+    vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let load_fail = format!("{symbol}_load_fail");
@@ -897,6 +910,7 @@ fn emit_linux_ec(
         Some(L_COLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         ins,
         &mut builder.relocations,
     );
@@ -909,6 +923,7 @@ fn emit_linux_ec(
         Some(L_PUBCOLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         ins,
         &mut builder.relocations,
     );
@@ -919,8 +934,8 @@ fn emit_linux_ec(
         abi::load_u64(v9, abi::stack_pointer(), L_FREEPKEY),
         abi::branch_link_register(v9),
     ]);
-    emit_zero_guarded(symbol, L_SEC1PTR, Some(L_SEC1LEN), 0, "sec1S", ins);
-    emit_zero_guarded(symbol, L_RAWBUF, Some(L_RAWLEN), 0, "rawS", ins);
+    emit_zero_guarded(symbol, L_SEC1PTR, Some(L_SEC1LEN), 0, "sec1S", vregs, ins);
+    emit_zero_guarded(symbol, L_RAWBUF, Some(L_RAWLEN), 0, "rawS", vregs, ins);
 
     let scratch = RecordBuildScratch {
         size: L_RSIZE,
@@ -937,6 +952,7 @@ fn emit_linux_ec(
         &scratch,
         RESULT_VALUE_REGISTER,
         &alloc_fail,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
@@ -953,6 +969,7 @@ fn emit_linux_ec(
         L_COLL,
         L_RAWLEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -962,6 +979,7 @@ fn emit_linux_ec(
         L_PUBCOLL,
         L_POINTLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -998,72 +1016,78 @@ fn emit_linux_ec(
 
     // Error exits: free pkey/eckey (null-guarded via the pre-resolved free fns),
     // wipe the SEC1 scratch, then fail.
-    let cleanup =
-        |ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>, tag: &str, v9: &str| {
-            let skip_pk = format!("{symbol}_{tag}_nopk");
-            let skip_ec = format!("{symbol}_{tag}_noec");
-            ins.extend([
-                abi::load_u64(abi::return_register(), abi::stack_pointer(), L_PKEY),
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&skip_pk),
-                abi::load_u64(v9, abi::stack_pointer(), L_FREEPKEY),
-                abi::branch_link_register(v9),
-                abi::label(&skip_pk),
-                abi::load_u64(abi::return_register(), abi::stack_pointer(), L_ECKEY),
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&skip_ec),
-                abi::load_u64(v9, abi::stack_pointer(), L_FREEECKEY),
-                abi::branch_link_register(v9),
-                abi::label(&skip_ec),
-            ]);
-            emit_zero_guarded(
-                symbol,
-                L_SEC1PTR,
-                Some(L_SEC1LEN),
-                0,
-                &format!("{tag}w"),
-                ins,
-            );
-            // bug-625: the raw buffer holds the scalar too; wipe it, then free all three.
-            emit_zero_guarded(
-                symbol,
-                L_RAWBUF,
-                Some(L_RAWLEN),
-                0,
-                &format!("{tag}rw"),
-                ins,
-            );
-            emit_free_buffer_guarded(
-                symbol,
-                &format!("{tag}sec1"),
-                L_SEC1PTR,
-                ScratchSize::Slot(L_SEC1LEN),
-                ins,
-                rel,
-            );
-            emit_free_buffer_guarded(
-                symbol,
-                &format!("{tag}spki"),
-                L_SPKIPTR,
-                ScratchSize::Slot(L_SPKILEN),
-                ins,
-                rel,
-            );
-            emit_free_buffer_guarded(
-                symbol,
-                &format!("{tag}raw"),
-                L_RAWBUF,
-                ScratchSize::Slot(L_RAWLEN),
-                ins,
-                rel,
-            );
-        };
+    let cleanup = |ins: &mut Vec<CodeInstruction>,
+                   rel: &mut Vec<CodeRelocation>,
+                   tag: &str,
+                   v9: Reg,
+                   vregs: &mut Vregs| {
+        let skip_pk = format!("{symbol}_{tag}_nopk");
+        let skip_ec = format!("{symbol}_{tag}_noec");
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), L_PKEY),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&skip_pk),
+            abi::load_u64(v9, abi::stack_pointer(), L_FREEPKEY),
+            abi::branch_link_register(v9),
+            abi::label(&skip_pk),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), L_ECKEY),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&skip_ec),
+            abi::load_u64(v9, abi::stack_pointer(), L_FREEECKEY),
+            abi::branch_link_register(v9),
+            abi::label(&skip_ec),
+        ]);
+        emit_zero_guarded(
+            symbol,
+            L_SEC1PTR,
+            Some(L_SEC1LEN),
+            0,
+            &format!("{tag}w"),
+            vregs,
+            ins,
+        );
+        // bug-625: the raw buffer holds the scalar too; wipe it, then free all three.
+        emit_zero_guarded(
+            symbol,
+            L_RAWBUF,
+            Some(L_RAWLEN),
+            0,
+            &format!("{tag}rw"),
+            vregs,
+            ins,
+        );
+        emit_free_buffer_guarded(
+            symbol,
+            &format!("{tag}sec1"),
+            L_SEC1PTR,
+            ScratchSize::Slot(L_SEC1LEN),
+            ins,
+            rel,
+        );
+        emit_free_buffer_guarded(
+            symbol,
+            &format!("{tag}spki"),
+            L_SPKIPTR,
+            ScratchSize::Slot(L_SPKILEN),
+            ins,
+            rel,
+        );
+        emit_free_buffer_guarded(
+            symbol,
+            &format!("{tag}raw"),
+            L_RAWBUF,
+            ScratchSize::Slot(L_RAWLEN),
+            ins,
+            rel,
+        );
+    };
     builder.instructions.push(abi::label(&load_fail));
     cleanup(
         &mut builder.instructions,
         &mut builder.relocations,
         "lf",
         v9,
+        vregs,
     );
     emit_fail(
         symbol,
@@ -1078,6 +1102,7 @@ fn emit_linux_ec(
         &mut builder.relocations,
         "gf",
         v9,
+        vregs,
     );
     emit_fail(
         symbol,
@@ -1092,6 +1117,7 @@ fn emit_linux_ec(
         &mut builder.relocations,
         "af",
         v9,
+        vregs,
     );
     // bug-625: a list built before the failure is freed too.
     emit_free_byte_list_guarded(
@@ -1100,6 +1126,7 @@ fn emit_linux_ec(
         L_COLL,
         L_RAWLEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1109,6 +1136,7 @@ fn emit_linux_ec(
         L_PUBCOLL,
         L_POINTLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1190,13 +1218,16 @@ fn emit_windows_ec(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     symbol: &str,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
+    v9: impl Into<Reg>,
+    v10: impl Into<Reg>,
+    v11: impl Into<Reg>,
+    v12: impl Into<Reg>,
+    v13: impl Into<Reg>,
+    vregs: &mut Vregs,
     done: &str,
 ) -> Result<(), String> {
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
     let fail = format!("{symbol}_wfail");
@@ -1364,7 +1395,15 @@ fn emit_windows_ec(
         ins,
         &mut builder.relocations,
     )?;
-    emit_zero_guarded(symbol, W_BLOB, None, gen_cert::BLOBCAP, "wblobz", ins);
+    emit_zero_guarded(
+        symbol,
+        W_BLOB,
+        None,
+        gen_cert::BLOBCAP,
+        "wblobz",
+        vregs,
+        ins,
+    );
 
     emit_build_byte_list(
         symbol,
@@ -1375,6 +1414,7 @@ fn emit_windows_ec(
         Some(W_COLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         ins,
         &mut builder.relocations,
     );
@@ -1387,6 +1427,7 @@ fn emit_windows_ec(
         Some(W_PUBCOLL),
         abi::mfb_return(1),
         &alloc_fail,
+        vregs,
         ins,
         &mut builder.relocations,
     );
@@ -1406,6 +1447,7 @@ fn emit_windows_ec(
         &scratch,
         RESULT_VALUE_REGISTER,
         &alloc_fail,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     )?;
@@ -1422,6 +1464,7 @@ fn emit_windows_ec(
         W_COLL,
         W_RAWLEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1431,6 +1474,7 @@ fn emit_windows_ec(
         W_PUBCOLL,
         W_POINTLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1441,6 +1485,7 @@ fn emit_windows_ec(
         None,
         gen_cert::BLOBCAP,
         "wokblobz",
+        vregs,
         &mut builder.instructions,
     );
     emit_zero_guarded(
@@ -1449,6 +1494,7 @@ fn emit_windows_ec(
         Some(W_RAWLEN),
         0,
         "wokrawz",
+        vregs,
         &mut builder.instructions,
     );
     emit_free_buffer_guarded(
@@ -1481,6 +1527,7 @@ fn emit_windows_ec(
         None,
         gen_cert::BLOBCAP,
         "wfblobz",
+        vregs,
         &mut builder.instructions,
     );
     emit_zero_guarded(
@@ -1489,6 +1536,7 @@ fn emit_windows_ec(
         Some(W_RAWLEN),
         0,
         "wfrawz",
+        vregs,
         &mut builder.instructions,
     );
     emit_free_buffer_guarded(
@@ -1530,6 +1578,7 @@ fn emit_windows_ec(
         None,
         gen_cert::BLOBCAP,
         "wafblobz",
+        vregs,
         &mut builder.instructions,
     );
     emit_zero_guarded(
@@ -1538,6 +1587,7 @@ fn emit_windows_ec(
         Some(W_RAWLEN),
         0,
         "wafrawz",
+        vregs,
         &mut builder.instructions,
     );
     emit_free_buffer_guarded(
@@ -1563,6 +1613,7 @@ fn emit_windows_ec(
         W_COLL,
         W_RAWLEN,
         true,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1572,6 +1623,7 @@ fn emit_windows_ec(
         W_PUBCOLL,
         W_POINTLEN,
         false,
+        vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -1605,8 +1657,8 @@ pub(crate) fn lower_generate(
     let ord = args[0].location.clone();
 
     // Reserve the body's sp-relative scratch (base 0) so `finalize_vreg_body` sizes
-    // it, and mint the single shared scratch vreg (%v9); the general marshallers use
-    // %v10.. above it.
+    // it, and mint the body's scratch vregs. The marshal helpers mint theirs from the
+    // same `vregs` (bug-564), so no helper can write one of these.
     builder.allocate_stack_object("crypto_generate_scratch", LOCAL_SIZE);
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1628,7 +1680,7 @@ pub(crate) fn lower_generate(
             let p384 = format!("{symbol}_p384");
             let p521 = format!("{symbol}_p521");
             let have = format!("{symbol}_have_params");
-            let set = |ins: &mut Vec<CodeInstruction>, v9: &str, bits: &str, plen: &str| {
+            let set = |ins: &mut Vec<CodeInstruction>, v9: Reg, bits: &str, plen: &str| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", bits),
                     abi::store_u64(v9, abi::stack_pointer(), NUMVAL),
@@ -1652,13 +1704,13 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&ed448),
             ]);
             // P-256 (ordinal 0) falls through here.
-            set(&mut builder.instructions, &v9, "256", "65");
+            set(&mut builder.instructions, Reg::from(v9), "256", "65");
             builder.instructions.push(abi::label(&p384));
-            set(&mut builder.instructions, &v9, "384", "97");
+            set(&mut builder.instructions, Reg::from(v9), "384", "97");
             builder.instructions.push(abi::label(&p521));
-            set(&mut builder.instructions, &v9, "521", "133");
+            set(&mut builder.instructions, Reg::from(v9), "521", "133");
             builder.instructions.push(abi::label(&have));
-            emit_macos_ec(builder, ctx, &symbol, &v9, &done)?;
+            emit_macos_ec(builder, ctx, &symbol, &v9, &mut vregs, &done)?;
         }
         PlatformFamily::Linux => {
             // Select the runtime OpenSSL curve params (nid, point/field lengths, DER
@@ -1669,7 +1721,7 @@ pub(crate) fn lower_generate(
             let sym_owned = symbol.clone();
             let set = |ins: &mut Vec<CodeInstruction>,
                        rel: &mut Vec<CodeRelocation>,
-                       v9: &str,
+                       v9: Reg,
                        c: &OsslCurve| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", c.nid),
@@ -1707,25 +1759,27 @@ pub(crate) fn lower_generate(
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[0],
             );
             builder.instructions.push(abi::label(&lp384));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[1],
             );
             builder.instructions.push(abi::label(&lp521));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &OSSL_CURVES[2],
             );
             builder.instructions.push(abi::label(&have));
-            emit_linux_ec(builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &done)?;
+            emit_linux_ec(
+                builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &mut vregs, &done,
+            )?;
         }
         PlatformFamily::Windows => {
             // Select the runtime CNG curve params (field length, algorithm-id
@@ -1736,7 +1790,7 @@ pub(crate) fn lower_generate(
             let sym_owned = symbol.clone();
             let set = |ins: &mut Vec<CodeInstruction>,
                        rel: &mut Vec<CodeRelocation>,
-                       v9: &str,
+                       v9: Reg,
                        c: &WinCurve| {
                 ins.extend([
                     abi::move_immediate(v9, "Integer", &c.field_len.to_string()),
@@ -1768,25 +1822,27 @@ pub(crate) fn lower_generate(
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[0],
             );
             builder.instructions.push(abi::label(&wp384));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[1],
             );
             builder.instructions.push(abi::label(&wp521));
             set(
                 &mut builder.instructions,
                 &mut builder.relocations,
-                &v9,
+                Reg::from(v9),
                 &WIN_CURVES[2],
             );
             builder.instructions.push(abi::label(&have));
-            emit_windows_ec(builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &done)?;
+            emit_windows_ec(
+                builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &mut vregs, &done,
+            )?;
         }
     }
 

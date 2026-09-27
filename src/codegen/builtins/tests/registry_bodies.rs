@@ -92,7 +92,7 @@ fn sweep_abi_function_bodies(
                     .iter()
                     .map(|param| ValueResult {
                         type_: param.ty.clone(),
-                        location: Operand::from(vregs.next().as_str()),
+                        location: Operand::from(vregs.next()),
                         text: param.name.to_string(),
                         origin: None,
                     })

@@ -55,7 +55,10 @@
 // --- codegen tier imports (migration) ---
 use crate::target::shared::regmodel::RegClass;
 
-use crate::codegen::engine::regalloc::{fp_vreg_name, parse_fp_vreg, parse_vreg, vreg_name};
+use crate::codegen::engine::regalloc::{fp_vreg_name, vreg_name};
+// Parsing a register back out of text is test-only (bug-721): see `Operand::parse`.
+#[cfg(test)]
+use crate::codegen::engine::regalloc::{parse_fp_vreg, parse_vreg};
 
 /// Which calling convention an [`Operand::Abi`] register belongs to (plan-85-A).
 /// The six-token vocabulary that replaces the two overloaded `%arg`/`%ret` role
@@ -166,8 +169,9 @@ pub(crate) enum Operand {
 }
 
 impl Operand {
-    /// A virtual register of `class` numbered `id`.
-    #[allow(dead_code)] // proven by the corpus test; production writers land in plan-82-B/C
+    /// A virtual register of `class` numbered `id`, for a test that builds a stream
+    /// by hand. Production code gets a register only from a minter (bug-721).
+    #[cfg(test)]
     pub(crate) fn vreg(class: RegClass, id: u32) -> Self {
         Operand::VReg { class, id }
     }
@@ -251,7 +255,10 @@ impl Operand {
     ///
     /// Used by the round-trip corpus test in A; once producers migrate (B) they
     /// build the typed arm directly and this is a convenience for the read side.
-    #[allow(dead_code)] // proven by the corpus test; the read-side consumer lands in plan-78-B/C
+    /// Test-only (bug-721): parsing a `%vN` string back into a register is how a
+    /// hand-written name would get past the minters, so production code has no
+    /// string-to-register path at all.
+    #[cfg(test)]
     pub(crate) fn parse(value: &str) -> Self {
         if let Some(id) = parse_vreg(value) {
             return Operand::vreg(RegClass::Int, id);
@@ -284,8 +291,24 @@ pub(crate) struct VirtualRegister {
 }
 
 impl VirtualRegister {
-    /// A virtual register of `class` numbered `id`.
-    pub(crate) fn new(class: RegClass, id: u32) -> Self {
+    /// A virtual register of `class` numbered `id`. Engine-private (bug-721): the
+    /// only callers are the minters (`regalloc::mint_vreg`), so an id can never be
+    /// chosen by hand — a hand-picked number would alias whatever minted register
+    /// carries it.
+    pub(in crate::codegen::engine) fn new(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// The handle for an `Operand::VReg` already in a stream. Not a way to choose an
+    /// id: an `Operand::VReg` exists only because a minter made it
+    /// ([`Operand::vreg`] is engine-private too).
+    pub(crate) fn from_operand(class: RegClass, id: u32) -> Self {
+        Self { class, id }
+    }
+
+    /// A hand-numbered register for a test that builds a stream by hand.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(class: RegClass, id: u32) -> Self {
         Self { class, id }
     }
 
@@ -558,8 +581,10 @@ mod tests {
         // rendered `String`. A `&str` producer yields `Raw`; a typed immediate
         // yields `Imm`; `operand()` returns the typed value and `get()` renders
         // both back to the identical string (byte-identity).
+        // `dst` holds a register, so its raw text goes through the backends'
+        // `physical_field` (bug-721: `field` refuses text in a register field).
         let inst = CodeInstruction::new("mov")
-            .field("dst", "x0")
+            .physical_field("dst", "x0")
             .field("value", Operand::imm(42));
         assert_eq!(inst.operand("dst"), Some(&Operand::Raw("x0".into())));
         assert_eq!(inst.operand("value"), Some(&Operand::Imm(42)));

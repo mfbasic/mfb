@@ -9,7 +9,8 @@
 
 /// Copy `n_reg` bytes from `[src_reg]` to `[dst_reg]` (both consumed). Uses
 /// `%v16`/`%v17`/`%v18` scratch, uniquely labelled by `tag`.
-fn emit_copy_bytes(src_reg: &str, dst_reg: &str, n_reg: &str, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn emit_copy_bytes(src_reg: impl Into<Reg>, dst_reg: impl Into<Reg>, n_reg: impl Into<Reg>, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let (src_reg, dst_reg, n_reg): (Reg, Reg, Reg) = (src_reg.into(), dst_reg.into(), n_reg.into());
     let loop_l = format!("{tag}_cp");
     let done_l = format!("{tag}_cpd");
     let v16 = vregs.next();
@@ -33,7 +34,8 @@ fn emit_copy_bytes(src_reg: &str, dst_reg: &str, n_reg: &str, tag: &str, ins: &m
 /// Convert the sign-extended s16 in `inp` to an IEEE-754 32-bit-float bit pattern
 /// (value = sample/32768) in `outp`. Internal scratch `%v4`–`%v7`; callers must
 /// pass `inp`/`outp` in `%v9`+.
-fn emit_s16_to_f32(inp: &str, outp: &str, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn emit_s16_to_f32(inp: impl Into<Reg>, outp: impl Into<Reg>, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let (inp, outp): (Reg, Reg) = (inp.into(), outp.into());
     let pos = format!("{tag}_s2f_pos");
     let done = format!("{tag}_s2f_done");
     let v4 = vregs.next();
@@ -74,7 +76,8 @@ fn emit_s16_to_f32(inp: &str, outp: &str, tag: &str, ins: &mut Vec<CodeInstructi
 
 /// Convert the 32-bit-float bit pattern in `inp` to a clamped s16 in `outp`
 /// (out = round(value*32768)). Internal scratch `%v4`–`%v7`; callers pass in `%v9`+.
-fn emit_f32_to_s16(inp: &str, outp: &str, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn emit_f32_to_s16(inp: impl Into<Reg>, outp: impl Into<Reg>, tag: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let (inp, outp): (Reg, Reg) = (inp.into(), outp.into());
     let shl = format!("{tag}_f2s_shl");
     let shift_done = format!("{tag}_f2s_shd");
     let cap_ok = format!("{tag}_f2s_cap");

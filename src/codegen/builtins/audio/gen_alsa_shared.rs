@@ -7,6 +7,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 pub(crate) const ALSA_SONAME: &str = "libasound.so.2";
 
@@ -882,9 +883,10 @@ pub(crate) fn emit_string_from_cstr(
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-    cstr: &str,
+    cstr: impl Into<Reg>,
     vregs: &mut Vregs,
 ) {
+    let cstr: Reg = cstr.into();
     let len_loop = format!("{symbol}_{tag}_len");
     let len_done = format!("{symbol}_{tag}_len_done");
     let copy_loop = format!("{symbol}_{tag}_copy");

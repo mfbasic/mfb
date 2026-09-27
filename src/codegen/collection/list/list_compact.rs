@@ -23,6 +23,14 @@
 //!   cannot grow the block without bound, and the one allocation is paid for by at
 //!   least as many bytes dropped.
 //!
+//! **A range costs what it removes or moves** (bug-652). The probe and both
+//! passes walk every entry, which is the call's own work for `filter`/`distinct`
+//! (every element is tested) and for a range with `start > 0` (every kept element
+//! moves). A range with `start == 0` moves nothing, so it first tries
+//! [`CodeBuilder::emit_compact_range_truncate`], which touches only the removed
+//! entries; the dropped-element pass likewise skips a range's kept run. Without
+//! this, `x = take(x, len(x))` in a build loop was O(n²).
+//!
 //! The caller guarantees what every in-place arm guarantees: the block is uniquely
 //! owned and no `FOR EACH` walks it (plan-142-A's container gates). Any error the
 //! operation can raise must be raised **before** this runs — compaction is the
@@ -106,6 +114,11 @@ impl CodeBuilder<'_> {
         // before its entry is overwritten — the same obligation as
         // `lower_list_remove_at_in_place` (plan-134-H). The drop calls clobber every
         // register, so this runs as its own pass over a spilled index.
+        //
+        // bug-652: a range visits only the removed entries — `[0, start)` and
+        // `[start + len, count)` — jumping the index over the kept run, so a
+        // `take`/`drop`/`mid` that removes nothing costs nothing here. Marks must
+        // test every entry.
         if kind2_payload_size(element_type).is_none() && self.owns_graph(element_type) {
             let top = self.label("compact_drop_loop");
             let drop = self.label("compact_drop_one");
@@ -117,11 +130,31 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
             self.emit(abi::label(&top));
             self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            if let KeepSource::Range {
+                start_slot,
+                len_slot,
+            } = *keep
+            {
+                let outside = self.label("compact_drop_outside");
+                let start = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                self.emit(abi::load_u64(&start, abi::stack_pointer(), start_slot));
+                self.emit(abi::compare_registers(&index, &start));
+                self.emit(abi::branch_ne(&outside));
+                self.emit(abi::load_u64(&len, abi::stack_pointer(), len_slot));
+                self.emit(abi::add_registers(&index, &start, &len));
+                self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
+                self.emit(abi::label(&outside));
+            }
             self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
             self.emit(abi::compare_registers(&index, &count));
             self.emit(abi::branch_ge(&done));
-            self.emit_keep_branch(keep, &index, &next, &drop);
+            match keep {
+                // Past the skip, every index a range visits is removed.
+                KeepSource::Range { .. } => self.emit(abi::branch(&drop)),
+                KeepSource::Marks { .. } => self.emit_keep_branch(keep, &index, &next, &drop),
+            }
             self.emit(abi::label(&drop));
             self.emit_drop_list_element(buffer_slot, index_slot, element_type)?;
             self.emit(abi::label(&next));
@@ -251,6 +284,21 @@ impl CodeBuilder<'_> {
         let disordered = self.label("compact_disordered");
         let ordered = self.label("compact_ordered");
         let done = self.label("compact_done");
+
+        if let KeepSource::Range {
+            start_slot,
+            len_slot,
+        } = *keep
+        {
+            self.emit_compact_range_truncate(
+                buffer_slot,
+                start_slot,
+                len_slot,
+                stride,
+                alignment,
+                &done,
+            );
+        }
 
         // --- Probe: is every payload at the aligned end of the previous one? ---
         self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
@@ -468,5 +516,113 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::label(&done));
         Ok(())
+    }
+
+    /// bug-652: the range cases of an entry-table compaction that cost only the
+    /// removed entries, branching to `done` when they apply and falling through to
+    /// the general probe otherwise.
+    ///
+    /// * **Nothing removed** (`len == count`, so `start == 0`): the list is already
+    ///   the result — O(1).
+    /// * **Everything removed** (`len == 0`): `count` and `dataLength` reset.
+    /// * **A truncation** (`start == 0`): the kept entries and payloads stay where
+    ///   they are, so only `count` and `dataLength` change. Walking the removed
+    ///   entries from the last one down, each payload that ends (aligned) at the
+    ///   current `dataLength` is the data tail and gives its bytes back. A removed
+    ///   payload that is not the tail — the payloads are out of entry order after
+    ///   a `prepend`, `insert`, `sort` or relocating `set` — stays behind as dead
+    ///   bytes (bug-732). Counting the live bytes here to decide whether to repack
+    ///   walked every kept entry, O(count) per pop; instead the next grow of the
+    ///   data region does that count, once, and reclaims the dead bytes when they
+    ///   outnumber the live ones (`emit_list_reclaim_before_grow`).
+    ///
+    /// A range with `start > 0` moves every kept element, so the general path's
+    /// walk is already the call's own work.
+    fn emit_compact_range_truncate(
+        &mut self,
+        buffer_slot: usize,
+        start_slot: usize,
+        len_slot: usize,
+        stride: usize,
+        alignment: usize,
+        done: &str,
+    ) {
+        let general = self.label("compact_range_general");
+        let retract = self.label("compact_range_retract");
+        let retract_min = self.label("compact_range_retract_min");
+        let tidy = self.label("compact_range_tidy");
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let start = self.temporary_vreg();
+        let data_length = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let off = self.temporary_vreg();
+        let end = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&len, abi::stack_pointer(), len_slot));
+        self.emit(abi::compare_registers(&len, &count));
+        self.emit(abi::branch_eq(done));
+        self.emit(abi::load_u64(&start, abi::stack_pointer(), start_slot));
+        self.emit(abi::compare_immediate(&start, "0"));
+        self.emit(abi::branch_ne(&general));
+        // Everything removed: `dataLength` retracts to 0 (the walk would get there
+        // too, but only when the payloads are in order).
+        self.emit(abi::move_immediate(&data_length, "Integer", "0"));
+        self.emit(abi::compare_immediate(&len, "0"));
+        self.emit(abi::branch_eq(&tidy));
+        self.emit(abi::load_u64(
+            &data_length,
+            &base,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::move_register(&index, &count));
+        self.emit(abi::label(&retract));
+        self.emit(abi::compare_registers(&index, &len));
+        self.emit(abi::branch_le(&tidy));
+        self.emit(abi::subtract_immediate(&index, &index, 1));
+        self.emit(abi::move_immediate(
+            &scratch,
+            "Integer",
+            &stride.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&entry, &index, &scratch));
+        self.emit(abi::add_registers(&entry, &entry, &base));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            &off,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &end,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(&end, &end, &off));
+        self.emit_align_offset_register(&end, alignment, &scratch);
+        // Bytes after this payload (beyond its alignment padding) belong to
+        // something else: not the tail. bug-732: its bytes stay behind as dead
+        // space (the next grow reclaims them) and the walk goes on.
+        self.emit(abi::compare_registers(&end, &data_length));
+        self.emit(abi::branch_lt(&retract_min));
+        // Only ever retract: a zero-length payload may carry any offset.
+        self.emit(abi::compare_registers(&off, &data_length));
+        self.emit(abi::branch_ge(&retract_min));
+        self.emit(abi::move_register(&data_length, &off));
+        self.emit(abi::label(&retract_min));
+        self.emit(abi::branch(&retract));
+        self.emit(abi::label(&tidy));
+        self.emit(abi::store_u64(&len, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(
+            &data_length,
+            &base,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::branch(done));
+        self.emit(abi::label(&general));
     }
 }

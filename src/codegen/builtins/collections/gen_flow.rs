@@ -12,17 +12,17 @@
 //! into the shared owned-value-drop tier (`emit_owned_value_drop` /
 //! `OwnedValueCleanup`) and the register/closure constants, which remain in
 //! `src/target` — the accepted temporary `codegen -> target` edge. The one change
-//! from the verbatim bodies: `emit_callable_branch`'s open-coded relocation push
-//! is now `push_internal_call_relocation`, and `emit_callback_failure_exit` reads
+//! from the verbatim bodies: `emit_callable_branch` takes a typed register and
+//! emits only the indirect `blr` (its symbol arm had no caller), and
+//! `emit_callback_failure_exit` reads
 //! the inline-TRAP capture label through the `raw_result_capture_label` accessor,
 //! so this module needs no access to `CodeBuilder`'s private fields.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
-use crate::codegen::engine::regalloc;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// The exit a builtin's loop takes when a user callback it called fails: free
@@ -90,28 +90,20 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(crate) fn emit_direct_callable_branch(&mut self, location: impl Into<Operand>) {
+    pub(crate) fn emit_direct_callable_branch(&mut self, location: impl Into<Reg>) {
+        let location: Reg = location.into();
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
         let code_register = self.temporary_vreg();
         let env_register = self.temporary_vreg();
-        let location = location.into();
         self.emit(abi::store_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),
             saved_env_slot,
         ));
-        self.emit(abi::load_u64(
-            &code_register,
-            location.clone(),
-            CLOSURE_OFFSET_CODE,
-        ));
-        self.emit(abi::load_u64(
-            &env_register,
-            location.clone(),
-            CLOSURE_OFFSET_ENV,
-        ));
+        self.emit(abi::load_u64(&code_register, location, CLOSURE_OFFSET_CODE));
+        self.emit(abi::load_u64(&env_register, location, CLOSURE_OFFSET_ENV));
         self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));
-        self.emit_callable_branch(&code_register.render());
+        self.emit_callable_branch(&code_register);
         self.emit(abi::load_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),
@@ -119,15 +111,10 @@ impl CodeBuilder<'_> {
         ));
     }
 
-    pub(crate) fn emit_callable_branch(&mut self, location: &str) {
-        // A callable held in a register (a physical `x*` or a not-yet-colored
-        // virtual register) is an indirect `blr`; a bare function symbol is a
-        // direct `bl` + relocation.
-        if location.starts_with('x') || regalloc::parse_vreg(location).is_some() {
-            self.emit(abi::branch_link_register(location));
-            return;
-        }
-        self.emit(abi::branch_link(location));
-        self.push_internal_call_relocation(location);
+    pub(crate) fn emit_callable_branch(&mut self, location: impl Into<Reg>) {
+        // A callable held in a register is an indirect `blr`. The only caller
+        // passes the closure's minted code register; a bare function symbol never
+        // reaches here (bug-721: a register is a `Reg`, never text to sniff).
+        self.emit(abi::branch_link_register(location));
     }
 }

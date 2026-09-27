@@ -8,6 +8,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 impl CodeBuilder<'_> {
     /// `fmod(a, b) = a - n*b`, `n = trunc(a/b)`, computed **exactly** over GPRs
     /// (the IEEE bitwise remainder; musl's 64-bit `fmod`). Returns a register
@@ -18,9 +19,10 @@ impl CodeBuilder<'_> {
     /// libm `fmod`), so no accuracy tolerance applies.
     pub(crate) fn emit_float_fmod(
         &mut self,
-        a_loc: impl Into<Operand>,
-        b_loc: impl Into<Operand>,
+        a_loc: impl Into<Reg>,
+        b_loc: impl Into<Reg>,
     ) -> Result<VirtualRegister, String> {
+        let (a_loc, b_loc): (Reg, Reg) = (a_loc.into(), b_loc.into());
         // Spill the operands and reset the register file: the kernel needs ~12
         // live registers and would otherwise exhaust the file in a busy
         // expression. The caller consumes `result` immediately after the return.

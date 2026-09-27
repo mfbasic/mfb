@@ -1,0 +1,39 @@
+' wind-map-probe - measures how many canvas::DrawItems examples/wind's static
+' map contributes to a single animation frame's scene.
+'
+' bug-712: `examples/wind` used to splice mapItems()'s whole result (the
+' ocean rectangle plus one item per visible coastline ring/copy - dozens of
+' items even at a world-sized zoom) into a fresh per-frame scene list every
+' frame, so canvas::present copied the static map's geometry on every single
+' frame even though it had not changed. The fix installs the map once with
+' canvas::setGroup and hands present a single canvas::Group node in its
+' place. This probe measures the per-frame item count mapItems contributes -
+' the thing this bug is about - so the next time a static sub-picture is
+' spliced into a per-frame scene the same way, it is caught by re-running
+' this tool against the new example, not just against wind.
+'
+' Run headless (no window needed): MFB_MACAPP_HEADLESS=1 <built .app exe>
+
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  loadCoastline()
+  LET world AS Ring = worldOutline()
+
+  LET size AS canvas::Size = canvas::Size[width := 1920, height := 1080]
+  LET wholeView AS View = wholeWorld(size)
+  LET wholeItems AS List OF canvas::DrawItem = mapItems(world, wholeView)
+  io::print("whole-world frame items: " & toString(len(wholeItems)))
+
+  LET zoomedView AS View = View[scale := wholeView.scale * 10.0, cx := wholeView.cx, cy := wholeView.cy, width := wholeView.width, height := wholeView.height, lon0 := wholeView.lon0]
+  LET zoomedItems AS List OF canvas::DrawItem = mapItems(world, zoomedView)
+  io::print("10x zoom frame items: " & toString(len(zoomedItems)))
+
+  LET zoomedItemsAgain AS List OF canvas::DrawItem = mapItems(world, zoomedView)
+  io::print("10x zoom frame items again (cache hit): " & toString(len(zoomedItemsAgain)))
+
+  RETURN 0
+END FUNC

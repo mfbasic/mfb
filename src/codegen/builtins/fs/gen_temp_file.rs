@@ -8,6 +8,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 pub(crate) fn lower_fs_create_temp_file_helper(
@@ -273,8 +274,9 @@ fn emit_uuid_v4_to_path(
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
     random_offset: usize,
-    cursor: &str,
+    cursor: impl Into<Reg>,
 ) {
+    let cursor: Reg = cursor.into();
     let dash = vregs.next();
     let byte = vregs.next();
     let mask = vregs.next();
@@ -324,9 +326,10 @@ fn emit_hex_nibble_to_path(
     vregs: &mut Vregs,
     byte_index: usize,
     half: &str,
-    nibble: &str,
-    cursor: &str,
+    nibble: impl Into<Reg>,
+    cursor: impl Into<Reg>,
 ) {
+    let (nibble, cursor): (Reg, Reg) = (nibble.into(), cursor.into());
     let digit = format!("{symbol}_uuid_{byte_index}_{half}_digit");
     let store = format!("{symbol}_uuid_{byte_index}_{half}_store");
     let ascii = vregs.next();

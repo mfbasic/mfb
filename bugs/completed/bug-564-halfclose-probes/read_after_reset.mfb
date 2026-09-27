@@ -1,0 +1,38 @@
+IMPORT errorCode
+IMPORT io
+IMPORT net
+IMPORT process
+IMPORT strings
+IMPORT tls
+
+FUNC fill(RES conn AS tls::Socket) AS String
+  LET chunk AS String = strings::repeat("x", 65536)
+  FOR i = 1 TO 64
+    tls::write(conn, chunk)
+  NEXT
+  RETURN "filled=all"
+  TRAP(err)
+    RETURN "filled code=" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC readAfter(RES conn AS tls::Socket) AS String
+  LET b AS List OF Byte = tls::read(conn, 4096)
+  RETURN "read=GOT"
+  TRAP(err)
+    RETURN "read closed=" & toString(err.code = errorCode::ErrConnectionClosed) & " code=" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 0, "/tmp/b564p/cert.pem", "/tmp/b564p/key.pem")
+  LET bound = tls::localAddress(server)
+  RES peer = process::spawn(["openssl", "s_client", "-quiet", "-connect", "127.0.0.1:" & toString(bound.port)])
+  RES conn = tls::accept(server)
+  tls::setWriteTimeout(conn, 500)
+  io::print(fill(conn))
+  process::signal(peer, process::Signal.Kill)
+  LET reaped AS Integer = process::waitFor(peer)
+  io::print(readAfter(conn))
+  RETURN 0
+END FUNC

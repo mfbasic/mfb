@@ -234,7 +234,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: output_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("reserved list {output_type}"),
         })
     }
@@ -537,7 +537,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: map_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("map concat {map_type}"),
         })
     }
@@ -772,7 +772,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: map_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("removeKey({map_type}, {key_type})"),
         })
     }

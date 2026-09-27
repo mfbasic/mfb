@@ -1,6 +1,6 @@
 # bug-699: keyboard input differs on every input surface — special keys arrive in a different encoding or not at all, and `io`'s key readers cannot be uniform
 
-Last updated: 2026-09-25
+Last updated: 2026-09-25 (Phases 1–2)
 Effort: huge (>3d)
 Severity: MEDIUM
 Class: Correctness
@@ -8,8 +8,13 @@ Class: Correctness
 Status: Open — **redesigned 2026-09-25 (owner).** Originally "special keys arrive
 unstandardised per surface"; the owner widened it into one uniform `io` keyboard-input
 surface, and folded in plan-69 (`term::` key down/up, deleted — see "plan-69").
-Regression Test: `tests/app_special_keys.rs` plus the `io` function tests (to be
-written, Phase 1)
+Phases 1 and 2 are done (2026-09-25; landed on `main` via `800a1b966`, full suite green there); the Open details were settled by the owner
+(2026-09-25, Decision 9); Phases 3–7 remain.
+Regression Test: `tests/codegen/app_special_keys.rs` (`cargo test --test
+app_special_keys`; the Phase 3 cases are `#[ignore]`d until then), the decoder corpus
+and reader tests (`cargo test --bin mfb codegen::io::input`), and
+`tests/runtime/rt_native_term_runtime.rs::native_term_mouse_line_read_keeps_the_bytes_after_an_escape`.
+The `io` reader function tests come with the readers (Phase 4).
 
 A program reads keys with `io::readChar` / `io::readByte`, gated by `io::pollInput`.
 What an arrow key or Delete produces depends on the input surface the program runs on:
@@ -17,8 +22,8 @@ What an arrow key or Delete produces depends on the input surface the program ru
 - **Console on a terminal:** the terminal emulator sends VT/xterm sequences (Left =
   `ESC [ D`), and emulators disagree on details (`ESC O A` vs `ESC [ A` by cursor-key
   mode; Home as `ESC [ H`, `ESC [ 1 ~` or `ESC O H`; Backspace `0x7F` or `0x08`). The
-  eight examples that handle arrows (`snake`, `dungeon`, `wind`, `water`, `ai_chat`,
-  `browser`, `bugs/canvas`, `bugs/tui`) decode that shape by hand.
+  six examples that handle arrows (`snake`, `dungeon`, `wind`, `browser`,
+  `swat/canvas`, `swat/tui`) decode that shape by hand.
 - **`--app` build on macOS** (canvas, TermView raw, transcript): the runtime
   writes the raw `NSEvent characters` to the input pipe. Arrows arrive as AppKit
   private-use code points (U+F700–F703), forward-delete as U+F728, and Backspace
@@ -124,6 +129,14 @@ References:
 7. **Removed, in one break:** `io::readChar`, `io::readByte`, `io::pollInput`. Every
    caller migrates in the same change (Blast Radius). No deprecated aliases.
    `pollInput`'s job is `timeoutMs = 0` on the reader the program actually uses.
+9. **Settled from Phase 1 (owner, 2026-09-25).** (a) `io::readLine`/`io::input` keep
+   raising `ErrEncoding` on invalid UTF-8 — they read data, where a dropped byte
+   would be a silently shortened line; only the keystroke readers drop. (b)
+   `io::input([prompt], [timeoutMs])` keeps its signature; its man page points a
+   timed read without a prompt at `io::readLine(timeoutMs)`. (c) `term::on` pushes
+   kitty's alternate-keys `0b100` and associated-text `0b10000` flags as well, so a
+   shifted or layout-dependent key's text arrives from the terminal rather than being
+   guessed.
 8. **plan-69 is deleted** and rolled into this bug: its `term::Key` /
    `term::getKeyDown` / `term::getKeyUp` design is replaced by `io::readKey` and
    `KeyEvent`.
@@ -190,11 +203,56 @@ cat /tmp/keyprobe/bytes.txt
 
 | Environment | Surface | Arrows | Fwd-Delete | Backspace | Esc | How known |
 | --- | --- | --- | --- | --- | --- | --- |
-| macOS aarch64 | `--app`, Canvas | U+F700–F703 ✗ | U+F728 ✗ | `0x7F` ✓ | `0x1B` ✓ | measured (above) |
-| macOS aarch64 | `--app`, TUI (TermView raw) | U+F700–F703 ✗ (guess) | U+F728 ✗ (guess) | `0x7F` | `0x1B` | code read: `macapp.term.keyDown` default arm appends `chars` verbatim |
-| Linux (GTK) | `--app`, any raw | dropped ✗ | `0x7F` (guess) | `0x08` (guess) | `0x1B` | code read: `gdk_keyval_to_unicode` → 0 → `ignore` |
-| Windows x86-64 | `--app`, Canvas | dropped ✗ | dropped ✗ | `0x08` | `0x1B` | code read: `emit_wndproc` handles `WM_CHAR` only |
+| macOS aarch64 (15.7.7) | `--app`, Canvas, TUI (TermView raw), Console transcript raw | U+F700–F703 ✗ | U+F728 ✗ | `0x7F` ✓ | `0x1B` ✓ | measured 2026-09-25, all four surfaces byte-identical (below) |
+| Linux GTK **aarch64** (box 2226, Debian 12, GTK 4.8.3) | `--app`, Canvas and TUI raw | dropped ✗ | `0x7F` ✗ | `0x08` ✗ | `0x1B` ✓ | measured 2026-09-25 (below) |
+| Linux GTK aarch64 (2226) | `--app`, Console transcript raw | dropped ✗ | dropped ✗ | dropped ✗ | `0x1B` ✓ | measured 2026-09-25 (below) |
+| Linux GTK **x86_64** (box 2228) | `--app`, any | — | — | — | — | **UNMEASURED**: 2228 (and 2227) refused ssh for the whole session; 2226 runs the same `linux_gtk` handler on aarch64 |
+| Windows 11 x86-64 (2230, 10.0.26100) | `--app`, Canvas, Console, TUI | dropped ✗ | dropped ✗ | `0x08` ✗ | `0x1B` ✓ | measured 2026-09-25 by `PostMessageW` (below); real input by `SendInput` UNMEASURED |
+| Windows 11 x86-64 (2230) | console build under ConPTY, during a read | `ESC[A–D` ✓ | `ESC[3~` ✓ | `0x7F` ✓ | `0x1B` ✓ | measured 2026-09-25 (below) |
 | any | console on a VT terminal | `ESC[A–D` ✓ | `ESC[3~` ✓ | `0x7F` ✓ | `0x1B` ✓ | terminal emulator standard (not measured) |
+
+**Measured matrix, full key sequence** (2026-09-25, Phase 1). Keys, in order: `a`,
+Left, Right, Up, Down, Backspace, Delete, Esc, F5, Shift+Left, Home, End, `é`, `q`.
+Built with a release `mfb` of this tree's base.
+
+- **macOS 15.7.7 aarch64** — `osascript` could not be used (the session was locked,
+  `CGSSessionScreenIsLocked=true`: the app never came to the front); `CGEventPostToPid`
+  (ctypes, `AXIsProcessTrusted=True`) delivered to all four surfaces (Console
+  transcript raw, TUI `term::on`, Canvas with and without `pollInput`), which printed
+  the same bytes: `97 | EF9C82 EF9C83 EF9C80 EF9C81 | 127 | EF9CA8 | 27 | EF9C88 |
+  EF9C82 | EF9CA9 | EF9CAB | C3A9` — AppKit's private-use code points for the arrows,
+  Delete (U+F728), F5 (U+F708), Home (U+F729), End (U+F72B). **Shift+Left is
+  byte-identical to Left**: the modifier is lost. This confirms the TUI row that was a
+  guess.
+- **Linux GTK, box 2226 (aarch64)** — 2228 was down, so this is the aarch64 build of
+  the same `linux_gtk` handler, not the x86_64 row. Method: the extracted AppImage's
+  inner ELF under a private `Xvfb`, `GDK_BACKEND=x11 GSK_RENDERER=cairo`, keys by
+  `xdotool key` (XTEST, xdotool 3.20160805) after `windowfocus --sync`. Canvas
+  (blocking `readByte`) and TUI: `97 8 127 27 195 169` — arrows, F5, Shift+Left, Home,
+  End dropped; **Backspace is `0x08`, Delete is `0x7F`**. Console transcript raw: `97 27
+  195 169` — **Backspace and Delete are dropped too** (see "Findings for later
+  phases"). The bug doc's own canvas probe printed nothing until Return was pressed:
+  on Linux `io::pollInput` does not switch the window to raw input, only `readByte`
+  does.
+- **Windows 11, box 2230** — `PostMessageW` of `WM_KEYDOWN`/`WM_KEYUP` with real
+  scan-code `lParam`s (so `TranslateMessage` runs in the app's own loop), `é` as
+  `WM_CHAR 0xE9`. Canvas (to the top-level window) and Console/TUI (to the `Edit`
+  child): `97 8 27 233` — every non-character key dropped, Backspace `0x08`, and **`é`
+  arrives as the single byte `0xE9`** (the low byte of the UTF-16 unit). `SendInput`:
+  from the ssh session `GetLastError=5`; from an interactive task in session 1 the
+  events were inserted and focus set, yet the app received nothing on any surface,
+  including the path `PostMessageW` proves works — **real-input delivery UNMEASURED**.
+- **Windows console target (ENABLE_VIRTUAL_TERMINAL_INPUT)** — driven through a real
+  ConPTY (`ssh -tt` under a local pty, writing xterm bytes). `io::readByte` already
+  sets `ENABLE_VIRTUAL_TERMINAL_INPUT` for the read (`emit_apply_raw_mode` in
+  `src/target/win_x86_64/code.rs`: `orig & ~(ECHO|LINE) | 0x200`, measured mode
+  `0x1F7` → `0x3F1`). During a read every key arrives in standard xterm form: Left `27
+  91 68`, Delete `27 91 51 126`, F5 `27 91 49 53 126`, Shift+Left `27 91 49 59 50
+  68`, Home `27 91 72`, End `27 91 70`, Backspace 127, `é` `195 169`. Keys typed while
+  no read is in progress lose the arrows and Delete and turn 0x7F into `0x08` (the
+  mode is restored after each read). A standalone `ReadFile` harness: with `0x0200`
+  (`0x3F1`) the same VT sequences; **without it (`0x1F1`) arrows, Delete, F5,
+  Shift+Left, Home, End and Esc are all dropped** and Backspace is `0x08`.
 
 Contrast cases that work today on every surface: printable characters, Enter
 (each `--app` handler turns CR into LF), Esc, and Tab.
@@ -269,7 +327,9 @@ decoder. Keys are left to every program.
 - **Kitty lifecycle.** `term::on` detects support without hanging (the kitty query
   `CSI ? u` followed by Primary Device Attributes `CSI c`, which every terminal
   answers; only a DA reply means unsupported), pushes the progressive-enhancement
-  flags (disambiguate, report event types, report all keys as escape codes), and
+  flags (disambiguate `0b1`, report event types `0b10`, report alternate keys
+  `0b100`, report all keys as escape codes `0b1000`, report associated text
+  `0b10000` — owner, 2026-09-25, Decision 9), and
   `term::off` and the terminal-restore exit path pop them.
 - **The six readers** behave per the Decisions on every surface, with the timeout
   convention.
@@ -296,8 +356,27 @@ decoder. Keys are left to every program.
 - Whether `io::readLine` / `io::input` also drop invalid bytes instead of raising
   `ErrEncoding` (Decision 2 was made for `readScalar`/`readGrapheme`). Consistency
   argues yes; raise it with the owner before changing it.
+  **Settled by the owner, 2026-09-25 (Decision 9): keep `ErrEncoding` on
+  `readLine`/`input`.** The recommendation it confirmed: A
+  line reader is the data reader: it is what reads a piped or redirected file, where
+  an ill-formed byte means the input is not the text the program expects, and
+  dropping it would hand back a silently shortened line that looks valid. The
+  keystroke readers are different in kind — a stray byte there is a key the decoder
+  could not classify, and there is no line to corrupt. The asymmetry is stated on
+  both man pages. The decoder supports either choice unchanged (its Skip outcome
+  names the ill-formed bytes), so this only decides what the Phase 4 line reader does
+  with a Skip. If the owner prefers consistency, the line readers drop and the man
+  page says so; nothing else moves.
 - `io::input([prompt], [timeoutMs])`: two positional optionals, so a timeout with no
   prompt is `io::input("", 5000)`. Confirm against §6 overload/default rules.
+  **Checked against §6 (`mfb spec language functions`, "Named args"): a call may not
+  skip a parameter before a later named one, so `io::input(timeoutMs := 5000)` is
+  rejected (`TYPE_CALL_ARITY_MISMATCH`), and the only spellings are
+  `io::input("", 5000)` and `io::input(prompt := "", timeoutMs := 5000)`.
+  **Settled by the owner, 2026-09-25 (Decision 9):** keep the signature as decided, and have the man
+  page point a caller who wants a timeout without a prompt at `io::readLine(5000)`,
+  which is exactly that call (`input` differs only by writing its prompt). No new
+  overload is needed.**
 
 ## Blast Radius
 
@@ -329,30 +408,8 @@ Found with `grep -rlE 'u\{1B\}|"UP"' examples`, a search for key handlers under
   `grep -rlE "io::NAME\b" examples tests packages src --include='*.mfb'` —
   `readChar` 18 files, `readByte` 5, `pollInput` 15; `grep -rlE
   "io::(readChar|readByte|pollInput)\b" src --include='*.rs'` — 21 Rust files (man
-  examples, descriptors, tests).
-- **Examples to migrate — all 13** (`grep -rlE "io::(readChar|readByte|pollInput)\b"
-  examples`, 2026-09-25; the list first named only six):
-
-  | Example | Uses | Hand-rolled Esc decoder → `readKey` |
-  | --- | --- | --- |
-  | `ai_chat` | `readChar`, `pollInput` | yes |
-  | `browser` (`app`) | `readChar`, `pollInput` | yes |
-  | `bugs/canvas` | `readChar`, `pollInput` | yes |
-  | `bugs/tui` | `readChar`, `pollInput` | yes |
-  | `dungeon` | `readChar`, `pollInput` | yes |
-  | `snake` | `readChar`, `pollInput` | yes |
-  | `water` | `readChar`, `pollInput` | yes |
-  | `wind` | `readChar`, `pollInput` | yes |
-  | `emoji` | `readChar`, `pollInput` ×2 | no |
-  | `life` | `readChar`, `pollInput` ×2 | no |
-  | `hangman` | `readChar` ×3 | no |
-  | `hello_input` | `readChar` | no |
-  | `wide-demo` | `readChar` | no |
-
-  The eight decoders move to `readKey`; the other five move to `readScalar` /
-  `readGrapheme` (or `readKey` where they wait for "any key"), and every
-  `pollInput` becomes the reader's `timeoutMs`. Re-run the grep at Phase 6 start —
-  it, not this table, is the list.
+  examples, descriptors, tests). The six hand-rolled decoders (`snake`, `dungeon`,
+  `wind`, `browser`, `swat/canvas`, `swat/tui`) move to `readKey`.
 - **Docs:** `src/docs/spec/app/03_console-io.md`, the io/term spec sections, `mfb man
   io` and `mfb man term` (`on`/`off` mention kitty in developer terms), the narrative
   guides that mention the removed readers (`grep -rn "readChar\|readByte\|pollInput"
@@ -404,32 +461,135 @@ keeps the old readers working.
 
 ### Phase 1: failing tests, measurement, audit (no behavior change)
 
-- [ ] `tests/app_special_keys.rs`: for each `--app` handler, assert the emitted
+- [x] `tests/app_special_keys.rs`: for each `--app` handler, assert the emitted
       injection for Left, Delete, F5, a release, and Shift+Left (fails today). Follow
       the emitted-helper tests in `src/target/linux_gtk/bootstrap.rs` (bug-421).
-- [ ] Windows: a non-ASCII `WM_CHAR` is written as UTF-8 (fails today).
-- [ ] Record the Linux and Windows rows of the matrix by running the probe on the
+      — **`tests/codegen/app_special_keys.rs`** (target `app_special_keys`): a file
+      directly in `tests/` is rejected by `tests/guards/test_targets_registered.rs`.
+      The cases are behavioral, not instruction patterns: each builds an `--app`
+      program with `mfb build -ncode` for the target, finds the handler the program
+      registers (macOS `class_addMethod(…, keyDown:/keyUp:, …)`, GTK
+      `g_signal_connect_data(…, "key-pressed"/"key-released", …)`, the two Windows
+      procedures), and RUNS it in a new `.ncode` interpreter
+      (`tests/common/ncode_emu.rs`) against a model of AppKit/GDK/Win32 that hands it
+      the real event (the `NSEvent` fields, keyval + state, or window message) and
+      records the pipe bytes. Expected bytes are what a kitty terminal sends under
+      the flags `term::on` will push (`CSI D`, `CSI 3 ~`, `CSI 15 ~`, `CSI 1;1:3 D`,
+      `CSI 1;2 D`), so any correct Phase 3 passes. A positive control per platform
+      (`a` reaches the pipe through every handler) passes today. The 16 red cases
+      are `#[ignore = "bug-699 Phase 3: …"]`, each naming its reason.
+      **RED, measured** (`cargo test --release --test app_special_keys --
+      --include-ignored`, 2026-09-25, 4 passed / 16 failed; default run: 4 passed, 16
+      ignored): macOS — all three
+      surfaces (`MFBTextView`, `TermView`, canvas view) write `EF 9C 82` for Left,
+      `EF 9C A8` Delete, `EF 9C 88` F5, `EF 9C 82` for Shift+Left, and no class
+      registers `keyUp:`; GTK — Left, F5, Shift+Left write nothing
+      (`gdk_keyval_to_unicode` → 0 → `ignore`), Delete writes `7F`, and no
+      `key-released` handler is connected; Windows — both procedures write nothing
+      for `WM_KEYDOWN`/`WM_KEYUP`. These match the measured matrix above.
+- [x] Windows: a non-ASCII `WM_CHAR` is written as UTF-8 (fails today).
+      — `windows_non_ascii_wm_char_is_written_as_utf8` (same file): `WM_CHAR 0xE9`
+      must reach the pipe as `C3 A9` and the surrogate pair `D83D DE00` as
+      `F0 9F 98 80`. **RED, measured**: both procedures write `E9`. Control
+      `windows_ascii_wm_char_is_written_verbatim` passes. Confirmed on the real
+      box: `é` posted to 2230 arrived as the byte 233.
+- [x] Record the Linux and Windows rows of the matrix by running the probe on the
       remote machines (`.ai/remote_systems.md`; `xdotool`, `SendInput`), replacing
       the "code read" entries. Confirm the macOS transcript raw path.
-- [ ] Windows console: measure what a raw read sees for an arrow with and without
+      — Done with two gaps, both recorded in the matrix: **Linux x86_64 (2228) is
+      UNMEASURED** (2228 and 2227 refused ssh all session; 2226 aarch64 ran the same
+      handler), and **Windows real-input (`SendInput`) delivery is UNMEASURED**
+      (events inserted, nothing delivered on any surface; `PostMessageW` through the
+      app's own `TranslateMessage` loop was measured instead). macOS transcript raw
+      confirmed (identical to the canvas bytes).
+- [x] Windows console: measure what a raw read sees for an arrow with and without
       `ENABLE_VIRTUAL_TERMINAL_INPUT`.
-- [ ] Decoder test corpus: byte streams for every Goal-table row, every emulator
+      — With it (today's read mode `0x3F1`): `ESC [ D`; without it (`0x1F1`):
+      nothing (arrows, Delete, F-keys, Home/End and Esc are all dropped). See the
+      matrix notes; Phase 5 must also keep VT input on between reads.
+- [x] Decoder test corpus: byte streams for every Goal-table row, every emulator
       variant, kitty `CSI u` press/repeat/release with modifiers, invalid UTF-8,
       lone Esc, Esc+letter, split sequences, ZWJ and combining clusters, CR LF.
-- [ ] Settle the Open details with the owner.
+      — `src/codegen/io/input/corpus.rs`, 260+ cases written by hand from the
+      protocol documents (not computed from the decoder's tables): every Goal row
+      in both event regimes; SS3, VT220 `1~`/`4~`/`11~`–`14~`, rxvt `7~`/`8~`/`a`–`d`
+      /`$ ^ @`, kitty `CSI P/Q/S`/`13~`, Linux console `[[A`–`E`, xterm
+      `modifyOtherKeys`; kitty `u` press/repeat/release, Shift/Alt/Ctrl/Super/Meta,
+      Caps/Num Lock ignored, alternate keys, associated text, keypad and functional
+      keys, modifier-only and F13+ keys dropped, undefined event type and surrogate
+      code point dropped; device replies/paste markers/unstripped mouse reports
+      dropped; C0 keys and Ctrl+letters; lone Esc (waits, then Escape), Esc+letter/
+      Esc+Esc/Esc+sequence (Alt), Alt+`[`/Alt+`O`; ten split prefixes (wait) and
+      their abandonment at `FINAL`; invalid UTF-8 per the maximal-subpart rule;
+      combining, ZWJ, flag and Hangul clusters, a cluster ending at a control or a
+      sequence, the 128-byte cap at its exact edge; CR, LF, CR LF, CR CR LF, LF CR.
+- [x] Settle the Open details with the owner. — Settled 2026-09-25, recorded as
+      Decision 9 and under "Open detail": line readers keep `ErrEncoding`; `input`
+      keeps its signature and its man page points a prompt-less timed read at
+      `io::readLine(timeoutMs)`; Phase 5 also pushes alternate keys and associated
+      text.
 
 Acceptance: the new tests fail for the documented reason; the matrix is measured on
-three platforms.
-Commit: —
+three platforms. **Met, with the two UNMEASURED gaps above** (Linux x86_64; Windows
+real-input delivery).
+Commit: e11e4f0e2 (Phase 1), 85a4a77f4 (owner answers; macOS setMode key handlers), dbf7cbd98 (Windows MFB_WINAPP_INPUT zeros)
 
 ### Phase 2: input buffer + decoder (runtime; readers unchanged)
 
-- [ ] The buffer under the broadcast log; existing readers consume through it with
+- [x] The buffer under the broadcast log; existing readers consume through it with
       today's behavior (golden-identical).
-- [ ] The decoder and the 25 ms delay constant; unit-tested on the Phase 1 corpus.
+      — `src/codegen/io/input/{mod,buffer}.rs`. **Design:** a per-arena region
+      (length word + 256 bytes, `INPUT_STATE_SLOTS`) appended past the mouse-state
+      region, so it is per subscriber, lock-free, and moves no existing offset.
+      Data flow: log/pipe → mouse pump → input buffer → readers. Every plain reader
+      takes buffered bytes first (`emit_take_buffered_byte` at the top of
+      `emit_stdin_byte_read`, lead AND continuation bytes), and `io::pollInput`
+      reports a buffered byte ready before it waits (the log and `poll(fd 0)`
+      cannot see it). A look-ahead reader consumes only its own token from the
+      front (`emit_consume`). **Golden identity is by compile-time gate** (the
+      plan-94-B B4 precedent): the region, the reader fronts and the decoder are
+      emitted only in a program that calls a reader in `INPUT_BUFFER_READERS` —
+      the Phase 4 look-ahead readers, so the list is EMPTY today and no program
+      changes. Phase 4 adds its readers' symbols to that list; nothing else.
+      The buffered paths are exercised now through a `#[cfg(test)]` switch
+      (`FORCE_INPUT_BUFFER`) that reserves the region, lowering the real reader
+      helpers and running them in the `.ncode` interpreter
+      (`src/codegen/io/input/reader_tests.rs`, 7 cases: `readByte` buffer-then-
+      source, `readChar` joining a buffered lead byte with a source continuation,
+      `readLine` joining buffered bytes with the rest of the line, `pollInput`
+      ready on a buffered byte and unchanged when empty).
+      **Byte-identity measured** (release `mfb`, 2026-09-25):
+      `scripts/artifact-gate.sh … io|thread|term` → 7/7/7 goldens, 0 diffs each;
+      the `--app` fixtures that emit readers/mouse (`syntax/app/macos-app-mode-io`,
+      `macos-app-mode-term`, `app-mouse-surface`: 16 goldens incl. every
+      `.app.ncodesum`) rebuilt in scratch copies → 0 diffs.
+      While threading the buffer through, the read loop head was found BELOW the
+      mouse pump's drain — New bug 1, fixed here (it moves no golden: the head
+      moves only when a pump or buffer is emitted, and no golden fixture reads a
+      line with the mouse on).
+- [x] The decoder and the 25 ms delay constant; unit-tested on the Phase 1 corpus.
+      — `_mfb_rt_input_decode` (`src/codegen/io/input/decode.rs`), a pure function
+      (buffer, length, flags `FINAL|EVENTS|CLUSTER`) → a 192-byte token record
+      (need-more / skip n / key+event+mods+grapheme+text). Tables in `keys.rs`;
+      clusters use the existing UAX #29 emitters over the utf8proc tables. The
+      delay is `INPUT_DELAY_MS = 25` (`io::input`), and the mouse decoder's
+      `ESCAPE_DELAY_MS` is now defined as it (one delay, Decision 3); the decoder
+      itself never waits — "need more" tells the reader to wait up to the delay
+      and ask again with `FINAL`. Specification: a Rust model
+      (`model.rs`, test-only), with `unicode-segmentation` for clusters as an
+      independent second implementation. **GREEN, measured** (`cargo test --bin mfb
+      codegen::io::`, 14 passed): the model passes the corpus; the EMITTED decoder,
+      run in the `.ncode` interpreter, passes the corpus as lowered for all five
+      backends (macOS/Linux aarch64, x86_64 SysV, Windows x64, riscv64) and agrees
+      with the model on 4000 random fragment strings. Controls: a decoder that drops
+      Ctrl fails ≥10 corpus cases; mutating the emitted `CSI Z` modifier or the
+      128-byte cluster cap fails the emitted-corpus test (checked by hand).
 
-Acceptance: full suite golden-identical; the corpus passes.
-Commit: —
+Acceptance: full suite golden-identical; the corpus passes. **Met for the scoped
+gates run** (io/thread/term + the three app fixtures, 0 diffs; the full suite and
+`artifact-gate all` were not run in this phase by instruction — no golden is
+expected to move, since nothing is emitted in any program without the switch).
+Commit: 4e70277e0
 
 ### Phase 3: `--app` injection and key release
 
@@ -461,8 +621,9 @@ Commit: —
 
 ### Phase 5: kitty in `term::on` / `term::off`
 
-- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on`, pop in `term::off`
-      and the exit-path restore.
+- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on` — disambiguate,
+      event types, alternate keys, all keys as escape codes, associated text
+      (`CSI > 31 u`; Decision 9) — pop in `term::off` and the exit-path restore.
 - [ ] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
       `NotSupported` elsewhere; `readScalar`/`readGrapheme`/`readLine` see plain text
       either way.
@@ -476,34 +637,135 @@ Commit: —
 ### Phase 6: remove `readChar` / `readByte` / `pollInput`
 
 - [ ] Delete the three members and their descriptors; migrate every caller in the
-      Blast Radius (all 13 examples in its table — the eight decoders to `readKey` —
-      and `pollInput` loops to `timeoutMs = 0` with `TRAP … ErrTimeout`).
-- [ ] **Examples gate:** `bash scripts/build-examples.sh` (builds every executable
-      project under `examples/` for all five registered targets and exits non-zero
-      on any failure; CI job `examples` in `.github/workflows/coverage.yml`) must
-      exit 0 **before the removal commit lands**, run locally against a compiler
-      built from that commit. The script reuses an existing `target/release/mfb`,
-      so rebuild it first — a stale compiler that still has `readChar` would pass.
-      CI runs the job only after `test`/`acceptance`/`artifact`/`coverage`, so it
-      is not a substitute for the local run.
+      Blast Radius (the six decoders to `readKey`, `pollInput` loops to
+      `timeoutMs = 0` with `TRAP … ErrTimeout`).
 - [ ] Spec and man updated; `grep -rn "readChar\|readByte\|pollInput" src examples
       tests packages` returns nothing live.
 
-Acceptance: the grep is empty; `scripts/build-examples.sh` exits 0 on a fresh
-compiler; every migrated example's keys work in a console build and a macOS `--app`
-build.
+Acceptance: the grep is empty; every migrated example builds and its keys work in a
+console build and a macOS `--app` build.
 Commit: —
 
 ### Phase 7: full validation
 
 - [ ] Full suite (`cargo test`), `cargo test --bin mfb spec`,
-      `scripts/man-census.sh --memory-scope` (0 unclassified),
-      `bash scripts/build-examples.sh` exits 0.
+      `scripts/man-census.sh --memory-scope` (0 unclassified).
 - [ ] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
       keys by hand in `--app`.
 
 Acceptance: full suite green; the probe prints the same key sequence everywhere.
 Commit: —
+
+## Findings for later phases (Phase 1–2, 2026-09-25)
+
+Recorded where they bite; none changes a Decision.
+
+- **Phase 5 flags lose text.** The Goal's flags (disambiguate `0b1`, event types
+  `0b10`, all keys as escape codes `0b1000`) send a text key as its UNSHIFTED code
+  with no text (`Shift+a` is `CSI 97;2u`), so on a non-US layout the decoder cannot
+  know what Shift typed. It falls back to the kitty alternate-key subfield when
+  present, else to ASCII upper case (corpus: "kitty Shift+a without text is A") —
+  right on a US layout only. **Settled by the owner (Decision 9):** Phase 5 also
+  pushes alternate keys `0b100` and associated text `0b10000`, so the fallback
+  never runs under a kitty terminal. Phase 3's injection should carry the associated
+  text the same way (`CSI 97;2;65u`).
+- **Alt+letter's text.** The decoder gives `ESC a` (a terminal's Meta-sends-Escape)
+  and kitty `CSI 97;3u` the same token: `Unicode`, grapheme `"a"`, Alt, text `"a"` —
+  so `readScalar` returns `a` for Alt+a on every surface, and never an ESC it did
+  not see as the Escape key.
+- **Events on plain bytes.** Plain text, C0 bytes and SS3/rxvt sequences report
+  `NotSupported` even from a surface that reports events — they carry no event, and
+  a `Press` with no `Release` ever to follow would break a held-key tracker. A CSI
+  key sequence with no event field is `Press` exactly when the source reports
+  events (`FLAG_EVENTS`), because kitty sends a plain press as `CSI D`.
+- **Keys `io::KeyName` has no member for are dropped**, not guessed: kitty's
+  modifier-only events (Left Shift, …), F13 and up, media and lock keys.
+- **A reader with a timeout must set raw input for its WAIT, not only its read.**
+  On Linux `--app` (and on any console) `io::pollInput` does not leave line mode,
+  so the bug doc's own probe saw nothing until Return. Phase 4's `timeoutMs` wait
+  is inside the reader, which already switches mode — keep the switch around the
+  wait.
+- **Windows console: VT input only during a read.** Arrows typed between reads are
+  lost and Backspace becomes `0x08` (measured). Phase 5 should keep
+  `ENABLE_VIRTUAL_TERMINAL_INPUT` on while `term::on` is active, not per read.
+- **GTK transcript raw drops Backspace and Delete** (measured on 2226; Canvas and
+  TUI keep them). Likely the `GtkTextView` consumes them before the window's key
+  controller (a guess — not measured). Phase 3's GTK handler has to see them.
+- **The macOS transcript's and TUI's `keyDown:` exist only in a program that starts
+  in `Console`** — see "New bugs found". `tests/codegen/app_special_keys.rs` reads
+  those two surfaces from a Console-start program for that reason.
+
+## New bugs found (Phase 1–2)
+
+1. **FIXED here — mouse-mode `io::readLine` repeats an ESC in place of the rest
+   of the line.** `readLine` looped back to its per-byte read BELOW the plan-94-B
+   pump's owed-byte drain; after an `ESC x` flush the next fresh byte re-entered the
+   decoder mid-flush. Repro (`term::enableMouse(TRUE)` then `io::readLine()` on
+   piped stdin): `a ESC x b` → `97 27 27 27`, `a ESC [ Z b` → `97 27 27 27`,
+   `ESC ESC q` → `27 27 27` (base compiler); without `enableMouse` all three are
+   exact. Fixed by the same change that threads the input buffer (the loop head now
+   sits above every pre-read stage); test
+   `native_term_mouse_line_read_keeps_the_bytes_after_an_escape`.
+2. **FIXED here — macOS: a program that calls `app::setMode` never registered
+   `MFBTextView keyDown:` or the `TermView` class.** Both are created only by the `Console`-start branch of
+   `emit_main_bootstrap` (`src/target/macos_aarch64/app/bootstrap.rs`); a `None`-start
+   program's first `setMode(Console)` builds a plain non-editable `NSTextView`
+   (`emit_reconcile_build_helper`), and nothing registers `TermView`. Found by the
+   Phase 1 harness: a `setMode` program's dump contains `_mfb_macapp_key_down` and
+   `_mfb_macapp_term_keyDown` with no reference to either. **Measured (macOS
+   15.7.7, base compiler, keys by `CGEventPostToPid`):** a program that calls
+   `app::setMode(app::Mode.Console)` and then loops on `io::readByte` receives
+   nothing for `a`, `b`, `q` and never exits; the same program without the
+   `setMode` line prints `97 98` and exits on `q`; a Canvas → Console → Canvas
+   program received nothing on any surface.
+   **Fix** (registration only; the bytes the handlers write are untouched, Phase 3's):
+   the `MFBTextView` class, the `TermView` surface and the input-line buffer are now
+   built by helpers both start modes call (`emit_textview_class`,
+   `emit_termview_surface`, `emit_input_line_buffer`; the Console-start path emits
+   exactly what it did). A `None` start stashes the class under
+   `RECONCILE_TV_CLASS_KEY`; `emit_reconcile_build_helper` instantiates it and also
+   records the view as what `term::off` swaps back; the `Console` reconcile makes it
+   first responder. **RED → GREEN:**
+   `app_special_keys::macos_a_mode_switching_program_registers_every_key_down_handler`
+   (RED: only the canvas `keyDown:` found; GREEN), and by hand with
+   `CGEventPostToPid` on the fixed compiler: `setMode(Console)` + reads → `97 98`,
+   then `term::on` → `99`, after `term::off` → `100`; Canvas → Console → Canvas →
+   `97 98 99` (base: nothing). `cargo test --bin mfb macos_aarch64` 39 passed;
+   `cargo test --release --test cli_app_canvas_mode` 11 passed.
+   **Goldens that move (expected, regenerate on merge):** only the two `setMode`
+   fixtures' macOS app code —
+   `tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.macos-aarch64.app.ncodesum`
+   and `tests/syntax/app/app-window-surface/golden/app_window_surface.macos-aarch64.app.ncodesum`
+   (checked by rebuilding every native golden of those two plus
+   `macos-app-mode-io`/`-term`: every other one identical; both are identical
+   on the base compiler).
+3. **FIXED here — Windows `--app`: a program that never calls `app::setMode` got
+   `0` from `io::readByte` immediately and forever.** Reproduced on 2230
+   (10.0.26100, base compiler, no input at all): a Console-start program reading 20
+   bytes printed `0 0 … 0 END` within 5 s — also with `IMPORT app` + `getMode`;
+   the same program with `setMode(Console)` waited correctly. **Mechanism:** `_main`'s
+   `MFB_WINAPP_INPUT` test affordance (`emit_main`, `src/target/win_x86_64/app/mod.rs`)
+   took `GetEnvironmentVariableW`'s count from `abi::return_register()` — the Win64
+   MFB result register `rcx`, which the call leaves undefined — instead of the C
+   result `abi::c_return(0)` (`rax`): the exact trap `.ai/testing-gates.md` "Win64
+   codegen invariant" names. With the variable UNSET the count was junk, so `_main`
+   posted that many `WM_CHAR 0`s from its zeroed buffer to the transcript EDIT,
+   whose subclass wrote each byte into the input pipe. A `None` start zeroes the
+   EDIT handle before the loop, so its posts went nowhere — why only Console starts
+   showed it. The affordance itself was broken too: `MFB_WINAPP_INPUT=ab` delivered
+   nothing. **Fix:** read the count from `c_return(0)` (two instructions).
+   **RED → GREEN** (`tests/codegen/app_special_keys.rs`, running `_main` in the
+   `.ncode` interpreter, which now leaves caller-saved registers holding junk after
+   an external call as hardware does): `windows_main_posts_no_keystrokes_when_mfb_winapp_input_is_unset`
+   (RED: 65 `WM_CHAR 0`s) and `windows_main_posts_mfb_winapp_input_then_enter`
+   (RED: `a b 0 … 0 CR`); both GREEN. On 2230 with the fixed compiler: no input →
+   `readByte` blocks (`started`, still running); `MFB_WINAPP_INPUT=ab` →
+   `97 98 10`. `cargo test --bin mfb win_x86_64` 40 passed.
+   **Goldens that move (expected, regenerate on merge):** every Windows `--app`
+   native golden, since `_main` is in every Windows app binary —
+   `app-mouse-surface`, `app-window-surface`, `macos-app-mode-io`,
+   `macos-app-mode-plumbing`, `macos-app-mode-term` `.windows-x86_64.app.ncodesum`
+   (5 files; all identical on the base compiler).
 
 ## Validation Plan
 
@@ -514,13 +776,12 @@ Commit: —
   shows releases, a plain one `NotSupported`.
 - Doc sync: `03_console-io.md` (buffer, encodings, delay, `NotSupported`), `mfb man
   io`, `mfb man term on/off`.
-- Full suite: `cargo test`, `cargo test --bin mfb spec`, and the examples gate
-  `bash scripts/build-examples.sh` (every example, every target).
+- Full suite: `cargo test`, `cargo test --bin mfb spec`.
 
 ## Open Decisions
 
-All design decisions were taken by the owner on 2026-09-25 (see "Decisions"). The two
-Open details under Goal remain for Phase 1.
+All design decisions were taken by the owner on 2026-09-25 (see "Decisions", including
+Decision 9, which settled the two Open details and the Phase 5 flag set).
 
 ## Summary
 

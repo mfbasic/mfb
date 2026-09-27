@@ -90,7 +90,7 @@ impl LinuxArch for Riscv64 {
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         emit_asm_generic_arena_map(size_reg, instructions)

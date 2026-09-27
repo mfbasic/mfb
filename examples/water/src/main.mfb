@@ -271,6 +271,7 @@ FUNC main AS Integer
     LET height AS Float = toFloat(size.height)
     LET play AS Float = playWidth(width)
     pipe = pipeWithin(pipe, play)
+    clampShapes(play, height)
 
     DO WHILE pending(0)
       MATCH commandFor(readKey())

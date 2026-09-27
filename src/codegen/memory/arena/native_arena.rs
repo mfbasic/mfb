@@ -10,7 +10,7 @@ use crate::target::shared::abi;
 pub(crate) fn emit_data_address(
     from: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(1)`) or a legacy `&str`.
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
     data_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -78,17 +78,17 @@ pub(crate) fn emit_arena_free(
 #[must_use = "bug-574: a declared scratch block must reach \
               `emit_helper_scratch_release`, or the helper leaks it"]
 pub(crate) struct HelperScratch {
-    pub(crate) pointer: String,
-    pub(crate) size: String,
+    pub(crate) pointer: VirtualRegister,
+    pub(crate) size: VirtualRegister,
 }
 
 impl HelperScratch {
     /// Name an EXISTING pointer/size vreg pair as a scratch block. The caller is
     /// responsible for nulling both before any branch that can reach `done`.
-    pub(crate) fn new(pointer: &str, size: &str) -> Self {
+    pub(crate) fn new(pointer: &VirtualRegister, size: &VirtualRegister) -> Self {
         Self {
-            pointer: pointer.to_string(),
-            size: size.to_string(),
+            pointer: *pointer,
+            size: *size,
         }
     }
 
@@ -101,14 +101,14 @@ impl HelperScratch {
     /// reading an undefined vreg.
     pub(crate) fn declare(vregs: &mut Vregs, instructions: &mut Vec<CodeInstruction>) -> Self {
         let pointer = vregs.next();
-        Self::declare_for(&pointer, vregs, instructions)
+        Self::declare_for(pointer, vregs, instructions)
     }
 
     /// [`declare`](Self::declare) for a pointer vreg the body already names (the
     /// `cname`/`c_path` the rest of the lowering reads): mint only the size and
     /// null both.
     pub(crate) fn declare_for(
-        pointer: &str,
+        pointer: VirtualRegister,
         vregs: &mut Vregs,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Self {
@@ -117,10 +117,7 @@ impl HelperScratch {
             abi::move_immediate(pointer, "Integer", "0"),
             abi::move_immediate(&size, "Integer", "0"),
         ]);
-        Self {
-            pointer: pointer.to_string(),
-            size,
-        }
+        Self { pointer, size }
     }
 }
 
@@ -154,7 +151,7 @@ pub(crate) fn emit_helper_scratch_release(
     if scratch.is_empty() {
         return;
     }
-    let saved: Vec<String> = (0..4).map(|_| vregs.next()).collect();
+    let saved: Vec<VirtualRegister> = (0..4).map(|_| vregs.next()).collect();
     for (index, slot) in saved.iter().enumerate() {
         instructions.push(abi::move_register(slot, abi::mfb_return(index)));
     }

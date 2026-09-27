@@ -620,6 +620,259 @@ case "$cout" in
 esac
 
 # ---------------------------------------------------------------------------
+# The `term::` surface follows the window on Windows (bug-540 WIN-02/WIN-03)
+#
+# The surface was a compile-time 80x25: `term::terminalSize` reported it however
+# large the window was, every clamp said column 79 / row 24, and `term::didResize`
+# fell through to a flag nothing on Windows ever set, so it always read FALSE.
+#
+# A resize is a WINDOW event and headless has no window, so this is driven by the
+# scripted `term::` resize — `MFB_WINAPP_TERM_RESIZE_W`/`_H`, the twin of
+# `MFB_CANVAS_RESIZE_W`/`_H`: once `term::on` has built the surface, the main thread
+# hands those client-area pixels to the same handler `WM_SIZE` calls. 960x480 px at
+# the 8x16 cell is 120x30 cells.
+#
+# The program draws at the far edges of the NEW surface after the resize — a clamp
+# still saying 79 while the surface is 120 wide would silently truncate, and
+# `io::write`/`io::print` wrap and scroll past the new bottom-right corner. Which
+# glyph landed where is not observable here (no GDI readback); that it ran on the new
+# bounds without faulting is.
+rsproj="$work/winresize"
+mkdir -p "$rsproj/src"
+scaffold_project "$rsproj" winresize
+cat > "$rsproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT os
+
+SUB main()
+  MUT log AS String = ""
+  term::on()
+  LET before AS term::TermSize = term::terminalSize()
+  log = log & "before=" & toString(before.columns) & "x" & toString(before.rows)
+  ' Bounded, so a backend that never reports the resize fails instead of hanging.
+  MUT seen AS Boolean = FALSE
+  MUT tries AS Integer = 0
+  DO WHILE NOT seen AND tries < 200
+    IF term::didResize() THEN
+      seen = TRUE
+    ELSE
+      os::sleep(25)
+    END IF
+    tries = tries + 1
+  LOOP
+  log = log & ";resized=" & toString(seen)
+  log = log & ";again=" & toString(term::didResize())
+  LET after AS term::TermSize = term::terminalSize()
+  log = log & ";after=" & toString(after.columns) & "x" & toString(after.rows)
+  LET lastRow AS Integer = after.rows - 1
+  LET lastCol AS Integer = after.columns - 1
+  term::drawBox(term::LineStyle.Heavy, 0, 0, lastRow, lastCol)
+  term::drawHLine(term::LineStyle.Double, lastRow - 1, 0, lastCol + 50)
+  term::drawVLine(term::LineStyle.Light, 0, lastCol - 1, lastRow + 50)
+  term::fillRect(term::FillStyle.Dark, lastRow - 3, lastCol - 10, lastRow + 9, lastCol + 9)
+  term::drawText(lastRow, lastCol - 3, "edge\u{65E5}")
+  term::drawGlyph(lastRow, lastCol, 9731)
+  term::moveTo(lastRow + 40, lastCol + 40)
+  io::write("wraps past the bottom-right corner and scrolls")
+  MUT n AS Integer = 0
+  DO WHILE n < 40
+    io::print("line " & toString(n))
+    n = n + 1
+  LOOP
+  term::clear()
+  term::sync()
+  term::off()
+  ' The size is the window's, so it survives term::off + term::on; the pending
+  ' resize does not (term::on starts from no pending resize on every backend).
+  term::on()
+  log = log & ";afteron=" & toString(term::didResize())
+  LET kept AS term::TermSize = term::terminalSize()
+  log = log & ";kept=" & toString(kept.columns) & "x" & toString(kept.rows)
+  term::off()
+  io::print(log)
+END SUB
+MFB
+
+echo "--- building the term resize program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$rsproj" >/dev/null
+
+term_resize_run() { # $1 = tag, $2 = extra env line
+  cat > "$work/$1.bat" <<BAT
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+$2
+cd /d C:\\mfbwin
+winresize.exe > $1.out 2>&1
+echo rc=%errorlevel%
+type $1.out
+BAT
+  remote_ssh "$PORT" "$host" "del /q $remote\\$1.out 2>nul" >/dev/null 2>&1 || true
+  remote_scp "$PORT" "$work/$1.bat" "$host:C:/mfbwin/$1.bat" >/dev/null
+  remote_ssh "$PORT" "$host" "$remote\\$1.bat" 2>&1 || true
+}
+
+remote_scp "$PORT" "$rsproj/build/winresize.exe" "$host:C:/mfbwin/winresize.exe" >/dev/null
+trs="$(term_resize_run termresize "set MFB_WINAPP_TERM_RESIZE_W=960
+set MFB_WINAPP_TERM_RESIZE_H=480")"
+echo "$trs" | sed 's/^/    /'
+case "$trs" in
+  *"rc=0"*) pass "the term resize program exited cleanly after drawing on the resized surface" ;;
+  *) fail "the term resize program did not exit 0 — drawing, wrapping or scrolling on the resized surface faults (bug-540 WIN-02)" ;;
+esac
+# `before=` is not asserted here: the resize lands whenever `_main` next polls after
+# `term::on` publishes the surface, which may be before or after the first read. What
+# may not happen is the resize going unreported — `term::on` acknowledges pending
+# resizes BEFORE it publishes the surface, so any resize the handler counts is after.
+case "$trs" in
+  *";resized=TRUE;again=FALSE;"*) pass "term::didResize reports the resize once, then clears (bug-540 WIN-03)" ;;
+  *) fail "term::didResize did not report the scripted resize exactly once — WM_SIZE latched nothing the Windows didResize reads (bug-540 WIN-03)" ;;
+esac
+case "$trs" in
+  *";after=120x30;"*) pass "term::terminalSize follows the window: 960x480 px is 120x30 cells (bug-540 WIN-02)" ;;
+  *) fail "term::terminalSize did not follow the resized window to 120x30 — the surface is still the compile-time 80x25 (bug-540 WIN-02)" ;;
+esac
+case "$trs" in
+  *";afteron=FALSE;kept=120x30"*) pass "term::on clears the pending resize and the size survives term::off + term::on" ;;
+  *) fail "after term::off + term::on the pending resize was not cleared or the size did not survive" ;;
+esac
+
+# No scripted resize: nothing may be reported, and the surface stays 80x25.
+tnr="$(term_resize_run termstill '')"
+echo "$tnr" | sed 's/^/    /'
+case "$tnr" in
+  *"rc=0"*"before=80x25;resized=FALSE;again=FALSE;after=80x25;afteron=FALSE;kept=80x25"*)
+    pass "without a resize term::didResize stays FALSE and the size stays 80x25" ;;
+  *) fail "a run with no resize reported one, or changed the size" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# A WINDOWED `term::` program: a live resize, and a clean exit (bug-540)
+#
+# Every case above runs headless. This one builds the real window and runs the
+# message loop — session 0 has an (invisible) desktop, so it works over ssh — and a
+# PowerShell driver started from the SAME .bat (so the same window station) resizes
+# the window with `SetWindowPos`. (`[NullString]::Value`, not `$null`: PowerShell
+# passes `$null` to a `string` parameter as "", and `FindWindowW` then matches no
+# window whose title is empty.) That exercises what the scripted hook stands in
+# for: the WM_SIZE arm itself. The driver prints the client size it produced, and
+# the program's `term::terminalSize` must equal it divided by the 8x16 cell.
+#
+# The transcript is read back with `MFB_WINAPP_DUMP` (a `--debug` build) and must be
+# EXACTLY the two printed lines. That is the other half: the transcript write
+# placed its NUL from `rcx` instead of `MultiByteToWideChar`'s count in `rax`, so
+# `io::print("FALSE")` handed the EDIT "FALSE" plus ~32K units of arena garbage, and
+# the UI thread took ~75 s to lay it out — measured on this box as a windowed
+# `term::` + `io::print` program that "never exits" under a short timeout.
+lvproj="$work/winlive"
+mkdir -p "$lvproj/src"
+scaffold_project "$lvproj" winlive
+cat > "$lvproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT io
+IMPORT os
+
+SUB main()
+  term::on()
+  LET before AS term::TermSize = term::terminalSize()
+  MUT seen AS Boolean = FALSE
+  MUT tries AS Integer = 0
+  ' 30 s bound: the driver's Add-Type compile alone can take >10 s on this box.
+  DO WHILE NOT seen AND tries < 1200
+    IF term::didResize() THEN
+      seen = TRUE
+    ELSE
+      os::sleep(25)
+    END IF
+    tries = tries + 1
+  LOOP
+  LET after AS term::TermSize = term::terminalSize()
+  ' Keep the window alive while the driver reads back the client size it produced.
+  os::sleep(2000)
+  term::drawBox(term::LineStyle.Light, 0, 0, after.rows - 1, after.columns - 1)
+  term::sync()
+  term::off()
+  io::print("live before=" & toString(before.columns) & "x" & toString(before.rows) & ";resized=" & toString(seen) & ";after=" & toString(after.columns) & "x" & toString(after.rows))
+  io::print(toString(term::isOn()))
+END SUB
+MFB
+
+echo "--- building the windowed term program for windows-x86_64 ---"
+"$MFB_EXE" build --app --debug --target windows-x86_64 "$lvproj" >/dev/null
+
+cat > "$work/resize.ps1" <<'PS'
+param([int]$W = 900, [int]$H = 560)
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class U {
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, string t);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+}
+"@
+$h = [IntPtr]::Zero
+for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { $h = [U]::FindWindowW("MFBWinApp", [NullString]::Value); if ($h -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 50 } }
+if ($h -eq [IntPtr]::Zero) { "driver: no window"; exit 1 }
+Start-Sleep -Milliseconds 1500
+# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+$ok = [U]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $W, $H, 0x16)
+$r = New-Object U+RECT
+[void][U]::GetClientRect($h, [ref]$r)
+"driver: setwindowpos=$ok client=$($r.R - $r.L)x$($r.B - $r.T) cells=$([math]::Floor(($r.R - $r.L) / 8))x$([math]::Floor(($r.B - $r.T) / 16))"
+PS
+
+cat > "$work/winlive.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_DUMP=1
+cd /d C:\mfbwin
+del /q winlive.out 2>nul
+start "" /b cmd /c "winlive.exe > winlive.out 2>&1"
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\mfbwin\resize.ps1 900 560
+set /a n=0
+:wait
+tasklist /FI "IMAGENAME eq winlive.exe" | find /i "winlive.exe" >nul || goto done
+set /a n+=1
+if %n% geq 60 goto timeout
+ping -n 2 127.0.0.1 >nul
+goto wait
+:timeout
+echo winlive: still running after 60 s
+taskkill /F /IM winlive.exe >nul 2>&1
+:done
+echo winlive: exited
+BAT
+
+remote_scp "$PORT" "$lvproj/build/winlive.exe" "$host:C:/mfbwin/winlive.exe" >/dev/null
+remote_scp "$PORT" "$work/resize.ps1" "$host:C:/mfbwin/resize.ps1" >/dev/null
+remote_scp "$PORT" "$work/winlive.bat" "$host:C:/mfbwin/winlive.bat" >/dev/null
+lout="$(remote_ssh "$PORT" "$host" "$remote\\winlive.bat" 2>&1 || true)"
+echo "$lout" | sed 's/^/    /'
+remote_scp "$PORT" "$host:C:/mfbwin/winlive.out" "$work/winlive.out" >/dev/null 2>&1 || true
+# The readback is raw UTF-16LE at the end of the output, after the debug report.
+transcript="$(python3 - "$work/winlive.out" <<'PY' 2>/dev/null || true
+import sys
+data = open(sys.argv[1], 'rb').read()
+at = data.find('live '.encode('utf-16-le'))
+print(repr(data[at:].decode('utf-16-le', 'replace')) if at >= 0 else 'NO-TRANSCRIPT')
+PY
+)"
+echo "    transcript: $transcript"
+case "$lout" in
+  *"still running after 60 s"*) fail "the windowed term:: program did not exit within 60 s — the transcript NUL read from rcx (bug-540)" ;;
+  *"winlive: exited"*) pass "the windowed term:: program exited on its own" ;;
+  *) fail "the windowed run did not report an exit" ;;
+esac
+cells="$(echo "$lout" | sed -n 's/.*cells=\([0-9]*x[0-9]*\).*/\1/p')"
+case "$transcript" in
+  "'live before="*";resized=TRUE;after=$cells\r\nFALSE\r\n'")
+    pass "a live SetWindowPos resize reached term:: — didResize TRUE, terminalSize $cells = the client / 8x16 (bug-540 WIN-02/WIN-03)" ;;
+  *) fail "the windowed transcript is not exactly the two printed lines with the driver's size ($cells) — a missed live resize, or garbage after the text (bug-540)" ;;
+esac
+
+# ---------------------------------------------------------------------------
 # The app window members (setTitle/getTitle/setFullscreen/getFullscreen)
 #
 # Headless there is no window (`MAIN_HWND_SYM` stays 0), so the members are

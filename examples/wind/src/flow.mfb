@@ -43,10 +43,13 @@ IMPORT collections
 IMPORT color
 IMPORT math
 
-' The u and v components of one forecast hour, and what to call it on screen.
+' The wind, surface temperature and precipitation fields from one forecast
+' hour, and what to call the run on screen.
 TYPE Winds
-  east AS Field        ' UGRD: metres per second towards the east
-  north AS Field       ' VGRD: metres per second towards the north
+  east AS Field          ' UGRD: metres per second towards the east
+  north AS Field         ' VGRD: metres per second towards the north
+  temperature AS Field   ' TMP: kelvin, two metres above the ground
+  precipitation AS Field ' PRATE: kilograms of water per square metre per second
   label AS String
 END TYPE
 
@@ -64,12 +67,11 @@ END TYPE
 ' real answer is about 0.0009, which would be a still picture; this is a display
 ' speed, chosen so that a 10 m/s wind reads as a steady drift and a 40 m/s jet
 ' streak reads as fast.
-LET DRIFT_RATE AS Float = 1.15
+LET DRIFT_RATE AS Float = 1.35
 
-' How many positions of a particle's history are kept. The trail is drawn as
-' this many points joined by lines, so it is also the cost: the scene carries
-' roughly particleCount() * (TRAIL_LENGTH - 1) lines.
-LET TRAIL_LENGTH AS Integer = 12
+' Thirty-three segments of history per particle. stepSwarm compensates the base
+' movement for zoom, then deliberately lengthens fast-wind trails at high zoom.
+LET TRAIL_LENGTH AS Integer = 34
 
 ' How many frames a particle lives before it is picked up and dropped somewhere
 ' else.
@@ -89,6 +91,10 @@ LET METRES_PER_DEGREE AS Float = 111320.0
 
 ' The wind speed, in metres per second, that the colour ramp treats as its top.
 LET FAST_WIND AS Float = 32.0
+
+' Wind speed, in metres per second, that receives the full high-zoom movement
+' boost. Slower wind scales smoothly from no boost at 10 m/s.
+LET MAX_BOOST_WIND AS Float = 50.0
 
 ' ---------------------------------------------------------------------------
 ' Sampling the field
@@ -319,19 +325,25 @@ SUB seedSwarm(count AS Integer, v AS View)
 END SUB
 
 ' Advance the whole swarm by dt seconds of animation, through the wind `mix` of
-' the way from one forecast hour to the next (windBetween).
+' the way from one forecast hour to the next (windBetween). Movement is divided
+' by the zoom so its speed in window pixels stays steady as the view moves in.
+' At higher zooms only fast wind is exaggerated: the boost grows from none at
+' 10 m/s to eight times as fast at MAX_BOOST_WIND, and from none at 1x to full
+' at 60x.
 '
 ' A degree of longitude shrinks towards the poles, so an eastward wind turns
 ' into more degrees the further north it blows. The 0.12 floor on that cosine
 ' stops the division running away above 83 degrees, where a particle would
 ' otherwise be flung right round the world in a frame; particles that get that
 ' far are retired on the next line anyway.
-SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, dt AS Float)
+SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom AS Float, dt AS Float)
   LET count AS Integer = particleCount()
   IF count = 0 THEN EXIT SUB
 
   trailHead = (trailHead + 1) MOD TRAIL_LENGTH
-  LET drift AS Float = DRIFT_RATE * dt
+  LET safeZoom AS Float = math::max(zoom, 0.000001)
+  LET zoomProgress AS Float = math::clamp(math::log(math::max(zoom, 1.0)) / math::log(60.0), 0.0, 1.0)
+  LET baseDrift AS Float = DRIFT_RATE * dt / safeZoom
 
   FOR i = 0 TO count - 1
     LET age AS Integer = collections::get(swarm, i).age + 1
@@ -350,10 +362,13 @@ SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, dt AS F
     ' particle is changed where it stands rather than copied out and back.
     MUT p AS Particle = collections::get(swarm, i)
     LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := p.lon, lat := p.lat])
+    LET speed AS Float = speedOf(wind)
+    LET windProgress AS Float = math::clamp((speed - 10.0) / (MAX_BOOST_WIND - 10.0), 0.0, 1.0)
+    LET drift AS Float = baseDrift * (1.0 + 7.0 * zoomProgress * windProgress)
     LET shrink AS Float = math::max(math::cos(radians(p.lat)), 0.12)
     LET lon AS Float = wrapLon(p.lon + wind.east * drift / shrink)
     LET lat AS Float = math::clamp(p.lat + wind.north * drift, -89.5, 89.5)
-    p = WITH p { lon := lon, lat := lat, age := age, speed := speedOf(wind) }
+    p = WITH p { lon := lon, lat := lat, age := age, speed := speed }
     swarm = collections::set(swarm, i, p)
 
     setTrailPoint(i * TRAIL_LENGTH + trailHead, Geo[lon := lon, lat := lat])
@@ -378,7 +393,7 @@ END FUNC
 ' having a head and a direction rather than as a worm of even brightness.
 FUNC trailPointColor(tint AS color::Color, k AS Integer, segments AS Integer) AS color::Color
   LET fade AS Float = 1.0 - toFloat(k) / toFloat(segments)
-  RETURN color::withAlpha(tint, 40 + math::floor(fade * 195.0))
+  RETURN color::withAlpha(tint, 2 + math::floor(fade * fade * fade * 233.0))
 END FUNC
 
 ' One run of a trail, as the PolyLine that draws it.

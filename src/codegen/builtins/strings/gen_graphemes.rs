@@ -269,7 +269,7 @@ pub(crate) fn lower_strings_graphemes(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::list_of(ParameterType::String),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.graphemes".to_string(),
     })
 }

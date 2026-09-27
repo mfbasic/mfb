@@ -97,7 +97,7 @@ a `cargo test` target, another script, or a person.
   bookkeeping, a work dir with cleanup, `--box` parsing, `remote_ssh`/`remote_scp`
   (always `BatchMode` + `ConnectTimeout`, overridable with `MFB_SSH_CONNECT_TIMEOUT`),
   a `watchdog`, `win_ship`, `scaffold_project`. Sourced, not executable.
-  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-winapp.sh`, `test-appimage.sh`,
+  Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-wintls.sh`, `test-winapp.sh`, `test-appimage.sh`,
   `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-macapp.sh`,
   `linux-runtime-proof.sh`.
 - **remote-common-selftest.sh** — Checks the helpers locally: the watchdog kills and
@@ -123,8 +123,10 @@ a `cargo test` target, another script, or a person.
   Run by: by hand (boxes 2228/2227).
 - **test-canvas-gpu-rows.sh** — The bug-686 scale rows (5,000 quads, 40,000 polygon
   edges, 4,200 gradient stops, a tilemap, a 1080p background, 300-64,000-edge polygons,
-  layers) on the Vulkan backend: each scene in `tests/canvas/scenes/` must draw on the GPU
-  (`gpuFrames` non-zero) and agree with the software oracle within tolerance. Every run
+  layers), plus bug-687's shapes over black (three star polygons, the large-polygon scene
+  without its grey ground, 140 small polygons, 140 rectangles), on the Vulkan backend: each scene in
+  `tests/canvas/scenes/` must draw on the GPU (`gpuFrames` non-zero) and agree with the
+  software oracle within tolerance. Every run
   sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows run the `rt_canvas_geo_native`
   programs, including the publish race, so the shared native geometry paths are checked
   on x86-64 and AArch64 Linux and Windows (bug-688). Usage:
@@ -148,6 +150,11 @@ a `cargo test` target, another script, or a person.
   at exit; a further run checks that non-ASCII values, file names and arguments
   survive every marshalling direction byte for byte.
   Usage: `bash scripts/test-winleak.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
+- **test-wintls.sh** — Runtime acceptance for the Windows Schannel `tls` backend
+  (bug-721, bug-564): cross-builds every `tests/rt-behavior/tls/*-rt` fixture for
+  `windows-x86_64`, runs it on the Windows box and compares its output and exit code
+  with the fixture's `golden/build.log` run section. Needs outbound HTTPS on the box.
+  Usage: `bash scripts/test-wintls.sh <mfb-exe> [--box <port>]`. Run by: by hand (box 2230).
 - **test-winprocess.sh** — Runtime acceptance for the Windows `process` backend on the
   console entry path: argv quoting, environment, working directory and stdin/stdout of
   spawned children, run on the Windows box.

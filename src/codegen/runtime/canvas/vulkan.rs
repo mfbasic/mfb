@@ -42,39 +42,40 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
     push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT,
-    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
-    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
-    GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
-    GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
-    GRAPHICS_OFFSET_VULKAN_IMAGE, GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW, GRAPHICS_OFFSET_VULKAN_INSTANCE,
-    GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER, GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
-    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
-    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
-    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
-    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
-    HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0,
-    HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN,
-    HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
-    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
-    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
-    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
-    ITEM_BAND_START, ITEM_BAND_TOP, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
-    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
-    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, PICTURE_RECORD_BYTES,
-    PICTURE_SHADOW_SPLIT_BITS, VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES,
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
+    EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON,
+    GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START,
+    GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+    GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
+    GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
+    GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
+    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES, GRAPHICS_OFFSET_VULKAN_QUEUE,
+    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
+    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
+    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X,
+    HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1,
+    HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
+    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND,
+    HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
+    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
+    HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
+    HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP,
+    ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START,
+    ITEM_BAND_TOP, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT,
+    ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL,
+    ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND,
+    ITEM_SURFACE_GRADIENT_KIND, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+    VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES, VULKAN_EDGE_RESIDUAL_BASE_WORDS,
     VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS, VULKAN_ITEM_BUFFER_BYTES,
     VULKAN_MAX_FRAME_BAND_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS, VULKAN_PICTURE_INDEX_OFFSET,
@@ -3924,7 +3925,9 @@ fn emit_edge_upload(
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
+    let residual_target = abi::SCRATCH[1];
     let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
 
     // Only a polygon has edges. Every other kind leaves `misc.w` holding whatever
     // `HEADER_AUX0` meant for it — an arc's start angle — which is harmless because
@@ -4019,6 +4022,24 @@ fn emit_edge_upload(
         off_edge_cursor,
     ));
 
+    // bug-687: each word's residual goes to the same edge's slot in the residual region,
+    // a fixed distance past its 16.16 word (`VULKAN_EDGE_RESIDUAL_BASE_WORDS`) — Metal's
+    // `emit_edge_buffer` twin.
+    builder.emit(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(residual_target, residual_target, target));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[0],
+    ));
     builder.emit(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
@@ -4032,7 +4053,10 @@ fn emit_edge_upload(
     builder.emit(abi::label(&head));
     builder.emit(abi::compare_registers(index, count));
     builder.emit(abi::branch_ge(&band));
-    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as its 16.16 word and,
+    // in the residual region, `round((v * 65536 - word) * 2^31)` (bug-687,
+    // `EDGE_RESIDUAL_SCALE`). `v * 65536 - word` is exact: the two are within half a
+    // step of each other.
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
@@ -4054,6 +4078,26 @@ fn emit_edge_upload(
         ));
         builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     }
     builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     builder.emit(abi::add_immediate(index, index, 1));
@@ -7045,9 +7089,9 @@ fn emit_state_store(
     builder: &mut CodeBuilder,
     state_slot: usize,
     offset: usize,
-    value: impl Into<Operand>,
+    value: impl Into<abi::Reg>,
 ) {
-    let value = value.into();
+    let value: abi::Reg = value.into();
     builder.emit(abi::load_u64(
         abi::SCRATCH[3],
         abi::stack_pointer(),
@@ -7060,7 +7104,7 @@ fn emit_state_load(
     builder: &mut CodeBuilder,
     state_slot: usize,
     offset: usize,
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
 ) {
     // No temporary at all: the state base goes into `dst` itself, which the second load
     // overwrites anyway. Both kinds of temporary have broken this helper on x86-64:
@@ -7076,9 +7120,9 @@ fn emit_state_load(
     //   this call, the vreg came out as `r10`, and the table pointer became the state
     //   block plus 4 MiB — an access violation on Windows, and nothing on AArch64, where
     //   `x9`–`x17` are outside the allocatable file.
-    let dst = dst.into();
-    builder.emit(abi::load_u64(dst.clone(), abi::stack_pointer(), state_slot));
-    builder.emit(abi::load_u64(dst.clone(), dst, offset));
+    let dst: abi::Reg = dst.into();
+    builder.emit(abi::load_u64(dst, abi::stack_pointer(), state_slot));
+    builder.emit(abi::load_u64(dst, dst, offset));
 }
 
 /// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
@@ -7099,7 +7143,7 @@ fn emit_state_load(
 /// primitive that would invite the general one.
 fn emit_store_f32_from_integer(
     builder: &mut CodeBuilder,
-    value: impl Into<Operand>,
+    value: impl Into<abi::Reg>,
     offset: usize,
 ) {
     let bits = abi::SCRATCH[8];
@@ -7376,10 +7420,10 @@ fn emit_zero_range(builder: &mut CodeBuilder, base: usize, length: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::runtime::canvas::VULKAN_EDGE_BYTES;
     use crate::codegen::runtime::canvas::{
         GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE,
     };
+    use crate::codegen::runtime::canvas::{VULKAN_EDGE_BYTES, VULKAN_EDGE_RESIDUAL_BYTES};
 
     /// The embedded SPIR-V is well-formed.
     ///
@@ -7498,6 +7542,8 @@ mod tests {
             ("GLYPH_BASE", VULKAN_GLYPH_BASE_WORDS),
             ("GRADIENT_BASE", VULKAN_GRADIENT_BASE_WORDS),
             ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
+            // bug-687: the polygon vertices' residual words.
+            ("EDGE_RESIDUAL_BASE", VULKAN_EDGE_RESIDUAL_BASE_WORDS),
         ];
         assert_eq!(
             VULKAN_SPEC_CONSTANTS.len(),
@@ -7560,10 +7606,17 @@ mod tests {
     #[test]
     fn the_shared_buffer_holds_every_region() {
         let mut end = VULKAN_EDGE_BYTES;
+        // bug-687 put the edge residuals between the edges and the band index.
+        assert_eq!(
+            VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4,
+            end,
+            "the edge-residual region must start where the edge region ends",
+        );
+        end += VULKAN_EDGE_RESIDUAL_BYTES;
         assert_eq!(
             VULKAN_BAND_BASE_WORDS * 4,
             end,
-            "the band region must start where the edge region ends",
+            "the band region must start where the edge-residual region ends",
         );
         end += VULKAN_MAX_FRAME_BAND_WORDS * 4;
         assert_eq!(

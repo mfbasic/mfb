@@ -19,15 +19,15 @@ impl CodeBuilder<'_> {
     /// single indirection that makes every STATE path work for a union.
     pub(crate) fn emit_resource_record_ptr(
         &mut self,
-        value_ptr: impl Into<Operand>,
+        value_ptr: impl Into<abi::Reg>,
         type_: &ParameterType,
-    ) -> Result<String, String> {
+    ) -> Result<abi::Reg, String> {
         if self.is_resource_union_type(type_) {
             let record = self.allocate_register();
             self.emit(abi::load_u64(&record, value_ptr, 8));
-            Ok(record.render())
+            Ok(record.into())
         } else {
-            Ok(value_ptr.into().render())
+            Ok(value_ptr.into())
         }
     }
 
@@ -138,7 +138,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "default Nothing".to_string(),
                 })
             }
@@ -148,7 +148,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "default Boolean".to_string(),
                 })
             }
@@ -170,7 +170,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("default {type_}"),
                 })
             }
@@ -179,7 +179,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "default String".to_string(),
                 })
             }
@@ -198,7 +198,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("default {type_}"),
                 })
             }
@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(block.render()),
+                    location: Operand::from(block),
                     text: format!("closed union {type_}"),
                 })
             }
@@ -282,7 +282,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(handle.render()),
+                    location: Operand::from(handle),
                     text: format!("closed {type_}"),
                 })
             }
@@ -314,7 +314,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(record.render()),
+                    location: Operand::from(record),
                     text: format!("closed {type_}"),
                 })
             }
@@ -380,7 +380,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("default {type_}"),
                 })
             }
@@ -413,7 +413,7 @@ impl CodeBuilder<'_> {
                 let mut record = ValueResult {
                     origin: None,
                     type_: type_.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("default {type_}"),
                 };
                 for (slot, field_type) in inlined_defaults {
@@ -622,7 +622,7 @@ impl CodeBuilder<'_> {
                 return Ok(ValueResult {
                     origin: None,
                     type_: state_type.clone(),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: "state".to_string(),
                 });
             }
@@ -738,7 +738,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: field_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("{}.{}", target_value.text, member),
         })
     }
@@ -828,7 +828,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: type_.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("with {}", target_value.text),
         })
     }
@@ -901,11 +901,11 @@ impl CodeBuilder<'_> {
         // copies both operands' bytes into it (`lower_string_concat_helper`), so
         // the block is fresh and unaliased — neither operand's storage is handed
         // back. An unbound `a & b` may therefore be freed at statement end.
-        self.mark_fresh_string(Operand::from(result_ptr.render()));
+        self.mark_fresh_string(Operand::from(result_ptr));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result_ptr.render()),
+            location: Operand::from(result_ptr),
             text: format!("({} & {})", left.text, right.text),
         })
     }
@@ -1019,11 +1019,11 @@ impl CodeBuilder<'_> {
         // bug-536 shape B: the one `emit_arena_alloc_call` in step 3 is this
         // block's only allocation and every operand was *copied* into it, so the
         // fused chain's result is as fresh as the pairwise form's.
-        self.mark_fresh_string(Operand::from(result_ptr.render()));
+        self.mark_fresh_string(Operand::from(result_ptr));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result_ptr.render()),
+            location: Operand::from(result_ptr),
             text: format!("({})", texts.join(" & ")),
         })
     }
@@ -1035,7 +1035,7 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code global '{name}' does not resolve"))
     }
 
-    pub(crate) fn load_global_address(&mut self, name: &str) -> Result<String, String> {
+    pub(crate) fn load_global_address(&mut self, name: &str) -> Result<VirtualRegister, String> {
         let global = self.global_value(name)?;
         let register = self.allocate_register();
         self.emit(abi::add_immediate(
@@ -1043,7 +1043,7 @@ impl CodeBuilder<'_> {
             ARENA_STATE_REGISTER,
             global.offset,
         ));
-        Ok(register.render())
+        Ok(register)
     }
 
     pub(crate) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {

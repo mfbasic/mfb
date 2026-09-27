@@ -12,6 +12,7 @@ use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 pub(crate) fn lower_fs_write_all_helper(
@@ -1163,14 +1164,21 @@ fn emit_append_to_line_accumulator(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
-    temp: &str,
-    temp_cap: &str,
-    line_len: &str,
-    src: &str,
-    count: &str,
+    temp: impl Into<Reg>,
+    temp_cap: impl Into<Reg>,
+    line_len: impl Into<Reg>,
+    src: impl Into<Reg>,
+    count: impl Into<Reg>,
     tag: &str,
     alloc_error: &str,
 ) {
+    let (temp, temp_cap, line_len, src, count): (Reg, Reg, Reg, Reg, Reg) = (
+        temp.into(),
+        temp_cap.into(),
+        line_len.into(),
+        src.into(),
+        count.into(),
+    );
     let fits = format!("{symbol}_acc_{tag}_fits");
     let cap_ok = format!("{symbol}_acc_{tag}_cap_ok");
     let grow_copy = format!("{symbol}_acc_{tag}_grow_copy");
@@ -1266,10 +1274,11 @@ fn emit_append_to_line_accumulator(
 fn emit_reconcile_read_buffer(
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
-    file: &str,
+    file: impl Into<Reg>,
     tag: &str,
     seek_error_label: &str,
 ) -> Result<(), String> {
+    let file: Reg = file.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

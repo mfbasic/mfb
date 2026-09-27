@@ -108,6 +108,49 @@ terminated by process exit, exactly as for any other worker (§ arena teardown
 above), so shutdown never hangs on a parked reader.
 [[src/codegen/io/stdin/stdin_broadcast.rs]] [[src/codegen/builtins/thread/mod.rs:openStdIn]]
 
+### The per-subscriber input buffer
+
+Below the broadcast log (and behind the mouse decoder, which strips SGR reports
+first) each subscriber has an **input buffer**: bytes already pulled from the
+source for this thread that no reader has consumed yet, oldest first. It is an
+arena-state region — a length word and up to 256 bytes — so each thread's buffer
+is its own and needs no lock. A reader that must look ahead to classify input
+(the key decoder below) leaves the bytes it did not consume there, and **every
+reader takes buffered bytes before new ones**: the shared byte read checks the
+buffer first, the loop head a line read returns to for each byte sits above that
+check, and `io::pollInput` reports buffered bytes ready before it waits on the
+log or `poll(fd 0)`, neither of which can see them. Mixing readers therefore
+never loses or reorders input.
+[[src/codegen/io/input/mod.rs:INPUT_STATE_SLOTS]]
+[[src/codegen/io/input/buffer.rs:emit_take_buffered_byte]]
+[[src/codegen/builtins/io/gen_read_family.rs:emit_stdin_byte_read]]
+[[src/codegen/builtins/io/func_poll_input.rs:lower_poll_input]]
+
+The region is reserved — appended past the mouse-state region, so no other
+arena-state offset moves — only in a program that calls a reader which can leave
+bytes in it (`INPUT_BUFFER_READERS`, the look-ahead readers bug-699 Phase 4
+adds). No such reader exists yet, so today no program reserves it and every read
+path is exactly the one described above.
+[[src/codegen/io/input/mod.rs:INPUT_BUFFER_READERS]]
+[[src/codegen/engine/builder/mod.rs]]
+
+The decoder those readers use is `_mfb_rt_input_decode`, emitted with the region:
+a pure function of a byte buffer, its length and three flags (`FINAL`: no more
+input is coming for this decision; `EVENTS`: the source reports press/repeat/
+release; `CLUSTER`: return a grapheme cluster, not one scalar) that writes one
+token — need-more, skip `n` bytes, or a key with its event, modifiers, grapheme
+and the text a text reader sees — into a 192-byte record. It accepts UTF-8 (an
+ill-formed maximal subpart is skipped, not reported), the C0 keys, the legacy
+xterm/VT220/rxvt/Linux-console sequences with xterm modifier parameters and
+`modifyOtherKeys`, and kitty `CSI … u` with event types, modifiers and associated
+text. It never waits: "need more" is the caller's cue to read more or, once the
+one input delay (`INPUT_DELAY_MS`, 25 ms — the same delay the mouse decoder's
+lone-`ESC` wait uses) has passed or the input has ended, to ask again with
+`FINAL`.
+[[src/codegen/io/input/decode.rs:lower_input_decode]]
+[[src/codegen/io/input/keys.rs]]
+[[src/codegen/io/input/mod.rs:INPUT_DELAY_MS]]
+
 ## See Also
 
 * ./mfb spec linker linux-aarch64 — ELF interpreter paths and `DT_NEEDED` soname list

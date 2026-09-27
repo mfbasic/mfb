@@ -409,7 +409,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::list_of(element_type.clone()),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("slice(List OF {element_type})"),
         })
     }

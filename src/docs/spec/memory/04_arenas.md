@@ -8,8 +8,10 @@ design): **128 per-size-class quick bins** (exact chunk sizes 16…2048 — a fr
 small chunk parks on its bin in O(1) and the next same-class allocation pops it
 in O(1)), a **designated-victim carve chunk** (one active chunk that bump-serves
 small bin misses, so misses never splinter parked inventory), and a per-arena
-**address-ordered coalescing free-list** as the backing store (large chunks,
-block remainders, and re-coalesced bin drains). The common alloc/free cycle is
+**address-ordered coalescing free-list** holding block remainders, plus **64
+large-bin size classes** for freed chunks over 2048 bytes (a large request takes
+any parked chunk it fits, splitting it). A gated **flush** sorts and coalesces
+every parked chunk before the arena maps more. The common alloc/free cycle is
 O(1) amortized regardless of the size mix. The designated victim subsumes the
 bump pointer. Freeing is **internal reuse only**: a freed chunk goes
 back to the allocator for the next allocation but is never returned to the OS;
@@ -26,7 +28,7 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **3768 bytes**: [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **3776 bytes**: [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
@@ -52,8 +54,9 @@ ArenaState (at x19)
   +1144 U64  outPtr           ; opt-in stdout buffer base, NULL until first use
   +1152 U64  outFilled        ; pending bytes held in the stdout buffer
   +1160 U64  outEnabled       ; io::setBuffered flag (0 = unbuffered default)
-  +1168 U64  largeBin[64]     ; segregated large-block bin heads, hashed by exact
-                              ; size (index = (size >> 4) & 63); chunks > 2048; 0 = empty
+  +1168 U64  largeBin[64]     ; large-block size-class heads, chunks > 2048: 4 classes
+                              ; per power of two from 2 KiB, the last holding 112 MiB
+                              ; and up (see arena_free); 0 = empty
   +1680 U128 v128Slots[127]   ; per-thread v128 scalarization region (2032 bytes);
                               ; reserved on every target, addressed only by rv64
                               ; codegen; kept low so its offset fits rv64's 12-bit addi
@@ -67,6 +70,9 @@ ArenaState (at x19)
   +3752 U64  stdinLocalPos    ; next unread byte in stdinLocalBuf (lock-free fast path)
   +3760 U64  stdinSubscriber  ; pointer to this thread's stdin broadcast-log registry
                               ; entry (NULL when not subscribed)
+  +3768 I64  largeFlushCredit ; large bytes freed since the last flush, minus 256 per
+                              ; chunk that flush sorted; a big request flushes only
+                              ; while it is positive; addressed by a computed register
 ```
 
 `workerThread` is the back-pointer to this thread's control block, published by
@@ -81,7 +87,9 @@ scratch on the main thread.
 
 `blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
 the 64 `largeBin` heads, and the `carvePtr`/`carveSize` designated victim anchor
-allocation (see the small- and large-request fast paths below). The
+allocation (see the small- and large-request fast paths below), and
+`largeFlushCredit` gates the flush a large request may run before it maps.
+[[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_CREDIT_OFFSET]] The
 cleanup-failure triple records diagnostics if reclamation of a value fails during
 teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
 independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
@@ -181,6 +189,17 @@ The algorithm:
    hands over a **whole** chunk — never a split — as the new victim; failing
    that, the flush retry (step 4) and finally a fresh block from the grow
    (step 5) supply it.
+2d. **Large-bin size class** (large requests: `align ≤ 16` and normalized
+   `size > 2048`). Look at the first 16 nodes of the request's size class and
+   take an exact-size node at once, else the smallest node that fits; failing
+   that, take the head of the lowest non-empty *higher* class — every chunk
+   there is larger than any size in this one, so it fits without a look at its
+   size. The chunk is split: the request is returned from its start and the
+   remainder parks on its quick bin (≤ 2048) or its size class. This is O(1)
+   per request (at most 16 nodes and 63 heads), and a freed block serves any
+   later request it fits, not only one of its exact size. A miss falls through
+   to step 3. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]]
+   [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_BIN_SCAN_LIMIT]]
 3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
    where the request fits after alignment: `aligned = align_up(start, align)`
    and `aligned + size <= start + chunkSize`. A small request (per step 2a's
@@ -191,23 +210,47 @@ The algorithm:
    when ≤ 2048 or relink into the list otherwise, so a split never leaves a
    sub-class fragment on the list. All sums are overflow-checked; an overflow
    skips the chunk.
-4. **Flush-before-grow** (small requests only). If no chunk fits, do not map
-   yet: drain every quick bin through the coalescing insert (restoring full
-   adjacent-merge) and retry the walk once. On this path the bins are known to
-   hold nothing of the request's class or larger (steps 2a–2c all missed), so
-   the drain is cheap and coalescing adjacent parked chunks genuinely can
-   produce a fit. A large request grows directly — draining a big parked-small
-   inventory almost never coalesces past interleaved live objects into a
-   large-enough run and can dominate whole workloads.
-5. **Grow.** If the walk (and, for a small request, the flush retry) finds no
-   fit, map a new block sized `max(4096, round_up(size + align + 32, 4096))`,
-   write its header, link it at the head, and **carve the request directly
-   from the fresh block**: one walk finds the block's address-ordered slot,
-   then a small request takes the whole usable region as the new designated
-   victim while a large request splits it as in step 3 — the fresh block is
-   never whole-inserted and the list is never re-walked. Every sum in the
-   sizing is overflow-checked (including the 32-byte header add); a wrapped
-   sum reports `ErrOutOfMemory` rather than mapping an undersized block.
+4. **Flush-before-grow.** If no chunk fits, do not map yet.
+   - A small request first takes the head of the lowest non-empty large-bin
+     class as its new designated victim — at most 64 KiB of it, the rest
+     re-parked on its class so one small request does not lock a whole large
+     block away. [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_DV_MAX]]
+     With the large bins empty, it flushes when the address-ordered list is
+     non-empty and retries from step 2c once. On this path the bins are known
+     to hold nothing of the request's class or larger, so coalescing adjacent
+     parked chunks genuinely can produce a fit; with the list empty, the only
+     free chunks are small ones a pure-small workload is recycling, and the
+     flush would only destroy that reuse.
+   - A large request flushes and retries from step 2d once, but only while
+     `largeFlushCredit` is positive: every large free adds its bytes to it, and
+     every flush resets it to minus 256 bytes per chunk the flush sorted. A
+     flush is O(M log M) in the M chunks it sorts, so each one is paid for by
+     at least 256·M freshly freed large bytes before the next can run —
+     amortized, where an ungated big-request flush measured as a hot-path cost
+     (plan-64 A1). [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_BYTES_PER_CHUNK]]
+     Without the flush, a program whose large sizes vary splits its free
+     memory into pieces too small for its next request and maps without bound.
+
+   The flush gathers the list and every quick-bin and large-bin chain, merge
+   sorts them by address, merges physically adjacent chunks in one pass, and
+   re-parks each result on its quick bin (≤ 2048) or its large-bin size class;
+   the list is left empty. [[src/codegen/memory/arena/arena.rs:lower_arena_flush_coalesce]]
+5. **Grow.** If nothing fits after that, map a new block sized
+   `max(4096, round_up(size + align + 32 + slack, 4096))`, write its header,
+   link it at the head, and **carve the request directly from the fresh
+   block**: one walk finds the block's address-ordered slot, then a small
+   request takes the whole usable region as the new designated victim while a
+   large request splits it as in step 3 — the fresh block is never
+   whole-inserted and the list is never re-walked. `slack` is 0 except for a
+   large request whose own size class, or the class below it, holds a parked
+   chunk: that request is climbing past something it freed (a scene or copy a
+   little longer each frame), and since mapped blocks never merge, an
+   exact-size block would make every step of the climb map afresh. It gets
+   `size / 4` of slack, which parks in the large bins and re-merges with the
+   request's own chunk when that is freed, so a climb maps a geometric series
+   instead of the sum of its steps. Every sum in the sizing is overflow-checked
+   (including the 32-byte header add and the slack); a wrapped sum reports
+   `ErrOutOfMemory` rather than mapping an undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
@@ -224,21 +267,27 @@ so the freed extent matches the live chunk that was handed out. A chunk of
 2048 bytes or less then **parks on its exact-size quick bin** — an O(1) head
 push, no list walk (`quickBin[size/16 - 1]`; bin nodes reuse the `FreeNode`
 overlay, so a later flush hands them straight to the coalescing insert). A
-larger chunk (> 2048) instead **parks on its hashed large-block bin** —
-`largeBin[(size >> 4) & 63]`, also an O(1) head push. Routing large
+larger chunk (> 2048) instead **parks on its large-bin size class**, also an
+O(1) head push, and adds its bytes to `largeFlushCredit`. The 64 classes split
+each power of two from 2 KiB into four: for `2^k ≤ size < 2^(k+1)` the class is
+`(k - 11) * 4 + ((size >> (k - 2)) & 3)`, and every size from 112 MiB up shares
+the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] Routing large
 frees through the address-ordered `arena_insert_free` grew that list without
 bound under heavy large-list churn (a 1000-element `List` frees ~40 KB per op),
-so both the insert and every later first-fit walk went quadratic; the segregated
-size bin keeps the general list short and makes a same-size large reuse O(1). A
-large alloc scans its bin for an *exact*-size node before the first-fit walk;
-a colliding different-size chunk is skipped (recovered when the bins drain
-through the coalescing insert at flush-before-grow). Either
+so both the insert and every later first-fit walk went quadratic (plan-25-A);
+the size classes keep the general list short. They replaced 64 bins hashed by
+exact size, from which a large alloc took only an exact-size node: a freed
+block whose size never recurred stayed parked until `arena_destroy`, so a
+program whose large sizes varied mapped memory without bound (bug-690). Either
 way the chunk is then entropy-scrubbed (see *Entropy Fill*) over
 `[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
-just written, so the scrub can never destroy live free-list metadata. A
-**repeated free of the same address is a no-op** on the coalescing path: the
-insert walk detects a node already at `ptr` and returns without relinking, so a
-double-free cannot corrupt the list into an overlapping structure. The
+just written, so the scrub can never destroy live free-list metadata. An
+**immediate repeated free of the same address is a no-op**: the push finds the
+chunk already at its bin's head and returns without relinking it (a self-cycle
+would hand it to the next two allocations). `arena_free` never coalesces; merging
+happens in the flush (step 4 above) and in `arena_insert_free`, which the rare
+retirement of a designated victim larger than 2048 bytes uses. Its walk also
+detects a node already at `ptr` and returns without relinking. The insert's
 coalescing cases:
 
 - `prev.start + prev.size == ptr` → extend `prev` over the chunk;

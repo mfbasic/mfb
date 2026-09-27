@@ -10,6 +10,7 @@ use crate::codegen::debug::arena::{
     COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, DEBUG_ARENA_SAMPLE_SYMBOL,
 };
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -37,17 +38,130 @@ fn emit_perf_arena_call(
     relocations.push(internal_branch(from, &sym));
 }
 
+/// bug-690: `slot = state + class(size) * 8`, the large-bin slot a chunk of
+/// normalized `size` (> `ARENA_QUICK_BIN_MAX`) parks on; its list head is the word at
+/// `slot + ARENA_LARGE_BIN_BASE_OFFSET`.
+///
+/// The classes are log2 size classes with `2^ARENA_LARGE_BIN_SUBCLASS_BITS` linear
+/// sub-classes per power of two. With 4 sub-classes, for `2^k ≤ size < 2^(k+1)` the
+/// class is `(k - 11) * 4 + ((size >> (k - 2)) & 3)`: class 0 is `[2048, 2560)`, and
+/// every size in a class is smaller than every size in any higher class. Sizes from
+/// `ARENA_LARGE_BIN_TOP_SIZE` up share the last class. That ordering is what lets an
+/// allocation take ANY chunk from a higher class without looking at its size.
+///
+/// `k`/`shift`/`sub` are scratch vregs the caller owns; `prefix` makes the two
+/// labels unique within the calling helper.
+fn emit_large_bin_slot(
+    slot: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
+    k: impl Into<abi::Reg>,
+    shift: impl Into<abi::Reg>,
+    sub: impl Into<abi::Reg>,
+    prefix: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let slot: abi::Reg = slot.into();
+    let size: abi::Reg = size.into();
+    let k: abi::Reg = k.into();
+    let shift: abi::Reg = shift.into();
+    let sub: abi::Reg = sub.into();
+    let top = format!("{prefix}_top");
+    let ready = format!("{prefix}_ready");
+    let sub_bits = ARENA_LARGE_BIN_SUBCLASS_BITS;
+    let base_k = ARENA_QUICK_BIN_MAX.trailing_zeros();
+    let top_k = ARENA_LARGE_BIN_TOP_SIZE.trailing_zeros();
+    instructions.extend([
+        // k = floor(log2(size)) = 63 - clz(size); size > QUICK_BIN_MAX, so k ≥ base_k.
+        abi::count_leading_zeros(k, size),
+        abi::move_immediate(shift, "Integer", "63"),
+        abi::subtract_registers(k, shift, k),
+        abi::compare_immediate(k, &(top_k - 1).to_string()),
+        abi::branch_hi(&top),
+        // sub = the `sub_bits` bits just below the leading one.
+        abi::subtract_immediate(shift, k, sub_bits as usize),
+        abi::shift_right_variable(sub, size, shift),
+        abi::move_immediate(shift, "Integer", &((1u64 << sub_bits) - 1).to_string()),
+        abi::and_registers(sub, sub, shift),
+        // class = (k << sub_bits) + sub - (base_k << sub_bits).
+        abi::shift_left_immediate(k, k, sub_bits as u8),
+        abi::add_registers(sub, sub, k),
+        abi::subtract_immediate(sub, sub, (base_k << sub_bits) as usize),
+        abi::branch(&ready),
+        abi::label(&top),
+        abi::move_immediate(sub, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
+        abi::label(&ready),
+        abi::shift_left_immediate(sub, sub, 3),
+        abi::add_registers(slot, ARENA_STATE_REGISTER, sub),
+    ]);
+}
+
+/// bug-690: park the free chunk `ptr`/`size` (normalized, ≥ 16) on its bin — the
+/// exact quick bin for `size ≤ ARENA_QUICK_BIN_MAX`, else its large-bin size class —
+/// writing the `FreeNode {next, size}` overlay. `slot`/`head`/`k`/`shift`/`sub` are
+/// scratch vregs the caller owns; `prefix` makes the labels unique in the helper.
+#[allow(clippy::too_many_arguments)]
+fn emit_park_chunk(
+    ptr: impl Into<abi::Reg>,
+    size: impl Into<abi::Reg>,
+    slot: impl Into<abi::Reg>,
+    head: impl Into<abi::Reg>,
+    k: impl Into<abi::Reg>,
+    shift: impl Into<abi::Reg>,
+    sub: impl Into<abi::Reg>,
+    prefix: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let ptr: abi::Reg = ptr.into();
+    let size: abi::Reg = size.into();
+    let slot: abi::Reg = slot.into();
+    let head: abi::Reg = head.into();
+    let k: abi::Reg = k.into();
+    let shift: abi::Reg = shift.into();
+    let sub: abi::Reg = sub.into();
+    let large = format!("{prefix}_large");
+    let done = format!("{prefix}_done");
+    instructions.extend([
+        abi::store_u64(size, ptr, 8),
+        abi::compare_immediate(size, &ARENA_QUICK_BIN_MAX.to_string()),
+        abi::branch_hi(&large),
+        abi::shift_right_immediate(slot, size, 4),
+        abi::shift_left_immediate(slot, slot, 3),
+        abi::add_registers(slot, ARENA_STATE_REGISTER, slot),
+        abi::load_u64(head, slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::store_u64(head, ptr, 0),
+        abi::store_u64(ptr, slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::branch(&done),
+        abi::label(&large),
+    ]);
+    emit_large_bin_slot(
+        slot,
+        size,
+        k,
+        shift,
+        sub,
+        &format!("{prefix}_class"),
+        instructions,
+    );
+    instructions.extend([
+        abi::load_u64(head, slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::store_u64(head, ptr, 0),
+        abi::store_u64(ptr, slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::label(&done),
+    ]);
+}
+
 /// plan-130-C: a successful allocation of `size` served by the path whose hit counter
 /// is `counter` — bump it and raise `live_bytes`/`peak_live_bytes`. No-op without a
 /// registry slot (a normal build, or an unregistered arena).
 fn emit_debug_alloc_hit(
-    slot: &Option<String>,
+    slot: &Option<VirtualRegister>,
     counter: usize,
-    size: &str,
+    size: impl Into<abi::Reg>,
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let size: abi::Reg = size.into();
     if let Some(slot) = slot {
         emit_debug_arena_bump(ARENA_ALLOC_SYMBOL, slot, counter, tag, instructions, vregs);
         emit_debug_arena_live_add(
@@ -110,14 +224,21 @@ pub(crate) fn lower_arena_alloc(
     let bin_scan = vregs.next();
     let bin_scan_end = vregs.next();
     let bin_rem = vregs.next();
-    // Segregated large-block bins (plan-25-A): a large request pops an exact-size
-    // node from its hashed bin before falling to the first-fit walk.
-    let lg_mask = vregs.next();
+    // Segregated large-block size classes (plan-25-A, bug-690): a large request
+    // takes the best fit from its class, else a chunk from a higher class, and
+    // splits it, before falling to the first-fit walk.
     let lg_slot = vregs.next();
     let lg_link = vregs.next();
     let lg_cur = vregs.next();
     let lg_next = vregs.next();
     let lg_msize = vregs.next();
+    let lg_best = vregs.next();
+    let lg_best_size = vregs.next();
+    let lg_budget = vregs.next();
+    let lg_end = vregs.next();
+    let lg_k = vregs.next();
+    let lg_shift = vregs.next();
+    let lg_sub = vregs.next();
     let mut relocations = vec![internal_branch(
         ARENA_ALLOC_SYMBOL,
         ARENA_FILL_RANDOM_SYMBOL,
@@ -164,7 +285,7 @@ pub(crate) fn lower_arena_alloc(
             &mut relocations,
         );
     }
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     instructions.extend([
         // Reject a raw request within ARENA_MIN_CHUNK of u64::MAX before the
         // +15 granule round-up (allocator-02, audit-1 MEM-07): without this
@@ -354,47 +475,110 @@ pub(crate) fn lower_arena_alloc(
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register(abi::mfb_return(1), &bin_head),
         abi::branch("arena_alloc_ret"),
-        // --- Segregated large-block bin pop (plan-25-A) ------------------------
+        // --- Segregated large-block size classes (plan-25-A, bug-690) ----------
         // A large request (size > QUICK_BIN_MAX, eff_align ≤ 16 — larger aligns
-        // branched straight to the walk above) first scans its hashed bin for an
-        // EXACT-size free node and returns it whole (no split) in O(1) amortized.
+        // branched straight to the walk above) is served from the large bins in
+        // O(1): the best fit among the first ARENA_LARGE_BIN_SCAN_LIMIT nodes of its
+        // own size class (an exact size is taken at once — repetitive large-list
+        // churn pops the chunk it just freed, as the old exact-size bins did), else
+        // the head of the next non-empty HIGHER class, every chunk of which is
+        // larger than any size in this one. The chunk is split and the remainder
+        // re-parked (≤ QUICK_BIN_MAX → its quick bin, larger → its size class).
         // Diverting large frees off the address-ordered list (see arena_free)
-        // keeps that list short, so both a bin hit here and a bin miss's
-        // fall-through walk stay cheap under heavy large-list churn — the
-        // benchmark's ~30× inflation was this list growing without bound. The
-        // scan is an exact match because free and alloc normalize `size`
-        // identically, so a reused chunk round-trips to the same bin; a chunk of
-        // a different colliding size is simply skipped (it stays parked in its bin
-        // and is only reclaimed at `arena_destroy` — there is no flush-before-grow
-        // drain for large bins; bug-175 H corrected the stale claim).
+        // keeps that list short, so a miss's fall-through walk stays cheap under
+        // heavy large-list churn — the benchmark's ~30× inflation was this list
+        // growing without bound (plan-25-A). The exact-size-only bins this
+        // replaced reused a freed block only for a request of exactly its size, so
+        // a program whose large sizes never repeat mapped without bound (bug-690).
         abi::label("arena_alloc_large_bin"),
-        abi::shift_right_immediate(&lg_slot, &size, 4),
-        abi::move_immediate(
-            &lg_mask,
-            "Integer",
-            &(ARENA_LARGE_BIN_COUNT - 1).to_string(),
-        ),
-        abi::and_registers(&lg_slot, &lg_slot, &lg_mask),
-        abi::shift_left_immediate(&lg_slot, &lg_slot, 3),
-        abi::add_registers(&lg_slot, ARENA_STATE_REGISTER, &lg_slot),
+    ]);
+    emit_large_bin_slot(
+        &lg_slot,
+        &size,
+        &lg_k,
+        &lg_shift,
+        &lg_sub,
+        "arena_alloc_large_class",
+        &mut instructions,
+    );
+    instructions.extend([
         // lg_link tracks the address of the word that points at lg_cur (the bin
-        // head cell first, then each visited node's `next` at +0), so an
-        // exact-size hit unlinks in O(1) whether it is the head or mid-list.
+        // head cell first, then each visited node's `next` at +0), so the chosen
+        // node unlinks in O(1) whether it is the head or mid-list. lg_best is the
+        // link word of the smallest fitting node seen so far (0 = none yet).
         abi::add_immediate(&lg_link, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET),
         abi::load_u64(&lg_cur, &lg_link, 0),
+        abi::move_immediate(&lg_best, "Integer", "0"),
+        abi::move_immediate(
+            &lg_budget,
+            "Integer",
+            &ARENA_LARGE_BIN_SCAN_LIMIT.to_string(),
+        ),
         abi::label("arena_alloc_large_scan"),
         abi::compare_immediate(&lg_cur, "0"),
-        abi::branch_eq("arena_alloc_walk"),
+        abi::branch_eq("arena_alloc_large_scan_done"),
         abi::load_u64(&lg_msize, &lg_cur, 8),
         abi::compare_registers(&lg_msize, &size),
-        abi::branch_eq("arena_alloc_large_hit"),
+        abi::branch_lo("arena_alloc_large_scan_next"),
+        abi::compare_registers(&lg_msize, &size),
+        abi::branch_eq("arena_alloc_large_take"),
+        abi::compare_immediate(&lg_best, "0"),
+        abi::branch_eq("arena_alloc_large_scan_best"),
+        abi::compare_registers(&lg_msize, &lg_best_size),
+        abi::branch_hi("arena_alloc_large_scan_next"),
+        abi::label("arena_alloc_large_scan_best"),
+        abi::move_register(&lg_best, &lg_link),
+        abi::move_register(&lg_best_size, &lg_msize),
+        abi::label("arena_alloc_large_scan_next"),
+        abi::subtract_immediate(&lg_budget, &lg_budget, 1),
+        abi::compare_immediate(&lg_budget, "0"),
+        abi::branch_eq("arena_alloc_large_scan_done"),
         abi::move_register(&lg_link, &lg_cur),
         abi::load_u64(&lg_cur, &lg_cur, 0),
         abi::branch("arena_alloc_large_scan"),
-        abi::label("arena_alloc_large_hit"),
+        abi::label("arena_alloc_large_scan_done"),
+        abi::compare_immediate(&lg_best, "0"),
+        abi::branch_eq("arena_alloc_large_up"),
+        abi::move_register(&lg_link, &lg_best),
+        abi::load_u64(&lg_cur, &lg_link, 0),
+        abi::branch("arena_alloc_large_take"),
+        // Nothing in this class fits: the lowest non-empty higher class.
+        abi::label("arena_alloc_large_up"),
+        abi::add_immediate(
+            &lg_end,
+            ARENA_STATE_REGISTER,
+            ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8,
+        ),
+        abi::add_immediate(&lg_link, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::label("arena_alloc_large_up_loop"),
+        abi::add_immediate(&lg_link, &lg_link, 8),
+        abi::compare_registers(&lg_link, &lg_end),
+        abi::branch_eq("arena_alloc_walk"),
+        abi::load_u64(&lg_cur, &lg_link, 0),
+        abi::compare_immediate(&lg_cur, "0"),
+        abi::branch_eq("arena_alloc_large_up_loop"),
+        // Take lg_cur (linked from lg_link), split off `size`, re-park the rest.
+        abi::label("arena_alloc_large_take"),
         abi::load_u64(&lg_next, &lg_cur, 0),
         abi::store_u64(&lg_next, &lg_link, 0),
+        abi::load_u64(&lg_msize, &lg_cur, 8),
+        abi::subtract_registers(&lg_msize, &lg_msize, &size),
+        abi::compare_immediate(&lg_msize, "0"),
+        abi::branch_eq("arena_alloc_large_hit"),
+        abi::add_registers(&lg_next, &lg_cur, &size),
     ]);
+    emit_park_chunk(
+        &lg_next,
+        &lg_msize,
+        &lg_slot,
+        &bin_head,
+        &lg_k,
+        &lg_shift,
+        &lg_sub,
+        "arena_alloc_large_rem",
+        &mut instructions,
+    );
+    instructions.extend([abi::label("arena_alloc_large_hit")]);
     emit_debug_alloc_hit(
         &dbg_slot,
         COUNTER_HIT_LARGE_BIN,
@@ -546,28 +730,40 @@ pub(crate) fn lower_arena_alloc(
     let page_mask = vregs.next();
     instructions.extend([
         abi::label("arena_alloc_grow"),
-        // Flush-before-grow (allocator-01), gated to SMALL requests: a small
-        // request only reaches here after the exact bin, the larger-bin scan,
-        // and the walk all failed — so the bins hold nothing ≥ this class,
-        // the drain is cheap, and coalescing adjacent parked chunks genuinely
-        // can produce a fit. A BIG request (> QUICK_BIN_MAX, or align > 16)
-        // grows directly: its flush would drain a large parked-small inventory
-        // through the O(list) insert (measured: hundreds of millions of insert
-        // steps) for chunks that almost never coalesce past interleaved live
-        // objects into a big-enough run. The `flushed` flag arms exactly one
-        // retry — a second walk miss falls through to the map below.
+        abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
+        abi::branch_hi("arena_alloc_grow_big"),
+        abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
+        abi::branch_hi("arena_alloc_grow_big"),
+        // bug-690: before a SMALL request maps, it takes the smallest parked large
+        // chunk as its new designated victim — whole, exactly as the walk hands one
+        // over (the old DV was retired on the way here). Without this, memory freed
+        // in large blocks was never available to a small request at all.
+        abi::add_immediate(
+            &lg_end,
+            ARENA_STATE_REGISTER,
+            ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8,
+        ),
+        abi::add_immediate(&lg_link, ARENA_STATE_REGISTER, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::label("arena_alloc_small_large_loop"),
+        abi::load_u64(&lg_cur, &lg_link, 0),
+        abi::compare_immediate(&lg_cur, "0"),
+        abi::branch_ne("arena_alloc_small_large_take"),
+        abi::add_immediate(&lg_link, &lg_link, 8),
+        abi::compare_registers(&lg_link, &lg_end),
+        abi::branch_ne("arena_alloc_small_large_loop"),
+        // Flush-before-grow (allocator-01) for a SMALL request: it only reaches
+        // here after the exact bin, the larger-bin scan, the walk and the large
+        // bins all failed, and coalescing adjacent parked chunks genuinely can
+        // produce a fit. The `flushed` flag arms exactly one retry — a second
+        // miss falls through to the map below.
         abi::compare_immediate(&flushed, "0"),
         abi::branch_ne("arena_alloc_grow_map"),
-        abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
-        abi::branch_hi("arena_alloc_grow_map"),
-        abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
-        abi::branch_hi("arena_alloc_grow_map"),
         // plan-64 A1: skip the flush when the address-ordered list is empty. Then
         // the only free chunks are the parked SMALL bins, whose coalescing merges
         // exact-size chunks a pure-small workload is actively recycling (datetime's
         // scattered records) — destroying reuse and re-triggering the flush every
         // grow, for no fit a mapped block would not serve as cheaply. A non-empty
-        // list means there ARE larger coalesced chunks worth merging small ones into.
+        // list means there ARE larger chunks worth merging small ones into.
         abi::load_u64(&map_size, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::compare_immediate(&map_size, "0"),
         abi::branch_eq("arena_alloc_grow_map"),
@@ -578,13 +774,110 @@ pub(crate) fn lower_arena_alloc(
         // made a flush of M parked chunks O(M²) (the arena mixed-transient-churn
         // quadratic). `size`/`eff_align` are loop-carried across the call; the
         // clobber model spills them. The retry re-enters at the victim renewal,
-        // which sees every re-parked chunk.
+        // which sees every re-parked chunk (and comes back here for a large one).
         abi::branch_link(ARENA_FLUSH_COALESCE_SYMBOL),
         abi::branch("arena_alloc_dv_scan"),
+        // The victim is at most ARENA_LARGE_DV_MAX: a bigger chunk is split and
+        // its tail re-parked, so one small request does not lock a whole large
+        // block away from the large requests that freed it.
+        abi::label("arena_alloc_small_large_take"),
+        abi::load_u64(&lg_next, &lg_cur, 0),
+        abi::store_u64(&lg_next, &lg_link, 0),
+        abi::load_u64(&bin_rem, &lg_cur, 8),
+        abi::move_immediate(&lg_msize, "Integer", &ARENA_LARGE_DV_MAX.to_string()),
+        abi::compare_registers(&bin_rem, &lg_msize),
+        abi::branch_ls("arena_alloc_small_large_dv"),
+        abi::subtract_registers(&lg_msize, &bin_rem, &lg_msize),
+        abi::move_immediate(&bin_rem, "Integer", &ARENA_LARGE_DV_MAX.to_string()),
+        abi::add_registers(&lg_next, &lg_cur, &bin_rem),
+    ]);
+    emit_park_chunk(
+        &lg_next,
+        &lg_msize,
+        &lg_slot,
+        &bin_scan,
+        &lg_k,
+        &lg_shift,
+        &lg_sub,
+        "arena_alloc_small_large_rem",
+        &mut instructions,
+    );
+    instructions.extend([
+        abi::label("arena_alloc_small_large_dv"),
+        abi::move_register(&bin_head, &lg_cur),
+    ]);
+    emit_debug_alloc_hit(
+        &dbg_slot,
+        COUNTER_HIT_LARGE_BIN,
+        &size,
+        "hit_large_dv",
+        &mut instructions,
+        &mut vregs,
+    );
+    instructions.extend([
+        abi::branch("arena_alloc_dv_serve"),
+        // A BIG request (> QUICK_BIN_MAX, eff_align ≤ 16) that found no fit in the
+        // large bins or on the list flushes once before it maps (bug-690): its own
+        // frees parked in size classes never merge otherwise, so a program whose
+        // large sizes vary splits its free memory into pieces too small for the
+        // next request and maps without bound. The flush is gated on the large-bin
+        // credit (`ARENA_LARGE_FLUSH_CREDIT_OFFSET`): it runs only once more large
+        // bytes were freed since the last flush than that flush left parked, which
+        // keeps it amortized O(1) per freed byte — plan-64 A1 measured an ungated
+        // big-request flush draining huge parked inventories for nothing. The
+        // retry re-enters the large-bin search, where the coalesced runs now sit.
+        // An align > 16 request never uses the bins, so it grows directly.
+        abi::label("arena_alloc_grow_big"),
+        abi::compare_immediate(&flushed, "0"),
+        abi::branch_ne("arena_alloc_grow_map"),
+        abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
+        abi::branch_hi("arena_alloc_grow_map"),
+        abi::move_immediate(
+            &map_size,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
+        abi::add_registers(&map_size, ARENA_STATE_REGISTER, &map_size),
+        abi::load_u64(&map_size, &map_size, 0),
+        abi::compare_immediate(&map_size, "0"),
+        abi::branch_le("arena_alloc_grow_map"),
+        abi::move_immediate(&flushed, "Integer", "1"),
+        abi::branch_link(ARENA_FLUSH_COALESCE_SYMBOL),
+        abi::branch("arena_alloc_large_bin"),
         abi::label("arena_alloc_grow_map"),
         abi::add_registers(&map_size, &size, &eff_align),
         abi::compare_registers(&map_size, &size),
         abi::branch_lo("arena_alloc_oom"),
+        // bug-690: a big request that missed while a chunk of its own size class
+        // or the one below is parked is climbing past what it freed — the next one
+        // is usually a little larger again (a scene or a copy whose length creeps
+        // up frame by frame). Mapped blocks never merge with each other, so an
+        // exact-size block would make every step of that climb map afresh: the
+        // arena would grow by the sum of the steps, not by the largest. Map a
+        // quarter more: the slack parks in the large bins, and the request's own
+        // free re-merges with it into a run that the next few, slightly larger,
+        // requests fit, so a climb maps a geometric series. A request with nothing
+        // near its size parked (a program's first big allocation, or a list
+        // doubling past its old buffer) maps exactly. `lg_slot` is the request's
+        // class slot, set by the large-bin search every such request ran.
+        abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
+        abi::branch_hi("arena_alloc_grow_map_sized"),
+        abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
+        abi::branch_ls("arena_alloc_grow_map_sized"),
+        abi::load_u64(&saved_size, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::compare_immediate(&saved_size, "0"),
+        abi::branch_ne("arena_alloc_grow_map_slack"),
+        abi::compare_registers(&lg_slot, ARENA_STATE_REGISTER),
+        abi::branch_eq("arena_alloc_grow_map_sized"), // class 0 has no class below
+        abi::load_u64(&saved_size, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET - 8),
+        abi::compare_immediate(&saved_size, "0"),
+        abi::branch_eq("arena_alloc_grow_map_sized"),
+        abi::label("arena_alloc_grow_map_slack"),
+        abi::shift_right_immediate(&saved_size, &size, 2),
+        abi::add_registers(&map_size, &map_size, &saved_size),
+        abi::compare_registers(&map_size, &saved_size),
+        abi::branch_lo("arena_alloc_oom"),
+        abi::label("arena_alloc_grow_map_sized"),
         abi::add_immediate(&map_size, &map_size, ARENA_BLOCK_HEADER_SIZE),
         // Carry-check the header add (allocator-02): a wrapped map_size would
         // round up to the default block size, the block could never satisfy
@@ -614,7 +907,7 @@ pub(crate) fn lower_arena_alloc(
     // mmap `map_size` bytes; the result is left in the return register. `map_size`
     // is live across the syscall (read again below for the block header), so the
     // allocator keeps it in a callee-saved register or spills it.
-    platform.emit_arena_map(&map_size, &mut instructions)?;
+    platform.emit_arena_map(map_size.into(), &mut instructions)?;
     let prev_block = vregs.next();
     let usable = vregs.next();
     let ubase = vregs.next();
@@ -836,9 +1129,9 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
     // as before; for kind 2 the kind byte is non-zero so KEY_TYPE needs its own.
     let kind_zero = vregs.next();
     let zero_kind_scratch = if list_block_kind(&ParameterType::Integer) == 0 {
-        scratch.clone()
+        scratch
     } else {
-        kind_zero.clone()
+        kind_zero
     };
     let data_len = vregs.next();
     let entry = vregs.next();
@@ -1045,13 +1338,16 @@ pub(crate) fn lower_arena_insert_free(debug_arena: bool) -> CodeFunction {
 
 /// `arena_flush_coalesce()` — plan-64 A1 single-pass flush-before-grow coalesce.
 ///
-/// Gathers the address-ordered free-list head and every quick-bin chain into one
-/// singly-linked chain (`{next@0, size@8}` overlay, chained via `@0`), sorts that
-/// chain by chunk address with an in-place bottom-up linked-list merge sort, then
-/// walks it once coalescing physically-adjacent chunks (`cur + cur.size == next`)
-/// and re-parking each survivor: `≤ ARENA_QUICK_BIN_MAX` onto its exact-size quick
-/// bin, larger onto the freshly rebuilt address-ordered list (appended at the tail,
-/// which stays sorted because the walk is ascending).
+/// Gathers the address-ordered free-list head, every quick-bin chain and every
+/// large-bin chain into one singly-linked chain (`{next@0, size@8}` overlay, chained
+/// via `@0`), sorts that chain by chunk address with an in-place bottom-up
+/// linked-list merge sort, then walks it once coalescing physically-adjacent chunks
+/// (`cur + cur.size == next`) and re-parking each survivor: `≤ ARENA_QUICK_BIN_MAX`
+/// onto its exact-size quick bin, larger onto its large-bin size class (bug-690 —
+/// it used to be appended to the address-ordered list, which the flush now leaves
+/// empty). It then restarts the large-bin flush credit at minus
+/// `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` per chunk it sorted, which is what gates the
+/// big-request flush in `arena_alloc`.
 ///
 /// This replaces the old drain that fed each parked chunk through
 /// `arena_insert_free` — an O(free-list) walk per chunk, so O(M²) over M parked
@@ -1087,8 +1383,11 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
     let nsize = vregs.next();
     let cbin = vregs.next();
     let cbinhead = vregs.next();
-    let ltail = vregs.next();
     let cend = vregs.next();
+    let total = vregs.next();
+    let lk = vregs.next();
+    let lshift = vregs.next();
+    let lsub = vregs.next();
     let quick_max = ARENA_QUICK_BIN_MAX.to_string();
     let bin_count = ARENA_QUICK_BIN_COUNT.to_string();
     let mut instructions = vec![abi::label("entry")];
@@ -1136,7 +1435,30 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
         abi::label("fc_gather_nextbin"),
         abi::add_immediate(&gi, &gi, 1),
         abi::branch("fc_gather_bin"),
+        // bug-690: the large bins too, so large frees coalesce with each other and
+        // with the small crumbs between them.
         abi::label("fc_gather_done"),
+        abi::move_immediate(&gi, "Integer", "0"),
+        abi::label("fc_gather_large_bin"),
+        abi::compare_immediate(&gi, &ARENA_LARGE_BIN_COUNT.to_string()),
+        abi::branch_eq("fc_gather_large_done"),
+        abi::shift_left_immediate(&gslot, &gi, 3),
+        abi::add_registers(&gslot, ARENA_STATE_REGISTER, &gslot),
+        abi::load_u64(&gnode, &gslot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::store_u64(abi::ZERO, &gslot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::label("fc_gather_large_chain"),
+        abi::compare_immediate(&gnode, "0"),
+        abi::branch_eq("fc_gather_large_nextbin"),
+        abi::load_u64(&gnext, &gnode, 0),
+        abi::store_u64(&gathered, &gnode, 0), // gnode.next = gathered
+        abi::move_register(&gathered, &gnode), // gathered = gnode
+        abi::move_register(&gnode, &gnext),
+        abi::branch("fc_gather_large_chain"),
+        abi::label("fc_gather_large_nextbin"),
+        abi::add_immediate(&gi, &gi, 1),
+        abi::branch("fc_gather_large_bin"),
+        abi::label("fc_gather_large_done"),
+        abi::move_immediate(&total, "Integer", "0"),
         abi::compare_immediate(&gathered, "0"),
         abi::branch_eq("fc_ret"), // nothing parked
         // --- Phase 2: bottom-up merge sort `gathered` by chunk address --------
@@ -1221,7 +1543,6 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
         // --- Phase 3: coalesce adjacent + re-park -----------------------------
         abi::label("fc_coalesce"),
         abi::move_register(&cur, &gathered),
-        abi::move_immediate(&ltail, "Integer", "0"),
         abi::label("fc_coalesce_loop"),
         abi::compare_immediate(&cur, "0"),
         abi::branch_eq("fc_ret"),
@@ -1236,11 +1557,13 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
         abi::load_u64(&nsize, &cnext, 8),
         abi::add_registers(&csize, &csize, &nsize),
         abi::load_u64(&cnext, &cnext, 0), // drop the absorbed node
+        abi::add_immediate(&total, &total, 1),
         abi::branch("fc_absorb"),
         abi::label("fc_place"),
         abi::store_u64(&csize, &cur, 8),
+        abi::add_immediate(&total, &total, 1),
         abi::compare_immediate(&csize, &quick_max),
-        abi::branch_hi("fc_place_list"),
+        abi::branch_hi("fc_place_large"),
         // Re-park onto the exact-size quick bin (class csize/16, head at
         // state + (csize>>4<<3) + QUICK_BIN_BASE_OFFSET-8).
         abi::shift_right_immediate(&cbin, &csize, 4),
@@ -1250,21 +1573,45 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
         abi::store_u64(&cbinhead, &cur, 0),
         abi::store_u64(&cur, &cbin, ARENA_QUICK_BIN_BASE_OFFSET - 8),
         abi::branch("fc_place_next"),
-        abi::label("fc_place_list"),
-        // Append to the address-ordered list (ascending walk → append at tail).
-        abi::store_u64(abi::ZERO, &cur, 0),
-        abi::compare_immediate(&ltail, "0"),
-        abi::branch_eq("fc_place_list_head"),
-        abi::store_u64(&cur, &ltail, 0),
-        abi::branch("fc_place_list_tail"),
-        abi::label("fc_place_list_head"),
-        abi::store_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
-        abi::label("fc_place_list_tail"),
-        abi::move_register(&ltail, &cur),
+        // bug-690: a larger run parks on its large-bin size class, where a request
+        // of any size it fits finds it in O(1). It used to be appended to the
+        // address-ordered list, whose first-fit walk is O(list) per request.
+        abi::label("fc_place_large"),
+    ]);
+    emit_large_bin_slot(
+        &cbin,
+        &csize,
+        &lk,
+        &lshift,
+        &lsub,
+        "fc_place_large_class",
+        &mut instructions,
+    );
+    instructions.extend([
+        abi::load_u64(&cbinhead, &cbin, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::store_u64(&cbinhead, &cur, 0),
+        abi::store_u64(&cur, &cbin, ARENA_LARGE_BIN_BASE_OFFSET),
         abi::label("fc_place_next"),
         abi::move_register(&cur, &cnext),
         abi::branch("fc_coalesce_loop"),
+        // bug-690: the large-bin credit restarts at minus this flush's cost — the
+        // `total` chunks it sorted, at ARENA_LARGE_FLUSH_BYTES_PER_CHUNK each — so
+        // the next big-request flush waits until that many large bytes were freed.
         abi::label("fc_ret"),
+        abi::move_immediate(
+            &cbin,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
+        abi::add_registers(&cbin, ARENA_STATE_REGISTER, &cbin),
+        abi::shift_left_immediate(
+            &total,
+            &total,
+            ARENA_LARGE_FLUSH_BYTES_PER_CHUNK.trailing_zeros() as u8,
+        ),
+        abi::move_immediate(&lk, "Integer", "0"),
+        abi::subtract_registers(&total, &lk, &total),
+        abi::store_u64(&total, &cbin, 0),
         abi::return_(),
     ]);
     finalize_vreg_helper(
@@ -1278,15 +1625,14 @@ pub(crate) fn lower_arena_flush_coalesce(debug_arena: bool) -> CodeFunction {
 
 /// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
 /// to the per-arena allocator. Normalizes `size` exactly as `arena_alloc` did
-/// (so the freed extent matches the live chunk), then either parks the chunk on
-/// its exact-size quick bin (`size ≤ ARENA_QUICK_BIN_MAX`, O(1) push —
-/// allocator-01) or coalesces it into the address-ordered list via
-/// `arena_insert_free`; afterwards it entropy-scrubs the payload bytes past the
-/// 16-byte FreeNode overlay just written (plan-01 §6.2, allocator-03: the
-/// insert must never read PRNG-poisoned free-list metadata, and a double-free —
-/// an idempotent no-op inside the insert — must never scrub a live node's
-/// `{next, size}` words). Never unmaps. Vreg-allocated — treat all caller-saved
-/// integer registers as clobbered.
+/// (so the freed extent matches the live chunk), then parks the chunk in O(1):
+/// on its exact-size quick bin (`size ≤ ARENA_QUICK_BIN_MAX` — allocator-01) or on
+/// its large-bin size class (plan-25-A, bug-690), crediting the large-bin flush
+/// with the bytes. Afterwards it entropy-scrubs the payload bytes past the 16-byte
+/// FreeNode overlay just written (plan-01 §6.2, allocator-03: free-list metadata
+/// must never be PRNG-poisoned, and an immediate double-free — skipped by the
+/// bin-head guard — must never scrub a live node's `{next, size}` words). Never
+/// unmaps. Vreg-allocated — treat all caller-saved integer registers as clobbered.
 /// `perf` (plan-130-B): bracket the body with the `mfb_free` perf span — true exactly
 /// when the `--debug` perf section is active for the module.
 pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
@@ -1317,7 +1663,7 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
     // plan-130-C: find this arena's registry slot once, then count the call and its
     // normalized size. In a `--debug` build the double-free exits go through a
     // counting stub emitted after the return.
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     if debug_arena {
         let slot = vregs.next();
         emit_debug_arena_slot(
@@ -1397,21 +1743,26 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
         abi::branch("arena_free_scrub"),
-        // A larger chunk (> ARENA_QUICK_BIN_MAX) parks on its hashed large-block
-        // bin (plan-25-A): an O(1) head push keyed by `(size >> 4) & (COUNT-1)`,
-        // no address-ordered walk. This is the master benchmark fix — routing
-        // large frees through `arena_insert_free` grew the coalescing list
-        // without bound (every large 1000-element list op frees ~40 KB), so both
-        // the insert here and every later alloc walk went quadratic. Bin nodes
-        // reuse the FreeNode {next, size} overlay so the flush-before-grow drain
-        // can hand them straight to `arena_insert_free` when coalescing is
-        // needed. The chunk is still scrubbed below.
+        // A larger chunk (> ARENA_QUICK_BIN_MAX) parks on its large-block size
+        // class (plan-25-A, bug-690): an O(1) head push, no address-ordered walk.
+        // This is the master benchmark fix — routing large frees through
+        // `arena_insert_free` grew the coalescing list without bound (every large
+        // 1000-element list op frees ~40 KB), so both the insert here and every
+        // later alloc walk went quadratic. A later large request of ANY size the
+        // chunk fits can take it (see arena_alloc). Bin nodes reuse the FreeNode
+        // {next, size} overlay. The chunk is still scrubbed below.
         abi::label("arena_free_large_bin"),
-        abi::shift_right_immediate(&bin_class, &size, 4),
-        abi::move_immediate(&mask, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
-        abi::and_registers(&bin_class, &bin_class, &mask),
-        abi::shift_left_immediate(&bin_class, &bin_class, 3),
-        abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
+    ]);
+    emit_large_bin_slot(
+        &bin_slot,
+        &size,
+        &bin_class,
+        &mask,
+        &bin_head,
+        "arena_free_large_class",
+        &mut instructions,
+    );
+    instructions.extend([
         abi::load_u64(&bin_head, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
         // Idempotency guard (allocator-03 parity, bug-266): an immediate double-free
         // of a large chunk already at the bin head would self-cycle it; skip.
@@ -1432,6 +1783,16 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
         abi::store_u64(&bin_head, &ptr, 0),
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        // bug-690: credit the large-bin flush with the bytes just parked.
+        abi::move_immediate(
+            &bin_slot,
+            "Integer",
+            &ARENA_LARGE_FLUSH_CREDIT_OFFSET.to_string(),
+        ),
+        abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_slot),
+        abi::load_u64(&bin_head, &bin_slot, 0),
+        abi::add_registers(&bin_head, &bin_head, &size),
+        abi::store_u64(&bin_head, &bin_slot, 0),
         // … then scrub only [ptr+16, ptr+size), preserving the freshly written
         // node words. A 16-byte chunk is all node — nothing to scrub.
         abi::label("arena_free_scrub"),
@@ -1526,7 +1887,7 @@ pub(crate) fn lower_arena_destroy(
     let mut relocations = Vec::new();
     // plan-130-C: find this arena's registry slot once; each block it unmaps counts,
     // read before the unmap's argument registers are loaded.
-    let mut dbg_slot: Option<String> = None;
+    let mut dbg_slot: Option<VirtualRegister> = None;
     if debug_arena {
         let slot = vregs.next();
         emit_debug_arena_slot(

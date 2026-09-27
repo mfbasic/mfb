@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Branch to `in_set` if the scalar at [`scalar_ptr`, scalar_ptr+scalar_len)
@@ -13,12 +14,13 @@ impl CodeBuilder<'_> {
     /// registers; does not touch x9-x19 except the passed scalar registers.
     pub(crate) fn emit_chars_set_contains_branch(
         &mut self,
-        scalar_ptr: impl Into<Operand>,
-        scalar_len: impl Into<Operand>,
+        scalar_ptr: impl Into<Reg>,
+        scalar_len: impl Into<Reg>,
         chars_slot: usize,
         in_set: &str,
         not_in_set: &str,
     ) {
+        let (scalar_ptr, scalar_len): (Reg, Reg) = (scalar_ptr.into(), scalar_len.into());
         // Save scalar ptr/len into scratch we control across the inner loop.
         let loop_label = self.label("strings_chars_set_loop");
         let cmp_loop = self.label("strings_chars_set_cmp_loop");
@@ -93,17 +95,21 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_string_split_write_entry(
         &mut self,
-        entry: impl Into<Operand>,
-        data: impl Into<Operand>,
-        data_offset: impl Into<Operand>,
-        segment_start: impl Into<Operand>,
-        segment_end: impl Into<Operand>,
-        source_data: impl Into<Operand>,
+        entry: impl Into<Reg>,
+        data: impl Into<Reg>,
+        data_offset: impl Into<Reg>,
+        segment_start: impl Into<Reg>,
+        segment_end: impl Into<Reg>,
+        source_data: impl Into<Reg>,
     ) -> Result<(), String> {
-        let entry = entry.into();
-        let data_offset = data_offset.into();
-        let segment_start = segment_start.into();
-        let segment_end = segment_end.into();
+        let (entry, data, data_offset, segment_end, source_data): (Reg, Reg, Reg, Reg, Reg) = (
+            entry.into(),
+            data.into(),
+            data_offset.into(),
+            segment_end.into(),
+            source_data.into(),
+        );
+        let segment_start: Reg = segment_start.into();
         let tmp = self.temporary_vreg();
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
@@ -113,49 +119,37 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &tmp,
-            entry.clone(),
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        self.emit(abi::store_u8(&tmp, entry, COLLECTION_ENTRY_OFFSET_FLAGS));
         self.emit(abi::move_immediate(&tmp, "Integer", "0"));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit(abi::store_u64(
-            data_offset.clone(),
-            entry.clone(),
+            data_offset,
+            entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::subtract_registers(
-            &tmp,
-            segment_end.clone(),
-            segment_start.clone(),
-        ));
+        self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
         self.emit(abi::store_u64(
             &tmp,
-            entry.clone(),
+            entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers(&dst, data, data_offset.clone()));
-        self.emit(abi::add_registers(&src, source_data, segment_start.clone()));
+        self.emit(abi::add_registers(&dst, data, data_offset));
+        self.emit(abi::add_registers(&src, source_data, segment_start));
         // plan-86 F2: 8-byte word-copy (+ byte tail) of the segment (tmp bytes);
         // `tmp` is recomputed just below, so its post-copy value does not matter.
         self.emit_block_copy_advance(&dst, &src, &tmp, &byte, "strings_split_copy_segment");
         self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
-        self.emit(abi::add_registers(data_offset.clone(), data_offset, &tmp));
-        self.emit(abi::add_immediate(
-            entry.clone(),
-            entry,
-            COLLECTION_ENTRY_SIZE,
-        ));
+        self.emit(abi::add_registers(data_offset, data_offset, &tmp));
+        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
         Ok(())
     }
 
@@ -232,7 +226,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: label.to_string(),
         })
     }
@@ -248,10 +242,15 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_case_map_lookup(
         &mut self,
         map: UnicodeCaseMap,
-        codepoint: impl Into<Operand>,
-        sequence_ptr: impl Into<Operand>,
-        sequence_length: impl Into<Operand>,
+        codepoint: impl Into<Reg>,
+        sequence_ptr: impl Into<Reg>,
+        sequence_length: impl Into<Reg>,
     ) {
+        let (codepoint, sequence_ptr, sequence_length): (Reg, Reg, Reg) = (
+            codepoint.into(),
+            sequence_ptr.into(),
+            sequence_length.into(),
+        );
         self.emit_unicode_u32_mapping_lookup(
             codepoint,
             map.entries_symbol(),

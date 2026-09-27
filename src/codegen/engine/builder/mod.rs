@@ -139,25 +139,19 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) used_callee_saved: Vec<String>,
     pub(crate) stack_size: usize,
     pub(crate) next_register: usize,
-    /// Next virtual-register index `allocate_register` will hand out. Virtual
-    /// registers are colored to physical registers after the whole function is
-    /// lowered (`regalloc::allocate`, plan-03).
-    pub(crate) next_vreg: u32,
-    /// FP virtual-register counter (plan-03 Stage C).
-    pub(crate) next_fp_vreg: u32,
     /// Float values whose bits in a GPR `ValueResult.location` are *also* resident
     /// in an FP virtual register (the `d`-register a float op left its result in).
     /// Lets a chained float operand be read straight from the `d`-register instead
     /// of round-tripping back through a GPR (plan-03 Stage C). Sound because both
     /// names hold the same value and neither vreg is ever redefined; the allocator
     /// keeps the FP vreg live (or spills/reloads it) wherever it is used.
-    pub(crate) float_residents: HashMap<String, String>,
+    pub(crate) float_residents: HashMap<String, abi::Reg>,
     /// Float locals currently promoted to an FP virtual register for the duration
     /// of an enclosing loop (plan-03 Stage D part 2): name -> the `%fN` holding
     /// the live value. While promoted, reads of the local come from this register
     /// and writes update it, instead of round-tripping its stack slot every
     /// iteration; it is loaded once before the loop and stored back once after.
-    pub(crate) promoted_float_locals: HashMap<String, String>,
+    pub(crate) promoted_float_locals: HashMap<String, abi::Reg>,
     /// Locals whose address is taken anywhere in the function (a `LocalRef`).
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
@@ -269,6 +263,21 @@ pub(crate) struct CodeBuilder<'a> {
     /// escaped (§15.6) and must still be closed, and `EXIT`/`CONTINUE` spill no
     /// pending result at all, so a comparison there would read a stale slot.
     pub(crate) escaping_value_slot: Option<usize>,
+    /// bug-695: the shared error-return landing pads of the function being lowered,
+    /// keyed by the cleanup-stack prefix each one drops, mapped to the pad's label.
+    /// An inline raise that leaves the function branches to the pad for the whole
+    /// active stack; the pad drops the innermost cleanup and continues into the pad
+    /// for the next-shorter prefix, and the empty prefix's pad reloads the parked
+    /// `Result` and returns. One pad per distinct prefix instead of the whole walk
+    /// at every raise site ([`Self::emit_inline_error_exit`]).
+    pub(crate) error_return_pads: HashMap<Vec<ErrorReturnPadEntry>, String>,
+    /// bug-695: the pads' code, emitted when first requested (so each drop reads the
+    /// builder state of the point that needed it) but held back and appended after
+    /// the body by [`Self::append_error_return_pads`], deepest prefix first. That
+    /// placement makes every branch into and between pads a FORWARD branch: a
+    /// backward one reads as a loop to the live-range analyses
+    /// (`v128_live_ranges` stretched every vector value across it).
+    pub(crate) error_return_pad_code: Vec<ErrorReturnPad>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
     /// branches to this label instead of returning, leaving the raw `Result` in
     /// the standard tag/value/message registers. Used to make inline conversions
@@ -299,11 +308,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// accept side and the nested union/collection copies leave this false and keep
     /// flagging inline (their source is a transient queue record, already garbage).
     pub(crate) suppress_resource_source_flag: bool,
-    /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
-    /// Set while `emit_error_register_return` is routing an inline failure to the
-    /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM
-    /// fallback re-enters `emit_error_register_return` — which must then return to
-    /// the caller (a plain `return_()`) rather than recursing into the trap route.
+    /// Re-entrancy guard for an inline error's exit route (bug-03, bug-695).
+    /// Set while `emit_error_register_return` is routing an inline failure out —
+    /// to the enclosing trap or, through the scope-drop walk, to the caller. The
+    /// trap route itself builds an `Error` inline, whose OOM fallback re-enters
+    /// `emit_error_register_return` — which must then return to the caller (a
+    /// plain `return_()`) rather than start a second walk over cleanups the first
+    /// is already dropping.
     pub(crate) emitting_error_route: bool,
     /// Re-entrancy guard for the error-block origin funnel (plan-error-block-in-slot
     /// stages 4-5). Set while `emit_park_error_block_from_registers` is building the
@@ -478,7 +489,8 @@ pub(crate) struct CodeBuilder<'a> {
     /// the `broadcast_*` coefficient loads share one allocator-placed base within
     /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
     /// backends that pin a physical base.
-    pub(crate) math_pool_base_vreg: Option<(String, String)>,
+    pub(crate) math_pool_base_vreg:
+        Option<(String, crate::codegen::engine::operand::VirtualRegister)>,
     /// plan-01-vector: in-flight register-native small-vector values. A
     /// `Float2/3/4` produced by a construction or an inlined op that has not yet
     /// crossed a storage/escape boundary lives here as its N per-lane scalar
@@ -645,8 +657,6 @@ impl<'a> CodeBuilder<'a> {
             used_callee_saved: Vec::new(),
             stack_size: 0,
             next_register: 8,
-            next_vreg: 0,
-            next_fp_vreg: 0,
             float_residents: HashMap::new(),
             promoted_float_locals: HashMap::new(),
             address_taken_locals: HashSet::new(),
@@ -673,6 +683,8 @@ impl<'a> CodeBuilder<'a> {
             cleanup_scope_starts: Vec::new(),
             pending_result_slots: None,
             escaping_value_slot: None,
+            error_return_pads: HashMap::new(),
+            error_return_pad_code: Vec::new(),
             raw_result_capture: None,
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,
@@ -803,7 +815,7 @@ pub(crate) struct LoopLabels {
     pub(crate) temp_depth: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ResourceCleanup {
     pub(crate) name: String,
     pub(crate) symbol: String,
@@ -845,7 +857,7 @@ pub(crate) struct ResourceCleanup {
     pub(crate) owner_flag_slot: Option<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ResourceUnionCleanup {
     pub(crate) name: String,
     /// `(tag, close_symbol)` per active variant; drop reads the union tag and
@@ -877,7 +889,7 @@ pub(crate) struct ResourceUnionCleanup {
 /// element has one registered close op; a resource-union element (bug-429) is
 /// tag-dispatched to its active variant's close op, then its uniform STATE block
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum OwnedListDrop {
     /// A single registered close op applied to each node's record pointer, plus what
     /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
@@ -900,7 +912,7 @@ pub(crate) enum OwnedListDrop {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OwnedListCleanup {
     /// The owning collection binding's name (for transfer-on-return lookup).
     pub(crate) name: String,
@@ -920,7 +932,7 @@ pub(crate) struct OwnedListCleanup {
 /// unaliased, a single `arena_free(ptr, size)` reclaims the whole value; the
 /// size is recomputed from the static type at drop via
 /// `emit_inlined_block_size_from_ptr_slot`.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).
     pub(crate) type_: ParameterType,
@@ -970,7 +982,7 @@ pub(crate) struct OwnedValueCleanup {
 }
 
 /// bug-593: which runtime paths an inline-`TRAP` `Result` wrapper drop releases.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum ResultWrapperDrop {
     /// The payload word at +16 is loaded BY VALUE (`result_payload_is_block` is
     /// false — a resource handle), so nothing can alias into the wrapper on
@@ -1023,12 +1035,33 @@ pub(crate) struct PendingClosure {
     pub(crate) captures: Vec<ParameterType>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ActiveCleanup {
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
     OwnedList(OwnedListCleanup),
     OwnedValue(OwnedValueCleanup),
+}
+
+/// bug-695: one element of an error-return landing pad's key. A drop is fully
+/// determined by its cleanup plus, for a name-addressed cleanup (a resource, a
+/// resource union), the stack slot that name resolves to when the pad is emitted,
+/// so two raise sites may share a pad only when both agree.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ErrorReturnPadEntry {
+    pub(crate) cleanup: ActiveCleanup,
+    pub(crate) local_slot: Option<usize>,
+}
+
+/// bug-695: one error-return landing pad awaiting placement after the body.
+pub(crate) struct ErrorReturnPad {
+    /// The length of the cleanup-stack prefix this pad drops down from.
+    pub(crate) depth: usize,
+    /// The pad's own label (the first instruction of `code`).
+    pub(crate) label: String,
+    /// The pad it continues into, `None` for the empty prefix's (which returns).
+    pub(crate) successor: Option<String>,
+    pub(crate) code: Vec<CodeInstruction>,
 }
 
 #[derive(Clone, Copy)]
@@ -1152,6 +1185,9 @@ pub(crate) fn lower_module_for_platform(
     packages: &[PathBuf],
     platform: &dyn CodegenPlatform,
 ) -> Result<NativeCodePlan, String> {
+    // One virtual-register id sequence per module (bug-721): the ids — and so the
+    // allocation — depend only on what this module lowers.
+    crate::codegen::engine::regalloc::reset_vreg_ids();
     if module.target != platform.target() {
         return Err(format!(
             "native code platform '{}' cannot lower module target '{}'",
@@ -1677,6 +1713,35 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let mouse_state_slots = if uses_mouse { MOUSE_STATE_SLOTS } else { 0 };
+    // bug-699: the input-buffer region — the bytes a stdin subscriber has pulled
+    // but no reader has consumed. A FOURTH conditionally-reserved region, appended
+    // past the mouse-state region for the same reason that one was appended: every
+    // program that does not read through the buffer keeps every existing offset,
+    // entry frame and golden byte-identical. Keyed on the readers that decode
+    // through it (`io::input::INPUT_BUFFER_READERS`), because only a reader that
+    // looks ahead can leave bytes in it; the plain readers then drain it first.
+    let uses_input_buffer = crate::codegen::io::input::program_uses_input_buffer(&runtime_symbols);
+    let input_state_offset = if uses_input_buffer {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base
+                    + link_slot_count
+                    + term_state_slots
+                    + presentation_mode_slots
+                    + mouse_state_slots)
+                    * 8,
+        )
+    } else {
+        None
+    };
+    #[cfg(test)]
+    crate::codegen::io::input::RESERVED_INPUT_STATE_OFFSET
+        .with(|slot| slot.set(input_state_offset));
+    let input_state_slots = if uses_input_buffer {
+        crate::codegen::io::input::INPUT_STATE_SLOTS
+    } else {
+        0
+    };
     // plan-94-A §4.4b: the process-global mouse-mode word. Not part of any arena,
     // because an app backend's mouse handler runs on the UI thread and has no arena
     // state to read — see `MOUSE_MODE_SYMBOL`. Emitted only when the program uses
@@ -1728,7 +1793,8 @@ pub(crate) fn lower_module_for_platform(
         + link_slot_count
         + term_state_slots
         + presentation_mode_slots
-        + mouse_state_slots;
+        + mouse_state_slots
+        + input_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -2236,6 +2302,12 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
         code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
     }
+    // bug-699: the input decoder, for the readers that decode through the input
+    // buffer. Reserved and emitted together, so a program without such a reader
+    // carries neither.
+    if input_state_offset.is_some() {
+        code_functions.push(crate::codegen::io::input::decode::lower_input_decode()?);
+    }
     // App-mode io members lower their transcript-write / prompt+read / present
     // sequences inline (plan-101 append shape): each io `abi_function` body calls
     // the platform's `emit_app_io_*` to append its GUI sequence directly, and the
@@ -2552,6 +2624,7 @@ pub(crate) fn lower_module_for_platform(
                         term_state_offset,
                         presentation_mode_offset,
                         mouse_state_offset,
+                        input_state_offset,
                         global_slots: arena_global_slots,
                         debug_arena_registry: crate::codegen::debug::feature_active(
                             module,
@@ -2720,6 +2793,33 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_build_buckets_helper());
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
+    }
+    // bug-732/733: the in-place removals' index maintenance and the map dead-byte
+    // reclaim, each emitted only when a lowered function calls it.
+    for (symbol, lower) in [
+        (
+            MAP_BUCKET_DELETE_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_bucket_delete_helper
+                as fn() -> CodeFunction,
+        ),
+        (
+            MAP_COMPACT_FROM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_compact_from_helper,
+        ),
+        (
+            MAP_RECLAIM_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_reclaim_helper,
+        ),
+    ] {
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == symbol)
+        });
+        if used {
+            code_functions.push(lower());
+        }
     }
     // plan-118-D: one `construct.T` per record type the census qualified, gated
     // on the relocation like every other internal `bl` target — a type can
@@ -3185,6 +3285,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
                 arena_layout.mouse_state_offset,
+                arena_layout.input_state_offset,
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,
@@ -3380,84 +3481,101 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v18 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture the map pointer (x0) into a vreg immediately: on x86 an
         // incoming param homes in rax/rdx by role, which the div/msub below
         // clobber — destroying it before the final store. As a vreg the
         // allocator keeps it in a safe (or spilled) location. AArch64 unaffected.
-        abi::move_register("%v18", abi::c_arg(0)),
+        abi::move_register(&v18, abi::c_arg(0)),
         // dataBase (v11) = map + HEADER + capacity*ENTRY ; bucketBase (v12) += dataCap.
-        abi::load_u64("%v9", "%v18", COLLECTION_OFFSET_COUNT),
-        abi::load_u64("%v14", "%v18", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v18"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
-        abi::load_u64("%v15", "%v18", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"),
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount = 2*capacity
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::load_u64(&v9, &v18, COLLECTION_OFFSET_COUNT),
+        abi::load_u64(&v14, &v18, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v18),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE),
+        abi::load_u64(&v15, &v18, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount = 2*capacity
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // Zero the bucket array.
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&zloop),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(&v13, &v10),
         abi::branch_ge(&zdone),
-        abi::shift_left_immediate("%v7", "%v13", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::move_immediate("%v6", "Integer", "0"),
-        abi::store_u64("%v6", "%v7", 0),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::shift_left_immediate(&v7, &v13, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::move_immediate(&v6, "Integer", "0"),
+        abi::store_u64(&v6, &v7, 0),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&zloop),
         abi::label(&zdone),
         // For each entry: hash its key, open-address its index+1.
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&eloop),
-        abi::compare_registers("%v13", "%v9"),
+        abi::compare_registers(&v13, &v9),
         abi::branch_ge(&edone),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v14", "%v13", "%v16"),
-        abi::add_registers("%v14", "%v14", "%v18"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v15", "%v11", "%v15"), // keyPtr
-        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS), // h
-        abi::move_register("%v5", "%v15"),
-        abi::move_register("%v6", "%v17"),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v14, &v13, &v16),
+        abi::add_registers(&v14, &v14, &v18),
+        abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v15, &v11, &v15), // keyPtr
+        abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS), // h
+        abi::move_register(&v5, &v15),
+        abi::move_register(&v6, &v17),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
         // slot = h mod bucketCount.
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("%v6", "%v13", 1),
-        abi::store_u64("%v6", "%v7", 0),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::add_immediate(&v6, &v13, 1),
+        abi::store_u64(&v6, &v7, 0),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&eloop),
         abi::label(&edone),
-        abi::move_immediate("%v6", "Integer", "1"),
-        abi::store_u8("%v6", "%v18", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::move_immediate(&v6, "Integer", "1"),
+        abi::store_u8(&v6, &v18, COLLECTION_OFFSET_BUCKETS_READY),
         abi::return_(),
     ];
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -3487,59 +3605,75 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture map ptr (x0) and entry index (x1) into vregs before the div/msub
         // below clobber their x86 arg-register homes (rax/rdx). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v20"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::load_u64(&v14, &v20, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v20),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),     // bucketBase
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // entry addr = map + HEADER + index*ENTRY.
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v14", "%v21", "%v16"),
-        abi::add_registers("%v14", "%v14", "%v20"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
-        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v15", "%v11", "%v15"),
-        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
-        abi::move_register("%v5", "%v15"),
-        abi::move_register("%v6", "%v17"),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v14, &v21, &v16),
+        abi::add_registers(&v14, &v14, &v20),
+        abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE),
+        abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v15, &v11, &v15),
+        abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
+        abi::move_register(&v5, &v15),
+        abi::move_register(&v6, &v17),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("%v6", "%v21", 1),
-        abi::store_u64("%v6", "%v7", 0),
+        abi::add_immediate(&v6, &v21, 1),
+        abi::store_u64(&v6, &v7, 0),
         abi::return_(),
     ];
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -3592,76 +3726,89 @@ pub(crate) fn lower_string_concat_helper() -> CodeFunction {
     let right_word = format!("{symbol}_right_word");
     let right_byte = format!("{symbol}_right_byte");
     let right_done = format!("{symbol}_right_done");
+    let mut vregs = Vregs::new();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
+    let v22 = vregs.next();
+    let v23 = vregs.next();
+    let v24 = vregs.next();
+    let v25 = vregs.next();
+    let v26 = vregs.next();
+    let v27 = vregs.next();
+    let v28 = vregs.next();
+    let v29 = vregs.next();
+    let v30 = vregs.next();
+    let v31 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Park both operands before the allocation call: `_mfb_arena_alloc`
         // clobbers the argument registers (and on x86-64 rdx via its own
         // arithmetic), exactly as `lower_map_probe_helper` documents.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::load_u64("%v22", "%v20", 0), // left byteLength
-        abi::load_u64("%v23", "%v21", 0), // right byteLength
-        abi::add_registers("%v24", "%v22", "%v23"),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::load_u64(&v22, &v20, 0), // left byteLength
+        abi::load_u64(&v23, &v21, 0), // right byteLength
+        abi::add_registers(&v24, &v22, &v23),
         // `mfb.string.v1` is `u64 byteLength; bytes; NUL`, so 8 + len + 1.
-        abi::add_immediate(abi::c_arg(0), "%v24", 9),
+        abi::add_immediate(abi::c_arg(0), &v24, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&fail),
-        abi::move_register("%v25", abi::mfb_return(1)), // new block
-        abi::store_u64("%v24", "%v25", 0),
-        abi::add_immediate("%v26", "%v25", 8), // write cursor
-        abi::add_immediate("%v27", "%v20", 8), // left payload
-        abi::add_immediate("%v28", "%v21", 8), // right payload
+        abi::move_register(&v25, abi::mfb_return(1)), // new block
+        abi::store_u64(&v24, &v25, 0),
+        abi::add_immediate(&v26, &v25, 8), // write cursor
+        abi::add_immediate(&v27, &v20, 8), // left payload
+        abi::add_immediate(&v28, &v21, 8), // right payload
         // --- left operand: aligned words, then the tail ---
-        abi::move_register("%v29", "%v22"),
+        abi::move_register(&v29, &v22),
         abi::label(&left_word),
-        abi::compare_immediate("%v29", "8"),
+        abi::compare_immediate(&v29, "8"),
         abi::branch_lo(&left_byte),
-        abi::load_u64("%v30", "%v27", 0),
-        abi::store_u64("%v30", "%v26", 0),
-        abi::add_immediate("%v27", "%v27", 8),
-        abi::add_immediate("%v26", "%v26", 8),
-        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::load_u64(&v30, &v27, 0),
+        abi::store_u64(&v30, &v26, 0),
+        abi::add_immediate(&v27, &v27, 8),
+        abi::add_immediate(&v26, &v26, 8),
+        abi::subtract_immediate(&v29, &v29, 8),
         abi::branch(&left_word),
         abi::label(&left_byte),
-        abi::compare_immediate("%v29", "0"),
+        abi::compare_immediate(&v29, "0"),
         abi::branch_eq(&left_done),
-        abi::load_u8("%v30", "%v27", 0),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::add_immediate("%v27", "%v27", 1),
-        abi::add_immediate("%v26", "%v26", 1),
-        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::load_u8(&v30, &v27, 0),
+        abi::store_u8(&v30, &v26, 0),
+        abi::add_immediate(&v27, &v27, 1),
+        abi::add_immediate(&v26, &v26, 1),
+        abi::subtract_immediate(&v29, &v29, 1),
         abi::branch(&left_byte),
         abi::label(&left_done),
         // --- right operand: words only if the write cursor is still aligned ---
-        abi::move_register("%v29", "%v23"),
-        abi::move_immediate("%v31", "Integer", "7"),
-        abi::and_registers("%v30", "%v22", "%v31"),
-        abi::compare_immediate("%v30", "0"),
+        abi::move_register(&v29, &v23),
+        abi::move_immediate(&v31, "Integer", "7"),
+        abi::and_registers(&v30, &v22, &v31),
+        abi::compare_immediate(&v30, "0"),
         abi::branch_ne(&right_byte),
         abi::label(&right_word),
-        abi::compare_immediate("%v29", "8"),
+        abi::compare_immediate(&v29, "8"),
         abi::branch_lo(&right_byte),
-        abi::load_u64("%v30", "%v28", 0),
-        abi::store_u64("%v30", "%v26", 0),
-        abi::add_immediate("%v28", "%v28", 8),
-        abi::add_immediate("%v26", "%v26", 8),
-        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::load_u64(&v30, &v28, 0),
+        abi::store_u64(&v30, &v26, 0),
+        abi::add_immediate(&v28, &v28, 8),
+        abi::add_immediate(&v26, &v26, 8),
+        abi::subtract_immediate(&v29, &v29, 8),
         abi::branch(&right_word),
         abi::label(&right_byte),
-        abi::compare_immediate("%v29", "0"),
+        abi::compare_immediate(&v29, "0"),
         abi::branch_eq(&right_done),
-        abi::load_u8("%v30", "%v28", 0),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::add_immediate("%v28", "%v28", 1),
-        abi::add_immediate("%v26", "%v26", 1),
-        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::load_u8(&v30, &v28, 0),
+        abi::store_u8(&v30, &v26, 0),
+        abi::add_immediate(&v28, &v28, 1),
+        abi::add_immediate(&v26, &v26, 1),
+        abi::subtract_immediate(&v29, &v29, 1),
         abi::branch(&right_byte),
         abi::label(&right_done),
-        abi::move_immediate("%v30", "Integer", "0"),
-        abi::store_u8("%v30", "%v26", 0),
-        abi::move_register(abi::mfb_return(0), "%v25"),
+        abi::move_immediate(&v30, "Integer", "0"),
+        abi::store_u8(&v30, &v26, 0),
+        abi::move_register(abi::mfb_return(0), &v25),
         abi::return_(),
         abi::label(&fail),
         abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
@@ -3700,6 +3847,25 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let cloop = format!("{symbol}_cloop");
     let cmatch = format!("{symbol}_cmatch");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
+    let v22 = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         // Capture the params (map ptr / key ptr / key len) into vregs up front.
@@ -3707,80 +3873,80 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
         // on x86 (esp. rdx via its div), so x0/x1/x2 must not be read after it.
         // The build call still receives the map implicitly in rdi (unclobbered
         // until then). AArch64 unaffected.
-        abi::move_register("%v20", abi::c_arg(0)),
-        abi::move_register("%v21", abi::c_arg(1)),
-        abi::move_register("%v22", abi::c_arg(2)),
+        abi::move_register(&v20, abi::c_arg(0)),
+        abi::move_register(&v21, abi::c_arg(1)),
+        abi::move_register(&v22, abi::c_arg(2)),
         // Lazy build if not ready.
-        abi::load_u8("%v9", "%v20", COLLECTION_OFFSET_BUCKETS_READY),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u8(&v9, &v20, COLLECTION_OFFSET_BUCKETS_READY),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&ready),
         abi::branch_link(MAP_BUILD_BUCKETS_SYMBOL),
         abi::label(&ready),
-        abi::load_u64("%v9", "%v20", COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, &v20, COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&notfound),
-        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "%v20"),
-        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
-        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
-        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
+        abi::load_u64(&v14, &v20, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v11, &v14, &v16),
+        abi::add_registers(&v11, &v11, &v20),
+        abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers(&v12, &v11, &v15),     // bucketBase
+        abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
+        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // Hash the query key (x1/x2).
-        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
-        abi::move_register("%v5", "%v21"),
-        abi::move_register("%v6", "%v22"),
+        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
+        abi::move_register(&v5, &v21),
+        abi::move_register(&v6, &v22),
         abi::label(&hloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
-        abi::multiply_registers("%v16", "%v16", "%v8"),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::load_u8(&v3, &v5, 0),
+        abi::exclusive_or_registers(&v16, &v16, &v3),
+        abi::multiply_registers(&v16, &v16, &v8),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
-        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"), // slot
+        abi::unsigned_divide_registers(&v4, &v16, &v10),
+        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16), // slot
         abi::label(&ploop),
-        abi::shift_left_immediate("%v7", "%v4", 3),
-        abi::add_registers("%v7", "%v12", "%v7"),
-        abi::load_u64("%v6", "%v7", 0),
-        abi::compare_immediate("%v6", "0"),
+        abi::shift_left_immediate(&v7, &v4, 3),
+        abi::add_registers(&v7, &v12, &v7),
+        abi::load_u64(&v6, &v7, 0),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&notfound),
-        abi::subtract_immediate("%v13", "%v6", 1), // candidate idx
-        abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v15", "%v13", "%v16"),
-        abi::add_registers("%v15", "%v15", "%v20"),
-        abi::add_immediate("%v15", "%v15", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("%v17", "%v15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::compare_registers("%v17", "%v22"),
+        abi::subtract_immediate(&v13, &v6, 1), // candidate idx
+        abi::move_immediate(&v16, "Integer", &entry_size),
+        abi::multiply_registers(&v15, &v13, &v16),
+        abi::add_registers(&v15, &v15, &v20),
+        abi::add_immediate(&v15, &v15, COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64(&v17, &v15, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::compare_registers(&v17, &v22),
         abi::branch_ne(&pnext),
-        abi::load_u64("%v16", "%v15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("%v16", "%v11", "%v16"), // storedPtr
-        abi::move_register("%v5", "%v21"),          // queryCursor
-        abi::move_register("%v6", "%v22"),          // remaining
+        abi::load_u64(&v16, &v15, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers(&v16, &v11, &v16), // storedPtr
+        abi::move_register(&v5, &v21),        // queryCursor
+        abi::move_register(&v6, &v22),        // remaining
         abi::label(&cloop),
-        abi::compare_immediate("%v6", "0"),
+        abi::compare_immediate(&v6, "0"),
         abi::branch_eq(&cmatch),
-        abi::load_u8("%v3", "%v5", 0),
-        abi::load_u8("%v17", "%v16", 0),
-        abi::compare_registers("%v3", "%v17"),
+        abi::load_u8(&v3, &v5, 0),
+        abi::load_u8(&v17, &v16, 0),
+        abi::compare_registers(&v3, &v17),
         abi::branch_ne(&pnext),
-        abi::add_immediate("%v5", "%v5", 1),
-        abi::add_immediate("%v16", "%v16", 1),
-        abi::subtract_immediate("%v6", "%v6", 1),
+        abi::add_immediate(&v5, &v5, 1),
+        abi::add_immediate(&v16, &v16, 1),
+        abi::subtract_immediate(&v6, &v6, 1),
         abi::branch(&cloop),
         abi::label(&cmatch),
-        abi::move_register(abi::mfb_return(0), "%v13"),
+        abi::move_register(abi::mfb_return(0), &v13),
         abi::branch(&done),
         abi::label(&pnext),
-        abi::add_immediate("%v4", "%v4", 1),
-        abi::compare_registers("%v4", "%v10"),
+        abi::add_immediate(&v4, &v4, 1),
+        abi::compare_registers(&v4, &v10),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&v4, "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&notfound),

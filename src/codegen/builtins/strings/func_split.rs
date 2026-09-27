@@ -349,7 +349,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::list_of(ParameterType::String),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.split".to_string(),
     })
 }

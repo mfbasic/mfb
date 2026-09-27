@@ -19,6 +19,7 @@ use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::emit_build_byte_list;
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -276,7 +277,8 @@ pub(crate) fn data_objects(family: PlatformFamily) -> Vec<CodeDataObject> {
 
 /// Call the function pointer stored at `fn_off` (args already staged). `scratch` is
 /// a minted vreg the pointer is loaded into.
-pub(crate) fn call_fn(fn_off: usize, scratch: &str, ins: &mut Vec<CodeInstruction>) {
+pub(crate) fn call_fn(fn_off: usize, scratch: impl Into<Reg>, ins: &mut Vec<CodeInstruction>) {
+    let scratch: Reg = scratch.into();
     ins.extend([
         abi::load_u64(scratch, abi::stack_pointer(), fn_off),
         abi::branch_link_register(scratch),
@@ -350,10 +352,11 @@ pub(crate) fn load_cf_const(
     fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     dlsym_into(
         symbol,
         handle_off,
@@ -392,10 +395,11 @@ pub(crate) fn build_dict2(
     fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     load_cf_const(
         symbol,
         sec_off,
@@ -502,7 +506,7 @@ pub(crate) fn build_dict2(
 pub(crate) fn cf_release(
     release_off: usize,
     obj_off: usize,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
 ) {
     ins.push(abi::load_u64(
@@ -520,7 +524,7 @@ pub(crate) fn cf_release_guarded(
     release_off: usize,
     obj_off: usize,
     tag: &str,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
 ) {
     let skip = format!("{symbol}_{tag}_norel");
@@ -539,7 +543,7 @@ pub(crate) fn cfdata_create(
     buf_off: usize,
     len_off: usize,
     dst_off: usize,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
 ) {
     ins.extend([
@@ -571,10 +575,12 @@ pub(crate) fn cfdata_to_list(
     alloc_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
+    vregs: &mut Vregs,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     dlsym_into(
         symbol,
         cf_off,
@@ -628,6 +634,7 @@ pub(crate) fn cfdata_to_list(
         Some(coll_off),
         abi::mfb_return(1),
         alloc_fail,
+        vregs,
         ins,
         rel,
     );
@@ -751,13 +758,15 @@ pub(crate) fn copy_bytes(
     dst_const: usize,
     dst_runtime_off: Option<usize>,
     len: CopyLen,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
+    v9: impl Into<Reg>,
+    v10: impl Into<Reg>,
+    v11: impl Into<Reg>,
+    v12: impl Into<Reg>,
+    v13: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let (v9, v10, v11, v12, v13): (Reg, Reg, Reg, Reg, Reg) =
+        (v9.into(), v10.into(), v11.into(), v12.into(), v13.into());
     let loop_l = format!("{symbol}_{tag}_cpy");
     let done_l = format!("{symbol}_{tag}_cpyend");
     ins.push(abi::load_u64(v9, abi::stack_pointer(), src_ptr_off));
@@ -840,18 +849,18 @@ pub(crate) fn bcrypt_call(
 /// Minted scratch-vreg palette for one emitted CNG sequence (threaded into every
 /// emitter contributing to it so all uses of one hand-picked number map to one vreg).
 pub(crate) struct Sc {
-    pub(crate) v4: String,
-    pub(crate) v5: String,
-    pub(crate) v6: String,
-    pub(crate) v7: String,
-    pub(crate) v8: String,
-    pub(crate) v9: String,
-    pub(crate) v10: String,
-    pub(crate) v11: String,
-    pub(crate) v12: String,
-    pub(crate) v13: String,
-    pub(crate) v14: String,
-    pub(crate) v15: String,
+    pub(crate) v4: VirtualRegister,
+    pub(crate) v5: VirtualRegister,
+    pub(crate) v6: VirtualRegister,
+    pub(crate) v7: VirtualRegister,
+    pub(crate) v8: VirtualRegister,
+    pub(crate) v9: VirtualRegister,
+    pub(crate) v10: VirtualRegister,
+    pub(crate) v11: VirtualRegister,
+    pub(crate) v12: VirtualRegister,
+    pub(crate) v13: VirtualRegister,
+    pub(crate) v14: VirtualRegister,
+    pub(crate) v15: VirtualRegister,
 }
 
 impl Sc {
@@ -892,7 +901,7 @@ impl Sc {
 /// Load the address of the wide (`LPCWSTR`) CNG identifier `id` into `dst`.
 pub(crate) fn win_wide_addr(
     from: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<crate::target::shared::abi::Reg>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
@@ -904,12 +913,13 @@ pub(crate) fn win_wide_addr(
 /// consumed). Uses `sc.v4`/`sc.v5` scratch named by `tag`.
 pub(crate) fn win_copy_bytes(
     sc: &Sc,
-    src: &str,
-    dst: &str,
-    count: &str,
+    src: impl Into<Reg>,
+    dst: impl Into<Reg>,
+    count: impl Into<Reg>,
     tag: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let (src, dst, count): (Reg, Reg, Reg) = (src.into(), dst.into(), count.into());
     let loop_l = format!("{tag}_cp");
     let done_l = format!("{tag}_cpd");
     ins.extend([

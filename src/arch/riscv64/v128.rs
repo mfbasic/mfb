@@ -56,7 +56,7 @@ const ZERO: &str = "zero";
 fn ci(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut inst = CodeInstruction::new(mnemonic);
     for (k, v) in fields {
-        inst = inst.field(k, v);
+        inst = inst.physical_field(k, v);
     }
     inst
 }

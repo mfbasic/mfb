@@ -57,19 +57,10 @@ pub(crate) struct RecordBuildScratch {
 /// overwritten — and a free of that pointer at `done` would release garbage.
 /// [`MarshalRegs::fresh`] makes that collision impossible by construction.
 pub(crate) struct MarshalRegs {
-    regs: [String; 6],
+    regs: [VirtualRegister; 6],
 }
 
 impl MarshalRegs {
-    /// The `%v9`..`%v14` this marshaller has always written. Kept for its existing
-    /// callers (`crypto::generate`'s record builds), which spill every live value to
-    /// frame slots first; a new caller uses [`MarshalRegs::fresh`].
-    pub(crate) fn fixed() -> Self {
-        Self {
-            regs: ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"].map(str::to_string),
-        }
-    }
-
     /// Six vregs no other part of the helper has been given.
     pub(crate) fn fresh(vregs: &mut Vregs) -> Self {
         Self {
@@ -77,8 +68,8 @@ impl MarshalRegs {
         }
     }
 
-    pub(crate) fn r(&self, index: usize) -> &str {
-        &self.regs[index]
+    pub(crate) fn r(&self, index: usize) -> VirtualRegister {
+        self.regs[index]
     }
 }
 
@@ -91,8 +82,8 @@ impl MarshalRegs {
 /// block-relative offset. Every other field slot holds the scalar value or
 /// pointer, written inline at `8 * index`.
 ///
-/// Branches to `alloc_fail` on allocation failure. Writes the fixed
-/// [`MarshalRegs`] plus the four `scratch` slots. Mirrors
+/// Branches to `alloc_fail` on allocation failure. Writes fresh [`MarshalRegs`]
+/// minted from `vregs` plus the four `scratch` slots. Mirrors
 /// `CodeBuilder::emit_build_inlined_record`. A record with an inlined nested
 /// **record** field needs its size from the caller: see
 /// [`emit_build_inlined_record_sized`].
@@ -104,8 +95,9 @@ pub(crate) fn emit_build_inlined_record(
     type_model: &TypeModel,
     field_slots: &[usize],
     scratch: &RecordBuildScratch,
-    result_reg: impl Into<Operand>,
+    result_reg: impl Into<abi::Reg>,
     alloc_fail: &str,
+    vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -117,7 +109,7 @@ pub(crate) fn emit_build_inlined_record(
         field_slots,
         &vec![None; field_slots.len()],
         scratch,
-        &MarshalRegs::fixed(),
+        &MarshalRegs::fresh(vregs),
         result_reg,
         alloc_fail,
         instructions,
@@ -150,7 +142,7 @@ pub(crate) fn emit_build_inlined_record_sized(
     known_sizes: &[Option<usize>],
     scratch: &RecordBuildScratch,
     regs: &MarshalRegs,
-    result_reg: impl Into<Operand>,
+    result_reg: impl Into<abi::Reg>,
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -398,11 +390,14 @@ fn emit_inlined_block_size(
 /// `CodeBuilder::emit_flat_block_size`.
 fn emit_collection_flat_size(
     collection_type: &ParameterType,
-    ptr_reg: &str,
-    out_reg: &str,
-    scratch_reg: &str,
+    ptr_reg: impl Into<abi::Reg>,
+    out_reg: impl Into<abi::Reg>,
+    scratch_reg: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let ptr_reg: abi::Reg = ptr_reg.into();
+    let out_reg: abi::Reg = out_reg.into();
+    let scratch_reg: abi::Reg = scratch_reg.into();
     let element = typed_list_element_type(collection_type)
         .cloned()
         .unwrap_or_else(|| ParameterType::named(""));
@@ -429,13 +424,16 @@ fn emit_collection_flat_size(
 /// writes `regs.r(0)`, `regs.r(1)` and `regs.r(5)`. `tag` disambiguates the loop
 /// labels.
 pub(crate) fn emit_byte_copy(
-    dst_reg: &str,
-    src_reg: &str,
-    len_reg: &str,
+    dst_reg: impl Into<abi::Reg>,
+    src_reg: impl Into<abi::Reg>,
+    len_reg: impl Into<abi::Reg>,
     tag: &str,
     regs: &MarshalRegs,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let dst_reg: abi::Reg = dst_reg.into();
+    let src_reg: abi::Reg = src_reg.into();
+    let len_reg: abi::Reg = len_reg.into();
     let loop_l = format!("{tag}_rcp");
     let done_l = format!("{tag}_rcpd");
     let (index, byte, address) = (regs.r(0), regs.r(1), regs.r(5));
@@ -456,6 +454,21 @@ pub(crate) fn emit_byte_copy(
 
 #[cfg(test)]
 mod tests {
+    // The legacy `%v9`..`%v14` names, now only a deterministic fixture for the
+    // tests here and in `record_list.rs`. Production callers mint fresh ones.
+    impl MarshalRegs {
+        pub(crate) fn fixed() -> Self {
+            Self {
+                regs: [9, 10, 11, 12, 13, 14].map(|id| {
+                    VirtualRegister::new_for_test(
+                        crate::target::shared::regmodel::RegClass::Int,
+                        id,
+                    )
+                }),
+            }
+        }
+    }
+
     use super::*;
     use crate::arch::ops::CodeOp;
     use crate::codegen::engine::mir;
@@ -551,12 +564,13 @@ mod tests {
         assert!(error.contains("is not inlined"), "{error}");
     }
 
-    /// The fixed set is exactly what `crypto::generate`'s record builds have always
-    /// been emitted with; changing it moves their byte-identity goldens.
+    /// The fixed set is the deterministic fixture these tests build with. It was
+    /// `crypto::generate`'s production register set until bug-564 moved every caller
+    /// to [`MarshalRegs::fresh`] (a fixed `%vN` aliases the caller's own vreg).
     #[test]
     fn the_fixed_regs_are_the_legacy_names() {
         let regs = MarshalRegs::fixed();
-        let names: Vec<&str> = (0..6).map(|i| regs.r(i)).collect();
+        let names: Vec<String> = (0..6).map(|i| regs.r(i).to_string()).collect();
         assert_eq!(names, ["%v9", "%v10", "%v11", "%v12", "%v13", "%v14"]);
     }
 
@@ -565,7 +579,7 @@ mod tests {
     #[test]
     fn fresh_regs_never_write_a_vreg_the_caller_already_holds() {
         let mut vregs = Vregs::new();
-        let held: Vec<String> = (0..16).map(|_| vregs.next()).collect();
+        let held: Vec<String> = (0..16).map(|_| vregs.next().to_string()).collect();
         let regs = MarshalRegs::fresh(&mut vregs);
         let (result, instructions) = build(&[None, Some(SIZE_SLOT), None], &regs);
         result.expect("builds");

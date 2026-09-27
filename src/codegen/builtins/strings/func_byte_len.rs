@@ -76,7 +76,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(register.render()),
+        location: Operand::from(register),
         text: format!("strings.byteLen({})", value.text),
     })
 }

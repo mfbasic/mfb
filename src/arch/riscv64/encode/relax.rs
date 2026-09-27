@@ -403,8 +403,8 @@ mod tests {
     fn branch_rv_br() -> CodeInstruction {
         CodeInstruction::new("rv.br")
             .field("cond", "eq")
-            .field("lhs", "a0")
-            .field("rhs", "a1")
+            .physical_field("lhs", "a0")
+            .physical_field("rhs", "a1")
             .field("target", "far")
     }
 

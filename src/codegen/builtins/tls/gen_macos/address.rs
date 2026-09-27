@@ -26,6 +26,7 @@
 
 use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 /// `tls::localAddress` / `tls::remoteAddress` on macOS. `remote` selects the
@@ -442,13 +443,14 @@ fn emit_nw_call1(
     platform_imports: &HashMap<String, String>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     handle_off: usize,
     fnptr_off: usize,
     name: &str,
     arg_off: usize,
     fail: &str,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     emit_dlsym(
         &mut EmitCtx {
             symbol,
@@ -479,14 +481,15 @@ fn emit_release_if_set(
     platform_imports: &HashMap<String, String>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
-    scratch: &str,
-    scratch2: &str,
+    scratch: impl Into<Reg>,
+    scratch2: impl Into<Reg>,
     handle_off: usize,
     fnptr_off: usize,
     off: usize,
     tag: &str,
     fail: &str,
 ) -> Result<(), String> {
+    let (scratch, scratch2): (Reg, Reg) = (scratch.into(), scratch2.into());
     let skip = format!("{symbol}_rel_skip_{tag}");
     ins.extend([
         abi::load_u64(scratch2, abi::stack_pointer(), off),

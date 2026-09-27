@@ -769,7 +769,7 @@ mod tests {
         assert_eq!(instructions[0].op, CodeOp::LdrU64, "load the record");
         assert_eq!(
             instructions[0].get("base").as_deref(),
-            Some(crate::target::shared::abi::stack_pointer())
+            Some(crate::target::shared::abi::SP_SPELLING)
         );
         assert_eq!(
             instructions[0].get("offset").as_deref(),

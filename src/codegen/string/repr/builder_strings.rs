@@ -391,7 +391,7 @@ impl CodeBuilder<'_> {
                 ValueResult {
                     origin: None,
                     type_: ParameterType::String,
-                    location: Operand::from(result.render()),
+                    location: Operand::from(result),
                     text: "strings.replace".to_string(),
                 },
                 output_len_slot,
@@ -402,12 +402,12 @@ impl CodeBuilder<'_> {
         // replacing arm its own `emit_arena_alloc_call`, the no-match arm the
         // `copy_flat_block` right above (which exists precisely so the result is
         // never an alias of the input).
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok((
             ValueResult {
                 origin: None,
                 type_: ParameterType::String,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text: "replace(String, String, String)".to_string(),
             },
             output_len_slot,
@@ -858,7 +858,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
         })
     }
@@ -903,11 +903,11 @@ impl CodeBuilder<'_> {
         self.emit_load_string_constant(&result, last)?;
         self.emit(abi::label(&done));
         let copied = self.copy_flat_block(&ParameterType::String, &result)?;
-        self.mark_fresh_string(Operand::from(copied.render()));
+        self.mark_fresh_string(Operand::from(copied));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(copied.render()),
+            location: Operand::from(copied),
             text: format!("toString({})", value.text),
         })
     }
@@ -1009,14 +1009,14 @@ impl CodeBuilder<'_> {
             // owning store took it as its own, so `s = toString(s)` freed the
             // block it stored.
             ParameterType::String => {
-                let location = Operand::from(value_register.render());
+                let location = Operand::from(value_register);
                 if !self.pending_temp_would_be_claimed(&value) {
                     let copied = self.copy_flat_block(&ParameterType::String, &location)?;
-                    self.mark_fresh_string(Operand::from(copied.render()));
+                    self.mark_fresh_string(Operand::from(copied));
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::String,
-                        location: Operand::from(copied.render()),
+                        location: Operand::from(copied),
                         text: format!("toString({})", value.text),
                     });
                 }
@@ -1058,7 +1058,7 @@ impl CodeBuilder<'_> {
                 self.emit_to_string_helper_call(
                     ToStringHelper::Fixed,
                     &value_register,
-                    Some(Operand::from(precision.render())),
+                    Some(Operand::from(precision)),
                     "toString(Fixed)",
                 )
             }
@@ -1081,7 +1081,7 @@ impl CodeBuilder<'_> {
                 self.emit_to_string_helper_call(
                     ToStringHelper::Money,
                     &value_register,
-                    Some(Operand::from(precision.render())),
+                    Some(Operand::from(precision)),
                     "toString(Money)",
                 )
             }
@@ -1099,11 +1099,11 @@ impl CodeBuilder<'_> {
                 // bug-536 shape B: `copied` is the `copy_flat_block` above —
                 // a fresh arena block, deliberately not the record's inlined
                 // text field.
-                self.mark_fresh_string(Operand::from(copied.render()));
+                self.mark_fresh_string(Operand::from(copied));
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::String,
-                    location: Operand::from(copied.render()),
+                    location: Operand::from(copied),
                     text: format!("toString({})", value.text),
                 })
             }
@@ -1115,7 +1115,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_boolean_to_string(
         &mut self,
-        value_register: impl Into<Operand>,
+        value_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let false_label = self.label("bool_string_false");
         let done = self.label("bool_string_done");
@@ -1131,11 +1131,11 @@ impl CodeBuilder<'_> {
         // Handed back read-only, a binding took it as its own and freed it (or grew
         // it in place) — SIGBUS.
         let copied = self.copy_flat_block(&ParameterType::String, &result)?;
-        self.mark_fresh_string(Operand::from(copied.render()));
+        self.mark_fresh_string(Operand::from(copied));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(copied.render()),
+            location: Operand::from(copied),
             text: "toString(Boolean)".to_string(),
         })
     }
@@ -1152,7 +1152,7 @@ impl CodeBuilder<'_> {
     /// `toString` the program wrote, and a shared helper has no line or column.
     pub(crate) fn emit_integer_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
         signed: bool,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("int_string_alloc_ok");
@@ -1178,11 +1178,11 @@ impl CodeBuilder<'_> {
         // (`lower_int_to_string_helper`); the argument is an Integer, so no
         // caller storage can be aliased. Fresh — an unbound `toString(i)` is
         // freed at statement end.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: if signed {
                 "toString(Integer)".to_string()
             } else {
@@ -1193,7 +1193,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_byte_list_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -1425,11 +1425,11 @@ impl CodeBuilder<'_> {
 
         // bug-536 shape B: `result_slot` holds this lowering's own
         // `emit_arena_alloc_call` block, with the list's bytes copied in.
-        self.mark_fresh_string(Operand::from(result.to_string()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.to_string()),
+            location: Operand::from(result),
             text: "toString(List OF Byte)".to_string(),
         })
     }
@@ -1442,28 +1442,28 @@ impl CodeBuilder<'_> {
     /// follow stay inline at each site.
     fn emit_decimal_sign_prologue(
         &mut self,
-        raw: impl Into<Operand>,
-        precision: impl Into<Operand>,
-        negative: impl Into<Operand>,
-        source_register: impl Into<Operand>,
-        precision_register: impl Into<Operand>,
+        raw: impl Into<abi::Reg>,
+        precision: impl Into<abi::Reg>,
+        negative: impl Into<abi::Reg>,
+        source_register: impl Into<abi::Reg>,
+        precision_register: impl Into<abi::Reg>,
         precision_slot: usize,
         nonnegative: &str,
     ) {
         let raw = raw.into();
         let precision = precision.into();
         let negative = negative.into();
-        self.emit(abi::move_register(raw.clone(), source_register));
-        self.emit(abi::move_register(precision.clone(), precision_register));
+        self.emit(abi::move_register(raw, source_register));
+        self.emit(abi::move_register(precision, precision_register));
         self.emit(abi::store_u64(
             precision,
             abi::stack_pointer(),
             precision_slot,
         ));
-        self.emit(abi::move_immediate(negative.clone(), "Integer", "0"));
-        self.emit(abi::compare_immediate(raw.clone(), "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::compare_immediate(raw, "0"));
         self.emit(abi::branch_ge(nonnegative));
-        self.emit(abi::subtract_registers(raw.clone(), abi::ZERO, raw));
+        self.emit(abi::subtract_registers(raw, abi::ZERO, raw));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
         self.emit(abi::label(nonnegative));
     }
@@ -1476,15 +1476,15 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     fn emit_decimal_integer_render(
         &mut self,
-        int_part: impl Into<Operand>,
-        cursor: impl Into<Operand>,
-        length: impl Into<Operand>,
-        divisor: impl Into<Operand>,
-        quotient: impl Into<Operand>,
-        digit: impl Into<Operand>,
-        negative: impl Into<Operand>,
-        total_len: impl Into<Operand>,
-        precision: impl Into<Operand>,
+        int_part: impl Into<abi::Reg>,
+        cursor: impl Into<abi::Reg>,
+        length: impl Into<abi::Reg>,
+        divisor: impl Into<abi::Reg>,
+        quotient: impl Into<abi::Reg>,
+        digit: impl Into<abi::Reg>,
+        negative: impl Into<abi::Reg>,
+        total_len: impl Into<abi::Reg>,
+        precision: impl Into<abi::Reg>,
         buffer_slot: usize,
         integer_start_slot: usize,
         integer_len_slot: usize,
@@ -1503,82 +1503,67 @@ impl CodeBuilder<'_> {
         let digit = digit.into();
         let total_len = total_len.into();
         let precision = precision.into();
-        self.emit(abi::move_immediate(length.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(length, "Integer", "0"));
         self.emit(abi::add_immediate(
-            cursor.clone(),
+            cursor,
             abi::stack_pointer(),
             buffer_slot + 47,
         ));
-        self.emit(abi::compare_immediate(int_part.clone(), "0"));
+        self.emit(abi::compare_immediate(int_part, "0"));
         self.emit(abi::branch_eq(integer_zero));
-        self.emit(abi::move_immediate(divisor.clone(), "Integer", "10"));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
         self.emit(abi::label(integer_loop));
-        self.emit(abi::compare_immediate(int_part.clone(), "0"));
+        self.emit(abi::compare_immediate(int_part, "0"));
         self.emit(abi::branch_eq(integer_done));
-        self.emit(abi::unsigned_divide_registers(
-            quotient.clone(),
-            int_part.clone(),
-            divisor.clone(),
-        ));
+        self.emit(abi::unsigned_divide_registers(quotient, int_part, divisor));
         self.emit(abi::multiply_subtract_registers(
-            digit.clone(),
-            quotient.clone(),
-            divisor.clone(),
-            int_part.clone(),
+            digit, quotient, divisor, int_part,
         ));
-        self.emit(abi::add_immediate(
-            digit.clone(),
-            digit.clone(),
-            b'0' as usize,
-        ));
-        self.emit(abi::store_u8(digit.clone(), cursor.clone(), 0));
-        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
-        self.emit(abi::add_immediate(length.clone(), length.clone(), 1));
-        self.emit(abi::move_register(int_part.clone(), quotient.clone()));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::move_register(int_part, quotient));
         self.emit(abi::branch(integer_loop));
 
         self.emit(abi::label(integer_zero));
         self.emit(abi::move_immediate(
-            digit.clone(),
+            digit,
             "Integer",
             &(b'0' as u64).to_string(),
         ));
-        self.emit(abi::store_u8(digit.clone(), cursor.clone(), 0));
-        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
-        self.emit(abi::move_immediate(length.clone(), "Integer", "1"));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::move_immediate(length, "Integer", "1"));
 
         self.emit(abi::label(integer_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(sign_done));
         self.emit(abi::move_immediate(
-            digit.clone(),
+            digit,
             "Integer",
             &(b'-' as u64).to_string(),
         ));
-        self.emit(abi::store_u8(digit, cursor.clone(), 0));
-        self.emit(abi::subtract_immediate(cursor.clone(), cursor.clone(), 1));
-        self.emit(abi::add_immediate(length.clone(), length.clone(), 1));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
         self.emit(abi::label(sign_done));
-        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::store_u64(
             cursor,
             abi::stack_pointer(),
             integer_start_slot,
         ));
         self.emit(abi::store_u64(
-            length.clone(),
+            length,
             abi::stack_pointer(),
             integer_len_slot,
         ));
-        self.emit(abi::move_register(total_len.clone(), length));
-        self.emit(abi::compare_immediate(precision.clone(), "0"));
+        self.emit(abi::move_register(total_len, length));
+        self.emit(abi::compare_immediate(precision, "0"));
         self.emit(abi::branch_eq(no_fraction));
-        self.emit(abi::add_immediate(total_len.clone(), total_len.clone(), 1));
-        self.emit(abi::add_registers(
-            total_len.clone(),
-            total_len.clone(),
-            precision,
-        ));
+        self.emit(abi::add_immediate(total_len, total_len, 1));
+        self.emit(abi::add_registers(total_len, total_len, precision));
         self.emit(abi::label(no_fraction));
         self.emit(abi::store_u64(
             total_len,
@@ -1594,12 +1579,12 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     fn emit_decimal_alloc_and_copy_integer(
         &mut self,
-        total_len: impl Into<Operand>,
-        dst: impl Into<Operand>,
-        cursor: impl Into<Operand>,
-        length: impl Into<Operand>,
-        digit: impl Into<Operand>,
-        precision: impl Into<Operand>,
+        total_len: impl Into<abi::Reg>,
+        dst: impl Into<abi::Reg>,
+        cursor: impl Into<abi::Reg>,
+        length: impl Into<abi::Reg>,
+        digit: impl Into<abi::Reg>,
+        precision: impl Into<abi::Reg>,
         total_len_slot: usize,
         result_slot: usize,
         integer_start_slot: usize,
@@ -1616,11 +1601,7 @@ impl CodeBuilder<'_> {
         let length = length.into();
         let digit = digit.into();
         let precision = precision.into();
-        self.emit(abi::add_immediate(
-            abi::return_register(),
-            total_len.clone(),
-            9,
-        ));
+        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(alloc_ok));
@@ -1632,47 +1613,47 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         self.emit(abi::load_u64(
-            total_len.clone(),
+            total_len,
             abi::stack_pointer(),
             total_len_slot,
         ));
         self.emit(abi::store_u64(total_len, abi::mfb_return(1), 0));
-        self.emit(abi::add_immediate(dst.clone(), abi::mfb_return(1), 8));
+        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
         self.emit(abi::load_u64(
-            cursor.clone(),
+            cursor,
             abi::stack_pointer(),
             integer_start_slot,
         ));
         self.emit(abi::load_u64(
-            length.clone(),
+            length,
             abi::stack_pointer(),
             integer_len_slot,
         ));
         self.emit(abi::label(copy_integer_loop));
-        self.emit(abi::compare_immediate(length.clone(), "0"));
+        self.emit(abi::compare_immediate(length, "0"));
         self.emit(abi::branch_eq(copy_integer_done));
-        self.emit(abi::load_u8(digit.clone(), cursor.clone(), 0));
-        self.emit(abi::store_u8(digit.clone(), dst.clone(), 0));
-        self.emit(abi::add_immediate(cursor.clone(), cursor, 1));
-        self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
-        self.emit(abi::subtract_immediate(length.clone(), length, 1));
+        self.emit(abi::load_u8(digit, cursor, 0));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(length, length, 1));
         self.emit(abi::branch(copy_integer_loop));
         self.emit(abi::label(copy_integer_done));
 
         self.emit(abi::load_u64(
-            precision.clone(),
+            precision,
             abi::stack_pointer(),
             precision_slot,
         ));
         self.emit(abi::compare_immediate(precision, "0"));
         self.emit(abi::branch_eq(fraction_done));
         self.emit(abi::move_immediate(
-            digit.clone(),
+            digit,
             "Integer",
             &(b'.' as u64).to_string(),
         ));
-        self.emit(abi::store_u8(digit, dst.clone(), 0));
-        self.emit(abi::add_immediate(dst.clone(), dst, 1));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
         Ok(())
     }
 
@@ -1683,13 +1664,13 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     fn emit_decimal_fraction_render(
         &mut self,
-        frac_part: impl Into<Operand>,
-        digit: impl Into<Operand>,
-        dst: impl Into<Operand>,
-        counter: impl Into<Operand>,
-        divisor: impl Into<Operand>,
-        scale: impl Into<Operand>,
-        precision: impl Into<Operand>,
+        frac_part: impl Into<abi::Reg>,
+        digit: impl Into<abi::Reg>,
+        dst: impl Into<abi::Reg>,
+        counter: impl Into<abi::Reg>,
+        divisor: impl Into<abi::Reg>,
+        scale: impl Into<abi::Reg>,
+        precision: impl Into<abi::Reg>,
         fraction_loop: &str,
         fraction_done: &str,
     ) {
@@ -1699,42 +1680,27 @@ impl CodeBuilder<'_> {
         let counter = counter.into();
         let scale = scale.into();
         self.emit(abi::label(fraction_loop));
-        self.emit(abi::compare_registers(counter.clone(), precision));
+        self.emit(abi::compare_registers(counter, precision));
         self.emit(abi::branch_eq(fraction_done));
-        self.emit(abi::multiply_registers(
-            frac_part.clone(),
-            frac_part.clone(),
-            divisor,
-        ));
-        self.emit(abi::unsigned_divide_registers(
-            digit.clone(),
-            frac_part.clone(),
-            scale.clone(),
-        ));
+        self.emit(abi::multiply_registers(frac_part, frac_part, divisor));
+        self.emit(abi::unsigned_divide_registers(digit, frac_part, scale));
         self.emit(abi::multiply_subtract_registers(
-            frac_part.clone(),
-            digit.clone(),
-            scale,
-            frac_part,
+            frac_part, digit, scale, frac_part,
         ));
-        self.emit(abi::add_immediate(
-            digit.clone(),
-            digit.clone(),
-            b'0' as usize,
-        ));
-        self.emit(abi::store_u8(digit.clone(), dst.clone(), 0));
-        self.emit(abi::add_immediate(dst.clone(), dst.clone(), 1));
-        self.emit(abi::add_immediate(counter.clone(), counter, 1));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::add_immediate(counter, counter, 1));
         self.emit(abi::branch(fraction_loop));
         self.emit(abi::label(fraction_done));
-        self.emit(abi::move_immediate(digit.clone(), "Integer", "0"));
+        self.emit(abi::move_immediate(digit, "Integer", "0"));
         self.emit(abi::store_u8(digit, dst, 0));
     }
 
     pub(crate) fn emit_fixed_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
-        precision_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
+        precision_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -1918,11 +1884,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         // bug-536 shape B: the rendered decimal is this lowering's own
         // `result_slot` allocation; the argument is a scalar.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toString(Fixed)".to_string(),
         })
     }
@@ -1937,8 +1903,8 @@ impl CodeBuilder<'_> {
     /// plus the half-away pre-round.
     pub(crate) fn emit_money_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
-        precision_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
+        precision_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -2111,11 +2077,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         // bug-536 shape B: the rendered decimal is this lowering's own
         // `result_slot` allocation; the argument is a scalar.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toString(Money)".to_string(),
         })
     }
@@ -2127,8 +2093,8 @@ impl CodeBuilder<'_> {
     /// pointer in `x1`); the only possible failure is allocation.
     pub(crate) fn emit_float_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
-        precision_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
+        precision_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("float_string_alloc_ok");
         self.emit(abi::move_register(abi::c_arg(0), source_register));
@@ -2154,11 +2120,11 @@ impl CodeBuilder<'_> {
         // `_mfb_arena_alloc` + copy of its own digit buffer (`float_format.rs`),
         // and its argument is an f64 bit pattern — nothing of the caller's can
         // come back. Fresh.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toString(Float)".to_string(),
         })
     }
@@ -2169,7 +2135,7 @@ impl CodeBuilder<'_> {
     /// allocation the only failure.
     pub(crate) fn emit_sci_parts_call(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let alloc_ok = self.label("sci_parts_alloc_ok");
         self.emit(abi::move_register(abi::c_arg(0), source_register));
@@ -2193,11 +2159,11 @@ impl CodeBuilder<'_> {
         // bug-536 shape B: `_mfb_rt_float_to_string_sci` ends in an
         // `_mfb_arena_alloc` (`float_format_sci.rs`) and takes an f64 bit
         // pattern, so its String is fresh.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "json::sciParts(Float)".to_string(),
         })
     }
@@ -2290,7 +2256,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
@@ -2386,7 +2352,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }

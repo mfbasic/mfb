@@ -67,9 +67,7 @@ pub(super) fn numberable_op(op: CodeOp) -> bool {
 
 /// Build a `mov dst, src` from the two operands.
 pub(super) fn copy_of(dst: Operand, src: Operand) -> CodeInstruction {
-    CodeInstruction::new("mov")
-        .field("dst", dst)
-        .field("src", src)
+    super::rebuilt(CodeOp::Mov, vec![("dst", dst), ("src", src)])
 }
 
 /// Run the LVN row over one function's selected stream, in place.
@@ -161,7 +159,7 @@ pub(crate) fn eliminate(instructions: &mut [CodeInstruction], model: &dyn Regist
         // them, so no wider invalidation is needed for `bl`.)
         for def in effect(&instructions[i], int_model).defs {
             if let RegRef::VReg(id) = def {
-                numbers.remove(&format!("%v{id}"));
+                numbers.remove(&crate::codegen::engine::regalloc::vreg_name(id));
             }
         }
     }
@@ -243,7 +241,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

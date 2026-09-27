@@ -216,7 +216,7 @@ pub(crate) fn display_width_of(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.displayWidth".to_string(),
     })
 }

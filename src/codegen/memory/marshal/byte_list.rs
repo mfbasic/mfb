@@ -5,8 +5,17 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+
+/// `N` vregs the caller's body has not used. Every helper here is spliced into a
+/// caller's instruction stream, so it must never name a vreg itself: the caller's
+/// `Vregs` numbers from `%v0`, and a fixed `%vN` would be whichever of the
+/// caller's values carries that number (bug-564).
+fn mint<const N: usize>(vregs: &mut Vregs) -> [VirtualRegister; N] {
+    std::array::from_fn(|_| vregs.next())
+}
 #[allow(clippy::too_many_arguments)]
 /// Read a `List OF Byte` (collection pointer already stored at `coll_off`) into a
 /// freshly arena-allocated contiguous buffer. Stores the buffer pointer at
@@ -19,51 +28,53 @@ pub(crate) fn emit_read_byte_list(
     buf_off: usize,
     len_off: usize,
     alloc_fail: &str,
+    vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let [coll, count, cap, stride, base, entry, out, index, at, byte] = mint(vregs);
     let copy_loop = format!("{symbol}_{tag}_read_loop");
     let copy_done = format!("{symbol}_{tag}_read_done");
     // count = coll->count; allocate max(count,1) bytes.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), coll_off),
-        abi::load_u64("%v10", "%v9", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", abi::stack_pointer(), len_off),
-        abi::add_immediate(abi::return_register(), "%v10", 1),
+        abi::load_u64(&coll, abi::stack_pointer(), coll_off),
+        abi::load_u64(&count, &coll, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&count, abi::stack_pointer(), len_off),
+        abi::add_immediate(abi::return_register(), &count, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), buf_off),
         // dataBase = coll + HEADER + capacity*ENTRY_SIZE
-        abi::load_u64("%v9", abi::stack_pointer(), coll_off),
-        abi::load_u64("%v11", "%v9", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v13", "%v11", "%v12"),
-        abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v13", "%v9", "%v13"), // %v13 = dataBase
-        abi::add_immediate("%v14", "%v9", COLLECTION_HEADER_SIZE), // %v14 = entry cursor
-        abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::load_u64("%v15", abi::stack_pointer(), buf_off), // out cursor
-        abi::move_immediate("%v9", "Integer", "0"),           // i
+        abi::load_u64(&coll, abi::stack_pointer(), coll_off),
+        abi::load_u64(&cap, &coll, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&stride, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&base, &cap, &stride),
+        abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&base, &coll, &base), // dataBase
+        abi::add_immediate(&entry, &coll, COLLECTION_HEADER_SIZE), // entry cursor
+        abi::load_u64(&count, abi::stack_pointer(), len_off),
+        abi::load_u64(&out, abi::stack_pointer(), buf_off), // out cursor
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("%v9", "%v10"),
+        abi::compare_registers(&index, &count),
         abi::branch_eq(&copy_done),
         // byte = dataBase[entry->value_offset]; for kind 2 element `i` is simply
         // at offset `i`, with no entry to indirect through (plan-57-D). An `if`
         // expression rather than a split `extend` keeps the emitted array the
         // same shape, so the kind-0 build is untouched.
         if byte_list_entry_stride() != 0 {
-            abi::load_u64("%v16", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET)
+            abi::load_u64(&at, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET)
         } else {
-            abi::move_register("%v16", "%v9")
+            abi::move_register(&at, &index)
         },
-        abi::add_registers("%v16", "%v13", "%v16"),
-        abi::load_u8("%v17", "%v16", 0),
-        abi::store_u8("%v17", "%v15", 0),
-        abi::add_immediate("%v15", "%v15", 1),
-        abi::add_immediate("%v14", "%v14", byte_list_entry_stride()),
-        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_registers(&at, &base, &at),
+        abi::load_u8(&byte, &at, 0),
+        abi::store_u8(&byte, &out, 0),
+        abi::add_immediate(&out, &out, 1),
+        abi::add_immediate(&entry, &entry, byte_list_entry_stride()),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
     ]);
@@ -105,19 +116,21 @@ pub(crate) fn emit_build_byte_list(
     src_off: usize,
     len_off: usize,
     coll_off: Option<usize>,
-    block: impl Into<Operand>,
+    block: impl Into<abi::Reg>,
     alloc_fail: &str,
+    vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
     let block = block.into();
+    let [count, stride, size, byte, entry, data, src, index, at, value] = mint(vregs);
     // size = HEADER + count*ENTRY_SIZE + count(data)
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v12", "%v10", "%v11"),
-        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-        abi::add_registers(abi::return_register(), "%v12", "%v10"),
+        abi::load_u64(&count, abi::stack_pointer(), len_off),
+        abi::move_immediate(&stride, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&size, &count, &stride),
+        abi::add_immediate(&size, &size, COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), &size, &count),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
@@ -137,27 +150,27 @@ pub(crate) fn emit_build_byte_list(
         instructions.push(abi::store_u64(&block, abi::stack_pointer(), slot));
     }
     instructions.extend([
-        abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-        abi::store_u8("%v9", &block, COLLECTION_OFFSET_KIND),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", &block, COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8("%v9", &block, COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", &block, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::store_u64("%v10", &block, COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", &block, COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("%v10", &block, COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v10", &block, COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_immediate("%v11", &block, COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v13", "%v10", "%v12"),
-        abi::add_registers("%v14", "%v11", "%v13"), // data base
-        abi::load_u64("%v15", abi::stack_pointer(), src_off),
-        abi::move_immediate("%v9", "Integer", "0"),
+        abi::move_immediate(&byte, "Byte", &byte_list_block_kind().to_string()),
+        abi::store_u8(&byte, &block, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&byte, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&byte, &block, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&byte, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8(&byte, &block, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&byte, "Byte", "1"),
+        abi::store_u8(&byte, &block, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&count, abi::stack_pointer(), len_off),
+        abi::store_u64(&count, &block, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&count, &block, COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&count, &block, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&count, &block, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&entry, &block, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&stride, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&data, &count, &stride),
+        abi::add_registers(&data, &entry, &data), // data base
+        abi::load_u64(&src, abi::stack_pointer(), src_off),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(entry_loop),
-        abi::compare_registers("%v9", "%v10"),
+        abi::compare_registers(&index, &count),
         abi::branch_eq(entry_done),
         // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
         // zero stride would rewrite one entry over the data region `count`
@@ -165,24 +178,24 @@ pub(crate) fn emit_build_byte_list(
     ]);
     if byte_list_entry_stride() != 0 {
         instructions.extend([
-            abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate("%v12", "Integer", "1"),
-            abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            abi::move_immediate(&value, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8(&value, &entry, COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, &entry, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, &entry, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(&index, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate(&value, "Integer", "1"),
+            abi::store_u64(&value, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         ]);
     }
     // The payload copy runs for BOTH representations — only the entry-field
     // stores above are kind-0 only.
     instructions.extend([
-        abi::add_registers("%v12", "%v14", "%v9"),
-        abi::load_u8("%v13", "%v15", 0),
-        abi::store_u8("%v13", "%v12", 0),
-        abi::add_immediate("%v15", "%v15", 1),
-        abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
-        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_registers(&at, &data, &index),
+        abi::load_u8(&value, &src, 0),
+        abi::store_u8(&value, &at, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&entry, &entry, byte_list_entry_stride()),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(entry_loop),
         abi::label(entry_done),
     ]);
@@ -192,40 +205,38 @@ pub(crate) fn emit_build_byte_list(
 /// constant `len_const`) with zero, when the buffer slot is non-NULL. Wipes raw
 /// key-material scratch (SEC1/PKCS#8 DER, raw scalar copies, entropy buffers)
 /// before the helper returns so a later same-program arena allocation cannot be
-/// handed a block still holding key bytes (bug-55, bug-177 D). Call-free (vreg
-/// scratch only). `tag` disambiguates the labels per call site.
+/// handed a block still holding key bytes (bug-55, bug-177 D). Call-free; its
+/// scratch vregs are minted from the caller's `vregs`. `tag` disambiguates the labels per call site.
 pub(crate) fn emit_zero_guarded(
     symbol: &str,
     buf_off: usize,
     len_off: Option<usize>,
     len_const: usize,
     tag: &str,
+    vregs: &mut Vregs,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let [cursor, len, index] = mint(vregs);
     let skip = format!("{symbol}_{tag}_noz");
     let loop_l = format!("{symbol}_{tag}_zl");
     let end_l = format!("{symbol}_{tag}_ze");
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), buf_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&cursor, abi::stack_pointer(), buf_off),
+        abi::compare_immediate(&cursor, "0"),
         abi::branch_eq(&skip),
     ]);
     match len_off {
-        Some(off) => ins.push(abi::load_u64("%v10", abi::stack_pointer(), off)),
-        None => ins.push(abi::move_immediate(
-            "%v10",
-            "Integer",
-            &len_const.to_string(),
-        )),
+        Some(off) => ins.push(abi::load_u64(&len, abi::stack_pointer(), off)),
+        None => ins.push(abi::move_immediate(&len, "Integer", &len_const.to_string())),
     }
     ins.extend([
-        abi::move_immediate("%v11", "Integer", "0"),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&loop_l),
-        abi::compare_registers("%v11", "%v10"),
+        abi::compare_registers(&index, &len),
         abi::branch_eq(&end_l),
-        abi::store_u8(abi::ZERO, "%v9", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v11", "%v11", 1),
+        abi::store_u8(abi::ZERO, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&loop_l),
         abi::label(&end_l),
         abi::label(&skip),
@@ -248,22 +259,24 @@ pub(crate) fn emit_free_byte_list_guarded(
     coll_off: usize,
     len_off: usize,
     wipe: bool,
+    vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let [block, count, stride, size, index, at] = mint(vregs);
     let skip = format!("{symbol}_{tag}_free_skip");
     let block_size = |instructions: &mut Vec<CodeInstruction>| {
         instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), len_off),
-            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v12", "%v10", "%v11"),
-            abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v12", "%v12", "%v10"),
+            abi::load_u64(&count, abi::stack_pointer(), len_off),
+            abi::move_immediate(&stride, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&size, &count, &stride),
+            abi::add_immediate(&size, &size, COLLECTION_HEADER_SIZE),
+            abi::add_registers(&size, &size, &count),
         ]);
     };
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), coll_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&block, abi::stack_pointer(), coll_off),
+        abi::compare_immediate(&block, "0"),
         abi::branch_eq(&skip),
     ]);
     if wipe {
@@ -271,13 +284,13 @@ pub(crate) fn emit_free_byte_list_guarded(
         let wipe_done = format!("{symbol}_{tag}_free_wiped");
         block_size(instructions);
         instructions.extend([
-            abi::move_immediate("%v13", "Integer", "0"),
+            abi::move_immediate(&index, "Integer", "0"),
             abi::label(&wipe_loop),
-            abi::compare_registers("%v13", "%v12"),
+            abi::compare_registers(&index, &size),
             abi::branch_eq(&wipe_done),
-            abi::add_registers("%v14", "%v9", "%v13"),
-            abi::store_u8(abi::ZERO, "%v14", 0),
-            abi::add_immediate("%v13", "%v13", 1),
+            abi::add_registers(&at, &block, &index),
+            abi::store_u8(abi::ZERO, &at, 0),
+            abi::add_immediate(&index, &index, 1),
             abi::branch(&wipe_loop),
             abi::label(&wipe_done),
         ]);
@@ -285,8 +298,8 @@ pub(crate) fn emit_free_byte_list_guarded(
     block_size(instructions);
     instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), coll_off),
-        abi::move_register(abi::c_arg(0), "%v9"),
-        abi::move_register(abi::c_arg(1), "%v12"),
+        abi::move_register(abi::c_arg(0), &block),
+        abi::move_register(abi::c_arg(1), &size),
     ]);
     emit_arena_free(symbol, instructions, relocations);
     instructions.push(abi::label(&skip));
@@ -301,8 +314,16 @@ pub(crate) enum ScratchSize {
 
 /// Free the contiguous scratch buffer whose pointer is at `ptr_off` — allocated with
 /// `size` bytes, which is the size `_mfb_arena_free` must receive (bug-560) — when the
-/// slot is non-null, then null the slot so a second call frees nothing. The same register
-/// contract as [`emit_free_byte_list_guarded`] (bug-625).
+/// slot is non-null, then null the slot so a second call frees nothing. The free is a
+/// PCS call that clobbers every caller-saved register, so the caller keeps anything
+/// live (the result value) in a frame slot across it (bug-625).
+///
+/// It works in the free's own argument registers and names NO vreg. It used to stage
+/// the pointer in a hard-coded `%v9`, and a body that mints its vregs from `%v0` owns a
+/// `%v9` of its own: Schannel `tls::connect`'s host-string `HelperScratch` pointer was
+/// exactly that vreg, so this free overwrote it, the release at `done` freed the wrong
+/// block with the wrong size, and the next `tls::connect` crashed in `_mfb_arena_alloc`
+/// (bug-564). The call clobbers these registers anyway, so staging there costs nothing.
 pub(crate) fn emit_free_buffer_guarded(
     symbol: &str,
     tag: &str,
@@ -313,17 +334,121 @@ pub(crate) fn emit_free_buffer_guarded(
 ) {
     let skip = format!("{symbol}_{tag}_buf_free_skip");
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ptr_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ptr_off),
+        abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_eq(&skip),
         match size {
-            ScratchSize::Slot(len_off) => abi::load_u64("%v12", abi::stack_pointer(), len_off),
-            ScratchSize::Bytes(bytes) => abi::move_immediate("%v12", "Integer", &bytes.to_string()),
+            ScratchSize::Slot(len_off) => {
+                abi::load_u64(abi::c_arg(1), abi::stack_pointer(), len_off)
+            }
+            ScratchSize::Bytes(bytes) => {
+                abi::move_immediate(abi::c_arg(1), "Integer", &bytes.to_string())
+            }
         },
         abi::store_u64(abi::ZERO, abi::stack_pointer(), ptr_off),
-        abi::move_register(abi::c_arg(0), "%v9"),
-        abi::move_register(abi::c_arg(1), "%v12"),
     ]);
     emit_arena_free(symbol, instructions, relocations);
     instructions.push(abi::label(&skip));
+}
+
+#[cfg(test)]
+mod tests {
+    // bug-564: a marshal helper is spliced INTO its caller's body, and that body
+    // numbers its own vregs from `%v0` with a `Vregs`. A helper that names a fixed
+    // `%vN` therefore writes whichever caller vreg happens to carry that number.
+    // `emit_free_buffer_guarded`'s `%v9` was Schannel `tls::connect`'s live
+    // host-string pointer, and the second connect in a Windows process crashed.
+    //
+    // Two pins. The scan below keeps the whole module free of literal vreg names
+    // (a new helper cannot reintroduce the class by copy-paste). The behavioural
+    // test drives every helper with a caller that already holds 32 vregs and
+    // asserts no emitted operand is one of them.
+    use super::*;
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::util::Vregs;
+
+    /// Every `"%v<digits>"` string literal in `source` outside its test module.
+    fn literal_vreg_names(source: &str) -> Vec<String> {
+        let code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let mut found = Vec::new();
+        let mut rest = code;
+        while let Some(at) = rest.find("\"%v") {
+            let tail = &rest[at + 3..];
+            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+            if !digits.is_empty() && tail[digits.len()..].starts_with('"') {
+                found.push(format!("%v{digits}"));
+            }
+            rest = &rest[at + 3..];
+        }
+        found
+    }
+
+    #[test]
+    fn no_marshal_helper_names_a_fixed_vreg() {
+        for (file, source) in [
+            ("byte_list.rs", include_str!("byte_list.rs")),
+            ("record.rs", include_str!("record.rs")),
+            ("record_list.rs", include_str!("record_list.rs")),
+        ] {
+            let names = literal_vreg_names(source);
+            assert!(
+                names.is_empty(),
+                "{file} names {} fixed vreg(s) outside its tests ({:?}…); a helper spliced \
+                 into a caller's body must mint its vregs from the caller's `Vregs`",
+                names.len(),
+                &names[..names.len().min(6)]
+            );
+        }
+    }
+
+    /// Every rendered operand of every instruction.
+    fn operands(instructions: &[CodeInstruction]) -> Vec<String> {
+        instructions
+            .iter()
+            .flat_map(|i| {
+                i.fields
+                    .iter()
+                    .map(|(key, _)| i.get(key).unwrap_or_default())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_helper_mints_its_vregs_from_the_caller() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let mut vregs = Vregs::new();
+        let held: Vec<String> = (0..32).map(|_| vregs.next().to_string()).collect();
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_read_byte_list("s", "r", 8, 16, 24, "f", &mut vregs, &mut ins, &mut rel);
+        emit_build_byte_list(
+            "s",
+            "bl",
+            "bd",
+            16,
+            24,
+            Some(32),
+            abi::mfb_return(1),
+            "f",
+            &mut vregs,
+            &mut ins,
+            &mut rel,
+        );
+        emit_zero_guarded("s", 16, Some(24), 0, "z", &mut vregs, &mut ins);
+        emit_zero_guarded("s", 16, None, 64, "zc", &mut vregs, &mut ins);
+        emit_free_byte_list_guarded("s", "w", 32, 24, true, &mut vregs, &mut ins, &mut rel);
+        emit_free_byte_list_guarded("s", "n", 32, 24, false, &mut vregs, &mut ins, &mut rel);
+        emit_free_buffer_guarded("s", "b", 16, ScratchSize::Slot(24), &mut ins, &mut rel);
+        let used = operands(&ins);
+        assert!(
+            used.iter().any(|o| o.starts_with("%v")),
+            "the helpers must emit vregs at all, or this test cannot fail"
+        );
+        for operand in used {
+            assert!(
+                !held.contains(&operand),
+                "a marshal helper wrote `{operand}`, a vreg its caller already held"
+            );
+        }
+    }
 }

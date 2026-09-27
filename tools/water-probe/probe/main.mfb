@@ -1,0 +1,91 @@
+' water-probe - regression check for bug-716.
+'
+' examples/water's window can be resized narrower at any time. Shrinking it
+' shrinks the play area (playWidth), but before the fix nothing moved an
+' existing object back inside it - only an active drag clamped a position.
+' An object left at an x the shrunk play area no longer covers sits at a
+' pixel the toolbar now claims: onToolbar is checked before shapeAt in
+' main.mfb's mouse-down handling, so a click on the object's own, still
+' visible, pixel was decided as a toolbar click and the object became
+' permanently unselectable.
+'
+' The fix adds shapes.mfb:clampShapes(play, height), called unconditionally
+' every frame (main.mfb, beside pipeWithin) - the same every-frame pattern
+' pipeWithin already used for the pipe. This probe reproduces the exact
+' decision order main.mfb's mouse-down handler uses (onToolbar before
+' shapeAt) against the REAL shapes.mfb/toolbar.mfb (run.sh stages both fresh
+' on every run - not a copy committed here), before and after a simulated
+' shrink with clampShapes applied. onToolbar/buttonAt take a real
+' canvas::Point, exactly as examples/water/src/main.mfb calls them - no
+' signature substitute is needed since this probe is an --app build (like
+' wind-map-probe), run headless.
+'
+' Usage: MFB_MACAPP_HEADLESS=1 water-probe.out (no arguments; prints
+' PASS/FAIL to stdout)
+
+IMPORT canvas
+IMPORT io
+
+FUNC main AS Integer
+  LET oldWidth AS Float = 300.0
+  LET oldPlay AS Float = playWidth(oldWidth)
+  LET i AS Integer = addShape(ShapeKind.Rectangle, 150.0, 100.0)
+
+  io::print("old width=" & toString(oldWidth) & " oldPlay=" & toString(oldPlay))
+  io::print("placed shape " & toString(i) & " at x=" & toString(shapeX(i)) & " y=" & toString(shapeY(i)))
+
+  IF onToolbar(oldWidth, canvas::Point[x := shapeX(i), y := shapeY(i)]) THEN
+    io::print("FAIL: the shape starts out already under the toolbar - test setup is wrong")
+    RETURN 1
+  END IF
+
+  LET newWidth AS Float = 200.0
+  LET newPlay AS Float = playWidth(newWidth)
+  io::print("window shrinks to width=" & toString(newWidth) & " newPlay=" & toString(newPlay))
+
+  ' Without the fix, nothing here moves the shape - it stays at x=150, which
+  ' newPlay=112 no longer covers.
+  clampShapes(newPlay, 400.0)
+
+  LET shapeXAfter AS Float = shapeX(i)
+  LET shapeYAfter AS Float = shapeY(i)
+  io::print("shape.x after clampShapes: " & toString(shapeXAfter))
+
+  MUT anyFail AS Boolean = FALSE
+
+  IF shapeXAfter > newPlay THEN
+    io::print("FAIL: shape.x (" & toString(shapeXAfter) & ") is still outside newPlay (" & toString(newPlay) & ") after clampShapes")
+    anyFail = TRUE
+  END IF
+
+  ' The check that matters is whether a click on the object's rendered body -
+  ' not its exact mathematical centre - now reaches shapeAt. Clamping a
+  ' stranded object's centre to newPlay puts the centre itself exactly on
+  ' onToolbar's own boundary (">=") by construction (that is what clamping TO
+  ' an upper bound means whenever the pre-clamp value exceeded it) - the same
+  ' single-pixel ambiguity the pre-existing, unchanged drag clamp shares at
+  ' that exact coordinate (Non-goals), and not what a real click hits: a real
+  ' click lands somewhere on the object's visible body, most of which is now
+  ' inside the play area. This probes a point on the body, a few pixels left
+  ' of centre - representative of an actual click - not the centroid itself.
+  LET click AS canvas::Point = canvas::Point[x := shapeXAfter - 20.0, y := shapeYAfter]
+
+  IF onToolbar(newWidth, click) THEN
+    io::print("FAIL: onToolbar(newWidth, a point on the shape's body) is still TRUE after clampShapes - a click there would still be swallowed by the toolbar")
+    anyFail = TRUE
+  END IF
+
+  LET hit AS Integer = shapeAt(click.x, click.y)
+  IF hit <> i THEN
+    io::print("FAIL: shapeAt(a point on the shape's body) did not find the shape after clampShapes (got " & toString(hit) & ")")
+    anyFail = TRUE
+  END IF
+
+  IF anyFail THEN
+    io::print("FAIL: bug-716 regression check failed")
+    RETURN 1
+  END IF
+
+  io::print("PASS: bug-716 — a shape's position is reclamped into the shrunk play area, onToolbar no longer claims its pixel, and shapeAt finds it")
+  RETURN 0
+END FUNC

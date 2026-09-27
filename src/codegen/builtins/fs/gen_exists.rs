@@ -219,9 +219,9 @@ pub(crate) fn lower_fs_kind_exists_helper(
     platform.emit_stat_is_kind(
         STAT_OFFSET,
         expected_kind,
-        &mode,
-        &mask,
-        &expected,
+        mode.into(),
+        mask.into(),
+        expected.into(),
         &found,
         &missing,
         &mut instructions,

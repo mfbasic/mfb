@@ -244,7 +244,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: outer_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("chunks({})", source.type_),
         })
     }
@@ -325,7 +325,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: outer_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("chunks({}, {size})", source.type_),
         })
     }

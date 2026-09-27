@@ -21,11 +21,22 @@
 //! are what a new backend would actually get on its first day.
 
 use super::{RegClass, RegisterModel};
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::abi;
 
 /// A backend that has said the minimum the trait demands and nothing more.
 struct SilentIsa;
+
+/// An instruction naming the physical registers the allocator handed a
+/// spill/reload/move hook. They are written as the fields' operands directly:
+/// `abi::`'s constructors take no register text (bug-721), and the typed
+/// physical door is confined to the backends.
+fn physical(op: &str, fields: Vec<(&'static str, Operand)>) -> CodeInstruction {
+    let mut instruction = CodeInstruction::new(op);
+    instruction.fields = fields;
+    instruction
+}
 
 impl RegisterModel for SilentIsa {
     fn allocatable(&self, _class: RegClass) -> &'static [&'static str] {
@@ -45,15 +56,32 @@ impl RegisterModel for SilentIsa {
     }
 
     fn emit_spill(&self, _class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
-        abi::store_u64(reg, abi::stack_pointer(), offset)
+        physical(
+            "str_u64",
+            vec![
+                ("src", Operand::from(reg)),
+                ("base", abi::stack_pointer().into()),
+                ("offset", Operand::from(offset.to_string())),
+            ],
+        )
     }
 
     fn emit_reload(&self, _class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
-        abi::load_u64(reg, abi::stack_pointer(), offset)
+        physical(
+            "ldr_u64",
+            vec![
+                ("dst", Operand::from(reg)),
+                ("base", abi::stack_pointer().into()),
+                ("offset", Operand::from(offset.to_string())),
+            ],
+        )
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
-        abi::move_register(dst, src)
+        physical(
+            "mov",
+            vec![("dst", Operand::from(dst)), ("src", Operand::from(src))],
+        )
     }
 
     fn arena_base(&self) -> &'static str {

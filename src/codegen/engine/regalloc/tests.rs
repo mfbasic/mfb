@@ -21,13 +21,13 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
-            .field("dst", &vreg_name(0))
+            .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "5"),
         CodeInstruction::new("bl").field("target", "helper"),
         CodeInstruction::new("str_u64")
-            .field("src", &vreg_name(0))
-            .field("base", "sp")
+            .physical_field("src", &vreg_name(0))
+            .physical_field("base", "sp")
             .field("offset", "0"),
         CodeInstruction::new("ret"),
     ];
@@ -59,13 +59,13 @@ fn linear_scan_spills_integer_across_arena_alloc() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
-            .field("dst", &vreg_name(0))
+            .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "5"),
         CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
         CodeInstruction::new("str_u64")
-            .field("src", &vreg_name(0))
-            .field("base", "sp")
+            .physical_field("src", &vreg_name(0))
+            .physical_field("base", "sp")
             .field("offset", "0"),
         CodeInstruction::new("ret"),
     ];
@@ -99,7 +99,7 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
         CodeInstruction::new("label").field("name", "entry"),
         // v0: defined, then live across the arena-alloc call -> spilled.
         CodeInstruction::new("mov_imm")
-            .field("dst", &vreg_name(0))
+            .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "5"),
         CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
@@ -109,7 +109,7 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     for k in 1..=10u32 {
         instructions.push(
             CodeInstruction::new("mov_imm")
-                .field("dst", &vreg_name(k))
+                .physical_field("dst", &vreg_name(k))
                 .field("type", "Integer")
                 .field("value", "1"),
         );
@@ -119,8 +119,8 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     // now that x20 realizes the pinned `%thread` token and is out of the pool).
     instructions.push(
         CodeInstruction::new("str_u64")
-            .field("src", &vreg_name(0))
-            .field("base", "sp")
+            .physical_field("src", &vreg_name(0))
+            .physical_field("base", "sp")
             .field("offset", "0"),
     );
     // Keep v1..v10 live past the reload (two per `add`, dst is a non-allocatable
@@ -128,9 +128,9 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     for pair in 0..5u32 {
         instructions.push(
             CodeInstruction::new("add")
-                .field("dst", "x0")
-                .field("lhs", &vreg_name(pair * 2 + 1))
-                .field("rhs", &vreg_name(pair * 2 + 2)),
+                .physical_field("dst", "x0")
+                .physical_field("lhs", &vreg_name(pair * 2 + 1))
+                .physical_field("rhs", &vreg_name(pair * 2 + 2)),
         );
     }
     instructions.push(CodeInstruction::new("ret"));
@@ -161,8 +161,8 @@ fn linear_scan_records_callee_saved_reload_scratch_fp() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("fabs_d")
-            .field("dst", &fp_vreg_name(200))
-            .field("src", "sp"),
+            .physical_field("dst", &fp_vreg_name(200))
+            .physical_field("src", "sp"),
     ];
     // Saturation region: make each physical d0..d31 busy once (dst only; `src=sp`
     // is not an FP operand, so no liveness chain forms). This forbids f200 from
@@ -171,8 +171,8 @@ fn linear_scan_records_callee_saved_reload_scratch_fp() {
     for r in 0..32u32 {
         instructions.push(
             CodeInstruction::new("fabs_d")
-                .field("dst", &format!("d{r}"))
-                .field("src", "sp"),
+                .physical_field("dst", &format!("d{r}"))
+                .physical_field("src", "sp"),
         );
     }
     // 24 colored fillers, defined after the saturation region so they color to
@@ -180,23 +180,23 @@ fn linear_scan_records_callee_saved_reload_scratch_fp() {
     for k in 0..24u32 {
         instructions.push(
             CodeInstruction::new("fabs_d")
-                .field("dst", &fp_vreg_name(k))
-                .field("src", "sp"),
+                .physical_field("dst", &fp_vreg_name(k))
+                .physical_field("src", "sp"),
         );
     }
     // Reload point for f200: 24 caller-saved FP registers occupied -> scratch
     // must be callee-saved d8.
     instructions.push(
         CodeInstruction::new("fabs_d")
-            .field("dst", "sp")
-            .field("src", &fp_vreg_name(200)),
+            .physical_field("dst", "sp")
+            .physical_field("src", &fp_vreg_name(200)),
     );
     // Keep the 24 fillers live past the reload.
     for k in 0..24u32 {
         instructions.push(
             CodeInstruction::new("fabs_d")
-                .field("dst", "sp")
-                .field("src", &fp_vreg_name(k)),
+                .physical_field("dst", "sp")
+                .physical_field("src", &fp_vreg_name(k)),
         );
     }
     instructions.push(CodeInstruction::new("ret"));
@@ -221,13 +221,13 @@ fn linear_scan_colors_short_range_in_register() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
-            .field("dst", &vreg_name(0))
+            .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "7"),
         CodeInstruction::new("add")
-            .field("dst", "x0")
-            .field("lhs", &vreg_name(0))
-            .field("rhs", &vreg_name(0)),
+            .physical_field("dst", "x0")
+            .physical_field("lhs", &vreg_name(0))
+            .physical_field("rhs", &vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
     let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
@@ -252,19 +252,19 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
         CodeInstruction::new("label").field("name", "entry"),
         // def %f0
         CodeInstruction::new("fabs_d")
-            .field("dst", &fp_vreg_name(0))
-            .field("src", "sp"),
+            .physical_field("dst", &fp_vreg_name(0))
+            .physical_field("src", "sp"),
         // hand-staged scratch inside %f0's live range
         CodeInstruction::new("fabs_d")
-            .field("dst", abi::FP_SCRATCH[0])
-            .field("src", "sp"),
+            .physical_field("dst", abi::FP_SCRATCH[0])
+            .physical_field("src", "sp"),
         CodeInstruction::new("fabs_d")
-            .field("dst", "sp")
-            .field("src", abi::FP_SCRATCH[0]),
+            .physical_field("dst", "sp")
+            .physical_field("src", abi::FP_SCRATCH[0]),
         // use %f0 — keeps it live across the scratch def
         CodeInstruction::new("fabs_d")
-            .field("dst", "sp")
-            .field("src", &fp_vreg_name(0)),
+            .physical_field("dst", "sp")
+            .physical_field("src", &fp_vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
     let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
@@ -281,10 +281,13 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
     // The token itself is never rewritten by coloring.
     assert_eq!(
         instructions[2].get("dst").as_deref(),
-        Some(abi::FP_SCRATCH[0])
+        Some(abi::FP_SCRATCH_SPELLINGS[0])
     );
     // And the analysis sees the token at its realization's index.
-    assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
+    assert_eq!(
+        analysis::fp_physical_index(abi::FP_SCRATCH_SPELLINGS[0]),
+        Some(0)
+    );
     assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
     assert_eq!(analysis::fp_physical_index("%fscratch8"), None);
 }
@@ -300,8 +303,8 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
     ];
     for reg in physical {
         let stream = [CodeInstruction::new("mov")
-            .field("dst", reg)
-            .field("src", "sp")];
+            .physical_field("dst", reg)
+            .physical_field("src", "sp")];
         let hit = find_physical_operand(&stream);
         assert!(
             hit.as_deref().is_some_and(|h| h.contains(reg)),
@@ -311,29 +314,29 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
     let clean = [
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov")
-            .field("dst", &vreg_name(4))
-            .field("src", &fp_vreg_name(2)),
+            .physical_field("dst", &vreg_name(4))
+            .physical_field("src", &fp_vreg_name(2)),
         CodeInstruction::new("str_u64")
-            .field("src", abi::FP_SCRATCH[0])
-            .field("base", "sp")
+            .physical_field("src", abi::FP_SCRATCH[0])
+            .physical_field("base", "sp")
             .field("offset", "16"),
         CodeInstruction::new("mov")
-            .field("dst", abi::VEC_SCRATCH[3])
-            .field("src", abi::c_arg(0)),
+            .physical_field("dst", abi::VEC_SCRATCH[3])
+            .physical_field("src", abi::c_arg(0)),
         CodeInstruction::new("mov")
-            .field("dst", abi::MATH_POOL)
-            .field("src", abi::CURRENT_THREAD),
+            .physical_field("dst", abi::MATH_POOL)
+            .physical_field("src", abi::CURRENT_THREAD),
         CodeInstruction::new("ldr_u64")
-            .field("dst", abi::mfb_return(0))
-            .field("base", "incoming_args")
+            .physical_field("dst", abi::mfb_return(0))
+            .physical_field("base", "incoming_args")
             .field("offset", "0"),
         CodeInstruction::new("mov_imm")
-            .field("dst", crate::codegen::engine::mir::ARENA_BASE)
+            .physical_field("dst", crate::codegen::engine::mir::ARENA_BASE)
             .field("type", "Integer")
             .field("value", "7"),
         CodeInstruction::new("str_u64")
-            .field("src", abi::ZERO)
-            .field("base", "sp"),
+            .physical_field("src", abi::ZERO)
+            .physical_field("base", "sp"),
         CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
     ];
     assert_eq!(find_physical_operand(&clean), None);
@@ -456,8 +459,8 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
     for v in 0..LIVE {
         instructions.push(
             CodeInstruction::new("fmov_d_from_d")
-                .field("dst", &fp_vreg_name(v as u32))
-                .field("src", "d0"),
+                .physical_field("dst", &fp_vreg_name(v as u32))
+                .physical_field("src", "d0"),
         );
     }
     // ...cross a PCS call...
@@ -466,8 +469,8 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
     for v in 0..LIVE {
         instructions.push(
             CodeInstruction::new("fmov_d_from_d")
-                .field("dst", "d1")
-                .field("src", &fp_vreg_name(v as u32)),
+                .physical_field("dst", "d1")
+                .physical_field("src", &fp_vreg_name(v as u32)),
         );
     }
     instructions.push(CodeInstruction::new("ret"));
@@ -499,13 +502,13 @@ fn linear_scan_writes_typed_phys_operands() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
-            .field("dst", &vreg_name(0))
+            .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "7"),
         CodeInstruction::new("add")
-            .field("dst", "x0")
-            .field("lhs", &vreg_name(0))
-            .field("rhs", &vreg_name(0)),
+            .physical_field("dst", "x0")
+            .physical_field("lhs", &vreg_name(0))
+            .physical_field("rhs", &vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
     allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);

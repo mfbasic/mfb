@@ -40,6 +40,7 @@ use crate::codegen::memory::data::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 // A generous fixed 16 MiB private-anon reservation for the perf tables. On
 // exhaustion plan-67-D's perf_end drops the sample and bumps a visible `overflow`
 // counter (never a silent cap). `MAP_ANON` pages arrive zeroed, so the
@@ -88,7 +89,7 @@ const PERF_LOG_LIMIT: usize = PERF_LOG_TABLE_OFFSET + (PERF_LOG_CAPACITY - 1) * 
 // plan-67-E: the median sort scratch — an i64 buffer immediately past the log,
 // sized to hold every sample of a single name (one name owns at most
 // `PERF_LOG_CAPACITY` samples). `perf_done` materializes a name's durations here
-// and insertion-sorts them.
+// and heapsorts them (bug-700).
 const PERF_SORT_OFFSET: usize = PERF_LOG_TABLE_OFFSET + PERF_LOG_CAPACITY * PERF_LOG_ENTRY_SIZE;
 
 // Stack locals. perf_start/perf_end need a 16-byte `timespec`; perf_done assembles
@@ -125,7 +126,7 @@ pub(crate) fn lower_perf_helper(
                 let base_slot = vregs.next();
                 let done = format!("{symbol}_done");
                 instructions.push(abi::move_immediate(&size, "Integer", PERF_REGION_SIZE));
-                platform.emit_arena_map(&size, &mut instructions)?;
+                platform.emit_arena_map(size.into(), &mut instructions)?;
                 instructions.extend([
                     abi::compare_immediate(abi::return_register(), "0"),
                     abi::branch_lt(&done),
@@ -446,7 +447,7 @@ pub(crate) fn lower_perf_helper(
 /// clobbers `ARG[0]`/`ARG[1]` + x0–x17 via the libc call; the caller keeps its
 /// live state in vregs (spilled across the call). Reused by perf_end (plan-67-D).
 fn emit_read_monotonic_nanos(
-    dst: &str,
+    dst: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -454,6 +455,7 @@ fn emit_read_monotonic_nanos(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: Reg = dst.into();
     let sec = vregs.next();
     let nsec = vregs.next();
     let billion = vregs.next();
@@ -488,12 +490,13 @@ fn emit_read_monotonic_nanos(
 /// bytes from `object+8`) in front of `cursor`, moving `cursor` back by that length.
 /// `label` names this copy loop's labels.
 fn emit_prepend_string(
-    object: &str,
-    cursor: &str,
+    object: impl Into<Reg>,
+    cursor: impl Into<Reg>,
     label: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (object, cursor): (Reg, Reg) = (object.into(), cursor.into());
     let length = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
@@ -527,9 +530,9 @@ fn emit_prepend_string(
 /// labels distinct.
 #[allow(clippy::too_many_arguments)]
 fn emit_perf_line(
-    name: Option<&str>,
+    name: Option<Reg>,
     suffix_symbol: &str,
-    value: &str,
+    value: impl Into<Reg>,
     tag: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -538,6 +541,7 @@ fn emit_perf_line(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let value: Reg = value.into();
     let remaining = vregs.next();
     let cursor = vregs.next();
     let ten = vregs.next();
@@ -607,13 +611,15 @@ fn emit_perf_line(
 /// Load `scratch[idx]` (i64) into `dst`; `idx`/`scratch` are registers, `eight`
 /// holds the element stride 8. plan-67-E median scratch addressing.
 fn emit_load_elem(
-    dst: &str,
-    scratch: &str,
-    idx: &str,
-    eight: &str,
+    dst: impl Into<Reg>,
+    scratch: impl Into<Reg>,
+    idx: impl Into<Reg>,
+    eight: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (dst, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (dst.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),
@@ -624,13 +630,15 @@ fn emit_load_elem(
 
 /// Store `src` (i64) to `scratch[idx]`.
 fn emit_store_elem(
-    src: &str,
-    scratch: &str,
-    idx: &str,
-    eight: &str,
+    src: impl Into<Reg>,
+    scratch: impl Into<Reg>,
+    idx: impl Into<Reg>,
+    eight: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let (src, scratch, idx, eight): (Reg, Reg, Reg, Reg) =
+        (src.into(), scratch.into(), idx.into(), eight.into());
     let addr = vregs.next();
     instructions.extend([
         abi::multiply_registers(&addr, idx, eight),
@@ -642,16 +650,17 @@ fn emit_store_elem(
 /// plan-67-E: compute and print one name's six statistic columns —
 /// ` <count> <avg> <median> <min> <max> <sum>\n` — over the flat sample log. One
 /// linear pass accumulates sum/min/max and materializes the name's durations into
-/// the region sort scratch; an insertion sort (Open Decision — simple, exact;
-/// O(n²), upgradeable to heapsort if a profiled program's per-name sample count
-/// makes exit slow) yields the median. `avg` is integer floor; an even count
-/// averages the two middle values. `count` is the name's table-A count (equal to
-/// the number of matching log samples, so the scratch holds exactly `count` items).
+/// the region sort scratch; an in-place heapsort (bug-700 — O(n log n) worst
+/// case, upgraded from the original O(n²) insertion sort once a profiled
+/// program's per-name sample count made exit take tens of seconds) yields the
+/// median. `avg` is integer floor; an even count averages the two middle
+/// values. `count` is the name's table-A count (equal to the number of
+/// matching log samples, so the scratch holds exactly `count` items).
 #[allow(clippy::too_many_arguments)]
 fn emit_write_stats(
-    base: &str,
-    name: &str,
-    count: &str,
+    base: impl Into<Reg>,
+    name: impl Into<Reg>,
+    count: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -659,6 +668,8 @@ fn emit_write_stats(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let name: Reg = name.into();
+    let (base, count): (Reg, Reg) = (base.into(), count.into());
     let sum = vregs.next();
     let min = vregs.next();
     let max = vregs.next();
@@ -676,23 +687,41 @@ fn emit_write_stats(
     let one = vregs.next();
     let odd = vregs.next();
     let median = vregs.next();
-    let ai = vregs.next();
-    let aj = vregs.next();
-    let key = vregs.next();
-    let cur = vregs.next();
-    let jp1 = vregs.next();
     let midm1 = vregs.next();
     let va = vregs.next();
     let vb = vregs.next();
+    // Heapsort scratch[0..count] ascending (bug-700: replaces the former O(n²)
+    // insertion sort). `root`/`child` walk the heap; `left`/`right_idx` are the
+    // candidate child indices; `*_val` hold loaded elements for the 3-way
+    // compare-and-swap; `start` drives the heapify build-down, `end` the
+    // extraction countdown; `zero_idx` is the constant index 0 (the heap root).
+    let root = vregs.next();
+    let child = vregs.next();
+    let left = vregs.next();
+    let right_idx = vregs.next();
+    let left_val = vregs.next();
+    let right_val = vregs.next();
+    let root_val = vregs.next();
+    let child_val = vregs.next();
+    let start = vregs.next();
+    let end = vregs.next();
+    let zero_idx = vregs.next();
     let lscan = format!("{symbol}_lscan");
     let lnext = format!("{symbol}_lnext");
     let lscan_done = format!("{symbol}_lsdone");
     let skip_min = format!("{symbol}_skmin");
     let skip_max = format!("{symbol}_skmax");
-    let outer = format!("{symbol}_iso");
-    let inner = format!("{symbol}_isi");
-    let insert = format!("{symbol}_isins");
-    let sorted = format!("{symbol}_isdone");
+    let heapify_top = format!("{symbol}_hfy");
+    let heapify_done = format!("{symbol}_hfyd");
+    let sift1_top = format!("{symbol}_sd1");
+    let sift1_skip_right = format!("{symbol}_sd1sr");
+    let sift1_done = format!("{symbol}_sd1d");
+    let extract_top = format!("{symbol}_ext");
+    let extract_done = format!("{symbol}_extd");
+    let sift2_top = format!("{symbol}_sd2");
+    let sift2_skip_right = format!("{symbol}_sd2sr");
+    let sift2_done = format!("{symbol}_sd2d");
+    let sorted = format!("{symbol}_hsdone");
     let median_odd = format!("{symbol}_modd");
     let median_done = format!("{symbol}_mdone");
 
@@ -735,42 +764,115 @@ fn emit_write_stats(
         abi::branch(&lscan),
         abi::label(&lscan_done),
         abi::unsigned_divide_registers(&avg, &sum, count),
-        // Insertion sort scratch[0..count] ascending.
-        abi::move_immediate(&ai, "Integer", "1"),
-        abi::label(&outer),
-        abi::compare_registers(&ai, count),
-        abi::branch_ge(&sorted),
+        // Heapsort scratch[0..count] ascending (bug-700; O(n log n), was O(n²)).
+        // Phase 1: build a max-heap over scratch[0..count] via iterative
+        // siftDown, from the last parent down to the root.
+        abi::move_immediate(&two, "Integer", "2"),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::move_immediate(&zero_idx, "Integer", "0"),
+        abi::subtract_immediate(&end, count, 1), // end = count - 1 (heap boundary)
+        abi::unsigned_divide_registers(&start, count, &two),
+        abi::subtract_immediate(&start, &start, 1), // start = count/2 - 1
+        abi::label(&heapify_top),
+        abi::compare_immediate(&start, "0"),
+        abi::branch_lt(&heapify_done),
+        abi::move_register(&root, &start),
+        abi::label(&sift1_top),
+        abi::multiply_registers(&left, &root, &two),
+        abi::add_immediate(&left, &left, 1),
+        abi::compare_registers(&left, &end),
+        abi::branch_gt(&sift1_done),
+        abi::move_register(&child, &left),
+        abi::add_immediate(&right_idx, &left, 1),
+        abi::compare_registers(&right_idx, &end),
+        abi::branch_gt(&sift1_skip_right),
     ]);
-    emit_load_elem(&key, &scratch, &ai, &eight, instructions, vregs);
+    emit_load_elem(&left_val, &scratch, &left, &eight, instructions, vregs);
+    emit_load_elem(
+        &right_val,
+        &scratch,
+        &right_idx,
+        &eight,
+        instructions,
+        vregs,
+    );
     instructions.extend([
-        abi::move_register(&aj, &ai),
-        abi::subtract_immediate(&aj, &aj, 1),
-        abi::label(&inner),
-        abi::compare_immediate(&aj, "0"),
-        abi::branch_lt(&insert),
+        abi::compare_registers(&left_val, &right_val),
+        abi::branch_ge(&sift1_skip_right), // left is already the larger (or equal)
+        abi::move_register(&child, &right_idx),
+        abi::label(&sift1_skip_right),
     ]);
-    emit_load_elem(&cur, &scratch, &aj, &eight, instructions, vregs);
+    emit_load_elem(&root_val, &scratch, &root, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &child, &eight, instructions, vregs);
     instructions.extend([
-        abi::compare_registers(&cur, &key),
-        abi::branch_le(&insert),
-        abi::add_immediate(&jp1, &aj, 1),
+        abi::compare_registers(&root_val, &child_val),
+        abi::branch_ge(&sift1_done), // heap property already holds here
     ]);
-    emit_store_elem(&cur, &scratch, &jp1, &eight, instructions, vregs);
+    emit_store_elem(&child_val, &scratch, &root, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &child, &eight, instructions, vregs);
     instructions.extend([
-        abi::subtract_immediate(&aj, &aj, 1),
-        abi::branch(&inner),
-        abi::label(&insert),
-        abi::add_immediate(&jp1, &aj, 1),
+        abi::move_register(&root, &child),
+        abi::branch(&sift1_top),
+        abi::label(&sift1_done),
+        abi::subtract_immediate(&start, &start, 1),
+        abi::branch(&heapify_top),
+        abi::label(&heapify_done),
+        // Phase 2: repeatedly swap the max (root) to the end of the shrinking
+        // heap and sift the new root down. `end` still holds count - 1.
+        abi::label(&extract_top),
+        abi::compare_immediate(&end, "0"),
+        abi::branch_le(&extract_done),
     ]);
-    emit_store_elem(&key, &scratch, &jp1, &eight, instructions, vregs);
+    emit_load_elem(&root_val, &scratch, &zero_idx, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &end, &eight, instructions, vregs);
+    emit_store_elem(&child_val, &scratch, &zero_idx, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &end, &eight, instructions, vregs);
     instructions.extend([
-        abi::add_immediate(&ai, &ai, 1),
-        abi::branch(&outer),
+        abi::subtract_immediate(&end, &end, 1),
+        abi::move_register(&root, &zero_idx),
+        abi::label(&sift2_top),
+        abi::multiply_registers(&left, &root, &two),
+        abi::add_immediate(&left, &left, 1),
+        abi::compare_registers(&left, &end),
+        abi::branch_gt(&sift2_done),
+        abi::move_register(&child, &left),
+        abi::add_immediate(&right_idx, &left, 1),
+        abi::compare_registers(&right_idx, &end),
+        abi::branch_gt(&sift2_skip_right),
+    ]);
+    emit_load_elem(&left_val, &scratch, &left, &eight, instructions, vregs);
+    emit_load_elem(
+        &right_val,
+        &scratch,
+        &right_idx,
+        &eight,
+        instructions,
+        vregs,
+    );
+    instructions.extend([
+        abi::compare_registers(&left_val, &right_val),
+        abi::branch_ge(&sift2_skip_right),
+        abi::move_register(&child, &right_idx),
+        abi::label(&sift2_skip_right),
+    ]);
+    emit_load_elem(&root_val, &scratch, &root, &eight, instructions, vregs);
+    emit_load_elem(&child_val, &scratch, &child, &eight, instructions, vregs);
+    instructions.extend([
+        abi::compare_registers(&root_val, &child_val),
+        abi::branch_ge(&sift2_done),
+    ]);
+    emit_store_elem(&child_val, &scratch, &root, &eight, instructions, vregs);
+    emit_store_elem(&root_val, &scratch, &child, &eight, instructions, vregs);
+    instructions.extend([
+        abi::move_register(&root, &child),
+        abi::branch(&sift2_top),
+        abi::label(&sift2_done),
+        abi::branch(&extract_top),
+        abi::label(&extract_done),
         abi::label(&sorted),
         // median = mid element (odd count) or mean of the two middle (even count).
-        abi::move_immediate(&two, "Integer", "2"),
+        // `two`/`one` were already set to 2/1 for the heapsort above.
         abi::unsigned_divide_registers(&mid, count, &two),
-        abi::move_immediate(&one, "Integer", "1"),
         abi::and_registers(&odd, count, &one),
         abi::compare_immediate(&odd, "0"),
         abi::branch_ne(&median_odd),
@@ -790,11 +892,11 @@ fn emit_write_stats(
     // One report line per statistic: `perf.<name>.<stat> <value>`.
     for (suffix, stat, tag) in [
         (PERF_KEY_COUNT_SYMBOL, count, "c"),
-        (PERF_KEY_AVG_SYMBOL, avg.as_str(), "av"),
-        (PERF_KEY_MEDIAN_SYMBOL, median.as_str(), "md"),
-        (PERF_KEY_MIN_SYMBOL, min.as_str(), "mn"),
-        (PERF_KEY_MAX_SYMBOL, max.as_str(), "mx"),
-        (PERF_KEY_SUM_SYMBOL, sum.as_str(), "sm"),
+        (PERF_KEY_AVG_SYMBOL, Reg::from(avg), "av"),
+        (PERF_KEY_MEDIAN_SYMBOL, Reg::from(median), "md"),
+        (PERF_KEY_MIN_SYMBOL, Reg::from(min), "mn"),
+        (PERF_KEY_MAX_SYMBOL, Reg::from(max), "mx"),
+        (PERF_KEY_SUM_SYMBOL, Reg::from(sum), "sm"),
     ] {
         emit_perf_line(
             Some(name),
@@ -820,7 +922,7 @@ fn emit_counter_row(
     name_symbol: &str,
     counter_offset: usize,
     tag: &str,
-    base: &str,
+    base: impl Into<Reg>,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -828,6 +930,7 @@ fn emit_counter_row(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let base: Reg = base.into();
     let value = vregs.next();
     let skip = format!("{symbol}_{tag}_skip");
     instructions.extend([

@@ -68,6 +68,11 @@
 //! `MFB_SELF_UPDATE_SITES=<code>[,<code>…]` runs only those sites (`Local`,
 //! `ForEach`, `Lambda`, `Global`, `Return`, `S3`…`S10`, `T1`…`T8`);
 //! `MFB_SELF_UPDATE_FILTER` narrows the lines, by signature or kind.
+//!
+//! **Not in the default run.** The two grid tests build thousands of programs, so
+//! they are `#[ignore]`d and a plain `cargo test` skips them; the `test` job in
+//! `.github/workflows/coverage.yml` runs them on every Unix row. Run them locally
+//! with `cargo test --release --test rt_inplace_self_update -- --ignored`.
 
 #![cfg(unix)]
 
@@ -1924,6 +1929,7 @@ fn run_work(work: Vec<Work>) {
 }
 
 #[test]
+#[ignore = "slow: run by coverage.yml; locally `-- --ignored`"]
 fn every_field_kind_meets_its_expectation() {
     let mut kinds = field_kinds();
     assert!(!kinds.is_empty(), "field_kinds.tsv has no kind");
@@ -1947,6 +1953,7 @@ fn every_field_kind_meets_its_expectation() {
 }
 
 #[test]
+#[ignore = "slow: run by coverage.yml; locally `-- --ignored`"]
 fn every_self_update_case_meets_its_allocation_bound() {
     let mut cases = cases();
     assert!(!cases.is_empty(), "cases.tsv has no case");

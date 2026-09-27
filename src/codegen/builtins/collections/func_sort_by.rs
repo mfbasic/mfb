@@ -513,7 +513,7 @@ impl CodeBuilder<'_> {
             let threaded = ValueResult {
                 origin: None,
                 type_: list_type.clone(),
-                location: Operand::from(result_reg.render()),
+                location: Operand::from(result_reg),
                 text: String::new(),
             };
             let threaded = self.free_intermediate_collection(items_slot, &keys_type, threaded)?;
@@ -542,7 +542,7 @@ impl CodeBuilder<'_> {
         let threaded = ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result_reg.render()),
+            location: Operand::from(result_reg),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(itemsb_slot, &list_type, threaded)?;

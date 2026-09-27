@@ -26,6 +26,115 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// bug-697: mangled instantiated-generic symbol (`Box$Integer`, as
+    /// `ParameterType::name()` renders it once monomorphization has replaced the
+    /// template with its concrete nominal) -> the template spelling
+    /// (`Box OF Integer`) a user actually wrote, fully recursive so a nested
+    /// instantiation (`Holder$Holder$Integer`) maps to a fully-expanded spelling
+    /// (`Holder OF Holder OF Integer`), never a half-translated mix.
+    ///
+    /// Set once per build by `monomorph::monomorphize_project` from its private
+    /// `type_instantiations` inverse map — the only place the mapping is known,
+    /// since the mangling is lossy and cannot be parsed back (see
+    /// `Monomorphizer::template_view`). Thread-local because a build's
+    /// monomorphize-then-render sequence runs on one thread and the harness runs
+    /// tests concurrently across threads; a thread that never monomorphizes
+    /// renders with an empty table, which is a no-op (every rewrite candidate
+    /// must contain a `$`, and no valid source spelling can produce one, so a
+    /// diagnostic untouched by this bug's mechanism is never touched by the
+    /// rewrite either).
+    static TEMPLATE_SPELLINGS: std::cell::RefCell<HashMap<String, String>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Install this build's mangled-symbol -> template-spelling table, read by
+/// every subsequent [`show_diagnostic`] on this thread until the next build
+/// overwrites it. Called once by `monomorph::monomorphize_project` after a
+/// successful run.
+pub(crate) fn set_template_spellings(table: HashMap<String, String>) {
+    TEMPLATE_SPELLINGS.with(|cell| *cell.borrow_mut() = table);
+}
+
+/// Whether `c` may appear inside a mangled-symbol token
+/// (`mangle_name`/`sanitize_type_name` produce only ASCII alphanumerics, `_`
+/// and `.`, joined by `$`).
+fn is_mangled_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '.'
+}
+
+/// Rewrite every whole mangled-symbol token in `text` — a maximal run of
+/// [`is_mangled_token_char`] characters containing at least one `$` separator,
+/// matching `[A-Za-z0-9_.]+(\$[A-Za-z0-9_.]+)+` — to its template spelling from
+/// [`TEMPLATE_SPELLINGS`], longest-match first so `Holder$Holder$Integer` is
+/// never partly rewritten as `Holder$Holder OF …`. An unknown `$` token (no
+/// entry in the table — e.g. a mangled name from an imported `.mfp`'s own prior
+/// compilation, which has no `type_instantiations` here) is left exactly as
+/// is, never guessed at by parsing the mangled string (forbidden: the encoding
+/// is lossy).
+fn rewrite_mangled_tokens(text: &str) -> Cow<'_, str> {
+    if !text.contains('$') {
+        return Cow::Borrowed(text);
+    }
+    let rewritten = TEMPLATE_SPELLINGS.with(|cell| {
+        let table = cell.borrow();
+        if table.is_empty() {
+            return None;
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::with_capacity(text.len());
+        let mut changed = false;
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '$' || !is_mangled_token_char(chars[i]) {
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
+            let start = i;
+            let mut j = i;
+            while j < chars.len() && is_mangled_token_char(chars[j]) {
+                j += 1;
+            }
+            let mut end = j;
+            let mut has_group = false;
+            while j < chars.len() && chars[j] == '$' {
+                let mut k = j + 1;
+                while k < chars.len() && is_mangled_token_char(chars[k]) {
+                    k += 1;
+                }
+                if k == j + 1 {
+                    // a bare `$` with nothing token-shaped after it: not a
+                    // mangled-symbol group, so stop extending the token here.
+                    break;
+                }
+                has_group = true;
+                j = k;
+                end = j;
+            }
+            if has_group {
+                let token: String = chars[start..end].iter().collect();
+                match table.get(&token) {
+                    Some(spelling) => {
+                        out.push_str(spelling);
+                        changed = true;
+                    }
+                    None => out.push_str(&token),
+                }
+                i = end;
+            } else {
+                out.push(chars[start]);
+                i = start + 1;
+            }
+        }
+        changed.then_some(out)
+    });
+    match rewritten {
+        Some(out) => Cow::Owned(out),
+        None => Cow::Borrowed(text),
+    }
+}
+
 /// Run `body` with every located diagnostic COLLECTED instead of rendered, and
 /// return them alongside its result as `(rule name, detailed message)`.
 ///
@@ -223,6 +332,15 @@ pub fn show_diagnostic(
     start_pos: usize,
     end_pos: usize,
 ) {
+    // bug-697: rewrite any mangled instantiated-generic token (`Box$Integer`)
+    // to its template spelling (`Box OF Integer`) before the message reaches
+    // either the collecting-test path or the terminal — a single render
+    // boundary that covers every emit site (`ir::shape`, `ir::verify`,
+    // `resolve_augmented`, `validate_entry_point`, …) without touching any of
+    // them. A no-op when the table is empty or the text carries no `$`.
+    let detailed_message = rewrite_mangled_tokens(detailed_message);
+    let detailed_message = detailed_message.as_ref();
+
     // A test inside `collecting_diagnostics` takes the diagnostic instead of the
     // terminal. Before the cap, deliberately: a collecting test wants all of
     // them, and the cap is about not flooding a human's screen.
@@ -476,6 +594,87 @@ mod tests {
         show_general_diagnostic("IMPORT_PACKAGE_INVALID", "an error detail");
         show_general_diagnostic("PRIVATE_SHADOWS_PUBLIC", "a warning detail");
         show_general_diagnostic("PROJECT_JSON_VALID", "an info detail");
+    }
+
+    #[test]
+    fn show_diagnostic_rewrites_mangled_generic_names_to_template_spellings() {
+        // bug-697: `show_diagnostic` is the render boundary that turns a
+        // post-monomorph mangled nominal (`Box$Integer`) back into what the
+        // user wrote (`Box OF Integer`). Drives the table directly (rather
+        // than through a full build) so the boundary itself is pinned
+        // independent of `monomorph::monomorphize_project`'s table-building.
+        let mut table = HashMap::new();
+        table.insert("Box$Integer".to_string(), "Box OF Integer".to_string());
+        table.insert(
+            "Holder$Holder$Integer".to_string(),
+            "Holder OF Holder OF Integer".to_string(),
+        );
+        set_template_spellings(table);
+
+        let (_, collected) = collecting_diagnostics(|| {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let file = dir.path().join("src.mfb");
+            std::fs::write(&file, "line one\n").expect("write source");
+            show_diagnostic(
+                "IMPORT_PACKAGE_INVALID",
+                "Binding `n` has initializer type Box$Integer, expected Integer.",
+                &file,
+                1,
+                1,
+                1,
+            );
+            // A nested instantiation renders fully, never half-mangled —
+            // the whole `Holder$Holder$Integer` token is one match, not
+            // `Holder$Holder` + a partial leftover.
+            show_diagnostic(
+                "IMPORT_PACKAGE_INVALID",
+                "Binding `h` has initializer type Holder$Holder$Integer, expected Integer.",
+                &file,
+                1,
+                1,
+                1,
+            );
+            // An unknown `$` token (e.g. a mangled name from an imported
+            // `.mfp`, which has no entry in this build's table) is left
+            // exactly as is, never guessed at.
+            show_diagnostic(
+                "IMPORT_PACKAGE_INVALID",
+                "Binding `u` has initializer type Unknown$Stranger, expected Integer.",
+                &file,
+                1,
+                1,
+                1,
+            );
+            // Text with no `$` at all is untouched (the common case).
+            show_diagnostic(
+                "IMPORT_PACKAGE_INVALID",
+                "Binding `p` has initializer type Integer, expected String.",
+                &file,
+                1,
+                1,
+                1,
+            );
+        });
+
+        // Reset so a later test on this thread starts from an empty table.
+        set_template_spellings(HashMap::new());
+
+        assert_eq!(
+            collected[0].1,
+            "Binding `n` has initializer type Box OF Integer, expected Integer."
+        );
+        assert_eq!(
+            collected[1].1,
+            "Binding `h` has initializer type Holder OF Holder OF Integer, expected Integer."
+        );
+        assert_eq!(
+            collected[2].1,
+            "Binding `u` has initializer type Unknown$Stranger, expected Integer."
+        );
+        assert_eq!(
+            collected[3].1,
+            "Binding `p` has initializer type Integer, expected String."
+        );
     }
 
     #[test]

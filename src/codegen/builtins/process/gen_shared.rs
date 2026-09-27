@@ -47,6 +47,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -138,18 +139,19 @@ const _: () = assert!(SPILL_CHUNK <= SPILL_INITIAL_CAPACITY);
 pub(crate) fn emit_spill_pending(
     symbol: &str,
     tag: &str,
-    buf: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
     ready: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, t0, t1): (Reg, Reg, Reg) = (buf.into(), t0.into(), t1.into());
     let empty = format!("{symbol}_{tag}_spill_empty");
     instructions.extend([
-        abi::compare_immediate(buf.clone(), "0"),
+        abi::compare_immediate(buf, "0"),
         abi::branch_eq(&empty),
-        abi::load_u64(t0.clone(), buf.clone(), SPILL_OFFSET),
-        abi::load_u64(t1.clone(), buf, SPILL_LENGTH),
+        abi::load_u64(t0, buf, SPILL_OFFSET),
+        abi::load_u64(t1, buf, SPILL_LENGTH),
         abi::compare_registers(t0, t1),
         abi::branch_lt(ready),
         abi::label(&empty),
@@ -160,24 +162,25 @@ pub(crate) fn emit_spill_pending(
 /// branch to `miss` when the block is absent or exhausted (the caller then reads
 /// the fd). `t0`/`t1` are scratch.
 pub(crate) fn emit_spill_take_byte(
-    buf: impl Into<Operand> + Clone,
-    dst: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    dst: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
     miss: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, dst, t0, t1): (Reg, Reg, Reg, Reg) = (buf.into(), dst.into(), t0.into(), t1.into());
     instructions.extend([
-        abi::compare_immediate(buf.clone(), "0"),
+        abi::compare_immediate(buf, "0"),
         abi::branch_eq(miss),
-        abi::load_u64(t0.clone(), buf.clone(), SPILL_OFFSET),
-        abi::load_u64(t1.clone(), buf.clone(), SPILL_LENGTH),
-        abi::compare_registers(t0.clone(), t1.clone()),
+        abi::load_u64(t0, buf, SPILL_OFFSET),
+        abi::load_u64(t1, buf, SPILL_LENGTH),
+        abi::compare_registers(t0, t1),
         abi::branch_ge(miss),
-        abi::add_immediate(t1.clone(), buf.clone(), SPILL_DATA),
-        abi::add_registers(t1.clone(), t1.clone(), t0.clone()),
+        abi::add_immediate(t1, buf, SPILL_DATA),
+        abi::add_registers(t1, t1, t0),
         abi::load_u8(dst, t1, 0),
-        abi::add_immediate(t0.clone(), t0.clone(), 1),
+        abi::add_immediate(t0, t0, 1),
         abi::store_u64(t0, buf, SPILL_OFFSET),
     ]);
 }
@@ -190,49 +193,58 @@ pub(crate) fn emit_spill_take_byte(
 pub(crate) fn emit_spill_take_chunk(
     symbol: &str,
     tag: &str,
-    buf: impl Into<Operand> + Clone,
-    dst: impl Into<Operand> + Clone,
+    buf: impl Into<Reg>,
+    dst: impl Into<Reg>,
     max: usize,
-    count: impl Into<Operand> + Clone,
-    t0: impl Into<Operand> + Clone,
-    t1: impl Into<Operand> + Clone,
-    t2: impl Into<Operand> + Clone,
-    t3: impl Into<Operand> + Clone,
+    count: impl Into<Reg>,
+    t0: impl Into<Reg>,
+    t1: impl Into<Reg>,
+    t2: impl Into<Reg>,
+    t3: impl Into<Reg>,
     miss: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let (buf, dst, count, t0, t1, t2, t3): (Reg, Reg, Reg, Reg, Reg, Reg, Reg) = (
+        buf.into(),
+        dst.into(),
+        count.into(),
+        t0.into(),
+        t1.into(),
+        t2.into(),
+        t3.into(),
+    );
     let clamped = format!("{symbol}_{tag}_spill_clamped");
     let copy_loop = format!("{symbol}_{tag}_spill_copy");
     let copy_done = format!("{symbol}_{tag}_spill_copied");
     instructions.extend([
-        abi::compare_immediate(buf.clone(), "0"),
+        abi::compare_immediate(buf, "0"),
         abi::branch_eq(miss),
-        abi::load_u64(t0.clone(), buf.clone(), SPILL_OFFSET),
-        abi::load_u64(t1.clone(), buf.clone(), SPILL_LENGTH),
-        abi::compare_registers(t0.clone(), t1.clone()),
+        abi::load_u64(t0, buf, SPILL_OFFSET),
+        abi::load_u64(t1, buf, SPILL_LENGTH),
+        abi::compare_registers(t0, t1),
         abi::branch_ge(miss),
         // count = min(length - offset, max)
-        abi::subtract_registers(count.clone(), t1.clone(), t0.clone()),
-        abi::move_immediate(t1.clone(), "Integer", &max.to_string()),
-        abi::compare_registers(count.clone(), t1.clone()),
+        abi::subtract_registers(count, t1, t0),
+        abi::move_immediate(t1, "Integer", &max.to_string()),
+        abi::compare_registers(count, t1),
         abi::branch_le(&clamped),
-        abi::move_register(count.clone(), t1.clone()),
+        abi::move_register(count, t1),
         abi::label(&clamped),
         // src = data + offset; consume the run up front.
-        abi::add_immediate(t1.clone(), buf.clone(), SPILL_DATA),
-        abi::add_registers(t1.clone(), t1.clone(), t0.clone()),
-        abi::add_registers(t0.clone(), t0.clone(), count.clone()),
-        abi::store_u64(t0.clone(), buf, SPILL_OFFSET),
-        abi::move_register(t2.clone(), dst),
-        abi::move_immediate(t0.clone(), "Integer", "0"),
+        abi::add_immediate(t1, buf, SPILL_DATA),
+        abi::add_registers(t1, t1, t0),
+        abi::add_registers(t0, t0, count),
+        abi::store_u64(t0, buf, SPILL_OFFSET),
+        abi::move_register(t2, dst),
+        abi::move_immediate(t0, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers(t0.clone(), count),
+        abi::compare_registers(t0, count),
         abi::branch_ge(&copy_done),
-        abi::load_u8(t3.clone(), t1.clone(), 0),
-        abi::store_u8(t3, t2.clone(), 0),
-        abi::add_immediate(t1.clone(), t1, 1),
-        abi::add_immediate(t2.clone(), t2, 1),
-        abi::add_immediate(t0.clone(), t0, 1),
+        abi::load_u8(t3, t1, 0),
+        abi::store_u8(t3, t2, 0),
+        abi::add_immediate(t1, t1, 1),
+        abi::add_immediate(t2, t2, 1),
+        abi::add_immediate(t0, t0, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
     ]);

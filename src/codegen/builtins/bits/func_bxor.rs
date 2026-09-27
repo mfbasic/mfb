@@ -103,7 +103,7 @@ pub(crate) fn lower_bits_bxor(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(dst.render()),
+        location: Operand::from(dst),
         text: format!("bits.bxor({left_text}, {right_text})"),
     })
 }

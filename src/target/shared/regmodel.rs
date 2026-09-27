@@ -133,7 +133,7 @@ pub(crate) trait RegisterModel {
     /// the quadrant branch. A vreg lets the allocator place it consistently
     /// (its busy-physical check keeps it off the residual
     /// `map_scratch_register` homes the kernels also use).
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         None
     }
 

@@ -148,13 +148,13 @@ plan-138-A (`planning/completed/plan-138-A-xml-tree-builder-and-reader.md`):
   documents the segregated quick/large bins that replaced the quadratic insert,
   and a probe allocated and freed 1,000,000 records in 0.35 s.
 
-What is still true, and is the real reason to keep a work-stack here, is that
-rebuilding a shared list of subtrees is quadratic: self-assigning a
-`List OF <recursive union>` through `collections::take`/`drop` deep-copies every
-element it returns (21.96 s versus 0.02 s for `append` at 8,000 nodes — see
-`bugs/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
-A builder that appends to a frame-local list instead handles 100,000 nodes in
-about 0.3 s.
+Rebuilding a shared list of subtrees used to be quadratic too: self-assigning a
+`List OF <recursive union>` through `collections::take`/`drop` deep-copied every
+element it returned (21.96 s versus 0.02 s for `append` at 8,000 nodes). That is
+fixed — a `MUT` self-update now costs only the elements it removes or moves, so
+`wideTake` at 100,000 nodes runs in 0.07 s, the same as `append` (see
+`bugs/completed/bug-652-take-drop-self-reassignment-copies-every-returned-element.md`).
+A builder that appends to a frame-local list handles 100,000 nodes in about 0.3 s.
 
 ## CSS
 
@@ -169,6 +169,14 @@ sheet counts as **loaded** when its fetch completes with HTTP 200 and the whole 
 arrives (received bytes == `Content-Length`, or a chunked body finishes). That counts
 a valid empty sheet — e.g. google.com serves one `<link>` as a 200 with
 `Content-Length: 0` — and excludes a redirect or 404 error body.
+
+The stylesheets are fetched concurrently by driving all their `http::Stream`s
+together in one loop, pumping only the ones with bytes ready each round. That
+drive has a 30-second overall deadline (matching `http::startRead`'s own
+connect deadline) and backs off with a short sleep on a round that made no
+progress, so a stylesheet whose connection accepts and then never sends
+anything is skipped — the same way one that never connects at all already
+is — instead of spinning the CPU forever (bug-706).
 
 `StyleNode` is a plain **standalone record** (not a `Node` variant): `display`
 reads its fields directly to format each rule, even though a `StyleNode` is reached

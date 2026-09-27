@@ -274,7 +274,7 @@ pub(crate) fn lower_transform(
     Ok(ValueResult {
         origin: None,
         type_: output_list_type.clone(),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: format!("transform({}, {})", collection.type_, action.text),
     })
 }

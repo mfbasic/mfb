@@ -92,7 +92,7 @@ impl RegisterModel for Aarch64RegisterModel {
         }
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         // The SIMD math kernels pin their constant-pool base for the kernel's
         // lifetime: `%mathpool`, realized `x2` — caller-saved scratch below the
         // allocatable file (`x8`+), so the allocator never assigns it and it
@@ -145,25 +145,39 @@ impl RegisterModel for Aarch64RegisterModel {
 
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::store_u64(reg, abi::stack_pointer(), offset),
+            RegClass::Int => CodeInstruction::new("str_u64")
+                .physical_field("src", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
             // 128-bit store — a 64-bit `str d` would drop a spilled vector's high
             // lane, corrupting the vector::/math-array kernels. `str q` needs a
             // 16-aligned offset: the slot stride is 16, the spill base is
             // 16-aligned by the callers, and `finalize_frame` shifts by a
             // 16-aligned save area.
-            RegClass::Fp => abi::vector_store(reg, abi::stack_pointer(), offset),
+            RegClass::Fp => CodeInstruction::new("str_q")
+                .physical_field("src", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
         }
     }
 
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
-            RegClass::Int => abi::load_u64(reg, abi::stack_pointer(), offset),
-            RegClass::Fp => abi::vector_load(reg, abi::stack_pointer(), offset),
+            RegClass::Int => CodeInstruction::new("ldr_u64")
+                .physical_field("dst", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
+            RegClass::Fp => CodeInstruction::new("ldr_q")
+                .physical_field("dst", reg)
+                .field("base", abi::stack_pointer())
+                .field("offset", &offset.to_string()),
         }
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
-        abi::move_register(dst, src)
+        CodeInstruction::new("mov")
+            .physical_field("dst", dst)
+            .physical_field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {
@@ -231,7 +245,7 @@ mod tests {
         // `%mathpool` token, realized `x2` at the Phase-3b seam (plan-34-D).
         assert_eq!(m.arena_base(), ARENA_BASE_REGISTER);
         assert_eq!(m.math_pool_base(), Some(abi::MATH_POOL));
-        assert_eq!(abi::realize_abi_token(abi::MATH_POOL), Some("x2"));
+        assert_eq!(abi::realize_abi_token(abi::MATH_POOL_SPELLING), Some("x2"));
         // The standalone FP callee-saved predicate.
         assert!(is_fp_callee_saved("d15"));
         assert!(!is_fp_callee_saved("d16"));

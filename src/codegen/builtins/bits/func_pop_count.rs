@@ -102,7 +102,7 @@ pub(crate) fn lower_bits_pop_count(
         return Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text,
         });
     }
@@ -140,7 +140,7 @@ pub(crate) fn lower_bits_pop_count(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(acc.render()),
+        location: Operand::from(acc),
         text,
     })
 }

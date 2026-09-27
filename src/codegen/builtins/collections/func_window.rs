@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: outer_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("window({})", source.type_),
         })
     }
@@ -338,7 +338,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: outer_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("window({}, {size}, {stride})", source.type_),
         })
     }

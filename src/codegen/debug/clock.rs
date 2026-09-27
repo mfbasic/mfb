@@ -31,7 +31,7 @@ const NANOS_PER_SECOND: &str = "1000000000";
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_debug_monotonic_nanos(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     buffer_offset: usize,
     platform: &dyn CodegenPlatform,
     platform_imports: &HashMap<String, String>,
@@ -39,6 +39,7 @@ pub(super) fn emit_debug_monotonic_nanos(
     relocations: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let dst: abi::Reg = dst.into();
     if platform.family() == PlatformFamily::Windows {
         instructions.push(abi::add_immediate(
             abi::c_arg(0),

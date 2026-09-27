@@ -125,8 +125,8 @@ impl RegisterModel for X86_64RegisterModel {
             RegClass::Fp => "str_q",
         };
         CodeInstruction::new(mnemonic)
-            .field("src", reg)
-            .field("base", "rsp")
+            .physical_field("src", reg)
+            .physical_field("base", "rsp")
             .field("offset", &offset.to_string())
     }
 
@@ -136,15 +136,15 @@ impl RegisterModel for X86_64RegisterModel {
             RegClass::Fp => "ldr_q",
         };
         CodeInstruction::new(mnemonic)
-            .field("dst", reg)
-            .field("base", "rsp")
+            .physical_field("dst", reg)
+            .physical_field("base", "rsp")
             .field("offset", &offset.to_string())
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
         CodeInstruction::new("mov")
-            .field("dst", dst)
-            .field("src", src)
+            .physical_field("dst", dst)
+            .physical_field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {
@@ -174,7 +174,7 @@ impl RegisterModel for X86_64RegisterModel {
         "rbx"
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         // No spare physical to pin (all 16 GPRs are ABI-role, reserved, or in the
         // 4-register allocatable pool) and `x2` is an ABI register remap rewrites
         // per control-flow context — so the base is an allocator-placed vreg.
@@ -270,7 +270,7 @@ impl RegisterModel for Win64RegisterModel {
         X86_64RegisterModel.current_thread()
     }
 
-    fn math_pool_base(&self) -> Option<&'static str> {
+    fn math_pool_base(&self) -> Option<crate::target::shared::abi::Reg> {
         X86_64RegisterModel.math_pool_base()
     }
 
@@ -280,6 +280,30 @@ impl RegisterModel for Win64RegisterModel {
     fn external_int_argument_registers(&self) -> usize {
         4
     }
+}
+
+/// The Win64 nonvolatile integer bank, in save-slot order: every register a
+/// hand-written Win64 callback (the app window procedure) owes its caller
+/// (bug-698). Built from this model's own callee-saved table so the ABI-mandated
+/// set has one spelling (bug-721).
+pub(crate) fn win64_nonvolatile_int_registers() -> Vec<crate::target::shared::abi::Reg> {
+    WIN64_INT_CALLEE_SAVED
+        .iter()
+        .map(|name| crate::target::shared::abi::Reg::physical(name))
+        .collect()
+}
+
+/// The SysV callee-saved integer registers the Linux GTK x86-64 app wrap bracket
+/// saves around a hand-built callback body, in save-slot order: the callee-saved
+/// bank minus the frame pointer `rbp` and the pinned arena base. The last entry
+/// (`r14`) doubles as the runtime zero register the bracket zeroes after saving.
+/// Built from this model's own callee-saved table (bug-721).
+pub(crate) fn sysv_app_bracket_callee_saved_registers() -> Vec<crate::target::shared::abi::Reg> {
+    INT_CALLEE_SAVED
+        .iter()
+        .filter(|name| **name != "rbp" && **name != ARENA_BASE_REGISTER)
+        .map(|name| crate::target::shared::abi::Reg::physical(name))
+        .collect()
 }
 
 #[cfg(test)]

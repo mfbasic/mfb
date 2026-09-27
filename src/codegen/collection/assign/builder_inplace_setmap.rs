@@ -8,12 +8,16 @@
 //!
 //! * `union(s, t)`: `s`, then each element of `t` not already present, in `t`'s
 //!   order — `add` in place per element of `t`.
-//! * `intersection`/`difference(s, t)`: the elements of `s` that are / are not in
-//!   `t`, in `s`'s order — one membership pass writing a mark per entry, then one
-//!   `lower_map_compact_in_place`.
+//! * `intersection(s, t)`: the elements of `s` that are in `t`, in `s`'s order —
+//!   one membership pass writing a mark per entry, then one
+//!   `lower_map_compact_in_place` (every element of `s` is tested).
+//! * `difference(s, t)`: the elements of `s` not in `t`, in `s`'s order — each
+//!   element of `t` is looked up in `s` and a hit claimed for removal, then one
+//!   compaction from the first claimed entry (bug-732: the call costs `t` and the
+//!   entries that move, not all of `s`).
 //! * `symmetricDifference(s, t)`: `s`'s elements not in `t`, then `t`'s not in `s` —
-//!   both membership passes against the *original* `s`, then the compaction, then
-//!   the adds.
+//!   the same claim pass over `t`, marking each miss, then the compaction, then
+//!   the marked adds.
 //! * `merge(m, n, preferB)`: for each entry of `n`, `set` it when `preferB` or its
 //!   key is absent.
 //! * `mapValues(m, f)` (`f` returning `m`'s value type): `f` for every value first
@@ -515,8 +519,8 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// One mark per entry of the set in `scan_slot`: whether its element is (when
-    /// `member_keeps`) or is not a member of the set in `probe_slot`.
+    /// One mark per entry of the set in `scan_slot`: whether its element is a
+    /// member of the set in `probe_slot`.
     #[allow(clippy::too_many_arguments)]
     fn emit_membership_marks(
         &mut self,
@@ -525,7 +529,6 @@ impl CodeBuilder<'_> {
         probe_type: &ParameterType,
         element_type: &ParameterType,
         marks_slot: usize,
-        member_keeps: bool,
         key_area: Option<usize>,
         name: &str,
     ) -> Result<(), String> {
@@ -542,11 +545,6 @@ impl CodeBuilder<'_> {
             self.emit_key_membership(probe_slot, key_slot, element_type, name, probe_type)?;
         let mark = self.temporary_vreg();
         self.emit(abi::move_register(&mark, &member.location));
-        if !member_keeps {
-            let one = self.temporary_vreg();
-            self.emit(abi::move_immediate(&one, "Integer", "1"));
-            self.emit(abi::exclusive_or_registers(&mark, &mark, &one));
-        }
         self.emit_store_mark(marks_slot, index_slot, &mark);
         self.emit_map_loop_next(index_slot, &top, &done);
         Ok(())
@@ -565,22 +563,6 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_registers(&total, &total, &count));
         }
         self.emit(abi::store_u64(&total, abi::stack_pointer(), slot));
-        slot
-    }
-
-    /// The larger of two slots' values, into a fresh slot.
-    fn emit_max_of(&mut self, a: usize, b: usize) -> usize {
-        let slot = self.allocate_stack_object("inplace_max_of", 8);
-        let x = self.temporary_vreg();
-        let y = self.temporary_vreg();
-        let keep = self.label("inplace_max_of_keep");
-        self.emit(abi::load_u64(&x, abi::stack_pointer(), a));
-        self.emit(abi::load_u64(&y, abi::stack_pointer(), b));
-        self.emit(abi::compare_registers(&x, &y));
-        self.emit(abi::branch_hi(&keep));
-        self.emit(abi::move_register(&x, &y));
-        self.emit(abi::label(&keep));
-        self.emit(abi::store_u64(&x, abi::stack_pointer(), slot));
         slot
     }
 
@@ -654,30 +636,25 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
-    /// `s = collections::intersection(s, t)` / `collections::difference(s, t)`.
-    fn try_inplace_filter_set(
+    /// `s = collections::intersection(s, t)`: every element of `s` is tested, so
+    /// one membership pass marks `s` and one compaction keeps the members.
+    pub(crate) fn try_inplace_intersection_assign(
         &mut self,
         site: &SelfUpdateSite<'_>,
         value: &NirValue,
-        builtin: &str,
-        member_keeps: bool,
     ) -> Result<bool, String> {
         if self.self_update_scratch.is_none() {
             return Ok(false);
         }
-        let Some((target, element_type, alias)) = self.resolve_set_op(site, value, builtin) else {
+        let Some((target, element_type, alias)) = self.resolve_set_op(site, value, "intersection")
+        else {
             return Ok(false);
         };
         let set_type = target.collection_type.clone();
         let opened = self.open_inplace_dest(&target.dest)?;
-        if alias {
-            // `intersection(s, s)` is `s`; `difference(s, s)` is empty.
-            if !member_keeps {
-                let dest = self.inplace_collection_slot(&opened)?;
-                self.lower_map_clear_in_place(dest, &set_type)?;
-            }
-        } else {
-            let other = self.lower_other_collection(&target.args[1], &set_type, builtin)?;
+        // `intersection(s, s)` is `s`.
+        if !alias {
+            let other = self.lower_other_collection(&target.args[1], &set_type, "intersection")?;
             let dest = self.inplace_collection_slot(&opened)?;
             let marks_size = self.emit_map_counts(&[dest]);
             let mut sizes = vec![marks_size];
@@ -692,9 +669,8 @@ impl CodeBuilder<'_> {
                 &set_type,
                 &element_type,
                 marks,
-                member_keeps,
                 key_area,
-                &format!("inplace_{builtin}_mark"),
+                "inplace_intersection_mark",
             )?;
             self.lower_map_compact_in_place(dest, marks, &set_type)?;
         }
@@ -703,20 +679,115 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
-    pub(crate) fn try_inplace_intersection_assign(
-        &mut self,
-        site: &SelfUpdateSite<'_>,
-        value: &NirValue,
-    ) -> Result<bool, String> {
-        self.try_inplace_filter_set(site, value, "intersection", true)
-    }
-
+    /// `s = collections::difference(s, t)` (bug-732). Each element of `t` is
+    /// looked up in `s` (`emit_map_find_index`); a hit is claimed for removal,
+    /// deleting its bucket, and one compaction then drops the claimed entries from
+    /// the first of them on. The call costs `t`'s elements plus the entries of
+    /// `s` that move — never a pass over all of `s`, which marking every element
+    /// of `s` against `t` was.
     pub(crate) fn try_inplace_difference_assign(
         &mut self,
         site: &SelfUpdateSite<'_>,
         value: &NirValue,
     ) -> Result<bool, String> {
-        self.try_inplace_filter_set(site, value, "difference", false)
+        if self.self_update_scratch.is_none() {
+            return Ok(false);
+        }
+        let Some((target, element_type, alias)) = self.resolve_set_op(site, value, "difference")
+        else {
+            return Ok(false);
+        };
+        let set_type = target.collection_type.clone();
+        let opened = self.open_inplace_dest(&target.dest)?;
+        if alias {
+            // `difference(s, s)` is empty.
+            let dest = self.inplace_collection_slot(&opened)?;
+            self.lower_map_clear_in_place(dest, &set_type)?;
+        } else {
+            let other = self.lower_other_collection(&target.args[1], &set_type, "difference")?;
+            let dest = self.inplace_collection_slot(&opened)?;
+            let key_area = match self.emit_borrow_area_size(other, Payload::Key, &element_type) {
+                Some(size) => Some(self.emit_scratch_areas(&[size])?[0]),
+                None => None,
+            };
+            let from_slot = self.emit_claim_members(dest, other, &element_type, key_area, None)?;
+            self.emit_compact_claimed(dest, from_slot);
+        }
+        self.close_field_dest(&target.dest, &opened)?;
+        self.clear_self_update_constant(site.name);
+        Ok(true)
+    }
+
+    /// bug-732: for each element of the set in `probe_slot`, find it in the set in
+    /// `dest_slot` and, on a hit, claim that entry for removal
+    /// (`emit_map_mark_removed`). Returns a slot holding the smallest claimed index
+    /// — or `dest`'s count when nothing was claimed. When `absent_marks_slot` is
+    /// given, mark byte `j` records whether element `j` of the probe set was
+    /// absent from `dest` (1) or claimed (0). Costs the probe set's elements.
+    fn emit_claim_members(
+        &mut self,
+        dest_slot: usize,
+        probe_slot: usize,
+        element_type: &ParameterType,
+        key_area: Option<usize>,
+        absent_marks_slot: Option<usize>,
+    ) -> Result<usize, String> {
+        let from_slot = self.allocate_stack_object("inplace_claim_from", 8);
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), dest_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), from_slot));
+        let (index_slot, top, done) = self.emit_map_loop_head(probe_slot, "inplace_claim");
+        let next = self.label("inplace_claim_next");
+        let key_slot = self.emit_map_entry_borrowed(
+            probe_slot,
+            index_slot,
+            Payload::Key,
+            element_type,
+            key_area,
+            "inplace_claim_key",
+        )?;
+        if let Some(marks) = absent_marks_slot {
+            let one = self.temporary_vreg();
+            self.emit(abi::move_immediate(&one, "Integer", "1"));
+            self.emit_store_mark(marks, index_slot, &one);
+        }
+        let found = self.emit_map_find_index(dest_slot, key_slot, element_type, &next)?;
+        if let Some(marks) = absent_marks_slot {
+            let zero = self.temporary_vreg();
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit_store_mark(marks, index_slot, &zero);
+        }
+        self.emit_map_mark_removed(dest_slot, found);
+        let lowest = self.label("inplace_claim_lowest");
+        let from = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        self.emit(abi::load_u64(&from, abi::stack_pointer(), from_slot));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), found));
+        self.emit(abi::compare_registers(&index, &from));
+        self.emit(abi::branch_ge(&lowest));
+        self.emit(abi::store_u64(&index, abi::stack_pointer(), from_slot));
+        self.emit(abi::label(&lowest));
+        self.emit(abi::label(&next));
+        self.emit_map_loop_next(index_slot, &top, &done);
+        Ok(from_slot)
+    }
+
+    /// Drop the entries `emit_claim_members` claimed — none when `from` is still
+    /// the count.
+    fn emit_compact_claimed(&mut self, dest_slot: usize, from_slot: usize) {
+        let skip = self.label("inplace_claim_none");
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let from = self.temporary_vreg();
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), dest_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&from, abi::stack_pointer(), from_slot));
+        self.emit(abi::compare_registers(&from, &count));
+        self.emit(abi::branch_ge(&skip));
+        self.emit_map_compact_from(dest_slot, from_slot);
+        self.emit(abi::label(&skip));
     }
 
     /// `s = collections::symmetricDifference(s, t)`.
@@ -747,52 +818,23 @@ impl CodeBuilder<'_> {
                 self.lower_other_collection(&target.args[1], &set_type, "symmetricDifference")?;
             let dest = self.inplace_collection_slot(&opened)?;
             let grow = self.inplace_inline_grow(&opened)?;
-            // Marks for `s` then for `t`, in one scratch region, then one borrowed
-            // key area big enough for either set's keys; both membership passes
-            // read the original `s`.
-            let marks_size = self.emit_map_counts(&[dest, other]);
+            // bug-732: only `t` is walked. The room for every element of `t` is
+            // reserved first — the only allocation, before the first write — then
+            // each element of `t` is looked up in `s`: a hit is claimed for
+            // removal, a miss marked for the add. One compaction drops the claimed
+            // entries (from the first of them on) and the misses are added in
+            // `t`'s order after `s`'s survivors, which is the copying result.
+            let marks_size = self.emit_map_counts(&[other]);
             let mut sizes = vec![marks_size];
-            if element_type == ParameterType::String {
-                let max_s = self.emit_map_max_payload_len(dest, Payload::Key);
-                let max_t = self.emit_map_max_payload_len(other, Payload::Key);
-                let max = self.emit_max_of(max_s, max_t);
-                sizes.push(self.emit_string_area_size(max));
-            }
+            sizes.extend(self.emit_borrow_area_size(other, Payload::Key, &element_type));
             let areas = self.emit_scratch_areas(&sizes)?;
-            let marks_s = areas[0];
+            let marks_t = areas[0];
             let key_area = areas.get(1).copied();
-            let marks_t = self.allocate_stack_object("inplace_symdiff_marks_t", 8);
-            let address = self.temporary_vreg();
-            let base = self.temporary_vreg();
-            let count = self.temporary_vreg();
-            self.emit(abi::load_u64(&address, abi::stack_pointer(), marks_s));
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), dest));
-            self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
-            self.emit(abi::add_registers(&address, &address, &count));
-            self.emit(abi::store_u64(&address, abi::stack_pointer(), marks_t));
-            self.emit_membership_marks(
-                other,
-                dest,
-                &set_type,
-                &element_type,
-                marks_t,
-                false,
-                key_area,
-                "inplace_symdiff_t",
-            )?;
-            self.emit_membership_marks(
-                dest,
-                other,
-                &set_type,
-                &element_type,
-                marks_s,
-                false,
-                key_area,
-                "inplace_symdiff_s",
-            )?;
-            self.lower_map_compact_in_place(dest, marks_s, &set_type)?;
-            let (entries, bytes) = self.emit_map_batch_room(other, Some(marks_t));
+            let (entries, bytes) = self.emit_map_batch_room(other, None);
             self.emit_map_reserve(dest, entries, bytes, &set_type, grow)?;
+            let from_slot =
+                self.emit_claim_members(dest, other, &element_type, key_area, Some(marks_t))?;
+            self.emit_compact_claimed(dest, from_slot);
             self.emit_add_all(
                 dest,
                 other,

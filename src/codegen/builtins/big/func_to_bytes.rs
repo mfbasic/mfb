@@ -102,8 +102,9 @@ pub(crate) fn lower_to_bytes(
     let reverse_loop = format!("{symbol}_reverse");
     let reverse_done = format!("{symbol}_reverse_done");
 
-    // `emit_build_byte_list` writes its own fixed scratch registers, so nothing is held
-    // in a register across it: the source and count travel in frame slots.
+    // `emit_build_byte_list` mints its scratch vregs from `vregs` and calls the
+    // allocator, so nothing is held in a register across it: the source and count
+    // travel in frame slots.
     emit_build_byte_list(
         &symbol,
         &format!("{symbol}_copy"),
@@ -113,6 +114,7 @@ pub(crate) fn lower_to_bytes(
         Some(list_slot),
         abi::mfb_return(1),
         &alloc_fail,
+        &mut vregs,
         &mut builder.instructions,
         &mut builder.relocations,
     );

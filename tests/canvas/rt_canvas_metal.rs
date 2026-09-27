@@ -1138,3 +1138,95 @@ fn forty_thousand_opaque_polygon_edges_draw_on_metal() {
         "200 opaque rings of 200 edges (40,000 edges)",
     );
 }
+
+// ---------------------------------------------------------------------------------------
+// bug-687: polygons over black, where one coverage step is several sRGB levels.
+//
+// The shader and the software oracle quantise coverage identically
+// (`int(clamp(0.5 - d, 0, 1) * 255 + 0.5)`), so they agree on a pixel exactly when they
+// agree on its distance to within the gap to the nearest quantisation boundary. A
+// distance evaluated in fp32 misses that on a few pixels of every long edge, and near
+// black one step of coverage moves a channel by up to 9-13 levels, past `GPU_DEFAULT`'s
+// 2. Every scene here draws on the default opaque-black surface for that reason. Shared
+// with `scripts/test-canvas-gpu-rows.sh`, which draws them on Vulkan.
+// ---------------------------------------------------------------------------------------
+
+/// The star polygon {251/97}: 251 long chords (about 300 px each). bug-687 measured
+/// max delta 4 at `42cea38df`, under the old 256-edge cap.
+const STAR_251_97: &str = include_str!("scenes/star_251_97_on_black.mfb");
+
+#[test]
+fn a_long_chord_star_over_black_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_star_251_97",
+        STAR_251_97,
+        "the {251/97} star polygon over black",
+    );
+}
+
+/// The star polygon {301/97}: past the old 256-edge cap, and the most edge length of
+/// the stars. bug-687 measured max delta 9.
+const STAR_301_97: &str = include_str!("scenes/star_301_97_on_black.mfb");
+
+#[test]
+fn a_three_hundred_one_point_long_chord_star_over_black_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_star_301_97",
+        STAR_301_97,
+        "the {301/97} star polygon over black",
+    );
+}
+
+/// The star polygon {301/2}: short edges (about 7.5 px each). bug-687 measured max
+/// delta 3.
+const STAR_301_2: &str = include_str!("scenes/star_301_2_on_black.mfb");
+
+#[test]
+fn a_short_edge_star_over_black_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_star_301_2",
+        STAR_301_2,
+        "the {301/2} star polygon over black",
+    );
+}
+
+/// `LARGE_POLYGONS` without its grey ground: filled, translucent, stroked, transformed
+/// and self-intersecting polygons of 300-4,000 edges, every rim over black. bug-688
+/// measured max delta 4 on Vulkan (lavapipe) at (736, 52), the rotated ring's rim.
+const LARGE_POLYGONS_ON_BLACK: &str = include_str!("scenes/large_polygons_on_black.mfb");
+
+#[test]
+fn polygons_past_two_hundred_fifty_six_edges_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_large_polygons_on_black",
+        LARGE_POLYGONS_ON_BLACK,
+        "filled, stroked, transformed and self-intersecting polygons over black",
+    );
+}
+
+/// 140 small filled polygons over black (bug-687): every rim pixel of every ring is near
+/// black. Before the double-float polygon path Metal put 3 pixels past `GPU_DEFAULT`
+/// here, worst 4.
+const SMALL_POLYGONS_ON_BLACK: &str = include_str!("scenes/small_polygons_on_black.mfb");
+
+#[test]
+fn small_polygons_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_small_polygons_on_black",
+        SMALL_POLYGONS_ON_BLACK,
+        "140 small filled polygons over black",
+    );
+}
+
+/// 140 rectangles over black (bug-687): a guard. Rectangles keep their fp32 distance and
+/// measured worst 2 on Metal and on Vulkan -- inside `GPU_DEFAULT`, only just.
+const RECTANGLES_ON_BLACK: &str = include_str!("scenes/rectangles_on_black.mfb");
+
+#[test]
+fn rectangles_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_rectangles_on_black",
+        RECTANGLES_ON_BLACK,
+        "140 filled rectangles over black",
+    );
+}

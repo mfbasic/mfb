@@ -28,7 +28,6 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -125,9 +124,9 @@ impl CodeBuilder<'_> {
         &mut self,
         kind: ThreadValueFn,
         type_: &ParameterType,
-        dst: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
     ) {
-        let dst = dst.into();
+        let dst: abi::Reg = dst.into();
         if self.thread_value_is_word(type_) {
             self.emit(abi::move_immediate(dst, "Integer", "0"));
             return;

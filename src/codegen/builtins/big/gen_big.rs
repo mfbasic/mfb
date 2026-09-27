@@ -30,6 +30,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 
 /// `big::Int` slot 0: the block-relative offset of the inlined magnitude.
 pub(crate) const INT_OFFSET_MAGNITUDE: usize = 0;
@@ -245,9 +246,10 @@ pub(crate) fn emit_compare_magnitude(
     vregs: &mut Vregs,
     a: &IntSlots,
     b: &IntSlots,
-    out: &str,
+    out: impl Into<Reg>,
     tag: &str,
 ) {
+    let out: Reg = out.into();
     let symbol = builder.current_symbol.clone();
     let less = format!("{symbol}_{tag}_less");
     let greater = format!("{symbol}_{tag}_greater");
@@ -304,9 +306,10 @@ pub(crate) fn emit_compare_int(
     vregs: &mut Vregs,
     a: &IntSlots,
     b: &IntSlots,
-    out: &str,
+    out: impl Into<Reg>,
     tag: &str,
 ) {
+    let out: Reg = out.into();
     let symbol = builder.current_symbol.clone();
     let same_sign = format!("{symbol}_{tag}_same_sign");
     let a_negative = format!("{symbol}_{tag}_a_negative");
@@ -387,11 +390,13 @@ pub(crate) fn emit_copy_int(
 fn emit_trim(
     builder: &mut CodeBuilder,
     vregs: &mut Vregs,
-    data: &str,
-    count: &str,
-    negative: &str,
+    data: impl Into<Reg>,
+    count: impl Into<Reg>,
+    negative: impl Into<Reg>,
     label_base: &str,
 ) {
+    let data: Reg = data.into();
+    let (count, negative): (Reg, Reg) = (count.into(), negative.into());
     let cursor = vregs.next();
     let byte = vregs.next();
     let trim_loop = format!("{label_base}_trim");

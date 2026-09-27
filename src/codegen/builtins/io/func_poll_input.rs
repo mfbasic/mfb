@@ -98,6 +98,27 @@ pub(crate) fn lower_poll_input(
         abi::label(&timeout_ok),
         abi::store_u64(&v10, abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
+    // bug-699: a byte in the input buffer is input a read returns at once, and
+    // neither the broadcast log nor `poll(fd 0)` can see it — a look-ahead reader
+    // already took it from them. Answer before waiting on anything. Emitted only
+    // when the program has the buffer, so every other program's `pollInput` is
+    // unchanged (a label is an instruction too — plan-94-B B7).
+    let input_ready = format!("{symbol}_input_ready");
+    if let Some(input_state_offset) = ctx.input_state_offset {
+        let mut ectx = EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        };
+        crate::codegen::io::input::buffer::emit_branch_if_buffered(
+            &input_ready,
+            input_state_offset,
+            &mut ectx,
+            &mut vregs,
+        );
+    }
     // The re-check entry point exists only for the mouse verification below. A
     // label is an instruction in the emitted stream, so pushing it unconditionally
     // would put it in every program's `io::pollInput` — which is exactly the
@@ -131,6 +152,7 @@ pub(crate) fn lower_poll_input(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
+            &mut vregs,
             &poll_ready,
             &os_poll,
         )?;
@@ -222,6 +244,9 @@ pub(crate) fn lower_poll_input(
     }
     if ctx.mouse_state_offset.is_some() {
         instructions.push(abi::label(&report_ready));
+    }
+    if ctx.input_state_offset.is_some() {
+        instructions.push(abi::label(&input_ready));
     }
     instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
@@ -442,6 +467,10 @@ fn emit_mouse_ready_verify(
         &read_gave_up,
         &read_gave_up,
         None,
+        // No input-buffer front: `pollInput` answered TRUE before reaching here
+        // if the buffer held a byte, so this read is always of the source.
+        None,
+        &mut vregs,
     )?;
     ctx.instructions
         .push(abi::move_register(&count, abi::return_register()));

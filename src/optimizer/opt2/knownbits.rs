@@ -27,7 +27,6 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::regalloc::analysis::{build_cfg, classify_ref, RegRef};
 use crate::codegen::engine::types::CodeInstruction;
-use crate::target::shared::abi;
 use crate::target::shared::regmodel::RegisterModel;
 
 use super::lvn::copy_of;
@@ -80,7 +79,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
     // Decide every rewrite first (the lattice closures borrow the stream),
     // then apply — the same shape `opt2::sccp` uses.
     enum Rewrite {
-        Constant(String, u64),
+        Constant(u64),
         Copy(Operand, Operand),
     }
     let (mut simplified, mut narrowed, mut extensions) = (0u64, 0u64, 0u64);
@@ -96,10 +95,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
         // Rewrite 1: the whole result is known → materialize it.
         let result = value_of(i, "dst").unwrap_or(Known::UNKNOWN);
         if result.ones | result.zeros == u64::MAX {
-            planned.push((
-                i,
-                Rewrite::Constant(dst.rendered().into_owned(), result.ones),
-            ));
+            planned.push((i, Rewrite::Constant(result.ones)));
             simplified += 1;
             continue;
         }
@@ -164,9 +160,7 @@ pub(crate) fn simplify(instructions: &mut [CodeInstruction], model: &dyn Registe
     }
     for (i, rewrite) in planned {
         instructions[i] = match rewrite {
-            Rewrite::Constant(dst, value) => {
-                abi::move_immediate(&dst, "Integer", &value.to_string())
-            }
+            Rewrite::Constant(value) => super::constant_into_dst(&instructions[i], value),
             Rewrite::Copy(dst, source) => copy_of(dst, source),
         };
     }
@@ -192,7 +186,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

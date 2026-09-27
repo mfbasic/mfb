@@ -140,6 +140,129 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(destination)
     }
 
+    /// bug-695: the error exit of an inline raise (a failing conversion, a division by
+    /// zero, an overflow, a bounds check — everything `emit_error_register_return`
+    /// ends) that is not captured by an inline `TRAP`. It frees exactly what a failing
+    /// call at the same point frees ([`Self::emit_call_error_exit`]): the statement's
+    /// pending temporaries, then every active cleanup (§14.7 — an error edge is a scope
+    /// edge). Before this, the return route was a bare `return_()` that leaked every
+    /// owned local, and the trap route skipped the temporaries.
+    ///
+    /// Raise sites are dense (every checked `+`, every conversion, every bounds check),
+    /// so the return route does not repeat the walk per site — that grew the byte-identity
+    /// covers by 21% in total and `vector` by 44%. The site parks the `Result` in the
+    /// pending slots, frees its own statement temps (they differ per statement), and
+    /// branches to a landing pad shared by every site with the same cleanup stack. Pads
+    /// chain by prefix (`emit_error_return_pad`), so a function has one drop per
+    /// distinct cleanup-stack prefix. The trap route keeps its per-site walk.
+    pub(crate) fn emit_inline_error_exit(&mut self) -> Result<(), String> {
+        if matches!(self.error_exit_destination(), ExitDestination::Trap)
+            || self.active_cleanups.is_empty()
+        {
+            return self.emit_call_error_exit();
+        }
+        self.store_pending_current_result();
+        self.emit_pending_temp_frees_in_place()?;
+        let cleanups = self.active_cleanups.clone();
+        let previous_escaping = self.escaping_value_slot;
+        // Same identity skip as `emit_current_result_exit`'s `Return` arm, so a pad
+        // drops exactly what the per-site walk would have.
+        self.escaping_value_slot = self.pending_result_slots.map(|slots| slots.value);
+        let result = self.emit_error_return_pad(&cleanups);
+        self.escaping_value_slot = previous_escaping;
+        result
+    }
+
+    /// Branch to the error-return landing pad for `cleanups`, creating it (and any
+    /// missing pad down its prefix chain) on first use. Entry contract: the error
+    /// `Result` is in the pending result slots.
+    fn emit_error_return_pad(&mut self, cleanups: &[ActiveCleanup]) -> Result<(), String> {
+        let label = self.error_return_pad_label(cleanups)?;
+        self.emit(abi::branch(&label));
+        Ok(())
+    }
+
+    /// The label of the pad for `cleanups`. A new pad's code is emitted NOW — the
+    /// drop reads this point's locals — into a side buffer, and held for
+    /// [`Self::append_error_return_pads`] to place after the body. The pad for
+    /// `[c0..ck]` drops `ck` and continues into the pad for `[c0..ck-1]`; the empty
+    /// prefix's pad reloads the parked `Result` and returns.
+    fn error_return_pad_label(&mut self, cleanups: &[ActiveCleanup]) -> Result<String, String> {
+        let key = self.error_return_pad_key(cleanups);
+        if let Some(label) = self.error_return_pads.get(&key) {
+            return Ok(label.clone());
+        }
+        let successor = match cleanups.split_last() {
+            Some((_, rest)) => Some(self.error_return_pad_label(rest)?),
+            None => None,
+        };
+        let label = self.label("error_return_pad");
+        self.error_return_pads.insert(key, label.clone());
+        let body = std::mem::take(&mut self.instructions);
+        self.emit(abi::label(&label));
+        let emitted = if successor.is_some() {
+            self.emit_cleanups(&cleanups[cleanups.len() - 1..])
+        } else {
+            self.load_pending_result_registers();
+            self.emit(abi::return_());
+            Ok(())
+        };
+        let code = std::mem::replace(&mut self.instructions, body);
+        emitted?;
+        self.error_return_pad_code.push(ErrorReturnPad {
+            depth: cleanups.len(),
+            label: label.clone(),
+            successor,
+            code,
+        });
+        Ok(label)
+    }
+
+    /// Append the held error-return pads after the function body, deepest prefix
+    /// first, so a pad's successor (one shorter) always follows it: every branch
+    /// into a pad (from the body) and between pads is forward. A pad falls through
+    /// into its successor when that is the next pad placed, and branches otherwise.
+    /// The body never falls into the first pad: it ends in its own return.
+    pub(crate) fn append_error_return_pads(&mut self) {
+        let mut pads = std::mem::take(&mut self.error_return_pad_code);
+        // Stable: pads of equal depth keep their creation order (determinism).
+        pads.sort_by(|a, b| b.depth.cmp(&a.depth));
+        let next_labels: Vec<Option<String>> = pads
+            .iter()
+            .skip(1)
+            .map(|pad| Some(pad.label.clone()))
+            .chain(std::iter::once(None))
+            .collect();
+        for (pad, next) in pads.into_iter().zip(next_labels) {
+            self.instructions.extend(pad.code);
+            if let Some(successor) = pad.successor {
+                if next.as_deref() != Some(successor.as_str()) {
+                    self.emit(abi::branch(&successor));
+                }
+            }
+        }
+    }
+
+    fn error_return_pad_key(&self, cleanups: &[ActiveCleanup]) -> Vec<ErrorReturnPadEntry> {
+        cleanups
+            .iter()
+            .map(|cleanup| {
+                let name = match cleanup {
+                    ActiveCleanup::Resource(cleanup) => Some(&cleanup.name),
+                    ActiveCleanup::ResourceUnion(cleanup) => Some(&cleanup.name),
+                    ActiveCleanup::OwnedList(cleanup) => Some(&cleanup.name),
+                    ActiveCleanup::OwnedValue(_) => None,
+                };
+                ErrorReturnPadEntry {
+                    cleanup: cleanup.clone(),
+                    local_slot: name
+                        .and_then(|name| self.locals.get(name))
+                        .map(|local| local.stack_offset),
+                }
+            })
+            .collect()
+    }
+
     pub(crate) fn emit_current_result_exit(
         &mut self,
         destination: ExitDestination,
@@ -268,7 +391,7 @@ impl CodeBuilder<'_> {
                     ValueResult {
                         origin: None,
                         type_: lowered.type_,
-                        location: Operand::from(copied.render()),
+                        location: Operand::from(copied),
                         text: lowered.text,
                     },
                     true,
@@ -303,7 +426,7 @@ impl CodeBuilder<'_> {
                     ValueResult {
                         origin: None,
                         type_: lowered.type_,
-                        location: Operand::from(copied.render()),
+                        location: Operand::from(copied),
                         text: lowered.text,
                     },
                     true,
@@ -379,7 +502,7 @@ impl CodeBuilder<'_> {
                 ValueResult {
                     origin: None,
                     type_: lowered.type_,
-                    location: Operand::from(copied.render()),
+                    location: Operand::from(copied),
                     text: lowered.text,
                 },
                 true,
@@ -710,13 +833,10 @@ impl CodeBuilder<'_> {
                         if !already_standalone
                             && self.inline_collection_payload_size(&result.type_).is_some()
                         {
-                            Operand::from(
-                                self.materialize_inline_value_in_arena(
-                                    &result.type_,
-                                    &result.location,
-                                )?
-                                .render(),
-                            )
+                            Operand::from(self.materialize_inline_value_in_arena(
+                                &result.type_,
+                                &result.location,
+                            )?)
                         } else {
                             result.location.clone()
                         },

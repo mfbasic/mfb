@@ -604,7 +604,7 @@ impl CodeBuilder<'_> {
                 let slot = self.allocate_stack_object("concat_global_strcap", 8);
                 let address = self.load_global_address(&shadow)?;
                 let spare = self.allocate_register();
-                self.emit(abi::load_u64(&spare, address.as_str(), 0));
+                self.emit(abi::load_u64(&spare, address, 0));
                 self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
                 StringShadow {
                     slot,
@@ -638,7 +638,7 @@ impl CodeBuilder<'_> {
             let spare = self.allocate_register();
             self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow.slot));
             let address = self.load_global_address(hidden)?;
-            self.emit(abi::store_u64(&spare, address.as_str(), 0));
+            self.emit(abi::store_u64(&spare, address, 0));
         }
         Ok(())
     }
@@ -908,7 +908,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
         let value_slot = self.spill_to_slot("inplace_str_grow_value", &value_result.location);
@@ -1283,7 +1283,7 @@ impl CodeBuilder<'_> {
         let pad_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(pad_ptr.render()),
+            location: Operand::from(pad_ptr),
             text: String::new(),
         };
         self.emit(abi::load_u64(&pad_ptr, abi::stack_pointer(), pad_slot));
@@ -1295,7 +1295,7 @@ impl CodeBuilder<'_> {
         let value_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(value_ptr.render()),
+            location: Operand::from(value_ptr),
             text: String::new(),
         };
         self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
@@ -1507,7 +1507,7 @@ impl CodeBuilder<'_> {
         let count = self.temporary_vreg();
         let src = self.temporary_vreg();
         let left = self.temporary_vreg();
-        let dst = dst.clone();
+        let dst = *dst;
         let outer = self.label("inplace_str_pad_outer");
         let outer_done = self.label("inplace_str_pad_outer_done");
         let inner = self.label("inplace_str_pad_inner");
@@ -1873,7 +1873,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
 
@@ -2072,7 +2072,7 @@ impl CodeBuilder<'_> {
         let value_result = ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(block.render()),
+            location: Operand::from(block),
             text: String::new(),
         };
         let (ptr, len) = self.emit_string_window(kind, &value_result, &rest)?;
@@ -2090,14 +2090,21 @@ impl CodeBuilder<'_> {
         }
         // Move the window to `block + 8`. The destination is never after the
         // source, so a forward copy reads each byte before it is overwritten.
+        // bug-732: a window that already starts there (`stripSuffix`, a no-match
+        // `stripPrefix`, `trimEnd`, `left`/`mid` from 0) does not move, so the call
+        // costs only the bytes it gives up, not a copy of every byte it keeps.
         let dst = self.temporary_vreg();
         let src = self.temporary_vreg();
         let count = self.temporary_vreg();
+        let in_place = self.label("inplace_str_window_in_place");
         self.emit(abi::load_u64(&dst, abi::stack_pointer(), block_slot));
         self.emit(abi::add_immediate(&dst, &dst, 8));
         self.emit(abi::load_u64(&src, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::compare_registers(&src, &dst));
+        self.emit(abi::branch_eq(&in_place));
         self.emit(abi::load_u64(&count, abi::stack_pointer(), len_slot));
         self.emit_copy_bytes(&dst, &src, &count, "inplace_str_window_move");
+        self.emit(abi::label(&in_place));
         self.emit_string_set_len(block_slot, shadow.slot, len_slot);
         self.publish_string_shadow(&shadow)?;
         if let Some(local) = self.locals.get_mut(site.name) {

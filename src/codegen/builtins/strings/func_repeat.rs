@@ -259,11 +259,11 @@ pub(crate) fn lower(
     // bug-536 shape B: `result_slot` was written from this lowering's own
     // `emit_arena_alloc_call` and the source bytes were copied in, so the block
     // is fresh and unaliased.
-    builder.mark_fresh_string(Operand::from(result.render()));
+    builder.mark_fresh_string(Operand::from(result));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.repeat".to_string(),
     })
 }

@@ -3,7 +3,283 @@ use std::borrow::Cow;
 use crate::codegen::engine::operand::AbiConvention;
 use crate::codegen::engine::operand::AbiRole;
 use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::CodeInstruction;
+use crate::target::shared::regmodel::RegClass;
+
+/// A register operand — the only thing a register-valued `abi::` operand takes
+/// (bug-721).
+///
+/// Its representation is private, and there is no conversion from a string. The
+/// only ways to hold one are:
+///
+/// * a register a minter handed out ([`VirtualRegister`], from `Vregs::next()` or
+///   `CodeBuilder::allocate_register()` — every minter draws from one id source,
+///   so two can never be equal by accident);
+/// * an ABI role ([`mfb_arg`], [`c_arg`], [`mfb_return`], [`c_return`],
+///   [`sys_arg`]) or a neutral role token this module defines ([`ZERO`], [`LR`],
+///   [`ARENA`], [`CURRENT_THREAD`], [`SCRATCH`], …), which each backend realizes;
+/// * a physical register the target's register model names
+///   ([`Reg::from_model`]), for the few places an ABI mandates a specific one.
+///
+/// So a hand-picked register — `"%v9"`, `"x9"`, `"rax"`, a `format!`-built name —
+/// is a compile error, not a gate finding. That class caused bug-721 (a literal
+/// `%v9` aliasing a minted one: a double free on every Windows `tls::connect`) and
+/// the bug-56 family before it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Reg(RegRepr);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RegRepr {
+    Virtual(VirtualRegister),
+    Abi {
+        convention: AbiConvention,
+        role: AbiRole,
+        index: u8,
+    },
+    /// A neutral role token defined in this module, realized per backend.
+    Token(&'static str),
+    /// A physical register the allocator or a backend chose, with its register
+    /// class and register-table index (what `Operand::Phys` carries).
+    Physical {
+        class: RegClass,
+        index: u32,
+        name: &'static str,
+    },
+}
+
+impl Reg {
+    /// A neutral role token. Private: only the constants in this module name one.
+    const fn token(spelling: &'static str) -> Self {
+        Reg(RegRepr::Token(spelling))
+    }
+
+    /// A physical register the register ALLOCATOR or a BACKEND chose — the frame
+    /// finalizer saving the callee-saved registers the coloring used, a backend's
+    /// spill code, the register model's ABI-mandated sets. Emission code never
+    /// picks a physical register; it names a role or mints a vreg.
+    /// `tests/guards/architecture_guards.rs::physical_registers_stay_in_the_backends`
+    /// confines the callers to the allocator, the frame finalizer, the register
+    /// models and `src/arch`.
+    /// Panics unless `name` is a real physical register of some target — so this
+    /// cannot become a way to spell a virtual register or a role by hand.
+    #[track_caller]
+    pub(crate) fn physical(name: &str) -> Self {
+        use crate::codegen::engine::regalloc::analysis::{
+            fp_physical_index, int_concrete_physical_index,
+        };
+        let (class, index) = if let Some(index) = int_concrete_physical_index(name) {
+            (RegClass::Int, index)
+        } else if let Some(index) = fp_physical_index(name).filter(|_| !name.starts_with('%')) {
+            (RegClass::Fp, index)
+        } else {
+            panic!("`{name}` is not a physical register (bug-721)");
+        };
+        Reg(RegRepr::Physical {
+            class,
+            index,
+            name: intern_physical(name),
+        })
+    }
+
+    /// The operand this register is written into an instruction as.
+    pub(crate) fn operand(self) -> Operand {
+        match self.0 {
+            RegRepr::Virtual(register) => Operand::from(register),
+            RegRepr::Abi {
+                convention,
+                role,
+                index,
+            } => Operand::abi(convention, role, index),
+            RegRepr::Token(spelling) => Operand::Raw(spelling.into()),
+            // Typed, so `CodeInstruction::field` knows it is a register and not text.
+            RegRepr::Physical { class, index, name } => Operand::phys(class, index, name),
+        }
+    }
+
+    /// A hand-numbered virtual register for a test that builds an instruction
+    /// stream by hand. Never available to production code.
+    #[cfg(test)]
+    pub(crate) fn test_vreg(id: u32) -> Self {
+        Reg(RegRepr::Virtual(VirtualRegister::new_for_test(
+            RegClass::Int,
+            id,
+        )))
+    }
+
+    /// Any register a hand-built test stream spells — `%vN`, `%fN`, a role token or
+    /// a physical name. Never available to production code (bug-721).
+    #[cfg(test)]
+    pub(crate) fn test_named(text: &str) -> Self {
+        use crate::codegen::engine::regalloc::{parse_fp_vreg, parse_vreg};
+        if let Some(id) = parse_vreg(text) {
+            return Reg(RegRepr::Virtual(VirtualRegister::new_for_test(
+                RegClass::Int,
+                id,
+            )));
+        }
+        if let Some(id) = parse_fp_vreg(text) {
+            return Reg(RegRepr::Virtual(VirtualRegister::new_for_test(
+                RegClass::Fp,
+                id,
+            )));
+        }
+        if let Some(token) = role_token(text) {
+            return Reg::token(token);
+        }
+        Reg::physical(text)
+    }
+}
+
+impl From<VirtualRegister> for Reg {
+    fn from(register: VirtualRegister) -> Self {
+        Reg(RegRepr::Virtual(register))
+    }
+}
+
+impl From<&VirtualRegister> for Reg {
+    fn from(register: &VirtualRegister) -> Self {
+        Reg(RegRepr::Virtual(*register))
+    }
+}
+
+impl From<&Reg> for Reg {
+    fn from(register: &Reg) -> Self {
+        *register
+    }
+}
+
+/// A lowered value's location as a register. A location is always a register
+/// the engine produced — minted, an ABI role, or a role token — so anything else
+/// is a compiler bug, and this panics naming it rather than letting text reach an
+/// instruction as a register.
+impl From<&Operand> for Reg {
+    #[track_caller]
+    fn from(operand: &Operand) -> Self {
+        match operand {
+            Operand::VReg { class, id } => {
+                Reg(RegRepr::Virtual(VirtualRegister::from_operand(*class, *id)))
+            }
+            Operand::Abi {
+                convention,
+                role,
+                index,
+            } => Reg(RegRepr::Abi {
+                convention: *convention,
+                role: *role,
+                index: *index,
+            }),
+            Operand::Phys { class, index, name } => Reg(RegRepr::Physical {
+                class: *class,
+                index: *index,
+                name,
+            }),
+            Operand::Raw(text) => match role_token(text) {
+                Some(token) => Reg(RegRepr::Token(token)),
+                None => panic!("`{text}` is not a register operand (bug-721)"),
+            },
+            Operand::Imm(value) => panic!("immediate `{value}` is not a register operand"),
+        }
+    }
+}
+
+impl From<Operand> for Reg {
+    #[track_caller]
+    fn from(operand: Operand) -> Self {
+        Reg::from(&operand)
+    }
+}
+
+impl From<Reg> for Operand {
+    fn from(register: Reg) -> Self {
+        register.operand()
+    }
+}
+
+impl From<&Reg> for Operand {
+    fn from(register: &Reg) -> Self {
+        register.operand()
+    }
+}
+
+impl PartialEq<Operand> for Reg {
+    fn eq(&self, other: &Operand) -> bool {
+        self.operand() == *other
+    }
+}
+
+impl std::fmt::Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.operand().rendered())
+    }
+}
+
+impl PartialEq<Reg> for Operand {
+    fn eq(&self, other: &Reg) -> bool {
+        *self == other.operand()
+    }
+}
+
+/// The `&'static` spelling of a physical register name, so a [`Reg`] stays `Copy`.
+/// The set is the handful of names the register models define, so it is bounded.
+fn intern_physical(name: &str) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let mut names = NAMES
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .expect("physical-register interner poisoned");
+    if let Some(interned) = names.get(name) {
+        return interned;
+    }
+    let interned: &'static str = Box::leak(name.to_string().into_boxed_str());
+    names.insert(interned);
+    interned
+}
+
+/// A `Reg` parameter as the operand it is written into an instruction as.
+fn reg(register: impl Into<Reg>) -> Operand {
+    register.into().operand()
+}
+
+/// A bank of role tokens from their spellings.
+const fn tokens<const N: usize>(spellings: [&'static str; N]) -> [Reg; N] {
+    let mut out = [Reg::token(""); N];
+    let mut i = 0;
+    while i < N {
+        out[i] = Reg::token(spellings[i]);
+        i += 1;
+    }
+    out
+}
+
+/// The static spelling of every neutral role token this module defines, so a
+/// token that has travelled as operand text is recognized as the role it names —
+/// and nothing else is. Kept exhaustive by `every_role_token_round_trips`.
+pub(crate) fn role_token(text: &str) -> Option<&'static str> {
+    let fixed: &[&'static str] = &[
+        ZERO_SPELLING,
+        LR_SPELLING,
+        SP_SPELLING,
+        crate::codegen::engine::mir::ARENA_BASE,
+        SYSNR_SPELLING,
+        SYSNR_DARWIN_SPELLING,
+        CLOSURE_ENV_SPELLING,
+        CURRENT_THREAD_SPELLING,
+        MATH_POOL_SPELLING,
+        INCOMING_ARGS_SPELLING,
+        OUTGOING_ARGS_SPELLING,
+    ];
+    fixed
+        .iter()
+        .chain(SCRATCH_SPELLINGS.iter())
+        .chain(FP_SCRATCH_SPELLINGS.iter())
+        .chain(VEC_SCRATCH_SPELLINGS.iter())
+        .chain(LOCAL_SPELLINGS.iter())
+        .copied()
+        .find(|spelling| *spelling == text)
+}
 
 // There is deliberately no per-helper clobber list here: every internal
 // `bl _mfb_*` runtime call destroys the entire caller-saved integer file
@@ -14,7 +290,7 @@ use crate::codegen::engine::types::CodeInstruction;
 // specs' unread `abi.clobbers` field, deleted with it by bug-329 (bug-120
 // records why a per-call reader must never trust such a list).
 
-pub(crate) fn argument_register(index: usize) -> Result<Operand, String> {
+pub(crate) fn argument_register(index: usize) -> Result<Reg, String> {
     if index < REGISTER_ARGUMENT_COUNT {
         Ok(mfb_arg(index))
     } else {
@@ -35,20 +311,22 @@ pub(crate) const REGISTER_ARGUMENT_COUNT: usize = 8;
 /// real `sp`-relative offset is not known until the frame is finalized (it sits
 /// above the whole frame), so `finalize_frame` rewrites this base to `sp` and
 /// resolves the offset to `frame_size + entry_padding + k*8` (bug-08).
-pub(crate) const INCOMING_ARGS_BASE: &str = "incoming_args";
+pub(crate) const INCOMING_ARGS_SPELLING: &str = "incoming_args";
+pub(crate) const INCOMING_ARGS_BASE: Reg = Reg::token(INCOMING_ARGS_SPELLING);
 
 /// Sentinel base register naming the caller's *outgoing* stack-argument area,
 /// reserved at the very bottom of the caller frame so that at the call the args
 /// sit at `[sp+0..]` where the callee expects them. `finalize_frame` rewrites
 /// this base to `sp` (the offset `k*8` is already frame-bottom-relative and is
 /// left unshifted) (bug-08).
-pub(crate) const OUTGOING_ARGS_BASE: &str = "outgoing_args";
+pub(crate) const OUTGOING_ARGS_SPELLING: &str = "outgoing_args";
+pub(crate) const OUTGOING_ARGS_BASE: Reg = Reg::token(OUTGOING_ARGS_SPELLING);
 
 /// Load the `k`-th incoming stack argument (0-based beyond the 8 register
 /// arguments) into `dst`. Resolved to a concrete `sp`-relative load in
 /// `finalize_frame` (bug-08).
 #[track_caller]
-pub(crate) fn incoming_stack_arg_load(dst: impl Into<Operand>, k: usize) -> CodeInstruction {
+pub(crate) fn incoming_stack_arg_load(dst: impl Into<Reg>, k: usize) -> CodeInstruction {
     load_u64(dst, INCOMING_ARGS_BASE, k * 8)
 }
 
@@ -56,11 +334,11 @@ pub(crate) fn incoming_stack_arg_load(dst: impl Into<Operand>, k: usize) -> Code
 /// register arguments) into the caller's reserved outgoing area. Resolved to a
 /// concrete `sp`-relative store in `finalize_frame` (bug-08).
 #[track_caller]
-pub(crate) fn outgoing_stack_arg_store(src: impl Into<Operand>, k: usize) -> CodeInstruction {
+pub(crate) fn outgoing_stack_arg_store(src: impl Into<Reg>, k: usize) -> CodeInstruction {
     store_u64(src, OUTGOING_ARGS_BASE, k * 8)
 }
 
-pub(crate) fn return_register() -> Operand {
+pub(crate) fn return_register() -> Reg {
     mfb_return(0)
 }
 
@@ -79,34 +357,58 @@ pub(crate) fn return_register() -> Operand {
 // `Operand::vreg`'s (plan-82): the primitive lands before its production writers.
 
 /// MFB internal-convention argument register `index` (0..8).
-pub(crate) const fn mfb_arg(index: usize) -> Operand {
-    Operand::abi(AbiConvention::Mfb, AbiRole::Arg, index as u8)
+pub(crate) const fn mfb_arg(index: usize) -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::Mfb,
+        role: AbiRole::Arg,
+        index: index as u8,
+    })
 }
 
 /// MFB internal-convention result register `index` (0..4).
-pub(crate) const fn mfb_return(index: usize) -> Operand {
-    Operand::abi(AbiConvention::Mfb, AbiRole::Ret, index as u8)
+pub(crate) const fn mfb_return(index: usize) -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::Mfb,
+        role: AbiRole::Ret,
+        index: index as u8,
+    })
 }
 
 /// Platform C-ABI argument register `index` (0..8).
-pub(crate) const fn c_arg(index: usize) -> Operand {
-    Operand::abi(AbiConvention::C, AbiRole::Arg, index as u8)
+pub(crate) const fn c_arg(index: usize) -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::C,
+        role: AbiRole::Arg,
+        index: index as u8,
+    })
 }
 
 /// Platform C-ABI result register `index` (0..2; `rax`/`rdx` on x86).
-pub(crate) const fn c_return(index: usize) -> Operand {
-    Operand::abi(AbiConvention::C, AbiRole::Ret, index as u8)
+pub(crate) const fn c_return(index: usize) -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::C,
+        role: AbiRole::Ret,
+        index: index as u8,
+    })
 }
 
 /// Syscall-convention argument register `index` (0..6).
-pub(crate) const fn sys_arg(index: usize) -> Operand {
-    Operand::abi(AbiConvention::Sys, AbiRole::Arg, index as u8)
+pub(crate) const fn sys_arg(index: usize) -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::Sys,
+        role: AbiRole::Arg,
+        index: index as u8,
+    })
 }
 
 /// Syscall-convention result register (`rax` on x86).
 #[allow(dead_code)] // no emitter stages a syscall result explicitly today (they reuse mfb_return(0))
-pub(crate) const fn sys_return() -> Operand {
-    Operand::abi(AbiConvention::Sys, AbiRole::Ret, 0)
+pub(crate) const fn sys_return() -> Reg {
+    Reg(RegRepr::Abi {
+        convention: AbiConvention::Sys,
+        role: AbiRole::Ret,
+        index: 0,
+    })
 }
 
 /// The AArch64 `xN` bank an explicit ABI token realizes to (plan-85-A §2). On
@@ -137,18 +439,20 @@ pub(crate) fn realize_abi_positional(index: u8) -> &'static str {
 /// bug-300 E5: this used to say x86 "pins `r14` (`ZERO_REGISTER`)". It does not —
 /// plan-34-C freed r14 for allocation, and `select_x86` maps the legacy `x31`
 /// spelling to this token, never to r14. `ZERO_REGISTER` was dead and is gone.
-pub(crate) const ZERO: &str = "xzr";
+pub(crate) const ZERO_SPELLING: &str = "xzr";
+pub(crate) const ZERO: Reg = Reg::token(ZERO_SPELLING);
 
 /// The link register (return address). AArch64 `x30`, RISC-V `ra`; x86-64 has no
 /// such register — `call` pushes the return address, so shared LR save/restore is
 /// dropped in x86 selection. Never `"x30"`. (plan-34-A)
-pub(crate) const LR: &str = "lr";
+pub(crate) const LR_SPELLING: &str = "lr";
+pub(crate) const LR: Reg = Reg::token(LR_SPELLING);
 
 /// The pinned arena base pointer — a program-wide invariant, reserved from
 /// allocation on every ISA (`RegisterModel::arena_base`). The neutral MIR token;
 /// each backend's selection realizes it (AArch64 `x19`, RISC-V `s11`, x86-64
 /// `r15`). Never `"x19"`. (plan-34-A)
-pub(crate) const ARENA: &str = crate::codegen::engine::mir::ARENA_BASE;
+pub(crate) const ARENA: Reg = Reg::token(crate::codegen::engine::mir::ARENA_BASE);
 
 // --- neutral `%`-sentinel call-boundary tokens ---
 //
@@ -177,20 +481,23 @@ pub(crate) const ARENA: &str = crate::codegen::engine::mir::ARENA_BASE;
 /// cannot be spelled as a register number. Kept as a neutral `%`-token (there is
 /// no convention accessor for the syscall *number* — the six-token vocabulary
 /// covers arg/result only).
-pub(crate) const SYSNR: &str = "%sysnr";
+pub(crate) const SYSNR_SPELLING: &str = "%sysnr";
+pub(crate) const SYSNR: Reg = Reg::token(SYSNR_SPELLING);
 
 /// The Darwin syscall-number register — macOS/AArch64 delivers the number in
 /// `x16` (IP1), not Linux's `x8`, and the Phase-3b seam is ISA-wide (one
 /// realization per token), so Darwin staging cannot spell [`SYSNR`]. Only the
 /// macOS platform emitters name this token (plan-34-D).
-pub(crate) const SYSNR_DARWIN: &str = "%sysnr_darwin";
+pub(crate) const SYSNR_DARWIN_SPELLING: &str = "%sysnr_darwin";
+pub(crate) const SYSNR_DARWIN: Reg = Reg::token(SYSNR_DARWIN_SPELLING);
 
 /// The closure environment pointer — an implicit argument register, live from its
 /// definition to the immediately following indirect call
 /// (`spec: memory/09_closures.md`); the callee reads it. Not `arena_base`-style
 /// pinned, but a call-boundary token selection places and the allocator cannot
 /// color.
-pub(crate) const CLOSURE_ENV: &str = "%closure_env";
+pub(crate) const CLOSURE_ENV_SPELLING: &str = "%closure_env";
+pub(crate) const CLOSURE_ENV: Reg = Reg::token(CLOSURE_ENV_SPELLING);
 
 /// The worker current-thread pointer — the thread control block a running worker's
 /// `thread::` ops (`is_cancelled`, `transfer`, `accept`) read directly, pinned by
@@ -198,7 +505,8 @@ pub(crate) const CLOSURE_ENV: &str = "%closure_env";
 /// threading). A program-wide pinned register like [`ARENA`]: reserved from
 /// allocation on every ISA, realized AArch64 `x20` / x86-64 `rbx` / riscv64 `s2`.
 /// Never spelled by an AArch64 register number in shared lowering.
-pub(crate) const CURRENT_THREAD: &str = "%thread";
+pub(crate) const CURRENT_THREAD_SPELLING: &str = "%thread";
+pub(crate) const CURRENT_THREAD: Reg = Reg::token(CURRENT_THREAD_SPELLING);
 
 /// Machine-floor scratch register tokens. A handful of lowering routines run
 /// where the register allocator *cannot*: the program entry stub reads argc/argv
@@ -217,7 +525,7 @@ pub(crate) const CURRENT_THREAD: &str = "%thread";
 /// stub — where no worker thread or closure environment is live — ever uses those
 /// indices as scratch; the trampoline confines its scratch to the low indices,
 /// distinct from the current-thread register it pins.
-pub(crate) const SCRATCH: [&str; 19] = [
+pub(crate) const SCRATCH_SPELLINGS: [&str; 19] = [
     "%scratch0",
     "%scratch1",
     "%scratch2",
@@ -238,6 +546,7 @@ pub(crate) const SCRATCH: [&str; 19] = [
     "%scratch17",
     "%scratch18",
 ];
+pub(crate) const SCRATCH: [Reg; 19] = tokens(SCRATCH_SPELLINGS);
 
 /// Floating-point scratch register tokens — the FP counterpart of [`SCRATCH`]
 /// (plan-34-D). The float builders and in-tree math kernels hand-stage values in
@@ -254,7 +563,7 @@ pub(crate) const SCRATCH: [&str; 19] = [
 /// allocator's occupancy analysis parses these tokens directly
 /// (`regalloc::analysis::fp_physical_index`) — a live `%fN` is never colored
 /// onto a busy `FP_SCRATCH` realization.
-pub(crate) const FP_SCRATCH: [&str; 8] = [
+pub(crate) const FP_SCRATCH_SPELLINGS: [&str; 8] = [
     "%fscratch0",
     "%fscratch1",
     "%fscratch2",
@@ -264,6 +573,7 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
     "%fscratch6",
     "%fscratch7",
 ];
+pub(crate) const FP_SCRATCH: [Reg; 8] = tokens(FP_SCRATCH_SPELLINGS);
 
 /// Vector (NEON lane-view) scratch register tokens — the 128-bit view of the
 /// same physical file [`FP_SCRATCH`] names in its scalar `d` view (plan-34-D).
@@ -275,7 +585,7 @@ pub(crate) const FP_SCRATCH: [&str; 8] = [
 /// 128 bits). Because the views alias, `VEC_SCRATCH[i]` and `FP_SCRATCH[i]`
 /// occupy the same allocator index (`regalloc::analysis::fp_physical_index`),
 /// mirroring today's `v{i}`/`d{i}` aliasing.
-pub(crate) const VEC_SCRATCH: [&str; 8] = [
+pub(crate) const VEC_SCRATCH_SPELLINGS: [&str; 8] = [
     "%vscratch0",
     "%vscratch1",
     "%vscratch2",
@@ -285,6 +595,7 @@ pub(crate) const VEC_SCRATCH: [&str; 8] = [
     "%vscratch6",
     "%vscratch7",
 ];
+pub(crate) const VEC_SCRATCH: [Reg; 8] = tokens(VEC_SCRATCH_SPELLINGS);
 
 /// The SIMD math-kernel constant-pool base — the register
 /// `builder_simd_float_math` pins for a kernel's lifetime on backends whose
@@ -293,7 +604,8 @@ pub(crate) const VEC_SCRATCH: [&str; 8] = [
 /// file, so the pin never collides with a colored vreg. Backends without a
 /// spare physical (x86-64) return `None` from `math_pool_base` and take the
 /// vreg path instead.
-pub(crate) const MATH_POOL: &str = "%mathpool";
+pub(crate) const MATH_POOL_SPELLING: &str = "%mathpool";
+pub(crate) const MATH_POOL: Reg = Reg::token(MATH_POOL_SPELLING);
 
 /// Callee-saved *persistent-local* register tokens (bug-387). The hand-written
 /// per-(OS,ISA) platform emitters — the GUI/app backends and the TLS block
@@ -316,15 +628,16 @@ pub(crate) const MATH_POOL: &str = "%mathpool";
 /// simultaneously holding the arena base, current-thread, or closure-environment
 /// pointer live in that register — exactly the same discipline that lets the
 /// entry stub reuse `x20`/`x28` as high [`SCRATCH`] indices.
-pub(crate) const LOCAL: [&str; 10] = [
+pub(crate) const LOCAL_SPELLINGS: [&str; 10] = [
     "%local0", "%local1", "%local2", "%local3", "%local4", "%local5", "%local6", "%local7",
     "%local8", "%local9",
 ];
+pub(crate) const LOCAL: [Reg; 10] = tokens(LOCAL_SPELLINGS);
 
 /// The Nth C-call floating-point argument register — the AAPCS64 `d0`–`d7` bank,
 /// which [`FP_SCRATCH`] realizes to (the aliasing is deliberate; see its doc).
 /// Errors past the register bank, mirroring [`argument_register`].
-pub(crate) fn fp_argument_register(index: usize) -> Result<&'static str, String> {
+pub(crate) fn fp_argument_register(index: usize) -> Result<Reg, String> {
     FP_SCRATCH.get(index).copied().ok_or_else(|| {
         format!("aarch64 code plan cannot pass float argument {index}; stack arguments are not implemented")
     })
@@ -407,15 +720,18 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
     })
 }
 
-pub(crate) fn link_register() -> &'static str {
+pub(crate) fn link_register() -> Reg {
     LR
 }
 
-pub(crate) fn stack_pointer() -> &'static str {
-    "sp"
+/// The neutral stack-pointer spelling every backend realizes.
+pub(crate) const SP_SPELLING: &str = "sp";
+
+pub(crate) const fn stack_pointer() -> Reg {
+    Reg::token(SP_SPELLING)
 }
 
-pub(crate) fn syscall_register() -> &'static str {
+pub(crate) fn syscall_register() -> Reg {
     // The syscall-number role (plan-34-B Phase 3b). One role, four realizations —
     // AArch64/Linux `x8`, riscv64 `a7`, x86-64 `rax`, AArch64/macOS `x16` — so it
     // is named by role, not number. The Phase-3b seam realizes `SYSNR` → `x8`
@@ -426,12 +742,12 @@ pub(crate) fn syscall_register() -> &'static str {
 
 /// The print/write helpers' length argument — MFB argument role 2 (plan-34-D),
 /// realized `x2`/`rdx`/… exactly the register the helpers have always read.
-pub(crate) fn string_length_register() -> Operand {
+pub(crate) fn string_length_register() -> Reg {
     mfb_arg(2)
 }
 
 /// The print/write helpers' data-pointer argument — MFB argument role 1 (plan-34-D).
-pub(crate) fn string_data_register() -> Operand {
+pub(crate) fn string_data_register() -> Reg {
     mfb_arg(1)
 }
 
@@ -443,7 +759,7 @@ pub(crate) fn is_callee_saved(register: &str) -> bool {
 }
 
 pub(crate) fn is_stack_pointer(register: &str) -> bool {
-    register == stack_pointer()
+    register == SP_SPELLING
 }
 
 #[track_caller]
@@ -452,10 +768,10 @@ pub(crate) fn label(name: &str) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn move_register(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn move_register(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("mov")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// The `mov_imm` operand classes — the immediate encoder's width/interpretation
@@ -536,165 +852,165 @@ pub(crate) fn immediate_class(type_: &crate::types::ParameterType) -> Cow<'stati
 /// fails, which is the property the plan actually wants here.
 #[track_caller]
 pub(crate) fn move_immediate(
-    dst: impl Into<Operand>,
+    dst: impl Into<Reg>,
     operand_class: &str,
     value: &str,
 ) -> CodeInstruction {
     CodeInstruction::new("mov_imm")
-        .field("dst", dst)
+        .field("dst", reg(dst))
         .field("type", operand_class)
         .field("value", value)
 }
 
 #[track_caller]
 pub(crate) fn add_immediate(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     imm: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("add_imm")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("imm", &imm.to_string())
 }
 
 #[track_caller]
 pub(crate) fn subtract_immediate(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     imm: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("sub_imm")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("imm", &imm.to_string())
 }
 
 #[track_caller]
 pub(crate) fn add_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("add")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn add_registers_set_flags(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("adds")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn subtract_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("sub")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn subtract_registers_set_flags(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("subs")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn and_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("and")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn or_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("orr")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn exclusive_or_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("eor")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
-pub(crate) fn bitwise_not(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn bitwise_not(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("mvn")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
 pub(crate) fn multiply_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("mul")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn signed_multiply_high_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("smulh")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn unsigned_multiply_high_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("umulh")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 /// `add_carry dst, carry_out, lhs, rhs, carry_in` (plan-00-G §4) — explicit-carry
@@ -704,210 +1020,201 @@ pub(crate) fn unsigned_multiply_high_registers(
 /// on the last limb.
 #[track_caller]
 pub(crate) fn add_carry(
-    dst: impl Into<Operand>,
-    carry_out: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
-    carry_in: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    carry_out: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
+    carry_in: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("add_carry")
-        .field("dst", dst)
-        .field("carry_out", carry_out)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
-        .field("carry_in", carry_in)
+        .field("dst", reg(dst))
+        .field("carry_out", reg(carry_out))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
+        .field("carry_in", reg(carry_in))
 }
 
 /// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.
 #[track_caller]
 pub(crate) fn rotate_right_registers(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    amount: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
+    amount: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("rorv")
-        .field("dst", dst)
-        .field("lhs", src)
-        .field("rhs", amount)
+        .field("dst", reg(dst))
+        .field("lhs", reg(src))
+        .field("rhs", reg(amount))
 }
 
 /// `rorv Wd, Wn, Wm` — 32-bit rotate right by the low 5 bits of `amount`; the
 /// 32-bit result is zero-extended into the upper half of the destination.
 #[track_caller]
 pub(crate) fn rotate_right_word_registers(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    amount: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
+    amount: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("rorv_w")
-        .field("dst", dst)
-        .field("lhs", src)
-        .field("rhs", amount)
+        .field("dst", reg(dst))
+        .field("lhs", reg(src))
+        .field("rhs", reg(amount))
 }
 
 /// `lslv dst, src, amount` — logical shift `src` left by the low 6 bits of `amount`.
 #[track_caller]
 pub(crate) fn shift_left_variable(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    amount: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
+    amount: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("lslv")
-        .field("dst", dst)
-        .field("lhs", src)
-        .field("rhs", amount)
+        .field("dst", reg(dst))
+        .field("lhs", reg(src))
+        .field("rhs", reg(amount))
 }
 
 /// `lsrv dst, src, amount` — logical shift `src` right by the low 6 bits of `amount`.
 #[track_caller]
 pub(crate) fn shift_right_variable(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    amount: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
+    amount: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("lsrv")
-        .field("dst", dst)
-        .field("lhs", src)
-        .field("rhs", amount)
+        .field("dst", reg(dst))
+        .field("lhs", reg(src))
+        .field("rhs", reg(amount))
 }
 
 /// `asrv dst, src, amount` — arithmetic (sign-filling) shift `src` right by the
 /// low 6 bits of `amount`.
 #[track_caller]
 pub(crate) fn arithmetic_shift_right_variable(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    amount: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
+    amount: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("asrv")
-        .field("dst", dst)
-        .field("lhs", src)
-        .field("rhs", amount)
+        .field("dst", reg(dst))
+        .field("lhs", reg(src))
+        .field("rhs", reg(amount))
 }
 
 /// `clz dst, src` — count the leading zero bits of the 64-bit `src`.
 #[track_caller]
-pub(crate) fn count_leading_zeros(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn count_leading_zeros(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("clz")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `rbit dst, src` — reverse the bit order of the 64-bit `src`.
 #[track_caller]
-pub(crate) fn reverse_bits(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn reverse_bits(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("rbit")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `rev Wd, Wn` — reverse the four bytes of the low 32 bits of `src`; the result
 /// is zero-extended into the upper half of the destination.
 #[track_caller]
-pub(crate) fn reverse_bytes_word(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn reverse_bytes_word(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("rev_w")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `rev Xd, Xn` — reverse all eight bytes of the 64-bit `src`.
 #[track_caller]
-pub(crate) fn reverse_bytes(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn reverse_bytes(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("rev_x")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `sxtw Xd, Wn` — sign-extend the low 32 bits of `src` into the 64-bit `dst`.
 /// Narrows a C `int` return (AAPCS64 leaves x-bits[63:32] unspecified) so a
 /// subsequent 64-bit `cmp`/`b.lt` sign-check is correct (bug-04).
 #[track_caller]
-pub(crate) fn sign_extend_word(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn sign_extend_word(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("sxtw")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
 pub(crate) fn signed_divide_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("sdiv")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn unsigned_divide_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("udiv")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn multiply_subtract_registers(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
-    minuend: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
+    minuend: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("msub")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
-        .field("minuend", minuend)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
+        .field("minuend", reg(minuend))
 }
 
 #[track_caller]
 pub(crate) fn shift_left_immediate(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     shift: u8,
 ) -> CodeInstruction {
     CodeInstruction::new("lsl_imm")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("shift", &shift.to_string())
 }
 
 #[track_caller]
 pub(crate) fn shift_right_immediate(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     shift: u8,
 ) -> CodeInstruction {
     CodeInstruction::new("lsr_imm")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("shift", &shift.to_string())
 }
 
 #[track_caller]
 pub(crate) fn arithmetic_shift_right_immediate(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     shift: u8,
 ) -> CodeInstruction {
     CodeInstruction::new("asr_imm")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("shift", &shift.to_string())
 }
 
@@ -922,23 +1229,20 @@ pub(crate) fn add_stack(imm: usize) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn compare_immediate(
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn compare_immediate(lhs: impl Into<Reg>, rhs: &str) -> CodeInstruction {
+    // `rhs` is the immediate compared against, not a register — `cmp_imm`'s `rhs`
+    // field is the one register-named field that holds text (see
+    // `CodeInstruction::field`).
     CodeInstruction::new("cmp_imm")
-        .field("lhs", lhs)
+        .field("lhs", reg(lhs))
         .field("rhs", rhs)
 }
 
 #[track_caller]
-pub(crate) fn compare_registers(
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn compare_registers(lhs: impl Into<Reg>, rhs: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("cmp")
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
@@ -1017,8 +1321,8 @@ pub(crate) fn branch_link(target: &str) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn branch_link_register(register: impl Into<Operand>) -> CodeInstruction {
-    CodeInstruction::new("blr").field("register", register)
+pub(crate) fn branch_link_register(register: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("blr").field("register", reg(register))
 }
 
 #[track_caller]
@@ -1038,73 +1342,69 @@ pub(crate) fn return_() -> CodeInstruction {
 
 #[track_caller]
 pub(crate) fn load_u64(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("ldr_u64")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
 pub(crate) fn load_u32(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("ldr_u32")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
 pub(crate) fn load_u16(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("ldr_u16")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
-pub(crate) fn load_u8(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
-    offset: usize,
-) -> CodeInstruction {
+pub(crate) fn load_u8(dst: impl Into<Reg>, base: impl Into<Reg>, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u8")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
 pub(crate) fn store_u64(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_u64")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
 pub(crate) fn store_u32(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_u32")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
@@ -1117,13 +1417,10 @@ pub(crate) fn store_u32(
 /// without the payload. The address must already be in `base`; A64 has no offset
 /// form.
 #[track_caller]
-pub(crate) fn store_release_u64(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn store_release_u64(src: impl Into<Reg>, base: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("stlr_u64")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
 }
 
 /// Load-acquire: `ldar Xt, [Xn]` (bug-564). AArch64 only, base register only.
@@ -1131,24 +1428,18 @@ pub(crate) fn store_release_u64(
 /// so a reader that loads a gate with it and the payload afterwards cannot have
 /// the payload load run early, against older memory.
 #[track_caller]
-pub(crate) fn load_acquire_u64(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn load_acquire_u64(dst: impl Into<Reg>, base: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("ldar_u64")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
 }
 
 /// Load-acquire of 32 bits: `ldar Wt, [Xn]` (bug-564). See [`load_acquire_u64`].
 #[track_caller]
-pub(crate) fn load_acquire_u32(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn load_acquire_u32(dst: impl Into<Reg>, base: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("ldar_u32")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
 }
 
 /// 16-bit store (plan-50-D). Needed by struct-field marshaling for a
@@ -1156,263 +1447,245 @@ pub(crate) fn load_acquire_u32(
 /// missing counterpart.
 #[track_caller]
 pub(crate) fn store_u16(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_u16")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
 pub(crate) fn store_u8(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_u8")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 /// `ldr d<dst>, [<base>, #offset]` — load a 64-bit FP scalar (spill reload).
 #[track_caller]
 pub(crate) fn load_double(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("ldr_d")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 /// `str d<src>, [<base>, #offset]` — store a 64-bit FP scalar (spill).
 #[track_caller]
 pub(crate) fn store_double(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_d")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 #[track_caller]
-pub(crate) fn load_page_address(dst: impl Into<Operand>, symbol: &str) -> CodeInstruction {
+pub(crate) fn load_page_address(dst: impl Into<Reg>, symbol: &str) -> CodeInstruction {
     CodeInstruction::new("adrp")
-        .field("dst", dst)
+        .field("dst", reg(dst))
         .field("symbol", symbol)
 }
 
 #[track_caller]
 pub(crate) fn add_page_offset(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     symbol: &str,
 ) -> CodeInstruction {
     CodeInstruction::new("add_pageoff")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("symbol", symbol)
 }
 
 #[track_caller]
-pub(crate) fn float_move_x_from_d(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_move_x_from_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fmov_x_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_move_d_from_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_move_d_from_x(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_x")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `fmov Dd, Dn` — copy one scalar `d`-register into another.
 #[track_caller]
-pub(crate) fn float_move_d_from_d(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_move_d_from_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fmov_d_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
 pub(crate) fn float_add_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fadd_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn float_subtract_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fsub_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn float_multiply_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fmul_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
 pub(crate) fn float_divide_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fdiv_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 /// `fminnm Dd, Dn, Dm` — scalar double minimum with IEEE number semantics (a
 /// finite operand wins over a NaN). Selected for `math::min(Float)` (plan-02 §4).
 #[track_caller]
 pub(crate) fn float_min_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fminnm_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 /// `fmaxnm Dd, Dn, Dm` — scalar double maximum, IEEE number semantics.
 /// Selected for `math::max(Float)` (plan-02 §4).
 #[track_caller]
 pub(crate) fn float_max_d(
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fmaxnm_d")
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
-pub(crate) fn float_negate_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn float_negate_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fneg_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_sqrt_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn float_sqrt_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fsqrt_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `fabs Dd, Dn` — scalar double absolute value (clears the sign bit), so the
 /// FP-domain finiteness check can fold ±Inf onto a single `fcmp` against +Inf.
 #[track_caller]
-pub(crate) fn float_abs_d(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn float_abs_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fabs_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_compare_d(lhs: impl Into<Operand>, rhs: impl Into<Operand>) -> CodeInstruction {
+pub(crate) fn float_compare_d(lhs: impl Into<Reg>, rhs: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fcmp_d")
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 #[track_caller]
-pub(crate) fn float_compare_zero_d(src: impl Into<Operand>) -> CodeInstruction {
-    CodeInstruction::new("fcmp_zero_d").field("src", src)
+pub(crate) fn float_compare_zero_d(src: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("fcmp_zero_d").field("src", reg(src))
 }
 
 #[track_caller]
 pub(crate) fn signed_convert_to_float_d(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("scvtf_d_from_x")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
 pub(crate) fn float_convert_to_signed_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new("fcvtzs_x_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_floor_to_signed_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_floor_to_signed_x(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fcvtms_x_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_ceil_to_signed_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_ceil_to_signed_x(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fcvtps_x_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 #[track_caller]
-pub(crate) fn float_round_to_signed_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn float_round_to_signed_x(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("fcvtas_x_from_d")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 // --- NEON vector constructors (plan-01-simd Phase 1) ---
@@ -1425,63 +1698,60 @@ pub(crate) fn float_round_to_signed_x(
 /// `ldr q<dst>, [<base>, #offset]` — load 128 bits (two i64/f64 lanes).
 #[track_caller]
 pub(crate) fn vector_load(
-    dst: impl Into<Operand>,
-    base: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("ldr_q")
-        .field("dst", dst)
-        .field("base", base)
+        .field("dst", reg(dst))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 /// `str q<src>, [<base>, #offset]` — store 128 bits (two i64/f64 lanes).
 #[track_caller]
 pub(crate) fn vector_store(
-    src: impl Into<Operand>,
-    base: impl Into<Operand>,
+    src: impl Into<Reg>,
+    base: impl Into<Reg>,
     offset: usize,
 ) -> CodeInstruction {
     CodeInstruction::new("str_q")
-        .field("src", src)
-        .field("base", base)
+        .field("src", reg(src))
+        .field("base", reg(base))
         .field("offset", &offset.to_string())
 }
 
 fn vector_three(
     op: &str,
-    dst: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new(op)
-        .field("dst", dst)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
-fn vector_two(op: &str, dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
-    CodeInstruction::new(op).field("dst", dst).field("src", src)
-}
-
-fn vector_shift(
-    op: &str,
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-    shift: u8,
-) -> CodeInstruction {
+fn vector_two(op: &str, dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new(op)
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
+}
+
+fn vector_shift(op: &str, dst: impl Into<Reg>, src: impl Into<Reg>, shift: u8) -> CodeInstruction {
+    CodeInstruction::new(op)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("shift", &shift.to_string())
 }
 
 macro_rules! vector_three_same {
     ($name:ident, $op:literal) => {
         pub(crate) fn $name(
-            dst: impl Into<Operand>,
-            lhs: impl Into<Operand>,
-            rhs: impl Into<Operand>,
+            dst: impl Into<Reg>,
+            lhs: impl Into<Reg>,
+            rhs: impl Into<Reg>,
         ) -> CodeInstruction {
             vector_three($op, dst, lhs, rhs)
         }
@@ -1490,7 +1760,7 @@ macro_rules! vector_three_same {
 
 macro_rules! vector_two_misc {
     ($name:ident, $op:literal) => {
-        pub(crate) fn $name(dst: impl Into<Operand>, src: impl Into<Operand>) -> CodeInstruction {
+        pub(crate) fn $name(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
             vector_two($op, dst, src)
         }
     };
@@ -1499,8 +1769,8 @@ macro_rules! vector_two_misc {
 macro_rules! vector_shift_imm {
     ($name:ident, $op:literal) => {
         pub(crate) fn $name(
-            dst: impl Into<Operand>,
-            src: impl Into<Operand>,
+            dst: impl Into<Reg>,
+            src: impl Into<Reg>,
             shift: u8,
         ) -> CodeInstruction {
             vector_shift($op, dst, src, shift)
@@ -1552,25 +1822,22 @@ vector_shift_imm!(vector_ushr, "ushr_v");
 
 /// `dup v<dst>.2d, x<src>` — broadcast a 64-bit GPR into both lanes.
 #[track_caller]
-pub(crate) fn vector_dup_from_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
-) -> CodeInstruction {
+pub(crate) fn vector_dup_from_x(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
     CodeInstruction::new("dup_v_from_x")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
 }
 
 /// `umov x<dst>, v<src>.d[index]` — extract lane `index` (0 or 1) into a GPR.
 #[track_caller]
 pub(crate) fn vector_extract_to_x(
-    dst: impl Into<Operand>,
-    src: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    src: impl Into<Reg>,
     index: u8,
 ) -> CodeInstruction {
     CodeInstruction::new("umov_x_from_v")
-        .field("dst", dst)
-        .field("src", src)
+        .field("dst", reg(dst))
+        .field("src", reg(src))
         .field("index", &index.to_string())
 }
 
@@ -1585,25 +1852,25 @@ pub(crate) fn vector_extract_to_x(
 ///     `-(a*b) - c` source is a three-node shape it does not match (bug-326-A2).
 fn float_fma_op(
     mnemonic: &str,
-    dst: impl Into<Operand>,
-    addend: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    addend: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     CodeInstruction::new(mnemonic)
-        .field("dst", dst)
-        .field("addend", addend)
-        .field("lhs", lhs)
-        .field("rhs", rhs)
+        .field("dst", reg(dst))
+        .field("addend", reg(addend))
+        .field("lhs", reg(lhs))
+        .field("rhs", reg(rhs))
 }
 
 /// `dst = addend + lhs*rhs`, rounded once.
 #[track_caller]
 pub(crate) fn float_multiply_add_d(
-    dst: impl Into<Operand>,
-    addend: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    addend: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     float_fma_op("fmadd_d", dst, addend, lhs, rhs)
 }
@@ -1611,10 +1878,10 @@ pub(crate) fn float_multiply_add_d(
 /// `dst = lhs*rhs - addend`, rounded once.
 #[track_caller]
 pub(crate) fn float_multiply_sub_d(
-    dst: impl Into<Operand>,
-    addend: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    addend: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     float_fma_op("fmsub_d", dst, addend, lhs, rhs)
 }
@@ -1622,10 +1889,10 @@ pub(crate) fn float_multiply_sub_d(
 /// `dst = addend - lhs*rhs`, rounded once.
 #[track_caller]
 pub(crate) fn float_negate_multiply_sub_d(
-    dst: impl Into<Operand>,
-    addend: impl Into<Operand>,
-    lhs: impl Into<Operand>,
-    rhs: impl Into<Operand>,
+    dst: impl Into<Reg>,
+    addend: impl Into<Reg>,
+    lhs: impl Into<Reg>,
+    rhs: impl Into<Reg>,
 ) -> CodeInstruction {
     float_fma_op("fnmsub_d", dst, addend, lhs, rhs)
 }
@@ -1639,6 +1906,88 @@ pub(crate) fn float_negate_multiply_sub_d(
 mod tests {
     use super::*;
 
+    /// Every role-token `Reg` this module defines renders to a spelling
+    /// [`role_token`] recognizes, and back to the same `Reg` (bug-721). A token
+    /// missing from `role_token` would make `CodeInstruction::field` refuse its own
+    /// rendered text, and `Reg::from(&operand)` panic on a location that holds it.
+    #[test]
+    fn every_role_token_round_trips() {
+        let mut all: Vec<Reg> = vec![
+            ZERO,
+            LR,
+            ARENA,
+            SYSNR,
+            SYSNR_DARWIN,
+            CLOSURE_ENV,
+            CURRENT_THREAD,
+            MATH_POOL,
+            INCOMING_ARGS_BASE,
+            OUTGOING_ARGS_BASE,
+            stack_pointer(),
+            link_register(),
+            syscall_register(),
+        ];
+        all.extend(SCRATCH);
+        all.extend(FP_SCRATCH);
+        all.extend(VEC_SCRATCH);
+        all.extend(LOCAL);
+        for register in all {
+            let text = register.to_string();
+            assert_eq!(
+                role_token(&text),
+                Some(text.as_str()),
+                "{text} is not a role token"
+            );
+            assert_eq!(
+                Reg::from(&register.operand()),
+                register,
+                "{text} does not round-trip"
+            );
+        }
+    }
+
+    /// A minted register and an ABI role round-trip through their operand form; text
+    /// that names no role is refused (bug-721).
+    #[test]
+    fn a_register_operand_round_trips_and_text_does_not() {
+        for register in [Reg::test_vreg(7), mfb_arg(2), c_return(0)] {
+            assert_eq!(Reg::from(&register.operand()), register);
+        }
+        for forged in ["%v9", "x9", "rax"] {
+            let refused = std::panic::catch_unwind(|| Reg::from(&Operand::Raw(forged.into())));
+            assert!(refused.is_err(), "`{forged}` became a register");
+        }
+    }
+
+    /// A register-role field refuses text that names no role, whatever it spells
+    /// (bug-721): a hand-picked vreg, a physical register.
+    #[test]
+    fn a_register_field_refuses_text() {
+        for forged in ["%v9", "x9", "rax", "d3"] {
+            let refused = std::panic::catch_unwind(|| {
+                CodeInstruction::new("mov")
+                    .field("dst", forged)
+                    .field("src", ZERO)
+            });
+            assert!(refused.is_err(), "register field accepted `{forged}`");
+        }
+        // A role token's own spelling is a register (its rendered form), and a
+        // non-register field takes any text.
+        CodeInstruction::new("mov")
+            .field("dst", SP_SPELLING)
+            .field("src", ZERO);
+        CodeInstruction::new("label").field("name", "x9");
+        // `cmp_imm`'s `rhs` is the immediate it compares against.
+        compare_immediate(ZERO, "0");
+        // A register the allocator or a backend chose is typed, so the guard accepts
+        // it; `Reg::physical` refuses a name that is no physical register.
+        store_u64(Reg::physical("x19"), stack_pointer(), 8);
+        store_u64(Reg::physical("rbx"), stack_pointer(), 8);
+        for not_physical in ["%v9", "%scratch0", "banana"] {
+            assert!(std::panic::catch_unwind(|| Reg::physical(not_physical)).is_err());
+        }
+    }
+
     fn get(inst: &CodeInstruction, key: &str) -> Option<String> {
         inst.fields
             .iter()
@@ -1650,15 +1999,15 @@ mod tests {
     fn convention_explicit_abi_accessors() {
         // plan-85-A: each accessor yields the expected typed `Operand::Abi`
         // variant and renders to its convention-explicit token spelling.
-        assert_eq!(mfb_arg(0).render(), "%argMFB0");
-        assert_eq!(mfb_arg(7).render(), "%argMFB7");
-        assert_eq!(mfb_return(0).render(), "%retMFB0");
-        assert_eq!(mfb_return(3).render(), "%retMFB3");
-        assert_eq!(c_arg(2).render(), "%argC2");
-        assert_eq!(c_return(0).render(), "%retC0");
-        assert_eq!(c_return(1).render(), "%retC1");
-        assert_eq!(sys_arg(3).render(), "%argSys3");
-        assert_eq!(sys_return().render(), "%retSys");
+        assert_eq!(mfb_arg(0).to_string(), "%argMFB0");
+        assert_eq!(mfb_arg(7).to_string(), "%argMFB7");
+        assert_eq!(mfb_return(0).to_string(), "%retMFB0");
+        assert_eq!(mfb_return(3).to_string(), "%retMFB3");
+        assert_eq!(c_arg(2).to_string(), "%argC2");
+        assert_eq!(c_return(0).to_string(), "%retC0");
+        assert_eq!(c_return(1).to_string(), "%retC1");
+        assert_eq!(sys_arg(3).to_string(), "%argSys3");
+        assert_eq!(sys_return().to_string(), "%retSys");
         assert_eq!(
             mfb_arg(1),
             Operand::abi(AbiConvention::Mfb, AbiRole::Arg, 1)
@@ -1689,42 +2038,59 @@ mod tests {
         // the AArch64 register positionally by each backend's `Operand::Abi` handler
         // (`realize_abi_positional`) — it never reaches the string `realize_abi_token`
         // seam, which now covers only the neutral no-convention tokens.
-        assert_eq!(argument_register(0).unwrap().render(), "%argMFB0");
-        assert_eq!(argument_register(7).unwrap().render(), "%argMFB7");
+        assert_eq!(argument_register(0).unwrap().to_string(), "%argMFB0");
+        assert_eq!(argument_register(7).unwrap().to_string(), "%argMFB7");
         assert_eq!(realize_abi_positional(0), "x0");
         assert_eq!(realize_abi_positional(7), "x7");
         assert!(argument_register(8).is_err());
         // bug-08: arguments beyond the register window go through the stack-tail
         // sentinels, resolved to concrete `sp`-relative accesses in the frame.
         assert_eq!(REGISTER_ARGUMENT_COUNT, 8);
-        let incoming = incoming_stack_arg_load("x9", 2);
+        let incoming =
+            incoming_stack_arg_load(crate::target::shared::abi::Reg::test_named("x9"), 2);
         assert_eq!(incoming.op.mnemonic(), "ldr_u64");
-        assert_eq!(get(&incoming, "base").as_deref(), Some(INCOMING_ARGS_BASE));
+        assert_eq!(
+            get(&incoming, "base").as_deref(),
+            Some(INCOMING_ARGS_SPELLING)
+        );
         assert_eq!(get(&incoming, "offset").as_deref(), Some("16"));
         assert_eq!(get(&incoming, "dst").as_deref(), Some("x9"));
-        let outgoing = outgoing_stack_arg_store("x9", 0);
+        let outgoing =
+            outgoing_stack_arg_store(crate::target::shared::abi::Reg::test_named("x9"), 0);
         assert_eq!(outgoing.op.mnemonic(), "str_u64");
-        assert_eq!(get(&outgoing, "base").as_deref(), Some(OUTGOING_ARGS_BASE));
+        assert_eq!(
+            get(&outgoing, "base").as_deref(),
+            Some(OUTGOING_ARGS_SPELLING)
+        );
         assert_eq!(get(&outgoing, "offset").as_deref(), Some("0"));
         assert_eq!(get(&outgoing, "src").as_deref(), Some("x9"));
         // Named ABI registers. The MFB result is a typed convention token realized
         // positionally by each backend's `Operand::Abi` handler (not the string seam).
-        assert_eq!(return_register().render(), "%retMFB0");
+        assert_eq!(return_register().to_string(), "%retMFB0");
         assert_eq!(realize_abi_positional(0), "x0");
-        assert_eq!(link_register(), "lr");
-        assert_eq!(stack_pointer(), "sp");
-        assert_eq!(syscall_register(), "%sysnr");
+        assert_eq!(
+            link_register(),
+            crate::target::shared::abi::Reg::test_named("lr")
+        );
+        assert_eq!(
+            stack_pointer(),
+            crate::target::shared::abi::Reg::test_named("sp")
+        );
+        assert_eq!(
+            syscall_register(),
+            crate::target::shared::abi::Reg::test_named("%sysnr")
+        );
         assert_eq!(realize_abi_token("%sysnr"), Some("x8"));
         // The FP scratch pool realizes to the caller-saved low `d` bank, index
         // for index (plan-34-D).
-        for (i, token) in FP_SCRATCH.iter().enumerate() {
+        for (i, token) in FP_SCRATCH_SPELLINGS.iter().enumerate() {
             assert_eq!(*token, format!("%fscratch{i}"));
             let expected = format!("d{i}");
             assert_eq!(realize_abi_token(token), Some(expected.as_str()));
         }
-        assert_eq!(string_length_register().render(), "%argMFB2");
+        assert_eq!(string_length_register().to_string(), "%argMFB2");
         assert_eq!(realize_abi_positional(2), "x2");
-        assert_eq!(string_data_register().render(), "%argMFB1");
+        assert_eq!(string_data_register().to_string(), "%argMFB1");
         assert_eq!(realize_abi_positional(1), "x1");
         assert!(is_callee_saved("x19"));
         assert!(is_callee_saved("x28"));
@@ -1740,41 +2106,264 @@ mod tests {
         assert_eq!(get(&label("L"), "name").as_deref(), Some("L"));
 
         let cases: Vec<(CodeInstruction, &str)> = vec![
-            (move_register("x0", "x1"), "mov"),
-            (move_immediate("x0", "Integer", "3"), "mov_imm"),
-            (add_immediate("x0", "x1", 4), "add_imm"),
-            (subtract_immediate("x0", "x1", 4), "sub_imm"),
-            (add_registers("x0", "x1", "x2"), "add"),
-            (add_registers_set_flags("x0", "x1", "x2"), "adds"),
-            (subtract_registers("x0", "x1", "x2"), "sub"),
-            (subtract_registers_set_flags("x0", "x1", "x2"), "subs"),
-            (and_registers("x0", "x1", "x2"), "and"),
-            (or_registers("x0", "x1", "x2"), "orr"),
-            (exclusive_or_registers("x0", "x1", "x2"), "eor"),
-            (bitwise_not("x0", "x1"), "mvn"),
-            (multiply_registers("x0", "x1", "x2"), "mul"),
-            (signed_multiply_high_registers("x0", "x1", "x2"), "smulh"),
-            (unsigned_multiply_high_registers("x0", "x1", "x2"), "umulh"),
-            (add_carry("x0", "x1", "x2", "x3", "xzr"), "add_carry"),
-            (rotate_right_registers("x0", "x1", "x2"), "rorv"),
-            (rotate_right_word_registers("x0", "x1", "x2"), "rorv_w"),
-            (shift_left_variable("x0", "x1", "x2"), "lslv"),
-            (shift_right_variable("x0", "x1", "x2"), "lsrv"),
-            (arithmetic_shift_right_variable("x0", "x1", "x2"), "asrv"),
-            (count_leading_zeros("x0", "x1"), "clz"),
-            (reverse_bits("x0", "x1"), "rbit"),
-            (reverse_bytes_word("x0", "x1"), "rev_w"),
-            (reverse_bytes("x0", "x1"), "rev_x"),
-            (signed_divide_registers("x0", "x1", "x2"), "sdiv"),
-            (unsigned_divide_registers("x0", "x1", "x2"), "udiv"),
-            (multiply_subtract_registers("x0", "x1", "x2", "x3"), "msub"),
-            (shift_left_immediate("x0", "x1", 3), "lsl_imm"),
-            (shift_right_immediate("x0", "x1", 3), "lsr_imm"),
-            (arithmetic_shift_right_immediate("x0", "x1", 3), "asr_imm"),
+            (
+                move_register(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "mov",
+            ),
+            (
+                move_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    "Integer",
+                    "3",
+                ),
+                "mov_imm",
+            ),
+            (
+                add_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    4,
+                ),
+                "add_imm",
+            ),
+            (
+                subtract_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    4,
+                ),
+                "sub_imm",
+            ),
+            (
+                add_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "add",
+            ),
+            (
+                add_registers_set_flags(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "adds",
+            ),
+            (
+                subtract_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "sub",
+            ),
+            (
+                subtract_registers_set_flags(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "subs",
+            ),
+            (
+                and_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "and",
+            ),
+            (
+                or_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "orr",
+            ),
+            (
+                exclusive_or_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "eor",
+            ),
+            (
+                bitwise_not(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "mvn",
+            ),
+            (
+                multiply_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "mul",
+            ),
+            (
+                signed_multiply_high_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "smulh",
+            ),
+            (
+                unsigned_multiply_high_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "umulh",
+            ),
+            (
+                add_carry(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                    crate::target::shared::abi::Reg::test_named("x3"),
+                    crate::target::shared::abi::Reg::test_named("xzr"),
+                ),
+                "add_carry",
+            ),
+            (
+                rotate_right_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "rorv",
+            ),
+            (
+                rotate_right_word_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "rorv_w",
+            ),
+            (
+                shift_left_variable(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "lslv",
+            ),
+            (
+                shift_right_variable(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "lsrv",
+            ),
+            (
+                arithmetic_shift_right_variable(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "asrv",
+            ),
+            (
+                count_leading_zeros(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "clz",
+            ),
+            (
+                reverse_bits(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "rbit",
+            ),
+            (
+                reverse_bytes_word(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "rev_w",
+            ),
+            (
+                reverse_bytes(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "rev_x",
+            ),
+            (
+                signed_divide_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "sdiv",
+            ),
+            (
+                unsigned_divide_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                ),
+                "udiv",
+            ),
+            (
+                multiply_subtract_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    crate::target::shared::abi::Reg::test_named("x2"),
+                    crate::target::shared::abi::Reg::test_named("x3"),
+                ),
+                "msub",
+            ),
+            (
+                shift_left_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    3,
+                ),
+                "lsl_imm",
+            ),
+            (
+                shift_right_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    3,
+                ),
+                "lsr_imm",
+            ),
+            (
+                arithmetic_shift_right_immediate(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    3,
+                ),
+                "asr_imm",
+            ),
             (subtract_stack(16), "sub_sp"),
             (add_stack(16), "add_sp"),
-            (compare_immediate("x0", "1"), "cmp_imm"),
-            (compare_registers("x0", "x1"), "cmp"),
+            (
+                compare_immediate(crate::target::shared::abi::Reg::test_named("x0"), "1"),
+                "cmp_imm",
+            ),
+            (
+                compare_registers(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "cmp",
+            ),
             (branch_eq("L"), "b.eq"),
             (branch_ne("L"), "b.ne"),
             (branch_ge("L"), "b.ge"),
@@ -1789,39 +2378,226 @@ mod tests {
             (branch_ls("L"), "b.ls"),
             (branch("L"), "b"),
             (branch_link("f"), "bl"),
-            (branch_link_register("x0"), "blr"),
+            (
+                branch_link_register(crate::target::shared::abi::Reg::test_named("x0")),
+                "blr",
+            ),
             (branch_self(), "branch_self"),
             (syscall(), "svc"),
             (return_(), "ret"),
-            (load_u64("x0", "x1", 8), "ldr_u64"),
-            (load_u32("x0", "x1", 4), "ldr_u32"),
-            (load_u16("x0", "x1", 2), "ldr_u16"),
-            (load_u8("x0", "x1", 1), "ldr_u8"),
-            (store_u64("x0", "x1", 8), "str_u64"),
-            (store_u32("x0", "x1", 4), "str_u32"),
-            (store_u8("x0", "x1", 1), "str_u8"),
-            (load_double("d0", "x1", 8), "ldr_d"),
-            (store_double("d0", "x1", 8), "str_d"),
-            (load_page_address("x0", "g"), "adrp"),
-            (add_page_offset("x0", "x0", "g"), "add_pageoff"),
-            (float_move_x_from_d("x0", "d1"), "fmov_x_from_d"),
-            (float_move_d_from_x("d0", "x1"), "fmov_d_from_x"),
-            (float_move_d_from_d("d0", "d1"), "fmov_d_from_d"),
-            (float_add_d("d0", "d1", "d2"), "fadd_d"),
-            (float_subtract_d("d0", "d1", "d2"), "fsub_d"),
-            (float_multiply_d("d0", "d1", "d2"), "fmul_d"),
-            (float_divide_d("d0", "d1", "d2"), "fdiv_d"),
-            (float_negate_d("d0", "d1"), "fneg_d"),
-            (float_sqrt_d("d0", "d1"), "fsqrt_d"),
-            (float_abs_d("d0", "d1"), "fabs_d"),
-            (float_compare_d("d0", "d1"), "fcmp_d"),
-            (float_compare_zero_d("d0"), "fcmp_zero_d"),
-            (signed_convert_to_float_d("d0", "x1"), "scvtf_d_from_x"),
-            (float_convert_to_signed_x("x0", "d1"), "fcvtzs_x_from_d"),
-            (float_floor_to_signed_x("x0", "d1"), "fcvtms_x_from_d"),
-            (float_ceil_to_signed_x("x0", "d1"), "fcvtps_x_from_d"),
-            (float_round_to_signed_x("x0", "d1"), "fcvtas_x_from_d"),
-            (float_multiply_add_d("d0", "d1", "d2", "d3"), "fmadd_d"),
+            (
+                load_u64(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    8,
+                ),
+                "ldr_u64",
+            ),
+            (
+                load_u32(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    4,
+                ),
+                "ldr_u32",
+            ),
+            (
+                load_u16(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    2,
+                ),
+                "ldr_u16",
+            ),
+            (
+                load_u8(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    1,
+                ),
+                "ldr_u8",
+            ),
+            (
+                store_u64(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    8,
+                ),
+                "str_u64",
+            ),
+            (
+                store_u32(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    4,
+                ),
+                "str_u32",
+            ),
+            (
+                store_u8(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    1,
+                ),
+                "str_u8",
+            ),
+            (
+                load_double(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    8,
+                ),
+                "ldr_d",
+            ),
+            (
+                store_double(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                    8,
+                ),
+                "str_d",
+            ),
+            (
+                load_page_address(crate::target::shared::abi::Reg::test_named("x0"), "g"),
+                "adrp",
+            ),
+            (
+                add_page_offset(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    "g",
+                ),
+                "add_pageoff",
+            ),
+            (
+                float_move_x_from_d(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fmov_x_from_d",
+            ),
+            (
+                float_move_d_from_x(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "fmov_d_from_x",
+            ),
+            (
+                float_move_d_from_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fmov_d_from_d",
+            ),
+            (
+                float_add_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                    crate::target::shared::abi::Reg::test_named("d2"),
+                ),
+                "fadd_d",
+            ),
+            (
+                float_subtract_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                    crate::target::shared::abi::Reg::test_named("d2"),
+                ),
+                "fsub_d",
+            ),
+            (
+                float_multiply_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                    crate::target::shared::abi::Reg::test_named("d2"),
+                ),
+                "fmul_d",
+            ),
+            (
+                float_divide_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                    crate::target::shared::abi::Reg::test_named("d2"),
+                ),
+                "fdiv_d",
+            ),
+            (
+                float_negate_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fneg_d",
+            ),
+            (
+                float_sqrt_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fsqrt_d",
+            ),
+            (
+                float_abs_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fabs_d",
+            ),
+            (
+                float_compare_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fcmp_d",
+            ),
+            (
+                float_compare_zero_d(crate::target::shared::abi::Reg::test_named("d0")),
+                "fcmp_zero_d",
+            ),
+            (
+                signed_convert_to_float_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("x1"),
+                ),
+                "scvtf_d_from_x",
+            ),
+            (
+                float_convert_to_signed_x(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fcvtzs_x_from_d",
+            ),
+            (
+                float_floor_to_signed_x(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fcvtms_x_from_d",
+            ),
+            (
+                float_ceil_to_signed_x(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fcvtps_x_from_d",
+            ),
+            (
+                float_round_to_signed_x(
+                    crate::target::shared::abi::Reg::test_named("x0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                ),
+                "fcvtas_x_from_d",
+            ),
+            (
+                float_multiply_add_d(
+                    crate::target::shared::abi::Reg::test_named("d0"),
+                    crate::target::shared::abi::Reg::test_named("d1"),
+                    crate::target::shared::abi::Reg::test_named("d2"),
+                    crate::target::shared::abi::Reg::test_named("d3"),
+                ),
+                "fmadd_d",
+            ),
         ];
         for (inst, mnemonic) in cases {
             assert_eq!(inst.op.mnemonic(), mnemonic);
@@ -1831,19 +2607,105 @@ mod tests {
     #[test]
     fn vector_constructors() {
         // Loads/stores and the macro-generated three-same/two-misc/shift builders.
-        assert_eq!(vector_load("v0", "x1", 16).op.mnemonic(), "ldr_q");
-        assert_eq!(vector_store("v0", "x1", 16).op.mnemonic(), "str_q");
-        assert_eq!(vector_fadd("v0", "v1", "v2").op.mnemonic(), "fadd_v");
-        assert_eq!(vector_bit("v0", "v1", "v2").op.mnemonic(), "bit_v");
-        assert_eq!(vector_fabs("v0", "v1").op.mnemonic(), "fabs_v");
-        assert_eq!(vector_fcmle_zero("v0", "v1").op.mnemonic(), "fcmle_zero_v");
-        assert_eq!(vector_shl("v0", "v1", 3).op.mnemonic(), "shl_v");
-        assert_eq!(vector_sshr("v0", "v1", 3).op.mnemonic(), "sshr_v");
-        assert_eq!(vector_ushr("v0", "v1", 3).op.mnemonic(), "ushr_v");
-        let dup = vector_dup_from_x("v0", "x1");
+        assert_eq!(
+            vector_load(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("x1"),
+                16
+            )
+            .op
+            .mnemonic(),
+            "ldr_q"
+        );
+        assert_eq!(
+            vector_store(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("x1"),
+                16
+            )
+            .op
+            .mnemonic(),
+            "str_q"
+        );
+        assert_eq!(
+            vector_fadd(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1"),
+                crate::target::shared::abi::Reg::test_named("v2")
+            )
+            .op
+            .mnemonic(),
+            "fadd_v"
+        );
+        assert_eq!(
+            vector_bit(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1"),
+                crate::target::shared::abi::Reg::test_named("v2")
+            )
+            .op
+            .mnemonic(),
+            "bit_v"
+        );
+        assert_eq!(
+            vector_fabs(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1")
+            )
+            .op
+            .mnemonic(),
+            "fabs_v"
+        );
+        assert_eq!(
+            vector_fcmle_zero(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1")
+            )
+            .op
+            .mnemonic(),
+            "fcmle_zero_v"
+        );
+        assert_eq!(
+            vector_shl(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1"),
+                3
+            )
+            .op
+            .mnemonic(),
+            "shl_v"
+        );
+        assert_eq!(
+            vector_sshr(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1"),
+                3
+            )
+            .op
+            .mnemonic(),
+            "sshr_v"
+        );
+        assert_eq!(
+            vector_ushr(
+                crate::target::shared::abi::Reg::test_named("v0"),
+                crate::target::shared::abi::Reg::test_named("v1"),
+                3
+            )
+            .op
+            .mnemonic(),
+            "ushr_v"
+        );
+        let dup = vector_dup_from_x(
+            crate::target::shared::abi::Reg::test_named("v0"),
+            crate::target::shared::abi::Reg::test_named("x1"),
+        );
         assert_eq!(dup.op.mnemonic(), "dup_v_from_x");
         assert_eq!(get(&dup, "src").as_deref(), Some("x1"));
-        let ext = vector_extract_to_x("x0", "v1", 1);
+        let ext = vector_extract_to_x(
+            crate::target::shared::abi::Reg::test_named("x0"),
+            crate::target::shared::abi::Reg::test_named("v1"),
+            1,
+        );
         assert_eq!(ext.op.mnemonic(), "umov_x_from_v");
         assert_eq!(get(&ext, "index").as_deref(), Some("1"));
     }

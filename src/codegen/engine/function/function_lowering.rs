@@ -875,7 +875,7 @@ pub(crate) fn lower_function(
                 // Typed convention token — a parameter's register location stays
                 // Operand::Abi so it is realized by each backend's typed handler
                 // (never a Raw convention string). plan-85-D Phase 3.
-                abi::argument_register(index)?
+                abi::argument_register(index)?.into()
             } else {
                 // Stack-tail sentinel (bug-08); a Raw marker the prologue interprets.
                 Operand::from(format!("stack{}", index - abi::REGISTER_ARGUMENT_COUNT))
@@ -911,8 +911,6 @@ pub(crate) fn lower_function(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
-        next_vreg: 0,
-        next_fp_vreg: 0,
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -940,6 +938,8 @@ pub(crate) fn lower_function(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
+        error_return_pads: HashMap::new(),
+        error_return_pad_code: Vec::new(),
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
@@ -1339,7 +1339,7 @@ pub(crate) fn lower_builtin_function_wrapper(
     let param = CodeParam {
         name: "value".to_string(),
         type_: params[0].name().into_owned(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.into(),
     };
     let mut builder = CodeBuilder::for_synthetic_function(
         symbol,
@@ -1436,6 +1436,7 @@ pub(crate) fn lower_abi_function_helper(
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
     mouse_state_offset: Option<usize>,
+    input_state_offset: Option<usize>,
     arena_global_slots: usize,
     uses_rng: bool,
     debug_arena_registry: bool,
@@ -1478,8 +1479,6 @@ pub(crate) fn lower_abi_function_helper(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
-        next_vreg: 0,
-        next_fp_vreg: 0,
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -1507,6 +1506,8 @@ pub(crate) fn lower_abi_function_helper(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
+        error_return_pads: HashMap::new(),
+        error_return_pad_code: Vec::new(),
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
@@ -1566,7 +1567,7 @@ pub(crate) fn lower_abi_function_helper(
         args.push(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: abi::argument_register(index)?,
+            location: abi::argument_register(index)?.into(),
             text: format!("abiArg{index}"),
         });
     }
@@ -1579,6 +1580,7 @@ pub(crate) fn lower_abi_function_helper(
         term_state_offset,
         presentation_mode_offset,
         mouse_state_offset,
+        input_state_offset,
         call,
         arena_global_slots,
         uses_rng,
@@ -1640,7 +1642,7 @@ pub(crate) fn lower_thread_copy_function(
     let param = CodeParam {
         name: "source".to_string(),
         type_: type_.clone().name().into_owned(),
-        location: abi::argument_register(0)?,
+        location: abi::argument_register(0)?.into(),
     };
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),
@@ -1660,8 +1662,6 @@ pub(crate) fn lower_thread_copy_function(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
-        next_vreg: 0,
-        next_fp_vreg: 0,
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -1689,6 +1689,8 @@ pub(crate) fn lower_thread_copy_function(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
+        error_return_pads: HashMap::new(),
+        error_return_pad_code: Vec::new(),
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,

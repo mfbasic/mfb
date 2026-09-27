@@ -1,0 +1,28 @@
+' temperature - the blue-to-red wash of the temperature layer.
+
+IMPORT math
+
+' Celsius endpoints of the blue-to-red scale. Values outside this useful
+' weather range hold at its ends rather than wrapping through another colour.
+LET HEAT_COLD AS Float = -40.0
+
+LET HEAT_HOT AS Float = 40.0
+
+' Temperature at one place and forecast moment, converted from the kelvin GFS
+' stores to Celsius.
+FUNC temperatureBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Float
+  LET a AS Float = sampleField(earlier.temperature, g)
+  IF mix <= 0.0 THEN RETURN a - 273.15
+  LET b AS Float = sampleField(later.temperature, g)
+  RETURN a + (b - a) * mix - 273.15
+END FUNC
+
+' The RGBA8 pixel for a temperature in Celsius. It is opaque: the picture as a
+' whole is drawn translucent, so the map shows through everywhere evenly.
+FUNC temperaturePixel(celsius AS Float) AS List OF Byte
+  LET heat AS Float = math::clamp((celsius - HEAT_COLD) / (HEAT_HOT - HEAT_COLD), 0.0, 1.0)
+  LET red AS Byte = toByte(math::floor(25.0 + heat * 220.0))
+  LET green AS Byte = toByte(math::floor(85.0 - heat * 45.0))
+  LET blue AS Byte = toByte(math::floor(235.0 - heat * 215.0))
+  RETURN [red, green, blue, toByte(255)]
+END FUNC

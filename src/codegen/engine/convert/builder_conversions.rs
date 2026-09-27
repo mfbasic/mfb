@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Integer,
-                location: Operand::from(register.render()),
+                location: Operand::from(register),
                 text: format!("toInt({})", value.text),
             });
         }
@@ -71,7 +71,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_fixed_to_int_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let value_reg = self.temporary_vreg();
         let value = &value_reg;
@@ -91,7 +91,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toInt(Fixed)".to_string(),
         })
     }
@@ -100,7 +100,7 @@ impl CodeBuilder<'_> {
     /// zero (plan-29-G §4.3). Always fits Integer.
     pub(crate) fn emit_money_to_int_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let scale = self.allocate_register();
         let result = self.allocate_register();
@@ -113,14 +113,14 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toInt(Money)".to_string(),
         })
     }
 
     pub(crate) fn emit_float_to_int_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let bits_reg = self.temporary_vreg();
         let exponent_reg = self.temporary_vreg();
@@ -144,8 +144,8 @@ impl CodeBuilder<'_> {
             bits,
             exponent,
             mask,
-            sign,
-            mantissa,
+            Some(sign.into()),
+            Some(mantissa.into()),
             Some("1086"),
             &ok,
             &check_edge,
@@ -168,7 +168,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toInt(Float)".to_string(),
         })
     }
@@ -182,44 +182,44 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_string_to_int_sign_prologue(
         &mut self,
-        string: impl Into<Operand>,
-        length: impl Into<Operand>,
-        index: impl Into<Operand>,
-        cursor: impl Into<Operand>,
-        byte: impl Into<Operand>,
-        acc: impl Into<Operand>,
-        negative: impl Into<Operand>,
+        string: impl Into<abi::Reg>,
+        length: impl Into<abi::Reg>,
+        index: impl Into<abi::Reg>,
+        cursor: impl Into<abi::Reg>,
+        byte: impl Into<abi::Reg>,
+        acc: impl Into<abi::Reg>,
+        negative: impl Into<abi::Reg>,
         invalid: &str,
         first_not_minus: &str,
         sign_done: &str,
     ) {
-        let string: Operand = string.into();
-        let length: Operand = length.into();
-        let index: Operand = index.into();
-        let cursor: Operand = cursor.into();
-        let byte: Operand = byte.into();
-        let negative: Operand = negative.into();
-        self.emit(abi::load_u64(length.clone(), string.clone(), 0));
-        self.emit(abi::compare_immediate(length.clone(), "0"));
+        let string: abi::Reg = string.into();
+        let length: abi::Reg = length.into();
+        let index: abi::Reg = index.into();
+        let cursor: abi::Reg = cursor.into();
+        let byte: abi::Reg = byte.into();
+        let negative: abi::Reg = negative.into();
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
         self.emit(abi::branch_eq(invalid));
-        self.emit(abi::add_immediate(cursor.clone(), string, 8));
-        self.emit(abi::move_immediate(index.clone(), "Integer", "0"));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
         self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative.clone(), "Integer", "0"));
-        self.emit(abi::load_u8(byte.clone(), cursor.clone(), 0));
-        self.emit(abi::compare_immediate(byte.clone(), "45"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
         self.emit(abi::branch_ne(first_not_minus));
         self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
-        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(sign_done));
         self.emit(abi::label(first_not_minus));
         self.emit(abi::compare_immediate(byte, "43"));
         self.emit(abi::branch_ne(sign_done));
-        self.emit(abi::add_immediate(index.clone(), index.clone(), 1));
-        self.emit(abi::add_immediate(cursor.clone(), cursor, 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::label(sign_done));
-        self.emit(abi::compare_registers(index.clone(), length));
+        self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(invalid));
     }
 
@@ -232,10 +232,10 @@ impl CodeBuilder<'_> {
     /// 2^63 where unsigned and signed order agree.
     pub(crate) fn emit_int_parse_cutoff_guard(
         &mut self,
-        acc: impl Into<Operand>,
-        cutoff: impl Into<Operand>,
-        digit: impl Into<Operand>,
-        cutlim: impl Into<Operand>,
+        acc: impl Into<abi::Reg>,
+        cutoff: impl Into<abi::Reg>,
+        digit: impl Into<abi::Reg>,
+        cutlim: impl Into<abi::Reg>,
         overflow: &str,
         cutoff_equal: &str,
         digit_ok: &str,
@@ -257,25 +257,21 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_int_parse_sign_epilogue(
         &mut self,
-        result: impl Into<Operand>,
-        acc: impl Into<Operand>,
-        negative: impl Into<Operand>,
+        result: impl Into<abi::Reg>,
+        acc: impl Into<abi::Reg>,
+        negative: impl Into<abi::Reg>,
         loop_done: &str,
         positive: &str,
         done: &str,
         invalid: &str,
         overflow: &str,
     ) -> Result<(), String> {
-        let result: Operand = result.into();
-        let acc: Operand = acc.into();
+        let result: abi::Reg = result.into();
+        let acc: abi::Reg = acc.into();
         self.emit(abi::label(loop_done));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(positive));
-        self.emit(abi::subtract_registers(
-            result.clone(),
-            abi::ZERO,
-            acc.clone(),
-        ));
+        self.emit(abi::subtract_registers(result, abi::ZERO, acc));
         self.emit(abi::branch(done));
         self.emit(abi::label(positive));
         self.emit(abi::move_register(result, acc));
@@ -290,7 +286,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_string_to_int_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         // Pure integer parse with no call ABI: every working register is scratch,
         // minted as a vreg so the allocator colors it per-ISA. `xzr` below stays
@@ -382,7 +378,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toInt(String)".to_string(),
         })
     }
@@ -399,7 +395,7 @@ impl CodeBuilder<'_> {
     /// range FAILs `77050010` (ErrOverflow).
     pub(crate) fn emit_string_to_int_value_base(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
         base_slot: usize,
     ) -> Result<ValueResult, String> {
         // All working registers are scratch (no call ABI); mint as vregs so the
@@ -529,7 +525,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toInt(String, base)".to_string(),
         })
     }
@@ -553,7 +549,7 @@ impl CodeBuilder<'_> {
                 &value.location,
                 &scale,
             ));
-            Operand::from(whole.render())
+            Operand::from(whole)
         } else {
             value.location.clone()
         };
@@ -572,7 +568,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Byte,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("toByte({})", value.text),
         })
     }
@@ -591,7 +587,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::named("Scalar"),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -621,7 +617,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::named("Scalar"),
-                    location: Operand::from(register.render()),
+                    location: Operand::from(register),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -630,7 +626,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::named("Scalar"),
-                    location: Operand::from(result.render()),
+                    location: Operand::from(result),
                     text: format!("toScalar({})", value.text),
                 })
             }
@@ -653,20 +649,20 @@ impl CodeBuilder<'_> {
     /// calling, since this reuses the same register for the 0xC0 test.
     fn emit_continuation_byte_check(
         &mut self,
-        byte: impl Into<Operand>,
-        scratch: impl Into<Operand>,
+        byte: impl Into<abi::Reg>,
+        scratch: impl Into<abi::Reg>,
         invalid: &str,
     ) {
-        let scratch: Operand = scratch.into();
-        self.emit(abi::move_immediate(scratch.clone(), "Integer", "192")); // 0xC0
-        self.emit(abi::and_registers(scratch.clone(), byte, scratch.clone()));
+        let scratch: abi::Reg = scratch.into();
+        self.emit(abi::move_immediate(scratch, "Integer", "192")); // 0xC0
+        self.emit(abi::and_registers(scratch, byte, scratch));
         self.emit(abi::compare_immediate(scratch, "128")); // 0x80
         self.emit(abi::branch_ne(invalid));
     }
 
     pub(crate) fn emit_string_to_scalar_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<VirtualRegister, String> {
         let string_v = self.temporary_vreg();
         let length_v = self.temporary_vreg();
@@ -820,7 +816,7 @@ impl CodeBuilder<'_> {
     /// materializes an owned arena `String` from them.
     pub(crate) fn emit_scalar_to_string_value(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
     ) -> Result<ValueResult, String> {
         let cp_v = self.temporary_vreg();
         let buf_v = self.temporary_vreg();
@@ -851,7 +847,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "toString(Scalar)".to_string(),
         })
     }
@@ -877,7 +873,7 @@ impl CodeBuilder<'_> {
                 let temp = ValueResult {
                     origin: None,
                     type_: ParameterType::Fixed,
-                    location: Operand::from(source.render()),
+                    location: Operand::from(source),
                     text: value.text.clone(),
                 };
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
@@ -888,7 +884,7 @@ impl CodeBuilder<'_> {
                 let temp = ValueResult {
                     origin: None,
                     type_: ParameterType::Money,
-                    location: Operand::from(source.render()),
+                    location: Operand::from(source),
                     text: value.text.clone(),
                 };
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
@@ -917,7 +913,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Float,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("toFloat({})", value.text),
         })
     }
@@ -978,7 +974,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Fixed,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("toFixed({})", value.text),
         })
     }
@@ -1078,7 +1074,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Money,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("toMoney({})", value.text),
         })
     }
@@ -1113,7 +1109,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("isNumeric({})", value.text),
         })
     }
@@ -1149,7 +1145,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{name}({})", value.text),
         })
     }
@@ -1205,7 +1201,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{name}({})", value.text),
         })
     }
@@ -1240,26 +1236,26 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Boolean,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{name}({})", len.text),
         })
     }
 
     pub(crate) fn emit_integer_to_fixed_value(
         &mut self,
-        source: impl Into<Operand>,
-        result: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
+        result: impl Into<abi::Reg>,
     ) -> Result<(), String> {
-        let source: Operand = source.into();
+        let source: abi::Reg = source.into();
         let min = self.allocate_register();
         let max = self.allocate_register();
         let overflow = self.label("int_to_fixed_overflow");
         let ok = self.label("int_to_fixed_ok");
         self.emit(abi::move_immediate(&min, "Integer", "18446744071562067968"));
-        self.emit(abi::compare_registers(source.clone(), &min));
+        self.emit(abi::compare_registers(source, &min));
         self.emit(abi::branch_lt(&overflow));
         self.emit(abi::move_immediate(&max, "Integer", "2147483647"));
-        self.emit(abi::compare_registers(source.clone(), &max));
+        self.emit(abi::compare_registers(source, &max));
         self.emit(abi::branch_gt(&overflow));
         self.emit(abi::shift_left_immediate(result, source, 32));
         self.emit(abi::branch(&ok));
@@ -1271,8 +1267,8 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_float_bits_to_fixed_value(
         &mut self,
-        source: impl Into<Operand>,
-        result: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
+        result: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let bits_reg = self.temporary_vreg();
         let exponent_reg = self.temporary_vreg();
@@ -1297,8 +1293,8 @@ impl CodeBuilder<'_> {
             bits,
             exponent,
             mask,
-            sign,
-            mantissa,
+            Some(sign.into()),
+            Some(mantissa.into()),
             Some("1054"),
             &range_ok,
             &edge,
@@ -1343,7 +1339,7 @@ impl CodeBuilder<'_> {
     /// codes they raised before.
     pub(crate) fn emit_parse_decimal_string_to_double(
         &mut self,
-        source_register: impl Into<Operand>,
+        source_register: impl Into<abi::Reg>,
         invalid_label: &str,
     ) -> Result<(), String> {
         self.emit(abi::move_register(abi::c_arg(0), source_register));
@@ -1367,19 +1363,19 @@ impl CodeBuilder<'_> {
     /// copies it replaced.
     ///
     /// `threshold = None` is the `emit_double_overflow_check` shape: emit just the
-    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`,
-    /// and the three range/edge labels are unused. `threshold = Some(t)` adds the
+    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`
+    /// (`None`), and the three range/edge labels are unused. `threshold = Some(t)` adds the
     /// range check — `< t` → `range_ok`, `> t` → `overflow` — and, for the boundary
     /// exponent `== t`, the edge block that accepts only the exact minimum-magnitude
     /// value (sign set, zero mantissa) and traps everything else to `overflow`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_float_exponent_range_guard(
         &mut self,
-        bits: impl Into<Operand>,
-        exponent: impl Into<Operand>,
-        mask: impl Into<Operand>,
-        sign: impl Into<Operand>,
-        mantissa: impl Into<Operand>,
+        bits: impl Into<abi::Reg>,
+        exponent: impl Into<abi::Reg>,
+        mask: impl Into<abi::Reg>,
+        sign: Option<abi::Reg>,
+        mantissa: Option<abi::Reg>,
         threshold: Option<&str>,
         range_ok: &str,
         edge: &str,
@@ -1387,21 +1383,13 @@ impl CodeBuilder<'_> {
         invalid: &str,
         overflow: &str,
     ) {
-        let bits: Operand = bits.into();
-        let exponent: Operand = exponent.into();
-        let mask: Operand = mask.into();
-        self.emit(abi::shift_right_immediate(
-            exponent.clone(),
-            bits.clone(),
-            52,
-        ));
-        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
-        self.emit(abi::and_registers(
-            exponent.clone(),
-            exponent.clone(),
-            mask.clone(),
-        ));
-        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
+        let bits: abi::Reg = bits.into();
+        let exponent: abi::Reg = exponent.into();
+        let mask: abi::Reg = mask.into();
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
         self.emit(abi::branch_eq(invalid));
         let Some(threshold) = threshold else {
             return;
@@ -1411,26 +1399,22 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(edge));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge));
-        let sign: Operand = sign.into();
-        let mantissa: Operand = mantissa.into();
-        self.emit(abi::shift_right_immediate(sign.clone(), bits.clone(), 63));
+        let sign = sign.expect("a range threshold needs the caller's sign register");
+        let mantissa = mantissa.expect("a range threshold needs the caller's mantissa register");
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
         self.emit(abi::compare_immediate(sign, "1"));
         self.emit(abi::branch_eq(edge_sign_ok));
         self.emit(abi::branch(overflow));
         self.emit(abi::label(edge_sign_ok));
-        self.emit(abi::move_immediate(
-            mask.clone(),
-            "Integer",
-            F64_MANTISSA_MASK,
-        ));
-        self.emit(abi::and_registers(mantissa.clone(), bits, mask));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
+        self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(overflow));
     }
 
     pub(crate) fn emit_double_overflow_check(
         &mut self,
-        source: impl Into<Operand>,
+        source: impl Into<abi::Reg>,
         overflow_label: &str,
     ) {
         let bits = self.temporary_vreg();
@@ -1441,8 +1425,8 @@ impl CodeBuilder<'_> {
             &bits,
             &exponent,
             &mask,
-            "",
-            "",
+            None,
+            None,
             None,
             "",
             "",

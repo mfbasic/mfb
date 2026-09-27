@@ -56,12 +56,13 @@ use crate::codegen::runtime::canvas::{
     ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
-    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
-    GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
-    GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT, GRAPHICS_OFFSET_MTL_TEX_WIDTH,
-    GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES, METAL_EDGE_BASE_WORDS,
-    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_ITEMS,
+    BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
+    GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
+    GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
+    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
+    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
+    METAL_EDGE_BASE_WORDS, METAL_EDGE_RESIDUAL_BASE_WORDS, METAL_MAX_FRAME_EDGES,
+    METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
@@ -148,6 +149,7 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
          constant float FIXED = 65536.0;\n\
          constant float PI = 3.141592653589793;\n\
          constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
+         constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};\n\
          constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
          constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
          constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
@@ -270,33 +272,212 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
     "  return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
     "}\n",
-    // plan-116-A: `base` is the polygon's first-edge index into the frame buffer's edge
-    // region, the same word (`ITEM_ARC_EDGE_BASE`) Vulkan has always carried. Metal used
-    // to leave it zero because `setFragmentBytes:` copied each item's edges into the
-    // command buffer, so every polygon's array started at 0; one buffer now serves the
-    // whole frame, so each polygon reads its own slice.
+    // bug-687: double-float arithmetic -- a value as an unevaluated sum `hi + lo` of two
+    // floats, about 48 bits. A polygon's distance is evaluated in it because fp32 is not
+    // the oracle's f64: where the exact distance lies within ~1e-5 px of a coverage
+    // quantisation boundary the two round to neighbouring steps, and near black one step
+    // is 3-4 sRGB levels, past GPU_DEFAULT.
     //
-    // bug-686: `list` is where this pixel's band's edge numbers start in `edges`, and
-    // `count` how many there are -- or `list` is -1 and `count` the polygon's edge count,
-    // which is the loop over every edge this function always was (`polygonBand`). The
-    // loop BODY is untouched, and that is what makes the band index exact: an edge left
-    // out of a band is one whose y-span misses the pixel's row (so it cannot toggle
-    // `inside`) and that is further than the band's reach from it (so it cannot change
-    // the clamped coverage `best` feeds). Order does not matter: `min` and a parity
-    // toggle are both order-independent.
-    "static float edgeDistance(constant int *edges, int base, int count, int list, float2 p) {\n",
-    "  float best = 1.0e6;\n",
+    // The error terms only exist if the compiler keeps the operations in the order written.
+    // Metal compiles with fast math, which may reassociate `(a - (s - v)) + (b - v)` to 0
+    // (measured: every TwoSum error term came back wrong), so each helper turns
+    // reassociation off for its own body. `fma` is exact by the MSL specification, which is
+    // what makes TwoProd one instruction.
+    "static float2 dfTwoSum(float a, float b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float s = a + b;\n",
+    "  float v = s - a;\n",
+    "  return float2(s, (a - (s - v)) + (b - v));\n",
+    "}\n",
+    "static float2 dfQuickSum(float a, float b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float s = a + b;\n",
+    "  return float2(s, b - (s - a));\n",
+    "}\n",
+    "static float2 dfTwoProd(float a, float b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float p = a * b;\n",
+    "  return float2(p, fma(a, b, -p));\n",
+    "}\n",
+    "static float2 dfAdd(float2 a, float2 b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float2 s = dfTwoSum(a.x, b.x);\n",
+    "  float2 t = dfTwoSum(a.y, b.y);\n",
+    "  s = dfQuickSum(s.x, s.y + t.x);\n",
+    "  return dfQuickSum(s.x, s.y + t.y);\n",
+    "}\n",
+    "static float2 dfSub(float2 a, float2 b) { return dfAdd(a, -b); }\n",
+    "static float2 dfMul(float2 a, float2 b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float2 p = dfTwoProd(a.x, b.x);\n",
+    "  return dfQuickSum(p.x, p.y + (a.x * b.y + a.y * b.x));\n",
+    "}\n",
+    "static float2 dfMulF(float2 a, float b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float2 p = dfTwoProd(a.x, b);\n",
+    "  return dfQuickSum(p.x, p.y + a.y * b);\n",
+    "}\n",
+    "static float2 dfDiv(float2 a, float2 b) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  float q1 = a.x / b.x;\n",
+    "  float2 r = dfSub(a, dfMulF(b, q1));\n",
+    "  float q2 = r.x / b.x;\n",
+    "  r = dfSub(r, dfMulF(b, q2));\n",
+    "  float q3 = r.x / b.x;\n",
+    "  return dfAdd(dfQuickSum(q1, q2), float2(q3, 0.0));\n",
+    "}\n",
+    "static float2 dfSqrt(float2 a) {\n",
+    "#pragma clang fp reassociate(off)\n",
+    "  if (a.x <= 0.0) { return float2(0.0, 0.0); }\n",
+    "  float x = rsqrt(a.x);\n",
+    "  float y = a.x * x;\n",
+    "  float2 d = dfSub(a, dfTwoProd(y, y));\n",
+    "  return dfTwoSum(y, d.x * (x * 0.5));\n",
+    "}\n",
+    "static bool dfLess(float2 a, float2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); }\n",
+    // A 16.16 word as a double-float, exactly: the two halves are exact floats (at most 23
+    // and 8 significant bits) and the scale is a power of two.
+    "static float2 dfWord(int v) { return dfTwoSum(float(v & ~255) / FIXED, float(v & 255) / FIXED); }\n",
+    // A residual word (bug-687, `EDGE_RESIDUAL_SCALE`) in px: units of 2^-47.
+    "static float residualPx(int r) { return float(r) * (1.0 / 140737488355328.0); }\n",
+    // One vertex coordinate as the CPU had it: the 16.16 word plus its residual.
+    "static float2 edgeCoord(constant int *edges, int i, int r) {\n",
+    "  return dfAdd(dfWord(edges[i]), float2(residualPx(edges[r]), 0.0));\n",
+    "}\n",
+    // `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` -- the quantisation every shape uses -- for a
+    // double-float `d`, rounded exactly.
+    "static int dfCoverage(float2 d) {\n",
+    "  float2 c = dfSub(float2(0.5, 0.0), d);\n",
+    "  if (!dfLess(float2(0.0, 0.0), c)) { return 0; }\n",
+    "  if (!dfLess(c, float2(1.0, 0.0))) { return 255; }\n",
+    "  float2 x = dfAdd(dfMulF(c, 255.0), float2(0.5, 0.0));\n",
+    "  float k = floor(x.x);\n",
+    "  if (x.x == k && x.y < 0.0) { k -= 1.0; }\n",
+    "  return int(k);\n",
+    "}\n",
+    // plan-116-A: `base` is the polygon's first-edge index into the frame buffer's edge
+    // region. bug-686: `list` is where this pixel's band's edge numbers start in `edges`,
+    // and `count` how many there are -- or `list` is -1 and `count` the polygon's edge
+    // count, the loop over every edge (`polygonBand`). An edge left out of a band is one
+    // whose y-span misses the pixel's row (so it cannot toggle `inside`) and that is
+    // further than the band's reach from it (so it cannot change the clamped coverage
+    // `best` feeds); `min` and a parity toggle are both order-independent.
+    //
+    // bug-687: the twin of `__canvas_edgeDistance`, in double-float, at the shape-space
+    // point (`x`, `y`). Each endpoint is its 16.16 word plus its residual, so the polygon
+    // is the oracle's to ~2^-41 px; the edge vector is the integer difference of the
+    // words plus the residuals' difference. The crossing test is the oracle's
+    // `px < ax + (py - ay) / dy * dx`, multiplied out by `dy` so it needs no division.
+    //
+    // Double-float is spent only where fp32 cannot decide, and that is NOT a tolerance:
+    // the value returned is the double-float value, pixel for pixel. `edgeSlack` is an
+    // ERROR BOUND on evaluating one edge in fp32 -- the 16.16 words' conversion, the
+    // dropped residual (at most 2^-17 px), and the subtractions, products, division and
+    // square root, each a few ulps of the largest coordinate involved (a segment's
+    // distance is 1-Lipschitz in its endpoints). It is 2^-18 of the six coordinates'
+    // magnitudes, 64 ulps of each, plus 2^-12 px. So each edge's double-float distance
+    // lies in [d32 - slack, d32 + slack], and pass 1, in fp32 over the band, gives:
+    // * `bound`, the least `d32 + slack`, at least the true minimum: in pass 2 an edge
+    //   whose `d32 - slack` exceeds it cannot be the nearest, so only the rest -- one or
+    //   two -- are evaluated in double-float (a box test skips far ones without a root);
+    // * `low`, the least `d32 - slack`, at most the true minimum: if it is past `reach`
+    //   (0.5 + the stroke's half-width; unbounded under a transform, whose gradient uses
+    //   all five values) the coverage is 0 or 255 whatever the distance, so pass 2 is
+    //   skipped and `low` is returned in its place;
+    // * the parity: a row test is exact in fp32 unless an endpoint is within the slack
+    //   of the row, and the side of a crossing unless `|cross|` is within the slack
+    //   times `|v|1 + 2|w|1` (its sensitivity to moved endpoints; the L1 norm only
+    //   overstates it). Those `edgeUnsure` edges are left out of pass 1's parity and
+    //   decided in pass 2, in double-float.
+    // Each double-float helper is inlined at ONE call site: lavapipe (Mesa, LLVM)
+    // compiles the whole fragment shader at pipeline creation, and a version with four
+    // sites per call and six calls did not finish compiling in 16 minutes on box 2226.
+    "static float edgeSlack(float2 p, float2 a, float2 b) {\n",
+    "  return (abs(p.x) + abs(p.y) + abs(a.x) + abs(a.y) + abs(b.x) + abs(b.y)) * (1.0 / 262144.0) + (1.0 / 4096.0);\n",
+    "}\n",
+    "static bool edgeUnsure(float2 p, float2 a, float2 b, float slack) {\n",
+    "  if (abs(a.y - p.y) <= slack || abs(b.y - p.y) <= slack) { return true; }\n",
+    "  if ((a.y > p.y) == (b.y > p.y)) { return false; }\n",
+    "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
+    "  return abs(cross) <= slack * (abs(b.x - a.x) + abs(b.y - a.y) + 2.0 * (abs(p.x - a.x) + abs(p.y - a.y)));\n",
+    "}\n",
+    "static bool edgeToggles32(float2 p, float2 a, float2 b) {\n",
+    "  if ((a.y > p.y) == (b.y > p.y)) { return false; }\n",
+    "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
+    "  return b.y > a.y ? cross < 0.0 : cross > 0.0;\n",
+    "}\n",
+    "struct DfEdge { float2 ax; float2 ay; float2 vx; float2 vy; };\n",
+    "static DfEdge dfEdge(constant int *edges, int base, int e) {\n",
+    "  int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
+    "  int r = (base + e) * 4 + METAL_EDGE_RESIDUAL_BASE;\n",
+    "  DfEdge g;\n",
+    "  g.ax = edgeCoord(edges, i, r);\n",
+    "  g.ay = edgeCoord(edges, i + 1, r + 1);\n",
+    "  g.vx = dfAdd(dfWord(edges[i + 2] - edges[i]),\n",
+    "               dfTwoSum(residualPx(edges[r + 2]), -residualPx(edges[r])));\n",
+    "  g.vy = dfAdd(dfWord(edges[i + 3] - edges[i + 1]),\n",
+    "               dfTwoSum(residualPx(edges[r + 3]), -residualPx(edges[r + 1])));\n",
+    "  return g;\n",
+    "}\n",
+    "static float2 dfSegmentDistance(DfEdge g, float2 x, float2 y) {\n",
+    "  float2 wx = dfSub(x, g.ax);\n",
+    "  float2 wy = dfSub(y, g.ay);\n",
+    "  float2 len2 = dfAdd(dfMul(g.vx, g.vx), dfMul(g.vy, g.vy));\n",
+    "  float2 t = float2(0.0, 0.0);\n",
+    "  if (len2.x > 0.0) {\n",
+    "    t = dfDiv(dfAdd(dfMul(wx, g.vx), dfMul(wy, g.vy)), len2);\n",
+    "    if (dfLess(t, float2(0.0, 0.0))) { t = float2(0.0, 0.0); }\n",
+    "    if (dfLess(float2(1.0, 0.0), t)) { t = float2(1.0, 0.0); }\n",
+    "  }\n",
+    "  float2 qx = dfSub(wx, dfMul(g.vx, t));\n",
+    "  float2 qy = dfSub(wy, dfMul(g.vy, t));\n",
+    "  return dfSqrt(dfAdd(dfMul(qx, qx), dfMul(qy, qy)));\n",
+    "}\n",
+    "static bool dfToggles(DfEdge g, float2 x, float2 y) {\n",
+    "  if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return false; }\n",
+    "  float2 lhs = dfMul(dfSub(x, g.ax), g.vy);\n",
+    "  float2 rhs = dfMul(dfSub(y, g.ay), g.vx);\n",
+    "  return g.vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs);\n",
+    "}\n",
+    "static float2 edgeDistance(constant int *edges, int base, int count, int list, float2 x, float2 y, float reach) {\n",
+    "  float2 p = float2(x.x, y.x);\n",
+    "  float bound = 1.0e6;\n",
+    "  float low = 1.0e6;\n",
+    "  bool unsure = false;\n",
     "  bool inside = false;\n",
     "  for (int j = 0; j < count; ++j) {\n",
+    "    int i = (base + (list < 0 ? j : edges[list + j])) * 4 + METAL_EDGE_BASE;\n",
+    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
+    "    float slack = edgeSlack(p, a, b);\n",
+    "    float d32 = segmentDistance(p, a, b);\n",
+    "    bound = min(bound, d32 + slack);\n",
+    "    low = min(low, d32 - slack);\n",
+    "    if (edgeUnsure(p, a, b, slack)) {\n",
+    "      unsure = true;\n",
+    "    } else if (edgeToggles32(p, a, b)) {\n",
+    "      inside = !inside;\n",
+    "    }\n",
+    "  }\n",
+    "  bool distant = low > reach;\n",
+    "  float2 best = distant ? float2(low, 0.0) : float2(1.0e6, 0.0);\n",
+    "  for (int j = 0; j < count && (!distant || unsure); ++j) {\n",
     "    int e = list < 0 ? j : edges[list + j];\n",
     "    int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
     "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
     "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
-    "    best = min(best, segmentDistance(p, a, b));\n",
-    "    if ((a.y > p.y) != (b.y > p.y)) {\n",
-    "      float u = (p.y - a.y) / (b.y - a.y);\n",
-    "      if (p.x < a.x + u * (b.x - a.x)) inside = !inside;\n",
+    "    float slack = edgeSlack(p, a, b);\n",
+    "    float2 gap = max(max(min(a, b) - p, p - max(a, b)), float2(0.0, 0.0));\n",
+    "    float within = bound + slack;\n",
+    "    bool candidate = !distant && dot(gap, gap) <= within * within && segmentDistance(p, a, b) - slack <= bound;\n",
+    "    bool unsureEdge = unsure && edgeUnsure(p, a, b, slack);\n",
+    "    if (!candidate && !unsureEdge) { continue; }\n",
+    "    DfEdge g = dfEdge(edges, base, e);\n",
+    "    if (candidate) {\n",
+    "      float2 d = dfSegmentDistance(g, x, y);\n",
+    "      if (dfLess(d, best)) { best = d; }\n",
     "    }\n",
+    "    if (unsureEdge && dfToggles(g, x, y)) { inside = !inside; }\n",
     "  }\n",
     "  return inside ? -best : best;\n",
     "}\n",
@@ -403,7 +584,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
     "  if (item.misc.x == 10) { return polylineScan(item, edges, band, p).x; }\n",
-    "  return edgeDistance(edges, item.arc.z, band.y, band.x, p);\n",
+    // A polygon (4) never reaches here: `polygonCoverage` evaluates it in double-float
+    // (bug-687). Nor does a glyph (6), which has coverage, not a distance.
+    "  return 1.0e6;\n",
     "}\n",
     // The shape-space distance and the local scale of the mapping, as (d, s).
     //
@@ -433,6 +616,55 @@ const METAL_SHADER_BODY: &str = concat!(
     "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.0, 0.5)));\n",
     "  float g = sqrt(gx * gx + gy * gy);\n",
     "  return float2(d, g > 0.000001 ? g : 1.0);\n",
+    "}\n",
+    // bug-687: a polygon's fill and stroke coverage, 0..255 each, from its distance in
+    // double-float at the double-float shape-space point `pt` = (x.hi, x.lo, y.hi, y.lo).
+    // `shapeDistanceAndScale` and the fragment's two quantisations, operation for
+    // operation: the inverse map with the float32 terms, the central differences at 0.5
+    // (all five on the centre's band), `d / ||grad d||`, and the stroke's half-width
+    // taken off in shape space before the scale. The five samples are one loop so
+    // `edgeDistance` is inlined once.
+    "static float2 dfMapX(constant MfbItem &item, float2 x, float2 y) {\n",
+    "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.x)), dfMulF(y, as_type<float>(item.xform0.z))),\n",
+    "               float2(as_type<float>(item.xform1.x), 0.0));\n",
+    "}\n",
+    "static float2 dfMapY(constant MfbItem &item, float2 x, float2 y) {\n",
+    "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.y)), dfMulF(y, as_type<float>(item.xform0.w))),\n",
+    "               float2(as_type<float>(item.xform1.y), 0.0));\n",
+    "}\n",
+    "static float4 dfShapePoint(float2 surface, int2 offset) {\n",
+    "  return float4(dfSub(float2(surface.x, 0.0), dfWord(offset.x)), dfSub(float2(surface.y, 0.0), dfWord(offset.y)));\n",
+    "}\n",
+    "static int2 polygonCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
+    "  float2 x = pt.xy;\n",
+    "  float2 y = pt.zw;\n",
+    "  bool mapped = hasTransform(item);\n",
+    "  int2 band = polygonBand(item, edges, mapped ? dfMapY(item, x, y).x : y.x);\n",
+    "  float reach = mapped ? 1.0e30 : 0.5 + max(fx(item.misc.z), 0.0);\n",
+    "  float2 d[5];\n",
+    "  for (int k = 0; k < (mapped ? 5 : 1); ++k) {\n",
+    "    float2 sx = dfAdd(x, float2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));\n",
+    "    float2 sy = dfAdd(y, float2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));\n",
+    "    float2 qx = mapped ? dfMapX(item, sx, sy) : sx;\n",
+    "    float2 qy = mapped ? dfMapY(item, sx, sy) : sy;\n",
+    "    d[k] = edgeDistance(edges, item.arc.z, band.y, band.x, qx, qy, reach);\n",
+    "  }\n",
+    "  float2 dRaw = d[0];\n",
+    "  float2 g = float2(1.0, 0.0);\n",
+    "  if (mapped) {\n",
+    "    float2 gx = dfSub(d[1], d[2]);\n",
+    "    float2 gy = dfSub(d[3], d[4]);\n",
+    "    g = dfSqrt(dfAdd(dfMul(gx, gx), dfMul(gy, gy)));\n",
+    "    if (!(g.x > 0.000001)) { g = float2(1.0, 0.0); }\n",
+    "  }\n",
+    "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
+    "  int stroke = 0;\n",
+    "  float halfWidth = fx(item.misc.z);\n",
+    "  if (halfWidth > 0.0) {\n",
+    "    float2 s = dfSub(dRaw.x < 0.0 ? -dRaw : dRaw, float2(halfWidth, 0.0));\n",
+    "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
+    "  }\n",
+    "  return int2(fill, stroke);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -623,10 +855,23 @@ const METAL_SHADER_BODY: &str = concat!(
     // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
     // with the shape (section 4.3). Untransformed, `dScale` is 1.0 and both collapse to
     // the expressions this shader had.
-    "  float2 ds = shapeDistanceAndScale(item, edges, p);\n",
-    "  float dRaw = ds.x;\n",
-    "  float dScale = ds.y;\n",
-    "  float d = dRaw / dScale;\n",
+    //
+    // bug-687: a polygon's two coverages come from `polygonCoverage` in double-float, at
+    // the double-float twin of `p` -- the surface point with the group offset taken off,
+    // exactly. Every other kind keeps its fp32 distance and the same quantisation.
+    "  int fillCov;\n",
+    "  int strokeCov;\n",
+    "  if (item.misc.x == 4) {\n",
+    "    int2 cov = polygonCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
+    "    fillCov = cov.x;\n",
+    "    strokeCov = cov.y;\n",
+    "  } else {\n",
+    "    float2 ds = shapeDistanceAndScale(item, edges, p);\n",
+    "    float dRaw = ds.x;\n",
+    "    float dScale = ds.y;\n",
+    "    fillCov = int(clamp(0.5 - dRaw / dScale, 0.0, 1.0) * 255.0 + 0.5);\n",
+    "    strokeCov = int(clamp(0.5 - (abs(dRaw) - fx(item.misc.z)) / dScale, 0.0, 1.0) * 255.0 + 0.5);\n",
+    "  }\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
     // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
@@ -641,16 +886,14 @@ const METAL_SHADER_BODY: &str = concat!(
     "  if (item.misc.x == 9) {\n",
     "    fillRgba = pictureColour(item, edges, hasTransform(item) ? inverseMap(item, p) : p);\n",
     "  }\n",
-    "  float4 colour = covered(fillRgba,\n",
-    "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
+    "  float4 colour = covered(fillRgba, (fillCov * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
     "  if (halfWidth > 0.0) {\n",
     // plan-116-B: this stroke-over-fill composition equals the oracle's two sequential
     // blends only under `Normal`, which is why a non-`Normal` item that both fills and
     // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
     // time such an item reaches here it is fill-only or stroke-only.
-    "    float4 s = covered(item.stroke,\n",
-    "      (int(clamp(0.5 - (abs(dRaw) - halfWidth) / dScale, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
+    "    float4 s = covered(item.stroke, (strokeCov * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -942,7 +1185,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     // `LOCAL[5]` joins the saved set for plan-116-B: the four-pipeline loop needs a
     // register that survives `local_address` to hold each handle between creating it
     // and storing it. The frame is 64 bytes and offsets 48 and 56 were spare.
-    let saves: [(&str, usize); 6] = [
+    let saves: [(Reg, usize); 6] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
         (abi::LOCAL[2], 24),
@@ -4373,7 +4616,9 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
+    let residual_target = abi::SCRATCH[1];
     let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
 
     asm.push(abi::load_u64(
         header,
@@ -4494,6 +4739,28 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::SCRATCH[5],
     ));
 
+    // bug-687: each word's residual goes to the same edge's slot in the residual
+    // region, a fixed distance past its 16.16 word (`METAL_EDGE_RESIDUAL_BASE_WORDS`).
+    // Through a register for the same reason as the region offset above.
+    asm.push(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(
+        residual_target,
+        residual_target,
+        abi::SCRATCH[6],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[5],
+    ));
     asm.push(abi::move_immediate(
         abi::SCRATCH[5],
         "Integer",
@@ -4506,7 +4773,10 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
     asm.push(abi::branch_ge(&band));
-    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as its 16.16 word and,
+    // in the residual region, `round((v * 65536 - word) * 2^31)` (bug-687,
+    // `EDGE_RESIDUAL_SCALE`). `v * 65536 - word` is exact: the two are within half a
+    // step of each other.
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
@@ -4528,6 +4798,26 @@ fn emit_edge_buffer(asm: &mut Asm) {
         ));
         asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
         asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
+        asm.push(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[5],
+        ));
+        asm.push(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
@@ -5105,6 +5395,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::engine::operand::Operand;
     use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
     /// Every `objc_msgSend` in the pipeline setup sets its receiver *after* the
@@ -5427,11 +5718,27 @@ mod tests {
                  `in.pos.xy` draws a correctly placed shape with the wrong contents",
             );
         }
+        // bug-687: a polygon's distance is taken at the double-float twin of `p`, which
+        // has to be built from the surface point itself (`p` has already rounded to
+        // fp32). It is the third and last legitimate mention, and it is held to the same
+        // rule: the group offset comes off.
+        assert!(
+            body.contains("dfShapePoint(in.pos.xy, drawOffset)"),
+            "the polygon's double-float point must be the surface point minus the draw \
+             offset, like `p`",
+        );
+        assert!(
+            METAL_SHADER_SOURCE.contains(
+                "return float4(dfSub(float2(surface.x, 0.0), dfWord(offset.x)), \
+                 dfSub(float2(surface.y, 0.0), dfWord(offset.y)));"
+            ),
+            "`dfShapePoint` must subtract the draw offset from the surface point",
+        );
         assert_eq!(
             body.matches("in.pos.xy").count(),
-            2,
-            "only the clip and `p`'s own definition may mention `in.pos.xy` — another \
-             use is a consumer that was not moved into shape space",
+            3,
+            "only the clip, `p`'s own definition and its double-float twin may mention \
+             `in.pos.xy` — another use is a consumer that was not moved into shape space",
         );
     }
 
@@ -5478,10 +5785,24 @@ mod tests {
              ({METAL_BAND_BASE_WORDS}); every banded polygon would read another region \
              as its edge lists"
         );
+        // bug-687 put the edge residuals between the edges and the band index.
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};"
+            )),
+            "the MSL declares an edge-residual base that is not \
+             METAL_EDGE_RESIDUAL_BASE_WORDS ({METAL_EDGE_RESIDUAL_BASE_WORDS}); every \
+             polygon vertex would be corrected by another region's words"
+        );
+        assert_eq!(
+            METAL_EDGE_RESIDUAL_BASE_WORDS * 4,
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the edge-residual region must start where the edge region ends"
+        );
         assert_eq!(
             METAL_BAND_BASE_WORDS * 4,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the band region must start where the edge region ends"
+            METAL_EDGE_RESIDUAL_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the band region must start where the edge-residual region ends"
         );
         assert_eq!(
             METAL_GRADIENT_BASE_WORDS * 4,
@@ -5517,7 +5838,7 @@ mod tests {
         assert_eq!(
             METAL_BUFFER_BYTES,
             METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
-            "the buffer must be exactly its five regions, with nothing past the last"
+            "the buffer must be exactly its six regions, with nothing past the last"
         );
         assert_eq!(
             METAL_PICTURE_TABLE_BYTES,

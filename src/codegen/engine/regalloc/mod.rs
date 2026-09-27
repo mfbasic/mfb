@@ -36,6 +36,75 @@ const VREG_PREFIX: &str = "%v";
 /// independently.
 const FP_VREG_PREFIX: &str = "%f";
 
+thread_local! {
+    /// The next integer / floating-point virtual-register id — the ONE source every
+    /// minter draws from (bug-721).
+    ///
+    /// The allocator treats two equal `%vN` names as one register, so two minters
+    /// that each count from `%v0` into one instruction stream silently alias:
+    /// Schannel `tls::connect`'s host-scratch pointer and a free helper's temporary
+    /// were both `%v9`, and every connect on Windows double-freed a 64 KiB block.
+    /// With one counter per compilation no two minted names can meet, however the
+    /// `CodeBuilder`s and [`Vregs`](crate::codegen::engine::util::Vregs) are nested.
+    /// Codegen is single-threaded; the counter is thread-local so parallel test
+    /// threads never share it, and [`reset_vreg_ids`] restarts it for each module so
+    /// a program compiles to the same ids every time.
+    static NEXT_VREG_ID: std::cell::Cell<[u32; 2]> = const { std::cell::Cell::new([0, 0]) };
+}
+
+/// Draw the next unused virtual-register id of `class`.
+fn mint_vreg_id(class: RegClass) -> u32 {
+    let slot = match class {
+        RegClass::Int => 0,
+        RegClass::Fp => 1,
+    };
+    NEXT_VREG_ID.with(|next| {
+        let mut ids = next.get();
+        let id = ids[slot];
+        ids[slot] = id.checked_add(1).expect("virtual-register ids exhausted");
+        next.set(ids);
+        id
+    })
+}
+
+/// Draw the next unused id of `class` that is also above `floor` — for a pass
+/// rewriting a stream it did not mint (the optimizer's GVN), which must not reuse
+/// any id already in it. Advances the shared source past `floor`.
+fn mint_vreg_id_above(class: RegClass, floor: u32) -> u32 {
+    let slot = match class {
+        RegClass::Int => 0,
+        RegClass::Fp => 1,
+    };
+    NEXT_VREG_ID.with(|next| {
+        let mut ids = next.get();
+        ids[slot] = ids[slot].max(
+            floor
+                .checked_add(1)
+                .expect("virtual-register ids exhausted"),
+        );
+        next.set(ids);
+    });
+    mint_vreg_id(class)
+}
+
+/// Mint a fresh virtual register of `class` — the one way production code obtains
+/// a register it did not get from an ABI role (bug-721).
+pub(crate) fn mint_vreg(class: RegClass) -> VirtualRegister {
+    VirtualRegister::new(class, mint_vreg_id(class))
+}
+
+/// [`mint_vreg`] above every id in a stream the caller did not mint (GVN).
+pub(crate) fn mint_vreg_above(class: RegClass, floor: u32) -> VirtualRegister {
+    VirtualRegister::new(class, mint_vreg_id_above(class, floor))
+}
+
+/// Restart the virtual-register ids. Called once at the start of every module's
+/// lowering, so the ids — and every allocation decision that reads them — depend
+/// only on the module being compiled.
+pub(crate) fn reset_vreg_ids() {
+    NEXT_VREG_ID.with(|next| next.set([0, 0]));
+}
+
 /// Render integer virtual register index `n` as its instruction-field sentinel.
 pub(crate) fn vreg_name(n: u32) -> String {
     format!("{VREG_PREFIX}{n}")

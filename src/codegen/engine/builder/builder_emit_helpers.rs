@@ -486,7 +486,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -605,7 +605,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }
@@ -763,15 +763,11 @@ impl CodeBuilder<'_> {
         // gate the `Bind` path applies, which excludes a raw `thread.*` block (another
         // arena's) and everything `is_freeable_flat_value` refuses. A call-site-copied
         // `thread.*` result is marked: `register` is the copy above, not the raw block.
-        self.mark_runtime_helper_result_fresh(
-            target,
-            result_type,
-            Operand::from(register.render()),
-        );
+        self.mark_runtime_helper_result_fresh(target, result_type, Operand::from(register));
         Ok(ValueResult {
             origin: None,
             type_: result_type.clone(),
-            location: Operand::from(register.render()),
+            location: Operand::from(register),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
     }

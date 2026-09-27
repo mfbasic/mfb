@@ -26,7 +26,6 @@
 //! every caller-saved register. The scratch vregs written are a [`MarshalRegs`].
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -67,7 +66,7 @@ pub(crate) fn emit_build_record_list(
     count_slot: usize,
     scratch: &RecordListScratch,
     regs: &MarshalRegs,
-    result_reg: impl Into<Operand>,
+    result_reg: impl Into<abi::Reg>,
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -236,7 +235,7 @@ pub(crate) fn emit_build_record_list(
 /// Load the pair array's word at `pairs[index] + field` (`0` = pointer, `8` = size)
 /// into `dst`. Writes `regs.r(0)`/`regs.r(1)`; `dst` may be an ABI register.
 fn emit_pair_field(
-    dst: impl Into<Operand>,
+    dst: impl Into<abi::Reg>,
     pairs_slot: usize,
     index_slot: usize,
     field: usize,
@@ -322,7 +321,7 @@ mod tests {
             COLLECTION_TYPE_OBJECT
         ));
         assert!(instructions.iter().any(|i| {
-            i.get("src").as_deref() == Some(abi::ZERO)
+            i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
                 && i.get("offset").as_deref()
                     == Some(COLLECTION_OFFSET_BUCKETS_READY.to_string().as_str())
         }));
@@ -345,7 +344,7 @@ mod tests {
     #[test]
     fn fresh_regs_never_write_a_vreg_the_caller_already_holds() {
         let mut vregs = Vregs::new();
-        let held: Vec<String> = (0..16).map(|_| vregs.next()).collect();
+        let held: Vec<String> = (0..16).map(|_| vregs.next().to_string()).collect();
         let instructions = emit(&MarshalRegs::fresh(&mut vregs));
         for instruction in &instructions {
             if let Some(dst) = instruction.get("dst") {

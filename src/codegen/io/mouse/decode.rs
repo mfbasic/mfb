@@ -48,6 +48,7 @@
 //! whole contract, and it is why `decode` may assume it is not mid-drain.
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -81,7 +82,8 @@ const SGR_BUTTON_NONE: u64 = 3;
 /// within microseconds; a prefix still incomplete after this long is keystrokes.
 /// The same trade every curses library makes (its `ESCDELAY`), and the only
 /// point where a read or a `pollInput` waits longer than its caller asked.
-pub(crate) const ESCAPE_DELAY_MS: u64 = 25;
+/// It is the input decoder's one delay (bug-699 Decision 3), not a second one.
+pub(crate) const ESCAPE_DELAY_MS: u64 = crate::codegen::io::input::INPUT_DELAY_MS;
 
 /// Branch to `not_held` unless a prefix is buffered AND nothing is owed — the
 /// one state in which the decoder is sitting on bytes nobody will ever ask for
@@ -172,7 +174,14 @@ pub(crate) fn emit_branch_if_owed(
 /// The instruction vocabulary has `lo`/`ls`/`hi` but no `hs`, so this compares the
 /// operands the other way round: `rhs <= lhs` is the same predicate. Spelled once
 /// here because getting it backwards is a silent off-by-one in a loop bound.
-fn branch_unsigned_ge(lhs: &str, rhs: &str, target: &str, ctx: &mut EmitCtx) {
+fn branch_unsigned_ge(
+    lhs: impl Into<abi::Reg>,
+    rhs: impl Into<abi::Reg>,
+    target: &str,
+    ctx: &mut EmitCtx,
+) {
+    let lhs: abi::Reg = lhs.into();
+    let rhs: abi::Reg = rhs.into();
     ctx.instructions.push(abi::compare_registers(rhs, lhs));
     ctx.instructions.push(abi::branch_ls(target));
 }
@@ -186,12 +195,14 @@ fn branch_unsigned_ge(lhs: &str, rhs: &str, target: &str, ctx: &mut EmitCtx) {
 /// The cursor is one-based ([`MOUSE_STATE_DRAIN_POS_OFFSET`]): `0` is "nothing
 /// owed", and `n` means the next byte is `buf[n - 1]`.
 pub(crate) fn emit_drain_pending(
-    out_have: &str,
-    out_byte: &str,
+    out_have: impl Into<abi::Reg>,
+    out_byte: impl Into<abi::Reg>,
     mouse_state_offset: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) {
+    let out_byte: abi::Reg = out_byte.into();
+    let out_have: abi::Reg = out_have.into();
     let symbol = ctx.symbol;
     let done = format!("{symbol}_mouse_drain_done");
     let reset = format!("{symbol}_mouse_drain_reset");
@@ -284,11 +295,12 @@ pub(crate) fn emit_drain_pending(
 ///   or the `[Z` of a CSI (bug-669) — so instead the cursor is rewound to replay
 ///   from `buf[0]`, which IS `byte`.
 pub(crate) fn emit_pushback_byte(
-    byte: &str,
+    byte: impl Into<abi::Reg>,
     mouse_state_offset: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) {
+    let byte: abi::Reg = byte.into();
     let symbol = ctx.symbol;
     let plain = format!("{symbol}_mouse_pushback_plain");
     let done = format!("{symbol}_mouse_pushback_done");
@@ -340,14 +352,17 @@ pub(crate) fn emit_pushback_byte(
 /// deliver when that value is [`DECODE_PASS`]. May only be called when nothing is
 /// owed (see the module doc).
 pub(crate) fn emit_decode_byte(
-    byte: &str,
-    out_action: &str,
-    out_byte: &str,
+    byte: impl Into<abi::Reg>,
+    out_action: impl Into<abi::Reg>,
+    out_byte: impl Into<abi::Reg>,
     mouse_state_offset: usize,
     clock_scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let byte: abi::Reg = byte.into();
+    let out_action: abi::Reg = out_action.into();
+    let out_byte: abi::Reg = out_byte.into();
     let symbol = ctx.symbol;
     let l = |s: &str| format!("{symbol}_mouse_dec_{s}");
     let done = l("done");
@@ -524,14 +539,17 @@ pub(crate) fn emit_decode_byte(
 /// `terminator` is `'M'` (press) or `'m'` (release) — the byte that completed the
 /// report, which is not itself in the buffer.
 fn emit_parse_and_enqueue(
-    terminator: &str,
-    buf: &str,
-    len: &str,
+    terminator: impl Into<abi::Reg>,
+    buf: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
     mouse_state_offset: usize,
     clock_scratch: usize,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
+    let len: abi::Reg = len.into();
+    let buf: abi::Reg = buf.into();
+    let terminator: abi::Reg = terminator.into();
     let symbol = ctx.symbol;
     let l = |s: &str| format!("{symbol}_mouse_parse_{s}");
 
@@ -690,12 +708,15 @@ fn emit_parse_and_enqueue(
 /// past the field and its separator. Returns the value's vreg.
 fn emit_parse_decimal(
     label_base: &str,
-    buf: &str,
-    len: &str,
-    cursor: &str,
+    buf: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
+    cursor: impl Into<abi::Reg>,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
-) -> String {
+) -> VirtualRegister {
+    let len: abi::Reg = len.into();
+    let buf: abi::Reg = buf.into();
+    let cursor: abi::Reg = cursor.into();
     let loop_head = format!("{label_base}_loop");
     let loop_done = format!("{label_base}_done");
     let value = vregs.next();

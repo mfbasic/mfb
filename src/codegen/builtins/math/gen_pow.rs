@@ -15,6 +15,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::types::ParameterType;
 // Hand-written scalar `pow(x, y)` — a port of fdlibm `__ieee754_pow` (public
 // domain, Sun Microsystems). Unlike the other Float kernels this is *not* SIMD:
@@ -79,46 +80,46 @@ const TWOM54_BITS: &str = "4363988038922010624"; // 2**-54 = 0x3C90000000000000
 /// post-emit register patching. The kernel makes no returning call, so every
 /// home is caller-saved-safe exactly as the historical fixed `d16`–`d31` bank
 /// was.
-struct PowHomes<'a> {
-    x: &'a str,
-    y: &'a str,
-    ax: &'a str,
-    sh: &'a str,
-    sl: &'a str,
-    th: &'a str,
-    tl: &'a str,
-    rr: &'a str,
-    uu: &'a str,
-    vv: &'a str,
-    ww: &'a str,
-    ph: &'a str,
-    pl: &'a str,
-    zh: &'a str,
-    zl: &'a str,
-    t1: &'a str,
-    t2: &'a str,
-    s2: &'a str,
-    tmp: &'a str,
-    cs: &'a str,
-    zz: &'a str,
+struct PowHomes {
+    x: Reg,
+    y: Reg,
+    ax: Reg,
+    sh: Reg,
+    sl: Reg,
+    th: Reg,
+    tl: Reg,
+    rr: Reg,
+    uu: Reg,
+    vv: Reg,
+    ww: Reg,
+    ph: Reg,
+    pl: Reg,
+    zh: Reg,
+    zl: Reg,
+    t1: Reg,
+    t2: Reg,
+    s2: Reg,
+    tmp: Reg,
+    cs: Reg,
+    zz: Reg,
 }
 
 impl CodeBuilder<'_> {
     /// Copy a value home into a working `d`-register (a no-op when they coincide).
-    fn pld(&mut self, d: &str, home: &str) {
+    fn pld(&mut self, d: Reg, home: Reg) {
         if d != home {
             self.emit(abi::float_move_d_from_d(d, home));
         }
     }
     /// Copy a working `d`-register back into a value home (no-op when identical).
-    fn pst(&mut self, d: &str, home: &str) {
+    fn pst(&mut self, d: Reg, home: Reg) {
         if d != home {
             self.emit(abi::float_move_d_from_d(home, d));
         }
     }
     /// `dst = a <op> b`, operating register-to-register (homes are live, so no
     /// load/store and no scratch are needed; `dst` may alias `a`/`b`).
-    fn pop(&mut self, op: char, dst: &str, a: &str, b: &str) {
+    fn pop(&mut self, op: char, dst: Reg, a: Reg, b: Reg) {
         match op {
             '+' => self.emit(abi::float_add_d(dst, a, b)),
             '-' => self.emit(abi::float_subtract_d(dst, a, b)),
@@ -128,7 +129,7 @@ impl CodeBuilder<'_> {
         }
     }
     /// `home = value` (an f64 constant materialized through GPR `xs`).
-    fn pconst(&mut self, home: &str, value: f64, xs: &str) {
+    fn pconst(&mut self, home: Reg, value: f64, xs: Reg) {
         self.emit(abi::move_immediate(
             xs,
             "Integer",
@@ -138,7 +139,7 @@ impl CodeBuilder<'_> {
     }
     /// `home &= 0xFFFFFFFF00000000` — zero the low 32 bits of the f64 (fdlibm's
     /// `SET_LOW_WORD(x, 0)` head/tail split).
-    fn plowzero(&mut self, home: &str, xs: &str, xm: &str) {
+    fn plowzero(&mut self, home: Reg, xs: Reg, xm: Reg) {
         self.emit(abi::float_move_x_from_d(xs, home));
         self.emit(abi::move_immediate(xm, "Integer", HIGH32_MASK));
         self.emit(abi::and_registers(xs, xs, xm));
@@ -146,7 +147,7 @@ impl CodeBuilder<'_> {
     }
     /// `out = c[n-1]; out = c[i] + out*var` (Horner, ascending coeffs). Uses `d0`
     /// (accumulator) and `d1` (coefficient) as scratch; `var`/`out` are homes.
-    fn ppoly(&mut self, var: &str, coeffs: &[f64], out: &str, xs: &str) {
+    fn ppoly(&mut self, var: Reg, coeffs: &[f64], out: Reg, xs: Reg) {
         self.emit(abi::move_immediate(
             xs,
             "Integer",
@@ -172,51 +173,51 @@ impl CodeBuilder<'_> {
     /// Emit scalar `pow(x, y)`; returns a register with the result bit pattern.
     pub(crate) fn emit_pow_scalar(
         &mut self,
-        x_loc: impl Into<Operand>,
-        y_loc: impl Into<Operand>,
+        x_loc: impl Into<Reg>,
+        y_loc: impl Into<Reg>,
     ) -> Result<VirtualRegister, String> {
         // The sixteen high value homes are FP vregs minted per invocation (the
         // low five stay on the physical `d3`-`d7` input/scratch bank). They are
-        // held as the rendered `%fN` spelling so the mixed physical/virtual
-        // `PowHomes` `&str` fields carry both kinds uniformly (plan-82).
-        let th_v = self.temporary_fp_vreg().render();
-        let tl_v = self.temporary_fp_vreg().render();
-        let rr_v = self.temporary_fp_vreg().render();
-        let uu_v = self.temporary_fp_vreg().render();
-        let vv_v = self.temporary_fp_vreg().render();
-        let ww_v = self.temporary_fp_vreg().render();
-        let ph_v = self.temporary_fp_vreg().render();
-        let pl_v = self.temporary_fp_vreg().render();
-        let zh_v = self.temporary_fp_vreg().render();
-        let zl_v = self.temporary_fp_vreg().render();
-        let t1_v = self.temporary_fp_vreg().render();
-        let t2_v = self.temporary_fp_vreg().render();
-        let s2_v = self.temporary_fp_vreg().render();
-        let tmp_v = self.temporary_fp_vreg().render();
-        let cs_v = self.temporary_fp_vreg().render();
-        let zz_v = self.temporary_fp_vreg().render();
+        // held as `Reg` so the mixed role-token/virtual `PowHomes` fields carry
+        // both kinds uniformly (plan-82, bug-721).
+        let th_v: Reg = self.temporary_fp_vreg().into();
+        let tl_v: Reg = self.temporary_fp_vreg().into();
+        let rr_v: Reg = self.temporary_fp_vreg().into();
+        let uu_v: Reg = self.temporary_fp_vreg().into();
+        let vv_v: Reg = self.temporary_fp_vreg().into();
+        let ww_v: Reg = self.temporary_fp_vreg().into();
+        let ph_v: Reg = self.temporary_fp_vreg().into();
+        let pl_v: Reg = self.temporary_fp_vreg().into();
+        let zh_v: Reg = self.temporary_fp_vreg().into();
+        let zl_v: Reg = self.temporary_fp_vreg().into();
+        let t1_v: Reg = self.temporary_fp_vreg().into();
+        let t2_v: Reg = self.temporary_fp_vreg().into();
+        let s2_v: Reg = self.temporary_fp_vreg().into();
+        let tmp_v: Reg = self.temporary_fp_vreg().into();
+        let cs_v: Reg = self.temporary_fp_vreg().into();
+        let zz_v: Reg = self.temporary_fp_vreg().into();
         let s = PowHomes {
             x: abi::FP_SCRATCH[3],
             y: abi::FP_SCRATCH[4],
             ax: abi::FP_SCRATCH[5],
             sh: abi::FP_SCRATCH[6],
             sl: abi::FP_SCRATCH[7],
-            th: &th_v,
-            tl: &tl_v,
-            rr: &rr_v,
-            uu: &uu_v,
-            vv: &vv_v,
-            ww: &ww_v,
-            ph: &ph_v,
-            pl: &pl_v,
-            zh: &zh_v,
-            zl: &zl_v,
-            t1: &t1_v,
-            t2: &t2_v,
-            s2: &s2_v,
-            tmp: &tmp_v,
-            cs: &cs_v,
-            zz: &zz_v,
+            th: th_v,
+            tl: tl_v,
+            rr: rr_v,
+            uu: uu_v,
+            vv: vv_v,
+            ww: ww_v,
+            ph: ph_v,
+            pl: pl_v,
+            zh: zh_v,
+            zl: zl_v,
+            t1: t1_v,
+            t2: t2_v,
+            s2: s2_v,
+            tmp: tmp_v,
+            cs: cs_v,
+            zz: zz_v,
         };
         // Inputs arrive in GPRs; move their bit patterns into the value homes.
         self.emit(abi::float_move_d_from_x(s.x, x_loc));
@@ -224,20 +225,13 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
 
         let result = self.allocate_register();
-        let xs_o = self.allocate_register().render();
-        let xm_o = self.allocate_register().render();
-        let xt_o = self.allocate_register().render();
-        let xu_o = self.allocate_register().render();
-        let smask_o = self.allocate_register().render();
-        let nexp_o = self.allocate_register().render();
-        let (xs, xm, xt, xu, smask, nexp) = (
-            xs_o.as_str(),
-            xm_o.as_str(),
-            xt_o.as_str(),
-            xu_o.as_str(),
-            smask_o.as_str(),
-            nexp_o.as_str(),
-        );
+        let xs_o: Reg = self.allocate_register().into();
+        let xm_o: Reg = self.allocate_register().into();
+        let xt_o: Reg = self.allocate_register().into();
+        let xu_o: Reg = self.allocate_register().into();
+        let smask_o: Reg = self.allocate_register().into();
+        let nexp_o: Reg = self.allocate_register().into();
+        let (xs, xm, xt, xu, smask, nexp) = (xs_o, xm_o, xt_o, xu_o, smask_o, nexp_o);
 
         let end = self.label("pow_end");
         let ret_nan = self.label("pow_ret_nan");
@@ -501,7 +495,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text,
         })
     }
@@ -512,12 +506,12 @@ impl CodeBuilder<'_> {
     /// value homes holding the inputs.
     fn emit_pow_yisint(
         &mut self,
-        x: &str,
-        y: &str,
-        xs: &str,
-        xm: &str,
-        xt: &str,
-        smask: &str,
+        x: Reg,
+        y: Reg,
+        xs: Reg,
+        xm: Reg,
+        xt: Reg,
+        smask: Reg,
         ret_nan: &str,
     ) {
         let done = self.label("pow_yisint_done");
@@ -558,7 +552,7 @@ impl CodeBuilder<'_> {
     }
 
     /// log2(ax) computed to extra precision into (t1, t2); fdlibm e_pow.c.
-    fn emit_pow_log2(&mut self, s: &PowHomes, xs: &str, xm: &str, xt: &str, xu: &str, nexp: &str) {
+    fn emit_pow_log2(&mut self, s: &PowHomes, xs: Reg, xm: Reg, xt: Reg, xu: Reg, nexp: Reg) {
         // n_exp = exponent of ax; reduce ax into [1,2).
         // subnormal: hi32(ax) < 0x00100000 -> ax *= 2^53, n_exp -= 53.
         self.emit(abi::move_immediate(nexp, "Integer", "0"));
@@ -718,7 +712,7 @@ impl CodeBuilder<'_> {
     }
 
     /// 2**(p_h + p_l) into `zz`; fdlibm e_pow.c. `s.ph`/`s.pl` are p_h/p_l.
-    fn emit_pow_exp2(&mut self, s: &PowHomes, xs: &str, xm: &str, xt: &str, xu: &str, nbit: &str) {
+    fn emit_pow_exp2(&mut self, s: &PowHomes, xs: Reg, xm: Reg, xt: Reg, xu: Reg, nbit: Reg) {
         // j = hi32(z) where z = p_h + p_l (recompute) ; i = j & 0x7fffffff ; k=(i>>20)-0x3ff
         self.pop('+', s.zz, s.pl, s.ph); // z
         self.emit(abi::float_move_x_from_d(xs, s.zz));
@@ -841,7 +835,7 @@ impl CodeBuilder<'_> {
     }
 
     /// `home = select(kk!=0 ? b : a)` as an f64 constant.
-    fn emit_pow_select(&mut self, kk: &str, a: f64, b: f64, home: &str, xs: &str) {
+    fn emit_pow_select(&mut self, kk: Reg, a: f64, b: f64, home: Reg, xs: Reg) {
         let pick_b = self.label("pow_sel_b");
         let done = self.label("pow_sel_done");
         self.emit(abi::compare_immediate(kk, "0"));
@@ -863,7 +857,7 @@ impl CodeBuilder<'_> {
     /// rounded subnormal) instead of the old `(1023+n)<<52` factor, which is the
     /// bit pattern 0 (= +0.0) at n == -1023 and a malformed sign/exponent below
     /// it (bug-129).
-    fn emit_pow_scalbn(&mut self, home: &str, n: &str, xs: &str, xm: &str, xt: &str, xu: &str) {
+    fn emit_pow_scalbn(&mut self, home: Reg, n: Reg, xs: Reg, xm: Reg, xt: Reg, xu: Reg) {
         self.emit(abi::float_move_x_from_d(xs, home)); // xs = bits(z)
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hx = hi32(z)
                                                            // k = ((hx & 0x7ff00000) >> 20) + n   (biased exponent of z)

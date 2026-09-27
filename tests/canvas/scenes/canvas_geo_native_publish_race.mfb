@@ -36,12 +36,22 @@ FUNC scene(flip AS Boolean) AS List OF canvas::DrawItem
   RETURN items
 END FUNC
 
+' The worker alternates A and B at least 60 times, and keeps alternating until the
+' graphics thread has drawn at least 3 frames (bug-734). The first two frames only fill
+' the geometry caches for A and B; the race this scene exists for is a cache HIT taken
+' while a publish lands, which needs a third frame drawn during publishing. A fixed 60
+' publishes gave that on a fast renderer (macOS: 6-9 frames in 1.8 s) but not on the
+' emulated Windows box, where one 6,000-item software frame takes about as long as the
+' whole 60-publish window (2 frames). The worker only stops after it has SEEN the
+' third frame complete, so that frame was drawn while it was still publishing. The cap
+' keeps a renderer that never draws from hanging the run; the row then fails on its
+' frame count, as it should.
 SUB main()
   app::setMode(app::Mode.Canvas)
   LET a AS List OF canvas::DrawItem = scene(FALSE)
   LET b AS List OF canvas::DrawItem = scene(TRUE)
   MUT n AS Integer = 0
-  WHILE n < 60
+  WHILE n < 60 OR (canvas::getFrameStats().frames < 3 AND n < 20000)
     IF n MOD 2 = 0 THEN
       canvas::present(a)
     ELSE

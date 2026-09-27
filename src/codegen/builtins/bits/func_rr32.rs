@@ -104,7 +104,7 @@ pub(crate) fn lower_bits_rr32(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(dst.render()),
+        location: Operand::from(dst),
         text: format!("bits.rr32({value_text}, {count_text})"),
     })
 }

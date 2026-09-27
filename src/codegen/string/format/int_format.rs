@@ -34,16 +34,19 @@ pub(crate) fn lower_int_to_string_helper() -> CodeFunction {
     let symbol = INT_TO_STRING_SYMBOL;
     let l = |suffix: &str| format!("{symbol}_{suffix}");
 
-    let value = "%v20";
-    let negative = "%v21";
-    let length = "%v22";
-    let cursor = "%v23";
-    let divisor = "%v24";
-    let quotient = "%v25";
-    let digit = "%v26";
-    let dst = "%v27";
-    let block = "%v28";
-    let signed = "%v29";
+    // Minted in the order of the `%v20`..`%v29` literals they replaced, so the
+    // allocator's `(start, vreg)` tie-break is unchanged (bug-721).
+    let mut vregs = Vregs::new();
+    let value = &vregs.next();
+    let negative = &vregs.next();
+    let length = &vregs.next();
+    let cursor = &vregs.next();
+    let divisor = &vregs.next();
+    let quotient = &vregs.next();
+    let digit = &vregs.next();
+    let dst = &vregs.next();
+    let block = &vregs.next();
+    let signed = &vregs.next();
 
     let zero = l("zero");
     let nonnegative = l("nonnegative");

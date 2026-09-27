@@ -20,6 +20,10 @@
 # apart, and on Mesa's lavapipe every pixel 20 or more blends deep drifts one step from
 # the oracle (11.8% of the frame, past GPU_DEFAULT's 2%) — blend precision, not edges.
 #
+# The six `*_on_black` rows are bug-687's: shapes over the default black surface, where
+# one step of coverage is several sRGB levels, so a GPU distance that rounds to a different
+# coverage step than the oracle's shows past `GPU_DEFAULT`.
+#
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
 # item hash, frame pass and scene sequence lock are emitted through arch-neutral code and
@@ -90,6 +94,12 @@ background|background|render
 polygons|large_polygons|render
 huge|huge_polygon|render
 layers|layered|render
+star251x97|star_251_97_on_black|render
+star301x97|star_301_97_on_black|render
+star301x2|star_301_2_on_black|render
+polygonsblack|large_polygons_on_black|render
+smallpolysblack|small_polygons_on_black|render
+rectsblack|rectangles_on_black|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo
@@ -130,7 +140,7 @@ fi
 run_remote() {
   local row=$1 tag=$2 sync=$3 gpu=$4
   if [ "$TARGET" = windows-x86_64 ]; then
-    local dir="C:\\mfbrows\\$row"
+    local dir="C:\\mfbrows-$$\\$row"
     {
       echo "@echo off"
       echo "setlocal"
@@ -145,10 +155,10 @@ run_remote() {
       echo "$row.exe > $tag.out 2>&1"
       echo "echo rc=%errorlevel%"
     } | sed 's/$/\r/' > "$work/$row/$tag.bat"
-    remote_scp "$PORT" "$work/$row/$tag.bat" "$host:C:/mfbrows/$row/$tag.bat" >/dev/null
-    remote_ssh "$PORT" "$host" "C:\\mfbrows\\$row\\$tag.bat" 2>/dev/null | tr -d '\r' | grep '^rc=' > "$work/$row/$tag.rc" || true
-    remote_scp "$PORT" "$host:C:/mfbrows/$row/$tag.txt" "$work/$row/$tag.txt" >/dev/null 2>&1 || true
-    remote_scp "$PORT" "$host:C:/mfbrows/$row/$tag.rgba" "$work/$row/$tag.rgba" >/dev/null 2>&1 || true
+    remote_scp "$PORT" "$work/$row/$tag.bat" "$host:C:/mfbrows-$$/$row/$tag.bat" >/dev/null
+    remote_ssh "$PORT" "$host" "C:\\mfbrows-$$\\$row\\$tag.bat" 2>/dev/null | tr -d '\r' | grep '^rc=' > "$work/$row/$tag.rc" || true
+    remote_scp "$PORT" "$host:C:/mfbrows-$$/$row/$tag.txt" "$work/$row/$tag.txt" >/dev/null 2>&1 || true
+    remote_scp "$PORT" "$host:C:/mfbrows-$$/$row/$tag.rgba" "$work/$row/$tag.rgba" >/dev/null 2>&1 || true
   else
     local dir="/tmp/mfb-rows-$$/$row" env="MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GEO_VERIFY=1"
     [ "$sync" = 1 ] && env="$env MFB_CANVAS_SYNC=1"
@@ -172,7 +182,7 @@ ship() {
   cp "$SCENES/$scene.mfb" "$proj/src/main.mfb"
   "$MFB_EXE" build --app --debug --target "$TARGET" "$proj" >/dev/null
   if [ "$TARGET" = windows-x86_64 ]; then
-    win_ship "$PORT" "$host" "C:\\mfbrows\\$row" "$proj/build/$row.exe"
+    win_ship "$PORT" "$host" "C:\\mfbrows-$$\\$row" "$proj/build/$row.exe"
   else
     local dir="/tmp/mfb-rows-$$/$row"
     remote_ssh "$PORT" "$host" "rm -rf $dir && mkdir -p $dir"
@@ -255,11 +265,12 @@ while IFS='|' read -r row scene kind <&3; do
       fi
       check_geometry "$row" gpu "$stats"
       if [ "$kind" = race ]; then
-        # The race needs frames to OVERLAP the 60 publishes, and a slow renderer can
-        # draw too few to prove it: on the emulated Windows box a 6,000-item frame takes
-        # ~3.7 s through lavapipe, so the GPU run renders 2 frames (bug-688). The
-        # sequence lock is the same code under either renderer, so a GPU run too slow
-        # to race is followed by a software run, which must race.
+        # The race needs frames to OVERLAP the publishes. Since bug-734 the scene keeps
+        # publishing until the graphics thread has drawn 3 frames, so a slow renderer
+        # gets a longer window instead of too few frames: at a fixed 60 publishes the
+        # emulated Windows box drew 2 on either renderer. The software fall-back below
+        # (bug-688) stays for a GPU run that still ends short; the sequence lock is the
+        # same code under either renderer.
         tag=gpu
         frames="$(wc -l < "$work/$row/gpu.txt" | tr -d ' ')"
         if [ "$frames" -lt 3 ]; then
@@ -273,7 +284,7 @@ while IFS='|' read -r row scene kind <&3; do
         fi
         checked="$(field "$stats" geoResolvedChecked)"
         if [ "${frames:-0}" -ge 3 ] && [ "${checked:-0}" -ge 6000 ]; then
-          pass "$row/$tag: $frames frames rendered during 60 publishes, $checked resolved indices checked"
+          pass "$row/$tag: $frames frames rendered during the publishes, $checked resolved indices checked"
         else
           fail "$row/$tag: the race did not happen (${frames:-0} frames, geoResolvedChecked=${checked:-missing})"
         fi
@@ -289,8 +300,12 @@ while IFS='|' read -r row scene kind <&3; do
   esac
 done 3<<< "$ROWS"
 
+# The work dirs carry this run's pid, on Windows as on Linux, so two runs against one box
+# (several agents share 2230) never overwrite each other's programs or frames.
 if [ "$TARGET" != windows-x86_64 ]; then
   remote_ssh "$PORT" "$host" "rm -rf /tmp/mfb-rows-$$"
+else
+  remote_ssh "$PORT" "$host" "rmdir /s /q C:\\mfbrows-$$" >/dev/null 2>&1 || true
 fi
 if [ "$rc_failures" -eq 0 ]; then
   echo "bug-688 rows passed on $TARGET"

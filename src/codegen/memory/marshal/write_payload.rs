@@ -34,7 +34,6 @@
 //! had it, so a correctly-typed `tcp::write(sock, "literal")` stays byte-identical.
 
 use crate::codegen::collection::layout::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -56,12 +55,12 @@ use crate::target::shared::abi;
 pub(crate) fn push_write_payload_view(
     out: &mut Vec<CodeInstruction>,
     text: bool,
-    payload: impl Into<Operand>,
-    len: impl Into<Operand>,
-    src: impl Into<Operand>,
-    scratch_capacity: impl Into<Operand>,
-    scratch_entry_size: impl Into<Operand>,
-    scratch_product: impl Into<Operand>,
+    payload: impl Into<abi::Reg>,
+    len: impl Into<abi::Reg>,
+    src: impl Into<abi::Reg>,
+    scratch_capacity: impl Into<abi::Reg>,
+    scratch_entry_size: impl Into<abi::Reg>,
+    scratch_product: impl Into<abi::Reg>,
     len_slot: usize,
     src_slot: usize,
     bad_payload: &str,
@@ -73,9 +72,9 @@ pub(crate) fn push_write_payload_view(
     if text {
         // String: length at +0, data at +8.
         out.extend([
-            abi::load_u64(len.clone(), payload.clone(), 0),
+            abi::load_u64(len, payload, 0),
             abi::store_u64(len, abi::stack_pointer(), len_slot),
-            abi::add_immediate(src.clone(), payload, 8),
+            abi::add_immediate(src, payload, 8),
             abi::store_u64(src, abi::stack_pointer(), src_slot),
         ]);
         return;
@@ -88,8 +87,8 @@ pub(crate) fn push_write_payload_view(
         (COLLECTION_OFFSET_VALUE_TYPE, COLLECTION_TYPE_BYTE),
     ] {
         out.extend([
-            abi::load_u8(scratch_capacity.clone(), payload.clone(), offset),
-            abi::compare_immediate(scratch_capacity.clone(), expected.to_string().as_str()),
+            abi::load_u8(scratch_capacity, payload, offset),
+            abi::compare_immediate(scratch_capacity, expected.to_string().as_str()),
             abi::branch_ne(bad_payload),
         ]);
     }
@@ -97,12 +96,12 @@ pub(crate) fn push_write_payload_view(
     // CAPACITY-sized entry array (an append-built list carries spare capacity,
     // so a COUNT-based base mis-addresses it — bug-157).
     out.extend([
-        abi::load_u64(len.clone(), payload.clone(), COLLECTION_OFFSET_COUNT),
+        abi::load_u64(len, payload, COLLECTION_OFFSET_COUNT),
         abi::store_u64(len, abi::stack_pointer(), len_slot),
     ]);
     push_collection_data_base_from_capacity(
         out,
-        src.clone(),
+        src,
         payload,
         scratch_capacity,
         scratch_entry_size,

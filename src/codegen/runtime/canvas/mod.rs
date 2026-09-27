@@ -35,7 +35,7 @@ pub(crate) mod metal;
 pub(crate) mod vulkan;
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
@@ -52,16 +52,16 @@ use std::collections::HashMap;
 /// the scratch is taken from whichever allocator owns the function being emitted
 /// into, and taken *before* the call so the borrow does not outlive it.
 pub(crate) struct GraphicsScratch {
-    base: String,
-    scratch: String,
-    verdict: String,
-    arena: String,
-    cursor: String,
-    end: String,
+    base: VirtualRegister,
+    scratch: VirtualRegister,
+    verdict: VirtualRegister,
+    arena: VirtualRegister,
+    cursor: VirtualRegister,
+    end: VirtualRegister,
 }
 
 impl GraphicsScratch {
-    pub(crate) fn new(vreg: &mut dyn FnMut() -> String) -> Self {
+    pub(crate) fn new(vreg: &mut dyn FnMut() -> VirtualRegister) -> Self {
         GraphicsScratch {
             base: vreg(),
             scratch: vreg(),
@@ -663,6 +663,21 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
+/// The scale of a polygon vertex's **residual word** (bug-687): `2^31` units of the
+/// 16.16 step, so the residual is in units of `2^-47` px.
+///
+/// 16.16 alone is not the oracle's polygon. Rounding each vertex to 1/65536 px moves a
+/// distance by up to ~1e-5 px, and where the oracle's distance lies closer than that to
+/// a coverage quantisation boundary the GPU rounds to the neighbouring step — near
+/// black, 3-4 sRGB levels, past `GPU_DEFAULT` (bug-687's {301/97} star: 2.07e-6 px of
+/// narrowing against a boundary 1.24e-6 px away). So every polygon edge endpoint also
+/// carries `round((x * 65536 - word) * 2^31)`, which the shaders add back in
+/// double-float: `x = word / 2^16 + residual / 2^47`, good to ~2^-41 px after the
+/// shader's float conversion. The residual is at most half a 16.16 step, `2^30`
+/// units, so it fits an `int` with room; it is computed with double multiplies,
+/// subtracts and a round, the only float operations every assembler has.
+pub(crate) const EDGE_RESIDUAL_SCALE: &str = "2147483648";
+
 /// Slots of `__canvas_headerFor`'s fixed 47-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
@@ -774,6 +789,9 @@ pub(crate) const EDGE_SLOTS: usize = 5;
 pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 262_144;
 /// Four 16.16 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
+/// Four residual words per edge (bug-687, `EDGE_RESIDUAL_SCALE`), one per endpoint
+/// coordinate, at the same edge index as its 16.16 words in the region after them.
+pub(crate) const VULKAN_EDGE_RESIDUAL_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 
 /// The most **item blocks** one Vulkan frame may carry — the capacity of the item
 /// buffer.
@@ -868,6 +886,12 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
 pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
+/// Where Metal's **edge residual** region starts, in 32-bit words — right after the
+/// edges (bug-687). Edge `e`'s four residual words (`EDGE_RESIDUAL_SCALE`) sit at
+/// `METAL_EDGE_RESIDUAL_BASE + e * 4`, parallel to its 16.16 words, so everything that
+/// reads only the 16.16 words (the band builder, a polyline) is untouched.
+pub(crate) const METAL_EDGE_RESIDUAL_BASE_WORDS: usize =
+    METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 
 /// A polygon's **band index** (bug-686): which of its edges a pixel at a given height
 /// has to visit, so the fragment shader's `edgeDistance` stops looping over every edge
@@ -909,8 +933,10 @@ pub(crate) const BAND_MAX: usize = 1024;
 /// Polygons with fewer edges than this loop over all of them (band count 0): the full
 /// loop over a handful of edges costs less than finding the band.
 pub(crate) const BAND_MIN_EDGES: usize = 32;
-/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes.
-pub(crate) const METAL_BAND_BASE_WORDS: usize = METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
+/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes
+/// and their residuals (bug-687).
+pub(crate) const METAL_BAND_BASE_WORDS: usize =
+    METAL_EDGE_RESIDUAL_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 /// The most gradient stops one **Vulkan** frame may carry (plan-116-F; bug-688).
 ///
 /// Two stops per quad of `VULKAN_MAX_FRAME_ITEMS`, as Metal's is per quad of its own:
@@ -949,13 +975,14 @@ pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// the band index (bug-686), then gradient stops (five each), then glyph coverage (one
+/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then glyph coverage (one
 /// sample a word), then the picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
 /// computations and a region left out of the chain shows up there.
 pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
+    + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_BAND_WORDS * 4
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
@@ -1029,10 +1056,10 @@ pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 
 // --- the Vulkan shared buffer (binding 0) ------------------------------------------
 //
-// Edges from word 0, then the band index, the gradient stops, the glyph/picture
-// texels and the picture table. The shader reaches the band, gradient and glyph
-// regions through BASES THAT ARE SPECIALIZATION CONSTANTS (bug-688): the fragment
-// shader declares them `layout(constant_id = N) const int`, and the pipeline feeds the
+// Edges from word 0, then their residuals (bug-687), then the band index, the gradient
+// stops, the glyph/picture texels and the picture table. The shader reaches the
+// residual, band, gradient and glyph regions through BASES THAT ARE SPECIALIZATION
+// CONSTANTS (bug-688): the fragment shader declares them `layout(constant_id = N) const int`, and the pipeline feeds the
 // values below through `VkSpecializationInfo` (`VULKAN_SPEC_CONSTANTS`). Until then
 // `GRADIENT_BASE` and `GLYPH_BASE` were literals in the checked-in GLSL, kept equal to
 // these by a unit test — so every cap before them was frozen, because moving one meant
@@ -1041,8 +1068,15 @@ pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 /// The band region's size in 32-bit words — `BAND_WORDS_PER_EDGE` per edge of
 /// `VULKAN_MAX_FRAME_EDGES`, the budget `emit_band_index` holds every polygon to.
 pub(crate) const VULKAN_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * VULKAN_MAX_FRAME_EDGES;
-/// Where the band region starts, in 32-bit words — right after the edges it indexes.
-pub(crate) const VULKAN_BAND_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// Where the edge residual region starts, in 32-bit words — right after the edges
+/// (bug-687). Edge `e`'s four residual words sit at `EDGE_RESIDUAL_BASE + e * 4`,
+/// parallel to its 16.16 words, so the band builder and a polyline, which read only the
+/// 16.16 words, are untouched.
+pub(crate) const VULKAN_EDGE_RESIDUAL_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// Where the band region starts, in 32-bit words — right after the edges it indexes and
+/// their residuals.
+pub(crate) const VULKAN_BAND_BASE_WORDS: usize =
+    (VULKAN_EDGE_BYTES + VULKAN_EDGE_RESIDUAL_BYTES) / 4;
 /// Where the gradient region starts, in 32-bit words — after the band index.
 pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
     VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
@@ -1070,13 +1104,14 @@ pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
 /// The picture table's whole size: records, then index slots.
 pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
     VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
-/// The whole shared buffer: edges, band index, gradient stops, glyph/picture texels,
+/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops, glyph/picture texels,
 /// picture table.
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_shared_buffer_holds_every_region` compares two independent computations and a
 /// region left out of the chain shows up there.
 pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
+    + VULKAN_EDGE_RESIDUAL_BYTES
     + VULKAN_MAX_FRAME_BAND_WORDS * 4
     + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
@@ -1085,10 +1120,11 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
 /// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
 /// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
 /// the two lists to each other.
-pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 3] = [
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 4] = [
     (0, VULKAN_GLYPH_BASE_WORDS),
     (1, VULKAN_GRADIENT_BASE_WORDS),
     (2, VULKAN_BAND_BASE_WORDS),
+    (3, VULKAN_EDGE_RESIDUAL_BASE_WORDS),
 ];
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
@@ -1333,10 +1369,11 @@ pub(crate) fn emit_graphics_trampoline(
 /// Load the graphics-state block's address into `dst`.
 pub(crate) fn state_base(
     from: &str,
-    dst: &str,
+    dst: impl Into<abi::Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
+    let dst: abi::Reg = dst.into();
     push_symbol_address(from, GRAPHICS_STATE_SYMBOL, dst, ins, rel);
 }
 
@@ -1927,13 +1964,13 @@ fn emit_graphics_spawn(
 /// allocated (a value in an argument register would not survive the mutex call).
 pub(crate) struct FrameRecord<'a> {
     /// Non-zero when a backend drew the frame; zero for a wake-up with nothing to draw.
-    pub(crate) drew: &'a str,
+    pub(crate) drew: &'a VirtualRegister,
     /// The `canvas::Renderer` ordinal that drew it.
-    pub(crate) renderer: &'a str,
+    pub(crate) renderer: &'a VirtualRegister,
     /// How long `__canvas_renderFrame` took, in nanoseconds.
-    pub(crate) render_nanos: &'a str,
+    pub(crate) render_nanos: &'a VirtualRegister,
     /// `canvas::frameNanos` at the end of the frame — the drawn ring's timestamp.
-    pub(crate) now: &'a str,
+    pub(crate) now: &'a VirtualRegister,
 }
 
 /// Push `value` onto the ring at `ring` whose head is at `head`, and advance the head.
@@ -1942,9 +1979,10 @@ fn emit_ring_push(
     scratch: &GraphicsScratch,
     head: usize,
     ring: usize,
-    value: &str,
+    value: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let value: abi::Reg = value.into();
     instructions.push(abi::load_u64(&scratch.cursor, &scratch.base, head));
     instructions.push(abi::shift_left_immediate(&scratch.end, &scratch.cursor, 3));
     instructions.push(abi::add_registers(
@@ -1984,12 +2022,13 @@ fn emit_bump(scratch: &GraphicsScratch, offset: usize, instructions: &mut Vec<Co
 pub(crate) fn emit_note_present(
     symbol: &str,
     scratch: &GraphicsScratch,
-    now: &str,
+    now: impl Into<abi::Reg>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let now: abi::Reg = now.into();
     let skip = format!("{symbol}_no_thread");
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::load_u64(
@@ -2114,7 +2153,7 @@ pub(crate) fn emit_frame_counters(
     ));
     builder.emit_write_collection_header_full(&layout, &block, &words, &words, &bytes, &bytes);
 
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     let unlocked = builder.label("canvas_counters_unlocked");
     let copied = builder.label("canvas_counters_copied");
     let started = builder.temporary_vreg();
@@ -2424,7 +2463,7 @@ pub(crate) fn emit_await_pickup(
     let interval_value = builder.temporary_vreg();
     builder.emit(abi::move_register(&interval_value, interval));
     let ts = builder.allocate_stack_object("canvas_await_ts", 16);
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     let now = builder.temporary_vreg();
     let deadline = builder.temporary_vreg();
     let cap = builder.temporary_vreg();
@@ -2746,12 +2785,15 @@ pub(crate) fn emit_surface_dimension(
 /// the new size unused until something else asked for a frame.
 pub(crate) fn emit_publish_surface_size(
     symbol: &str,
-    base: &str,
-    width: &str,
-    height: &str,
+    base: impl Into<abi::Reg>,
+    width: impl Into<abi::Reg>,
+    height: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let base: abi::Reg = base.into();
+    let height: abi::Reg = height.into();
+    let width: abi::Reg = width.into();
     let unchanged = format!("{symbol}_resize_same");
     state_base(symbol, base, instructions, relocations);
     // Count the resize only when the size actually changed. Every platform re-publishes
@@ -2794,12 +2836,12 @@ pub(crate) fn emit_publish_surface_size(
 /// rendering such a token to a string loses the role the selector realizes it from.
 pub(crate) fn emit_publish_display_rate(
     symbol: &str,
-    base: impl Into<Operand>,
-    mhz: impl Into<Operand>,
+    base: impl Into<abi::Reg>,
+    mhz: impl Into<abi::Reg>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let base = base.into();
+    let base: abi::Reg = base.into();
     push_symbol_address(
         symbol,
         GRAPHICS_STATE_SYMBOL,
@@ -2859,7 +2901,7 @@ pub(crate) fn emit_set_display_override(
 /// platform resize callback that already spells its own registers, and adding a fifth
 /// argument to all of them to pass a register they all have spare is churn. `SCRATCH[5]`
 /// is above the four each caller stages its own values in.
-const SCRATCH_RESIZE: &str = abi::SCRATCH[5];
+const SCRATCH_RESIZE: abi::Reg = abi::SCRATCH[5];
 
 /// `canvas::didResize()` — has the surface changed size since this was last asked?
 ///

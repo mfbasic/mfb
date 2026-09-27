@@ -10,7 +10,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -131,12 +130,12 @@ pub(crate) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 /// stack slots, so nothing live is read out of a caller-saved register across the
 /// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
 /// established errno scratch and is dead on the negative-return path.
-// The `(ret.clone()).into()` at the `emit_errno` call is load-bearing for emission
+// The `ret.into()` at the `emit_errno` call is load-bearing for emission
 // (see the note there); `clippy::useless_conversion` is a false positive.
 #[allow(clippy::useless_conversion)]
 pub(crate) fn emit_eintr_retry_or_error(
     ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
+    ret: impl Into<abi::Reg>,
     raw_return: bool,
     retry_label: &str,
     error_label: &str,
@@ -161,13 +160,13 @@ pub(crate) fn emit_eintr_retry_or_error(
 #[allow(clippy::useless_conversion)]
 pub(crate) fn emit_eintr_retry_or_error_epipe(
     ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
+    ret: impl Into<abi::Reg>,
     raw_return: bool,
     retry_label: &str,
     epipe_label: Option<&str>,
     error_label: &str,
 ) -> Result<(), String> {
-    let ret = ret.into();
+    let ret: abi::Reg = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -205,7 +204,7 @@ pub(crate) fn emit_eintr_retry_or_error_epipe(
             // The `.into()` is load-bearing for emission (removing it changes the native
             // code — `clippy::useless_conversion` is a false positive here); kept to
             // preserve byte-identity with the pre-migration `code/fs/io.rs`.
-            (ret.clone()).into(),
+            ret.into(),
             platform_imports,
             ctx.instructions,
             ctx.relocations,
@@ -246,13 +245,15 @@ pub(crate) fn emit_eintr_retry_or_error_epipe(
 /// pass `false` for every `read` loop (reads always go through libc).
 pub(crate) fn emit_transfer_loop_tail(
     ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
+    ret: impl Into<abi::Reg>,
     raw_return: bool,
-    cursor: &str,
-    remaining: &str,
+    cursor: impl Into<abi::Reg>,
+    remaining: impl Into<abi::Reg>,
     loop_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    let cursor: abi::Reg = cursor.into();
+    let remaining: abi::Reg = remaining.into();
     emit_transfer_loop_tail_epipe(
         ctx,
         ret,
@@ -271,15 +272,17 @@ pub(crate) fn emit_transfer_loop_tail(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_transfer_loop_tail_epipe(
     ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
+    ret: impl Into<abi::Reg>,
     raw_return: bool,
-    cursor: &str,
-    remaining: &str,
+    cursor: impl Into<abi::Reg>,
+    remaining: impl Into<abi::Reg>,
     loop_label: &str,
     epipe_label: Option<&str>,
     error_label: &str,
 ) -> Result<(), String> {
-    let ret = ret.into();
+    let cursor: abi::Reg = cursor.into();
+    let remaining: abi::Reg = remaining.into();
+    let ret: abi::Reg = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

@@ -34,6 +34,7 @@ use crate::codegen::memory::marshal::{
 };
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 // The `Certificate` ordinals, framework/library paths, dlsym-name and PKCS#8-template
@@ -209,6 +210,7 @@ fn emit_macos_sign(
         PRIVBUF,
         PRIVLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -219,6 +221,7 @@ fn emit_macos_sign(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -367,6 +370,7 @@ fn emit_macos_sign(
         imports,
         platform,
         &v9,
+        &mut vregs,
         ins,
         rel,
     )?;
@@ -382,6 +386,7 @@ fn emit_macos_sign(
         Some(PRIVLEN),
         0,
         &format!("{tag}privS"),
+        &mut vregs,
         ins,
     );
 
@@ -391,25 +396,33 @@ fn emit_macos_sign(
         abi::branch(done),
     ]);
 
-    let cleanup = |ins: &mut Vec<CodeInstruction>, ctag: &str| {
+    let cleanup = |ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs, ctag: &str| {
         gen_cert::cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{ctag}p"), &v9, ins);
         gen_cert::cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{ctag}m"), &v9, ins);
         gen_cert::cf_release_guarded(symbol, RELEASE, DICT, &format!("{ctag}d"), &v9, ins);
         gen_cert::cf_release_guarded(symbol, RELEASE, KEY, &format!("{ctag}k"), &v9, ins);
         gen_cert::cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{ctag}s"), &v9, ins);
-        emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{ctag}z"), ins);
+        emit_zero_guarded(
+            symbol,
+            PRIVBUF,
+            Some(PRIVLEN),
+            0,
+            &format!("{ctag}z"),
+            vregs,
+            ins,
+        );
     };
     ins.push(abi::label(&load_fail));
-    cleanup(ins, &format!("{tag}lf"));
+    cleanup(ins, &mut vregs, &format!("{tag}lf"));
     emit_fail(symbol, "ErrUnknown", ins, rel, done);
     ins.push(abi::label(&sign_fail));
-    cleanup(ins, &format!("{tag}sf"));
+    cleanup(ins, &mut vregs, &format!("{tag}sf"));
     emit_fail(symbol, "ErrUnknown", ins, rel, done);
     ins.push(abi::label(&invalid_fail));
-    cleanup(ins, &format!("{tag}iv"));
+    cleanup(ins, &mut vregs, &format!("{tag}iv"));
     emit_fail(symbol, "ErrInvalidArgument", ins, rel, done);
     ins.push(abi::label(&alloc_fail));
-    cleanup(ins, &format!("{tag}af"));
+    cleanup(ins, &mut vregs, &format!("{tag}af"));
     emit_fail(symbol, "ErrOutOfMemory", ins, rel, done);
     Ok(())
 }
@@ -430,10 +443,11 @@ fn lx_free_guarded(
     raw_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     let skip = format!("{symbol}_{tag}_nofree");
     ins.extend([
         abi::load_u64(scratch, abi::stack_pointer(), obj_off),
@@ -523,6 +537,7 @@ fn emit_linux_sign(
         PRIVBUF,
         PRIVLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -533,13 +548,14 @@ fn emit_linux_sign(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate(&v9, (point_len + field_len).to_string()),
+        abi::compare_immediate(&v9, &(point_len + field_len).to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
 
@@ -760,6 +776,7 @@ fn emit_linux_sign(
         Some(COLL),
         abi::mfb_return(1),
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -805,9 +822,18 @@ fn emit_linux_sign(
         Some(PRIVLEN),
         0,
         &format!("{tag}privS"),
+        &mut vregs,
         ins,
     );
-    emit_zero_guarded(symbol, DERBUF, None, pkcs8_len, &format!("{tag}derS"), ins);
+    emit_zero_guarded(
+        symbol,
+        DERBUF,
+        None,
+        pkcs8_len,
+        &format!("{tag}derS"),
+        &mut vregs,
+        ins,
+    );
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -816,6 +842,7 @@ fn emit_linux_sign(
     ]);
     let cleanup = |ins: &mut Vec<CodeInstruction>,
                    rel: &mut Vec<CodeRelocation>,
+                   vregs: &mut Vregs,
                    ctag: &str|
      -> Result<(), String> {
         lx_free_guarded(
@@ -846,21 +873,37 @@ fn emit_linux_sign(
             ins,
             rel,
         )?;
-        emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{ctag}pz"), ins);
-        emit_zero_guarded(symbol, DERBUF, None, pkcs8_len, &format!("{ctag}dz"), ins);
+        emit_zero_guarded(
+            symbol,
+            PRIVBUF,
+            Some(PRIVLEN),
+            0,
+            &format!("{ctag}pz"),
+            vregs,
+            ins,
+        );
+        emit_zero_guarded(
+            symbol,
+            DERBUF,
+            None,
+            pkcs8_len,
+            &format!("{ctag}dz"),
+            vregs,
+            ins,
+        );
         Ok(())
     };
     ins.push(abi::label(&load_fail));
-    cleanup(ins, rel, &format!("{tag}lf"))?;
+    cleanup(ins, rel, &mut vregs, &format!("{tag}lf"))?;
     emit_fail(symbol, "ErrUnknown", ins, rel, done);
     ins.push(abi::label(&sign_fail));
-    cleanup(ins, rel, &format!("{tag}sf"))?;
+    cleanup(ins, rel, &mut vregs, &format!("{tag}sf"))?;
     emit_fail(symbol, "ErrUnknown", ins, rel, done);
     ins.push(abi::label(&invalid_fail));
-    cleanup(ins, rel, &format!("{tag}iv"))?;
+    cleanup(ins, rel, &mut vregs, &format!("{tag}iv"))?;
     emit_fail(symbol, "ErrInvalidArgument", ins, rel, done);
     ins.push(abi::label(&alloc_fail));
-    cleanup(ins, rel, &format!("{tag}af"))?;
+    cleanup(ins, rel, &mut vregs, &format!("{tag}af"))?;
     emit_fail(symbol, "ErrOutOfMemory", ins, rel, done);
     // raw_fail: a free's own dlsym failed (unreachable once libcrypto is loaded).
     ins.push(abi::label(&raw_fail));
@@ -876,12 +919,13 @@ fn emit_linux_sign(
 /// `[dst]`, advancing `dst` past the written bytes.
 fn win_der_encode_int(
     sc: &Sc,
-    src: &str,
-    dst: &str,
+    src: impl Into<Reg>,
+    dst: impl Into<Reg>,
     field: usize,
     tag: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let (src, dst): (Reg, Reg) = (src.into(), dst.into());
     let skip = format!("{tag}_lz");
     let skip_done = format!("{tag}_lzd");
     let no_pad = format!("{tag}_np");
@@ -1192,6 +1236,7 @@ fn emit_windows_sign(
         PRIVBUF,
         PRIVLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1202,13 +1247,14 @@ fn emit_windows_sign(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
         abi::load_u64(&sc.v9, abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate(&sc.v9, priv_raw.to_string()),
+        abi::compare_immediate(&sc.v9, &priv_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     // Allocate the CNG blob + rs + der buffers.
@@ -1324,6 +1370,7 @@ fn emit_windows_sign(
         Some(COLL),
         abi::mfb_return(1),
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1375,9 +1422,18 @@ fn emit_windows_sign(
         Some(PRIVLEN),
         priv_raw,
         &format!("{tag}privz"),
+        &mut vregs,
         ins,
     );
-    emit_zero_guarded(symbol, BLOB, None, blobcap, &format!("{tag}blobz"), ins);
+    emit_zero_guarded(
+        symbol,
+        BLOB,
+        None,
+        blobcap,
+        &format!("{tag}blobz"),
+        &mut vregs,
+        ins,
+    );
     ins.push(abi::branch(done));
     Ok(())
 }

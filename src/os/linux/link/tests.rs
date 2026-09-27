@@ -1091,8 +1091,9 @@ fn rv_inst(
     fields: &[(&'static str, &str)],
 ) -> crate::codegen::engine::types::CodeInstruction {
     let mut instruction = crate::codegen::engine::types::CodeInstruction::new(op);
+    // Encoder fixtures spell physical registers (bug-721: backend entry point).
     for (key, value) in fields {
-        instruction = instruction.field(key, value);
+        instruction = instruction.physical_field(key, value);
     }
     instruction
 }

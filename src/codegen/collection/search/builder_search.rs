@@ -51,13 +51,13 @@ impl CodeBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_ascii_scalar_fastforward(
         &mut self,
-        cursor: impl Into<Operand>,
-        remaining: impl Into<Operand>,
-        scalar_index: impl Into<Operand>,
-        target: impl Into<Operand>,
-        diff: impl Into<Operand>,
-        word: impl Into<Operand>,
-        ascii_mask: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        remaining: impl Into<abi::Reg>,
+        scalar_index: impl Into<abi::Reg>,
+        target: impl Into<abi::Reg>,
+        diff: impl Into<abi::Reg>,
+        word: impl Into<abi::Reg>,
+        ascii_mask: impl Into<abi::Reg>,
     ) {
         let cursor = cursor.into();
         let remaining = remaining.into();
@@ -69,39 +69,23 @@ impl CodeBuilder<'_> {
         let done = self.label("ascii_ff_done");
         // 0x8080808080808080 — the high bit of every byte.
         self.emit(abi::move_immediate(
-            ascii_mask.clone(),
+            ascii_mask,
             "Integer",
             "9259542123273814144",
         ));
         self.emit(abi::label(&block));
-        self.emit(abi::subtract_registers(
-            diff.clone(),
-            target,
-            scalar_index.clone(),
-        ));
-        self.emit(abi::compare_immediate(diff.clone(), "8"));
+        self.emit(abi::subtract_registers(diff, target, scalar_index));
+        self.emit(abi::compare_immediate(diff, "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::compare_immediate(remaining.clone(), "8"));
+        self.emit(abi::compare_immediate(remaining, "8"));
         self.emit(abi::branch_lo(&done));
-        self.emit(abi::load_u64(word.clone(), cursor.clone(), 0));
-        self.emit(abi::and_registers(
-            word.clone(),
-            word.clone(),
-            ascii_mask.clone(),
-        ));
-        self.emit(abi::compare_immediate(word.clone(), "0"));
+        self.emit(abi::load_u64(word, cursor, 0));
+        self.emit(abi::and_registers(word, word, ascii_mask));
+        self.emit(abi::compare_immediate(word, "0"));
         self.emit(abi::branch_ne(&done));
-        self.emit(abi::add_immediate(cursor.clone(), cursor.clone(), 8));
-        self.emit(abi::subtract_immediate(
-            remaining.clone(),
-            remaining.clone(),
-            8,
-        ));
-        self.emit(abi::add_immediate(
-            scalar_index.clone(),
-            scalar_index.clone(),
-            8,
-        ));
+        self.emit(abi::add_immediate(cursor, cursor, 8));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 8));
         self.emit(abi::branch(&block));
         self.emit(abi::label(&done));
     }
@@ -372,7 +356,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "find(String, String)".to_string(),
         })
     }
@@ -503,7 +487,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("find({list_type}, {element_type})"),
         })
     }
@@ -685,7 +669,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
         })
     }
@@ -1015,11 +999,11 @@ impl CodeBuilder<'_> {
 
         // bug-536 shape B: `result_slot` holds this lowering's own
         // `emit_arena_alloc_call` block, with the selected span copied into it.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: "mid(String, Integer, Integer)".to_string(),
         })
     }
@@ -1401,7 +1385,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })
     }

@@ -587,7 +587,7 @@ fn finish(builder: &mut CodeBuilder, value: Option<&VirtualRegister>, text: &str
     ValueResult {
         origin: None,
         type_,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: text.to_string(),
     }
 }
@@ -1522,7 +1522,7 @@ fn lower_scene_draws_flat(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Boolean,
-        location: Operand::from(out.render()),
+        location: Operand::from(out),
         text: "canvas.sceneDrawsFlat".to_string(),
     })
 }
@@ -1602,7 +1602,7 @@ fn lower_scene_snapshot(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Boolean,
-        location: Operand::from(valid.render()),
+        location: Operand::from(valid),
         text: "canvas.sceneSnapshot".to_string(),
     })
 }
@@ -1636,7 +1636,7 @@ fn snapshot_copy(
     Ok(ValueResult {
         origin: None,
         type_: list_type,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: format!("canvas.{name}"),
     })
 }

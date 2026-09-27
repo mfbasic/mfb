@@ -1,14 +1,14 @@
 ' land - the blue and green the wind is drawn over.
 '
-' Two shapes make the map: the outline of the projected world, filled with the
-' ocean's blue, and the coastlines, filled with the land's green. There is no
-' terrain, no borders and no labels, because everything here is background - the
-' point of the picture is what moves over it.
+' Three shapes make the map: the outline of the projected world, filled with the
+' ocean's blue; the coastlines, filled with the land's green; and lakes painted
+' back over the land. There is no terrain, no borders and no labels, because
+' everything here is background - the point of the picture is what moves over it.
 '
-' The coastlines come from resources/wind/coastline.bin: Natural Earth's 1:10m
-' land layer, with every point ranked by how much the outline would change if it
-' were dropped. tools/wind-coastline/ builds it; its README says where the data
-' came from and how the file is laid out.
+' The shapes come from resources/wind/coastline.bin: Natural Earth's 1:10m land
+' and lake layers, with every point ranked by how much the outline would change
+' if it were dropped. tools/wind-coastline/ builds it; its README says where the
+' data came from and how the file is laid out.
 '
 ' The map is drawn at a level of detail that follows the view. However far in or
 ' out you are, the coastline on screen carries at most COAST_BUDGET points: the
@@ -23,9 +23,9 @@
 ' is (see "Indexing" below).
 '
 ' The coastline is kept as flat module-level lists rather than a List OF Ring,
-' for the reason flow.mfb keeps its swarm that way: 6,836 records each holding
-' two lists cost 3 seconds to build at startup, where the same 434,309 points
-' appended to flat lists cost a tenth of a second.
+' for the reason flow.mfb keeps its swarm that way: thousands of records each
+' holding two lists cost considerably more startup work than the same points
+' appended to flat lists.
 
 IMPORT canvas
 IMPORT collections
@@ -47,7 +47,7 @@ FUNC ringOf(points AS List OF Plane) AS Ring
   RETURN Ring[points := points, bounds := boxOf(points)]
 END FUNC
 
-' The most coastline points the map puts on screen at once.
+' The most land-and-lake outline points the map puts on screen at once.
 LET COAST_BUDGET AS Integer = 1500
 
 ' ---------------------------------------------------------------------------
@@ -64,6 +64,8 @@ LET LAND_COLOR AS color::Color = color::rgb(38, 68, 52)
 
 LET COAST_COLOR AS color::Color = color::rgb(58, 96, 76)
 
+LET LAKE_COLOR AS color::Color = color::rgb(21, 50, 79)
+
 ' ---------------------------------------------------------------------------
 ' The coastline
 ' ---------------------------------------------------------------------------
@@ -72,13 +74,14 @@ LET COAST_COLOR AS color::Color = color::rgb(58, 96, 76)
 ' importance level beside them. Ring r is coastStart[r] up to coastStart[r + 1].
 ' A ring the antimeridian cut in two is stored joined up, so its longitudes may
 ' run past 180; Antarctica is stored as its coast alone, west to east round the
-' whole world, and closed through the pole when it is drawn (coastKind 1).
+' whole world, and closed through the pole when it is drawn (coastKind 1). Lake
+' rings (kind 2) follow all land, with their islands (kind 3) immediately after.
 
 MUT coastLon AS List OF Float = []
 MUT coastLat AS List OF Float = []
 MUT coastLevels AS List OF Integer = []
 MUT coastStart AS List OF Integer = []
-MUT coastKind AS List OF Integer = []     ' 0 a closed outline, 1 a south-polar coast
+MUT coastKind AS List OF Integer = []     ' 0 land, 1 south-polar land, 2 lake, 3 lake island
 MUT coastTop AS List OF Integer = []      ' the ring's most important level
 MUT coastWest AS List OF Float = []       ' the ring's box, in degrees
 MUT coastEast AS List OF Float = []
@@ -249,7 +252,7 @@ END SUB
 ' Reading the coastline
 ' ---------------------------------------------------------------------------
 '
-' The file is "MFBC", a version byte (2), then a varint ring count; each ring is
+' The file is "MFBC", a version byte (3), then a varint ring count; each ring is
 ' a kind byte, a varint point count and, per point, the zigzag-varint change in
 ' longitude and in latitude (in 1/10000 of a degree) from the previous point,
 ' then one importance byte. The reader walks it with a cursor over the bytes.
@@ -284,10 +287,10 @@ FUNC nextByte AS Integer
   RETURN b
 END FUNC
 
-' Whether the bytes open with "MFBC" and format version 2.
+' Whether the bytes open with "MFBC" and format version 3.
 FUNC isCoastlineFile AS Boolean
   IF len(coastBytes) < 6 THEN RETURN FALSE
-  LET magic AS List OF Integer = [77, 70, 66, 67, 2]
+  LET magic AS List OF Integer = [77, 70, 66, 67, 3]
   FOR i = 0 TO 4
     IF toInt(collections::get(coastBytes, i)) <> collections::get(magic, i) THEN RETURN FALSE
   NEXT
@@ -297,7 +300,7 @@ END FUNC
 ' Read the shipped coastline into the flat lists, and index it.
 SUB loadCoastline()
   coastBytes = fs::readBytes(os::appResourcePath("wind/coastline.bin"))
-  IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 2 MFBC coastline file")
+  IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 3 MFBC coastline file")
   coastAt = 5
   LET ringCount AS Integer = nextVarint()
   coastLon = []
@@ -663,16 +666,29 @@ FUNC polarItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, pain
   RETURN placesItems(cutAtEdges(places), v, clip, paint)
 END FUNC
 
-' The last map drawn and the view it was drawn for.
+' The last view the map was built for, and the single canvas::Group node that
+' references it. canvas::present copies the whole scene it is handed on every
+' frame, so the map - the ocean rectangle plus every coastline ring in view,
+' several dozen items even at a world-sized zoom - is installed once with
+' canvas::setGroup rather than spliced into the per-frame scene by value.
+' Every frame then hands present two offsets and a name for the map, the same
+' as it always has for one item.
 MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0, lon0 := 0.0]
 MUT drawnMap AS List OF canvas::DrawItem = []
+
+' The name the map is installed under. One constant, one group: the map is
+' the only static sub-picture this example installs.
+LET LAND_GROUP AS String = "land"
 
 FUNC sameView(a AS View, b AS View) AS Boolean
   RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height AND a.lon0 = b.lon0
 END FUNC
 
 ' The whole underlay: the backdrop, the sea, and the land on top of it. Built
-' again only when the view has moved since the last call.
+' again only when the view has moved since the last call - and, on a rebuild,
+' installed once under LAND_GROUP rather than returned as a raw item list, so
+' canvas::present copies one canvas::Group node for it every frame instead of
+' the whole map.
 FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
   IF sameView(v, drawnView) THEN RETURN drawnMap
 
@@ -685,16 +701,18 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
     items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(OCEAN_COLOR)))
   END IF
 
-  ' A hairline of a lighter green around each landmass. At a world-sized zoom
-  ' most islands are a couple of pixels across, and without it they disappear
-  ' into the sea entirely.
-  LET paint AS canvas::Paint = canvas::fillStroke(LAND_COLOR, COAST_COLOR, 1.0)
+  ' A hairline separates land and water. At a world-sized zoom most islands and
+  ' lakes are a couple of pixels across, and without it they disappear into the
+  ' surrounding colour entirely.
   LET south AS Float = latOfY(clip.minY)
   LET north AS Float = latOfY(clip.maxY)
   FOR r = 0 TO coastRings() - 1
     IF collections::get(coastTop, r) < threshold THEN CONTINUE FOR
     IF collections::get(coastNorth, r) < south OR collections::get(coastSouth, r) > north THEN CONTINUE FOR
-    IF collections::get(coastKind, r) = 1 THEN
+    LET kind AS Integer = collections::get(coastKind, r)
+    MUT paint AS canvas::Paint = canvas::fillStroke(LAND_COLOR, COAST_COLOR, 1.0)
+    IF kind = 2 THEN paint = canvas::fillStroke(LAKE_COLOR, COAST_COLOR, 1.0)
+    IF kind = 1 THEN
       items = collections::append(items, polarItems(r, v, clip, threshold, paint))
     ELSE
       FOR k = -1 TO 1
@@ -703,7 +721,8 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
     END IF
   NEXT
 
+  canvas::setGroup(LAND_GROUP, items)
   drawnView = v
-  drawnMap = items
-  RETURN items
+  drawnMap = [canvas::Group[dx := 0.0, dy := 0.0, name := LAND_GROUP]]
+  RETURN drawnMap
 END FUNC

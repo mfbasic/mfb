@@ -302,7 +302,7 @@ pub(crate) fn lower_contains(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Boolean,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: format!("contains({}, {})", collection.type_, element_type),
     })
 }

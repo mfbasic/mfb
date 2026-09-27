@@ -264,7 +264,7 @@ fn operands_are_stable(
                 crate::codegen::engine::regalloc::analysis::classify_ref(operand, model),
                 Some(RegRef::Phys(_))
             )
-            && operand.rendered() != crate::target::shared::abi::stack_pointer()
+            && operand.rendered() != crate::target::shared::abi::SP_SPELLING
     })
 }
 
@@ -283,7 +283,7 @@ fn memory_quiet(instructions: &[CodeInstruction], from: usize, to: usize) -> boo
 /// Whether a memory instruction addresses a stack slot — the only memory this
 /// seam's rows reason about.
 fn sp_based(instruction: &CodeInstruction) -> bool {
-    instruction.get("base").as_deref() == Some(crate::target::shared::abi::stack_pointer())
+    instruction.get("base").as_deref() == Some(crate::target::shared::abi::SP_SPELLING)
 }
 
 /// Rebuild the stream with each moved instruction removed from its old place
@@ -523,7 +523,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

@@ -246,6 +246,7 @@ pub(crate) fn lower_tls_connect_openssl(
     platform.emit_set_nonblocking(
         FD_OFFSET,
         FLAGS_OFFSET,
+        vregs.next().into(),
         symbol,
         platform_imports,
         &mut instructions,
@@ -810,6 +811,8 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
+        // bug-564: no read has reported the peer's close yet.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_PEER_CLOSED),
         abi::load_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_SSL),
         abi::load_u64(&v9, abi::stack_pointer(), CTX_OFFSET),
@@ -1980,6 +1983,8 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::load_u64(&v9, abi::stack_pointer(), CONNFD_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CLOSED),
+        // bug-564: no read has reported the peer's close yet.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_PEER_CLOSED),
         abi::load_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_SSL),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_CTX),
@@ -2149,6 +2154,8 @@ pub(crate) fn lower_tls_read_openssl(
     const FNPTR_OFFSET: usize = 48;
     // bug-623: the finished List OF Byte, spilled across the read-buffer free.
     const RESULT_OFFSET: usize = 56;
+    // bug-564: the record, so the peer_closed exit can set its flag.
+    const REC_OFFSET: usize = 64;
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
@@ -2180,6 +2187,7 @@ pub(crate) fn lower_tls_read_openssl(
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
@@ -2278,6 +2286,41 @@ pub(crate) fn lower_tls_read_openssl(
         abi::branch_eq(&read_timeout),
         abi::compare_immediate(&v10, "3"), // SSL_ERROR_WANT_WRITE
         abi::branch_eq(&read_timeout),
+        // bug-564: a peer that went away without close_notify (reset, or the
+        // process died) is the peer's close, exactly as on macOS and Windows and
+        // as `tls::write` already classifies it here (bug-467). OpenSSL says so
+        // three ways: SSL_ERROR_SYSCALL (5, ECONNRESET), SSL_ERROR_ZERO_RETURN
+        // (6), and on 3.x SSL_ERROR_SSL (1) with reason
+        // SSL_R_UNEXPECTED_EOF_WHILE_READING (294). Every other SSL_ERROR_SSL is
+        // a protocol failure and stays ErrTlsFailed.
+        abi::compare_immediate(&v10, "5"), // SSL_ERROR_SYSCALL
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v10, "6"), // SSL_ERROR_ZERO_RETURN
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v10, "1"), // SSL_ERROR_SSL
+        abi::branch_ne(&read_fail),
+    ]);
+    emit_dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        "ERR_peek_last_error",
+        FNPTR_OFFSET,
+        &load_fail,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register(&v9),
+        abi::move_register(&v10, abi::c_return(0)),
+        abi::move_immediate(&v11, "Integer", "8388607"), // ERR_REASON_MASK (0x7FFFFF)
+        abi::and_registers(&v10, &v10, &v11),
+        abi::compare_immediate(&v10, "294"), // SSL_R_UNEXPECTED_EOF_WHILE_READING
+        abi::branch_eq(&peer_closed),
         abi::branch(&read_fail),
         abi::label(&read_ok),
     ]);
@@ -2355,7 +2398,14 @@ pub(crate) fn lower_tls_read_openssl(
         abi::branch(&done),
     ]);
 
-    instructions.push(abi::label(&peer_closed));
+    // bug-564 (owner decision 2026-09-25): this read reported the peer's close,
+    // so every later `tls::write` on the socket raises (`TLS_OFFSET_PEER_CLOSED`).
+    instructions.extend([
+        abi::label(&peer_closed),
+        abi::load_u64(&v9, abi::stack_pointer(), REC_OFFSET),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u64(&v10, &v9, TLS_OFFSET_PEER_CLOSED),
+    ]);
     emit_free_read_buffer(&mut instructions);
     emit_fail(
         symbol,
@@ -2658,6 +2708,13 @@ pub(crate) fn lower_tls_write_openssl(
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
         abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
+        // bug-564 (owner decision 2026-09-25): a `tls::read` on this socket has
+        // already reported the peer's close. Raise before touching the session,
+        // empty payload included; OpenSSL would otherwise hand the bytes to a
+        // half-closed peer.
+        abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_PEER_CLOSED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&peer_closed),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_SSL),
         abi::store_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
     ]);
@@ -3336,5 +3393,131 @@ mod error_path_release_tests {
         let (_ins, rel, _s) =
             lower_tls_listen_helper("l", &imports, &TestPlatform).expect("lower listen");
         assert!(reloc_count(&rel, "sym_SSL_CTX_ctrl") >= 1);
+    }
+
+    // bug-564 (owner decision 2026-09-25): once `tls::read` has reported the
+    // peer's close, every later `tls::write` raises `ErrConnectionClosed`. On
+    // OpenSSL a half-closed peer (close_notify sent, still reading) otherwise
+    // takes every write. The read records the close in the record's
+    // `TLS_OFFSET_PEER_CLOSED`, the write checks it before any call, and both
+    // constructors zero it (the record comes from the arena, which does not).
+    #[test]
+    fn a_read_that_reports_the_close_makes_every_later_write_raise() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let flag = TLS_OFFSET_PEER_CLOSED.to_string();
+        let off_record = |i: &CodeInstruction| {
+            i.get("offset").as_deref() == Some(flag.as_str())
+                && i.get("base").as_deref() != Some("sp")
+        };
+
+        let (ins, _rel, _s) =
+            lower_tls_read_openssl("r", &imports, &TestPlatform).expect("lower read");
+        let from = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_peer_closed")
+            })
+            .expect("tls::read has a peer_closed exit");
+        let sets = ins[from + 1..]
+            .iter()
+            .take_while(|i| i.op != CodeOp::Label)
+            .any(|i| {
+                i.op == CodeOp::StrU64
+                    && off_record(i)
+                    && i.get("src").as_deref() != Some(abi::ZERO_SPELLING)
+            });
+        assert!(
+            sets,
+            "tls::read's peer_closed exit must set TLS_OFFSET_PEER_CLOSED"
+        );
+
+        for text in [false, true] {
+            let (ins, _rel, _s) =
+                lower_tls_write_openssl("w", &imports, &TestPlatform, text).expect("lower write");
+            let check = ins
+                .iter()
+                .position(|i| i.op == CodeOp::LdrU64 && off_record(i))
+                .unwrap_or_else(|| panic!("tls::write (text={text}) must read the flag"));
+            assert!(
+                ins[check..(check + 4).min(ins.len())]
+                    .iter()
+                    .any(|i| i.op == CodeOp::BranchNe
+                        && i.get("target").as_deref() == Some("w_peer_closed")),
+                "tls::write (text={text}): a set flag must raise ErrConnectionClosed"
+            );
+            let first_call = ins
+                .iter()
+                .position(|i| matches!(i.op, CodeOp::BranchLink | CodeOp::BranchLinkRegister))
+                .expect("tls::write calls something");
+            assert!(
+                check < first_call,
+                "tls::write (text={text}): the flag check (index {check}) must precede the \
+                 first call ({first_call})"
+            );
+        }
+
+        let zeroes = |ins: &[CodeInstruction]| {
+            ins.iter().any(|i| {
+                i.op == CodeOp::StrU64
+                    && off_record(i)
+                    && i.get("src").as_deref() == Some(abi::ZERO_SPELLING)
+            })
+        };
+        let (ins, _rel, _s) =
+            lower_tls_connect_helper("c", &imports, &TestPlatform, false).expect("lower connect");
+        assert!(
+            zeroes(&ins),
+            "tls::connect must zero TLS_OFFSET_PEER_CLOSED"
+        );
+        let (ins, _rel, _s) =
+            lower_tls_accept_openssl("a", &imports, &TestPlatform).expect("lower accept");
+        assert!(zeroes(&ins), "tls::accept must zero TLS_OFFSET_PEER_CLOSED");
+    }
+
+    // bug-564 (found while pinning the write rule, owner rule "all errors in all
+    // targets should be the same"): a peer that went away without close_notify
+    // (reset, or killed) made the OpenSSL `tls::read` raise ErrTlsFailed, where
+    // macOS raises ErrConnectionClosed for the same event. OpenSSL reports it as
+    // SSL_ERROR_SYSCALL (5), as SSL_ERROR_ZERO_RETURN (6), or, on 3.x, as
+    // SSL_ERROR_SSL (1) with reason SSL_R_UNEXPECTED_EOF_WHILE_READING (294).
+    // All three are the peer's close; any other SSL_ERROR_SSL stays ErrTlsFailed.
+    #[test]
+    fn read_names_a_departed_peer_connection_closed() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (ins, rel, _s) =
+            lower_tls_read_openssl("r", &imports, &TestPlatform).expect("lower read");
+        let routed = |value: &str, target: &str| {
+            ins.windows(2).any(|w| {
+                w[0].op == CodeOp::CmpImm
+                    && w[0].get("rhs").as_deref() == Some(value)
+                    && w[1].op == CodeOp::BranchEq
+                    && w[1].get("target").as_deref() == Some(target)
+            })
+        };
+        assert!(
+            routed("5", "r_peer_closed"),
+            "SSL_ERROR_SYSCALL must raise ErrConnectionClosed"
+        );
+        assert!(
+            routed("6", "r_peer_closed"),
+            "SSL_ERROR_ZERO_RETURN must raise ErrConnectionClosed"
+        );
+        assert!(
+            routed("294", "r_peer_closed"),
+            "SSL_R_UNEXPECTED_EOF_WHILE_READING must raise ErrConnectionClosed"
+        );
+        assert!(
+            reloc_count(&rel, "sym_ERR_peek_last_error") >= 1,
+            "the unexpected-EOF check reads the error queue"
+        );
+        let tls_failed = crate::codegen::registry::runtime_error_emission("ErrTlsFailed")
+            .expect("errorCode name")
+            .1;
+        assert!(
+            rel.iter().any(|r| r.to == tls_failed),
+            "any other failure is still ErrTlsFailed"
+        );
     }
 }

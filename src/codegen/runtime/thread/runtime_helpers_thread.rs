@@ -1,6 +1,8 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::Vregs;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
@@ -15,6 +17,43 @@ use std::collections::HashMap;
 /// former self-finalize.
 pub(crate) type ThreadBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
+/// The scratch vregs of one thread-runtime function: minted ONCE, at the top of the
+/// function, from that function's own [`Vregs`], and handed by reference to every
+/// shared sub-emitter it inlines (`emit_thread_deadline`, `emit_queue_wait`,
+/// `emit_close_queue_locked`, …). A sub-emitter never mints its own: a fresh `Vregs`
+/// restarts at `%v0` and would alias the caller's vregs (bug-721 — a hand-numbered
+/// `"%v9"` in a function that also minted was the Schannel connect's double free).
+///
+/// The fields keep the numbers of the hand-numbered literals they replaced, and are
+/// minted in that order, so each function names exactly the vregs it named before, in
+/// the same relative order — the allocator's tie-break (`linear_scan`: interval start,
+/// then vreg id) sees the same input, and the emitted machine code is unchanged.
+pub(crate) struct ThreadVregs {
+    pub(crate) v8: VirtualRegister,
+    pub(crate) v9: VirtualRegister,
+    pub(crate) v10: VirtualRegister,
+    pub(crate) v11: VirtualRegister,
+    pub(crate) v12: VirtualRegister,
+    pub(crate) v13: VirtualRegister,
+    pub(crate) v14: VirtualRegister,
+    pub(crate) v15: VirtualRegister,
+}
+
+impl ThreadVregs {
+    pub(crate) fn mint(vregs: &mut Vregs) -> Self {
+        ThreadVregs {
+            v8: vregs.next(),
+            v9: vregs.next(),
+            v10: vregs.next(),
+            v11: vregs.next(),
+            v12: vregs.next(),
+            v13: vregs.next(),
+            v14: vregs.next(),
+            v15: vregs.next(),
+        }
+    }
+}
+
 pub(crate) enum ThreadSimpleOp {
     IsRunning,
     WaitFor,
@@ -25,6 +64,7 @@ pub(crate) enum ThreadSimpleOp {
 
 pub(crate) fn emit_thread_deadline(
     ctx: &mut EmitCtx,
+    r: &ThreadVregs,
     timeout_stack_offset: usize,
     timespec_stack_offset: usize,
 ) -> Result<(), String> {
@@ -32,32 +72,32 @@ pub(crate) fn emit_thread_deadline(
     let done = format!("{symbol}_deadline_done_{timespec_stack_offset}");
     let nsec_ok = format!("{symbol}_deadline_nsec_ok_{timespec_stack_offset}");
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), timeout_stack_offset),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_le(&done),
         abi::move_immediate(abi::c_arg(0), "Integer", "0"),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), timespec_stack_offset),
     ]);
     emit_thread_external_call(ctx, "clock_gettime")?;
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), timeout_stack_offset),
-        abi::move_immediate("%v10", "Integer", "1000"),
-        abi::signed_divide_registers("%v11", "%v9", "%v10"),
-        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"),
-        abi::move_immediate("%v13", "Integer", "1000000"),
-        abi::multiply_registers("%v12", "%v12", "%v13"),
-        abi::load_u64("%v14", abi::stack_pointer(), timespec_stack_offset),
-        abi::add_registers("%v14", "%v14", "%v11"),
-        abi::load_u64("%v15", abi::stack_pointer(), timespec_stack_offset + 8),
-        abi::add_registers("%v15", "%v15", "%v12"),
-        abi::move_immediate("%v13", "Integer", "1000000000"),
-        abi::compare_registers("%v15", "%v13"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), timeout_stack_offset),
+        abi::move_immediate(&r.v10, "Integer", "1000"),
+        abi::signed_divide_registers(&r.v11, &r.v9, &r.v10),
+        abi::multiply_subtract_registers(&r.v12, &r.v11, &r.v10, &r.v9),
+        abi::move_immediate(&r.v13, "Integer", "1000000"),
+        abi::multiply_registers(&r.v12, &r.v12, &r.v13),
+        abi::load_u64(&r.v14, abi::stack_pointer(), timespec_stack_offset),
+        abi::add_registers(&r.v14, &r.v14, &r.v11),
+        abi::load_u64(&r.v15, abi::stack_pointer(), timespec_stack_offset + 8),
+        abi::add_registers(&r.v15, &r.v15, &r.v12),
+        abi::move_immediate(&r.v13, "Integer", "1000000000"),
+        abi::compare_registers(&r.v15, &r.v13),
         abi::branch_lt(&nsec_ok),
-        abi::subtract_registers("%v15", "%v15", "%v13"),
-        abi::add_immediate("%v14", "%v14", 1),
+        abi::subtract_registers(&r.v15, &r.v15, &r.v13),
+        abi::add_immediate(&r.v14, &r.v14, 1),
         abi::label(&nsec_ok),
-        abi::store_u64("%v14", abi::stack_pointer(), timespec_stack_offset),
-        abi::store_u64("%v15", abi::stack_pointer(), timespec_stack_offset + 8),
+        abi::store_u64(&r.v14, abi::stack_pointer(), timespec_stack_offset),
+        abi::store_u64(&r.v15, abi::stack_pointer(), timespec_stack_offset + 8),
         abi::label(&done),
     ]);
     Ok(())
@@ -105,15 +145,16 @@ fn emit_queue_cond(
 /// timed form leaves the `pthread_cond_timedwait` return in `c_return(0)`.
 fn emit_queue_wait(
     ctx: &mut EmitCtx,
+    r: &ThreadVregs,
     block: usize,
     queue: usize,
     cond: usize,
     timespec: Option<usize>,
 ) -> Result<(), String> {
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), block),
-        abi::add_immediate(abi::c_arg(0), "%v9", queue + cond),
-        abi::add_immediate(abi::c_arg(1), "%v9", CONTROL_OFFSET_LOCK),
+        abi::load_u64(&r.v9, abi::stack_pointer(), block),
+        abi::add_immediate(abi::c_arg(0), &r.v9, queue + cond),
+        abi::add_immediate(abi::c_arg(1), &r.v9, CONTROL_OFFSET_LOCK),
     ]);
     match timespec {
         Some(timespec) => {
@@ -130,11 +171,16 @@ fn emit_queue_wait(
 
 /// Mark `queue` closed and wake everyone waiting on it (both directions), so a
 /// blocked reader or writer re-checks its predicate. The caller holds the block lock.
-fn emit_close_queue_locked(ctx: &mut EmitCtx, block: usize, queue: usize) -> Result<(), String> {
+fn emit_close_queue_locked(
+    ctx: &mut EmitCtx,
+    r: &ThreadVregs,
+    block: usize,
+    queue: usize,
+) -> Result<(), String> {
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), block),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", "%v8", queue + THREAD_QUEUE_CLOSED_OFFSET),
+        abi::load_u64(&r.v8, abi::stack_pointer(), block),
+        abi::move_immediate(&r.v9, "Integer", "1"),
+        abi::store_u64(&r.v9, &r.v8, queue + THREAD_QUEUE_CLOSED_OFFSET),
     ]);
     emit_queue_cond(
         ctx,
@@ -175,12 +221,16 @@ fn emit_wake_queue_locked(ctx: &mut EmitCtx, block: usize, queue: usize) -> Resu
 /// `thread::accept` re-checks CANCELLED/CLOSED and unblocks (bug-205: cancel and drop
 /// once woke only the data plane, so a worker parked in a blocking `accept` never
 /// observed the cancel). The caller holds the block lock.
-fn emit_close_resource_queues_locked(ctx: &mut EmitCtx, block: usize) -> Result<(), String> {
+fn emit_close_resource_queues_locked(
+    ctx: &mut EmitCtx,
+    r: &ThreadVregs,
+    block: usize,
+) -> Result<(), String> {
     for queue in [
         CONTROL_OFFSET_RESOURCE_INBOUND_QUEUE,
         CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE,
     ] {
-        emit_close_queue_locked(ctx, block, queue)?;
+        emit_close_queue_locked(ctx, r, block, queue)?;
     }
     Ok(())
 }
@@ -194,6 +244,7 @@ fn emit_close_resource_queues_locked(ctx: &mut EmitCtx, block: usize) -> Result<
 /// is to unlock and return) before the block goes away.
 fn emit_release_reference(
     ctx: &mut EmitCtx,
+    r: &ThreadVregs,
     block: usize,
     scratch: usize,
     join_first: bool,
@@ -203,30 +254,30 @@ fn emit_release_reference(
     let joined = format!("{}_release_{site}_joined", ctx.symbol);
     emit_block_lock(ctx, block)?;
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), block),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_REFS),
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_REFS),
-        abi::store_u64("%v9", abi::stack_pointer(), scratch),
+        abi::load_u64(&r.v8, abi::stack_pointer(), block),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_REFS),
+        abi::subtract_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_REFS),
+        abi::store_u64(&r.v9, abi::stack_pointer(), scratch),
     ]);
     emit_block_unlock(ctx, block)?;
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), scratch),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), scratch),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_ne(&kept),
     ]);
     if join_first {
         ctx.instructions.extend([
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+            abi::load_u64(&r.v8, abi::stack_pointer(), block),
+            abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_OS_HANDLE),
             abi::compare_immediate(abi::c_arg(0), "0"),
             abi::branch_eq(&joined),
             abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         ]);
         emit_thread_external_call(ctx, "pthread_join")?;
         ctx.instructions.extend([
-            abi::load_u64("%v8", abi::stack_pointer(), block),
-            abi::store_u64(abi::ZERO, "%v8", CONTROL_OFFSET_OS_HANDLE),
+            abi::load_u64(&r.v8, abi::stack_pointer(), block),
+            abi::store_u64(abi::ZERO, &r.v8, CONTROL_OFFSET_OS_HANDLE),
             abi::label(&joined),
         ]);
     }
@@ -268,6 +319,8 @@ pub(crate) fn simple_thread_handle_helper(
     const VIEW_OFFSET: usize = 56;
 
     let view_closed = format!("{symbol}_view_closed");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     let mut ctx = EmitCtx {
@@ -284,7 +337,7 @@ pub(crate) fn simple_thread_handle_helper(
             VIEW_OFFSET,
         ));
     }
-    emit_control_block_of(ctx.instructions, &view_closed);
+    emit_control_block_of(ctx.instructions, &view_closed, &r.v9);
     ctx.instructions.push(abi::store_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
@@ -296,14 +349,14 @@ pub(crate) fn simple_thread_handle_helper(
             let done = format!("{symbol}_done");
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::store_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+                abi::store_u64(&r.v9, abi::stack_pointer(), VALUE_OFFSET),
             ]);
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v9", THREAD_STATE_RUNNING),
+                abi::load_u64(&r.v9, abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate(&r.v9, THREAD_STATE_RUNNING),
                 abi::branch_eq(&running),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -325,15 +378,16 @@ pub(crate) fn simple_thread_handle_helper(
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::label(&loop_label),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+                abi::compare_immediate(&r.v9, THREAD_STATE_COMPLETED),
                 abi::branch_eq(&result_ready),
             ]);
             // `_mfb_rt_thread_finish` broadcasts every condvar of the block as it
             // publishes `COMPLETED`; the outbound not-empty one is the one waited on.
             emit_queue_wait(
                 &mut ctx,
+                r,
                 HANDLE_OFFSET,
                 CONTROL_OFFSET_OUTBOUND_QUEUE,
                 THREAD_QUEUE_NOT_EMPTY_OFFSET,
@@ -342,15 +396,15 @@ pub(crate) fn simple_thread_handle_helper(
             ctx.instructions.extend([
                 abi::branch(&loop_label),
                 abi::label(&result_ready),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_ERROR),
-                abi::store_u64("%v9", abi::stack_pointer(), ERROR_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_VALUE),
-                abi::store_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_TAG),
-                abi::store_u64("%v9", abi::stack_pointer(), TAG_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_SOURCE),
-                abi::store_u64("%v9", abi::stack_pointer(), SOURCE_OFFSET),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_ERROR),
+                abi::store_u64(&r.v9, abi::stack_pointer(), ERROR_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_VALUE),
+                abi::store_u64(&r.v9, abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_TAG),
+                abi::store_u64(&r.v9, abi::stack_pointer(), TAG_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_SOURCE),
+                abi::store_u64(&r.v9, abi::stack_pointer(), SOURCE_OFFSET),
             ]);
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             // bug-622: join, not detach. `COMPLETED` is published under the block lock
@@ -359,16 +413,16 @@ pub(crate) fn simple_thread_handle_helper(
             // for the worker to do but return. Only this parent thread reads or writes
             // the OS handle while the view is open, so the unlocked test is sound.
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_OS_HANDLE),
                 abi::compare_immediate(abi::c_arg(0), "0"),
                 abi::branch_eq(&joined),
                 abi::move_immediate(abi::c_arg(1), "Integer", "0"),
             ]);
             emit_thread_external_call(&mut ctx, "pthread_join")?;
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::store_u64(abi::ZERO, "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::store_u64(abi::ZERO, &r.v8, CONTROL_OFFSET_OS_HANDLE),
                 abi::label(&joined),
                 abi::load_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
@@ -390,13 +444,13 @@ pub(crate) fn simple_thread_handle_helper(
         ThreadSimpleOp::Cancel => {
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::move_immediate("%v9", "Integer", "1"),
-                abi::store_u64("%v9", "%v8", CONTROL_OFFSET_CANCELLED),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::move_immediate(&r.v9, "Integer", "1"),
+                abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_CANCELLED),
             ]);
-            emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE)?;
-            emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
-            emit_close_resource_queues_locked(&mut ctx, HANDLE_OFFSET)?;
+            emit_close_queue_locked(&mut ctx, r, HANDLE_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE)?;
+            emit_close_queue_locked(&mut ctx, r, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
+            emit_close_resource_queues_locked(&mut ctx, r, HANDLE_OFFSET)?;
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.push(abi::move_immediate(
                 RESULT_TAG_REGISTER,
@@ -417,35 +471,35 @@ pub(crate) fn simple_thread_handle_helper(
             let detach = format!("{symbol}_detach");
             let settled = format!("{symbol}_settled");
             ctx.instructions.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), VIEW_OFFSET),
-                abi::move_immediate("%v9", "Integer", "1"),
-                abi::store_u64("%v9", "%v10", RESOURCE_OFFSET_CLOSED),
+                abi::load_u64(&r.v10, abi::stack_pointer(), VIEW_OFFSET),
+                abi::move_immediate(&r.v9, "Integer", "1"),
+                abi::store_u64(&r.v9, &r.v10, RESOURCE_OFFSET_CLOSED),
             ]);
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::store_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::move_immediate("%v9", "Integer", THREAD_STATE_CLOSED),
-                abi::store_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-                abi::move_immediate("%v9", "Integer", "1"),
-                abi::store_u64("%v9", "%v8", CONTROL_OFFSET_CANCELLED),
-                abi::add_immediate("%v10", "%v8", CONTROL_OFFSET_OUTBOUND_QUEUE),
-                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_COUNT_OFFSET),
-                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_HEAD_OFFSET),
-                abi::store_u64(abi::ZERO, "%v10", THREAD_QUEUE_TAIL_OFFSET),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+                abi::store_u64(&r.v9, abi::stack_pointer(), VALUE_OFFSET),
+                abi::move_immediate(&r.v9, "Integer", THREAD_STATE_CLOSED),
+                abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+                abi::move_immediate(&r.v9, "Integer", "1"),
+                abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_CANCELLED),
+                abi::add_immediate(&r.v10, &r.v8, CONTROL_OFFSET_OUTBOUND_QUEUE),
+                abi::store_u64(abi::ZERO, &r.v10, THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64(abi::ZERO, &r.v10, THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64(abi::ZERO, &r.v10, THREAD_QUEUE_TAIL_OFFSET),
             ]);
-            emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
-            emit_close_queue_locked(&mut ctx, HANDLE_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE)?;
-            emit_close_resource_queues_locked(&mut ctx, HANDLE_OFFSET)?;
+            emit_close_queue_locked(&mut ctx, r, HANDLE_OFFSET, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
+            emit_close_queue_locked(&mut ctx, r, HANDLE_OFFSET, CONTROL_OFFSET_INBOUND_QUEUE)?;
+            emit_close_resource_queues_locked(&mut ctx, r, HANDLE_OFFSET)?;
             emit_block_unlock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_OS_HANDLE),
                 abi::compare_immediate(abi::c_arg(0), "0"),
                 abi::branch_eq(&settled),
-                abi::load_u64("%v9", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
+                abi::load_u64(&r.v9, abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate(&r.v9, THREAD_STATE_COMPLETED),
                 abi::branch_ne(&detach),
                 abi::move_immediate(abi::c_arg(1), "Integer", "0"),
             ]);
@@ -453,16 +507,16 @@ pub(crate) fn simple_thread_handle_helper(
             ctx.instructions.extend([
                 abi::branch(&settled),
                 abi::label(&detach),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::load_u64(abi::c_arg(0), "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_OS_HANDLE),
             ]);
             emit_thread_external_call(&mut ctx, "pthread_detach")?;
             ctx.instructions.extend([
                 abi::label(&settled),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-                abi::store_u64(abi::ZERO, "%v8", CONTROL_OFFSET_OS_HANDLE),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+                abi::store_u64(abi::ZERO, &r.v8, CONTROL_OFFSET_OS_HANDLE),
             ]);
-            emit_release_reference(&mut ctx, HANDLE_OFFSET, REFS_OFFSET, true)?;
+            emit_release_reference(&mut ctx, r, HANDLE_OFFSET, REFS_OFFSET, true)?;
             ctx.instructions.push(abi::move_immediate(
                 RESULT_TAG_REGISTER,
                 "Integer",
@@ -482,29 +536,30 @@ pub(crate) fn simple_thread_handle_helper(
                 abi::branch_lt(&invalid),
                 abi::store_u64(abi::c_arg(1), abi::stack_pointer(), VALUE_OFFSET),
             ]);
-            emit_thread_deadline(&mut ctx, VALUE_OFFSET, ERROR_OFFSET)?;
+            emit_thread_deadline(&mut ctx, r, VALUE_OFFSET, ERROR_OFFSET)?;
             emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
             ctx.instructions.extend([
                 abi::label(&wait_loop),
-                abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(
-                    "%v10",
-                    "%v8",
+                    &r.v10,
+                    &r.v8,
                     CONTROL_OFFSET_OUTBOUND_QUEUE + THREAD_QUEUE_COUNT_OFFSET,
                 ),
-                abi::compare_immediate("%v10", "0"),
+                abi::compare_immediate(&r.v10, "0"),
                 abi::branch_gt(&ready),
-                abi::load_u64("%v10", "%v8", CONTROL_OFFSET_STATE),
-                abi::compare_immediate("%v10", THREAD_STATE_COMPLETED),
+                abi::load_u64(&r.v10, &r.v8, CONTROL_OFFSET_STATE),
+                abi::compare_immediate(&r.v10, THREAD_STATE_COMPLETED),
                 abi::branch_eq(&not_ready),
-                abi::load_u64("%v10", abi::stack_pointer(), VALUE_OFFSET),
-                abi::compare_immediate("%v10", "0"),
+                abi::load_u64(&r.v10, abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate(&r.v10, "0"),
                 abi::branch_gt(&wait_timed),
                 abi::branch(&not_ready),
                 abi::label(&wait_timed),
             ]);
             emit_queue_wait(
                 &mut ctx,
+                r,
                 HANDLE_OFFSET,
                 CONTROL_OFFSET_OUTBOUND_QUEUE,
                 THREAD_QUEUE_NOT_EMPTY_OFFSET,
@@ -584,30 +639,32 @@ pub(crate) struct CancellableSleepSlots {
 /// that epilogue.
 pub(crate) fn emit_cancellable_sleep_wait(
     ctx: &mut EmitCtx,
+    r: &ThreadVregs,
     slots: CancellableSleepSlots,
     interrupted_label: &str,
 ) -> Result<(), String> {
     let wait_loop = format!("{}_wait_loop", ctx.symbol);
     let deadline_reached = format!("{}_deadline_reached", ctx.symbol);
     // Absolute deadline = now + ms (pthread_cond_timedwait consumes it).
-    emit_thread_deadline(ctx, slots.timeout, slots.timespec)?;
+    emit_thread_deadline(ctx, r, slots.timeout, slots.timespec)?;
     // `emit_cancellable_sleep_interrupted` unlocks through this slot.
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), slots.handle),
-        abi::store_u64("%v8", abi::stack_pointer(), slots.queue),
+        abi::load_u64(&r.v8, abi::stack_pointer(), slots.handle),
+        abi::store_u64(&r.v8, abi::stack_pointer(), slots.queue),
     ]);
     emit_block_lock(ctx, slots.handle)?;
     ctx.instructions.extend([
         abi::label(&wait_loop),
         // Cancellation requested? wake and fail with ErrInterrupted (poll parity with
         // the worker receive path).
-        abi::load_u64("%v8", abi::stack_pointer(), slots.handle),
-        abi::load_u64("%v10", "%v8", CONTROL_OFFSET_CANCELLED),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v8, abi::stack_pointer(), slots.handle),
+        abi::load_u64(&r.v10, &r.v8, CONTROL_OFFSET_CANCELLED),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_ne(interrupted_label),
     ]);
     emit_queue_wait(
         ctx,
+        r,
         slots.handle,
         CONTROL_OFFSET_INBOUND_QUEUE,
         THREAD_QUEUE_NOT_EMPTY_OFFSET,
@@ -695,6 +752,8 @@ pub(crate) fn lower_os_sleep_helper(
     let worker = format!("{symbol}_worker");
     let interrupted = format!("{symbol}_interrupted");
 
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
@@ -709,9 +768,9 @@ pub(crate) fn lower_os_sleep_helper(
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), TIMEOUT_OFFSET),
         // Am I a worker? The trampoline published this thread's control block at
         // arena+8; the main thread's is the zero-init 0.
-        abi::load_u64("%v8", ARENA_STATE_REGISTER, ARENA_WORKER_THREAD_OFFSET),
-        abi::store_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::compare_immediate("%v8", "0"),
+        abi::load_u64(&r.v8, ARENA_STATE_REGISTER, ARENA_WORKER_THREAD_OFFSET),
+        abi::store_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::compare_immediate(&r.v8, "0"),
         abi::branch_ne(&worker),
     ]);
     let mut ctx = EmitCtx {
@@ -722,11 +781,12 @@ pub(crate) fn lower_os_sleep_helper(
         relocations: &mut relocations,
     };
     // Main thread: a plain relative delay; leaves this block only via `ok`.
-    emit_relative_sleep(&mut ctx, abi::c_arg(0), REQ_OFFSET, REM_OFFSET, &ok)?;
+    emit_relative_sleep(&mut ctx, r, abi::c_arg(0), REQ_OFFSET, REM_OFFSET, &ok)?;
     // Worker: the cancellation-aware wait, on the control block parked above.
     ctx.instructions.push(abi::label(&worker));
     emit_cancellable_sleep_wait(
         &mut ctx,
+        r,
         CancellableSleepSlots {
             handle: HANDLE_OFFSET,
             timeout: TIMEOUT_OFFSET,
@@ -800,6 +860,8 @@ pub(crate) fn thread_queue_write_helper(
     let tail_wrap = format!("{symbol}_tail_wrap");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     let mut ctx = EmitCtx {
@@ -811,7 +873,7 @@ pub(crate) fn thread_queue_write_helper(
     };
     // plan-156-C: the handle argument is a view; work on the block it names.
     let view_closed = format!("{symbol}_view_closed");
-    emit_control_block_of(ctx.instructions, &view_closed);
+    emit_control_block_of(ctx.instructions, &view_closed, &r.v9);
     ctx.instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
@@ -823,8 +885,8 @@ pub(crate) fn thread_queue_write_helper(
         // form and is accepted; any OTHER negative value is `ErrInvalidArgument`.
         abi::compare_immediate(abi::c_arg(2), "0"),
         abi::branch_ge(&timeout_ok),
-        abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::c_arg(2), "%v9"),
+        abi::move_immediate(&r.v9, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(2), &r.v9),
         abi::branch_ne(&invalid),
         abi::label(&timeout_ok),
     ]);
@@ -835,35 +897,35 @@ pub(crate) fn thread_queue_write_helper(
         ctx.instructions
             .push(abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)));
     }
-    emit_thread_deadline(&mut ctx, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
+    emit_thread_deadline(&mut ctx, r, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
     emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
     ctx.instructions.extend([
         abi::label(&wait_loop),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
     ]);
     if parent_send {
         ctx.instructions.extend([
-            abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-            abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
+            abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+            abi::compare_immediate(&r.v9, THREAD_STATE_CLOSED),
             abi::branch_eq(&closed),
-            abi::compare_immediate("%v9", THREAD_STATE_COMPLETED),
+            abi::compare_immediate(&r.v9, THREAD_STATE_COMPLETED),
             abi::branch_eq(&interrupted),
         ]);
     }
     ctx.instructions.extend([
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_CANCELLED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_CANCELLED),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_ne(&interrupted),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_CLOSED_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::add_immediate(&r.v9, &r.v8, queue_offset),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_CLOSED_OFFSET),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_ne(&interrupted),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::compare_registers("%v10", "%v11"),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
+        abi::load_u64(&r.v11, &r.v9, THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers(&r.v10, &r.v11),
         abi::branch_lt(&enqueue),
-        abi::load_u64("%v12", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v12", "0"),
+        abi::load_u64(&r.v12, abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate(&r.v12, "0"),
         // plan-73-A: 0 = one immediate attempt (queue full ⇒ `ErrTimeout`); the
         // unbounded sentinel (< 0) blocks until space; a positive value bounds the wait
         // against the absolute deadline.
@@ -872,6 +934,7 @@ pub(crate) fn thread_queue_write_helper(
     ]);
     emit_queue_wait(
         &mut ctx,
+        r,
         HANDLE_OFFSET,
         queue_offset,
         THREAD_QUEUE_NOT_FULL_OFFSET,
@@ -887,6 +950,7 @@ pub(crate) fn thread_queue_write_helper(
     ]);
     emit_queue_wait(
         &mut ctx,
+        r,
         HANDLE_OFFSET,
         queue_offset,
         THREAD_QUEUE_NOT_FULL_OFFSET,
@@ -900,15 +964,16 @@ pub(crate) fn thread_queue_write_helper(
     ctx.instructions.extend([
         abi::branch(&wait_loop),
         abi::label(&enqueue),
-        abi::load_u64("%v9", abi::stack_pointer(), COPY_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), COPY_OFFSET),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_eq(&store),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
-        abi::store_u64("%v9", abi::stack_pointer(), ARENA_OFFSET),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_ARENA),
+        abi::store_u64(&r.v9, abi::stack_pointer(), ARENA_OFFSET),
     ]);
     emit_call_in_block_arena(
         ctx.instructions,
+        &r.v15,
         ARENA_OFFSET,
         SAVED_ARENA_OFFSET,
         COPY_OFFSET,
@@ -919,26 +984,26 @@ pub(crate) fn thread_queue_write_helper(
         abi::branch_ne(&copy_failed),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
         abi::label(&store),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", abi::stack_pointer(), DROP_OFFSET),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_DROP_OFFSET),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_TAIL_OFFSET),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
-        abi::add_registers("%v11", "%v11", "%v12"),
-        abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
-        abi::store_u64("%v12", "%v11", 0),
-        abi::add_immediate("%v10", "%v10", 1),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::compare_registers("%v10", "%v11"),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::add_immediate(&r.v9, &r.v8, queue_offset),
+        abi::load_u64(&r.v10, abi::stack_pointer(), DROP_OFFSET),
+        abi::store_u64(&r.v10, &r.v9, THREAD_QUEUE_DROP_OFFSET),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_TAIL_OFFSET),
+        abi::load_u64(&r.v11, &r.v9, THREAD_QUEUE_VALUES_OFFSET),
+        abi::shift_left_immediate(&r.v12, &r.v10, THREAD_QUEUE_ENTRY_SHIFT),
+        abi::add_registers(&r.v11, &r.v11, &r.v12),
+        abi::load_u64(&r.v12, abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(&r.v12, &r.v11, 0),
+        abi::add_immediate(&r.v10, &r.v10, 1),
+        abi::load_u64(&r.v11, &r.v9, THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers(&r.v10, &r.v11),
         abi::branch_lt(&tail_wrap),
-        abi::move_immediate("%v10", "Integer", "0"),
+        abi::move_immediate(&r.v10, "Integer", "0"),
         abi::label(&tail_wrap),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_TAIL_OFFSET),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-        abi::add_immediate("%v10", "%v10", 1),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(&r.v10, &r.v9, THREAD_QUEUE_TAIL_OFFSET),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
+        abi::add_immediate(&r.v10, &r.v10, 1),
+        abi::store_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
     ]);
     emit_queue_cond(
         &mut ctx,
@@ -1065,6 +1130,8 @@ pub(crate) fn thread_queue_read_helper(
     let head_advance = format!("{symbol}_head_advance");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     let mut ctx = EmitCtx {
@@ -1076,7 +1143,7 @@ pub(crate) fn thread_queue_read_helper(
     };
     // plan-156-C: the handle argument is a view; work on the block it names.
     let view_closed = format!("{symbol}_view_closed");
-    emit_control_block_of(ctx.instructions, &view_closed);
+    emit_control_block_of(ctx.instructions, &view_closed, &r.v9);
     ctx.instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
@@ -1096,12 +1163,12 @@ pub(crate) fn thread_queue_read_helper(
     ctx.instructions.extend([
         abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_ge(&timeout_ok),
-        abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::c_arg(1), "%v9"),
+        abi::move_immediate(&r.v9, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(1), &r.v9),
         abi::branch_ne(&invalid),
         abi::label(&timeout_ok),
     ]);
-    emit_thread_deadline(&mut ctx, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
+    emit_thread_deadline(&mut ctx, r, TIMEOUT_OFFSET, TIMESPEC_OFFSET)?;
     emit_block_lock(&mut ctx, HANDLE_OFFSET)?;
     // plan-156-A: drop the block-arena message the PREVIOUS read handed out (bug-646's
     // "one read behind"). The call site copies a message into the reader's own arena
@@ -1110,18 +1177,19 @@ pub(crate) fn thread_queue_read_helper(
     // queue has exactly one reader. The drop runs on the block arena, under the lock.
     let retire_done = format!("{symbol}_retire_done");
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::add_immediate(&r.v9, &r.v8, queue_offset),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_LAST_READ_OFFSET),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_eq(&retire_done),
-        abi::store_u64(abi::ZERO, "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
-        abi::store_u64("%v10", abi::stack_pointer(), RETIRED_OFFSET),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
-        abi::store_u64("%v9", abi::stack_pointer(), ARENA_OFFSET),
+        abi::store_u64(abi::ZERO, &r.v9, THREAD_QUEUE_LAST_READ_OFFSET),
+        abi::store_u64(&r.v10, abi::stack_pointer(), RETIRED_OFFSET),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_ARENA),
+        abi::store_u64(&r.v9, abi::stack_pointer(), ARENA_OFFSET),
     ]);
     emit_call_in_block_arena(
         ctx.instructions,
+        &r.v15,
         ARENA_OFFSET,
         SAVED_ARENA_OFFSET,
         DROP_OFFSET,
@@ -1130,36 +1198,36 @@ pub(crate) fn thread_queue_read_helper(
     ctx.instructions.extend([
         abi::label(&retire_done),
         abi::label(&wait_loop),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::add_immediate(&r.v9, &r.v8, queue_offset),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_gt(&found),
     ]);
     if worker_self {
         ctx.instructions.extend([
-            abi::load_u64("%v10", "%v8", CONTROL_OFFSET_CANCELLED),
-            abi::compare_immediate("%v10", "0"),
+            abi::load_u64(&r.v10, &r.v8, CONTROL_OFFSET_CANCELLED),
+            abi::compare_immediate(&r.v10, "0"),
             abi::branch_ne(&interrupted),
         ]);
     }
     ctx.instructions.extend([
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_CLOSED_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_CLOSED_OFFSET),
+        abi::compare_immediate(&r.v10, "0"),
         abi::branch_ne(&not_found),
     ]);
     if !worker_self {
         ctx.instructions.extend([
-            abi::load_u64("%v10", "%v8", CONTROL_OFFSET_STATE),
-            abi::compare_immediate("%v10", THREAD_STATE_CLOSED),
+            abi::load_u64(&r.v10, &r.v8, CONTROL_OFFSET_STATE),
+            abi::compare_immediate(&r.v10, THREAD_STATE_CLOSED),
             abi::branch_eq(&closed),
-            abi::compare_immediate("%v10", THREAD_STATE_COMPLETED),
+            abi::compare_immediate(&r.v10, THREAD_STATE_COMPLETED),
             abi::branch_eq(&not_found),
         ]);
     }
     ctx.instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&r.v10, abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate(&r.v10, "0"),
         // plan-73-A: an explicit `timeoutMs` of 0 on a still-open but empty queue is one
         // immediate attempt that raises `ErrTimeout`, NOT `ErrNotFound`, which is
         // reserved for a genuinely terminal empty queue (closed / completed worker).
@@ -1168,6 +1236,7 @@ pub(crate) fn thread_queue_read_helper(
     ]);
     emit_queue_wait(
         &mut ctx,
+        r,
         HANDLE_OFFSET,
         queue_offset,
         THREAD_QUEUE_NOT_EMPTY_OFFSET,
@@ -1181,6 +1250,7 @@ pub(crate) fn thread_queue_read_helper(
     ]);
     emit_queue_wait(
         &mut ctx,
+        r,
         HANDLE_OFFSET,
         queue_offset,
         THREAD_QUEUE_NOT_EMPTY_OFFSET,
@@ -1189,31 +1259,31 @@ pub(crate) fn thread_queue_read_helper(
     ctx.instructions.extend([
         abi::branch(&wait_loop),
         abi::label(&found),
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::add_immediate("%v9", "%v8", queue_offset),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_HEAD_OFFSET),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_VALUES_OFFSET),
-        abi::shift_left_immediate("%v12", "%v10", THREAD_QUEUE_ENTRY_SHIFT),
-        abi::add_registers("%v11", "%v11", "%v12"),
-        abi::load_u64("%v13", "%v11", 0),
-        abi::store_u64("%v13", abi::stack_pointer(), VALUE_OFFSET),
+        abi::load_u64(&r.v8, abi::stack_pointer(), HANDLE_OFFSET),
+        abi::add_immediate(&r.v9, &r.v8, queue_offset),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_HEAD_OFFSET),
+        abi::load_u64(&r.v11, &r.v9, THREAD_QUEUE_VALUES_OFFSET),
+        abi::shift_left_immediate(&r.v12, &r.v10, THREAD_QUEUE_ENTRY_SHIFT),
+        abi::add_registers(&r.v11, &r.v11, &r.v12),
+        abi::load_u64(&r.v13, &r.v11, 0),
+        abi::store_u64(&r.v13, abi::stack_pointer(), VALUE_OFFSET),
         // Remember a block-arena message as the one the next read drops. Only when this
         // type has a drop function: a word-sized message is not a pointer at all.
-        abi::load_u64("%v12", abi::stack_pointer(), DROP_OFFSET),
-        abi::compare_immediate("%v12", "0"),
+        abi::load_u64(&r.v12, abi::stack_pointer(), DROP_OFFSET),
+        abi::compare_immediate(&r.v12, "0"),
         abi::branch_eq(&head_advance),
-        abi::store_u64("%v13", "%v9", THREAD_QUEUE_LAST_READ_OFFSET),
+        abi::store_u64(&r.v13, &r.v9, THREAD_QUEUE_LAST_READ_OFFSET),
         abi::label(&head_advance),
-        abi::add_immediate("%v10", "%v10", 1),
-        abi::load_u64("%v11", "%v9", THREAD_QUEUE_CAPACITY_OFFSET),
-        abi::compare_registers("%v10", "%v11"),
+        abi::add_immediate(&r.v10, &r.v10, 1),
+        abi::load_u64(&r.v11, &r.v9, THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers(&r.v10, &r.v11),
         abi::branch_lt(&head_wrap),
-        abi::move_immediate("%v10", "Integer", "0"),
+        abi::move_immediate(&r.v10, "Integer", "0"),
         abi::label(&head_wrap),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_HEAD_OFFSET),
-        abi::load_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
-        abi::subtract_immediate("%v10", "%v10", 1),
-        abi::store_u64("%v10", "%v9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(&r.v10, &r.v9, THREAD_QUEUE_HEAD_OFFSET),
+        abi::load_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
+        abi::subtract_immediate(&r.v10, &r.v10, 1),
+        abi::store_u64(&r.v10, &r.v9, THREAD_QUEUE_COUNT_OFFSET),
     ]);
     emit_queue_cond(
         &mut ctx,
@@ -1283,9 +1353,11 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
     // block); an unlocked word read — the flag only ever goes 0 → 1.
     let cancelled = "_mfb_rt_thread_is_cancelled_true";
     let done = "_mfb_rt_thread_is_cancelled_done";
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let instructions = vec![
-        abi::load_u64("%v9", abi::CURRENT_THREAD, CONTROL_OFFSET_CANCELLED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::CURRENT_THREAD, CONTROL_OFFSET_CANCELLED),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_ne(cancelled),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1344,6 +1416,8 @@ pub(crate) fn lower_thread_finish(
         super::value_functions::ThreadValueFn::Copy,
         &crate::types::ParameterType::named("ErrorLoc"),
     );
+    let mut vregs = Vregs::new();
+    let r = &ThreadVregs::mint(&mut vregs);
     let mut instructions = vec![
         abi::label("entry"),
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
@@ -1375,22 +1449,22 @@ pub(crate) fn lower_thread_finish(
     // must outlive this worker's own arena. The copies run under the block lock with
     // the arena register on the block arena.
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
-        abi::compare_immediate("%v9", THREAD_STATE_CLOSED),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+        abi::compare_immediate(&r.v9, THREAD_STATE_CLOSED),
         abi::branch_eq(&result_closed),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_ARENA),
-        abi::store_u64("%v9", abi::stack_pointer(), ARENA),
-        abi::load_u64("%v9", abi::stack_pointer(), TAG),
-        abi::compare_immediate("%v9", RESULT_OK_TAG),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_ARENA),
+        abi::store_u64(&r.v9, abi::stack_pointer(), ARENA),
+        abi::load_u64(&r.v9, abi::stack_pointer(), TAG),
+        abi::compare_immediate(&r.v9, RESULT_OK_TAG),
         abi::branch_ne(&error_copy),
         // Success: the value, through the result type's copy function (0 = a word).
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_COPY),
-        abi::store_u64("%v9", abi::stack_pointer(), COPY),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_COPY),
+        abi::store_u64(&r.v9, abi::stack_pointer(), COPY),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_eq(&result_store),
     ]);
-    emit_call_in_block_arena(ctx.instructions, ARENA, SAVED_ARENA, COPY, VALUE);
+    emit_call_in_block_arena(ctx.instructions, &r.v15, ARENA, SAVED_ARENA, COPY, VALUE);
     ctx.instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(&copy_failed),
@@ -1398,8 +1472,8 @@ pub(crate) fn lower_thread_finish(
         abi::branch(&result_store),
         // Failure: the message and the origin (either may be absent).
         abi::label(&error_copy),
-        abi::load_u64("%v9", abi::stack_pointer(), MESSAGE),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), MESSAGE),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_eq(&message_done),
     ]);
     crate::codegen::runtime::thread::emit_with_arena(ctx.instructions, ARENA, SAVED_ARENA, |i| {
@@ -1414,8 +1488,8 @@ pub(crate) fn lower_thread_finish(
         abi::branch_ne(&copy_failed),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), MESSAGE),
         abi::label(&message_done),
-        abi::load_u64("%v9", abi::stack_pointer(), SOURCE),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), SOURCE),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_eq(&source_done),
     ]);
     crate::codegen::runtime::thread::emit_with_arena(ctx.instructions, ARENA, SAVED_ARENA, |i| {
@@ -1443,31 +1517,31 @@ pub(crate) fn lower_thread_finish(
         abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, abi::stack_pointer(), MESSAGE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), SOURCE),
         abi::label(&result_store),
-        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-        abi::load_u64("%v9", abi::stack_pointer(), TAG),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_TAG),
-        abi::load_u64("%v9", abi::stack_pointer(), VALUE),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_VALUE),
-        abi::load_u64("%v9", abi::stack_pointer(), MESSAGE),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_ERROR),
-        abi::load_u64("%v9", abi::stack_pointer(), SOURCE),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_RESULT_SOURCE),
-        abi::move_immediate("%v9", "Integer", THREAD_STATE_COMPLETED),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_STATE),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(&r.v9, abi::stack_pointer(), TAG),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_TAG),
+        abi::load_u64(&r.v9, abi::stack_pointer(), VALUE),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_VALUE),
+        abi::load_u64(&r.v9, abi::stack_pointer(), MESSAGE),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_ERROR),
+        abi::load_u64(&r.v9, abi::stack_pointer(), SOURCE),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_SOURCE),
+        abi::move_immediate(&r.v9, "Integer", THREAD_STATE_COMPLETED),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
         abi::label(&result_closed),
     ]);
     // Wake any parent blocked writing the inbound queue or waiting on the resource
     // planes; the outbound queue stays open so the parent can still read what was
     // sent, and a parent waiting on it re-checks the state and finds `COMPLETED`.
-    emit_close_queue_locked(&mut ctx, BLOCK, CONTROL_OFFSET_INBOUND_QUEUE)?;
-    emit_close_resource_queues_locked(&mut ctx, BLOCK)?;
+    emit_close_queue_locked(&mut ctx, r, BLOCK, CONTROL_OFFSET_INBOUND_QUEUE)?;
+    emit_close_resource_queues_locked(&mut ctx, r, BLOCK)?;
     emit_wake_queue_locked(&mut ctx, BLOCK, CONTROL_OFFSET_OUTBOUND_QUEUE)?;
     ctx.instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), BLOCK),
-        abi::load_u64("%v9", "%v8", CONTROL_OFFSET_REFS),
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", "%v8", CONTROL_OFFSET_REFS),
-        abi::store_u64("%v9", abi::stack_pointer(), REFS),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_REFS),
+        abi::subtract_immediate(&r.v9, &r.v9, 1),
+        abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_REFS),
+        abi::store_u64(&r.v9, abi::stack_pointer(), REFS),
     ]);
     emit_block_unlock(&mut ctx, BLOCK)?;
     // plan-156-B: return the worker's arena to the OS. The result, the messages and
@@ -1483,8 +1557,8 @@ pub(crate) fn lower_thread_finish(
         .push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
     let kept = format!("{symbol}_kept");
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), REFS),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&r.v9, abi::stack_pointer(), REFS),
+        abi::compare_immediate(&r.v9, "0"),
         abi::branch_ne(&kept),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
         abi::branch_link(THREAD_BLOCK_RELEASE_SYMBOL),

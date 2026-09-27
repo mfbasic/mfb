@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
-                location: Operand::from(copied.render()),
+                location: Operand::from(copied),
                 text: result.text,
             });
         }
@@ -69,7 +69,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
-                location: Operand::from(copied.render()),
+                location: Operand::from(copied),
                 text: result.text,
             });
         }

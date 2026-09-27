@@ -38,6 +38,31 @@ the null sentinel. The two conversions bridge the forms: trapping materializes a
 `Error` value's `code`/`message`/`source` fields (offset → absolute, mapping a
 0 offset back to a null pointer). [[src/codegen/error/emission/builder_error_emission.rs:emit_load_error_fields]]
 
+## Leaving a function on an error
+
+An error that leaves a function is a scope edge (`./mfb spec language
+memory-semantics` §14.7): before the four registers reach the caller, or the
+function-level `TRAP`, the function frees the failing statement's pending
+temporaries and drops every active cleanup. The drop does not depend on what
+failed. A failing call does it at the call site. [[src/codegen/engine/control/builder_exits.rs:emit_call_error_exit]]
+So does an inline raise (a failing conversion, a division by zero, an overflow,
+a bounds check), unless an inline `TRAP` on that builtin captures it. [[src/codegen/error/emission/builder_error_emission.rs:emit_error_register_return]]
+
+Inline raise sites are dense, so their return route does not repeat the walk
+at every site. The site stores `x0`–`x3` in the function's pending-result
+slots and frees its own statement's temporaries. It then branches to a
+landing pad shared by every site with the same cleanup stack. The pad for
+`[c0..ck]` drops `ck` and continues into the pad for `[c0..ck-1]`. The empty
+stack's pad reloads the registers and returns. So a function emits one drop
+per distinct cleanup-stack prefix. [[src/codegen/engine/control/builder_exits.rs:emit_inline_error_exit]]
+The pads are placed after the function body, deepest prefix first, so every
+branch into a pad and between pads is forward. A backward branch would read as
+a loop to the live-range analyses. [[src/codegen/engine/control/builder_exits.rs:append_error_return_pads]]
+The trap route keeps its per-site walk. The one exception to all of this is
+the trap route's own out-of-memory fallback. It re-enters the raise while that
+route is still dropping, so it returns directly instead of starting a second
+walk.
+
 ## See Also
 
 * ./mfb spec language error-model — the `Result` and error semantics this register ABI implements

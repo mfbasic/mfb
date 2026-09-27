@@ -28,7 +28,12 @@ use those names when that is what you mean.
 
 `insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. 
+it does with that return value. Assigning straight back to the same `MUT`
+variable — `list = collections::insert(list, i, item)` — is the cheap shape: it
+inserts into the list itself instead of building a copy, and costs the elements
+after `index`, which move up one place. Assigning the result anywhere else —
+`ys = collections::insert(xs, i, item)` — builds a new list and leaves `xs` as it
+was. The result is the same either way.
 
 An index outside `0 .. len(value)` raises `ErrIndexOutOfRange`, which an inline
 `TRAP` on the call can catch."#;

@@ -4,6 +4,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 pub(crate) enum FloatInfinityError {
@@ -264,7 +265,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::Float,
-                    location: Operand::from(result.render()),
+                    location: Operand::from(result),
                     text,
                 })
             }
@@ -292,13 +293,13 @@ impl CodeBuilder<'_> {
                     ValueResult {
                         origin: None,
                         type_: ParameterType::Fixed,
-                        location: Operand::from(left_reg.render()),
+                        location: Operand::from(left_reg),
                         text: left.text,
                     },
                     ValueResult {
                         origin: None,
                         type_: ParameterType::Fixed,
-                        location: Operand::from(right_reg.render()),
+                        location: Operand::from(right_reg),
                         text: right.text,
                     },
                 ];
@@ -496,7 +497,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: value.type_,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text: format!("math.abs({})", value.text),
         })
     }
@@ -683,7 +684,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: left.type_,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text: format!("math.{function}({}, {})", left.text, right.text),
         })
     }
@@ -795,7 +796,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: value.type_,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text: format!("math.clamp({}, {}, {})", value.text, low.text, high.text),
         })
     }
@@ -839,7 +840,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Integer,
-            location: Operand::from(dst.render()),
+            location: Operand::from(dst),
             text: format!("math.{function}({})", value.text),
         })
     }
@@ -851,26 +852,22 @@ impl CodeBuilder<'_> {
     /// caller-allocated so the divergent range-check tails stay per-site.
     pub(crate) fn emit_float_exponent_classify(
         &mut self,
-        exponent: impl Into<Operand>,
-        mask: impl Into<Operand>,
-        bits: impl Into<Operand>,
+        exponent: impl Into<Reg>,
+        mask: impl Into<Reg>,
+        bits: impl Into<Reg>,
     ) {
-        let exponent = exponent.into();
-        let mask = mask.into();
-        self.emit(abi::shift_right_immediate(exponent.clone(), bits, 52));
-        self.emit(abi::move_immediate(mask.clone(), "Integer", "2047"));
-        self.emit(abi::and_registers(
-            exponent.clone(),
-            exponent.clone(),
-            mask.clone(),
-        ));
-        self.emit(abi::compare_immediate(exponent.clone(), "2047"));
+        let (exponent, mask, bits): (Reg, Reg, Reg) = (exponent.into(), mask.into(), bits.into());
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
     }
 
     fn emit_float_rounding_integer_range_check(
         &mut self,
-        source_bits: impl Into<Operand>,
+        source_bits: impl Into<Reg>,
     ) -> Result<(), String> {
+        let source_bits: Reg = source_bits.into();
         let bits = self.allocate_register();
         let exponent = self.allocate_register();
         let sign = self.allocate_register();
@@ -1067,7 +1064,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: result_type,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("math.rand({}, {})", min.text, max.text),
         })
     }
@@ -1095,7 +1092,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Nothing,
-            location: abi::return_register(),
+            location: abi::return_register().into(),
             text,
         })
     }
@@ -1122,7 +1119,7 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Float,
-                location: Operand::from(result.render()),
+                location: Operand::from(result),
                 text,
             });
         }
@@ -1140,7 +1137,7 @@ impl CodeBuilder<'_> {
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::Fixed,
-                    location: Operand::from(dst.render()),
+                    location: Operand::from(dst),
                     text: format!("math.sqrt({})", value.text),
                 })
             }
@@ -1194,16 +1191,17 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::Fixed,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text,
         })
     }
 
     pub(crate) fn emit_float_result_check(
         &mut self,
-        bits: impl Into<Operand>,
+        bits: impl Into<Reg>,
         infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
+        let bits: Reg = bits.into();
         // A finite f64 has a biased exponent below 0x7FF. Drop the sign bit by
         // shifting left one — the remaining magnitude pattern orders the three
         // classes under a single unsigned compare: every finite value is
@@ -1252,9 +1250,10 @@ impl CodeBuilder<'_> {
     /// the line/char it stamps — is byte-identical to the GPR path.
     pub(crate) fn emit_float_result_check_fp(
         &mut self,
-        value: impl Into<Operand>,
+        value: impl Into<Reg>,
         infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
+        let value: Reg = value.into();
         let nan = self.label("float_result_nan");
         let ok = self.label("float_result_finite");
         let magnitude = self.allocate_fp_register();
@@ -1346,8 +1345,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn observe_promoted_float(
         &mut self,
         value: &NirValue,
-        d: &str,
+        d: impl Into<Reg>,
     ) -> Result<(), String> {
+        let d: Reg = d.into();
         if float_arith_node(value) {
             let saved = self.current_loc;
             if let Some(loc) = crate::codegen::engine::value::value_loc(value) {

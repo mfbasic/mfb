@@ -23,7 +23,6 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::codegen::engine::mir::MirPlan;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFunction;
@@ -114,7 +113,7 @@ pub(crate) trait LinuxArch {
     /// for the asm-generic (aarch64/riscv64) sequence.
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
 
@@ -206,7 +205,7 @@ pub(crate) trait LinuxArch {
 /// backends (Linux's asm-generic syscall table numbers `mmap` 222 and `munmap`
 /// 215 on every ISA that adopted it; x86-64 predates it and uses 9 / 11).
 pub(crate) fn emit_asm_generic_arena_map(
-    size_reg: &str,
+    size_reg: abi::Reg,
     instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> {
     instructions.extend([
@@ -396,20 +395,22 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: abi::Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        scratch: [abi::Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
+        let [word, mask] = scratch;
         // Linux `struct termios`: 60 bytes (rounded to 64 for the 8-byte copy),
         // `c_lflag` a 4-byte field at offset 12 (`ECHO`=0o10=8, `ICANON`=0o2=2),
         // `c_cc` at offset 17 with `VMIN` at index 6 and `VTIME` at index 5.
         for offset in (0..60usize.next_multiple_of(8)).step_by(8) {
             instructions.extend([
-                abi::load_u64("%v9", base_register, original_offset + offset),
-                abi::store_u64("%v9", base_register, modified_offset + offset),
+                abi::load_u64(word, base_register, original_offset + offset),
+                abi::store_u64(word, base_register, modified_offset + offset),
             ]);
         }
         let mut clear_flags = 0u64;
@@ -421,19 +422,19 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         }
         if clear_flags != 0 {
             let lflag_offset = modified_offset + 12;
-            instructions.push(abi::load_u32("%v9", base_register, lflag_offset));
+            instructions.push(abi::load_u32(word, base_register, lflag_offset));
             instructions.extend([
-                abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
-                abi::bitwise_not("%v10", "%v10"),
-                abi::and_registers("%v9", "%v9", "%v10"),
+                abi::move_immediate(mask, "Integer", &clear_flags.to_string()),
+                abi::bitwise_not(mask, mask),
+                abi::and_registers(word, word, mask),
             ]);
-            instructions.push(abi::store_u32("%v9", base_register, lflag_offset));
+            instructions.push(abi::store_u32(word, base_register, lflag_offset));
         }
         if disable_canonical {
             let cc_offset = modified_offset + 17;
             instructions.extend([
-                abi::move_immediate("%v9", "Integer", "1"),
-                abi::store_u8("%v9", base_register, cc_offset + 6),
+                abi::move_immediate(word, "Integer", "1"),
+                abi::store_u8(word, base_register, cc_offset + 6),
                 abi::store_u8(abi::ZERO, base_register, cc_offset + 5),
             ]);
         }
@@ -810,9 +811,9 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: abi::Reg,
+        mask: abi::Reg,
+        expected: abi::Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -923,7 +924,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: crate::target::shared::abi::Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -1268,10 +1269,10 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        byte: &str,
-        scratch: &str,
+        nameptr: abi::Reg,
+        namelen: abi::Reg,
+        byte: abi::Reg,
+        scratch: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // Linux `struct dirent`: `d_name` at offset 19, NUL-terminated with no
@@ -1317,7 +1318,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         self.arch.emit_arena_map(size_reg, instructions)
@@ -1398,6 +1399,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         &self,
         fd_offset: usize,
         flags_offset: usize,
+        scratch: abi::Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
@@ -1409,8 +1411,8 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_offset),
             abi::move_immediate(abi::mfb_arg(1), "Integer", "4"), // F_SETFL
             abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), flags_offset),
-            abi::move_immediate("%v9", "Integer", "2048"),
-            abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), "%v9"),
+            abi::move_immediate(scratch, "Integer", "2048"),
+            abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), scratch),
         ]);
         self.emit_variadic_external_call("fcntl", from, platform_imports, instructions, relocations)
     }
@@ -1627,7 +1629,8 @@ mod tests {
             for (_, value) in &inst.fields {
                 let rendered = value.render();
                 assert!(
-                    rendered != abi::mfb_arg(0).render() && rendered != abi::mfb_arg(1).render(),
+                    rendered != abi::mfb_arg(0).to_string()
+                        && rendered != abi::mfb_arg(1).to_string(),
                     "the HWCAP scan clobbered an ARG (argc/argv) token: {rendered}"
                 );
             }

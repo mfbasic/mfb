@@ -1,7 +1,7 @@
 # remote-common.sh — shared helpers for the remote / app runtime proofs (sourced, not
 # executable). plan-131-D.
 #
-# Sourced by test-winprocess.sh, test-winleak.sh, test-appimage.sh, linux-runtime-proof.sh, test-winapp.sh,
+# Sourced by test-winprocess.sh, test-winleak.sh, test-wintls.sh, test-appimage.sh, linux-runtime-proof.sh, test-winapp.sh,
 # test-canvas-vulkan.sh, test-canvas-gpu-rows.sh and test-macapp.sh:
 #
 #     . "$(dirname "$0")/remote-common.sh"

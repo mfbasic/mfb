@@ -80,7 +80,7 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
         }
     }
     // Definition counts per int variable (single-def holders reuse directly),
-    // and the vreg-id ceiling for minting fresh holders.
+    // and the vreg-id ceiling fresh holders are minted above.
     let mut def_count: HashMap<Var, u32> = HashMap::new();
     let mut max_vreg: u32 = 0;
     for instruction in instructions.iter() {
@@ -100,7 +100,6 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
             }
         }
     }
-    let mut next_vreg = max_vreg + 1;
 
     let mut table: HashMap<(crate::arch::ops::CodeOp, Vec<KeyPart>), Vec<Candidate>> =
         HashMap::new();
@@ -139,11 +138,13 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
                     match &candidate.fresh {
                         Some(fresh) => fresh.clone(),
                         None => {
-                            let fresh = Operand::vreg(
-                                crate::target::shared::regmodel::RegClass::Int,
-                                next_vreg,
-                            );
-                            next_vreg += 1;
+                            // From the shared id source, above every id in this
+                            // stream, so no minter can meet it (bug-721).
+                            let fresh =
+                                Operand::from(crate::codegen::engine::regalloc::mint_vreg_above(
+                                    crate::target::shared::regmodel::RegClass::Int,
+                                    max_vreg,
+                                ));
                             insertions.push((
                                 candidate.inst,
                                 copy_of(fresh.clone(), candidate.dst_operand.clone()),
@@ -298,7 +299,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

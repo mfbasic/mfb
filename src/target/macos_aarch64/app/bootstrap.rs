@@ -70,7 +70,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm, label: &str) {
         OFF_PIPE + 4,
     )); // fds[1] (write)
     asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
@@ -107,7 +107,7 @@ pub(super) fn emit_main_bootstrap(
     // [app setActivationPolicy:NSApplicationActivationPolicyRegular]
     asm.load_selector(SEL_SET_ACTIVATION_POLICY.0);
     asm.push(abi::move_immediate(
-        "x2",
+        abi::c_arg(2),
         "Integer",
         ACTIVATION_POLICY_REGULAR,
     ));
@@ -152,7 +152,7 @@ pub(super) fn emit_main_bootstrap(
         // title = [NSString stringWithUTF8String:"MFBASIC App"]; [window setTitle:title]
         asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_STRING, LIB_FOUNDATION);
         asm.load_selector(SEL_STRING_WITH_UTF8.0);
-        asm.local_address("x2", STR_TITLE.0);
+        asm.local_address(abi::c_arg(2), STR_TITLE.0);
         asm.push(abi::move_register(abi::c_arg(0), REG_SCRATCH_OBJ));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         asm.push(abi::move_register(REG_SCRATCH_OBJ, abi::c_arg(0)));
@@ -162,7 +162,7 @@ pub(super) fn emit_main_bootstrap(
         asm.call_external("_objc_msgSend", LIB_OBJC);
 
         // headless = getenv("MFB_MACAPP_HEADLESS")
-        asm.local_address("x0", STR_HEADLESS_ENV.0);
+        asm.local_address(abi::c_arg(0), STR_HEADLESS_ENV.0);
         asm.call_external("_getenv", LIB_SYSTEM);
         asm.push(abi::move_register(REG_HEADLESS, abi::c_arg(0)));
 
@@ -196,32 +196,14 @@ pub(super) fn emit_main_bootstrap(
                                                                     // the window content view so the transcript fills the window on resize.
         asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
         asm.push(abi::move_immediate(
-            "x2",
+            abi::c_arg(2),
             "Integer",
             AUTORESIZE_WIDTH_HEIGHT,
         ));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
 
-        // Synthesize MFBTextView : NSTextView overriding keyDown: so the transcript
-        // view itself receives typed keys (terminal-style input echoed into the
-        // view), instead of a separate input field.
-        // cls = objc_allocateClassPair(NSTextView, "MFBTextView", 0)
-        asm.external_data(abi::LOCAL[6], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
-        asm.local_address("x1", STR_TEXTVIEW_CLASS.0);
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_allocateClassPair", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // new class
-                                                                    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
-        asm.load_selector(SEL_KEY_DOWN.0);
-        asm.local_address("x2", KEY_DOWN_SYMBOL);
-        asm.local_address("x3", STR_INPUT_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // objc_registerClassPair(cls)
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_registerClassPair", LIB_OBJC);
+        emit_textview_class(&mut asm);
         // tv = [[MFBTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
         asm.load_selector(SEL_ALLOC.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
@@ -287,7 +269,7 @@ pub(super) fn emit_main_bootstrap(
         // Stash the text view on NSApp so the io helpers (worker thread) can reach it:
         // objc_setAssociatedObject(app, &ASSOC_KEY, tv, OBJC_ASSOCIATION_ASSIGN)
         asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", ASSOC_KEY);
+        asm.local_address(abi::c_arg(1), ASSOC_KEY);
         asm.push(abi::move_register(abi::c_arg(2), REG_SCRATCH_OBJ));
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
         asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -296,165 +278,17 @@ pub(super) fn emit_main_bootstrap(
         // Stash the window + transcript scroll view on NSApp so the worker-thread
         // term:: helpers can swap the content view in/out and restore it.
         asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", WINDOW_ASSOC_KEY);
+        asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
         asm.push(abi::move_register(abi::c_arg(2), REG_WINDOW));
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
         asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
         asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", SCROLLVIEW_ASSOC_KEY);
+        asm.local_address(abi::c_arg(1), SCROLLVIEW_ASSOC_KEY);
         asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4])); // scroll view
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
         asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-        // Synthesize TermView : NSView. The grid-state struct is calloc'd and
-        // attached as an associated object (see term_init), so the class needs no
-        // extra instance bytes.
-        // cls = objc_allocateClassPair(NSView, "TermView", 0)
-        asm.external_data(abi::LOCAL[6], CLASS_NS_VIEW, LIB_APPKIT);
-        asm.local_address("x1", STR_TERMVIEW_CLASS_NAME.0);
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_allocateClassPair", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // new class
-                                                                    // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
-        asm.load_selector(SEL_DRAW_RECT.0);
-        asm.local_address("x2", TERM_VIEW_DRAW_RECT_SYMBOL);
-        asm.local_address("x3", STR_DRAW_RECT_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(isFlipped), imp, "c@:")
-        asm.load_selector(SEL_IS_FLIPPED.0);
-        asm.local_address("x2", TERM_VIEW_IS_FLIPPED_SYMBOL);
-        asm.local_address("x3", STR_IS_FLIPPED_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbWriteString:), imp, "v@:@")
-        asm.load_selector(SEL_MFB_WRITE_STRING.0);
-        asm.local_address("x2", MFB_WRITE_STRING_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbClear:), imp, "v@:@") — main-thread grid
-        // clear (bug-165). The IMP is the existing TERM_CLEAR_SYMBOL helper, which
-        // reads only `self` (x0 = the TermView) and ignores `_cmd`/the object arg.
-        asm.load_selector(SEL_MFB_CLEAR.0);
-        asm.local_address("x2", TERM_CLEAR_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbPresent:), imp, "v@:@") — the
-        // main-thread present that publishes the drawn grid to the front buffer.
-        asm.load_selector(SEL_MFB_PRESENT.0);
-        asm.local_address("x2", TERM_PRESENT_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
-        // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
-        // cell buffer, so it runs on the main thread; it reads the draw parameters the
-        // worker parked in the TermView state and ignores the object arg.
-        asm.load_selector(SEL_MFB_DRAW_LINE.0);
-        asm.local_address("x2", MFB_DRAW_LINE_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbDrawBox:), imp, "v@:@") — main-thread
-        // draw-box (term::drawBox); reads the parked box glyphs + points from state.
-        asm.load_selector(SEL_MFB_DRAW_BOX.0);
-        asm.local_address("x2", MFB_DRAW_BOX_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbFillRect:), imp, "v@:@") — main-thread
-        // fill-rectangle (term::fillRect); reads the parked fill glyph + points.
-        asm.load_selector(SEL_MFB_FILL_RECT.0);
-        asm.local_address("x2", MFB_FILL_RECT_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbDrawGlyph:), imp, "v@:@") — main-thread
-        // single-glyph draw (term::drawGlyph); reads the parked glyph + cell.
-        asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
-        asm.local_address("x2", MFB_DRAW_GLYPH_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbDrawText:), imp, "v@:@") — main-thread
-        // positioned text (term::drawText); the NSString is the object argument.
-        asm.load_selector(SEL_MFB_DRAW_TEXT.0);
-        asm.local_address("x2", MFB_DRAW_TEXT_SYMBOL);
-        asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
-        // TermView can become first responder and receive keyDown: in TUI mode.
-        asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
-        asm.local_address("x2", TERM_ACCEPTS_FR_SYMBOL);
-        asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
-        asm.load_selector(SEL_KEY_DOWN.0);
-        asm.local_address("x2", TERM_KEY_DOWN_SYMBOL);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
-        // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
-        asm.load_selector(SEL_SET_FRAME_SIZE.0);
-        asm.local_address("x2", TERM_SET_FRAME_SIZE_SYMBOL);
-        asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_class_addMethod", LIB_OBJC);
-        // plan-94-C: the eleven cell-coordinate mouse IMPs. Added before the class
-        // pair is registered, because `class_addMethod` on a registered class is
-        // not the supported way to add a method.
-        if uses_mouse {
-            mouse_view::emit_install_mouse_imps(
-                &mut asm,
-                abi::LOCAL[6],
-                mouse_view::MouseSurface::Cells,
-            );
-        }
-        // objc_registerClassPair(cls)
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_registerClassPair", LIB_OBJC);
-        // tv = [[TermView alloc] initWithFrame:NSMakeRect(0,0,W,H)]
-        asm.load_selector(SEL_ALLOC.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0)));
-        asm.load_selector(SEL_INIT_FRAME.0);
-        emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
-        emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
-        emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], TERM_VIEW_WIDTH);
-        emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], TERM_VIEW_HEIGHT);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // TermView instance
-                                                                    // plan-94-C: without a tracking area the `mouseMoved:` IMP is installed and
-                                                                    // never called — drags would report and plain motion would not, silently.
-        if uses_mouse {
-            mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[7]);
-        }
-        // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
-        asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-        asm.push(abi::move_immediate(
-            "x2",
-            "Integer",
-            AUTORESIZE_WIDTH_HEIGHT,
-        ));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-        // Size + allocate the cell grid from the font metrics.
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
-        asm.call_internal(TERM_INIT_SYMBOL);
-        // Stash the TermView on NSApp (its alloc +1 keeps it alive; ASSIGN).
-        asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", TERMVIEW_ASSOC_KEY);
-        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[7]));
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        emit_termview_surface(&mut asm, uses_mouse);
         // --- end term:: TermView surface ---------------------------------------
 
         // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
@@ -462,18 +296,7 @@ pub(super) fn emit_main_bootstrap(
         // Console-default program never reconciles, so it installs no `mfbReconcile:`.
         emit_gui_delegate(&mut asm, false, uses_canvas, uses_window);
 
-        // Input-line buffer: an NSMutableString accumulating typed characters until
-        // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
-        asm.external_data(abi::LOCAL[4], CLASS_NS_MUTABLE_STRING, LIB_FOUNDATION);
-        asm.load_selector(SEL_STRING.0);
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // input line buffer
-        asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", INPUT_LINE_KEY);
-        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        emit_input_line_buffer(&mut asm);
 
         emit_input_pipe_wiring(&mut asm, "input_pipe_wired");
 
@@ -581,7 +404,7 @@ pub(super) fn emit_main_bootstrap(
         // from `applicationDidFinishLaunching:` under the real `[NSApp run]` loop —
         // the app stays alive windowless. Headless skips the delegate (it spawns the
         // worker inline and `pause()`s, with no run loop to fire the delegate).
-        asm.local_address("x0", STR_HEADLESS_ENV.0);
+        asm.local_address(abi::c_arg(0), STR_HEADLESS_ENV.0);
         asm.call_external("_getenv", LIB_SYSTEM);
         asm.push(abi::move_register(REG_HEADLESS, abi::c_arg(0)));
         asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
@@ -592,6 +415,18 @@ pub(super) fn emit_main_bootstrap(
         // — and in both of those the window is the input source. Without this the
         // reconcile-built surface had no pipe to deliver keys into.
         emit_input_pipe_wiring(&mut asm, "input_pipe_wired_none");
+        // bug-699: the keyboard surfaces a `Console` start builds, so the first
+        // `setMode(Console)` gets a transcript that takes keys and `term::on` gets a
+        // TermView. The transcript class is stashed for the reconcile's builder,
+        // which creates the window and view only when a surface is first shown.
+        emit_textview_class(&mut asm);
+        asm.push(abi::move_register(abi::c_arg(0), REG_APP));
+        asm.local_address(abi::c_arg(1), RECONCILE_TV_CLASS_KEY);
+        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[6]));
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN: classes are never freed
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        emit_termview_surface(&mut asm, uses_mouse);
+        emit_input_line_buffer(&mut asm);
         // A None-default program references setMode, so it reconciles: install
         // `mfbReconcile:` (its IMP is emitted for this program).
         emit_gui_delegate(&mut asm, true, uses_canvas, uses_window);
@@ -616,7 +451,7 @@ pub(super) fn emit_main_bootstrap(
         OFF_TID,
     ));
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address("x2", WORKER_SYMBOL);
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(3),
         abi::stack_pointer(),
@@ -634,7 +469,7 @@ pub(super) fn emit_main_bootstrap(
     // pointer stays valid for the lifetime of the process.
     asm.push(abi::label("gui_defer_worker"));
     asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-    asm.local_address("x1", ARG_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ARG_ASSOC_KEY);
     asm.push(abi::add_immediate(
         abi::c_arg(2),
         abi::stack_pointer(),
@@ -669,6 +504,203 @@ pub(super) fn emit_main_bootstrap(
     }
 }
 
+/// Synthesize and register `MFBTextView : NSTextView` with the transcript's
+/// `keyDown:` IMP, leaving the class in `abi::LOCAL[6]`. Both start modes build
+/// it: the `Console` start instantiates it at once, the `None` start stashes it
+/// for the reconcile to instantiate on the first `setMode(Console)` (bug-699 —
+/// without it a mode-switching program's transcript took no keys).
+fn emit_textview_class(asm: &mut Asm) {
+    // Synthesize MFBTextView : NSTextView overriding keyDown: so the transcript
+    // view itself receives typed keys (terminal-style input echoed into the
+    // view), instead of a separate input field.
+    // cls = objc_allocateClassPair(NSTextView, "MFBTextView", 0)
+    asm.external_data(abi::LOCAL[6], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    asm.local_address(abi::c_arg(1), STR_TEXTVIEW_CLASS.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // new class
+                                                                // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+    asm.load_selector(SEL_KEY_DOWN.0);
+    asm.local_address(abi::c_arg(2), KEY_DOWN_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+}
+
+/// Synthesize `TermView : NSView`, create the one instance `term::` draws on, and
+/// stash it under `TERMVIEW_ASSOC_KEY` (plan-01-term.md §6.3). Needs `REG_APP`;
+/// clobbers `abi::LOCAL[6]`/`[7]`. Both start modes build it, so `term::on` in a
+/// program that calls `app::setMode` has a surface to show (bug-699).
+fn emit_termview_surface(asm: &mut Asm, uses_mouse: bool) {
+    // Synthesize TermView : NSView. The grid-state struct is calloc'd and
+    // attached as an associated object (see term_init), so the class needs no
+    // extra instance bytes.
+    // cls = objc_allocateClassPair(NSView, "TermView", 0)
+    asm.external_data(abi::LOCAL[6], CLASS_NS_VIEW, LIB_APPKIT);
+    asm.local_address(abi::c_arg(1), STR_TERMVIEW_CLASS_NAME.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // new class
+                                                                // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
+    asm.load_selector(SEL_DRAW_RECT.0);
+    asm.local_address(abi::c_arg(2), TERM_VIEW_DRAW_RECT_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_DRAW_RECT_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(isFlipped), imp, "c@:")
+    asm.load_selector(SEL_IS_FLIPPED.0);
+    asm.local_address(abi::c_arg(2), TERM_VIEW_IS_FLIPPED_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_IS_FLIPPED_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbWriteString:), imp, "v@:@")
+    asm.load_selector(SEL_MFB_WRITE_STRING.0);
+    asm.local_address(abi::c_arg(2), MFB_WRITE_STRING_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbClear:), imp, "v@:@") — main-thread grid
+    // clear (bug-165). The IMP is the existing TERM_CLEAR_SYMBOL helper, which
+    // reads only `self` (x0 = the TermView) and ignores `_cmd`/the object arg.
+    asm.load_selector(SEL_MFB_CLEAR.0);
+    asm.local_address(abi::c_arg(2), TERM_CLEAR_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbPresent:), imp, "v@:@") — the
+    // main-thread present that publishes the drawn grid to the front buffer.
+    asm.load_selector(SEL_MFB_PRESENT.0);
+    asm.local_address(abi::c_arg(2), TERM_PRESENT_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
+    // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
+    // cell buffer, so it runs on the main thread; it reads the draw parameters the
+    // worker parked in the TermView state and ignores the object arg.
+    asm.load_selector(SEL_MFB_DRAW_LINE.0);
+    asm.local_address(abi::c_arg(2), MFB_DRAW_LINE_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawBox:), imp, "v@:@") — main-thread
+    // draw-box (term::drawBox); reads the parked box glyphs + points from state.
+    asm.load_selector(SEL_MFB_DRAW_BOX.0);
+    asm.local_address(abi::c_arg(2), MFB_DRAW_BOX_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbFillRect:), imp, "v@:@") — main-thread
+    // fill-rectangle (term::fillRect); reads the parked fill glyph + points.
+    asm.load_selector(SEL_MFB_FILL_RECT.0);
+    asm.local_address(abi::c_arg(2), MFB_FILL_RECT_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawGlyph:), imp, "v@:@") — main-thread
+    // single-glyph draw (term::drawGlyph); reads the parked glyph + cell.
+    asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
+    asm.local_address(abi::c_arg(2), MFB_DRAW_GLYPH_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawText:), imp, "v@:@") — main-thread
+    // positioned text (term::drawText); the NSString is the object argument.
+    asm.load_selector(SEL_MFB_DRAW_TEXT.0);
+    asm.local_address(abi::c_arg(2), MFB_DRAW_TEXT_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
+    // TermView can become first responder and receive keyDown: in TUI mode.
+    asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
+    asm.local_address(abi::c_arg(2), TERM_ACCEPTS_FR_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_IS_FLIPPED_TYPES.0); // "c@:"
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+    asm.load_selector(SEL_KEY_DOWN.0);
+    asm.local_address(abi::c_arg(2), TERM_KEY_DOWN_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") — the
+    // live-window-resize hook: recompute rows/cols and realloc the grid (plan-35-D).
+    asm.load_selector(SEL_SET_FRAME_SIZE.0);
+    asm.local_address(abi::c_arg(2), TERM_SET_FRAME_SIZE_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_SET_FRAME_SIZE_TYPES.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // plan-94-C: the eleven cell-coordinate mouse IMPs. Added before the class
+    // pair is registered, because `class_addMethod` on a registered class is
+    // not the supported way to add a method.
+    if uses_mouse {
+        mouse_view::emit_install_mouse_imps(asm, abi::LOCAL[6], mouse_view::MouseSurface::Cells);
+    }
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+    // tv = [[TermView alloc] initWithFrame:NSMakeRect(0,0,W,H)]
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0)));
+    asm.load_selector(SEL_INIT_FRAME.0);
+    emit_double_immediate(asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(asm, abi::FP_SCRATCH[1], 0);
+    emit_double_immediate(asm, abi::FP_SCRATCH[2], TERM_VIEW_WIDTH);
+    emit_double_immediate(asm, abi::FP_SCRATCH[3], TERM_VIEW_HEIGHT);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(0))); // TermView instance
+                                                                // plan-94-C: without a tracking area the `mouseMoved:` IMP is installed and
+                                                                // never called — drags would report and plain motion would not, silently.
+    if uses_mouse {
+        mouse_view::emit_install_tracking_area(asm, abi::LOCAL[7]);
+    }
+    // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
+    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        AUTORESIZE_WIDTH_HEIGHT,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // Size + allocate the cell grid from the font metrics.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_internal(TERM_INIT_SYMBOL);
+    // Stash the TermView on NSApp (its alloc +1 keeps it alive; ASSIGN).
+    asm.push(abi::move_register(abi::c_arg(0), REG_APP));
+    asm.local_address(abi::c_arg(1), TERMVIEW_ASSOC_KEY);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[7]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+}
+
+/// The input-line buffer: an NSMutableString accumulating typed characters until
+/// Return, stashed (retained) on NSApp so the `keyDown:` handlers can reach it.
+/// Needs `REG_APP`; clobbers `abi::LOCAL[4]`.
+fn emit_input_line_buffer(asm: &mut Asm) {
+    // Input-line buffer: an NSMutableString accumulating typed characters until
+    // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
+    asm.external_data(abi::LOCAL[4], CLASS_NS_MUTABLE_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // input line buffer
+    asm.push(abi::move_register(abi::c_arg(0), REG_APP));
+    asm.local_address(abi::c_arg(1), INPUT_LINE_KEY);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+}
+
 /// Synthesize and install the runtime `MFBAppDelegate : NSObject` on `REG_APP`
 /// (plan §5.7, plan-01-term.md §6.4): `applicationShouldTerminateAfterLastWindowClosed:`
 /// returns YES (quit on last window close) and `applicationDidFinishLaunching:`
@@ -680,22 +712,22 @@ pub(super) fn emit_main_bootstrap(
 fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool, uses_window: bool) {
     // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
     asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
-    asm.local_address("x1", STR_DELEGATE_CLASS.0);
+    asm.local_address(abi::c_arg(1), STR_DELEGATE_CLASS.0);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_allocateClassPair", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // new class
                                                                 // class_addMethod(cls, @selector(applicationShouldTerminate...), imp, "c@:@")
     asm.load_selector(SEL_APP_SHOULD_TERMINATE.0);
-    asm.local_address("x2", SHOULD_TERMINATE_SYMBOL);
-    asm.local_address("x3", STR_DELEGATE_TYPES.0);
+    asm.local_address(abi::c_arg(2), SHOULD_TERMINATE_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_DELEGATE_TYPES.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(applicationDidFinishLaunching:), imp, "v@:@")
     // — spawns the worker once launch is complete (plan-01-term.md §6.4).
     asm.load_selector(SEL_APP_DID_FINISH_LAUNCHING.0);
-    asm.local_address("x2", DID_FINISH_LAUNCHING_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+    asm.local_address(abi::c_arg(2), DID_FINISH_LAUNCHING_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(mfbReconcile:), imp, "v@:@") — plan-62-C
@@ -705,8 +737,8 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool, use
     // undefined `_mfb_macapp_reconcile` symbol.
     if with_reconcile {
         asm.load_selector(SEL_MFB_RECONCILE.0);
-        asm.local_address("x2", RECONCILE_SYMBOL);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.local_address(abi::c_arg(2), RECONCILE_SYMBOL);
+        asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
@@ -719,16 +751,16 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool, use
     // `class_addMethod` naming an IMP that was never emitted.
     if uses_canvas {
         asm.load_selector(SEL_MFB_BLIT.0);
-        asm.local_address("x2", CANVAS_BLIT_APPLY_SYMBOL);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.local_address(abi::c_arg(2), CANVAS_BLIT_APPLY_SYMBOL);
+        asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
         // bug-686 Phase 4: `mfbMetalLayer:`, the main-thread half of the direct
         // present — configures, sizes and shows the window's `CAMetalLayer`. Same gate
         // as `mfbBlit:` for the same reason: its IMP exists only for a drawing program.
         asm.load_selector(metal::SEL_MFB_METAL_LAYER.0);
-        asm.local_address("x2", metal::METAL_LAYER_APPLY_SYMBOL);
-        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.local_address(abi::c_arg(2), metal::METAL_LAYER_APPLY_SYMBOL);
+        asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
     }
@@ -1046,7 +1078,7 @@ pub(super) fn emit_canvas_set_frame_size_helper() -> CodeFunction {
     ));
     asm.load_selector(SEL_SET_FRAME_SIZE.0);
     asm.push(abi::add_immediate(
-        "x0",
+        abi::c_arg(0),
         abi::stack_pointer(),
         off_super_recv,
     ));
@@ -1186,7 +1218,7 @@ pub(super) fn emit_canvas_blit_apply_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0)));
-    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), CANVAS_VIEW_ASSOC_KEY);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -1315,8 +1347,19 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+    // tv = [[MFBTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)] — the class
+    // the bootstrap registered with the transcript's `keyDown:`, so this window
+    // takes keys like a Console-start one (bug-699). A plain NSTextView only when
+    // none was registered (headless, where no window is ever shown).
+    let tv_class_ready = format!("{RECONCILE_BUILD_SYMBOL}_tv_class_ready");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address(abi::c_arg(1), RECONCILE_TV_CLASS_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_ne(&tv_class_ready));
     asm.external_data(abi::LOCAL[2], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    asm.push(abi::label(&tv_class_ready));
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -1340,13 +1383,17 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // Stash window + transcript so subsequent toggles and the io helpers reach them.
+    // The transcript is also what `term::off` swaps back in (`SCROLLVIEW_ASSOC_KEY`
+    // is the Console-start transcript's container; this window's content view is
+    // the text view itself).
     for (key, value) in [
         (WINDOW_ASSOC_KEY, abi::LOCAL[1]),
         (ASSOC_KEY, abi::LOCAL[2]),
         (RECONCILE_TV_KEY, abi::LOCAL[2]),
+        (SCROLLVIEW_ASSOC_KEY, abi::LOCAL[2]),
     ] {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-        asm.local_address("x1", key);
+        asm.local_address(abi::c_arg(1), key);
         asm.push(abi::move_register(abi::c_arg(2), value));
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
         asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -1413,7 +1460,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     // program has never presented a surface (a canvas-first program never took the
     // `None`->`Console` path, so no window exists yet).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", WINDOW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
@@ -1425,7 +1472,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     // view = objc_getAssociatedObject(app, CANVAS_VIEW_ASSOC_KEY), building one the
     // first time canvas mode is entered.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), CANVAS_VIEW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
     asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
@@ -1439,21 +1486,21 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     //
     // cls = objc_allocateClassPair(NSView, "MFBCanvasView", 0)
     asm.external_data(abi::LOCAL[2], CLASS_NS_VIEW, LIB_APPKIT);
-    asm.local_address("x1", STR_CANVASVIEW_CLASS.0);
+    asm.local_address(abi::c_arg(1), STR_CANVASVIEW_CLASS.0);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_allocateClassPair", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // new class
                                                                 // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:")
     asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
-    asm.local_address("x2", CANVAS_ACCEPTS_FR_SYMBOL);
-    asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
+    asm.local_address(abi::c_arg(2), CANVAS_ACCEPTS_FR_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_IS_FLIPPED_TYPES.0); // "c@:"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
     asm.load_selector(SEL_KEY_DOWN.0);
-    asm.local_address("x2", CANVAS_KEY_DOWN_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+    asm.local_address(abi::c_arg(2), CANVAS_KEY_DOWN_SYMBOL);
+    asm.local_address(abi::c_arg(3), STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") —
@@ -1464,8 +1511,8 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     // it for every `None`-default program named an IMP that was never emitted.
     if uses_canvas {
         asm.load_selector(SEL_SET_FRAME_SIZE.0);
-        asm.local_address("x2", CANVAS_SET_FRAME_SIZE_SYMBOL);
-        asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
+        asm.local_address(abi::c_arg(2), CANVAS_SET_FRAME_SIZE_SYMBOL);
+        asm.local_address(abi::c_arg(3), STR_SET_FRAME_SIZE_TYPES.0);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
         asm.call_external("_class_addMethod", LIB_OBJC);
         // plan-155-A: `mfbScreenChanged:`, the display-rate observer's method. Same
@@ -1618,7 +1665,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
 
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), CANVAS_VIEW_ASSOC_KEY);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -1648,7 +1695,7 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
 
     // Clear ASSOC_KEY: io writes degrade to the fd sink in canvas mode.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ASSOC_KEY);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // nil
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -1759,7 +1806,7 @@ pub(super) fn emit_canvas_key_down_helper() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // write fd
 
@@ -1834,11 +1881,11 @@ pub(super) fn emit_canvas_key_down_helper() -> CodeFunction {
 /// call it unconditionally rather than each carrying their own "was I in canvas?"
 /// test — the mode we are leaving is not recorded anywhere, so a conditional would
 /// have to invent that state.
-fn emit_canvas_teardown(asm: &mut Asm, app: &str, window: &str, scratch: &str, label: &str) {
+fn emit_canvas_teardown(asm: &mut Asm, app: Reg, window: Reg, scratch: Reg, label: &str) {
     let done = format!("{label}_no_canvas");
     // view = objc_getAssociatedObject(app, CANVAS_VIEW_ASSOC_KEY)
     asm.push(abi::move_register(abi::c_arg(0), app));
-    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), CANVAS_VIEW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&done));
@@ -1847,7 +1894,7 @@ fn emit_canvas_teardown(asm: &mut Asm, app: &str, window: &str, scratch: &str, l
     asm.push(abi::branch_eq(&done));
     // tv = objc_getAssociatedObject(app, RECONCILE_TV_KEY)
     asm.push(abi::move_register(abi::c_arg(0), app));
-    asm.local_address("x1", RECONCILE_TV_KEY);
+    asm.local_address(abi::c_arg(1), RECONCILE_TV_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(scratch, abi::c_arg(0)));
     asm.push(abi::compare_immediate(scratch, "0"));
@@ -1913,7 +1960,7 @@ pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
                                                                 // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", WINDOW_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window (or nil)
                                                                 // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
@@ -1939,11 +1986,11 @@ pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     asm.push(abi::label(&have_window));
     // re-point ASSOC_KEY (io routing) at the stashed transcript
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", RECONCILE_TV_KEY);
+    asm.local_address(abi::c_arg(1), RECONCILE_TV_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // tv
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ASSOC_KEY);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -1951,6 +1998,16 @@ pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     // [window makeKeyAndOrderFront:nil]
     asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [window makeFirstResponder:tv] — keys go to the transcript, as they do in a
+    // Console-start window (bug-699). Also after leaving Canvas, whose view held it.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address(abi::c_arg(1), RECONCILE_TV_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // tv
+    asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // A title or fullscreen request made while windowless lands now.
@@ -1986,7 +2043,7 @@ pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     );
     // clear ASSOC_KEY so io falls back to the fd sink (stdout)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.local_address("x1", ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ASSOC_KEY);
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // nil value
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
@@ -2105,7 +2162,7 @@ pub(super) fn emit_append_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2])); // object: font
                                                                 // NSFontAttributeName is a `NSString * const` global: external_data yields the
                                                                 // address of that variable, so dereference once more to get the NSString key.
-    asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.external_data(abi::c_arg(3), NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64(abi::c_arg(3), abi::c_arg(3), 0));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -2227,7 +2284,7 @@ pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address("x1", ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // transcript view or nil
     asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
@@ -2393,17 +2450,17 @@ pub(super) fn emit_did_finish_launching_helper() -> CodeFunction {
 
     // app = [NSApplication sharedApplication]
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.external_data("x0", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(abi::c_arg(0), CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // argblock = objc_getAssociatedObject(app, &ARG_ASSOC_KEY)
-    asm.local_address("x1", ARG_ASSOC_KEY);
+    asm.local_address(abi::c_arg(1), ARG_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::c_arg(3), abi::c_arg(0))); // arg = &argblock
 
     // pthread_create(&tid, NULL, _mfb_macapp_worker, &argblock)
     asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 8)); // &tid
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address("x2", WORKER_SYMBOL);
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
     asm.call_external("_pthread_create", LIB_SYSTEM);
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -2473,8 +2530,8 @@ mod tests {
                 (Some(v), Some(reg)) if v == "255" => reg,
                 _ => return false,
             };
-            field(&w[1], "dst").as_deref() == Some(abi::SCRATCH[0])
-                && field(&w[1], "lhs").as_deref() == Some(abi::SCRATCH[0])
+            field(&w[1], "dst").as_deref() == Some(abi::SCRATCH_SPELLINGS[0])
+                && field(&w[1], "lhs").as_deref() == Some(abi::SCRATCH_SPELLINGS[0])
                 && field(&w[1], "rhs") == Some(mask_reg)
         });
         assert!(

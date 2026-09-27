@@ -183,7 +183,7 @@ pub(crate) fn lower_money_round(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Money,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text,
     })
 }

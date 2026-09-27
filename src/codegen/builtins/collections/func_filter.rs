@@ -220,7 +220,7 @@ pub(crate) fn lower_filter(
     Ok(ValueResult {
         origin: None,
         type_: collection.type_.clone(),
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: format!("filter({}, {})", collection.type_, action.text),
     })
 }

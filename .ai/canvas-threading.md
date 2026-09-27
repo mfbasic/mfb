@@ -585,7 +585,11 @@ Three environment variables, all off by default and none on the production path:
   proves nothing, where resizing after one forces the tear-down-and-rebuild.
 
   Two variables rather than one `WxH` string because parsing a separator in
-  hand-written assembly buys nothing over `atoi`. Note that the program under test has
+  hand-written assembly buys nothing over `atoi`.
+
+  `term::` has the Windows twin, `MFB_WINAPP_TERM_RESIZE_W`/`_H` (bug-540): client
+  pixels handed to the `WM_SIZE` handler once `term::on` has built the surface —
+  see `mfb spec app term-backend`, "Windows: GDI memDC". Note that the program under test has
   to still be alive — with `MFB_CANVAS_SYNC=1` the worker returns from `main` the
   moment its frame lands and the finish helper `_exit`s the process, so a scene that
   ends at `present` loses the race every time.

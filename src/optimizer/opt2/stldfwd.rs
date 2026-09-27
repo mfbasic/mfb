@@ -22,6 +22,7 @@
 //! infrastructure per the catalog's "Prerequisites are not dial rows" note;
 //! this row covers the `sp`-slot traffic the frame layout actually emits.
 
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::regalloc::analysis::build_cfg;
 use crate::codegen::engine::types::CodeInstruction;
@@ -73,10 +74,14 @@ pub(crate) fn forward(instructions: &mut Vec<CodeInstruction>, model: &dyn Regis
         };
         // The load already sits at the top of the join, so the register it
         // reads into is the one the copy now reads from.
-        let reload = CodeInstruction::new("ldr_u64")
-            .field("dst", candidate.holder.clone())
-            .field("base", crate::target::shared::abi::stack_pointer())
-            .field("offset", candidate.offset.to_string());
+        let reload = super::rebuilt(
+            crate::arch::ops::CodeOp::LdrU64,
+            vec![
+                ("dst", candidate.holder.clone()),
+                ("base", crate::target::shared::abi::stack_pointer().into()),
+                ("offset", Operand::from(candidate.offset.to_string())),
+            ],
+        );
         let block = &blocks[candidate.gap];
         let mut point = block.end;
         if point > block.start
@@ -111,7 +116,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }
@@ -233,10 +238,10 @@ mod tests {
             vec![
                 CodeOp::CmpImm,
                 CodeOp::BranchEq,
-                CodeOp::LdrU64,
+                crate::arch::ops::CodeOp::LdrU64,
                 CodeOp::Branch,
                 CodeOp::Label,
-                CodeOp::LdrU64,
+                crate::arch::ops::CodeOp::LdrU64,
                 CodeOp::Branch,
                 CodeOp::Label,
                 CodeOp::Mov,

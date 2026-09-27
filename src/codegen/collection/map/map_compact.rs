@@ -241,6 +241,8 @@ impl CodeBuilder<'_> {
 
         // Room check: count + extraEntries <= capacity AND dataLength + extraBytes
         // <= dataCapacity.
+        let retry = self.label("mreserve_retry");
+        self.emit(abi::label(&retry));
         self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
@@ -266,7 +268,9 @@ impl CodeBuilder<'_> {
 
         // newCapacity = max(step(capacity), count + extraEntries);
         // newDataCapacity = max(step(dataCapacity), dataLength + extraBytes).
+        // bug-733: first reclaim dead bytes, and retry the room check.
         self.emit(abi::label(&grow));
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &retry)?;
         self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
         self.emit_geometric_step(

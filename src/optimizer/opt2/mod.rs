@@ -60,9 +60,47 @@ pub(crate) mod tailduped;
 pub(crate) mod threading;
 pub(crate) mod uce;
 
+use crate::arch::ops::CodeOp;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::optimizer::OptLevel;
 use crate::target::shared::regmodel::RegisterModel;
+
+/// An instruction a pass rebuilds from operands the stream already carries
+/// (bug-721). These rows move registers between instructions; they never choose
+/// one. A selected stream holds its registers as the backend spelled them (a
+/// `Raw` physical name, a typed `Phys`, an ABI token), so the operands are copied
+/// as they stand rather than passed back through [`CodeInstruction::field`],
+/// whose text guard exists to stop emission code naming a register — the same
+/// standing the allocator's own in-place rewrite has.
+///
+/// Every caller copies its register operands out of the instructions it replaces
+/// (`operand(..)`/`cloned()`); none is built from a name.
+pub(crate) fn rebuilt(op: CodeOp, fields: Vec<(&'static str, Operand)>) -> CodeInstruction {
+    let mut instruction = CodeInstruction::new(op.mnemonic());
+    instruction.fields = fields;
+    instruction
+}
+
+/// `mov_imm dst, value` (an `Integer` immediate) into the register `instruction`
+/// defines: the folding rows' rewrite of a result they proved constant.
+pub(crate) fn constant_into_dst(instruction: &CodeInstruction, value: u64) -> CodeInstruction {
+    let dst = instruction
+        .operand("dst")
+        .cloned()
+        .expect("a folded instruction defines a dst");
+    rebuilt(
+        CodeOp::MovImm,
+        vec![
+            ("dst", dst),
+            (
+                "type",
+                Operand::from(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER),
+            ),
+            ("value", Operand::from(value.to_string())),
+        ],
+    )
+}
 
 /// The Opt2 seam: MIR-level optimization between instruction selection and
 /// register allocation, in place on the selected stream.
@@ -202,7 +240,7 @@ mod tests {
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         let mut inst = CodeInstruction::new(op);
         for (k, v) in fields {
-            inst = inst.field(k, v);
+            inst = inst.physical_field(k, v);
         }
         inst
     }

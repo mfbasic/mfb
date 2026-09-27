@@ -55,7 +55,7 @@ fn args(
         .iter()
         .map(|param| ValueResult {
             type_: ty(&param.ty),
-            location: Operand::from(vregs.next().as_str()),
+            location: Operand::from(vregs.next()),
             text: param.name.to_string(),
             origin: None,
         })
@@ -228,7 +228,7 @@ fn no_abi_inline_lowering_silently_accepts_the_wrong_argument_count() {
             let wrong: Vec<ValueResult> = (0..count)
                 .map(|_| ValueResult {
                     type_: ParameterType::Integer,
-                    location: Operand::from(vregs.next().as_str()),
+                    location: Operand::from(vregs.next()),
                     text: "extra".to_string(),
                     origin: None,
                 })

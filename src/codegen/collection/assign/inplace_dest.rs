@@ -633,7 +633,7 @@ impl CodeBuilder<'_> {
                 let block_slot = self.allocate_stack_object("inline_global_ptr", 8);
                 let address = self.load_global_address(name)?;
                 let block = self.allocate_register();
-                self.emit(abi::load_u64(&block, address.as_str(), 0));
+                self.emit(abi::load_u64(&block, address, 0));
                 self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
                 Ok(InPlaceDest::Inlined {
                     block_slot,
@@ -874,7 +874,7 @@ impl CodeBuilder<'_> {
             } => {
                 let parent = self.allocate_register();
                 self.emit(abi::load_u64(&parent, abi::stack_pointer(), *ref_slot));
-                (parent.render(), *block_slot)
+                (parent, *block_slot)
             }
             InPlaceDest::Global { name, block_slot } => {
                 (self.load_global_address(name)?, *block_slot)
@@ -886,7 +886,7 @@ impl CodeBuilder<'_> {
             | InPlaceDest::RefField { .. } => return Ok(()),
         };
         let block = self.allocate_register();
-        self.emit(abi::load_u64(&block, holder.as_str(), 0));
+        self.emit(abi::load_u64(&block, holder, 0));
         self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
         Ok(())
     }
@@ -915,7 +915,7 @@ impl CodeBuilder<'_> {
             let block = self.allocate_register();
             self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
             let address = self.load_global_address(name)?;
-            self.emit(abi::store_u64(&block, address.as_str(), 0));
+            self.emit(abi::store_u64(&block, address, 0));
             return Ok(());
         }
         let InPlaceDest::Inlined {
@@ -933,7 +933,7 @@ impl CodeBuilder<'_> {
                 let block = self.allocate_register();
                 self.emit(abi::load_u64(&block, abi::stack_pointer(), *block_slot));
                 let address = self.load_global_address(name)?;
-                self.emit(abi::store_u64(&block, address.as_str(), 0));
+                self.emit(abi::store_u64(&block, address, 0));
                 return Ok(());
             }
             // plan-145-H: through the reference, into the parent binding's slot.

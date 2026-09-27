@@ -20,6 +20,14 @@ pub(crate) enum SpliceAt {
     At(usize),
 }
 
+/// bug-732: the frame slots [`CodeBuilder::emit_list_packed_length`] fills — the
+/// data length a copy of the list carries, and whether it packs (1) or copies
+/// verbatim (0).
+pub(crate) struct PackedLength {
+    length_slot: usize,
+    packs_slot: usize,
+}
+
 impl CodeBuilder<'_> {
     /// Insert collection `B` (insert_slot) into list `A` (base_slot) at
     /// `index_slot` using the offset-stable scheme (plan-01 §4.1): copy `A`'s and
@@ -92,17 +100,41 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&valid_start));
         self.emit(abi::compare_registers(&scratch10, &scratch11));
         self.emit(abi::branch_gt(&invalid));
+        // bug-732: how many of A's data bytes the result carries — all of them, or
+        // only the live ones when A's dead bytes (left by in-place removals)
+        // outnumber them. Kind 2 has no dead bytes and keeps its instructions.
+        let packed_a = if entry_stride != 0 {
+            let packed = self.emit_list_packed_length(base_slot, element_type);
+            // The walk used its own registers; reload the operands it may share.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch8,
+                COLLECTION_OFFSET_COUNT,
+            ));
+            Some(packed)
+        } else {
+            None
+        };
         self.emit(abi::load_u64(
             &scratch12,
             &scratch9,
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
+        match &packed_a {
+            Some(packed) => self.emit(abi::load_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                packed.length_slot,
+            )),
+            None => self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )),
+        }
         // bug-175 E: pad A's data length up to the element alignment so B's data
         // region — and this reserved allocation size — start on an aligned
         // boundary (consistent with the header write and the data/entry copies).
@@ -169,11 +201,18 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_COUNT,
         ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(
-            &scratch14,
-            &scratch8,
-            COLLECTION_OFFSET_DATA_LENGTH,
-        ));
+        match &packed_a {
+            Some(packed) => self.emit(abi::load_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                packed.length_slot,
+            )),
+            None => self.emit(abi::load_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            )),
+        }
         // bug-175 E: the stored dataLength must include the pad between A's and B's
         // data regions so it matches the reserved size and the aligned copy dst.
         if value_alignment > 1 {
@@ -270,15 +309,32 @@ impl CodeBuilder<'_> {
             // sat behind `entry_stride != 0`, unreachable inside this branch, so it ran
             // `n + m` iterations per call and wrote nothing into the block.
         } else {
+            let packed = packed_a
+                .as_ref()
+                .ok_or("native list insert: an entry list lost its packed length")?;
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
+            // bug-732: a packed A is laid out by the pass after the entry splice;
+            // the cursor then skips its (live) length.
+            let a_verbatim = self.label("list_insert_dataA_verbatim");
+            let a_placed = self.label("list_insert_dataA_placed");
             self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data base
-            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data base
             self.emit(abi::load_u64(
                 &scratch14,
-                &scratch8,
-                COLLECTION_OFFSET_DATA_LENGTH,
+                abi::stack_pointer(),
+                packed.length_slot,
             ));
+            self.emit(abi::load_u64(
+                &scratch16,
+                abi::stack_pointer(),
+                packed.packs_slot,
+            ));
+            self.emit(abi::compare_immediate(&scratch16, "0"));
+            self.emit(abi::branch_eq(&a_verbatim));
+            self.emit(abi::add_registers(&scratch17, &scratch17, &scratch14));
+            self.emit(abi::branch(&a_placed));
+            self.emit(abi::label(&a_verbatim));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data base
             self.emit_block_copy_advance(
                 &scratch17,
                 &scratch20,
@@ -286,6 +342,7 @@ impl CodeBuilder<'_> {
                 &scratch22,
                 "list_insert_dataA",
             );
+            self.emit(abi::label(&a_placed));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
             self.emit_collection_data_pointer_for(&scratch20, &scratch9, &element_type); // B data base
             self.emit(abi::load_u64(
@@ -347,11 +404,10 @@ impl CodeBuilder<'_> {
                 &scratch9,
                 COLLECTION_OFFSET_COUNT,
             )); // remaining B entries
-            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
             self.emit(abi::load_u64(
                 &scratch14,
-                &scratch8,
-                COLLECTION_OFFSET_DATA_LENGTH,
+                abi::stack_pointer(),
+                packed.length_slot,
             )); // dataLen_A shift
                 // Bulk-copy the `count_B` inserted entries verbatim, then shift each
                 // valueOffset up by dataLen_A — their payloads now sit after A's data
@@ -397,6 +453,14 @@ impl CodeBuilder<'_> {
                 &scratch22,
                 "list_insert_tail",
             );
+            self.emit_list_insert_pack_a(
+                base_slot,
+                index_slot,
+                insert_slot,
+                result_slot,
+                packed,
+                element_type,
+            );
         }
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
@@ -408,7 +472,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("list update {list_type} over {element_type}"),
         })
     }
@@ -475,8 +539,13 @@ impl CodeBuilder<'_> {
         let write = self.label("append_inplace_write");
         let alloc_ok = self.label("append_inplace_alloc_ok");
         let dcap_keep = self.label("append_inplace_dcap_keep");
+        // bug-732: a variable-width grow may first reclaim dead bytes and retry.
+        let retry = (entry_stride != 0).then(|| self.label("append_inplace_retry"));
 
         // Room check: count < capacity AND dataLength + need <= dataCapacity.
+        if let Some(retry) = &retry {
+            self.emit(abi::label(retry));
+        }
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(
@@ -510,6 +579,16 @@ impl CodeBuilder<'_> {
 
         // --- Grow: allocate a headroom buffer; copy entries + data verbatim. ---
         self.emit(abi::label(&realloc));
+        if let Some(retry) = &retry {
+            self.emit_list_reclaim_before_grow(
+                buffer_slot,
+                need_slot,
+                list_type,
+                element_type,
+                None,
+                retry,
+            )?;
+        }
         // newCapacity = step(capacity).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
@@ -850,7 +929,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("append in place {list_type} over {element_type}"),
         })
     }
@@ -954,7 +1033,13 @@ impl CodeBuilder<'_> {
             b.emit(abi::add_registers(dst, dst, &scratch16));
         };
 
+        // bug-732: a variable-width grow may first reclaim dead bytes and retry.
+        let retry = (entry_stride != 0).then(|| self.label("inline_append_retry"));
+
         // --- Room check: count < capacity AND align(dataLength)+need <= dataCapacity. ---
+        if let Some(retry) = &retry {
+            self.emit(abi::label(retry));
+        }
         load_sub(self, &scratch8);
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(
@@ -986,6 +1071,27 @@ impl CodeBuilder<'_> {
 
         // --- Grow: reallocate the WHOLE record block with headroom on the tail. ---
         self.emit(abi::label(&realloc));
+        if let Some(retry) = &retry {
+            // The repack reallocates the record through `InlineGrow`, which needs
+            // the sub-block address in a slot.
+            load_sub(self, &scratch8);
+            self.emit(abi::store_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                subblock_slot,
+            ));
+            self.emit_list_reclaim_before_grow(
+                subblock_slot,
+                need_slot,
+                list_type,
+                element_type,
+                Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                    block_slot: record_slot,
+                    field_off_slot,
+                }),
+                retry,
+            )?;
+        }
         // newCapacity = step(capacity).
         load_sub(self, &scratch8);
         self.emit(abi::load_u64(
@@ -1492,7 +1598,13 @@ impl CodeBuilder<'_> {
             b.emit(abi::add_registers(dst, dst, tmp));
         };
 
+        // bug-732: a variable-width grow may first reclaim dead bytes and retry.
+        let retry = (entry_stride != 0).then(|| self.label("inline_bulk_retry"));
+
         // need_count = count(self) + count(rhs); need_data = align(dataLen(self)) + dataLen(rhs).
+        if let Some(retry) = &retry {
+            self.emit(abi::label(retry));
+        }
         load_sub(self, &scratch8, &scratch16);
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
@@ -1548,6 +1660,28 @@ impl CodeBuilder<'_> {
 
         // --- Grow: reallocate the WHOLE record block sized for the batch. ---
         self.emit(abi::label(&realloc));
+        if let Some(retry) = &retry {
+            // The repack reallocates the record through `InlineGrow`, which needs
+            // the sub-block address in a slot.
+            load_sub(self, &scratch8, &scratch16);
+            self.emit(abi::store_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                subblock_slot,
+            ));
+            let extra_slot = self.emit_bulk_append_extra(rhs_slot);
+            self.emit_list_reclaim_before_grow(
+                subblock_slot,
+                extra_slot,
+                list_type,
+                element_type,
+                Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                    block_slot: record_slot,
+                    field_off_slot,
+                }),
+                retry,
+            )?;
+        }
         // newCapacity = max(step(capacity), need_count).
         load_sub(self, &scratch8, &scratch16);
         self.emit(abi::load_u64(
@@ -2039,8 +2173,13 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("bulk_append_alloc_ok");
         let cap_keep = self.label("bulk_append_cap_keep");
         let dcap_keep = self.label("bulk_append_dcap_keep");
+        // bug-732: a variable-width grow may first reclaim dead bytes and retry.
+        let retry = (entry_stride != 0).then(|| self.label("bulk_append_retry"));
 
         // need_count = count(self) + count(rhs); need_data = dataLen(self) + dataLen(rhs).
+        if let Some(retry) = &retry {
+            self.emit(abi::label(retry));
+        }
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
@@ -2099,6 +2238,17 @@ impl CodeBuilder<'_> {
         // --- Grow: allocate a headroom buffer sized for the whole batch; copy
         // self's entries + data verbatim; free the old buffer; install. ---
         self.emit(abi::label(&realloc));
+        if let Some(retry) = &retry {
+            let extra_slot = self.emit_bulk_append_extra(rhs_slot);
+            self.emit_list_reclaim_before_grow(
+                buffer_slot,
+                extra_slot,
+                list_type,
+                element_type,
+                None,
+                retry,
+            )?;
+        }
         // newCapacity = max(step(capacity), need_count).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
@@ -2431,7 +2581,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
     }
@@ -2609,7 +2759,13 @@ impl CodeBuilder<'_> {
             None
         };
 
+        // bug-732: a variable-width grow may first reclaim dead bytes and retry.
+        let retry = (entry_stride != 0).then(|| self.label(&format!("{prefix}_inplace_retry")));
+
         // Room check: count < capacity AND dataLength + need <= dataCapacity.
+        if let Some(retry) = &retry {
+            self.emit(abi::label(retry));
+        }
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(
@@ -2643,6 +2799,16 @@ impl CodeBuilder<'_> {
 
         // --- Grow: geometric headroom; copy entries + data verbatim. ---
         self.emit(abi::label(&realloc));
+        if let Some(retry) = &retry {
+            self.emit_list_reclaim_before_grow(
+                buffer_slot,
+                need_slot,
+                list_type,
+                element_type,
+                inline,
+                retry,
+            )?;
+        }
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -3127,20 +3293,287 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("{prefix} in place {list_type} over {element_type}"),
         })
     }
 
-    /// Replace the element at `index_slot` of the list whose buffer pointer lives
-    /// in `buffer_slot`, **mutating `buffer_slot` in place** (plan-02 §4.1). A
-    /// same-size payload — always the case for a fixed-width element — overwrites
-    /// the value bytes at the entry's `valueOffset`. A length change is resolved in
-    /// O(1) amortized without touching any other element (bug-627): see the
-    /// `set_inplace_resize` arm. An out-of-range index raises
-    /// `ErrIndexOutOfRange`. The caller guarantees the buffer is uniquely owned and
-    /// not an active `FOR EACH` iterable. Returns the (possibly new) buffer pointer.
+    /// bug-732: the data length a copy of the entry list in `list_slot` needs —
+    /// its `dataLength`, or, when its dead bytes (left by in-place removals)
+    /// outnumber its live ones, the aligned end of its live payloads packed in
+    /// entry order. Walks the entries once, which the copy's own entry copy
+    /// already costs.
+    fn emit_list_packed_length(
+        &mut self,
+        list_slot: usize,
+        element_type: &ParameterType,
+    ) -> PackedLength {
+        let alignment = self.list_element_padding_alignment(element_type);
+        let stride = list_entry_stride(element_type);
+        let length_slot = self.allocate_stack_object("list_packed_length", 8);
+        let packs_slot = self.allocate_stack_object("list_packed_packs", 8);
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let live = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let walk = self.label("list_packed_walk");
+        let walked = self.label("list_packed_walked");
+        let verbatim = self.label("list_packed_verbatim");
+        let decided = self.label("list_packed_decided");
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), list_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&live, "Integer", "0"));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        self.emit(abi::load_u64(
+            &len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(&live, &live, &len));
+        self.emit(abi::add_immediate(&entry, &entry, stride));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        // Pack only when dataLength > 2 * live; `dataLength - live` can underflow
+        // (see `emit_list_reclaim_before_grow`).
+        self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_registers(&scratch, &live, &live));
+        self.emit(abi::compare_registers(&len, &scratch));
+        self.emit(abi::branch_ls(&verbatim));
+        self.emit(abi::store_u64(&live, abi::stack_pointer(), length_slot));
+        self.emit(abi::move_immediate(&scratch, "Integer", "1"));
+        self.emit(abi::store_u64(&scratch, abi::stack_pointer(), packs_slot));
+        self.emit(abi::branch(&decided));
+        self.emit(abi::label(&verbatim));
+        self.emit(abi::store_u64(&len, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), packs_slot));
+        self.emit(abi::label(&decided));
+        PackedLength {
+            length_slot,
+            packs_slot,
+        }
+    }
+
+    /// bug-732: when [`Self::emit_list_packed_length`] chose to pack A, copy A's
+    /// payloads into the result `lower_list_insert_collection` built, one per A
+    /// entry in A's order (the result's entries `[0, index)` then
+    /// `[index + count_B, count)`), packed from data offset 0, rewriting each
+    /// entry's `valueOffset`. The entries still hold A's offsets, which locate
+    /// the payloads in A.
+    fn emit_list_insert_pack_a(
+        &mut self,
+        base_slot: usize,
+        index_slot: usize,
+        insert_slot: usize,
+        result_slot: usize,
+        packed: &PackedLength,
+        element_type: &ParameterType,
+    ) {
+        let alignment = self.list_element_padding_alignment(element_type);
+        let stride = list_entry_stride(element_type);
+        let top = self.label("list_insert_pack_loop");
+        let copy = self.label("list_insert_pack_copy");
+        let advance = self.label("list_insert_pack_next");
+        let done = self.label("list_insert_pack_done");
+        let a = self.temporary_vreg();
+        let nb = self.temporary_vreg();
+        let src_data = self.temporary_vreg();
+        let dst_data = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        let gap_start = self.temporary_vreg();
+        let gap_end = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let off = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &scratch,
+            abi::stack_pointer(),
+            packed.packs_slot,
+        ));
+        self.emit(abi::compare_immediate(&scratch, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::load_u64(&a, abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer_for(&src_data, &a, element_type);
+        self.emit_collection_data_pointer_for(&dst_data, &nb, element_type);
+        self.emit(abi::load_u64(&total, &nb, COLLECTION_OFFSET_COUNT));
+        // B's entries sit at [index, index + count_B): not A's, skipped.
+        self.emit(abi::load_u64(&gap_start, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(&scratch, abi::stack_pointer(), insert_slot));
+        self.emit(abi::load_u64(&gap_end, &scratch, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers(&gap_end, &gap_end, &gap_start));
+        self.emit(abi::add_immediate(&entry, &nb, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&cursor, "Integer", "0"));
+        self.emit(abi::label(&top));
+        self.emit(abi::compare_registers(&index, &total));
+        self.emit(abi::branch_ge(&done));
+        self.emit(abi::compare_registers(&index, &gap_start));
+        self.emit(abi::branch_lt(&copy));
+        self.emit(abi::compare_registers(&index, &gap_end));
+        self.emit(abi::branch_lt(&advance));
+        self.emit(abi::label(&copy));
+        self.emit_align_offset_register(&cursor, alignment, &scratch);
+        self.emit(abi::load_u64(
+            &off,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &cursor,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers(&src, &src_data, &off));
+        self.emit(abi::add_registers(&dst, &dst_data, &cursor));
+        self.emit(abi::add_registers(&cursor, &cursor, &len));
+        self.emit_block_copy_advance(&dst, &src, &len, &scratch, "list_insert_pack_payload");
+        self.emit(abi::label(&advance));
+        self.emit(abi::add_immediate(&entry, &entry, stride));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&top));
+        self.emit(abi::label(&done));
+    }
+
+    /// bug-732: the bytes a bulk append writes into the list — the RHS's data
+    /// region plus the worst-case pad before it — into a fresh slot, for
+    /// [`Self::emit_list_reclaim_before_grow`].
+    fn emit_bulk_append_extra(&mut self, rhs_slot: usize) -> usize {
+        let slot = self.allocate_stack_object("bulk_append_extra", 8);
+        let rhs = self.temporary_vreg();
+        self.emit(abi::load_u64(&rhs, abi::stack_pointer(), rhs_slot));
+        self.emit(abi::load_u64(&rhs, &rhs, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_immediate(&rhs, &rhs, 7));
+        self.emit(abi::store_u64(&rhs, abi::stack_pointer(), slot));
+        slot
+    }
+
+    /// bug-732: the first step of every in-place grow of a variable-width list's
+    /// data region — reclaim the dead bytes instead of copying them.
     ///
+    /// An in-place removal (`removeAt`, a truncating `take`/`drop`/`mid`) that
+    /// takes out a payload which is not the data tail leaves its bytes behind as
+    /// dead space rather than moving every later payload: that is what keeps it
+    /// costing the elements it removes and moves. Those bytes must not travel
+    /// with the list forever, because a grow copies `dataLength` verbatim and
+    /// steps the capacity from it — a loop that keeps removing and adding would
+    /// grow the block without bound. So a grow first walks the entries once
+    /// (O(count), which the grow's own entry copy already costs) to total the live
+    /// bytes, and when the dead bytes outnumber them, repacks the payloads into a
+    /// block sized from the live bytes (`emit_repack_list_data`, with room for the
+    /// `need_slot` bytes about to be written) and jumps back to `retry`, the
+    /// caller's room check. The repacked block has no dead bytes, so the second
+    /// pass never repacks again; if the entry table is still full it takes the
+    /// ordinary grow. With dead ≤ live at every verbatim grow, the data capacity
+    /// stays within a constant factor of the live bytes.
+    ///
+    /// Emits nothing for a fixed-width (kind 2) list, which has no holes.
+    /// `buffer_slot` holds the list (for a record field, its sub-block address,
+    /// with `inline` naming the record).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_list_reclaim_before_grow(
+        &mut self,
+        buffer_slot: usize,
+        need_slot: usize,
+        list_type: &ParameterType,
+        element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
+        retry: &str,
+    ) -> Result<(), String> {
+        let stride = list_entry_stride(element_type);
+        if stride == 0 {
+            return Ok(());
+        }
+        let alignment = self.list_element_padding_alignment(element_type);
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let live = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let walk = self.label("list_reclaim_walk");
+        let walked = self.label("list_reclaim_walked");
+        let grow = self.label("list_reclaim_grow");
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&live, "Integer", "0"));
+        self.emit(abi::label(&walk));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        self.emit(abi::load_u64(
+            &len,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(&live, &live, &len));
+        self.emit(abi::add_immediate(&entry, &entry, stride));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&walk));
+        self.emit(abi::label(&walked));
+        self.emit_align_offset_register(&live, alignment, &scratch);
+        // Repack when the dead bytes outnumber the live ones (dataLength > 2 *
+        // live) — or, while the entry table still has room, when there are any
+        // dead bytes at all (dataLength > live). The second rule is what keeps the
+        // ENTRY capacity bounded: the verbatim grow steps `capacity` as well as
+        // `dataCapacity`, and a repack sizes the data region from the live bytes
+        // (smaller than before), so a list that keeps overflowing its data while
+        // holding a few elements alternated repack / verbatim grow and doubled
+        // its entry capacity on every verbatim grow — exponential memory for a
+        // list of two strings (bug-732 Correction C7). A data-only overflow over dead bytes is
+        // now always a repack, which keeps `capacity`.
+        //
+        // Both tests compare, never subtract: `live` counts the entry-order
+        // alignment pads, and an out-of-order data region can hold fewer, so
+        // `dataLength - live` can underflow (bug-733's map reclaim looped
+        // forever on exactly that). Right after a repack `dataLength == live`, so
+        // neither test holds and the retry cannot repack again.
+        let any_dead = self.label("list_reclaim_any_dead");
+        let cap = self.temporary_vreg();
+        self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::move_register(&scratch, &live));
+        self.emit(abi::compare_registers(&count, &cap));
+        self.emit(abi::branch_lo(&any_dead));
+        self.emit(abi::add_registers(&scratch, &live, &live));
+        self.emit(abi::label(&any_dead));
+        self.emit(abi::compare_registers(&len, &scratch));
+        self.emit(abi::branch_ls(&grow));
+        self.emit_repack_list_data(
+            buffer_slot,
+            need_slot,
+            list_type,
+            element_type,
+            stride,
+            inline,
+        )?;
+        self.emit(abi::branch(retry));
+        self.emit(abi::label(&grow));
+        Ok(())
+    }
+
     /// bug-627: grow a variable-width list block's **data capacity** and **repack**
     /// its live payloads, leaving `capacity` and the entry order as they are.
     ///
@@ -3364,6 +3797,14 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Replace the element at `index_slot` of the list whose buffer pointer lives
+    /// in `buffer_slot`, **mutating `buffer_slot` in place** (plan-02 §4.1). A
+    /// same-size payload — always the case for a fixed-width element — overwrites
+    /// the value bytes at the entry's `valueOffset`. A length change is resolved in
+    /// O(1) amortized without touching any other element (bug-627): see the
+    /// `set_inplace_resize` arm. An out-of-range index raises
+    /// `ErrIndexOutOfRange`. The caller guarantees the buffer is uniquely owned and
+    /// not an active `FOR EACH` iterable. Returns the (possibly new) buffer pointer.
     pub(crate) fn lower_list_set_in_place(
         &mut self,
         buffer_slot: usize,
@@ -3785,7 +4226,7 @@ impl CodeBuilder<'_> {
         let threaded = ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(keep.render()),
+            location: Operand::from(keep),
             text: String::new(),
         };
         let threaded = self.free_intermediate_collection(singleton_slot, list_type, threaded)?;
@@ -3802,7 +4243,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("set in place {list_type} over {element_type}"),
         })
     }
@@ -4097,7 +4538,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })
     }
@@ -4123,14 +4564,13 @@ impl CodeBuilder<'_> {
     ///   one forward shift of `[(i+1)*p, count*p)` down by `p`. Nothing else
     ///   changes: the surviving element that was at `k > i` lands at `(k-1)*p`,
     ///   which is exactly where index `k-1` is read from.
-    /// * **Variable-width elements** keep a lookup table over a packed data
-    ///   region. The entry table shifts down one stride, the data region closes a
-    ///   single contiguous hole, and every surviving entry whose payload sat
-    ///   *past* the hole has its `valueOffset` reduced by the hole's length
-    ///   ([`Self::emit_offset_compaction_fixup`], which tests each entry's own
-    ///   offset rather than its index — a list built with `insert`/`prepend`/`set`
-    ///   packs spliced payloads at the data tail, so entry order and data order
-    ///   need not agree).
+    /// * **Variable-width elements** keep a lookup table over a data region. The
+    ///   entry table shifts down one stride and nothing else moves (bug-732): the
+    ///   removed payload's bytes become dead space, or, when they are the data
+    ///   tail, `dataLength` retracts over them. The next grow reclaims dead bytes
+    ///   once they outnumber the live ones (`emit_list_reclaim_before_grow`).
+    ///   Closing the hole instead moved every later byte and fixed up every
+    ///   entry's offset, so removing near the end cost O(count).
     ///
     /// Both shifts run **downward**, so the destination trails the source and
     /// [`Self::emit_block_copy_advance`]'s forward copy is safe on the overlap.
@@ -4269,62 +4709,60 @@ impl CodeBuilder<'_> {
             self.emit(abi::multiply_registers(&len, &len, &scratch));
             self.emit_block_copy_advance(&dst, &src, &len, &copy_scratch, "remove_inplace_e");
 
-            // Data region: close the hole. dst = data + holeOffset ;
-            // src = dst + holeLen ; len = dataLength - holeOffset - holeLen.
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
-            self.emit_collection_data_pointer_for(&dst, &base, element_type);
-            self.emit(abi::load_u64(
-                &hole_off,
-                abi::stack_pointer(),
-                hole_off_slot,
-            ));
-            self.emit(abi::load_u64(
-                &hole_len,
-                abi::stack_pointer(),
-                hole_len_slot,
-            ));
-            self.emit(abi::add_registers(&dst, &dst, &hole_off));
-            self.emit(abi::add_registers(&src, &dst, &hole_len));
-            self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
-            self.emit(abi::subtract_registers(&len, &len, &hole_off));
-            self.emit(abi::subtract_registers(&len, &len, &hole_len));
-            self.emit_block_copy_advance(&dst, &src, &len, &copy_scratch, "remove_inplace_d");
-
-            // count -= 1; dataLength -= holeLen; then fix up the survivors whose
-            // payload sat past the hole.
+            // bug-732: the data region is not compacted. Closing the hole moved
+            // every byte after it and fixed up every entry's offset — O(count)
+            // whatever the index, so a loop removing near the end was O(n²). When
+            // the removed payload is the data tail, `dataLength` retracts over it
+            // (the list stays as tight as it was); otherwise its bytes stay behind
+            // as dead space, which the next grow reclaims
+            // (`emit_list_reclaim_before_grow`). The call costs the entries after
+            // `index`, which the shift above had to move anyway.
+            let alignment = self.list_element_padding_alignment(element_type);
+            let keep_length = self.label("remove_inplace_hole");
+            let emptied = self.label("remove_inplace_emptied");
             self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
             self.emit(abi::subtract_immediate(&count, &count, 1));
             self.emit(abi::store_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::compare_immediate(&count, "0"));
+            self.emit(abi::branch_eq(&emptied));
+            // Tail test: align(holeOffset + holeLen) >= dataLength.
             self.emit(abi::load_u64(
-                &scratch,
-                &base,
-                COLLECTION_OFFSET_DATA_LENGTH,
+                &hole_off,
+                abi::stack_pointer(),
+                hole_off_slot,
             ));
             self.emit(abi::load_u64(
                 &hole_len,
                 abi::stack_pointer(),
                 hole_len_slot,
             ));
-            self.emit(abi::subtract_registers(&scratch, &scratch, &hole_len));
-            self.emit(abi::store_u64(
+            self.emit(abi::add_registers(&len, &hole_off, &hole_len));
+            self.emit_align_offset_register(&len, alignment, &scratch);
+            self.emit(abi::load_u64(
                 &scratch,
                 &base,
                 COLLECTION_OFFSET_DATA_LENGTH,
             ));
-            self.emit(abi::add_immediate(&dst, &base, COLLECTION_HEADER_SIZE));
-            self.emit(abi::load_u64(
+            self.emit(abi::compare_registers(&len, &scratch));
+            self.emit(abi::branch_lo(&keep_length));
+            // Only ever retract: a zero-length payload may carry any offset.
+            self.emit(abi::compare_registers(&hole_off, &scratch));
+            self.emit(abi::branch_ge(&keep_length));
+            self.emit(abi::store_u64(
                 &hole_off,
-                abi::stack_pointer(),
-                hole_off_slot,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
             ));
-            self.emit_offset_compaction_fixup(
-                &dst,
-                &count,
-                &hole_off,
-                &hole_len,
-                "remove_inplace_fix",
-            );
+            self.emit(abi::branch(&keep_length));
+            // Nothing left: the whole data region is dead, so it resets.
+            self.emit(abi::label(&emptied));
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::label(&keep_length));
         }
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));

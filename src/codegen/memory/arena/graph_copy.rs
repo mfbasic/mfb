@@ -45,7 +45,6 @@
 
 use crate::codegen::collection::layout::type_participates_in_cycle;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
@@ -129,7 +128,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_graph_copy_push(
         &mut self,
         kind: usize,
-        child: impl Into<Operand>,
+        child: impl Into<abi::Reg>,
         destination: Option<(usize, usize)>,
     ) -> Result<(), String> {
         let stack_slot = self

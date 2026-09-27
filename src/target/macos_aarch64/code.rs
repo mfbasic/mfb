@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::codegen::engine::mir::MirPlan;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFunction;
@@ -12,6 +11,7 @@ use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::codegen::engine::types::ProgramEntrySpec;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -75,20 +75,22 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_apply_raw_mode(
         &self,
-        base_register: &str,
+        base_register: Reg,
         original_offset: usize,
         modified_offset: usize,
         disable_echo: bool,
         disable_canonical: bool,
+        scratch: [Reg; 2],
         instructions: &mut Vec<CodeInstruction>,
     ) {
+        let [word, mask] = scratch;
         // macOS `struct termios`: 72 bytes, `c_lflag` an 8-byte field at offset
         // 24 (`ECHO`=8, `ICANON`=0x100=256), `c_cc` at offset 32 with `VMIN` at
         // index 16 and `VTIME` at index 17.
         for offset in (0..72usize.next_multiple_of(8)).step_by(8) {
             instructions.extend([
-                abi::load_u64("%v9", base_register, original_offset + offset),
-                abi::store_u64("%v9", base_register, modified_offset + offset),
+                abi::load_u64(word, base_register, original_offset + offset),
+                abi::store_u64(word, base_register, modified_offset + offset),
             ]);
         }
         let mut clear_flags = 0u64;
@@ -100,19 +102,19 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         }
         if clear_flags != 0 {
             let lflag_offset = modified_offset + 24;
-            instructions.push(abi::load_u64("%v9", base_register, lflag_offset));
+            instructions.push(abi::load_u64(word, base_register, lflag_offset));
             instructions.extend([
-                abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
-                abi::bitwise_not("%v10", "%v10"),
-                abi::and_registers("%v9", "%v9", "%v10"),
+                abi::move_immediate(mask, "Integer", &clear_flags.to_string()),
+                abi::bitwise_not(mask, mask),
+                abi::and_registers(word, word, mask),
             ]);
-            instructions.push(abi::store_u64("%v9", base_register, lflag_offset));
+            instructions.push(abi::store_u64(word, base_register, lflag_offset));
         }
         if disable_canonical {
             let cc_offset = modified_offset + 32;
             instructions.extend([
-                abi::move_immediate("%v9", "Integer", "1"),
-                abi::store_u8("%v9", base_register, cc_offset + 16),
+                abi::move_immediate(word, "Integer", "1"),
+                abi::store_u8(word, base_register, cc_offset + 16),
                 abi::store_u8(abi::ZERO, base_register, cc_offset + 17),
             ]);
         }
@@ -496,9 +498,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         stat_offset: usize,
         expected_kind: &str,
-        mode: &str,
-        mask: &str,
-        expected: &str,
+        mode: Reg,
+        mask: Reg,
+        expected: Reg,
         found: &str,
         missing: &str,
         instructions: &mut Vec<CodeInstruction>,
@@ -608,7 +610,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_errno(
         &self,
         from: &str,
-        dst: Operand,
+        dst: Reg,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
@@ -846,10 +848,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn emit_read_dir_entry(
         &self,
         prefix: &str,
-        nameptr: &str,
-        namelen: &str,
-        _byte: &str,
-        _scratch: &str,
+        nameptr: Reg,
+        namelen: Reg,
+        _byte: Reg,
+        _scratch: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) {
         // macOS `struct dirent`: `d_namlen` (a real length field) at offset 18,
@@ -881,7 +883,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn emit_arena_map(
         &self,
-        size_reg: &str,
+        size_reg: Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String> {
         instructions.extend([
@@ -981,6 +983,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         fd_offset: usize,
         flags_offset: usize,
+        scratch: Reg,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
@@ -992,8 +995,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_offset),
             abi::move_immediate(abi::mfb_arg(1), "Integer", "4"), // F_SETFL
             abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), flags_offset),
-            abi::move_immediate("%v9", "Integer", "4"),
-            abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), "%v9"),
+            abi::move_immediate(scratch, "Integer", "4"),
+            abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), scratch),
         ]);
         self.emit_variadic_external_call("fcntl", from, platform_imports, instructions, relocations)
     }

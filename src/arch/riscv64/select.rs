@@ -75,7 +75,7 @@ fn field_value(fields: &[(&'static str, Operand)], name: &str) -> String {
 fn ci(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut inst = CodeInstruction::new(mnemonic);
     for (k, v) in fields {
-        inst = inst.field(k, v);
+        inst = inst.physical_field(k, v);
     }
     inst
 }
@@ -115,9 +115,9 @@ fn float_branch(cond: &str, lhs: &Operand, rhs: &Operand, target: &str) -> Vec<C
     // instruction so nothing renders a convention token to a `Raw` string (plan-85-D).
     let cmp = |dst: &str, cmp: &str, a: &Operand, b: &Operand| {
         CodeInstruction::new("rv.fcmp")
-            .field("dst", dst)
-            .field("lhs", a)
-            .field("rhs", b)
+            .physical_field("dst", dst)
+            .physical_field("lhs", a)
+            .physical_field("rhs", b)
             .field("cmp", cmp)
     };
     let br = |a: &str, bcond: &str| {
@@ -218,8 +218,8 @@ fn expand_fused(
             let rhs = get_op("rhs");
             let (a, b, rvcond) = int_branch(&cond, &lhs, &rhs);
             vec![CodeInstruction::new("rv.br")
-                .field("lhs", a)
-                .field("rhs", b)
+                .physical_field("lhs", a)
+                .physical_field("rhs", b)
                 .field("cond", rvcond)
                 .field("target", &target)]
         }
@@ -238,8 +238,8 @@ fn expand_fused(
             let (a, b, rvcond) = int_branch(&cond, &lhs, &imm_reg);
             out.push(
                 CodeInstruction::new("rv.br")
-                    .field("lhs", a)
-                    .field("rhs", b)
+                    .physical_field("lhs", a)
+                    .physical_field("rhs", b)
                     .field("cond", rvcond)
                     .field("target", &target),
             );
@@ -275,22 +275,22 @@ fn expand_fused(
             // it would be skipped, leaving `dst` undefined.
             vec![
                 CodeInstruction::new("add")
-                    .field("dst", T0)
-                    .field("lhs", &lhs)
-                    .field("rhs", &rhs),
+                    .physical_field("dst", T0)
+                    .physical_field("lhs", &lhs)
+                    .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .field("dst", T1)
-                    .field("lhs", &lhs)
-                    .field("rhs", &rhs),
+                    .physical_field("dst", T1)
+                    .physical_field("lhs", &lhs)
+                    .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .field("dst", T2)
-                    .field("lhs", T0)
-                    .field("rhs", &lhs),
+                    .physical_field("dst", T2)
+                    .physical_field("lhs", T0)
+                    .physical_field("rhs", &lhs),
                 ci("mvn", &[("dst", T1), ("src", T1)]),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
                 CodeInstruction::new("mov")
-                    .field("dst", &dst)
-                    .field("src", T0),
+                    .physical_field("dst", &dst)
+                    .physical_field("src", T0),
                 ci(
                     "rv.br",
                     &[
@@ -313,21 +313,21 @@ fn expand_fused(
             // Write `dst` before the branch (see the `Adds` case above).
             vec![
                 CodeInstruction::new("sub")
-                    .field("dst", T0)
-                    .field("lhs", &lhs)
-                    .field("rhs", &rhs),
+                    .physical_field("dst", T0)
+                    .physical_field("lhs", &lhs)
+                    .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .field("dst", T1)
-                    .field("lhs", &lhs)
-                    .field("rhs", &rhs),
+                    .physical_field("dst", T1)
+                    .physical_field("lhs", &lhs)
+                    .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .field("dst", T2)
-                    .field("lhs", &lhs)
-                    .field("rhs", T0),
+                    .physical_field("dst", T2)
+                    .physical_field("lhs", &lhs)
+                    .physical_field("rhs", T0),
                 ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
                 CodeInstruction::new("mov")
-                    .field("dst", &dst)
-                    .field("src", T0),
+                    .physical_field("dst", &dst)
+                    .physical_field("src", T0),
                 ci(
                     "rv.br",
                     &[
@@ -629,13 +629,13 @@ pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
             // string — plan-85-D); only `symbol` is a name, so render it.
             out.push(
                 CodeInstruction::new("adrp")
-                    .field("dst", &dst)
+                    .physical_field("dst", &dst)
                     .field("symbol", symbol.render()),
             );
             out.push(
                 CodeInstruction::new("add_pageoff")
-                    .field("dst", &dst)
-                    .field("src", &dst)
+                    .physical_field("dst", &dst)
+                    .physical_field("src", &dst)
                     .field("symbol", symbol.render()),
             );
             continue;
@@ -873,14 +873,14 @@ mod tests {
         // convention/role collapses. %retC1 → a1, %argSys3 → a3, %retSys → a0.
         let out = sel(&[
             CodeInstruction::new("mov")
-                .field("dst", abi::mfb_return(0))
-                .field("src", abi::mfb_arg(2)),
+                .physical_field("dst", abi::mfb_return(0))
+                .physical_field("src", abi::mfb_arg(2)),
             CodeInstruction::new("mov")
-                .field("dst", abi::c_return(1))
-                .field("src", abi::sys_arg(3)),
+                .physical_field("dst", abi::c_return(1))
+                .physical_field("src", abi::sys_arg(3)),
             CodeInstruction::new("mov")
-                .field("dst", abi::sys_return())
-                .field("src", abi::c_arg(7)),
+                .physical_field("dst", abi::sys_return())
+                .physical_field("src", abi::c_arg(7)),
         ]);
         let vals = values(&out);
         assert!(

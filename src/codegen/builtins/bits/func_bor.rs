@@ -97,7 +97,7 @@ pub(crate) fn lower_bits_bor(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(dst.render()),
+        location: Operand::from(dst),
         text: format!("bits.bor({left_text}, {right_text})"),
     })
 }

@@ -25,6 +25,14 @@ with the result affects `value`. `value` is not modified.
 `collections::take` is the complementary operation, returning the elements
 `drop` discards.
 
+Assigning straight back to the same `MUT` variable — `list =
+collections::drop(list, n)` — is the cheap shape: it removes the leading
+elements from the list itself instead of building a copy, and its cost is the
+elements it removes plus the ones it slides to the front, so `list =
+collections::drop(list, 0)` costs nothing at all. Assigning the result anywhere
+else — `ys = collections::drop(xs, n)` — builds a new list and leaves `xs` as it
+was. The result is the same either way.
+
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `drop` copies a contiguous range and never inspects an element, so
 any list element type is accepted. `count` must be `Integer`."#;

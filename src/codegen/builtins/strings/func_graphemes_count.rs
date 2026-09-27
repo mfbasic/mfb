@@ -87,7 +87,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.graphemesCount".to_string(),
     })
 }

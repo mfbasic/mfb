@@ -7,8 +7,8 @@ use crate::codegen::engine::types::CodeInstruction;
 fn instruction_size_expands_large_stack_and_memory_immediates() {
     let sub_sp = CodeInstruction::new("sub_sp").field("imm", "6400");
     let ldr = CodeInstruction::new("ldr_u64")
-        .field("dst", "x0")
-        .field("base", "sp")
+        .physical_field("dst", "x0")
+        .physical_field("base", "sp")
         .field("offset", "32800");
 
     assert_eq!(instruction_size(&sub_sp).unwrap(), 8);
@@ -33,16 +33,16 @@ fn encoder_accepts_large_immediates_with_fallback_sequences() {
     encoder
         .emit_instruction(
             &CodeInstruction::new("str_u64")
-                .field("src", "x0")
-                .field("base", "sp")
+                .physical_field("src", "x0")
+                .physical_field("base", "sp")
                 .field("offset", "32800"),
         )
         .unwrap();
     encoder
         .emit_instruction(
             &CodeInstruction::new("cmp_imm")
-                .field("lhs", "x1")
-                .field("rhs", "6400"),
+                .physical_field("lhs", "x1")
+                .physical_field("rhs", "6400"),
         )
         .unwrap();
 
@@ -64,9 +64,9 @@ fn encodes_umulh_add_carry_and_rorv() {
     encoder
         .emit_instruction(
             &CodeInstruction::new("umulh")
-                .field("dst", "x14")
-                .field("lhs", "x11")
-                .field("rhs", "x9"),
+                .physical_field("dst", "x14")
+                .physical_field("lhs", "x11")
+                .physical_field("rhs", "x9"),
         )
         .unwrap();
     // Explicit-carry add, no carry-in (plan-00-G §4) → `adds; cset` (2 words).
@@ -75,30 +75,30 @@ fn encodes_umulh_add_carry_and_rorv() {
     encoder
         .emit_instruction(
             &CodeInstruction::new("add_carry")
-                .field("dst", "x10")
-                .field("carry_out", "x11")
-                .field("lhs", "x14")
-                .field("rhs", "x12")
-                .field("carry_in", "xzr"),
+                .physical_field("dst", "x10")
+                .physical_field("carry_out", "x11")
+                .physical_field("lhs", "x14")
+                .physical_field("rhs", "x12")
+                .physical_field("carry_in", "xzr"),
         )
         .unwrap();
     // Explicit-carry add with a carry-in register → `cmp; adcs; cset` (3 words).
     encoder
         .emit_instruction(
             &CodeInstruction::new("add_carry")
-                .field("dst", "x13")
-                .field("carry_out", "xzr")
-                .field("lhs", "x15")
-                .field("rhs", "x16")
-                .field("carry_in", "x11"),
+                .physical_field("dst", "x13")
+                .physical_field("carry_out", "xzr")
+                .physical_field("lhs", "x15")
+                .physical_field("rhs", "x16")
+                .physical_field("carry_in", "x11"),
         )
         .unwrap();
     encoder
         .emit_instruction(
             &CodeInstruction::new("rorv")
-                .field("dst", "x0")
-                .field("lhs", "x12")
-                .field("rhs", "x11"),
+                .physical_field("dst", "x0")
+                .physical_field("lhs", "x12")
+                .physical_field("rhs", "x11"),
         )
         .unwrap();
 
@@ -118,11 +118,11 @@ fn encodes_fmov_d_from_d() {
     let mut encoder = fresh_encoder();
     for inst in [
         CodeInstruction::new("fmov_d_from_d")
-            .field("dst", "d5")
-            .field("src", "d3"),
+            .physical_field("dst", "d5")
+            .physical_field("src", "d3"),
         CodeInstruction::new("fmov_d_from_d")
-            .field("dst", "d8")
-            .field("src", "d0"),
+            .physical_field("dst", "d8")
+            .physical_field("src", "d0"),
     ] {
         encoder.emit_instruction(&inst).unwrap();
     }
@@ -140,11 +140,11 @@ fn encodes_sxtw() {
     let mut encoder = fresh_encoder();
     for inst in [
         CodeInstruction::new("sxtw")
-            .field("dst", "x0")
-            .field("src", "x0"),
+            .physical_field("dst", "x0")
+            .physical_field("src", "x0"),
         CodeInstruction::new("sxtw")
-            .field("dst", "x3")
-            .field("src", "x1"),
+            .physical_field("dst", "x3")
+            .physical_field("src", "x1"),
     ] {
         encoder.emit_instruction(&inst).unwrap();
     }
@@ -161,8 +161,8 @@ fn encodes_fabs_d() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fabs_d")
-                .field("dst", "d5")
-                .field("src", "d3")
+                .physical_field("dst", "d5")
+                .physical_field("src", "d3")
         ),
         0x1e60_c065
     );
@@ -176,18 +176,18 @@ fn encodes_fminnm_fmaxnm_d() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fminnm_d")
-                .field("dst", "d5")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1e71_7925
     );
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fmaxnm_d")
-                .field("dst", "d5")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1e71_6925
     );
@@ -241,20 +241,20 @@ fn encodes_fp_scalar_spill_load_store() {
     let mut encoder = fresh_encoder();
     for inst in [
         CodeInstruction::new("str_d")
-            .field("src", "d0")
-            .field("base", "sp")
+            .physical_field("src", "d0")
+            .physical_field("base", "sp")
             .field("offset", "0"),
         CodeInstruction::new("ldr_d")
-            .field("dst", "d0")
-            .field("base", "sp")
+            .physical_field("dst", "d0")
+            .physical_field("base", "sp")
             .field("offset", "8"),
         CodeInstruction::new("str_d")
-            .field("src", "d8")
-            .field("base", "sp")
+            .physical_field("src", "d8")
+            .physical_field("base", "sp")
             .field("offset", "16"),
         CodeInstruction::new("ldr_d")
-            .field("dst", "d15")
-            .field("base", "x9")
+            .physical_field("dst", "d15")
+            .physical_field("base", "x9")
             .field("offset", "4088"),
     ] {
         encoder.emit_instruction(&inst).unwrap();
@@ -273,8 +273,8 @@ fn encodes_load_acquire_store_release() {
     // offset form for either instruction, so the base is a register alone.
     let op = |mnemonic: &str, rt_field: &'static str, rt: &str, base: &str| {
         CodeInstruction::new(mnemonic)
-            .field(rt_field, rt)
-            .field("base", base)
+            .physical_field(rt_field, rt)
+            .physical_field("base", base)
     };
     for (instruction, word, spelling) in [
         (
@@ -352,14 +352,14 @@ fn encode_one(instruction: &CodeInstruction) -> u32 {
 fn encodes_neon_vector_ops() {
     let three = |op: &str| {
         CodeInstruction::new(op)
-            .field("dst", "v5")
-            .field("lhs", "v9")
-            .field("rhs", "v17")
+            .physical_field("dst", "v5")
+            .physical_field("lhs", "v9")
+            .physical_field("rhs", "v17")
     };
     let two = |op: &str| {
         CodeInstruction::new(op)
-            .field("dst", "v5")
-            .field("src", "v17")
+            .physical_field("dst", "v5")
+            .physical_field("src", "v17")
     };
 
     // Three-same .2d / .16b.
@@ -411,8 +411,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("shl_v")
-                .field("dst", "v5")
-                .field("src", "v17")
+                .physical_field("dst", "v5")
+                .physical_field("src", "v17")
                 .field("shift", "32")
         ),
         0x4f60_5625
@@ -420,8 +420,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("sshr_v")
-                .field("dst", "v5")
-                .field("src", "v17")
+                .physical_field("dst", "v5")
+                .physical_field("src", "v17")
                 .field("shift", "32")
         ),
         0x4f60_0625
@@ -429,8 +429,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("ushr_v")
-                .field("dst", "v5")
-                .field("src", "v17")
+                .physical_field("dst", "v5")
+                .physical_field("src", "v17")
                 .field("shift", "20")
         ),
         0x6f6c_0625
@@ -440,16 +440,16 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("dup_v_from_x")
-                .field("dst", "v5")
-                .field("src", "x17")
+                .physical_field("dst", "v5")
+                .physical_field("src", "x17")
         ),
         0x4e08_0e25
     );
     assert_eq!(
         encode_one(
             &CodeInstruction::new("umov_x_from_v")
-                .field("dst", "x5")
-                .field("src", "v17")
+                .physical_field("dst", "x5")
+                .physical_field("src", "v17")
                 .field("index", "0")
         ),
         0x4e08_3e25
@@ -457,8 +457,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("umov_x_from_v")
-                .field("dst", "x5")
-                .field("src", "v17")
+                .physical_field("dst", "x5")
+                .physical_field("src", "v17")
                 .field("index", "1")
         ),
         0x4e18_3e25
@@ -471,40 +471,40 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fmadd_d") // FMADD: d3 + d9*d17
-                .field("dst", "d5")
-                .field("addend", "d3")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("addend", "d3")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1f51_0d25
     );
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fmsub_d") // FNMSUB: d9*d17 - d3
-                .field("dst", "d5")
-                .field("addend", "d3")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("addend", "d3")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1f71_8d25
     );
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fnmsub_d") // FMSUB: d3 - d9*d17
-                .field("dst", "d5")
-                .field("addend", "d3")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("addend", "d3")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1f51_8d25
     );
     assert_eq!(
         encode_one(
             &CodeInstruction::new("fnmadd_d") // FNMADD: -(d9*d17) - d3
-                .field("dst", "d5")
-                .field("addend", "d3")
-                .field("lhs", "d9")
-                .field("rhs", "d17")
+                .physical_field("dst", "d5")
+                .physical_field("addend", "d3")
+                .physical_field("lhs", "d9")
+                .physical_field("rhs", "d17")
         ),
         0x1f71_0d25
     );
@@ -513,8 +513,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("ldr_q")
-                .field("dst", "v5")
-                .field("base", "x9")
+                .physical_field("dst", "v5")
+                .physical_field("base", "x9")
                 .field("offset", "0")
         ),
         0x3dc0_0125
@@ -522,8 +522,8 @@ fn encodes_neon_vector_ops() {
     assert_eq!(
         encode_one(
             &CodeInstruction::new("str_q")
-                .field("src", "v5")
-                .field("base", "x9")
+                .physical_field("src", "v5")
+                .physical_field("base", "x9")
                 .field("offset", "16")
         ),
         0x3d80_0525
@@ -549,7 +549,7 @@ fn codeop_sizes_cover_large_add_imm() {
 fn emit_words(op: &str, fields: &[(&'static str, &str)]) -> Vec<u32> {
     let mut inst = CodeInstruction::new(op);
     for (k, v) in fields {
-        inst = inst.field(k, v);
+        inst = inst.physical_field(k, v);
     }
     let mut enc = fresh_encoder();
     enc.emit_instruction(&inst).unwrap();
@@ -694,8 +694,8 @@ fn unaligned_memory_offsets_error() {
     let mut enc = fresh_encoder();
     let bad = |op: &str, field: &'static str, r: &str| {
         CodeInstruction::new(op)
-            .field(field, r)
-            .field("base", "x1")
+            .physical_field(field, r)
+            .physical_field("base", "x1")
             .field("offset", "3")
     };
     assert!(enc.emit_instruction(&bad("ldr_u64", "dst", "x0")).is_err());
@@ -762,8 +762,8 @@ fn neon_shift_and_umov_index() {
     assert!(fresh_encoder()
         .emit_instruction(
             &CodeInstruction::new("umov_x_from_v")
-                .field("dst", "x0")
-                .field("src", "v1")
+                .physical_field("dst", "x0")
+                .physical_field("src", "v1")
                 .field("index", "1")
         )
         .is_ok());
@@ -771,8 +771,8 @@ fn neon_shift_and_umov_index() {
     let err = enc
         .emit_instruction(
             &CodeInstruction::new("umov_x_from_v")
-                .field("dst", "x0")
-                .field("src", "v1")
+                .physical_field("dst", "x0")
+                .physical_field("src", "v1")
                 .field("index", "2"),
         )
         .unwrap_err();
@@ -944,14 +944,14 @@ fn symbol_ref_data_and_got_relocations() {
     let mut enc = fresh_encoder();
     enc.emit_instruction(
         &CodeInstruction::new("adrp")
-            .field("dst", "x0")
+            .physical_field("dst", "x0")
             .field("symbol", "g"),
     )
     .unwrap();
     enc.emit_instruction(
         &CodeInstruction::new("add_pageoff")
-            .field("dst", "x0")
-            .field("src", "x0")
+            .physical_field("dst", "x0")
+            .physical_field("src", "x0")
             .field("symbol", "g"),
     )
     .unwrap();
@@ -962,14 +962,14 @@ fn symbol_ref_data_and_got_relocations() {
     enc.imports.insert("g".to_string(), "libc".to_string());
     enc.emit_instruction(
         &CodeInstruction::new("adrp")
-            .field("dst", "x0")
+            .physical_field("dst", "x0")
             .field("symbol", "g"),
     )
     .unwrap();
     enc.emit_instruction(
         &CodeInstruction::new("add_pageoff")
-            .field("dst", "x0")
-            .field("src", "x0")
+            .physical_field("dst", "x0")
+            .physical_field("src", "x0")
             .field("symbol", "g"),
     )
     .unwrap();
@@ -988,9 +988,9 @@ fn unsupported_instruction_errors() {
     let err = enc
         .emit_instruction(
             &CodeInstruction::new("fmadd_d")
-                .field("dst", "d0")
-                .field("lhs", "d1")
-                .field("rhs", "d2"),
+                .physical_field("dst", "d0")
+                .physical_field("lhs", "d1")
+                .physical_field("rhs", "d2"),
         )
         .unwrap_err();
     assert!(err.contains("missing field"), "got: {err}");
@@ -1004,8 +1004,8 @@ fn shift_immediate_out_of_range_errors() {
         assert!(enc
             .emit_instruction(
                 &CodeInstruction::new(op)
-                    .field("dst", "x0")
-                    .field("src", "x1")
+                    .physical_field("dst", "x0")
+                    .physical_field("src", "x1")
                     .field("shift", "64")
             )
             .is_err());
@@ -1073,8 +1073,8 @@ fn encode_builds_image_with_symbols_data_and_labels() {
         vec![
             crate::arch::aarch64::abi::label("entry"),
             CodeInstruction::new("mov")
-                .field("dst", "x0")
-                .field("src", "x1"),
+                .physical_field("dst", "x0")
+                .physical_field("src", "x1"),
             CodeInstruction::new("b").field("target", "entry"),
             CodeInstruction::new("ret"),
         ],
@@ -1222,7 +1222,7 @@ fn operand_reg_decoding() {
 #[test]
 fn operand_field_missing_reports_op() {
     use super::operand::field;
-    let inst = CodeInstruction::new("mov").field("dst", "x0");
+    let inst = CodeInstruction::new("mov").physical_field("dst", "x0");
     assert!(field(&inst, "src").is_err());
     assert_eq!(field(&inst, "dst").unwrap(), "x0");
 }
@@ -1238,7 +1238,7 @@ fn sizing_covers_immediate_and_memory_paths() {
     // mov_imm word count grows with non-zero 16-bit chunks.
     let mk = |v: &str| {
         CodeInstruction::new("mov_imm")
-            .field("dst", "x0")
+            .physical_field("dst", "x0")
             .field("value", v)
     };
     assert_eq!(instruction_size(&mk("0")).unwrap(), 4);
@@ -1247,8 +1247,8 @@ fn sizing_covers_immediate_and_memory_paths() {
                                                                             // add/sub immediate sizing: small (1 word), large multi-chunk.
     let addi = |v: &str| {
         CodeInstruction::new("add_imm")
-            .field("dst", "x0")
-            .field("src", "x1")
+            .physical_field("dst", "x0")
+            .physical_field("src", "x1")
             .field("imm", v)
     };
     assert_eq!(instruction_size(&addi("1")).unwrap(), 4);
@@ -1258,8 +1258,8 @@ fn sizing_covers_immediate_and_memory_paths() {
     assert_eq!(
         instruction_size(
             &CodeInstruction::new("cmp_imm")
-                .field("lhs", "x0")
-                .field("rhs", "1")
+                .physical_field("lhs", "x0")
+                .physical_field("rhs", "1")
         )
         .unwrap(),
         4
@@ -1267,8 +1267,8 @@ fn sizing_covers_immediate_and_memory_paths() {
     // Memory sizing: aligned in-range = 4; large = scratch + word.
     let ldr = |off: &str| {
         CodeInstruction::new("ldr_u64")
-            .field("dst", "x0")
-            .field("base", "x1")
+            .physical_field("dst", "x0")
+            .physical_field("base", "x1")
             .field("offset", off)
     };
     assert_eq!(instruction_size(&ldr("8")).unwrap(), 4);
@@ -1283,8 +1283,8 @@ fn sizing_covers_immediate_and_memory_paths() {
         ("str_q", "src", "v0"),
     ] {
         let inst = CodeInstruction::new(op)
-            .field(field, r)
-            .field("base", "x1")
+            .physical_field(field, r)
+            .physical_field("base", "x1")
             .field("offset", "0");
         assert_eq!(instruction_size(&inst).unwrap(), 4);
     }
@@ -1292,8 +1292,8 @@ fn sizing_covers_immediate_and_memory_paths() {
     assert_eq!(
         instruction_size(
             &CodeInstruction::new("mov")
-                .field("dst", "x0")
-                .field("src", "x1")
+                .physical_field("dst", "x0")
+                .physical_field("src", "x1")
         )
         .unwrap(),
         4
@@ -1347,7 +1347,7 @@ fn sp_is_rejected_in_shifted_register_operand_slots() {
     ] {
         let mut ins = CodeInstruction::new(op);
         for (k, v) in &fields {
-            ins = ins.field(k, v);
+            ins = ins.physical_field(k, v);
         }
         let err = encoder
             .emit_instruction(&ins)
@@ -1360,9 +1360,9 @@ fn sp_is_rejected_in_shifted_register_operand_slots() {
 
     // xzr in the same slots stays legal -- reading zero is what it means.
     let ins = CodeInstruction::new("add")
-        .field("dst", "x1")
-        .field("lhs", "xzr")
-        .field("rhs", "x2");
+        .physical_field("dst", "x1")
+        .physical_field("lhs", "xzr")
+        .physical_field("rhs", "x2");
     encoder
         .emit_instruction(&ins)
         .expect("xzr is a legitimate shifted-register operand");
@@ -1377,8 +1377,8 @@ fn cmp_imm_against_sp_is_rejected_only_when_the_immediate_forces_register_form()
     let mut encoder = fresh_encoder();
     // Fits 12 bits: the immediate form is correct for sp, and stays allowed.
     let narrow = CodeInstruction::new("cmp_imm")
-        .field("lhs", "sp")
-        .field("rhs", "4095");
+        .physical_field("lhs", "sp")
+        .physical_field("rhs", "4095");
     encoder
         .emit_instruction(&narrow)
         .expect("a 12-bit immediate uses the sp-correct immediate form");
@@ -1386,8 +1386,8 @@ fn cmp_imm_against_sp_is_rejected_only_when_the_immediate_forces_register_form()
     // One past the 12-bit limit forces the register-form fallback, where the
     // operand would silently become XZR.
     let wide = CodeInstruction::new("cmp_imm")
-        .field("lhs", "sp")
-        .field("rhs", "4096");
+        .physical_field("lhs", "sp")
+        .physical_field("rhs", "4096");
     let err = encoder
         .emit_instruction(&wide)
         .expect_err("the register-form fallback must not silently compare against zero");
@@ -1396,8 +1396,8 @@ fn cmp_imm_against_sp_is_rejected_only_when_the_immediate_forces_register_form()
     // A plain register is unaffected in both regimes.
     for imm in ["4095", "4096"] {
         let ins = CodeInstruction::new("cmp_imm")
-            .field("lhs", "x3")
-            .field("rhs", imm);
+            .physical_field("lhs", "x3")
+            .physical_field("rhs", imm);
         encoder
             .emit_instruction(&ins)
             .expect("a normal register encodes in either form");
@@ -1413,8 +1413,8 @@ fn an_absurdly_wide_add_sub_immediate_is_rejected_rather_than_looped_over() {
     let mut encoder = fresh_encoder();
     for op in ["add_imm", "sub_imm"] {
         let ins = CodeInstruction::new(op)
-            .field("dst", "x1")
-            .field("src", "x2")
+            .physical_field("dst", "x1")
+            .physical_field("src", "x2")
             .field("imm", &u64::MAX.to_string());
         let err = encoder
             .emit_instruction(&ins)
@@ -1424,8 +1424,8 @@ fn an_absurdly_wide_add_sub_immediate_is_rejected_rather_than_looped_over() {
 
     // A legitimately large multi-chunk offset still encodes.
     let ins = CodeInstruction::new("add_imm")
-        .field("dst", "x1")
-        .field("src", "x2")
+        .physical_field("dst", "x1")
+        .physical_field("src", "x2")
         .field("imm", "70000");
     encoder
         .emit_instruction(&ins)

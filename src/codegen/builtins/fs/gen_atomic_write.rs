@@ -593,7 +593,7 @@ pub(crate) fn lower_fs_write_path_helper(
     let byte = vregs.next();
     // `cap` is a byte-List-only scratch; allocate its vreg only in that mode so the
     // String path keeps its exact vreg numbering (bug-331 §B).
-    let cap = if bytes { vregs.next() } else { String::new() };
+    let cap = bytes.then(|| vregs.next());
     let c_path_size = vregs.next();
     let mut instructions = vec![
         // bug-574: `c_path` is the marshalled path this helper never hands back,
@@ -658,7 +658,7 @@ pub(crate) fn lower_fs_write_path_helper(
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
     ]);
-    if bytes {
+    if let Some(cap) = cap {
         // Source is a byte-List: length is DATA_LENGTH, the data region starts past
         // the header, and the cursor skips the (capacity * stride) reserved bytes.
         instructions.extend([

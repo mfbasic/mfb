@@ -2059,6 +2059,27 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// bug-697: the mangled-symbol -> template-spelling table for every user
+    /// generic this run instantiated, keyed by exactly the string
+    /// `ParameterType::name()` renders for the mangled nominal (so it is what a
+    /// post-monomorph diagnostic's `Type::name()` interpolation actually
+    /// contains), valued by [`Self::template_view`]'s spelling — fully
+    /// recursive, so a nested instantiation renders fully
+    /// (`Holder OF Holder OF Integer`, never a half-mangled mix). Read by
+    /// `monomorphize_project`, which installs it at `rules::show_diagnostic`'s
+    /// render boundary via `rules::set_template_spellings` before returning.
+    pub(super) fn template_spellings(&self) -> std::collections::HashMap<String, String> {
+        self.type_instantiations
+            .keys()
+            .map(|concrete| {
+                (
+                    concrete.name().into_owned(),
+                    self.template_view(concrete).name().into_owned(),
+                )
+            })
+            .collect()
+    }
+
     /// The declared fields of a concrete RECORD type, or `None` when `type_` names
     /// no record. The `TypeDeclKind::Type` filter is what the per-function
     /// snapshot applied when it populated `record_fields`, so an `ENUM`/`UNION`
@@ -2639,6 +2660,22 @@ END SUB
             type_b.fields[0].type_.name().as_ref(),
             b.as_str(),
             "second keeps its field type"
+        );
+
+        // bug-697: each colliding mangled symbol must still map back to ITS OWN
+        // template spelling — the disambiguation suffix that keeps the two
+        // symbols distinct must not leak into, or be lost from, either
+        // rendered spelling.
+        let spellings = mono.template_spellings();
+        assert_eq!(
+            spellings.get(&name_a).map(String::as_str),
+            Some("Box OF FUNC(Integer) AS Nothing"),
+            "first colliding symbol keeps its own template spelling"
+        );
+        assert_eq!(
+            spellings.get(&name_b).map(String::as_str),
+            Some("Box OF FUNC{Integer} AS Nothing"),
+            "second colliding symbol keeps its own template spelling"
         );
     }
 

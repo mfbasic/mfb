@@ -230,8 +230,8 @@ pub(crate) fn lower_strings_pad(
         // leaked a block. Hand it to the statement-scope free. Only this
         // default-padChar branch qualifies; the 3-argument branch spills the
         // CALLER's padChar, which this scope does not own.
-        builder.register_fresh_string_temp(Operand::from(space.render()));
-        builder.spill_to_slot("strings_pad_char", &space.render())
+        builder.register_fresh_string_temp(Operand::from(space));
+        builder.spill_to_slot("strings_pad_char", &space)
     };
     let measure = pad_measure(
         builder,
@@ -371,11 +371,11 @@ pub(crate) fn lower_strings_pad(
     // padChar materialized above is a DIFFERENT vreg, so it stays opted out —
     // `mark_fresh_string` only takes effect for the operand `lower_value` sees
     // as this value's result.
-    builder.mark_fresh_string(Operand::from(result.render()));
+    builder.mark_fresh_string(Operand::from(result));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: label.to_string(),
     })
 }

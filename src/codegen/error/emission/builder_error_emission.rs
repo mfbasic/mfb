@@ -49,19 +49,15 @@ impl CodeBuilder<'_> {
     /// `rhs`.
     pub(crate) fn emit_checked_size_multiply(
         &mut self,
-        product: impl Into<Operand>,
-        lhs: impl Into<Operand>,
-        rhs: impl Into<Operand>,
+        product: impl Into<abi::Reg>,
+        lhs: impl Into<abi::Reg>,
+        rhs: impl Into<abi::Reg>,
         overflow: &str,
     ) {
         let lhs = lhs.into();
         let rhs = rhs.into();
         let high = self.temporary_vreg();
-        self.emit(abi::unsigned_multiply_high_registers(
-            &high,
-            lhs.clone(),
-            rhs.clone(),
-        ));
+        self.emit(abi::unsigned_multiply_high_registers(&high, lhs, rhs));
         self.emit(abi::compare_immediate(&high, "0"));
         self.emit(abi::branch_ne(overflow));
         self.emit(abi::multiply_registers(product, lhs, rhs));
@@ -72,14 +68,14 @@ impl CodeBuilder<'_> {
     /// test compares the sum against `rhs`).
     pub(crate) fn emit_checked_size_add(
         &mut self,
-        dst: impl Into<Operand>,
-        lhs: impl Into<Operand>,
-        rhs: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        lhs: impl Into<abi::Reg>,
+        rhs: impl Into<abi::Reg>,
         overflow: &str,
     ) {
         let dst = dst.into();
         let rhs = rhs.into();
-        self.emit(abi::add_registers(dst.clone(), lhs, rhs.clone()));
+        self.emit(abi::add_registers(dst, lhs, rhs));
         self.emit(abi::compare_registers(dst, rhs));
         self.emit(abi::branch_lo(overflow));
     }
@@ -88,14 +84,14 @@ impl CodeBuilder<'_> {
     /// on unsigned wrap. `dst` must not alias `src`.
     pub(crate) fn emit_checked_size_add_immediate(
         &mut self,
-        dst: impl Into<Operand>,
-        src: impl Into<Operand>,
+        dst: impl Into<abi::Reg>,
+        src: impl Into<abi::Reg>,
         immediate: usize,
         overflow: &str,
     ) {
         let dst = dst.into();
         let src = src.into();
-        self.emit(abi::add_immediate(dst.clone(), src.clone(), immediate));
+        self.emit(abi::add_immediate(dst, src, immediate));
         self.emit(abi::compare_registers(dst, src));
         self.emit(abi::branch_lo(overflow));
     }
@@ -106,8 +102,8 @@ impl CodeBuilder<'_> {
     /// (null load) instead of letting the heap corruption propagate silently.
     pub(crate) fn emit_write_cursor_assert(
         &mut self,
-        cursor: impl Into<Operand>,
-        expected: impl Into<Operand>,
+        cursor: impl Into<abi::Reg>,
+        expected: impl Into<abi::Reg>,
         tag: &str,
     ) {
         let ok = self.label(&format!("{tag}_write_assert_ok"));
@@ -516,7 +512,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_error_register_return(
         &mut self,
-        code_register: impl Into<Operand>,
+        code_register: impl Into<abi::Reg>,
         message: &str,
     ) -> Result<(), String> {
         // plan-64-I: inside an inline `TRAP` whose error is provably unused
@@ -596,17 +592,21 @@ impl CodeBuilder<'_> {
         // still propagate out (§8.6).
         if let Some(label) = self.raw_result_capture.clone() {
             self.emit(abi::branch(&label));
-        } else if !self.emitting_error_route
-            && matches!(self.error_exit_destination(), ExitDestination::Trap)
-        {
-            // Route this inline failure to the enclosing function-level `TRAP`. The
-            // trap route builds an `Error` inline; its OOM fallback re-enters here
-            // with the guard set, so it returns to the caller instead of recursing.
-            self.emitting_error_route = true;
-            self.emit_current_result_exit(ExitDestination::Trap)?;
-            self.emitting_error_route = false;
-        } else {
+        } else if self.emitting_error_route {
+            // Re-entry from an error route's own OOM fallback (the trap route
+            // builds an `Error` inline): the route that re-entered is already
+            // mid-walk, so running the walk again would double-free. Return.
             self.emit(abi::return_());
+        } else {
+            // bug-695: leave freeing exactly what a failing CALL at this point
+            // frees — the statement's pending temps, then the scope-drop walk for
+            // the destination: the enclosing function-level `TRAP` when one is
+            // active, the caller otherwise (`emit_inline_error_exit`). The guard
+            // marks the route for the re-entry above.
+            self.emitting_error_route = true;
+            let routed = self.emit_inline_error_exit();
+            self.emitting_error_route = false;
+            routed?;
         }
         Ok(())
     }
@@ -636,7 +636,7 @@ impl CodeBuilder<'_> {
             if value.type_ == ParameterType::Nothing {
                 let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
-                Operand::from(register.render())
+                Operand::from(register)
             } else if !already_standalone
                 && self.inline_collection_payload_size(&value.type_).is_some()
             {
@@ -644,8 +644,7 @@ impl CodeBuilder<'_> {
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
                 Operand::from(
-                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?
-                        .render(),
+                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?,
                 )
             } else {
                 value.location.clone()
@@ -653,7 +652,7 @@ impl CodeBuilder<'_> {
         } else {
             let register = self.allocate_register();
             self.emit(abi::move_immediate(&register, "Integer", "0"));
-            Operand::from(register.render())
+            Operand::from(register)
         };
         let message_register = self.allocate_register();
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
@@ -696,7 +695,7 @@ impl CodeBuilder<'_> {
 
     /// Park an owned Error block base in the current-error slot so the catching
     /// trap route ADOPTS it (design "b"); pair with `RESULT_ERR_BLOCK_TAG`.
-    pub(crate) fn emit_store_current_error(&mut self, base_register: impl Into<Operand>) {
+    pub(crate) fn emit_store_current_error(&mut self, base_register: impl Into<abi::Reg>) {
         let addr = self.current_error_slot_address();
         self.emit(abi::store_u64(base_register, &addr, 0));
     }
@@ -906,9 +905,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn store_pending_error_registers(
         &mut self,
-        code_register: impl Into<Operand>,
-        message_register: impl Into<Operand>,
-        source_register: impl Into<Operand>,
+        code_register: impl Into<abi::Reg>,
+        message_register: impl Into<abi::Reg>,
+        source_register: impl Into<abi::Reg>,
         tag: &str,
     ) {
         let slots = self.ensure_pending_result_slots();
@@ -939,36 +938,28 @@ impl CodeBuilder<'_> {
     /// `error_location` is preserved.
     pub(crate) fn emit_load_error_fields(
         &mut self,
-        error_location: impl Into<Operand>,
-        code_register: impl Into<Operand>,
-        message_register: impl Into<Operand>,
-        source_register: impl Into<Operand>,
+        error_location: impl Into<abi::Reg>,
+        code_register: impl Into<abi::Reg>,
+        message_register: impl Into<abi::Reg>,
+        source_register: impl Into<abi::Reg>,
     ) {
         let error_location = error_location.into();
         let message_register = message_register.into();
         let source_register = source_register.into();
         let src_null = self.label("error_read_src_null");
         let src_done = self.label("error_read_src_done");
-        self.emit(abi::load_u64(code_register, error_location.clone(), 0));
-        self.emit(abi::load_u64(
-            message_register.clone(),
-            error_location.clone(),
-            8,
-        ));
+        self.emit(abi::load_u64(code_register, error_location, 0));
+        self.emit(abi::load_u64(message_register, error_location, 8));
         self.emit(abi::add_registers(
-            message_register.clone(),
-            error_location.clone(),
+            message_register,
+            error_location,
             message_register,
         ));
-        self.emit(abi::load_u64(
-            source_register.clone(),
-            error_location.clone(),
-            16,
-        ));
-        self.emit(abi::compare_immediate(source_register.clone(), "0"));
+        self.emit(abi::load_u64(source_register, error_location, 16));
+        self.emit(abi::compare_immediate(source_register, "0"));
         self.emit(abi::branch_eq(&src_null));
         self.emit(abi::add_registers(
-            source_register.clone(),
+            source_register,
             error_location,
             source_register,
         ));

@@ -15,7 +15,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -32,6 +31,7 @@ use super::gen_shared::{
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 
@@ -74,6 +74,8 @@ const SECBUFFER_STREAM_HEADER: &str = "7";
 const SECBUFFER_EXTRA: &str = "5";
 const SECBUFFER_VERSION: &str = "0";
 const SEC_E_OK: &str = "0";
+// DecryptMessage's status for a received close_notify alert (0x00090317).
+const SEC_I_CONTEXT_EXPIRED: &str = "590615";
 const SECPKG_ATTR_STREAM_SIZES: &str = "4";
 const SECPKG_ATTR_REMOTE_CERT_CONTEXT: &str = "83";
 // CertVerifyCertificateChainPolicy: CERT_CHAIN_POLICY_SSL = 4.
@@ -111,6 +113,13 @@ mod st {
     pub const INDESC: usize = 232; // in SecBufferDesc (16)
     pub const ATTRS: usize = 248; // context attrs out (u32)
     pub const EXPIRY: usize = 256; // TimeStamp (8)
+                                   // bug-564: 1 once `DecryptMessage` has returned SEC_I_CONTEXT_EXPIRED, i.e.
+                                   // the peer's close_notify has been consumed. `tls::read` raises
+                                   // ErrConnectionClosed from it on every later call and `tls::poll` reports
+                                   // readable, because the socket itself may stay open (a TLS half-close) and a
+                                   // `recv` there would block until the peer's FIN. Inside the zeroed header
+                                   // (0..RECV) on both the connect and the accept path, so it starts at 0.
+    pub const PEER_CLOSED: usize = 264;
     pub const RECV: usize = 320; // ciphertext receive buffer (RECV_CAP)
     pub const LEFT: usize = 320 + super::RECV_CAP; // decrypted plaintext buffer
     pub const SIZE: usize = 320 + super::RECV_CAP + super::RECV_CAP;
@@ -127,11 +136,12 @@ pub(crate) const SOCKET_BLOCK_SIZE: usize = st::SIZE;
 /// literal, so it is built in `%v14` by shift+add and sign-extended to match the
 /// sign-extended status register.
 fn branch_if_incomplete(
-    status: &str,
+    status: impl Into<Reg>,
     target: &str,
     ins: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    let status: Reg = status.into();
     let v14 = vregs.next();
     ins.extend([
         abi::move_immediate(&v14, "Integer", "32777"), // 0x8009
@@ -177,11 +187,12 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
 
 fn wide_addr(
     from: &str,
-    dst: impl Into<Operand>,
+    dst: impl Into<Reg>,
     id: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
+    let dst: Reg = dst.into();
     crate::codegen::memory::arena::emit_data_address(from, dst, &sym(id), ins, rel);
 }
 

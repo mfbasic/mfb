@@ -154,7 +154,7 @@ pub(crate) fn lower(
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
-        location: Operand::from(result.render()),
+        location: Operand::from(result),
         text: "strings.count".to_string(),
     })
 }

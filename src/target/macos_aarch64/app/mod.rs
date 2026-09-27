@@ -36,7 +36,6 @@ use bootstrap::*;
 use term_view::*;
 
 use crate::arch::aarch64::abi;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
 use crate::codegen::engine::types::CodeFrame;
@@ -45,6 +44,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::CodeRelocation;
 use crate::codegen::engine::types::PresentationMode;
 use crate::codegen::engine::types::RelocIntent;
+use crate::target::shared::abi::Reg;
 
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_macapp_worker";
@@ -466,6 +466,9 @@ const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
 /// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
 /// rebuilding the window. Only reconcile-built (None-start) windows use it.
 const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
+/// bug-699: the `MFBTextView` class a `None`-start bootstrap registers, stashed
+/// for the reconcile's builder to instantiate on the first `setMode(Console)`.
+const RECONCILE_TV_CLASS_KEY: &str = "_mfb_macapp_reconcile_tv_class_key";
 // plan-98-A Phase 3: the `Mode.Canvas` arm of the reconcile. Canvas swaps the
 // window's content view for a bare layer-backed `NSView` — a substitute for the
 // transcript / TermView, not a second window — so plan-98-E can later attach a
@@ -708,7 +711,7 @@ const TERM_VIEW_HEIGHT: u32 = 640;
 // frame, reached off the pinned arena-state register (plan-01-term.md §6.2). The
 // app `term::on`/`term::off` helpers update the same slots the console backend
 // does so `isOn`, the §4.2.1 gate, and auto-restore stay backend-uniform.
-const TERM_ARENA_STATE_REG: &str = abi::LOCAL[0];
+const TERM_ARENA_STATE_REG: Reg = abi::LOCAL[0];
 /// Internal helper symbols for the synthesized surface.
 const TERM_VIEW_DRAW_RECT_SYMBOL: &str = "_mfb_macapp_term_drawRect";
 const TERM_VIEW_IS_FLIPPED_SYMBOL: &str = "_mfb_macapp_term_isFlipped";
@@ -739,10 +742,10 @@ const LIB_FOUNDATION: &str = "Foundation";
 const LIB_SYSTEM: &str = "libSystem";
 
 /// Persistent (callee-saved) registers held across the external calls in `_main`.
-const REG_APP: &str = abi::LOCAL[0]; // NSApplication instance
-const REG_WINDOW: &str = abi::LOCAL[1]; // NSWindow instance
-const REG_SCRATCH_OBJ: &str = abi::LOCAL[2]; // transient object (class / NSString)
-const REG_HEADLESS: &str = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
+const REG_APP: Reg = abi::LOCAL[0]; // NSApplication instance
+const REG_WINDOW: Reg = abi::LOCAL[1]; // NSWindow instance
+const REG_SCRATCH_OBJ: Reg = abi::LOCAL[2]; // transient object (class / NSString)
+const REG_HEADLESS: Reg = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
 
 // `_main` stack frame: [sp+0]=argc, [sp+8]=argv (worker arg block),
 // [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write).
@@ -799,7 +802,7 @@ impl Asm {
 
     /// Load the address of an internal data (or text) symbol into `dst`
     /// (`adrp`/`add`). The linker resolves the symbol's own vmaddr.
-    fn local_address(&mut self, dst: impl Into<Operand>, symbol: &str) {
+    fn local_address(&mut self, dst: impl Into<Reg>, symbol: &str) {
         let dst = dst.into();
         self.ins.push(
             CodeInstruction::new("adrp")
@@ -826,7 +829,7 @@ impl Asm {
     /// Load an external data symbol's value into `dst`: `adrp`/`add` resolves the
     /// symbol's GOT slot address, then `ldr` dereferences it. Used for the
     /// `_OBJC_CLASS_$_*` class pointers (binds + force-loads the framework).
-    fn external_data(&mut self, dst: impl Into<Operand>, symbol: &str, library: &str) {
+    fn external_data(&mut self, dst: impl Into<Reg>, symbol: &str, library: &str) {
         let dst = dst.into();
         self.ins.push(
             CodeInstruction::new("adrp")
@@ -1043,10 +1046,10 @@ pub(crate) fn emit_reconcile_seam(
 
 /// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
 /// callee-saved scratch register (free at the call site) used for the class.
-fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str) {
+fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: Reg, cstr_symbol: &str) {
     asm.external_data(class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
-    asm.local_address("x2", cstr_symbol);
+    asm.local_address(abi::c_arg(2), cstr_symbol);
     asm.push(abi::move_register(abi::c_arg(0), class_tmp));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 }
@@ -1059,11 +1062,7 @@ fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str
 /// the call). The raw-register form stays for the standalone app bodies
 /// (bootstrap / term_view / term-setter helpers), whose native goldens it keeps
 /// byte-identical.
-fn build_nsstring_from_cstring_vreg(
-    asm: &mut Asm,
-    class_tmp: impl Into<Operand>,
-    cstr_symbol: &str,
-) {
+fn build_nsstring_from_cstring_vreg(asm: &mut Asm, class_tmp: impl Into<Reg>, cstr_symbol: &str) {
     let class_tmp = class_tmp.into();
     asm.external_data(&class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
@@ -1074,7 +1073,7 @@ fn build_nsstring_from_cstring_vreg(
 
 /// Materialize a small non-negative integer as a double in `dst` (an FP
 /// register): `movz` the value into a scratch GPR, then `scvtf`.
-fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
+fn emit_double_immediate(asm: &mut Asm, dst: Reg, value: u32) {
     asm.push(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
@@ -1318,7 +1317,11 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
+    for key in [
+        RECONCILE_TV_KEY,
+        RECONCILE_TV_CLASS_KEY,
+        CANVAS_VIEW_ASSOC_KEY,
+    ] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),
@@ -1373,7 +1376,10 @@ mod release_tests {
         let func = bootstrap::emit_reconcile_canvas_helper(true, false);
         let local = |name: Option<String>| -> Option<&'static str> {
             let name = name?;
-            abi::LOCAL.iter().find(|l| **l == name.as_str()).copied()
+            abi::LOCAL_SPELLINGS
+                .iter()
+                .find(|l| **l == name.as_str())
+                .copied()
         };
         let written: BTreeSet<&str> = func
             .instructions
@@ -1384,8 +1390,9 @@ mod release_tests {
         // Only stack traffic counts. A `str` of a LOCAL into a *global* is this helper
         // publishing a value, not preserving its caller's register — counting those was
         // enough to make an earlier version of this test pass with the saves deleted.
-        let on_stack =
-            |ins: &CodeInstruction| ins.get("base").as_deref() == Some(abi::stack_pointer());
+        let on_stack = |ins: &CodeInstruction| {
+            ins.get("base").as_deref() == Some(abi::stack_pointer().to_string().as_str())
+        };
         let saved: BTreeSet<&str> = func
             .instructions
             .iter()

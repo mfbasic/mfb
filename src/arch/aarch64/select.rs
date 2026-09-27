@@ -37,8 +37,20 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
                 .find(|(key, _)| *key == "symbol")
                 .map(|(_, value)| value.clone())
                 .expect("addr_of carries a symbol field");
-            out.push(abi::load_page_address(&dst, &symbol.render()));
-            out.push(abi::add_page_offset(&dst, &dst, &symbol.render()));
+            // The expansion passes the stream's own `dst` operand through unchanged
+            // (it may be minted text from MIR or a realized physical register).
+            let symbol = symbol.render();
+            out.push(
+                CodeInstruction::new("adrp")
+                    .physical_field("dst", dst.clone())
+                    .field("symbol", symbol.as_str()),
+            );
+            out.push(
+                CodeInstruction::new("add_pageoff")
+                    .physical_field("dst", dst.clone())
+                    .physical_field("src", dst)
+                    .field("symbol", symbol.as_str()),
+            );
             continue;
         }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
@@ -157,14 +169,14 @@ mod tests {
         // %retSys → x0.
         let out = select_aarch64(lower_to_mir(&[
             CodeInstruction::new("mov")
-                .field("dst", abi::mfb_return(0))
-                .field("src", abi::mfb_arg(2)),
+                .physical_field("dst", abi::mfb_return(0))
+                .physical_field("src", abi::mfb_arg(2)),
             CodeInstruction::new("mov")
-                .field("dst", abi::c_return(1))
-                .field("src", abi::sys_arg(3)),
+                .physical_field("dst", abi::c_return(1))
+                .physical_field("src", abi::sys_arg(3)),
             CodeInstruction::new("mov")
-                .field("dst", abi::sys_return())
-                .field("src", abi::c_arg(7)),
+                .physical_field("dst", abi::sys_return())
+                .physical_field("src", abi::c_arg(7)),
         ]));
         let vals = values(&out);
         assert!(
@@ -181,8 +193,8 @@ mod tests {
     fn enabled_selfmove_probe_does_not_mutate_the_selected_stream() {
         std::env::set_var("MFB_BUG387_SELFMOVE", "1");
         let out = select_aarch64(lower_to_mir(&[CodeInstruction::new("mov")
-            .field("dst", "x0")
-            .field("src", "x0")]));
+            .physical_field("dst", "x0")
+            .physical_field("src", "x0")]));
         std::env::remove_var("MFB_BUG387_SELFMOVE");
         assert_eq!(out[0].op, CodeOp::Mov);
         assert_eq!(values(&out), ["x0", "x0"]);

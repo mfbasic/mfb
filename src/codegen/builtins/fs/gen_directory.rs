@@ -9,6 +9,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::{emit_helper_scratch_release, HelperScratch};
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 pub(crate) fn lower_fs_current_directory_helper(
@@ -599,9 +600,9 @@ pub(crate) fn lower_fs_create_directories_helper(
     platform.emit_stat_is_kind(
         STAT_OFFSET,
         FS_MODE_DIRECTORY,
-        &mode,
-        &mask,
-        &expected,
+        mode.into(),
+        mask.into(),
+        expected.into(),
         &final_ok,
         &err_already_exists,
         &mut instructions,
@@ -686,12 +687,15 @@ pub(crate) fn lower_fs_create_directories_helper(
 /// `cursor` at the first byte to scan. `components` is a scratch vreg.
 fn emit_windows_create_directories_start(
     symbol: &str,
-    cstring: &str,
-    cursor: &str,
-    byte: &str,
-    components: &str,
+    cstring: impl Into<Reg>,
+    cursor: impl Into<Reg>,
+    byte: impl Into<Reg>,
+    components: impl Into<Reg>,
     instructions: &mut Vec<CodeInstruction>,
 ) {
+    let cstring: Reg = cstring.into();
+    let (cursor, byte, components): (Reg, Reg, Reg) =
+        (cursor.into(), byte.into(), components.into());
     let not_drive = format!("{symbol}_win_not_drive");
     let unc = format!("{symbol}_win_unc");
     let skip_sep = format!("{symbol}_win_skip_sep");
@@ -901,10 +905,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     )?;
     platform.emit_read_dir_entry(
         &format!("{symbol}_count"),
-        &nameptr,
-        &namelen,
-        &byte,
-        &scratch,
+        nameptr.into(),
+        namelen.into(),
+        byte.into(),
+        scratch.into(),
         &mut instructions,
     );
     let count_keep = count_skip.replace("skip", "keep");
@@ -1000,10 +1004,10 @@ pub(crate) fn lower_fs_list_directory_helper(
     )?;
     platform.emit_read_dir_entry(
         &format!("{symbol}_fill"),
-        &nameptr,
-        &namelen,
-        &byte,
-        &scratch,
+        nameptr.into(),
+        namelen.into(),
+        byte.into(),
+        scratch.into(),
         &mut instructions,
     );
     let fill_keep = fill_skip.replace("skip", "keep");

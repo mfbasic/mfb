@@ -195,7 +195,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_to_string_helper_call(
         &mut self,
         kind: ToStringHelper,
-        value: impl Into<Operand>,
+        value: impl Into<abi::Reg>,
         precision: Option<Operand>,
         text: &str,
     ) -> Result<ValueResult, String> {
@@ -220,11 +220,11 @@ impl CodeBuilder<'_> {
         // `emit_decimal_alloc_and_copy_integer` / `emit_materialize_string_from_bytes`
         // (the module doc above establishes both are allocation-only), and each
         // takes a scalar argument, so the returned block is fresh and unaliased.
-        self.mark_fresh_string(Operand::from(result.render()));
+        self.mark_fresh_string(Operand::from(result));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
-            location: Operand::from(result.render()),
+            location: Operand::from(result),
             text: text.to_string(),
         })
     }

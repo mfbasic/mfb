@@ -40,6 +40,7 @@ use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::emit_read_byte_list;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::target::shared::abi::Reg;
 use std::collections::HashMap;
 
 /// The NIST curves this verifier covers. A compile-time selector: the ordinal branch
@@ -192,6 +193,7 @@ fn emit_macos_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -199,7 +201,7 @@ fn emit_macos_verify(
     // the OpenSSL/CNG backends, which check the length explicitly).
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate(&v9, curve.point_len().to_string()),
+        abi::compare_immediate(&v9, &curve.point_len().to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
     emit_read_byte_list(
@@ -209,6 +211,7 @@ fn emit_macos_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -219,6 +222,7 @@ fn emit_macos_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -403,10 +407,11 @@ fn lx_free_guarded(
     raw_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    scratch: &str,
+    scratch: impl Into<Reg>,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let scratch: Reg = scratch.into();
     let skip = format!("{symbol}_{tag}_nofree");
     ins.extend([
         abi::load_u64(scratch, abi::stack_pointer(), obj_off),
@@ -497,6 +502,7 @@ fn emit_linux_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -507,6 +513,7 @@ fn emit_linux_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -517,13 +524,14 @@ fn emit_linux_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
     // pub len must be exactly one uncompressed SEC1 point.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate(&v9, point_len.to_string()),
+        abi::compare_immediate(&v9, &point_len.to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
 
@@ -807,8 +815,8 @@ fn emit_linux_verify(
 #[allow(clippy::too_many_arguments)]
 fn win_der_decode_int(
     sc: &Sc,
-    body: &str,
-    dst: &str,
+    body: impl Into<Reg>,
+    dst: impl Into<Reg>,
     field: usize,
     tag: &str,
     fail: &str,
@@ -817,6 +825,7 @@ fn win_der_decode_int(
     bounds_fail: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
+    let (body, dst): (Reg, Reg) = (body.into(), dst.into());
     let no_pad = format!("{tag}_dnp");
     ins.extend([
         // Bound the 2-byte tag+length header against the signature buffer end.
@@ -1155,6 +1164,7 @@ fn emit_windows_verify(
         PUBBUF,
         PUBLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1165,6 +1175,7 @@ fn emit_windows_verify(
         MSGBUF,
         MSGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1175,6 +1186,7 @@ fn emit_windows_verify(
         SIGBUF,
         SIGLEN,
         &alloc_fail,
+        &mut vregs,
         ins,
         rel,
     );
@@ -1182,7 +1194,7 @@ fn emit_windows_verify(
     // argument, not a false verdict.
     ins.extend([
         abi::load_u64(&sc.v9, abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate(&sc.v9, pub_raw.to_string()),
+        abi::compare_immediate(&sc.v9, &pub_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     for (cap, slot) in [(blobcap, BLOB), (2 * 66, RS)] {

@@ -8,9 +8,11 @@
 //! all `use super::gen_read_family::…`).
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::MOUSE_MODE_SYMBOL;
+use crate::codegen::io::input::buffer as input_buffer;
 use crate::codegen::io::mouse::decode as mouse_decode;
 use crate::codegen::io::stdin::*;
 use crate::codegen::memory::data::push_symbol_address;
@@ -83,6 +85,15 @@ pub(crate) struct MousePump {
     pub(crate) clock_scratch: usize,
 }
 
+///
+/// # The input buffer (bug-699)
+///
+/// `input` is the arena offset of the input-buffer region, `Some` only in a
+/// program with a reader that can leave bytes there (`io::input`). Bytes in it
+/// were pulled from the source — through the mouse decoder — by a reader that
+/// looked ahead and did not consume them; they come BEFORE anything the source
+/// has not delivered yet. So when it holds a byte, that byte is this read's and
+/// neither the mouse decoder nor the source is consulted. `None` emits nothing.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_stdin_byte_read(
     ctx: &mut EmitCtx,
@@ -92,11 +103,32 @@ pub(crate) fn emit_stdin_byte_read(
     resume_label: &str,
     input_error: &str,
     invalid_context: &str,
-    mouse: Option<(MousePump, &mut Vregs)>,
+    mouse: Option<MousePump>,
+    input: Option<usize>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
+
+    // The caller's loop head. `io::readLine` loops back to `retry_label` for every
+    // byte of a line, so it must sit ABOVE every stage that runs before the source
+    // read — the input-buffer front and the mouse pump's owed-byte drain — or
+    // the second and later bytes of a line would skip them: a byte a look-ahead
+    // reader left in the buffer would be read out of order, and a byte the mouse
+    // decoder owes (the `x` after a flushed `ESC`) would be overtaken by a fresh
+    // read, which re-enters the decoder mid-flush and repeats the `ESC` in place
+    // of the rest (bug-699: `a ESC x b` read back as `a ESC ESC ESC` under
+    // `term::enableMouse`). Placed there only when such a stage exists, so every
+    // other program's read keeps its exact instruction stream.
+    let head_first = mouse.is_some() || input.is_some();
+    if head_first {
+        ctx.instructions.push(abi::label(retry_label));
+    }
+    let input_got = format!("{retry_label}_input_got");
+    if let Some(state_offset) = input {
+        input_buffer::emit_take_buffered_byte(&input_got, state_offset, byte_offset, ctx, vregs);
+    }
 
     // The pump's outer loop head: a byte the decoder swallowed sends control back
     // here to read another, so the caller still receives exactly one byte.
@@ -104,11 +136,11 @@ pub(crate) fn emit_stdin_byte_read(
     let pump_done = format!("{symbol}_mouse_pump_done");
     // The pump's registers come from the caller's `Vregs`, so they cannot collide
     // with a caller temporary that is live across the read.
-    let mut pump = mouse.map(|(pump, vregs)| {
+    let pump = mouse.map(|pump| {
         let v = PumpVregs::mint(vregs);
-        (pump, v, vregs)
+        (pump, v)
     });
-    if let Some((pump, v, vregs)) = &mut pump {
+    if let Some((pump, v)) = &pump {
         emit_pump_prologue(
             ctx,
             pump,
@@ -122,8 +154,10 @@ pub(crate) fn emit_stdin_byte_read(
     }
 
     if app_mode {
+        if !head_first {
+            ctx.instructions.push(abi::label(retry_label));
+        }
         ctx.instructions.extend([
-            abi::label(retry_label),
             // fd 0 (stdin) goes in ARG[0], the read() first-arg register that
             // emit_read_file reads it from. Using return_register() worked only by
             // accident on aarch64 (x0 == ARG[0]); on Win64 return_register() is rax,
@@ -148,19 +182,25 @@ pub(crate) fn emit_stdin_byte_read(
             input_error,
         )?;
     } else {
-        ctx.instructions.push(abi::label(retry_label));
+        if !head_first {
+            ctx.instructions.push(abi::label(retry_label));
+        }
         emit_stdin_next_byte(
             symbol,
             byte_offset,
             retry_label,
             input_error,
             invalid_context,
+            vregs,
             ctx.instructions,
             ctx.relocations,
         );
     }
-    if let Some((pump, v, vregs)) = &mut pump {
+    if let Some((pump, v)) = &pump {
         emit_pump_epilogue(ctx, pump, v, byte_offset, &pump_head, &pump_done, vregs)?;
+    }
+    if input.is_some() {
+        ctx.instructions.push(abi::label(&input_got));
     }
     Ok(())
 }
@@ -170,13 +210,13 @@ pub(crate) fn emit_stdin_byte_read(
 /// read and across the decoder, so a name collision with a caller's temporary
 /// would be a silent wrong-byte bug rather than a compile error.
 struct PumpVregs {
-    saved_count: String,
-    byte: String,
-    action: String,
-    out_byte: String,
-    mode: String,
-    mode_addr: String,
-    have: String,
+    saved_count: VirtualRegister,
+    byte: VirtualRegister,
+    action: VirtualRegister,
+    out_byte: VirtualRegister,
+    mode: VirtualRegister,
+    mode_addr: VirtualRegister,
+    have: VirtualRegister,
 }
 
 impl PumpVregs {
@@ -279,7 +319,7 @@ fn emit_pump_escape_wait(
 
     mouse_decode::emit_branch_unless_prefix_held(read_label, pump.state_offset, ctx, vregs);
     if !app_mode {
-        let names: Vec<String> = (0..8).map(|_| vregs.next()).collect();
+        let names: Vec<VirtualRegister> = (0..8).map(|_| vregs.next()).collect();
         let regs = PollReadyRegs {
             addr: &names[0],
             local_pos: &names[1],
@@ -415,6 +455,7 @@ fn emit_pump_epilogue(
 /// mid-sequence is a truncated sequence) fuses on every backend. Reads always go
 /// through libc, so the guard uses the `errno`-accessor convention (both read
 /// helpers already import it for the lead read).
+#[allow(clippy::too_many_arguments)]
 fn emit_continuation_read(
     ctx: &mut EmitCtx,
     app_mode: bool,
@@ -422,6 +463,8 @@ fn emit_continuation_read(
     retry_label: &str,
     resume_label: &str,
     input_error: &str,
+    input: Option<usize>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -453,6 +496,10 @@ fn emit_continuation_read(
         // would buffer it, and the caller is not structured to replay it mid-
         // sequence. The lead-byte read is the one that decides.
         None,
+        // The input buffer, though, applies: a continuation byte a look-ahead
+        // reader left there is this character's next byte.
+        input,
+        vregs,
     )
 }
 
@@ -471,6 +518,7 @@ pub(crate) fn emit_utf8_sequence_read(
     bytes_offset: usize,
     len_offset: usize,
     on_lf: Option<&str>,
+    input: Option<usize>,
     vregs: &mut Vregs,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -510,6 +558,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont1_retry"),
         &format!("{symbol}_cont1_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),
@@ -538,6 +588,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont2_retry"),
         &format!("{symbol}_cont2_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),
@@ -577,6 +629,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont3_retry"),
         &format!("{symbol}_cont3_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),
@@ -607,6 +661,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont4_retry"),
         &format!("{symbol}_cont4_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),
@@ -646,6 +702,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont5_retry"),
         &format!("{symbol}_cont5_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),
@@ -668,6 +726,8 @@ pub(crate) fn emit_utf8_sequence_read(
         &format!("{symbol}_cont6_retry"),
         &format!("{symbol}_cont6_resume"),
         l.input_error,
+        input,
+        vregs,
     )?;
     instructions.extend([
         abi::branch_eq(l.encoding_error),

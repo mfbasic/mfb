@@ -1,4 +1,5 @@
 IMPORT collections
+IMPORT datetime
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -174,12 +175,18 @@ FUNC readKey AS String
   RETURN c
 END FUNC
 
-FUNC directionFor(key AS String, current AS Direction) AS Direction
-  IF (key = "UP" OR key = "w" OR key = "W") AND current.dy <> 1 THEN RETURN Direction[0, -1]
-  IF (key = "DOWN" OR key = "s" OR key = "S") AND current.dy <> -1 THEN RETURN Direction[0, 1]
-  IF (key = "LEFT" OR key = "a" OR key = "A") AND current.dx <> 1 THEN RETURN Direction[-1, 0]
-  IF (key = "RIGHT" OR key = "d" OR key = "D") AND current.dx <> -1 THEN RETURN Direction[1, 0]
-  RETURN current
+' Validates a requested turn against lastMoved — the direction the snake last
+' actually moved in, not a same-tick, not-yet-applied turn — so two turns
+' delivered within one step interval can never compose into a reversal that a
+' single turn could not achieve. `queued` is the turn already pending for the
+' next real move; it is returned unchanged when the new key is unrecognized
+' or rejected, so an earlier valid turn this tick is never discarded.
+FUNC directionFor(key AS String, lastMoved AS Direction, queued AS Direction) AS Direction
+  IF (key = "UP" OR key = "w" OR key = "W") AND lastMoved.dy <> 1 THEN RETURN Direction[0, -1]
+  IF (key = "DOWN" OR key = "s" OR key = "S") AND lastMoved.dy <> -1 THEN RETURN Direction[0, 1]
+  IF (key = "LEFT" OR key = "a" OR key = "A") AND lastMoved.dx <> 1 THEN RETURN Direction[-1, 0]
+  IF (key = "RIGHT" OR key = "d" OR key = "D") AND lastMoved.dx <> -1 THEN RETURN Direction[1, 0]
+  RETURN queued
 END FUNC
 
 FUNC stepSnake(snake AS List OF Point, dir AS Direction, food AS Point) AS List OF Point
@@ -207,6 +214,7 @@ FUNC main AS Integer
   MUT snake AS List OF Point = []
   MUT food AS Point = Point[-1, -1]
   MUT dir AS Direction = Direction[1, 0]
+  MUT lastMovedDir AS Direction = Direction[1, 0]
   MUT score AS Integer = 0
   MUT best AS Integer = 0
   MUT paused AS Boolean = FALSE
@@ -214,6 +222,7 @@ FUNC main AS Integer
   MUT won AS Boolean = FALSE
   MUT running AS Boolean = TRUE
   MUT dirty AS Boolean = TRUE
+  MUT nextStepAt AS Integer = datetime::monotonicNanos() + frameDelayMs() * 1000000
 
   DO WHILE running
     LET size AS term::TermSize = term::terminalSize() TRAP(e)
@@ -241,11 +250,13 @@ FUNC main AS Integer
       snake = initialSnake(gridW, gridH)
       food = spawnFood(gridW, gridH, snake)
       dir = Direction[1, 0]
+      lastMovedDir = Direction[1, 0]
       score = 0
       paused = FALSE
       gameOver = FALSE
       won = FALSE
       dirty = TRUE
+      nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
     END IF
 
     IF dirty THEN
@@ -257,7 +268,14 @@ FUNC main AS Integer
     drawStatus(size.columns, gridH, score, best, paused, gameOver, won)
     term::sync()
 
-    IF ready(frameDelayMs()) THEN
+    ' Poll for a key for whatever is left of the current step cadence — never
+    ' longer, so "did input arrive" cannot delay "is it time to step".
+    LET stepWaitNanos AS Integer = nextStepAt - datetime::monotonicNanos()
+    MUT stepWaitMs AS Integer = stepWaitNanos / 1000000
+    IF stepWaitMs < 0 THEN stepWaitMs = 0
+    IF stepWaitMs > frameDelayMs() THEN stepWaitMs = frameDelayMs()
+
+    IF ready(stepWaitMs) THEN
       LET key AS String = readKey()
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
@@ -267,33 +285,43 @@ FUNC main AS Integer
         snake = initialSnake(gridW, gridH)
         food = spawnFood(gridW, gridH, snake)
         dir = Direction[1, 0]
+        lastMovedDir = Direction[1, 0]
         score = 0
         paused = FALSE
         gameOver = FALSE
         won = FALSE
         dirty = TRUE
+        nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
       ELSEIF NOT paused AND NOT gameOver AND NOT won THEN
-        dir = directionFor(key, dir)
+        dir = directionFor(key, lastMovedDir, dir)
       END IF
-    ELSEIF NOT paused AND NOT gameOver AND NOT won THEN
-      LET head AS Point = collections::get(snake, 0)
-      LET nextHead AS Point = Point[head.x + dir.dx, head.y + dir.dy]
-      LET grows AS Boolean = pointEq(nextHead, food)
-      MUT selfLimit AS Integer = len(snake)
-      IF NOT grows THEN selfLimit = selfLimit - 1
+    END IF
 
-      IF nextHead.x < 0 OR nextHead.x >= gridW OR nextHead.y < 0 OR nextHead.y >= gridH OR containsPointBefore(snake, nextHead, selfLimit) THEN
-        gameOver = TRUE
-      ELSE
-        snake = stepSnake(snake, dir, food)
-        IF grows THEN
-          score = score + 1
-          IF score > best THEN best = score
-          IF len(snake) >= gridW * gridH THEN
-            won = TRUE
-            food = Point[-1, -1]
-          ELSE
-            food = spawnFood(gridW, gridH, snake)
+    ' Advance the simulation on its own fixed cadence, independent of whether
+    ' a key arrived above — continuous input must never freeze the step.
+    IF datetime::monotonicNanos() >= nextStepAt THEN
+      nextStepAt = datetime::monotonicNanos() + frameDelayMs() * 1000000
+      IF NOT paused AND NOT gameOver AND NOT won THEN
+        LET head AS Point = collections::get(snake, 0)
+        LET nextHead AS Point = Point[head.x + dir.dx, head.y + dir.dy]
+        LET grows AS Boolean = pointEq(nextHead, food)
+        MUT selfLimit AS Integer = len(snake)
+        IF NOT grows THEN selfLimit = selfLimit - 1
+
+        IF nextHead.x < 0 OR nextHead.x >= gridW OR nextHead.y < 0 OR nextHead.y >= gridH OR containsPointBefore(snake, nextHead, selfLimit) THEN
+          gameOver = TRUE
+        ELSE
+          snake = stepSnake(snake, dir, food)
+          lastMovedDir = dir
+          IF grows THEN
+            score = score + 1
+            IF score > best THEN best = score
+            IF len(snake) >= gridW * gridH THEN
+              won = TRUE
+              food = Point[-1, -1]
+            ELSE
+              food = spawnFood(gridW, gridH, snake)
+            END IF
           END IF
         END IF
       END IF
