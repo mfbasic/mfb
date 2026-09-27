@@ -27,6 +27,13 @@ MFB_CANVAS_GPU=1` from a `.bat` loop:
 - expected: 0 of 40.
 - 2226 (lavapipe, aarch64 Linux) never showed it in the same day's runs (two full row
   sets, ~60 runs).
+- **The real Intel driver never shows it** (2026-09-26, the real-GPU Windows box, Intel
+  UHD Graphics 630, Intel Vulkan 1.3.215): the same one-rectangle `.exe` (built at
+  `0cd2db799`), the same 40-run loop, 40 of 40 exit 0, and a single run's stats confirm
+  `vulkanReady=TRUE gpuFrames=1`. Every `test-canvas-gpu-rows.sh` render row (the 14
+  existing and bug-735's 12, run by hand with the harness's env and comparator) drew on
+  that GPU with rc 0 as well. So the fault is lavapipe-on-2230-specific, which is what
+  the driver-only stacks already suggested.
 
 ## Root Cause (evidence; the driver has no symbols)
 
@@ -40,8 +47,10 @@ page-boundary address are a driver over-read past an allocation that sometimes e
 page end. The driver is Mesa 26.2 lavapipe in `C:\mfbvk\mesa\x64` (dated 2026-08-11),
 under the box's x86-64 emulation.
 
-Hypotheses not yet eliminated: an MFB buffer handed to the driver too short by a few
-bytes (e.g. a mapped region's size) that only faults when it ends a page. Against it:
+Hypotheses not yet eliminated (weakened by the real-driver result above, which would
+likely fault on an MFB over-read too, though a real GPU does not read a buffer through
+the CPU's page tables the way lavapipe does): an MFB buffer handed to the driver too
+short by a few bytes (e.g. a mapped region's size) that only faults when it ends a page. Against it:
 the one-rectangle scene's buffers are the same fixed sizes as every scene's, and 2226's
 lavapipe never faults. Confirm by running under a Mesa built with symbols, or a newer
 Mesa release.
