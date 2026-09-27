@@ -158,6 +158,52 @@ fn widen_device_id_reads_the_id_inlined_in_the_device_record() {
 
 use crate::codegen::builtins::audio::status_tests::{raises_of, set};
 
+/// plan-158-C: `audio::write` never waits without a bound. `WaitForSingleObject`'s
+/// `INFINITE` is `!0`, emitted as `mvn` into its timeout argument; a write that
+/// cannot progress (an invalidated device, a stalled engine) must fail instead.
+#[test]
+fn write_has_no_infinite_wait() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _) = lower_write("t_write", &imports, &TestPlatform).expect("write");
+    let timeout_arg = abi::c_arg(1).to_string();
+    assert!(
+        !ins.iter()
+            .any(|i| i.op == CodeOp::Mvn && i.get("dst").as_deref() == Some(timeout_arg.as_str())),
+        "plan-158-C: audio::write must bound every WaitForSingleObject"
+    );
+}
+
+/// plan-158-C: an EXCLUSIVE output is pre-rolled before it starts, so its open
+/// skips `Start` (and only `Start`: one indirect call between the skip and its
+/// target) when `W_SHARED` is 0. An input stream always starts at open.
+#[test]
+fn exclusive_output_open_does_not_start_the_stream() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _) = lower_open("t_open", false, false, &imports, &TestPlatform).expect("open");
+    let label = ins
+        .iter()
+        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("t_open_opened"))
+        .expect("the open's post-Start label");
+    let skip = ins
+        .iter()
+        .position(|i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened"))
+        .expect("the EXCLUSIVE output skips Start");
+    assert!(skip < label);
+    let calls = ins[skip..label]
+        .iter()
+        .filter(|i| i.op == CodeOp::BranchLinkRegister)
+        .count();
+    assert_eq!(calls, 1, "exactly the Start call is skipped");
+    let (ins, _rel, _) = lower_open("t_open", true, false, &imports, &TestPlatform).expect("open");
+    assert!(
+        !ins.iter()
+            .any(|i| i.op == CodeOp::BranchEq && i.get("target").as_deref() == Some("t_open_opened")),
+        "an input stream always starts at open"
+    );
+}
+
 /// plan-158-A: every Windows audio failure that has an OS status reports it. No
 /// `ErrAudioDevice` / `ErrAudioUnavailable` in these helpers is raised with the
 /// bare static message except the closed-stream refusals of `write`/`read`, which
@@ -167,13 +213,14 @@ use crate::codegen::builtins::audio::status_tests::{raises_of, set};
 fn windows_audio_failures_report_their_os_status() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
+    // plan-158-C: SHARED first, EXCLUSIVE only when the mix format cannot serve the
+    // request, so the mix checks choose the mode instead of failing, and each
+    // `Initialize` names the mode it tried.
     let open_calls = [
         "IMMDevice::Activate",
         "IAudioClient::GetMixFormat",
-        "mix rate",
-        "mix bits",
-        "mix channels",
-        "IAudioClient::Initialize",
+        "IAudioClient::Initialize(SHARED)",
+        "IAudioClient::Initialize(EXCLUSIVE)",
         "IAudioClient::GetBufferSize",
         "CreateEventW",
         "IAudioClient::SetEventHandle",
@@ -209,9 +256,12 @@ fn windows_audio_failures_report_their_os_status() {
         (
             1,
             set(&[
+                "WaitForSingleObject",
                 "IAudioClient::GetCurrentPadding",
                 "IAudioRenderClient::GetBuffer",
                 "IAudioRenderClient::ReleaseBuffer",
+                // plan-158-C: the EXCLUSIVE submit starts the pre-rolled stream.
+                "IAudioClient::Start",
             ])
         )
     );

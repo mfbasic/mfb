@@ -19,13 +19,14 @@
 //! WASAPI STATE block (`W_*`) holding the four COM interface pointers, the event
 //! handle, the negotiated buffer frame count, and the COM out-pointer scratch the
 //! method calls write their results into (an absolute arena address is a stable,
-//! DEPTH-0-safe out-param target). Open Decision 1 (EXCLUSIVE, no resampling) is
-//! attempted first; if the device refuses that format (any FAILED `Initialize`
-//! HRESULT) `lower_open` releases and re-activates the client and falls back to
-//! SHARED at the device's own MIX FORMAT (`GetMixFormat`), converting each sample
-//! between `s16le` and the mix's 32-bit float by hand — AUTOCONVERTPCM is NOT used
-//! (it fast-fails on the test box). The fallback is a last resort, recorded in
-//! `W_SHARED`; there is no buffer-alignment retry.
+//! DEPTH-0-safe out-param target). No resampling ever (plan-66 Open Decision 1).
+//! `lower_open` reads the device's MIX FORMAT first and uses SHARED at that format
+//! whenever it serves the request, converting each sample between `s16le` and the
+//! mix's 32-bit float by hand (AUTOCONVERTPCM is NOT used: it fast-fails on the test
+//! box). Only when SHARED cannot serve the request does it initialize EXCLUSIVE
+//! `s16le`, because an EXCLUSIVE attempt invalidates every SHARED stream on the
+//! endpoint, even a failed one (plan-158-C). The mode is recorded in `W_SHARED`;
+//! there is no buffer-alignment retry.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
@@ -161,6 +162,10 @@ const DEVPAIRS_OFF: usize = 256; // (record, size) per device
 const DEVLIST_CURSOR_OFF: usize = 264; // record-list builder scratch
 const DEVLIST_INDEX_OFF: usize = 272; // record-list builder scratch
 const DEVLIST_OFF: usize = 280; // the built list
+
+// plan-158-C: the least a render wait allows before declaring the stream stalled
+// (`emit_render_wait_timeout`); two buffer periods, when longer, win.
+const RENDER_WAIT_FLOOR_MS: &str = "200";
 
 // plan-73-B: the convention clamps a too-large `timeoutMs` to INT_MAX (the
 // deadline math takes a C `int`) rather than raising the old 24h cap.

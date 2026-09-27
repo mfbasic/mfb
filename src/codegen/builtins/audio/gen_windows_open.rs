@@ -1,14 +1,16 @@
 // openOutput / openInput / openOutputDevice / openInputDevice / close.
 //
-// Open Decision 1 is honoured device-permitting: an EXCLUSIVE, event-driven
-// s16le stream (no resampling) is attempted first. If the device refuses that
-// format (AUDCLNT_E_UNSUPPORTED_FORMAT — the common case for a shared consumer
-// endpoint), the sanctioned fallback is SHARED mode at the device's own MIX
-// FORMAT (`GetMixFormat`): the engine's native geometry always initializes.
-// `write`/`read` then convert between the caller's s16le frames and the mix
-// format's 32-bit-float frames (`W_SHARED` selects the path; `W_MIX_CH`/
-// `W_MIX_BPF` carry the mix geometry). AUTOCONVERTPCM is deliberately NOT used:
-// on the Win11 test box it fast-fails (0xC0000409) inside WASAPI.
+// Open Decision 1 (no resampling) holds in both modes. SHARED at the device's own
+// MIX FORMAT (`GetMixFormat`) comes first, whenever the mix rate is the requested
+// rate, the mix is 32-bit float, and it has at least the requested channels; an
+// EXCLUSIVE, event-driven s16le stream is initialized only when it cannot (plan-
+// 158-C: the EXCLUSIVE attempt itself invalidates every SHARED stream on the
+// endpoint). In SHARED, `write`/`read` convert between the caller's s16le frames
+// and the mix format's 32-bit-float frames (`W_SHARED` selects the path;
+// `W_MIX_CH`/`W_MIX_BPF` carry the mix geometry). AUTOCONVERTPCM is deliberately
+// NOT used: on the Win11 test box it fast-fails (0xC0000409) inside WASAPI. An
+// EXCLUSIVE output is not started at open: its first full buffer pre-rolls it
+// (`emit_exclusive_submit`).
 
 /// Build the caller's `WAVEFORMATEX` (s16le PCM) at `state->W_WFX`, as five 32-bit
 /// stores (16-bit fields packed into dword halves; the last store zeroes `cbSize`
@@ -114,23 +116,27 @@ fn emit_initialize(exclusive: bool, mix_ptr: bool, ins: &mut Vec<CodeInstruction
     ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF));
 }
 
-/// `client->Release()` then a fresh `device->Activate` — used before the SHARED
-/// retry, since a client that failed `Initialize` cannot be reinitialized.
-fn emit_reactivate_client(
+/// `CoTaskMemFree` the `GetMixFormat` result at `state->W_OUT0` and clear the slot,
+/// so the failed-open release (`emit_open_failure_release`) sees nothing to free.
+fn emit_free_mix_format(
     symbol: &str,
-    dev_fail: &mut StatusFailSites,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
     vregs: &mut Vregs,
-) {
-    spill_obj(W_CLIENT, ins, vregs);
-    com_call(SLOT_RELEASE, 1, ins, vregs);
+) -> Result<(), String> {
     let v9 = vregs.next();
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, &v9, W_CLIENT),
+        abi::load_u64(abi::return_register(), &v9, W_OUT0),
     ]);
-    emit_activate_client(symbol, dev_fail, ins, rel, vregs);
+    ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, ins, rel)?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, &v9, W_OUT0),
+    ]);
+    Ok(())
 }
 
 pub(crate) fn lower_open(
@@ -145,7 +151,7 @@ pub(crate) fn lower_open(
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let init_ok = format!("{symbol}_init_ok");
-    let use_shared = format!("{symbol}_use_shared");
+    let use_exclusive = format!("{symbol}_use_exclusive");
     let event_fail = format!("{symbol}_event_fail");
     let carry_fail = format!("{symbol}_carry_fail");
     let done = format!("{symbol}_done");
@@ -302,24 +308,11 @@ pub(crate) fn lower_open(
         abi::unsigned_divide_registers(&v9, &v9, &v10),
         abi::store_u64(&v9, abi::stack_pointer(), TOTAL_OFF),
     ]);
-    // --- EXCLUSIVE attempt (Open Decision 1: s16le, no resampling) ----------
-    emit_initialize(true, false, &mut ins, &mut vregs);
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&use_shared),
-        // EXCLUSIVE succeeded: direct s16le, mix geometry == user geometry.
-        abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
-        abi::store_u64(&v9, &v15, W_MIX_CH),
-        abi::load_u64(&v9, abi::stack_pointer(), BPF_OFF),
-        abi::store_u64(&v9, &v15, W_MIX_BPF),
-        abi::store_u64(abi::ZERO, &v15, W_SHARED),
-        abi::branch(&init_ok),
-        abi::label(&use_shared),
-    ]);
-    // --- SHARED fallback at the device MIX FORMAT (clearly a last resort) -----
-    emit_reactivate_client(symbol, &mut dev_sites, &mut ins, &mut rel, &mut vregs);
+    // --- SHARED first, at the device MIX FORMAT (plan-158-C) ------------------
+    // An EXCLUSIVE `Initialize` ATTEMPT invalidates every SHARED stream on the
+    // endpoint, even when it fails and the open falls back (plan-158-C C2). So the
+    // mix format is read first, and SHARED is used whenever it can serve the
+    // request without resampling; EXCLUSIVE is attempted only when it cannot.
     // GetMixFormat(&state->W_OUT0)
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
@@ -342,44 +335,63 @@ pub(crate) fn lower_open(
         abi::store_u64(&v11, &v9, W_MIX_CH),
         abi::load_u16(&v11, &v10, 12), // mixBlockAlign (frame stride)
         abi::store_u64(&v11, &v9, W_MIX_BPF),
-        abi::move_immediate(&v11, "Integer", "1"),
-        abi::store_u64(&v11, &v9, W_SHARED),
-        // No resampling: the mix rate must equal the requested rate. Each of these
-        // checks reports the observed device value as its status, from the return
-        // register, which the status stub reads at the branch.
-        abi::load_u32(abi::return_register(), &v10, 4), // mix rate
+        // No resampling: SHARED serves only the mix rate.
+        abi::load_u32(&v11, &v10, 4), // mix rate
         abi::load_u64(&v12, abi::stack_pointer(), SR_OFF),
-        abi::compare_registers(abi::return_register(), &v12),
-        abi::branch_ne(&dev_sites.site("mix rate", abi::return_register())),
+        abi::compare_registers(&v11, &v12),
+        abi::branch_ne(&use_exclusive),
         // Only a 32-bit-float mix format is convertible by the integer s16<->f32 path.
-        abi::load_u16(abi::return_register(), &v10, 14), // mix bits per sample
-        abi::compare_immediate(abi::return_register(), "32"),
-        abi::branch_ne(&dev_sites.site("mix bits", abi::return_register())),
+        abi::load_u16(&v11, &v10, 14), // mix bits per sample
+        abi::compare_immediate(&v11, "32"),
+        abi::branch_ne(&use_exclusive),
         // bug-416 (3): the SHARED read converter (`emit_read_fill`) reads userCh
         // channels per frame from the device mix buffer (c in [0, userCh)); a mix
         // with fewer channels than the caller opened would read past the capture
-        // buffer on the final frame. Reject mixCh < userCh — the read path cannot
-        // synthesize channels the device does not provide. (The write path is safe:
-        // it bounds c on mixCh and folds the user channel with `c mod userCh`.)
-        abi::load_u64(abi::return_register(), &v9, W_MIX_CH),
+        // buffer on the final frame. SHARED cannot serve mixCh < userCh — the read
+        // path cannot synthesize channels the device does not provide. (The write
+        // path is safe: it bounds c on mixCh and folds the user channel with
+        // `c mod userCh`.)
+        abi::load_u64(&v11, &v9, W_MIX_CH),
         abi::load_u64(&v12, abi::stack_pointer(), CH_OFF),
-        abi::compare_registers(abi::return_register(), &v12),
-        abi::branch_lt(&dev_sites.site("mix channels", abi::return_register())),
+        abi::compare_registers(&v11, &v12),
+        abi::branch_lt(&use_exclusive),
+        abi::move_immediate(&v11, "Integer", "1"),
+        abi::store_u64(&v11, &v9, W_SHARED),
     ]);
     // Initialize SHARED with the mix format (pointer at W_OUT0).
     emit_initialize(false, true, &mut ins, &mut vregs);
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&dev_sites.site("IAudioClient::Initialize", abi::return_register())),
-        // CoTaskMemFree(mixWfx)
-        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::return_register(), &v9, W_OUT0),
+        abi::branch_lt(&dev_sites.site(
+            "IAudioClient::Initialize(SHARED)",
+            abi::return_register(),
+        )),
     ]);
-    ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, &mut ins, &mut rel)?;
+    emit_free_mix_format(symbol, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
     ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, &v9, W_OUT0),
+        abi::branch(&init_ok),
+        // --- EXCLUSIVE s16le (Open Decision 1: no resampling) -----------------
+        abi::label(&use_exclusive),
+    ]);
+    emit_free_mix_format(symbol, platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    ins.extend([
+        // Direct s16le: the mix geometry is the user geometry.
+        abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::store_u64(&v9, &v15, W_MIX_CH),
+        abi::load_u64(&v9, abi::stack_pointer(), BPF_OFF),
+        abi::store_u64(&v9, &v15, W_MIX_BPF),
+        abi::store_u64(abi::ZERO, &v15, W_SHARED),
+    ]);
+    emit_initialize(true, false, &mut ins, &mut vregs);
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&dev_sites.site(
+            "IAudioClient::Initialize(EXCLUSIVE)",
+            abi::return_register(),
+        )),
         abi::label(&init_ok),
     ]);
     // Negotiated buffer frame count.
@@ -399,23 +411,32 @@ pub(crate) fn lower_open(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_sites.site("IAudioClient::GetBufferSize", abi::return_register())),
     ]);
-    if input {
-        // bug-416 (2): allocate the capture carry-over buffer — one full device
-        // buffer's worth (the maximum a single `GetBuffer` packet can hold) in the
-        // device mix format. Input streams only; render never carries.
+    // The carry: one full device buffer in the device format. bug-416 (2): an
+    // input stream stashes the unconsumed tail of a capture packet there.
+    // plan-158-C: an EXCLUSIVE output collects whole buffers there, since
+    // EXCLUSIVE event-driven render takes exactly one full buffer per period.
+    let no_carry = format!("{symbol}_no_carry");
+    if !input {
         ins.extend([
             abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
-            abi::load_u32(&v10, &v9, W_BUFFER), // negotiated buffer frames
-            abi::load_u64(&v11, &v9, W_MIX_BPF),
-            abi::multiply_registers(abi::return_register(), &v10, &v11),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut ins, &mut rel, &carry_fail);
-        ins.extend([
-            abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
-            abi::store_u64(abi::mfb_return(1), &v9, W_CARRY_PTR),
+            abi::load_u64(&v10, &v9, W_SHARED),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_ne(&no_carry),
         ]);
     }
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u32(&v10, &v9, W_BUFFER), // negotiated buffer frames
+        abi::load_u64(&v11, &v9, W_MIX_BPF),
+        abi::multiply_registers(abi::return_register(), &v10, &v11),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &carry_fail);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::mfb_return(1), &v9, W_CARRY_PTR),
+        abi::label(&no_carry),
+    ]);
     // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -463,7 +484,18 @@ pub(crate) fn lower_open(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_sites.site("IAudioClient::GetService", abi::return_register())),
     ]);
-    // client->Start()
+    // client->Start(). plan-158-C: not for an EXCLUSIVE output, which must be
+    // pre-rolled with a full buffer before it starts; its first `write` submit
+    // starts it (`emit_exclusive_submit`).
+    let opened = format!("{symbol}_opened");
+    if !input {
+        ins.extend([
+            abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(&v10, &v9, W_SHARED),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_eq(&opened),
+        ]);
+    }
     spill_obj(W_CLIENT, &mut ins, &mut vregs);
     com_call(SLOT_AC_START, 1, &mut ins, &mut vregs);
     ins.extend([
@@ -472,6 +504,7 @@ pub(crate) fn lower_open(
         abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
         abi::move_immediate(&v10, "Integer", "1"),
         abi::store_u64(&v10, &v9, W_STARTED),
+        abi::label(&opened),
         // success
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -683,6 +716,64 @@ pub(crate) fn lower_close(
         abi::load_u64(&v10, abi::return_register(), H_STATE),
         abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
     ]);
+    // plan-158-C: an EXCLUSIVE output holds a partial buffer in its carry (render
+    // takes whole buffers only). Pad it with silence, submit it, and wait one period
+    // so it plays before `Stop`. Best effort, like the rest of close: a failure
+    // skips to the teardown.
+    let flush_done = format!("{symbol}_flush_done");
+    let flush_wait = format!("{symbol}_flush_wait");
+    let pad_loop = format!("{symbol}_flush_pad");
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), HANDLE_OFF),
+        abi::load_u64(&v10, &v9, H_KIND),
+        abi::compare_immediate(&v10, KIND_INPUT),
+        abi::branch_eq(&flush_done),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_SHARED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&flush_done),
+    ]);
+    emit_render_wait_timeout(&mut ins, &mut vregs);
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_CARRY_FRAMES),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&flush_wait),
+        // zero bytes [carry*bpf, W_BUFFER*bpf) of the carry
+        abi::load_u64(&v11, &v9, W_MIX_BPF),
+        abi::multiply_registers(&v10, &v10, &v11), // first byte to clear
+        abi::load_u32(&v12, &v9, W_BUFFER),
+        abi::multiply_registers(&v12, &v12, &v11), // end
+        abi::load_u64(&v11, &v9, W_CARRY_PTR),
+        abi::label(&pad_loop),
+        abi::compare_registers(&v10, &v12),
+        abi::branch_ge(&format!("{pad_loop}_done")),
+        abi::add_registers(&v9, &v11, &v10),
+        abi::store_u8(abi::ZERO, &v9, 0),
+        abi::add_immediate(&v10, &v10, 1),
+        abi::branch(&pad_loop),
+        abi::label(&format!("{pad_loop}_done")),
+    ]);
+    emit_exclusive_submit(
+        symbol,
+        &mut SubmitFail::Skip(&flush_done),
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+        &mut vregs,
+    )?;
+    ins.extend([
+        abi::label(&flush_wait),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, &v9, W_STARTED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&flush_done),
+    ]);
+    emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    ins.push(abi::label(&flush_done));
     // client->Stop() (best effort)
     spill_obj(W_CLIENT, &mut ins, &mut vregs);
     com_call(SLOT_AC_STOP, 1, &mut ins, &mut vregs);
