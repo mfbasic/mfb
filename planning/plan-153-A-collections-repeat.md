@@ -212,18 +212,30 @@ Commit: —
 
 ### Phase 2 — registry entry and lowering
 
-- [ ] Add `src/codegen/builtins/collections/func_repeat.rs`, containing:
+- [x] Add `src/codegen/builtins/collections/func_repeat.rs`, containing:
       - `register`, with the four `Parameter`s (`startAt` defaulted by
         `DefaultValue::Fill { expr: "0" }`);
       - `errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument"]`;
       - `return_type: ParameterType::Arg(0)`;
       - `Body::abi_inline(lower_repeat)`;
       - `lower_repeat` as designed in §3.
-- [ ] Wire it into `collections/mod.rs`: `mod func_repeat;`, and
+      Done: `lower_repeat` validates (`emit_list_repeat_validate`), tight-copies, and runs the
+      shared core `lower_list_repeat_in_place` (`src/codegen/collection/list/list_repeat.rs`) —
+      one reservation, then `set`/`append` primitives per position — which plan-153-B's arm reuses.
+      Parameters renamed per Correction C1.
+- [x] (added) Seed the `ErrIndexOutOfRange` message data object for `collections.repeat`
+      (`string_symbols`, `src/codegen/memory/data/data_objects.rs`): without it a `TRAP`'d call
+      failed to build with `native code string literal 'List or string index/range is outside
+      valid bounds.' has no data object` (Correction C2).
+- [x] (added) `lower_list_set_in_place_with(…, drop_replaced)`: the value path overwrites
+      positions of a byte copy whose graph edges still belong to the argument, so it must not drop
+      them (Correction C3). Proof: the fixture's `Tree` rows, and a 200-iteration `List OF Tree`
+      probe under `--debug`: `arena.0.alloc_calls 6045` = `arena.0.free_calls 6045`, `live_bytes 0`.
+- [x] Wire it into `collections/mod.rs`: `mod func_repeat;`, and
       `func_repeat::register(&mut pkg)` in the native group.
-- [ ] Bump the registry count test from 49 to 50 and its native-member comment
-      from 24 to 25.
-- [ ] Prose fields per `.ai/man-content.md`: `intro`, `desc` and `example`,
+- [x] Bump the registry count test from 49 to 50 and its native-member comment
+      from 24 to 25. `cargo test --bin mfb -- collections_registered` → ok.
+- [x] Prose fields per `.ai/man-content.md`: `intro`, `desc` and `example`,
       plus each `Parameter.desc`. The examples show build, reset and
       fill-a-range. Mention `COLLECTIONS_DESC` in the package intro.
 
@@ -232,6 +244,10 @@ examples.
   Check: `scripts/test-accept.sh target/debug/mfb target/accept-actual 'func_collection_repeat*'` → 4/4 pass (est. 3 min);
   `scripts/man-run-examples.sh collections --run repeat` → every example compiles and runs (est. 1 min);
   `scripts/man-census.sh --memory-scope` → 0 unclassified (est. 1 min).
+  Measured (2026-09-26, `MFB=./target/debug/mfb` — the scripts default to a release binary):
+  `acceptance tests passed (4 test(s) ran)`; `examples: 2   built: 2   ran: 2   not run: 0   failed: 0`;
+  `unclassified memory-vocabulary hits: 0` (after rewording "named by `value`", which hit `by value`).
+  Expected red until plan-153-B Phase 2: `self_update_census_covers_every_registry_overload` (Correction C4).
 Commit: —
 
 ### Phase 3 — spec sync
@@ -267,7 +283,26 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+- **C1 — parameter names.** The plan's `repeat(list, value, count, startAt)` fails the enforced
+  `range_and_index_parameters_use_the_documented_vocabulary` pin (`src/codegen/registry/mod.rs`):
+  `startAt` is a `start<Noun>` with no `endAt`, and offset + length is spelled `start` + `count`
+  (`.ai/man-content.md` §2.1). plan-153-B's census row also already assumes a first parameter named
+  `value`. The shipped signature is `repeat(value AS List OF T, item AS T, count AS Integer,
+  start AS Integer = 0)`, the `collections::set` naming (`value`, …, `item`). Every `startAt`
+  below reads `start`; the contract is unchanged.
+- **C2 — an unlisted prerequisite.** Error messages are data objects collected per module
+  (`string_symbols`); `ErrIndexOutOfRange`'s is emitted only for listed callers. A `TRAP`'d
+  `repeat` failed to build until `collections.repeat` joined that list. Keyed on the qualified
+  call (`module_uses_call`), not `module_uses_migrated("repeat")`, so a `strings::repeat`
+  program's data section does not change.
+- **C3 — graph-typed elements.** §3's value path (tight copy, then the `set` primitive) was unsound
+  for an element type that reaches a type cycle: `lower_list_set_in_place` drops the overwritten
+  element's graph (plan-134-H), but in a byte copy those edges still belong to the argument.
+  `lower_list_set_in_place_with(…, drop_replaced = false)` skips that drop on the value path; the
+  abi-inline dispatch's `own_collection_payload_edges` then gives every position its own graph.
+- **C4 — the census test is red between the sub-plans.** Non-goal "no census row until B" means
+  `self_update_census_covers_every_registry_overload` fails from A Phase 2 until plan-153-B Phase 2
+  adds the `SELF_UPDATE_TABLE` row. Both land on the one `worktree-P-153` branch before merge.
 
 ## Summary
 

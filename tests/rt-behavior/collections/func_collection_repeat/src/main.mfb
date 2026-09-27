@@ -2,40 +2,62 @@ IMPORT collections
 IMPORT io
 IMPORT strings
 
-RECORD Tag
+TYPE Tag
   name AS String
   weight AS Integer
-END RECORD
+END TYPE
 
-FUNC showInts(label AS String, xs AS List OF Integer)
+' A recursive type: every filled position holds its own tree.
+TYPE Tree
+  tag AS Integer
+  kids AS List OF Tree
+END TYPE
+
+FUNC treeSize(t AS Tree) AS Integer
+  MUT n AS Integer = 1
+  FOR EACH k IN t.kids
+    n = n + treeSize(k)
+  NEXT
+  RETURN n
+END FUNC
+
+SUB showTrees(label AS String, xs AS List OF Tree)
+  MUT parts AS List OF String = []
+  FOR EACH t IN xs
+    parts = collections::append(parts, toString(t.tag) & "/" & toString(treeSize(t)))
+  NEXT
+  io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
+END SUB
+
+SUB showInts(label AS String, xs AS List OF Integer)
   MUT parts AS List OF String = []
   FOR EACH x IN xs
     parts = collections::append(parts, toString(x))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END FUNC
+END SUB
 
-FUNC showFloats(label AS String, xs AS List OF Float)
+SUB showFloats(label AS String, xs AS List OF Float)
   MUT parts AS List OF String = []
   FOR EACH x IN xs
     parts = collections::append(parts, toString(x))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END FUNC
+END SUB
 
-FUNC showStrings(label AS String, xs AS List OF String)
+SUB showStrings(label AS String, xs AS List OF String)
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(xs, ", ") & "]")
-END FUNC
+END SUB
 
-FUNC showTags(label AS String, xs AS List OF Tag)
+SUB showTags(label AS String, xs AS List OF Tag)
   MUT parts AS List OF String = []
   FOR EACH t IN xs
     parts = collections::append(parts, t.name & ":" & toString(t.weight))
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END FUNC
+END SUB
 
-FUNC showNested(label AS String, xs AS List OF List OF Integer)
+SUB showNested(label AS String, xs AS List OF List OF Integer)
   MUT parts AS List OF String = []
   FOR EACH inner IN xs
     MUT cells AS List OF String = []
@@ -45,7 +67,7 @@ FUNC showNested(label AS String, xs AS List OF List OF Integer)
     parts = collections::append(parts, "[" & strings::join(cells, " ") & "]")
   NEXT
   io::print(label & " len=" & toString(len(xs)) & " [" & strings::join(parts, ", ") & "]")
-END FUNC
+END SUB
 
 FUNC main AS Integer
   ' Integer: every shape of the range.
@@ -58,7 +80,7 @@ FUNC main AS Integer
   showInts("past end", collections::repeat(base, 8, 4, 3))
   showInts("count zero", collections::repeat(base, 6, 0, 2))
   showInts("extend", collections::repeat(base, 5, 3, len(base)))
-  showInts("default startAt", collections::repeat(base, 4, 2))
+  showInts("default start", collections::repeat(base, 4, 2))
   showInts("count zero at end", collections::repeat(base, 6, 0, 5))
   showInts("input after", base)
 
@@ -88,5 +110,13 @@ FUNC main AS Integer
   LET grid AS List OF List OF Integer = [[1], [2, 3]]
   showNested("nested fill", collections::repeat(grid, [0, 0, 0], 3, 1))
   showNested("nested input after", grid)
+
+  ' A recursive element type.
+  LET leaf AS Tree = Tree[tag := 1, kids := []]
+  LET node AS Tree = Tree[tag := 2, kids := [leaf, leaf]]
+  LET forest AS List OF Tree = [leaf, node, leaf]
+  showTrees("tree fill", collections::repeat(forest, node, 3, 1))
+  showTrees("tree build", collections::repeat([], leaf, 2))
+  showTrees("tree input after", forest)
   RETURN 0
 END FUNC

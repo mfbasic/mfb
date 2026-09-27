@@ -36,6 +36,7 @@ mod func_reduce_right;
 mod func_remove;
 mod func_remove_at;
 mod func_remove_key;
+mod func_repeat;
 mod func_replace;
 mod func_set;
 mod func_sort;
@@ -92,7 +93,7 @@ const INTRO: &str = "List, Map, and Set helper functions";
 /// (its Description section, citation markers stripped).
 const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List`, `Map`,
 and `Set` values: element access and updates (`get`, `set`, `append`, `prepend`, `insert`,
-`removeAt`, `removeKey`), higher-order transforms (`transform`, `filter`,
+`removeAt`, `removeKey`, `repeat`), higher-order transforms (`transform`, `filter`,
 `reduce`, `reduceRight`, `forEach`, `mapValues`), queries (`find`, `findIndex`,
 `findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
 (`sort`, `sortBy`, `distinct`, `flatten`, `zip`, `chunks`, `window`, `partition`,
@@ -234,6 +235,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_find::register(&mut pkg);
     func_mid::register(&mut pkg);
     func_replace::register(&mut pkg);
+    func_repeat::register(&mut pkg);
     func_add::register(&mut pkg);
     func_remove::register(&mut pkg);
     func_to_list::register(&mut pkg);
@@ -444,8 +446,8 @@ mod tests {
         let pkg = registry()
             .resolve_package("collections")
             .expect("collections package");
-        // The 24 native members + the 25 source-generic `Body::Mfb` members.
-        assert_eq!(pkg.functions().len(), 49);
+        // The 25 native members + the 25 source-generic `Body::Mfb` members.
+        assert_eq!(pkg.functions().len(), 50);
         assert!(registry().is_member("collections.get"));
         assert!(registry().is_member("collections.sort")); // source generic, registered
         assert!(!registry().is_member("collections.nope"));
