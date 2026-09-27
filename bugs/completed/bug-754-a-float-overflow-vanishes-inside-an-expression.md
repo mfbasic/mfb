@@ -5,7 +5,7 @@ Effort: medium
 Severity: HIGH
 Class: Correctness (silent wrong value; error not raised)
 
-Status: Fixed
+Status: FIXED (771d7e64f; module-analysis follow-up on this branch; goldens 216556975, 8dff0f06c) — raises at the call wherever the call sits; full suite 251/0, artifact gate 0 diffs
 Regression Test: `tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt`;
 unit test `float_result::tests::no_classified_member_is_rechecked_at_a_boundary`
 

@@ -1,4 +1,4 @@
-# bug-750: a user function that hands back a handle it was passed gets that handle closed at the caller's inner scope
+# bug-755: a user function that hands back a handle it was passed gets that handle closed at the caller's inner scope
 
 Last updated: 2026-09-27
 Effort: large

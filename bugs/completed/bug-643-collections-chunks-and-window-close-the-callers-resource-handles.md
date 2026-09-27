@@ -144,7 +144,7 @@ which no drop exists, so every `zip` over a `List OF RES` failed to build.
 
 Out of this doc's reach and filed separately: a USER function that hands back a
 handle (or list of handles) it was passed is adopted the same way — `RES y = ident(a)`
-or `LET p = same(xs)` in an inner scope closes the caller's handle (bug-750).
+or `LET p = same(xs)` in an inner scope closes the caller's handle (bug-755).
 
 ## Non-goals
 
@@ -203,4 +203,4 @@ analysis resolves a `RES` binding initialized from one (or from a record field) 
 `copyEach`/`copyNamed`/`zip`. Spec architecture escape-analysis updated. Commit:
 e84ab358b
 
-STATUS: FIXED (0224828cd, e84ab358b). Deviation: the mechanism was bind-from-call adoption, not a temporary's drop, and reached every re-packaging helper in an inner scope; a second seam (a borrowed element hoisted/floated as an owner, which also broke `zip`) was fixed as Phase 3. The user-function form is bug-750 and the call-bound block leak is bug-753, both filed. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.
+STATUS: FIXED (0224828cd, e84ab358b). Deviation: the mechanism was bind-from-call adoption, not a temporary's drop, and reached every re-packaging helper in an inner scope; a second seam (a borrowed element hoisted/floated as an owner, which also broke `zip`) was fixed as Phase 3. The user-function form is bug-755 and the call-bound block leak is bug-753, both filed. Gates on the merged tip (82926917c + e703c61e3): `cargo test --release --no-fail-fast` 251 binaries, 6311 passed, 0 failed; `scripts/artifact-gate.sh target/release/mfb all` 0 diffs over 2176 goldens.
