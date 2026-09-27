@@ -615,6 +615,15 @@ pub(crate) struct Liveness {
     /// each one clobbers (`call_clobber_mask`), sorted by instruction index. A
     /// value live across a call must avoid that call's clobbered registers.
     pub(crate) call_clobber: Vec<(usize, PhysMask)>,
+    /// Virtual register index -> the union of the clobber masks of the calls it
+    /// is **live across** (live after the call, by the dataflow above — not
+    /// merely inside `[min, max]`). A call inside a value's interval at which
+    /// the value is dead — the raise sequence of a checked operation, which
+    /// calls the error builders and returns — cannot destroy anything the
+    /// value still needs, so only these calls constrain its register (the
+    /// Level-1 "Stack slot promotion" row's companion; `linear_scan` reads it
+    /// only when that row is on).
+    pub(crate) vreg_live_across_clobber: U32Map<PhysMask>,
 }
 
 /// Occupancy bitset over physical registers `x0`–`x30` (31 < 64 bits).
@@ -822,6 +831,13 @@ pub(crate) fn analyze(
         }
     }
     // Expand to virtual-register intervals: busy(i) = live-in(i) ∪ def(i).
+    // At a call, `live` (before stepping over it) is the call's live-out: the
+    // values the call must preserve.
+    let clobber_at: U32Map<PhysMask> = call_clobber
+        .iter()
+        .map(|&(index, mask)| (index as u32, mask))
+        .collect();
+    let mut vreg_live_across_clobber: U32Map<PhysMask> = U32Map::default();
     let mut vreg_interval: U32Map<(usize, usize)> = U32Map::default();
     for block in &blocks {
         let mut live: U32Set = U32Set::default();
@@ -831,6 +847,15 @@ pub(crate) fn analyze(
             }
         }
         for i in (block.start..block.end).rev() {
+            if let Some(&mask) = clobber_at.get(&(i as u32)) {
+                for &id in &live {
+                    if !vdef[i].contains(&id) {
+                        *vreg_live_across_clobber
+                            .entry(vreg_of[id as usize])
+                            .or_insert(0) |= mask;
+                    }
+                }
+            }
             for &d in &vdef[i] {
                 live.remove(&d);
             }
@@ -856,6 +881,7 @@ pub(crate) fn analyze(
         vreg_interval,
         phys_busy_at,
         call_clobber,
+        vreg_live_across_clobber,
     }
 }
 
