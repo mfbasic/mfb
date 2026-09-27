@@ -1,0 +1,17 @@
+man-page:astrings/overview
+man-page:astrings/types
+man-page:astrings/addAttribute
+man-page:astrings/background
+man-page:astrings/bold
+man-page:astrings/clearAttributes
+man-page:astrings/font
+man-page:astrings/fontSize
+man-page:astrings/foreground
+man-page:astrings/fromString
+man-page:astrings/getAttributes
+man-page:astrings/italic
+man-page:astrings/overline
+man-page:astrings/removeAttribute
+man-page:astrings/strike
+man-page:astrings/toMarkdown
+man-page:astrings/underline

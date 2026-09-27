@@ -30,8 +30,8 @@ at Enter; Backspace erases the last character; keys that type nothing — the
 arrows, Home, End, the function keys — and Escape are ignored rather than
 becoming part of the line. On a terminal, `io::readLine` suppresses echo for the
 duration of the read: the user still edits the line normally and submits it
-with Return, but the typed characters are not displayed. The previous line
-discipline is restored before the call returns. This is the difference from
+with Return, but the typed characters are not displayed, and the terminal's
+usual input behavior is restored when the call finishes. This is the difference from
 `io::input`, which echoes; use `io::readLine` for passphrases and `io::input`
 when the user should see what they type.
 
@@ -58,9 +58,9 @@ produced — including a prompt written with `io::write` — appears before the
 program waits. End of input is reported as an error, not as an empty result —
 but only when it arrives before any character of the line. Input that ends
 mid-line is not lost: those characters come back as the final, unterminated
-line, and the *next* call raises `ErrEndOfFile`. Standard input is a per-thread
-broadcast log; a thread other than the main thread must subscribe with
-`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`."#;
+line, with a trailing CR still removed, and the *next* call raises
+`ErrEndOfFile`. A worker thread must subscribe with `thread::openStdIn` before
+reading, or the call raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read a line and echo it back:
 
 ```

@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:io/isErrorTerminal
+
+I compiled and ran the exact rendered example with the prescribed release binary under a pseudo-terminal; its transcript contained ANSI red/reset bytes followed by `Error: build failed`. A focused predicate probe printed `TRUE` under a pseudo-terminal, `TRUE` when only stdout was redirected, and `FALSE` when stderr was redirected; without a terminal it printed `FALSE`.

@@ -14,10 +14,10 @@ const DESC: &str = r#"`strings::stripSuffix` returns `value` with one trailing o
 removed when `value` ends with `suffix`, and returns `value` unchanged otherwise.
 
 The match is an exact byte comparison of the trailing bytes of `value` against
-every byte of `suffix`, with no normalization and no case folding. Because both
-operands are well-formed UTF-8 and UTF-8 is self-synchronizing, a matching byte
-suffix is always a whole-scalar suffix, so the remainder is always a valid
-string.
+every byte of `suffix`, with no normalization and no case folding. A match always
+covers whole Unicode scalars, so the remainder is always a valid string — but not
+necessarily whole characters: stripping `"\u{0301}"` from `"cafe\u{0301}"` leaves
+`"cafe"`.
 
 Exactly one copy is removed. If `value` ends with `suffix` repeated, only the
 last copy is stripped and the earlier ones remain — call `stripSuffix` in a loop

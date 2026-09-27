@@ -1,0 +1,9 @@
+man-page:astrings/foreground
+man-page:astrings/fromString
+man-page:astrings/getAttributes
+man-page:astrings/italic
+man-page:astrings/overline
+man-page:astrings/removeAttribute
+man-page:astrings/strike
+man-page:astrings/toMarkdown
+man-page:astrings/underline

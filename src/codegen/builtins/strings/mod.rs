@@ -109,10 +109,19 @@ returns a `List OF Byte`, `toScalars` returns a `List OF Scalar`, and the
 original value is left unchanged. The scalar seam bridges `String` and the
 `Scalar` primitive: `toScalars` walks a string one Unicode scalar at a time and
 `fromScalars` rebuilds one, an exact round trip; the five `isX(Scalar)`
-predicates classify a single scalar by its Unicode general category.
+predicates classify a single scalar — `isLetter`, `isDigit`, `isUpper` and
+`isLower` by its Unicode general category, and `isWhitespace` by the Unicode
+`White_Space` property, which also covers tab, newline and carriage return.
 
 Index- and count-based functions (`find`, `mid`, `left`, `right`) measure
-positions in zero-based Unicode scalar values, not bytes or graphemes. The
+positions in zero-based Unicode scalar values, not bytes or graphemes. `left`
+and `right` clamp — a count past the end returns the whole string, and only a
+negative count raises `ErrInvalidArgument`. `mid` never clamps: a window that
+starts or runs past the end raises `ErrIndexOutOfRange`. `find` reports absence
+by raising `ErrNotFound`, never with a sentinel such as `-1`; guard it with
+`contains` when a miss is expected. A `find` `start` outside `0` through the
+scalar length inclusive raises `ErrIndexOutOfRange`, as does an out-of-range
+index to `graphemeAt`. The
 grapheme helpers `graphemes`, `graphemeAt`, and `graphemesCount` are the
 exception: they operate on user-perceived extended grapheme clusters. `byteLen`
 reports the length of the UTF-8 encoding in bytes, and `toBytes` returns those
@@ -123,7 +132,8 @@ characters differently can be normalized with `normalizeNfc` before comparison.
 Several functions accept an optional or defaulted argument: `find` takes an
 optional `start` position, and the four padding members take an optional
 `padChar` that defaults to a single space. The pad character, when supplied, must
-be exactly one Unicode scalar value.
+be exactly one Unicode scalar value; an empty or longer `padChar`, like a
+negative width or count anywhere in the package, raises `ErrInvalidArgument`.
 
 **Padding comes in two units, and picking the wrong one is the package's
 sharpest edge.** `padLeft` and `padRight` pad to a count of Unicode scalar
@@ -152,7 +162,9 @@ Which member falls in which group follows from what the member does, not from it
 name:
 
 - **Answers a question** — `contains`, `startsWith`, `endsWith`, `startsWithAny`
-  and `endsWithAny` return `TRUE`; `find` returns `start`. These are the
+  and `endsWithAny` return `TRUE`; `find` returns `start`, provided `start` lies
+  in `0` through the scalar length of `value` inclusive (outside that range
+  `find` raises `ErrIndexOutOfRange` before it looks at the needle). These are the
   mathematically standard answers, and they are safe because reporting a match
   cannot damage anything.
 - **Acts at a single named position** — `stripPrefix` and `stripSuffix` remove
@@ -175,12 +187,14 @@ one concatenates with nothing between the elements.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
-Many `strings` functions also accept an `astrings::AttributedString` at the text
-position; the overload is documented on each function's own page. A query returns
-exactly what the `String` overload returns, computed on the visible text; a
-text-transforming function returns an `AttributedString`, remapping the attribute
-spans by the same edit (`upper`, `lower`, `caseFold`, and `normalizeNfc` change
-scalar counts within a span, so they drop attributes)."#;
+Many `strings::` functions also accept an `astrings::AttributedString` at the text
+position; each function's own page documents that overload. A function that only
+reads the text answers exactly as it does for the visible `String`. A function
+that changes the text returns an `AttributedString` whose styling follows the text
+it keeps; text the call adds, such as `replace`'s replacement or padding, carries
+no styling. `repeat` is the one exception: every copy carries the styling of the
+original. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
+text with no styling."#;
 
 /// Register the `strings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

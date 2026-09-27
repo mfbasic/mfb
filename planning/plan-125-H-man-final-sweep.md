@@ -6,7 +6,7 @@ Depends on: plan-125-G (all three iterations complete across the whole man
 surface; G declares the surface final and this letter certifies it).
 
 The last look at the man surface, and the only one taken over **the entire
-developer manual at once**. Six lenses, each one `codex exec` run over the
+developer manual at once**. Six lenses, each one Fable 5.1 review run over the
 complete artifact with exactly one question, because no single run reads
 51,540 lines usefully with six questions at the same time.
 
@@ -32,6 +32,14 @@ References:
 ## Prerequisites
 
 See plan-125-A. Additionally:
+
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -206,8 +214,9 @@ Commit: —
 - [ ] Close `planning/plan-125-belongs-in-spec.md`: every entry has the spec
       package it belongs to; record the total count and the per-package
       breakdown here — this is letter I's coverage checklist.
-- [ ] Record the Codex banner used across the man letters
-      (`codex --version` and the reported model).
+- [ ] Record the reviewer banners used, from each letter's manifest `banner`
+      column: Codex (`OpenAI Codex v…/<model>`) through plan-125-D Phase 3's first
+      14 units, Claude Fable 5.1 (`Claude Code v…/claude-fable-5-1`) after.
 - [ ] Record the man-surface result: units reviewed, findings raised,
       confirmed, rejected, per iteration — the evidence for whether the
       three-iteration structure earned its cost.
@@ -246,6 +255,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 

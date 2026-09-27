@@ -17,7 +17,10 @@ const DESC: &str = r#"`strings::isUpper` returns `TRUE` when `scalar` has the Un
 The test is exactly `Lu`, no wider. Titlecase letters (category `Lt`, such as the
 digraph `ǅ`) are **not** reported as uppercase, and neither are uncased letters,
 digits, punctuation, or symbols. `isUpper` is a category test, not a
-"has-no-lowercase-mapping" test.
+"has-no-lowercase-mapping" test. It is also narrower than the Unicode `Uppercase`
+property that other languages' uppercase tests usually implement: the roman
+numerals `Ⅰ`–`Ⅿ` and the circled letters `Ⓐ`–`Ⓩ` are uppercase by that property
+but not category `Lu`, so `isUpper` returns `FALSE` for them.
 
 Classification follows the Unicode general categories,
 so it covers the whole code-point space rather than just ASCII, and is

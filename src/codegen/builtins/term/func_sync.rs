@@ -11,13 +11,14 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Present the composed frame — the only call that puts drawing on screen"#;
 
-const DESC: &str = r#"The `term::` surface is **retained and double-buffered**. While TUI mode is on,
-every drawing call — `io::print` and `io::write`, and `term::clear`,
-`term::moveTo`, the colour and attribute setters, `term::showCursor` and
-`term::hideCursor` — mutates an in-memory cell grid and the current-attribute
-state, and touches the terminal not at all. `term::sync` is the one and only
-operation that presents a frame. **A program that draws without calling
-`term::sync` shows nothing** — this is the single most common mistake when
+const DESC: &str = r#"The `term::` surface is **buffered**. While TUI mode is on, every drawing call —
+`io::print` and `io::write`, `term::clear`, `term::moveTo`, `term::drawText`,
+`term::drawGlyph`, `term::drawHLine`, `term::drawVLine`, `term::drawBox`,
+`term::fillRect`, the colour and attribute setters, and
+`term::showCursor`/`term::hideCursor` — changes the surface and the current
+colours and attributes, and touches the terminal not at all. `term::sync` is the
+one and only operation that presents a frame while the program runs. **A program
+that draws without calling `term::sync` shows nothing** — this is the single most common mistake when
 writing against this surface.
 
 **Only what changed is sent to the terminal.** `term::sync` compares the frame
@@ -28,12 +29,14 @@ frame; there is no cheaper way to present, and no reason to avoid it.
 
 **A terminal resize is handled here.** On entry `term::sync` re-reads the
 terminal size; if it changed, it resizes the surface, keeps the content that
-still fits in the top-left, clamps the cursor into the new bounds, and repaints
-the next frame in full. If the size cannot be re-read or the surface cannot be
+still fits in the top-left, clamps the cursor into the new bounds, and presents
+this frame in full. `term::didResize` reports the change afterwards, and
+`term::terminalSize` gives the new extent. If the size cannot be re-read or the surface cannot be
 resized, the old surface is kept and the frame is presented into it unchanged.
 
-Each frame ends with the terminal's cursor left where `term::moveTo` put it, and
-shown or hidden according to `term::showCursor`/`term::hideCursor`. The first
+Each frame ends with the terminal's cursor at the surface's current position —
+where `term::moveTo` put it, or wherever the last `io::print`/`io::write` left it —
+and shown or hidden according to `term::showCursor`/`term::hideCursor`. The first
 frame after `term::on`, and the first after a resize, is always drawn in full.
 
 `term::sync` is gated: while TUI mode is off it is a clean no-op, so calling it

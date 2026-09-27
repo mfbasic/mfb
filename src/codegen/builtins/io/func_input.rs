@@ -29,8 +29,9 @@ reads exactly as `io::readLine` does — what was typed, from a terminal or an
 `--app` window; the bytes up to the next LF, from a pipe or a file — with one
 difference:
 
-**`io::input` does not change the terminal mode**, so typed characters are echoed
-by the terminal in the usual way and the line is submitted with Return. This is
+**`io::input` reads an ordinary echoed line**: typed characters are echoed by the
+terminal and the line is submitted with Return. If single-key terminal mode is
+active, it restores ordinary line entry for the duration of this read. This is
 the difference from `io::readLine`, which suppresses echo for the read; reach for
 `io::input` when the user should see what they type.
 
@@ -50,14 +51,14 @@ negative one raises `ErrInvalidArgument`, and a wait that runs out raises
 so a timed read with no prompt is `io::input("", 5000)` — or simply
 `io::readLine(5000)`, which is the same read without the echo.
 
-The text must be valid UTF-8; an ill-formed sequence raises `ErrEncoding`. End
-of input is an error rather than an empty result, but only when it arrives
-before any character of the line: if input ends after part of a line, that part
-is returned as the final unterminated line and the following call raises
-`ErrEndOfFile`. Standard input is a per-thread broadcast log; a thread other than
-the main thread must subscribe with `thread::openStdIn` before reading, or the
-call raises `ErrInvalidContext`. In app mode the prompt goes to the application
-transcript and the line is read from the window."#;
+The text must be valid UTF-8; an ill-formed sequence raises `ErrEncoding` rather
+than yielding a replacement character. End of input is an error rather than an
+empty result, but only when it arrives before any character of the line: if
+input ends after part of a line, that part is returned as the final unterminated
+line and the following call raises `ErrEndOfFile`. A worker thread must
+subscribe with `thread::openStdIn` before reading, or the call raises
+`ErrInvalidContext`. In app mode the prompt and the entered line are handled by
+the application window."#;
 const EX: &str = r#"Prompt on the same line and greet the user:
 
 ```

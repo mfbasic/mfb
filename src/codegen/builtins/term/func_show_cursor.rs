@@ -13,12 +13,12 @@ const INTRO: &str = r#"Make the terminal cursor visible in presented frames"#;
 
 const DESC: &str = r#"`term::showCursor` marks the cursor as visible. It takes no arguments.
 
-Like everything else on this retained surface, the call **emits no escape
-sequence**. It sets a single visibility flag in the module's state; the terminal
-is only told about it when `term::sync` presents a frame. Every present ends with
-a trailing sequence that parks the terminal cursor at its current
-position and then shows or hides it according to this flag, so the visible cursor
-always tracks where the next drawing would go.
+The change is not shown straight away. In a terminal program the cursor's
+visibility changes when `term::sync` presents the next frame; a Linux `--app`
+build repaints from this call itself. A macOS or Windows `--app` build accepts the
+call and remembers the setting, but draws no cursor at all, so it has no visible
+effect there. Each present leaves the terminal cursor at the position the next
+drawing would use, so a visible cursor always tracks that position.
 
 Visibility is independent of the colours and text attributes and of the cursor's
 position: showing the cursor changes none of them, and `term::moveTo` does not

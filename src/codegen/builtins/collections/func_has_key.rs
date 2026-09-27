@@ -10,8 +10,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
-matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
-the matching value is never copied out — only the key is compared.
+matches `key`, and `FALSE` otherwise. The map is not modified.
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
@@ -25,8 +24,7 @@ the lookup is direct; other key types are found by scanning the map. Both
 compare exactly the same key and return the
 same answer.
 
-`collections::hasKey` raises no trappable domain error, so an inline `TRAP` on a
-`hasKey` call has a dead handler.
+`collections::hasKey` raises no error.
 
 Use `hasKey` to guard a `collections::get`, which *does* fail on a missing key.
 When the goal is simply to obtain a value with a fallback,
@@ -94,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "key",
-                    desc: "The key to test for. Compared with `=`.",
+                    desc: "The key to test for, with the map's key type. Keys compare exactly, so a `Float` key of -0.0 does not match a stored 0.0. An empty string, zero, and negative numbers are all valid keys.",
                     aliases: &[],
                     ty: ParameterType::var("K"),
                     default: DefaultValue::None,

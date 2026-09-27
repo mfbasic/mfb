@@ -10,28 +10,25 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
-`value` except the one whose key matches `key`. It does not edit `value` in
-place: it counts the entries it will keep
-and how much room they need, builds a new map, and copies the retained entries
-into it. The original map is left untouched and remains usable.
+`value` except the one whose key matches `key`. It leaves `value` unchanged
+and returns a new map containing the retained entries.
 
 Retained entries are copied in their existing order, so the surviving entries of
 the result keep the relative order they had in `value`.
 
 Removing a key that is not present is not an error. The scan simply retains
 every entry, and the call returns a fresh map with the same contents as `value`.
-Note that this is a new map rather than the same map object — a `removeKey` for
-an absent key still builds a copy, rather than returning the argument itself. The result therefore has `len(value)` entries when `key` was absent, or
+Even when `key` is absent, the call returns a new map with the same entries as
+`value`. The result therefore has `len(value)` entries when `key` was absent, or
 `len(value) - 1` entries when it was present. Because a map holds at most one
 entry per key, at most one entry is ever dropped.
 
 Keys compare exactly: a `String` key byte for byte, and a `Float` key by bit
 pattern, so removing `-0.0` leaves a key stored as `0.0` in place.
 
-`collections::removeKey` raises no trappable domain error — neither a missing
-key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
-dead handler. Building the result map needs memory, and running out of it is
-not something a `TRAP` can catch."#;
+`collections::removeKey` raises no error for a missing key or an empty map.
+Building the result map needs memory, so it can raise `ErrOutOfMemory`, which an
+inline `TRAP` can handle."#;
 
 const EX: &str = r#"Remove a key:
 

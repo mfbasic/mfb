@@ -9,14 +9,10 @@
 const INTRO: &str = r#"Return a new list with the first `count` elements removed"#;
 
 const DESC: &str = r#"`collections::drop` returns a new list containing everything in `value` except
-its leading `count` elements, in their original order.`drop(value, count)` is defined as the half-open range `[count, len(value))` of
-`value`. The remaining elements are copied
-as a bulk range copy, and that is what defines the boundary
-behavior: the range start is clamped into `[0, len]` and the range stop into
-`[start, len]`.
+its first `count` elements, in their original order.
 
-That clamping makes `drop` **total** — every `Integer` value of `count` is
-accepted and no index is ever rejected:
+`drop` is **total** — every `Integer` value of `count` is accepted and no index
+is ever rejected:
 
 - `count` of 0 or any negative value clamps the start back to 0, so the whole
   list is returned.

@@ -25,22 +25,29 @@ not an error and is not clamped away; it simply has nowhere to go. Synthesizing 
 blend against whatever is already in the cell would disagree with what a canvas
 surface draws for the same colour, so the terminal does not attempt one.
 
-The colour is packed into the module's current-attribute state and **no escape
-sequence is emitted**. Like every other drawing operation on this retained
-surface, the effect becomes visible only when `term::sync` presents the frame.
+Nothing is written to the terminal by this call. Like every other drawing
+operation on this surface, the effect becomes visible only when `term::sync`
+presents the frame. While TUI mode is on, every call that writes cells takes the
+current foreground colour: `io::print` and `io::write`, and `term::drawText`, `drawGlyph`, `drawHLine`,
+`drawVLine`, `drawBox` and `fillRect`.
 
 Colour is per cell, not global. Each cell of the grid records the foreground,
 background, bold, and underline that were current when its glyph was written, so
 changing the foreground affects only text drawn *after* the call — text already in
 the surface keeps the colour it was drawn with, and is not restyled.
 
-The setting persists until the next `term::setForeground` or the next `term::on`,
-which resets the foreground to white (255, 255, 255). The background colour and the bold and underline
+The setting lasts for the current TUI session: it persists until the next
+`term::setForeground`, and is reset to white (255, 255, 255) by `term::off` and again
+by `term::on`. The background colour and the bold and underline
 attributes are independent and are left untouched; the current value can be read
-back with `term::getForeground`.
+back with `term::getForeground`. One exception: `term::drawText` with an
+`AttributedString` uses the colour the string carries for each run that sets one,
+and this setting for runs that do not; it restores this setting when it finishes.
 
-The call is gated: while TUI mode is off it does nothing and reports no
-error."#;
+While TUI mode is off the call is ignored and raises nothing; `term::getForeground`
+reports white (`#ffffffff`) until the next `term::on`. In an `--app`
+program outside `app::Mode.Console` it raises `ErrWrongMode`, as every `term::`
+call does."#;
 
 const EX: &str = r#"Draw coloured text and present the frame:
 
@@ -58,8 +65,9 @@ SUB main()
 END SUB
 ```
 
-The colour round-trips through `term::getForeground`, so saving and restoring needs no
-channel unpacking:
+The red, green and blue channels round-trip through `term::getForeground`, so saving
+and restoring needs no channel unpacking. The colour read back always carries an
+alpha of 255, whatever alpha was passed in:
 
 ```
 IMPORT term
@@ -69,7 +77,10 @@ SUB main()
   term::on()
   LET saved AS color::Color = term::getForeground()
   term::setForeground(color::fromName("teal"))
+  term::drawText(0, 0, "teal")
   term::setForeground(saved)
+  term::drawText(1, 0, "default again")
+  term::sync()
   term::off()
 END SUB
 ```"#;

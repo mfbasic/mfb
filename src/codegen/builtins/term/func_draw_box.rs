@@ -35,7 +35,10 @@ Each edge and each corner is **clamped to the surface independently**, so a box
 that runs off one side still draws the parts that are on-screen (including the
 edges along the visible sides), and a box entirely off the surface draws nothing.
 No error is raised for an out-of-range request. A one-cell-wide or one-cell-tall
-box collapses to a line or a single cell, with the corners drawn last.
+box collapses to a line, and a one-cell box to a single cell. Corners are stamped
+after the edges, in top-left, top-right, bottom-left, bottom-right order, so the
+collapsed cells show corner glyphs: a one-cell box leaves the bottom-right corner
+(`╝` in the `Double` style).
 
 The call is gated: while TUI mode is off it does nothing and reports no
 error."#;
@@ -127,14 +130,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "rowB",
-                    desc: "Row of the opposite corner; may be less or greater than `rowA`.",
+                    desc: "Row of the opposite corner, zero-based from the top; it may be less than, equal to, or greater than `rowA`, and an off-surface value, including a negative one, is clamped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "columnB",
-                    desc: "Column of the opposite corner; may be less or greater than `columnA`.",
+                    desc: "Column of the opposite corner, zero-based from the left; it may be less than, equal to, or greater than `columnA`, and an off-surface value, including a negative one, is clamped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

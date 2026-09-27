@@ -9,7 +9,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Construct the underline flag `astrings::Attribute`."#;
 
 const DESC: &str = r#"`underline` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Underline`. Pass
-it to `astrings::addAttribute` to mark a scalar range underlined. A flag attribute carries no value —
+it to `astrings::addAttribute` to mark an inclusive, zero-based scalar range underlined; that page
+states which ranges are valid and what an invalid one raises. A flag attribute carries no value —
 a scalar is underlined when any covering span carries the underline flag."#;
 
 const EX: &str = r#"```

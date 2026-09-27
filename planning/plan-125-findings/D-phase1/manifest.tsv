@@ -1,0 +1,17 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-page:io/isBuffered	0	85	2	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/input	0	102	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/flush	0	114	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/overview	0	118	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/isErrorTerminal	0	120	2	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/isInputTerminal	0	112	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/isOutputTerminal	0	103	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/pollInput	0	151	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/printError	0	131	33	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/readByte	0	142	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/print	0	179	47	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/readChar	0	129	33	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/readLine	0	125	19	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/setBuffered	0	123	12	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/write	0	148	30	clean	OpenAI Codex v0.153.0/gpt-5.6-terra
+man-page:io/writeError	0	135	26	clean	OpenAI Codex v0.153.0/gpt-5.6-terra

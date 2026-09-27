@@ -51,18 +51,28 @@ References:
 
 See plan-125-A. Additionally:
 
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
+
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-E complete | `grep -c '^- \[ \]' planning/plan-125-E-man-iter2-batch3.md` → `0` | — |
 
 ## 1. Goal
 
-- **All 156 pages** through my per-page pass, one `codex exec` each, and apply.
+- **All 156 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **The handle contract is stated identically across all seven resource
   packages** — verified by extracting the contract sentence from every one and
   diffing them, not by grepping for banned words.
 - **Every network probe run by the main thread**, never from a reviewer
-  worktree (plan-108-C: the Codex sandbox cannot bind sockets). The ledger
+  worktree (the rule came from plan-108-C's Codex sandbox, which cannot bind
+  sockets; the Fable reviewer can, but the main thread stays the one that runs
+  and records every network probe). The ledger
   records which claims that covered.
 - **All 31 guide pages verified and every code block in them compiled and
   run** — plan-125-A Phase 2 put them under the standard; this is the first
@@ -120,13 +130,13 @@ ban did its heaviest rewriting; `testing` and `general` are invisible to
   is the overview, and the thing to verify is that the constants it describes
   match `src/docs/spec/diagnostics/02_error-codes.md`'s registry — which is
   build input, so a mismatch is a real defect, not a wording nit.
-- **The reviewer cannot bind sockets** — VERIFIED as a recorded lesson in
-  plan-108-C ("the Codex sandbox cannot bind sockets", ~30 attempts). Designed
-  around rather than rediscovered.
+- **The reviewer cannot bind sockets** — true of the Codex sandbox (plan-108-C,
+  ~30 attempts); **no longer true** of the Fable 5.1 reviewer, which has no OS
+  sandbox (2026-09-25). The design keeps network probes on the main thread anyway.
 
 ## 3. Design Overview
 
-Per page: my pass → one `codex exec` → apply, `N` concurrency, main thread
+Per page: my pass → one Fable 5.1 review → apply, `N` concurrency, main thread
 sole writer.
 
 **Order:** the resource family first, together, so the shared contract is
@@ -263,6 +273,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 

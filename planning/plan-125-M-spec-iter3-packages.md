@@ -44,6 +44,14 @@ References:
 
 See plan-125-A. Additionally:
 
+**Reviewer gates — replace plan-125-A's `codex` CLI and Codex PONG rows (owner,
+2026-09-25):** the Claude Code CLI (`claude --version`), and the account can spend a
+request: `cd /tmp && printf 'Reply with exactly: PONG\n' | claude -p --model
+claude-fable-5-1 --no-session-persistence` → `PONG`, re-run before every batch. Run it
+**from `/tmp`**: inside `.claude/worktrees/P-*` the follow-plan Stop hook keeps the
+session from ending and the probe never returns.
+
+
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-L complete, including its Phase 4 reconciliation | `grep -c '^- \[ \]' planning/plan-125-L-spec-iter2-batch3.md` → `0`; L's Phase 4 records 146 files, 0 unaccounted | — |
@@ -53,7 +61,7 @@ See plan-125-A. Additionally:
 ## 1. Goal
 
 - **All 11 units** — 12 packages minus `unicode` (its iteration 3 completed in
-  plan-125-A's pilot) — re-read as wholes, reviewed by one `codex exec` each
+  plan-125-A's pilot) — re-read as wholes, reviewed by one Fable 5.1 review each
   from the iteration-3 prompt, and repaired.
 - **Every single-source-of-truth violation introduced by iteration 2 is
   repaired** — a fact stated in two topics is reduced to one canonical topic
@@ -123,7 +131,7 @@ only evidence about whether three iterations on the spec were worth their
 cost, and they cannot be recovered after the repairs land.
 
 Per unit: my pass (read the package rendered end to end via
-`mfb spec <pkg> --all`; look for seams, not facts) → one `codex exec` from the
+`mfb spec <pkg> --all`; look for seams, not facts) → one Fable 5.1 review from the
 iteration-3 prompt → apply.
 
 **Order:** the packages iteration 2 changed most first (most seam risk), then
@@ -246,6 +254,16 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
+  unit now runs `claude -p --model claude-fable-5-1` through
+  `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
+  the Codex plan's usage limit stalled plan-125-D Phase 3 twice. This reverses
+  plan-125-A's rejection of a Claude reviewer ("the value is independence from
+  Claude"): the reviewer is now a different model from the main thread, not a
+  different vendor. The Fable reviewer also has no OS sandbox (Codex's
+  `workspace-write` did); its `git commit`/`git push` are denied and the harness's
+  DIRTY check still guards the tree. The prompts are unchanged.
 
 ## Summary
 

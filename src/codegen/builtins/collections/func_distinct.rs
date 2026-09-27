@@ -41,8 +41,9 @@ Two consequences of that equality deserve care:
 already-accumulated result for every input element, so a list with n distinct
 elements does about n²/2 comparisons.
 For large inputs of a comparable key type, building a `Map` keyed by the element
-and reading `collections::keys` is asymptotically cheaper, at the cost of losing
-first-occurrence order.
+and reading `collections::keys` is asymptotically cheaper. Today those keys come
+back in insertion order, but map iteration order is implementation-defined, so do
+not depend on it.
 
 `distinct` raises no errors.
 
@@ -53,10 +54,12 @@ type is not comparable is rejected at compile time with
 
 Comparable types are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`,
 `Byte`, `Scalar`, `Nothing`, the built-in `Error` and `ErrorLoc` record shapes,
-enum types, and records whose fields are all comparable. `List`, `Map`, `UNION`
-types, function values, threads, and resource handles are **not**
-comparable, so `distinct` cannot be applied to a `List OF List OF T`, a list of
-maps, or a list of resource handles."#;
+enum types, and records whose fields are all comparable. `List`, `Map`, `Set`,
+`UNION` types, function values, threads, and resource handles are among the types
+that are **not** comparable, so `distinct` cannot be applied to a
+`List OF List OF T`, a list of maps, a list of sets, or a list of resource
+handles. The list of non-comparable types is not exhaustive: any element type the
+compiler rejects reports `TYPE_REQUIRES_COMPARABLE` at the call."#;
 
 const EX: &str = r#"Deduplicate a list of integers:
 

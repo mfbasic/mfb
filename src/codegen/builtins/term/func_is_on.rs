@@ -17,17 +17,17 @@ before any `term::on` call. It takes no arguments.
 
 `term::on`, `term::isOn` and `term::didResize` are the three calls in the module
 that are **not gated**. Every other `term::` call short-circuits while TUI mode is
-off: the setters, `term::clear`, `term::moveTo`, `term::sync` and all six drawing
+off: the colour and attribute setters, `term::hideCursor`, `term::showCursor`,
+`term::clear`, `term::moveTo`, `term::sync` and all six drawing
 calls (`drawHLine`, `drawVLine`, `drawBox`, `fillRect`, `drawText`, `drawGlyph`)
 do nothing, `term::getForeground`/`getBackground`/`getBold`/`getUnderline` return
 inert defaults rather than live state, and `term::terminalSize` raises
 `ErrUnsupported`. That is what makes this query useful: it is the way to find out
 whether the rest of the surface will actually do anything.
 
-The result is the module's active flag read directly, so it changes only at
-`term::on` and `term::off`. `term::off` while already off leaves the flag alone;
-`term::on` while already on re-runs its setup but the flag stays `TRUE`
-throughout.
+The answer changes only at `term::on` and `term::off`. `term::off` while already
+off leaves it `FALSE`; `term::on` while already on resets the surface again, but
+the answer stays `TRUE` throughout.
 
 The call reads state only: it touches neither the terminal, the alternate screen,
 nor the surface, and it cannot fail."#;
@@ -44,19 +44,27 @@ SUB main()
 END SUB
 ```
 
-Draw only when the surface is live:
+Draw only when the surface is live — the first call does nothing, the second
+draws `status`:
 
 ```
 IMPORT term
 IMPORT io
 
-SUB main()
+SUB drawStatus()
   IF term::isOn() THEN
     term::clear()
     term::moveTo(0, 0)
     io::print("status")
     term::sync()
   END IF
+END SUB
+
+SUB main()
+  drawStatus()
+  term::on()
+  drawStatus()
+  term::off()
 END SUB
 ```"#;
 /// `abi_function` body for `term::is_on` — delegates to the shared family-generic

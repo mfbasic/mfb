@@ -1,0 +1,11 @@
+man-page:io/input
+man-page:io/pollInput
+man-page:io/readByte
+man-page:io/readChar
+man-page:io/readLine
+man-page:io/setBuffered
+man-page:term/overview
+man-page:term/types
+man-page:term/enableMouse
+man-page:term/pollMouse
+man-page:term/isOn

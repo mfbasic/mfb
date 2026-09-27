@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 #
-# doc-review-fanout.sh — plan-125's parallel cross-model review harness.
+# doc-review-fanout.sh — plan-125's parallel second-reviewer harness.
 #
-# Runs one `codex exec` per review unit across N reusable detached worktrees,
-# and — this is the part that matters — records an outcome for EVERY unit.
+# Runs one headless Claude Code review (`claude -p`, model Claude Fable 5.1 by
+# default) per review unit across N reusable detached worktrees, and — this is
+# the part that matters — records an outcome for EVERY unit.
+#
+# WHY FABLE, NOT CODEX (owner decision, 2026-09-25)
+#
+#   Letters A through D Phase 3 (partial) ran `codex exec`. The Codex plan's usage
+#   limit stalled D Phase 3 twice, so the owner switched the reviewer to Claude
+#   Fable 5.1. This reverses plan-125-A's "use another Claude tier" rejection:
+#   the reviewer is now a different model from the main thread, not a different
+#   vendor. Override with REVIEWER_MODEL=<model id> if a letter needs another.
+#
+#   Reviewer worktrees live under /tmp on purpose, and must stay there: a
+#   `claude` session whose cwd is inside `.claude/worktrees/P-*` trips the
+#   follow-plan Stop hook, which will not let it stop while the plan has open
+#   boxes — the run never returns (measured 2026-09-25 with the PONG probe).
 #
 # WHY THE MANIFEST IS THE POINT
 #
@@ -24,8 +38,12 @@
 #
 # WHY THE REVIEWER NEVER COMMITS
 #
-#   The reviewer runs `workspace-write` so it can build probe programs, but the
-#   main thread in the primary checkout is the only writer of the repository.
+#   The reviewer runs with permissions bypassed (headless: nobody is there to
+#   approve a prompt) so it can build probe programs and run `mfb`, and its
+#   `git commit` / `git push` are denied outright. Unlike Codex's
+#   `workspace-write`, that is not an OS sandbox: a reviewer CAN write anywhere,
+#   including network probes Codex could not make. The main thread in the
+#   primary checkout is still the only writer of the repository.
 #   After every unit the harness runs `git status --porcelain` in that unit's
 #   worktree; a non-empty result is recorded DIRTY in the manifest and the
 #   worktree is reset before it is reused.
@@ -55,7 +73,11 @@
 #
 #   --jobs N        concurrent reviewers (default 6)
 #   --timeout S     per-run wall-clock seconds (default 1800)
-#   --dry-run       print what would run; make no worktree and no codex call
+#   --dry-run       print what would run; make no worktree and no reviewer call
+#
+# Environment:
+#   REVIEWER_MODEL  model id passed to `claude --model` (default claude-fable-5-1)
+#   CLAUDE          path to the Claude Code CLI (default: `claude` on PATH)
 #
 # A unit is one line of the units file, e.g.
 #   man-pkg:color            man-page:color/mix        man-topic:flow/if
@@ -70,14 +92,15 @@
 #
 # Output, all under planning/plan-125-findings/<letter>/ :
 #   <slug>.md          the reviewer's final message — the findings
-#   <slug>.log         the full transcript, kept for auditing a FAILED row
+#   <slug>.log         the full transcript (stream-json), kept for auditing a FAILED row
 #   manifest.tsv       unit  exit  seconds  findings_lines  dirty  banner
 
 set -uo pipefail
 
 export LC_ALL=${LC_ALL:-en_US.UTF-8}
 
-CODEX=${CODEX:-$HOME/local/bin/codex}
+REVIEWER_MODEL=${REVIEWER_MODEL:-claude-fable-5-1}
+CLAUDE=${CLAUDE:-$(command -v claude || printf '%s' "$HOME/.local/bin/claude")}
 REPO=$(git rev-parse --show-toplevel 2>/dev/null) || {
 	printf 'doc-review-fanout: not in a git repository\n' >&2; exit 2; }
 MFB=${MFB:-$REPO/target/release/mfb}
@@ -237,16 +260,31 @@ run_unit() { # $1 = unit, $2 = worktree
 	    -e "s|{{SCRATCH}}|$scratch|g" \
 	    "$PROMPT" > "$prompt_file"
 
+	# `claude` has no -C: run from the unit's worktree. run_unit is already its
+	# own background subshell, so this cd changes nothing for its siblings.
+	cd "$wt" || { printf '%s: cannot cd to %s\n' "$unit" "$wt" >&2; return 1; }
+
 	local attempt rc=0 start end secs
 	for attempt in 1 2; do
 		rm -f "$findings"
 		start=$(date +%s)
 		run_bounded "$TIMEOUT" \
-			"$CODEX" exec -s workspace-write -C "$wt" \
-				-o "$findings" - < "$prompt_file" > "$log" 2>&1
+			"$CLAUDE" -p --model "$REVIEWER_MODEL" \
+				--output-format stream-json --verbose \
+				--no-session-persistence \
+				--permission-mode bypassPermissions \
+				--add-dir "$scratch" \
+				--disallowedTools 'Bash(git commit:*)' 'Bash(git push:*)' \
+				< "$prompt_file" > "$log" 2>&1
 		rc=$?
 		end=$(date +%s)
 		secs=$((end - start))
+		# The findings are the final `result` event of a successful session. A
+		# session that ended in an error (usage limit, API failure) has
+		# is_error=true: write nothing, so the empty-findings rule below fails it.
+		jq -r 'select(.type == "result" and .is_error == false) | .result' \
+			"$log" > "$findings" 2>/dev/null
+		[ -s "$findings" ] || rm -f "$findings"
 		# An empty findings file is a failed run wearing a success exit code:
 		# the reviewer produced nothing, and a zero-byte file downstream reads
 		# as "reviewed, no findings". Treat it exactly like a non-zero exit.
@@ -269,11 +307,11 @@ run_unit() { # $1 = unit, $2 = worktree
 	fi
 
 	local banner findings_lines status
-	banner=$(grep -m1 -oE 'OpenAI Codex v[0-9.]+' "$log" 2>/dev/null)
+	# "Claude Code v<version>/<model>" from the session's init event — the model
+	# the session actually ran, not the one requested.
+	banner=$(jq -r 'select(.type == "system" and .subtype == "init")
+		| "Claude Code v\(.claude_code_version)/\(.model)"' "$log" 2>/dev/null | head -1)
 	banner=${banner:-unknown}
-	local model
-	model=$(grep -m1 -E '^model: ' "$log" 2>/dev/null | sed 's/^model: //')
-	[ -n "$model" ] && banner="$banner/$model"
 	findings_lines=$(wc -l < "$findings" 2>/dev/null | tr -d ' ')
 	findings_lines=${findings_lines:-0}
 
@@ -296,7 +334,8 @@ mode_run() {
 	[ -n "$PROMPT" ] || die 'need --prompt'
 	[ -f "$PROMPT" ] || die "no prompt file: $PROMPT"
 	[ -x "$MFB" ] || die "no release binary at $MFB (cargo build --release)"
-	[ "$DRYRUN" = 1 ] || [ -x "$CODEX" ] || die "no codex at $CODEX"
+	[ "$DRYRUN" = 1 ] || [ -x "$CLAUDE" ] || die "no claude CLI at $CLAUDE"
+	command -v jq >/dev/null || die "jq is required to read the reviewer transcript"
 
 	mkdir -p "$OUT" "$WT_ROOT" "$SCRATCH_ROOT/$LETTER"
 
@@ -315,6 +354,24 @@ mode_run() {
 	local i wts=()
 	for i in $(seq 1 "$JOBS"); do
 		local wt="$WT_ROOT/$LETTER-$i"
+		# A worktree left by an earlier run is NOT trusted as-is. It sits at that
+		# run's base, so a resume would review stale prose; and macOS's periodic
+		# /tmp sweep deletes files not accessed for three days, which can take
+		# the worktree's `.git` file and most of `src/` with it (measured
+		# 2026-09-25: D-phase3-1 had no `.git` and no `src/`, and a reviewer ran
+		# in it). A broken one is recreated; a sound one is forced to this run's
+		# base, which also restores any file the sweep deleted.
+		if [ -d "$wt" ] && [ "$DRYRUN" != 1 ]; then
+			if [ "$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$wt" && pwd -P)" ]; then
+				git -C "$wt" checkout --detach --force --quiet "$base" \
+					&& git -C "$wt" clean -fdq \
+					|| die "cannot reset worktree $wt to $base"
+			else
+				printf 'doc-review-fanout: %s is not a sound worktree; recreating\n' "$wt" >&2
+				rm -rf "$wt"
+				git worktree prune
+			fi
+		fi
 		if [ ! -d "$wt" ]; then
 			if [ "$DRYRUN" = 1 ]; then
 				printf 'DRY-RUN would create worktree %s at %s\n' "$wt" "$base"
@@ -329,7 +386,7 @@ mode_run() {
 	#
 	# NOT round-robin. Handing unit n to worktree n%JOBS looks like the same
 	# thing and is not: when one review runs long, round-robin still assigns the
-	# next unit to its worktree, so two codex processes share one working tree.
+	# next unit to its worktree, so two reviewer processes share one working tree.
 	# They would interleave probe builds and each would see the other's files in
 	# `git status`, making the DIRTY check report noise and reset a live run's
 	# scratch. A slot is reused only once its own PID has exited.

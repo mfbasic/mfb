@@ -20,7 +20,8 @@ construction a valid, non-surrogate Unicode code point, so there is no
 ill-formed input to reject.
 
 Each element contributes one to four bytes depending on its code point, so the
-byte length of the result is generally larger than the element count, while
+byte length of the result (`strings::byteLen`) is never smaller than the element
+count — equal only when every scalar is ASCII — while
 `len` of the result equals the element count exactly. The empty list yields the
 empty string.
 

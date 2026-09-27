@@ -19,10 +19,11 @@ Surviving elements keep the insertion order they had in `a`. The difference of a
 set and the empty set is a copy of that set; the difference of a set with itself
 is the empty set.
 
-`difference` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is classified infallible.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`difference` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"Elements of the first set not in the second:
 
