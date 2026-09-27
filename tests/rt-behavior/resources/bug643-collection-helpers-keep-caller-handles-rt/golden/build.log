@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt
+Wrote AST to tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt/bug643_collection_helpers_keep_caller_handles_rt.ast
+Wrote IR to tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt/bug643_collection_helpers_keep_caller_handles_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt
+Wrote executable to tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt/build/bug643_collection_helpers_keep_caller_handles_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt/build/bug643_collection_helpers_keep_caller_handles_rt.out
+chunks: open blocks=1
+window: open windows=1
+window stride: open open open windows=2
+close pulled: CLOSED
+inner take len=1
+take (inner scope): open
+inner filter len=1
+filter (inner scope): open
+drop/mid (loop body): open
+inner flatten len=1 get len=1
+flatten/get (inner scope): open
+inner values len=1
+values (inner scope): open
+inner append len=2 prepend len=2
+append/prepend (inner scope): open
+inner set len=1 insert/removeAt len=1
+set/insert/removeAt (inner scope): open
+[exit 0]

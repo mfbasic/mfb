@@ -1,12 +1,13 @@
 # bug-643: `collections::chunks` and `collections::window` close the caller's resource handles
 
-Last updated: 2026-09-16
+Last updated: 2026-09-27
 Effort: medium
 Severity: HIGH
 Class: Correctness (resource closed without the program asking; double close at scope exit)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed (see STATUS below)
+Regression Test: `tests/rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt`;
+unit tests `builder_owned_cleanup::argument_resource_tests`
 
 Calling `collections::chunks` or `collections::window` on a `List OF RES fs::File`
 **closes the resources in that list**. The caller's own `RES` binding, still in
@@ -107,6 +108,36 @@ Confirm by tracing the element drops in the `chunks`/`window` bodies
 (`src/codegen/builtins/collections/func_chunks.rs`, `func_window.rs`) for a
 resource element type, and comparing with `take`/`mid`.
 
+## Root cause (confirmed 2026-09-27 — the hypothesis above was wrong)
+
+Reproduced on macos-aarch64 at `a0082e4ae` exactly as described. The mechanism is
+not a temporary's drop and not specific to nested results. It is the **bind-from-call
+adoption** in the `NirOp::Bind` lowering (`src/codegen/engine/control/builder_control.rs`,
+the `is_res_marked_resource_collection` branch that calls `setup_owned_list` +
+`emit_owned_list_seed_from_collection`): any `List OF RES X` bound from a call
+pushes every handle in the result onto the binding scope's owned-list, and that
+scope closes them when it exits. §15.6 intends this for handles a callee *produced*
+and transfers on `RETURN`; a `collections` helper produces none, it only re-packages
+the caller's own pointers, which already have an owner enclosing the binding.
+
+`chunks` and `window` hit it through their own source bodies: each binds
+`LET piece AS List OF T = __collections_slice(value, …)` inside the `WHILE` body
+(`--nir`: `bind piece ... call #collections_slice$RES$fs$File`), so every handle
+copied into a block was adopted by the loop body and closed at the end of that
+iteration. `take`/`mid` looked safe only because the doc's control bound them at the
+handle's own scope, where the second close is the closed flag's no-op.
+
+The same adoption fires for the caller's own binding in any inner scope. Measured at
+base, every one of these closed the caller's handle (`CLOSED`): `take` and `filter` in
+an `IF`, `drop`/`mid` in a `WHILE` body, `flatten`/`get` of a `List OF List OF RES`,
+`append`/`prepend`, `set`, `insert`/`removeAt`. `values` of a `Map OF K TO RES` was
+already fine. The closed-pulled crash (`fs::close` "already closed", then
+`Cleanup failure: 7-703-0004`) is the drain re-closing a handle the program closed.
+
+Out of this doc's reach and filed separately: a USER function that hands back a
+handle (or list of handles) it was passed is adopted the same way — `RES y = ident(a)`
+or `LET p = same(xs)` in an inner scope closes the caller's handle (bug-750).
+
 ## Non-goals
 
 - Changing what a block holds for ordinary value types (copies).
@@ -126,11 +157,31 @@ resource element type, and comparing with `take`/`mid`.
   `filter`. Phase 1 runs the same open-handle probe on each with a `RES` element
   type, where the signature allows it.
 
+Audit results (2026-09-27, base `a0082e4ae` vs the fix):
+
+| Helper over a `List OF RES` | base | fixed |
+| --- | --- | --- |
+| `chunks`, `window` (incl. stride-skipped handle) | CLOSED | open |
+| `take`, `filter` in an `IF` | CLOSED | open |
+| `drop`, `mid` in a `WHILE` body | CLOSED | open |
+| `flatten`, `get` of a `List OF List OF RES` in an `IF` | CLOSED | open |
+| `append`, `prepend`, `set`, `insert`+`removeAt` in an `IF` | CLOSED | open |
+| `values` of a `Map OF K TO RES` in an `IF` | open | open |
+| `take(fresh(), 1)` of a user function's fresh handles | open | open (still adopted) |
+| `groupBy`/`partition`/`sortBy` with a callback over the `RES` element | does not type-check — bug-752 | same |
+| `zip` of a `List OF RES` | internal build error — bug-751 | same |
+| `transform` | produces its result from the callback, so it keeps adopting | — |
+
 ## Fix
 
-Phase 1 — RED test from the reproduction above (the handle must still be open
-after `chunks` and after `window`), plus the audit probes. Commit:
+- [x] Phase 1 — RED test from the reproduction above (the handle must still be open
+after `chunks` and after `window`), plus the audit probes. Commit: see Phase 2 (one
+commit; the fixture is RED at `a0082e4ae`: `chunks: CLOSED`, exit 255 at the
+closed-pulled probe).
 
-Phase 2 — stop the temporary from closing resource elements in the nested-build
-path (GREEN); full suite, resource-hygiene and leak goldens. Update the `chunks`
-and `window` man pages, which describe the current behavior. Commit:
+- [x] Phase 2 — a binding of a `collections` re-packaging call whose arguments hold
+no other call adopts nothing (`call_result_holds_only_argument_resources`,
+`src/codegen/cleanup/owned/builder_owned_cleanup.rs`); a member counts as producing
+only when a callback's return type reaches its return type (`transform`, `mapValues`,
+`reduce`, `reduceRight`), derived from the registry signature. `chunks`/`window` man
+pages and spec §15.6 updated. Commit: COMMIT_643
