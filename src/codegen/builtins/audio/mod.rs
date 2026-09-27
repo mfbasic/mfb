@@ -51,6 +51,8 @@ pub(crate) mod gen_macos_devices;
 pub(crate) mod gen_macos_io;
 pub(crate) mod gen_macos_shared;
 pub(crate) mod gen_macos_stream;
+#[cfg(test)]
+mod status_tests;
 pub(crate) mod gen_shared;
 pub(crate) mod gen_windows;
 
@@ -161,14 +163,18 @@ imports `audio` still starts on a Linux host without alsa-lib, and every
 `IMPORT audio` gains no audio symbol and no dynamic-library dependency.
 
 
-Windows drives WASAPI. When a Windows audio call fails, the `ErrAudioDevice` or
+Windows drives WASAPI. When a system audio call fails, the `ErrAudioDevice` or
 `ErrAudioUnavailable` message ends with the name of the call and the status it
-returned, as eight hex digits: `(IAudioRenderClient::GetBuffer: 0x88890004)` is
-the status Windows gives when the device was unplugged, disabled, or taken over by
-another stream. Look the status up in Microsoft's documentation for that call.
-When the device cannot run the stream's format, the message names the setting and
-the value the device runs at instead: `(mix rate: 0x0000bb80)` is a device fixed
-at 48000 Hz (`0xbb80`). `e.code` is the same either way."#;
+returned, as eight hex digits. On Windows, `(IAudioRenderClient::GetBuffer:
+0x88890004)` is the status Windows gives when the device was unplugged, disabled,
+or taken over by another stream. On macOS the status is Core Audio's, as in
+`(AudioQueueStart: 0xfffefbb3)`. On Linux it is ALSA's negative error number:
+`(snd_pcm_open: 0xfffffff0)` is `-16`, the device is busy. Look the status up in
+the platform's documentation for that call. When the device cannot run the
+stream's format, the message names the setting and the value the device runs at
+instead: `(mix rate: 0x0000bb80)` is a Windows device fixed at 48000 Hz
+(`0xbb80`), and `rate` or `channels` names the value an ALSA device settled on.
+`e.code` is the same either way."#;
 
 /// A required parameter with optional keyword aliases.
 pub(crate) fn param(
@@ -813,6 +819,13 @@ mod tests {
         let mut instructions = Vec::new();
         let mut relocations = Vec::new();
         let mut vregs = crate::codegen::engine::util::Vregs::new();
+        let mut status_sites = crate::codegen::error::emission::StatusFailSites::new(
+            "t_select_device",
+            "ErrAudioDevice",
+            "t_select_device_status_fail",
+            super::gen_macos_shared::STREAM_FAIL_STATUS_OFF,
+            super::gen_macos_shared::STREAM_FAIL_PREFIX_OFF,
+        );
         super::gen_macos_shared::emit_select_device(
             &mut crate::codegen::engine::builder::EmitCtx {
                 symbol: "t_select_device",
@@ -822,10 +835,17 @@ mod tests {
                 relocations: &mut relocations,
             },
             "t_select_device_fail",
+            &mut status_sites,
             &mut vregs,
         )
         .expect("lower the Core Audio device selection");
         assert_reads_the_inlined_id(&instructions, super::gen_macos_shared::DEVID_OFF);
+        // The caller owns the status stubs; emit them as a real open does.
+        status_sites.emit_stubs(
+            crate::target::shared::abi::c_arg(0),
+            &mut instructions,
+            &mut relocations,
+        );
     }
 
     /// plan-132: ALSA's `emit_device_cstring` reads the device name hint from the flat

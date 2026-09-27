@@ -21,6 +21,14 @@ pub(crate) fn lower_open_output(
 ) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
+    // plan-158-B: a failing Core Audio call reports its name and OSStatus.
+    let mut dev_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
     let alloc_fail = format!("{symbol}_alloc_fail");
     let buf_loop = format!("{symbol}_buf_loop");
     let buf_done = format!("{symbol}_buf_done");
@@ -206,7 +214,7 @@ pub(crate) fn lower_open_output(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueNewOutput", abi::return_register())),
     ]);
     // Optionally select the named device.
     if device {
@@ -219,6 +227,7 @@ pub(crate) fn lower_open_output(
                 relocations: &mut relocations,
             },
             &dev_fail,
+            &mut dev_sites,
             &mut vregs,
         )?;
     }
@@ -248,7 +257,7 @@ pub(crate) fn lower_open_output(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueAllocateBuffer", abi::return_register())),
         // freebufs[i] = buf; (i already == free_top since all free)
         abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
         abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
@@ -285,7 +294,7 @@ pub(crate) fn lower_open_output(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueStart", abi::return_register())),
         // Success: return the handle.
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -299,6 +308,19 @@ pub(crate) fn lower_open_output(
         &mut relocations,
         &done,
     );
+    dev_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(dev_sites.tail()));
+    emit_open_cleanup(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+    )?;
+    dev_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(
         &mut EmitCtx {
@@ -584,6 +606,21 @@ pub(crate) fn lower_open_input(
 ) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
+    // plan-158-B: a failing Core Audio call reports its name and OSStatus.
+    let mut dev_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
+    let mut unavailable_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioUnavailable",
+        &format!("{symbol}_status_unavailable"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
     let unavailable = format!("{symbol}_unavailable");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let buf_loop = format!("{symbol}_buf_loop");
@@ -652,7 +689,10 @@ pub(crate) fn lower_open_input(
         instructions.extend([
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_ne(&unavailable),
+            abi::branch_ne(&unavailable_sites.site(
+                "AudioObjectGetPropertyData",
+                abi::return_register(),
+            )),
             abi::load_u32(&v9, abi::stack_pointer(), PRECHK_ID),
             abi::compare_immediate(&v9, "0"),
             abi::branch_eq(&unavailable),
@@ -808,7 +848,7 @@ pub(crate) fn lower_open_input(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueNewInput", abi::return_register())),
     ]);
     if device {
         emit_select_device(
@@ -820,6 +860,7 @@ pub(crate) fn lower_open_input(
                 relocations: &mut relocations,
             },
             &dev_fail,
+            &mut dev_sites,
             &mut vregs,
         )?;
     }
@@ -849,7 +890,7 @@ pub(crate) fn lower_open_input(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueAllocateBuffer", abi::return_register())),
         // AudioQueueEnqueueBuffer(queue, buf, 0, NULL)
         abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
@@ -867,7 +908,7 @@ pub(crate) fn lower_open_input(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueEnqueueBuffer", abi::return_register())),
         abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
         abi::add_immediate(&v9, &v9, 1),
         abi::store_u64(&v9, abi::stack_pointer(), I_OFF),
@@ -889,7 +930,7 @@ pub(crate) fn lower_open_input(
     instructions.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&dev_fail),
+        abi::branch_ne(&dev_sites.site("AudioQueueStart", abi::return_register())),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -910,6 +951,23 @@ pub(crate) fn lower_open_input(
         &mut relocations,
         &done,
     );
+    // The default-input precheck runs before anything is allocated.
+    unavailable_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(unavailable_sites.tail()));
+    unavailable_sites.emit_raise(&mut instructions, &mut relocations, &done);
+    dev_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(dev_sites.tail()));
+    emit_open_cleanup(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+    )?;
+    dev_sites.emit_raise(&mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(
         &mut EmitCtx {
