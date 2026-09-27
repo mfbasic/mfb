@@ -1,14 +1,25 @@
 # bug-735: every GPU shape but a filled polygon or a rectangle still flips a coverage step against the oracle near black
 
-Last updated: 2026-09-25
+Last updated: 2026-09-27
 Effort: huge (>3d)
 Severity: MEDIUM
 Class: Correctness (GPU/oracle agreement)
 
-Status: Open — split from bug-687 by owner decision (2026-09-25)
-Regression Test: none yet. The reproduction below builds one scene per kind; each
-becomes a `tests/canvas/scenes/*_on_black.mfb` row in `rt_canvas_metal.rs` and
-`scripts/test-canvas-gpu-rows.sh` when its kind is fixed.
+Status: FIXED (`1b03305d4`, branch `worktree-B-735`) — split from bug-687 by owner decision (2026-09-25)
+Regression Test: `tests/canvas/rt_canvas_metal.rs` (the fourteen bug-735 rows) and the matching
+`scripts/test-canvas-gpu-rows.sh` rows (`circlesblack` ... `hairline`).
+
+## STATUS: FIXED (`1b03305d4`)
+
+Every shape kind's coverage is computed in double-float on Metal and Vulkan, from inputs
+carried as 16.16 words plus residuals (item block 208 -> 272; group offset residuals in the
+draw list). 0 pixels past `GPU_DEFAULT` on every row on Metal, Vulkan lavapipe 2226/2230 and
+the real Intel UHD 630 (box 206). Full suite green, gate 0 diffs. Deviations from the doc's
+design: the arc's sweep vectors come from its cap endpoints (no new header slot) and its
+`reflex` flag is decided by the emitter; rectangle, picture and clip were converted, not
+exempted (engineered rows showed thousands of flips); a transformed centre sample may skip on
+a Frobenius-norm bound. Found and fixed on the way: the blended-hairline split mismatch
+(`hairline` row). Filed and closed as environmental: bug-741 (2230 lavapipe faults).
 
 bug-687 fixed filled polygons. Each vertex now travels at double-float precision and
 the polygon's distance, crossing test, inverse transform and coverage rounding are
@@ -460,6 +471,18 @@ at `0cd2db799` with a one-rectangle scene and never on the real Intel driver).
 **Metal:** `cargo test --release --test rt_canvas_metal`, 38 passed, on the tip merged with
 `main` (`33d498964`).
 
-<<SUITE>>
+**Full suite and goldens** (merged tip with `main` `0aed2f454` + later `main`, under the
+heavy-run lock, 2026-09-27): `scripts/regen-native-goldens.sh` rewrote the two canvas
+sentinels (8 files: `app-mouse-surface` `.ir`, macOS `.nir`/`.nplan`, four `.ncodesum`;
+`app-window-surface` macOS `.ncodesum`), classified before regenerating: the front-end
+deltas are `__canvas_pushOneDraw`'s residual words plus a +10 source-line shift, the
+`.ncodesum`s are the MSL, SPIR-V and emitters; no riscv64 golden moves. Then
+`scripts/artifact-gate.sh target/release/mfb all`: **0 diffs / 2166 goldens**;
+`cargo test --release --no-fail-fast`: **248 binaries, 6236 passed, 0 failed, 24
+ignored**. `scripts/spec-census.sh --citations`: 0 misses.
 
-Commit: <<COMMITS>>
+**Windows rows now run on box 206** (owner decision, bug-741):
+`scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64` on the merged tip ran
+every row there, exit 0 (29 checks; the bug-735 rows worst 0-1).
+
+Commit: b2bab9360 (rows, RED), f6fa48f29 (fix), ec06f0351 (spec, .ai), de5da4023 (scripts to 206), 1b03305d4 (goldens); bug-741 filed 5694ae926

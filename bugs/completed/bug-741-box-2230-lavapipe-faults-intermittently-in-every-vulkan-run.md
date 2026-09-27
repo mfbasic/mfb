@@ -5,8 +5,20 @@ Effort: small (environment), owner decision needed
 Severity: LOW (test reliability; no MFB defect found)
 Class: Test infrastructure (Vulkan rows on Windows)
 
-Status: Open — found by bug-735 (lane E), filed and reported to the coordinator; not in
-bug-735's scope (the fix is the box's driver or the test instrument, not MFB code).
+Status: CLOSED — environmental (2026-09-27). Found by bug-735 (lane E). **Owner
+decision:** Windows GPU/Vulkan rows run on box 206 (real Intel UHD 630, Intel's driver),
+not on 2230's lavapipe; 2230 stays for non-GPU Windows tests. The evidence: 0 faults in 40
+runs on the real driver against about 1 in 7 on 2230's lavapipe, the fault always inside
+`vulkan_lvp.dll` with no MFB frame on the faulting thread.
+
+## STATUS: CLOSED (environmental; `de5da4023`)
+
+`scripts/test-canvas-gpu-rows.sh --target windows-x86_64` now defaults to box 206, and
+`scripts/test-winapp.sh` sends its two `MFB_CANVAS_GPU=1` runs to `--gpu-box` (default
+206) while everything else stays on 2230. Verified 2026-09-27: every gpu-rows row on 206,
+exit 0; `test-winapp.sh --box 22` (all on 206), exit 0. `.ai/remote_systems.md` already
+records 206 and the move (edited on main by the coordinator). No MFB code changed: no
+MFB defect was found.
 
 **The single correct behavior a fix produces:** a `scripts/test-canvas-gpu-rows.sh
 --target windows-x86_64` row passes or fails on its pixels, never on `gpu
@@ -60,10 +72,10 @@ Mesa release.
 - Do not add a retry to `scripts/test-canvas-gpu-rows.sh` or loosen any row without an
   owner decision: it would also hide a real MFB crash on that path.
 
-## Fix options (owner)
+## Fix options (owner) — option 3 taken: run Windows GPU rows on the real driver
 
 1. Update 2230's Mesa (or install a build with PDBs) and re-measure the 40-run loop.
 2. Let the harness retry a run that exits `0xC0000005` inside `vulkan_lvp.dll` once,
    reporting it — a change to the instrument.
 
-Commit: —
+Commit: 5694ae926 (filed), fb0d80c43 (real-driver result), de5da4023 (scripts to 206)
