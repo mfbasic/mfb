@@ -17,7 +17,7 @@ letter too), `src/codegen/builtins/audio/gen_macos_*.rs`,
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-A complete (archived) | `ls planning/completed/plan-158-A-*` → one file | NOT MET |
+| plan-158-A complete (archived) | `ls planning/completed/plan-158-A-*` → one file | MET (2026-09-26: `planning/completed/plan-158-A-native-error-status-messages.md`) |
 
 If plan-158-A is not complete, this plan cannot start, full stop.
 
@@ -49,11 +49,66 @@ If plan-158-A is not complete, this plan cannot start, full stop.
 
 ### Verified properties
 
-- UNVERIFIED: that every branch counted above has the status still in a register at the
-  branch (a check that compares a derived value, e.g. a frame count, has no OS status).
-  Phase 1 classifies each one.
-- UNVERIFIED: a free frame-slot pair in each backend's frame table for `StatusFailSites`.
-  Phase 1 task.
+- Which branches have an OS status at the branch: classified in the Phase 1 table
+  (2026-09-26, read at each site with `/tmp/p158/ctx.py`).
+- Free frame-slot pairs: macOS stream frame (`F = 512`) 488/496, macOS devices frame
+  (`FRAME_SIZE = 1024`) 1008/1016, ALSA (`FRAME = 640`) 536/544. Proof: the highest
+  named slots are `MAPSIZE_OFF = 480`, `DEVLIST_OFF = 1000` and `DEVLIST_OFF = 528`
+  (`grep -n "const .*_OFF: usize" src/codegen/builtins/audio/gen_{macos,alsa}_shared.rs`),
+  and `grep -nE "\b(488|496|504|536|544|1008|1016)\b" src/codegen/builtins/audio/gen_{macos,alsa}*.rs`
+  → no match.
+
+### Site classification (Phase 1)
+
+"ret" = the call's result in `abi::return_register()` at the branch (sign-extended
+`OSStatus` or negative errno). "value" = the observed device value, reported the way
+plan-158-A reports Windows' `mix rate` (moved into the return register at the site).
+Rows marked "no status" keep `emit_fail`. The 33 grep rows plus the 8 further calls
+behind the shared `check` closure (§Corrections C1) are 41 rows.
+
+| file | function | call | status |
+|---|---|---|---|
+| gen_macos_io.rs:53 | lower_write | closed-stream check | no status |
+| gen_macos_io.rs:222 | lower_write | AudioQueueEnqueueBuffer | ret |
+| gen_macos_io.rs:654 | lower_read | closed-stream check | no status |
+| gen_macos_devices.rs:97 | lower_devices | AudioObjectGetPropertyData | ret |
+| gen_macos_devices.rs:103 | lower_devices | device count == 0 | no status |
+| gen_macos_shared.rs:240 | emit_select_device | CFStringCreateWithCString (NULL) | no status |
+| gen_macos_shared.rs:271 | emit_select_device | AudioQueueSetProperty | ret (saved across `CFRelease`) |
+| gen_macos_shared.rs:427 | emit_cfstring_field | AudioObjectGetPropertyData | ret |
+| gen_macos_shared.rs:458 | emit_cfstring_field | CFStringGetCString (false) | no status |
+| gen_macos_stream.rs:119 | lower_open_output | mmap (MAP_FAILED) | no status |
+| gen_macos_stream.rs:209 | lower_open_output | AudioQueueNewOutput | ret |
+| gen_macos_stream.rs:251 | lower_open_output | AudioQueueAllocateBuffer | ret |
+| gen_macos_stream.rs:288 | lower_open_output | AudioQueueStart | ret |
+| gen_macos_stream.rs:655 | lower_open_input | AudioObjectGetPropertyData (default input) | ret |
+| gen_macos_stream.rs:658 | lower_open_input | default input id == 0 | no status |
+| gen_macos_stream.rs:724 | lower_open_input | mmap (MAP_FAILED) | no status |
+| gen_macos_stream.rs:811 | lower_open_input | AudioQueueNewInput | ret |
+| gen_macos_stream.rs:852 | lower_open_input | AudioQueueAllocateBuffer | ret |
+| gen_macos_stream.rs:870 | lower_open_input | AudioQueueEnqueueBuffer | ret |
+| gen_macos_stream.rs:892 | lower_open_input | AudioQueueStart | ret |
+| gen_alsa_devices.rs:77 | lower_devices | snd_device_name_hint | ret |
+| gen_alsa_io.rs:47 | lower_write | closed-stream check | no status |
+| gen_alsa_io.rs:166 | lower_write | snd_pcm_recover | ret |
+| gen_alsa_io.rs:254 | lower_read | closed-stream check | no status |
+| gen_alsa_io.rs:522 | lower_read | snd_pcm_recover | ret |
+| gen_alsa_shared.rs:261 | emit_dlopen | dlopen (NULL) | no status |
+| gen_alsa_shared.rs:293 | emit_dlsym | dlsym (NULL) | no status |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_malloc | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_any | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_access | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_format | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_channels | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_rate_near | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_period_size_near | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params_set_buffer_size_near | ret |
+| gen_alsa_shared.rs:551 | emit_configure_hw_params | snd_pcm_hw_params | ret |
+| gen_alsa_shared.rs:841 | emit_configure_hw_params | rate (committed ≠ requested) | value |
+| gen_alsa_shared.rs:845 | emit_configure_hw_params | channels (committed ≠ requested) | value |
+| gen_alsa_stream.rs:114 | lower_open | mmap (MAP_FAILED) | no status |
+| gen_alsa_stream.rs:181 | lower_open | snd_pcm_open | ret |
+| gen_alsa_stream.rs:217 | lower_open | snd_pcm_prepare | ret |
 
 ## 3. Design Overview
 
@@ -67,12 +122,15 @@ Risk is low: each site keeps its label structure and only swaps its raise tail.
 
 ### Phase 1 — Classify sites
 
-- [ ] For each of the 33 branches, record (file, function, call name, status register or
+- [x] For each of the 33 branches, record (file, function, call name, status register or
       "no status") in a table in this plan. Sites without an OS status stay `emit_fail`.
-- [ ] Pick the frame-slot pair per backend; record the grep that proves it free.
+      — §Site classification: 41 rows (C1), 28 with a status, 13 without.
+- [x] Pick the frame-slot pair per backend; record the grep that proves it free. —
+      §Verified properties.
 
-Acceptance: the table covers 33 rows.
-  Check: `grep -c '^| gen_' planning/plan-158-B-audio-status-macos-alsa.md` → 33 (est. 1 min).
+Acceptance: the table covers every grep row plus the calls behind the shared `check`
+closure (strengthened from 33, C1).
+  Check: `grep -c '^| gen_' planning/plan-158-B-audio-status-macos-alsa.md` → 41 (est. 1 min).
 Commit: —
 
 ### Phase 2 — Adopt
@@ -106,6 +164,13 @@ Commit: —
   support. File it as a follow-up if wanted.
 
 ## Corrections
+
+- **C1 (the ALSA count).** The Phase 1 grep counts `gen_alsa_shared.rs:551` once, but
+  it is the `check` closure in `emit_configure_hw_params`, called after 9 different
+  `snd_pcm_hw_params*` calls
+  (`grep -c 'check(ctx.instructions, dev_fail)' src/codegen/builtins/audio/gen_alsa_shared.rs`
+  → 9). Each is its own status site with its own call name, so the table has 41 rows,
+  not 33, and the acceptance count is corrected to match (a stronger check).
 
 ## Summary
 
