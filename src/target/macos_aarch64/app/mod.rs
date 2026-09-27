@@ -15,6 +15,7 @@
 mod app_io;
 mod bootstrap;
 mod display;
+mod keys;
 pub(crate) use display::{CLASS_NS_SCREEN, NS_WINDOW_DID_CHANGE_SCREEN};
 mod metal;
 mod mouse_view;
@@ -207,7 +208,7 @@ const STR_QUIT_KEY: (&str, &str) = ("_mfb_macapp_str_quitKey", "q");
 // overriding keyDown:) receives typed keys directly. Line mode accumulates keys
 // in a buffer until Return writes the buffered line to a pipe whose read end is
 // dup2'd onto fd 0. Raw mode writes each key event's UTF-8 bytes to that pipe
-// immediately so readChar/readByte do not wait for Return.
+// immediately so the keystroke readers (`io::readKey`, …) do not wait for Return.
 const SEL_UTF8_STRING: (&str, &str) = ("_mfb_macapp_sel_UTF8String", "UTF8String");
 const SEL_MAKE_FIRST_RESPONDER: (&str, &str) =
     ("_mfb_macapp_sel_makeFirstResponder", "makeFirstResponder:");
@@ -883,6 +884,9 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_should_terminate_helper(),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),
+        // bug-699: the shared key translator and the raw-mode keyUp: IMP.
+        keys::emit_key_inject_helper(),
+        keys::emit_key_up_helper(),
         // term:: synthesized TermView surface (plan-01-term.md §6.3, Phase 4-5).
         emit_term_view_is_flipped(),
         emit_term_view_draw_rect(),
@@ -931,6 +935,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
         functions.push(emit_canvas_key_down_helper());
+        functions.push(keys::emit_canvas_key_up_helper());
         functions.push(emit_reconcile_helper(spec.uses_window));
     }
     // plan-98-C Phase 3: the frame blit's worker-side marshal and its main-thread
@@ -1160,6 +1165,10 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
         STR_TEXTVIEW_CLASS,
         STR_INPUT_TYPES,
         STR_EMPTY,
+        keys::KEY_SELECTORS[0],
+        keys::KEY_SELECTORS[1],
+        keys::KEY_SELECTORS[2],
+        keys::KEY_SELECTORS[3],
         // Terminal size (io.terminalSize).
         SEL_ENCLOSING_SCROLL_VIEW,
         SEL_CONTENT_SIZE,
@@ -1792,7 +1801,7 @@ mod canvas_reconcile_tests {
     ///
     /// * `acceptsFirstResponder` — a plain `NSView` returns NO and so never becomes
     ///   first responder, and
-    /// * `keyDown:` — without it window keys go nowhere and `io::readByte` in canvas
+    /// * `keyDown:` — without it window keys go nowhere and `io::readKey` in canvas
     ///   mode blocks forever. Those two are why the subclass exists at all.
     /// * `setFrameSize:` — plan-98-D Phase 3: a user drag becomes a new surface size
     ///   here.
@@ -1818,6 +1827,10 @@ mod canvas_reconcile_tests {
             ),
             (SEL_KEY_DOWN.0, "without it window keys reach nothing"),
             (
+                keys::SEL_KEY_UP.0,
+                "bug-699: without it a key release is never reported",
+            ),
+            (
                 SEL_SET_FRAME_SIZE.0,
                 "without it a resize never reaches the renderer",
             ),
@@ -1834,7 +1847,7 @@ mod canvas_reconcile_tests {
         }
         assert_eq!(
             calls_external(&func, "_class_addMethod"),
-            4,
+            5,
             "one class_addMethod per override, and no more"
         );
         assert_eq!(
@@ -1842,7 +1855,11 @@ mod canvas_reconcile_tests {
             1,
             "an unregistered class pair cannot be instantiated"
         );
-        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+        for imp in [
+            CANVAS_ACCEPTS_FR_SYMBOL,
+            CANVAS_KEY_DOWN_SYMBOL,
+            keys::CANVAS_KEY_UP_SYMBOL,
+        ] {
             assert!(
                 func.relocations.iter().any(|r| r.to.as_str() == imp),
                 "{imp} must be installed as a method IMP"
@@ -1866,55 +1883,53 @@ mod canvas_reconcile_tests {
     }
 
     /// The canvas `keyDown:` writes to the same window input pipe the transcript and
-    /// TermView handlers use — that is what makes `io::readByte`/`readLine` in canvas
-    /// mode read the window's keys rather than a second, parallel channel.
+    /// TermView handlers use — that is what makes the `io::` readers in canvas mode
+    /// read the window's keys rather than a second, parallel channel. Since bug-699
+    /// every view writes through the one key translator, so the pipe is reached
+    /// there: the canvas IMP must call it, and it must write to the pipe.
     #[test]
     fn canvas_key_down_writes_to_the_window_input_pipe() {
         let func = emit_canvas_key_down_helper();
         assert!(
             func.relocations
                 .iter()
+                .any(|r| r.to.as_str() == keys::KEY_INJECT_SYMBOL),
+            "the canvas keyDown: must hand the event to the key translator"
+        );
+        let inject = keys::emit_key_inject_helper();
+        assert!(
+            inject
+                .relocations
+                .iter()
                 .any(|r| r.to.as_str() == PIPE_ASSOC_KEY),
-            "the canvas keyDown: must read the window input pipe's write end"
+            "the key translator must read the window input pipe's write end"
         );
         assert_eq!(
-            calls_external(&func, "_write"),
-            2,
-            "one write for the CR->LF newline, one for the raw UTF-8 bytes"
+            calls_external(&inject, "_write"),
+            1,
+            "one write of the whole encoded event"
         );
     }
 
-    /// `[event characters]` reports Return as CR, but `io::readLine` terminates on
-    /// LF. Without the translation a canvas program's `readLine` would hang on a
-    /// line the user had already ended — the same reason `editproc` does it on
-    /// Windows and the transcript handler does it here.
+    /// Return must end a line in canvas mode. Before bug-699 the canvas handler
+    /// translated `[event characters]`' CR to the LF `io::readLine` ends on; now
+    /// every key is injected as a kitty key event, so Return (AppKit's U+000D, and
+    /// the keypad's U+0003) must be a row of the translator's table that the input
+    /// decoder reads back as `Enter` — the key `io::readLine` ends a line on.
     #[test]
-    fn canvas_key_down_translates_return_to_newline() {
-        let func = emit_canvas_key_down_helper();
-        let immediates: Vec<String> = func
-            .instructions
-            .iter()
-            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
-            .filter_map(|i| {
-                i.fields
-                    .iter()
-                    .find(|(name, _)| *name == "rhs")
-                    .map(|(_, value)| value.to_string())
-            })
-            .collect();
-        assert!(
-            immediates.iter().any(|value| value == "13"),
-            "the handler must test for CR (13); got {immediates:?}"
-        );
-        assert!(
-            func.instructions.iter().any(|i| {
-                i.op == crate::arch::ops::CodeOp::MovImm
-                    && i.fields
-                        .iter()
-                        .any(|(name, value)| *name == "value" && value.to_string() == "10")
-            }),
-            "the handler must materialize LF (10) as the delivered byte"
-        );
+    fn canvas_key_down_delivers_return_as_enter() {
+        use crate::codegen::io::input::encode::{APPKIT_KEYS, EVENT_PRESS};
+        for character in [0x0D_u64, 0x03] {
+            let row = APPKIT_KEYS
+                .iter()
+                .find(|row| row.0 == character)
+                .unwrap_or_else(|| panic!("no AppKit row for U+{character:04X}"));
+            assert_eq!(
+                (row.1, row.2),
+                (13, b'u'),
+                "U+{character:04X} must be kitty's Enter (CSI 13 u); press = {EVENT_PRESS}"
+            );
+        }
     }
 
     /// The two IMPs must be emitted for any program that can reconcile, or the
@@ -1922,7 +1937,7 @@ mod canvas_reconcile_tests {
     #[test]
     fn canvas_key_imps_are_emitted_with_the_reconcile_helpers() {
         let spec = AppEntrySpec {
-            language_entry_accepts_args: false,
+            worker_passes_args: false,
             uses_term: false,
             initial_mode: PresentationMode::None,
             uses_canvas: true,
@@ -1935,7 +1950,12 @@ mod canvas_reconcile_tests {
             .into_iter()
             .map(|f| f.symbol)
             .collect();
-        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+        for imp in [
+            CANVAS_ACCEPTS_FR_SYMBOL,
+            CANVAS_KEY_DOWN_SYMBOL,
+            keys::CANVAS_KEY_UP_SYMBOL,
+            keys::KEY_INJECT_SYMBOL,
+        ] {
             assert!(
                 symbols.iter().any(|s| s == imp),
                 "{imp} must be emitted; got {symbols:?}"

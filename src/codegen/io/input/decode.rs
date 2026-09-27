@@ -100,6 +100,8 @@ struct Dec<'a> {
     rel: &'a mut Vec<CodeRelocation>,
     v: Vregs,
     labels: usize,
+    /// Whether this program's decoder joins grapheme clusters (`FLAG_CLUSTER`).
+    clusters: bool,
     buf: VirtualRegister,
     len: VirtualRegister,
     flags: VirtualRegister,
@@ -229,7 +231,13 @@ const fn k(key: KeyName) -> u64 {
 }
 
 /// Lower `_mfb_rt_input_decode`.
-pub(crate) fn lower_input_decode() -> Result<CodeFunction, String> {
+/// Lower the decoder. `clusters` says whether the program has a reader that
+/// asks for whole grapheme clusters (`io::readGrapheme`, `io::readKey`): only
+/// then is the cluster extension emitted, because it is what pulls the Unicode
+/// property tables into the binary. Without it `FLAG_CLUSTER` is ignored and
+/// text is one scalar per token — all a program with only `io::readLine`,
+/// `io::readScalar` and `io::readRaw` ever asks for.
+pub(crate) fn lower_input_decode(clusters: bool) -> Result<CodeFunction, String> {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     let mut v = Vregs::new();
@@ -239,6 +247,7 @@ pub(crate) fn lower_input_decode() -> Result<CodeFunction, String> {
         rel: &mut relocations,
         v,
         labels: 0,
+        clusters,
         buf: names[0],
         len: names[1],
         flags: names[2],
@@ -626,6 +635,14 @@ fn emit_text(d: &mut Dec, exits: &Exits) {
     d.at(&ok);
     emit_copy_to_grapheme(d, &p, &slen);
     let finish = d.label("text_finish");
+    if !d.clusters {
+        let (cons, glen, er, mr) = (d.cons, d.glen, d.event, d.mods);
+        d.push(abi::move_register(&cons, &glen));
+        d.imm(&er, KeyEvent::NotSupported as u64);
+        d.imm(&mr, 0);
+        d.goto(&exits.unicode);
+        return;
+    }
     d.unless_flag(FLAG_CLUSTER, &finish);
 
     // Extend the cluster while the next scalar does not break from it.

@@ -170,14 +170,15 @@ pub(crate) fn emit_stdin_next_byte(
     ]);
 }
 
-/// Emit the log-aware prefix of `io::pollInput` (plan-15 §4.4). Branches to
+/// Emit the log-aware readiness check a timed read runs before it waits
+/// (plan-15 §4.4; `crate::codegen::io::input::reader::emit_read_wait`). Branches to
 /// `ready_label` when the calling thread has a byte immediately available — the
 /// arena-local buffer is non-empty, or (under the log mutex) its cursor is behind
 /// `fill`, or it has reached the EOF offset (a read would return EOF at once) — and
 /// otherwise falls through to `fallthrough_label` (the existing `poll(fd 0)` that
 /// reports pending OS data without consuming it). Never blocks and never reads the
-/// OS. The mutex is released on every exit. Keeps `pollInput` correct once reads are
-/// served from the log: leftover log bytes are invisible to `poll(fd 0)`.
+/// OS. The mutex is released on every exit. Needed because reads are served from
+/// the log: leftover log bytes are invisible to `poll(fd 0)`.
 ///
 /// The temporaries are minted from the caller's `vregs` (bug-721): a hand-numbered
 /// name would alias whichever vreg the caller's counter minted with that number.
@@ -209,7 +210,7 @@ pub(crate) fn emit_stdin_poll_ready_check(
 }
 
 /// The temporaries [`emit_stdin_poll_ready_check_with`] uses. Both callers mint
-/// them from their own `Vregs`: `io::pollInput` through
+/// them from their own `Vregs`: the readers' timed wait through
 /// [`emit_stdin_poll_ready_check`], and the mouse pump's escape wait (bug-669),
 /// which runs the check in the MIDDLE of a read helper whose own temporaries are
 /// live across it.
@@ -232,8 +233,10 @@ pub(crate) fn emit_stdin_poll_ready_check_with(
     fallthrough_label: &str,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
-
-    let l = |s: &str| format!("{symbol}_stdin_poll_{s}");
+    // Labels are keyed on the caller's fall-through label, not the function: a
+    // reader with a mouse pump runs this check twice — the timed wait and the
+    // pump's escape wait — and two copies keyed on the symbol would collide.
+    let l = |s: &str| format!("{fallthrough_label}_stdin_poll_{s}");
     // Local fast path: pos < filled => a byte is staged.
     field_addr(
         r.addr,
@@ -1178,7 +1181,7 @@ pub(crate) fn lower_stdin_subscribe(
         // Registry-full (bug-243): the subscriber table holds at most
         // STDIN_LOG_MAX_SUBSCRIBERS (128) concurrently-live subscribers. When full,
         // the calling thread is left unregistered (STDIN_SUBSCRIBER stays null), so
-        // its later `readByte`/`readChar` return ErrInvalidContext ("not
+        // its later reads return ErrInvalidContext ("not
         // subscribed") — which is accurate (it genuinely is not subscribed). A
         // distinct capacity error would require making `thread::openStdIn` fallible
         // (it currently returns `Nothing`); the 128-subscriber cap is the documented

@@ -35,8 +35,8 @@ use std::path::PathBuf;
 
 /// A program that instantiates every fs/io helper the fix touches: the buffered
 /// `writeAll`/`writeAllBytes` (drain + reconcile + write loop), whole-file
-/// `readAll`/`readAllBytes`, `fs::readLine`, and the io print/readLine/readChar/
-/// readByte helpers. It imports both `fs` and `io`, so the errno accessor is
+/// `readAll`/`readAllBytes`, `fs::readLine`, and the io print/readLine/readScalar/
+/// readRaw helpers. It imports both `fs` and `io`, so the errno accessor is
 /// linked and the libc EINTR guards read it (a pure-`io::` program has no reason
 /// to import it — a separate boundary that this test does not exercise).
 const SOURCE: &str = "\
@@ -61,9 +61,9 @@ SUB main()
     LET l AS String = fs::readLine(k)
     fs::close(k)
     LET z AS String = io::readLine()
-    LET c AS String = io::readChar()
-    LET n AS Byte = io::readByte()
-    io::print(a & l & z & c & toString(len(b)) & toString(n))
+    LET c AS Scalar = io::readScalar()
+    LET n AS Byte = io::readRaw()
+    io::print(a & l & z & strings::fromScalars([c]) & toString(len(b)) & toString(n))
 END SUB
 ";
 
@@ -94,8 +94,8 @@ const READ_HELPERS: &[&str] = &[
 /// which owns the guard for all of them.
 const STDIN_READ_HELPERS: &[&str] = &[
     "_mfb_rt_io_io_readLine",
-    "_mfb_rt_io_io_readChar",
-    "_mfb_rt_io_io_readByte",
+    "_mfb_rt_io_io_readScalar",
+    "_mfb_rt_io_io_readRaw",
 ];
 
 /// The cooperative per-thread stdin reader that the console-mode `io::` readers

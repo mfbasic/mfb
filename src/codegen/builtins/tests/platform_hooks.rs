@@ -437,7 +437,7 @@ fn optional_hook_answers(platform: &dyn CodegenPlatform) -> Vec<(&'static str, A
         "emit_app_program_entry",
         platform.emit_app_program_entry(
             &AppEntrySpec {
-                language_entry_accepts_args: false,
+                worker_passes_args: false,
                 uses_term: false,
                 initial_mode: PresentationMode::Console,
                 uses_canvas: false,

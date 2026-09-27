@@ -73,7 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 
 /// `big::fromInteger`: an 8-byte magnitude from the absolute value, then
 /// `emit_build_int` trims it. A failed allocation raises `ErrOutOfMemory`, which is not a
-/// declared error (the `io::readChar` / `crypto::hash` convention).
+/// declared error (the `crypto::hash` convention).
 pub(crate) fn lower_from_integer(
     builder: &mut CodeBuilder,
     args: &[ValueResult],

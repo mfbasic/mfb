@@ -22,14 +22,15 @@ diverge and are flagged.
 | `io::flush` | No-op returning `OK`; transcript writes are already synchronous. | Same (no-op `OK`) |
 | `io::input` | Switch to line-echo mode, render the prompt via the `io::write` helper, then read one committed line via the console `io::readLine` helper (reads fd 0). | Same; reads fd 0 (the pipe) |
 | `io::readLine` | Unchanged console helper; reads fd 0 (the window input pipe). | Same |
-| `io::readChar` / `io::readByte` | Set raw mode (each keystroke's bytes are delivered immediately), then read fd 0 via the unchanged console helper. | Same; reads fd 0 |
+| `io::readRaw` / `io::readScalar` / `io::readGrapheme` / `io::readKey` | Set raw mode (each key event's bytes are delivered immediately), then read fd 0 through the shared read engine and key decoder. | Same; reads fd 0 |
 | `io::isInputTerminal` / `io::isOutputTerminal` / `io::isErrorTerminal` | Always `OK(TRUE)` — the window *is* the interactive console; no `isatty` probe. | Same (`OK(TRUE)`) |
 | `io::terminalSize` | Not part of `io::`. The transcript-viewport sizing helper was retargeted to the `term::` backend; see *term-backend*. | n/a |
 
-The read helpers (`readLine`/`readChar`/`readByte`/`input`) are **not** rewritten
-for app mode beyond the input-mode prelude — they remain the standard console
-helpers that read fd 0. The only thing that makes them window-aware is the pipe
-`dup2`'d onto fd 0 at bootstrap. [[src/codegen/builtins/io/func_read_byte.rs:lower_read_byte]]
+The read helpers (`readLine`, `input` and the four keystroke readers) are **not**
+rewritten for app mode beyond the input-mode prelude — they are the standard
+readers that read fd 0 (`./mfb spec stdlib io-input`), treating the window as a
+keyboard source. The only thing that makes them window-aware is the pipe
+`dup2`'d onto fd 0 at bootstrap. [[src/codegen/builtins/io/gen_read_key_family.rs:lower_key_reader]]
 
 `io::write`/`flush`/`input`/`isTerminal` are dispatched to the platform
 `emit_app_*` bodies only when `app_mode` is set; otherwise the normal console
@@ -76,20 +77,78 @@ to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_
 
 ## The key handler that feeds the pipe
 
-Typed keys are captured by a key event handler on the transcript view and
-translated into bytes written to the pipe write fd. macOS overrides
-`keyDown:` on a synthesized `MFBTextView : NSTextView`; Linux installs a GTK
-`key-pressed` controller handler. Both run on the GUI main thread.
+Typed keys are captured by key event handlers and translated into bytes written
+to the pipe write fd. macOS overrides `keyDown:` and `keyUp:` on the synthesized
+`MFBTextView : NSTextView` (the transcript), `TermView` (the TUI) and
+`MFBCanvasView` (the canvas); Linux installs `key-pressed` and `key-released`
+handlers on one window key controller in the capture phase; Windows handles the
+key messages in the window procedure and in the transcript EDIT's subclass. All
+run on the GUI main thread.
 [[src/target/macos_aarch64/app/term_view.rs:emit_key_down_helper]] [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
 
-The handler dispatches on the current input mode and the key:
+### Key events in the kitty form
 
-- **Modifier-only / non-character keys** are ignored (macOS: `[chars length] ==
-  0`; Linux: `gdk_keyval_to_unicode == 0`).
-- **Raw mode**: the key's UTF-8 bytes are written to the pipe immediately — no
-  line buffer, no transcript echo.
-- **Line modes**, printable key: append the character to the pending line
-  buffer; in line-echo mode also echo it into the transcript.
+In raw mode — and always on the macOS canvas view — every key event is written
+as the bytes a kitty keyboard-protocol terminal sends for it under the flags
+`term::on` pushes (flags 31: `CSI number ; mods : event ; text u`, or the legacy
+functional form `CSI 1 ; mods : event D`), through the shared encoder
+`_mfb_rt_input_encode_key`. A press, a repeat and a release are each an event;
+the modifiers ride on every one; a text key carries its typed text as the
+associated-text field. The key decoder reads the pipe exactly as it reads a kitty
+terminal, so an `--app` read reports `Press`/`Repeat`/`Release` on every
+platform (`./mfb spec stdlib io-input`). A modifier key alone writes nothing.
+[[src/codegen/io/input/encode.rs:lower_input_encode_key]]
+
+Each platform gathers the encoder's inputs its own way:
+
+- **macOS** (`_mfb_macapp_key_inject`): the first code point of
+  `charactersIgnoringModifiers` is both the AppKit table's native code
+  (`NSLeftArrowFunctionKey` U+F700 …; Return, Tab, Escape and Delete as their C0
+  characters) and a text key's unshifted number; `characters` is the typed text;
+  `modifierFlags` gives Shift, Control, Option (Alt) and Command (Meta);
+  `isARepeat` tells a repeat from a press. The transcript's and TUI's `keyUp:`
+  report the release in raw mode only; the canvas view's always. `flagsChanged:`
+  is not overridden.
+  [[src/target/macos_aarch64/app/keys.rs:KEY_INJECT_SYMBOL]]
+  [[src/target/macos_aarch64/app/keys.rs:emit_key_up_helper]]
+- **Linux** (`_mfb_gtkapp_key_inject`): the keyval is the GDK table's native code
+  for a non-text key; `gdk_keyval_to_lower` + `gdk_keyval_to_unicode` give a text
+  key's unshifted number and `gdk_keyval_to_unicode` of the keyval its text; the
+  `GdkModifierType` state gives the modifiers. GTK 4 reports no auto-repeat flag,
+  so the helper keeps a 256-byte table of which hardware keycodes are down
+  (`_mfb_gtkapp_keys_held`): a press of a key already down is a repeat. In line
+  mode `key-released` only marks the key up. The injection runs before any "is
+  this a character" test, which is what lets the arrows, Home/End, Page Up/Down
+  and the F-keys through (`gdk_keyval_to_unicode` maps them all to 0).
+  [[src/target/linux_gtk/keys.rs:KEY_INJECT_SYMBOL]]
+  [[src/target/linux_gtk/keys.rs:emit_key_released_handler]]
+  [[src/target/linux_gtk/keys.rs:KEYS_HELD_SYMBOL]]
+- **Windows** (`_mfb_winapp_key_inject`, from both the window procedure and the
+  EDIT subclass): a non-text key (the arrows, Home/End, Page Up/Down, Insert,
+  Delete, the F-keys, Enter, Tab, Backspace, Escape) is injected at its
+  `WM_KEYDOWN`/`WM_SYSKEYDOWN` and its release at the key-up, and its `WM_CHAR`
+  is not delivered a second time. A text key depends on the mode
+  (`_mfb_winapp_input_mode`): in RAW mode (the keystroke readers and `term::on`)
+  its `WM_CHAR` carries the text, the unshifted character (`MapVirtualKeyW`) is
+  the key number, and a Ctrl chord is injected at its key-down; in the default
+  mode its text is written as UTF-8 (CR as LF) for `io::readLine`/`io::input`,
+  and its release is not reported. UTF-16 surrogate pairs are joined before
+  encoding; the modifiers come from `GetKeyState` (a window with no focused
+  child receives every key as `WM_SYS*`); AltGr typing a printable character is
+  that character. A `WM_SYSKEY*` with Alt down also goes on to `DefWindowProc`,
+  so the system menu keeps working.
+  [[src/target/win_x86_64/app/keys.rs:KEY_INJECT_SYMBOL]]
+  [[src/target/win_x86_64/app/keys.rs:INPUT_MODE_SYM]]
+
+### Line modes
+
+In the line modes the handler keeps its own line editor:
+
+- **Non-text keys** are ignored (macOS: `[chars length] == 0`, or a function-key
+  code in U+F700–U+F8FF; Linux: `gdk_keyval_to_unicode == 0`).
+  [[src/target/macos_aarch64/app/keys.rs:emit_skip_function_key]]
+- **Printable key**: append the character to the pending line buffer; in
+  line-echo mode also echo it into the transcript.
 - **Line modes**, Return/Enter (macOS CR `13` / LF `10` / Enter `3`; Linux
   `GDK_KEY_Return` / `GDK_KEY_KP_Enter`): write `line + '\n'` to the pipe, echo a
   newline in line-echo mode, then clear the buffer.
@@ -134,7 +193,7 @@ waiting.
 |------|-------------|-------------|-------------|---------------|------|
 | line, no echo | (default; never set explicitly) | `MODE_LINE_NOECHO` `0` (zero-init) | `io::readLine` | whole line on Return | none |
 | line, echo | `INPUT_MODE_LINE_ECHO` `1` | `MODE_LINE_ECHO` `1` | `io::input` | whole line on Return | typed chars + newline echoed to transcript |
-| raw, no echo | `INPUT_MODE_RAW_NO_ECHO` `2` | `MODE_RAW` `2` | `io::readChar` / `io::readByte` | each key's bytes immediately | none |
+| raw, no echo | `INPUT_MODE_RAW_NO_ECHO` `2` | `MODE_RAW` `2` | the keystroke readers; `term::on` | each key event, in the kitty form, immediately | none |
 
 [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_gtk/mod.rs:ST_INPUT_MODE]]
 
@@ -148,14 +207,16 @@ triggers the transcript echo. [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_K
 
 - `io::input` sets line-echo, renders the prompt, then calls `io::readLine`.
   [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_input]]
-- `io::readChar` / `io::readByte` set raw mode via `emit_set_raw_input_mode`,
-  injected at the *start* of the console read-char/read-byte helper bodies in app
-  mode, before the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/codegen/builtins/io/func_read_char.rs:lower_read_char]] [[src/codegen/builtins/io/func_read_byte.rs:lower_read_byte]]
+- The keystroke readers (`readRaw`, `readScalar`, `readGrapheme`, `readKey`) set
+  raw mode through the `emit_app_raw_input_mode` platform hook
+  (`emit_set_raw_input_mode` on macOS and Linux, `emit_set_input_mode` on
+  Windows), at the *start* of the reader body in app mode, before the wait and
+  the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/codegen/builtins/io/gen_read_key_family.rs:lower_key_reader]]
 - `io::readLine` does not change the mode; it relies on the zero-initialized /
   unset default (line, no echo).
 
 The mode is sticky: nothing resets it after a read, so the last reader's mode
-persists until the next `io::input`/`readChar`/`readByte` sets it again.
+persists until the next `io::input` or keystroke reader sets it again.
 
 ## See Also
 
@@ -164,3 +225,4 @@ persists until the next `io::input`/`readChar`/`readByte` sets it again.
 * ./mfb spec app term-backend
 * ./mfb spec memory program-startup
 * ./mfb spec threading os-integration
+* ./mfb spec stdlib io-input

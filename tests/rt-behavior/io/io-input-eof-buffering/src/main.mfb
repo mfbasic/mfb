@@ -5,7 +5,7 @@ REM acceptance harness feeds an empty stdin (/dev/null), so readLine hits EOF an
 REM traps — deterministic and host-neutral. isBuffered/setBuffered/flush are the
 REM buffer-flag family. On Windows the read path resolves fd 0 -> GetStdHandle +
 REM ReadFile through the stdin-broadcast log (SRWLOCK/CONDITION_VARIABLE + HeapAlloc);
-REM the box run (with piped input) proves readChar/readByte/readLine/pollInput/input.
+REM the box run (with piped input) proves the readers (readLine/input/readRaw/readKey …).
 FUNC main AS Integer
   io::print("buf_default=" & toString(io::isBuffered()))
   io::setBuffered(TRUE)

@@ -92,6 +92,65 @@
   {
     "kind": "type",
     "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "name": "grapheme", "type": "String" },
+    { "visibility": null, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
     "name": "color.Color",
     "fields": [
     { "visibility": null, "name": "red", "type": "Byte" },

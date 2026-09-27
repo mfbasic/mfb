@@ -92,25 +92,23 @@ FUNC main AS Integer
       redraw = FALSE
     END IF
 
-    IF ready(16) THEN
-      MATCH commandFor(readKey())
-        CASE Move(mv)
-          LET dir AS Facing = mapDirection(mv.dir, turns)
-          IF canMove(m, px, py, dir) THEN
-            px = px + stepX(dir)
-            py = py + stepY(dir)
-            redraw = TRUE
-          END IF
-        CASE Turn(t)
-          ' turns stays in 0..3 and quarters is +/-1, so the sum is never
-          ' below -1 and one wrap is enough. facingOf needs two, taking any
-          ' Integer.
-          turns = (turns + t.quarters + 4) MOD 4
+    MATCH commandFor(nextKey(16))
+      CASE Move(mv)
+        LET dir AS Facing = mapDirection(mv.dir, turns)
+        IF canMove(m, px, py, dir) THEN
+          px = px + stepX(dir)
+          py = py + stepY(dir)
           redraw = TRUE
-        CASE Quit : running = FALSE
-        CASE Ignore
-      END MATCH
-    END IF
+        END IF
+      CASE Turn(t)
+        ' turns stays in 0..3 and quarters is +/-1, so the sum is never
+        ' below -1 and one wrap is enough. facingOf needs two, taking any
+        ' Integer.
+        turns = (turns + t.quarters + 4) MOD 4
+        redraw = TRUE
+      CASE Quit : running = FALSE
+      CASE Ignore
+    END MATCH
   LOOP
   RETURN 0
 END FUNC

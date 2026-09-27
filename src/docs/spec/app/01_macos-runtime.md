@@ -68,8 +68,10 @@ The GUI path constructs, in order:
    (`initWithFrame:NSMakeRect(0,0,900,640)`, `setAutoresizingMask:18` =
    `AUTORESIZE_WIDTH_HEIGHT`, NSViewWidthSizable|NSViewHeightSizable). The document
    view is an **`MFBTextView : NSTextView`** synthesized at runtime via
-   `objc_allocateClassPair`/`class_addMethod(keyDown:, ..., "v@:@")`/
-   `objc_registerClassPair`, so the transcript view itself receives typed keys.
+   `objc_allocateClassPair`/`class_addMethod(keyDown:, ..., "v@:@")` and
+   `keyUp:` (`"v@:@"`, the release — bug-699)/`objc_registerClassPair`, so the
+   transcript view itself receives typed keys.
+   [[src/target/macos_aarch64/app/keys.rs:emit_install_key_up]]
    The text view is given `setAutoresizingMask:2` (`AUTORESIZE_WIDTH`),
    `setFont:[NSFont userFixedPitchFontOfSize:13]` (`TRANSCRIPT_FONT_SIZE`),
    `setEditable:NO`, `setSelectable:YES`, then installed as the scroll view's
@@ -79,7 +81,7 @@ The GUI path constructs, in order:
    `WINDOW_ASSOC_KEY`/`SCROLLVIEW_ASSOC_KEY`. A **`TermView : NSView`** class is
    synthesized with methods including: `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
    (`"c@:"`), `mfbWriteString:` (`"v@:@"`), `acceptsFirstResponder` (`"c@:"`),
-   `keyDown:` (`"v@:@"`), `mfbClear:` (`"v@:@"`, the main-thread grid clear —
+   `keyDown:` and `keyUp:` (`"v@:@"`), `mfbClear:` (`"v@:@"`, the main-thread grid clear —
    bug-165), `mfbPresent:` (`"v@:@"`, the present that publishes the drawn grid to
    the front buffer `drawRect:` paints — see term-backend), and `setFrameSize:` (`"v@:{CGSize=dd}"`, the live-resize hook that
    recomputes rows/cols and reallocates the grid — plan-35-D). A `TermView` instance is allocated at
@@ -138,8 +140,9 @@ discarded; the worker is never joined). [[src/target/macos_aarch64/app/bootstrap
 
 `void *_mfb_macapp_worker(void *arg)` is the pthread start routine. It pushes an
 autorelease pool (`objc_autoreleasePoolPush`, preserving the arg pointer across the
-call on a 16-byte temp frame), then, when the language entry accepts args
-(`AppEntrySpec.language_entry_accepts_args`), unpacks the `{argc, argv}` block:
+call on a 16-byte temp frame), then, when the program entry reads its arguments
+— `main` takes an argument list, or the program calls `os::args`/`os::prog`
+(`AppEntrySpec.worker_passes_args`, bug-743) — unpacks the `{argc, argv}` block:
 `argv` from `[arg+OFF_ARGV]` into `x1`, `argc` from `[arg+OFF_ARGC]` into `x0`. It
 then tail-calls the standard program entry `_mfb_macapp_program`
 (`MACAPP_PROGRAM_SYMBOL`), which never returns. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]

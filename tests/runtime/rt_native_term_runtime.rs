@@ -84,29 +84,33 @@ END FUNC
     }
 }
 
-/// The program every decoder case below drives: read `count` characters, echo
-/// them, then drain and report every mouse event.
+/// The program every decoder case below drives: read `count` bytes, echo them,
+/// then drain and report every mouse event.
 ///
 /// Reading a fixed count rather than to EOF keeps the case deterministic, and
-/// echoing what `io::readChar` returned is what makes the passthrough claims
+/// echoing what `io::readRaw` returned is what makes the passthrough claims
 /// checkable — the point is not only that the events arrive, but that the
-/// keystrokes around them are untouched.
+/// keystrokes around them are untouched. `readRaw` because it is byte-exact: the
+/// only thing between the program and the bytes is the mouse decoder under test
+/// (bug-699 replaced `io::readChar`).
 fn mouse_decoder_source(count: usize) -> String {
     format!(
         r#"
+IMPORT collections
+IMPORT encoding
 IMPORT io
 IMPORT term
 
 FUNC readChars AS String
-  MUT chars AS String = ""
+  MUT bytes AS List OF Byte = []
   MUT n AS Integer = 0
   WHILE n < {count}
-    chars = chars & io::readChar()
+    bytes = collections::append(bytes, io::readRaw())
     n = n + 1
   END WHILE
-  RETURN chars
+  RETURN encoding::utf8Decode(bytes)
   TRAP(err)
-    RETURN chars
+    RETURN encoding::utf8Decode(bytes)
   END TRAP
 END FUNC
 
@@ -174,7 +178,7 @@ fn native_term_mouse_decodes_every_kind_and_modifier() {
     // likely decoder bug and the hardest to notice by eye, so every case pins both
     // numbers rather than just the kind.
     // Driven through `MFB_MOUSE_INJECT` rather than stdin, because a mouse report
-    // yields no character: with nothing else to read, a `readChar` loop would have
+    // yields no character: with nothing else to read, a read loop would have
     // to block or hit EOF before the pump had seen the bytes. Injection feeds the
     // same decoder the read path does, at a point where the count of reports is
     // known, which is what makes the case deterministic.
@@ -263,27 +267,28 @@ fn native_term_mouse_leaves_other_input_untouched() {
     );
 }
 
-/// A program that reads with `io::pollInput` first, the shape every TUI draw loop
-/// has: poll, and only read when the poll says a read will not block. Each char
-/// is echoed with ESC spelled out so the output stays printable.
+/// A program that reads with a timeout, the shape every TUI draw loop has: wait
+/// up to a deadline for input, and stop when none comes. Each byte is echoed
+/// with ESC spelled out so the output stays printable.
 fn mouse_poll_then_read_source() -> &'static str {
     r#"
+IMPORT encoding
 IMPORT io
 IMPORT term
 
-FUNC name(c AS String) AS String
-  IF c = "\u{1B}" THEN RETURN "<ESC>"
-  RETURN c
+FUNC name(b AS Byte) AS String
+  IF b = 27 THEN RETURN "<ESC>"
+  RETURN encoding::utf8Decode([b])
 END FUNC
 
 FUNC main AS Integer
   term::enableMouse(TRUE)
   MUT chars AS String = ""
-  DO WHILE io::pollInput(2000)
-    LET c AS String = io::readChar() TRAP(e)
+  DO WHILE TRUE
+    LET b AS Byte = io::readRaw(2000) TRAP(e)
       EXIT DO
     END TRAP
-    chars = chars & name(c)
+    chars = chars & name(b)
   LOOP
   io::print("CHARS:" & chars)
   term::enableMouse(FALSE)
@@ -328,10 +333,8 @@ fn run_with_held_stdin(executable: &Path, input: &[u8], hold: Duration) -> (Stri
 #[test]
 fn native_term_mouse_poll_input_keeps_the_byte_after_an_escape() {
     // bug-669 (2). `ESC x` arriving together is a buffered prefix the decoder
-    // flushes when `x` rules out a report: ESC goes back now and `x` is owed. The
-    // pollInput verify path must not drop that owed byte — neither by draining it
-    // to answer "is something owed?" nor by overwriting the replay queue when it
-    // puts ESC back.
+    // flushes when `x` rules out a report: ESC goes back now and `x` is owed. A
+    // timed read must not drop that owed byte, nor wait on the source for it.
     let project = temp_project(
         "native_term_mouse_poll_escape",
         mouse_poll_then_read_source(),
@@ -340,7 +343,7 @@ fn native_term_mouse_poll_input_keeps_the_byte_after_an_escape() {
     let out = run_with_stdin(&executable, b"a\x1bxb\x1b[Zc");
     assert!(
         out.contains("CHARS:a<ESC>xb<ESC>[Zc"),
-        "keys after an ESC must survive io::pollInput, got {out:?}"
+        "keys after an ESC must survive a timed read, got {out:?}"
     );
 }
 
@@ -354,7 +357,7 @@ fn native_term_mouse_escape_at_end_of_input_is_delivered() {
     let out = run_with_stdin(&executable, b"a\x1b");
     assert!(
         out.contains("CHARS:a\x1b\n"),
-        "an ESC right before EOF must reach io::readChar, got {out:?}"
+        "an ESC right before EOF must reach io::readRaw, got {out:?}"
     );
 }
 
@@ -363,7 +366,7 @@ fn native_term_mouse_lone_escape_is_reported_without_a_following_key() {
     // bug-669 (1). The Esc key sends one byte and then nothing. With mouse
     // reporting on, the decoder buffers that ESC as the possible start of a report;
     // once the terminal has gone quiet it is plainly a keypress and must be
-    // delivered — to io::pollInput and to a blocking io::readChar alike — without
+    // delivered — to a timed read and to a blocking one alike — without
     // waiting for the user to press something else.
     let project = temp_project(
         "native_term_mouse_lone_esc_poll",
@@ -375,15 +378,15 @@ fn native_term_mouse_lone_escape_is_reported_without_a_following_key() {
     let (out, _) = run_with_held_stdin(&executable, b"\x1b", Duration::from_millis(3000));
     assert!(
         out.contains("CHARS:<ESC>"),
-        "io::pollInput must report a lone ESC once input goes quiet, got {out:?}"
+        "a timed read must return a lone ESC once input goes quiet, got {out:?}"
     );
-    // A whole key sequence as the last input: `readChar` takes the ESC and leaves
+    // A whole key sequence as the last input: a read takes the ESC and leaves
     // `[Z` owed inside the decoder, where neither the stdin log nor the OS can see
-    // it. pollInput must still report those bytes as ready.
+    // it. A timed read must still return those bytes rather than time out.
     let (out, _) = run_with_held_stdin(&executable, b"\x1b[Z", Duration::from_millis(3000));
     assert!(
         out.contains("CHARS:<ESC>[Z"),
-        "io::pollInput must report bytes the decoder still owes, got {out:?}"
+        "a timed read must return bytes the decoder still owes, got {out:?}"
     );
 
     let source = r#"
@@ -392,11 +395,11 @@ IMPORT term
 
 FUNC main AS Integer
   term::enableMouse(TRUE)
-  LET c AS String = io::readChar()
-  IF c = "\u{1B}" THEN
+  LET b AS Byte = io::readRaw()
+  IF b = 27 THEN
     io::print("GOT:ESC")
   ELSE
-    io::print("GOT:" & c)
+    io::print("GOT:" & toString(b))
   END IF
   term::enableMouse(FALSE)
   RETURN 0
@@ -408,7 +411,7 @@ END FUNC
         run_with_held_stdin(&executable, b"\x1b", Duration::from_millis(3000));
     assert!(
         exited_while_open && out.contains("GOT:ESC"),
-        "a blocking io::readChar must return a lone ESC without a following key \
+        "a blocking io::readRaw must return a lone ESC without a following key \
          (exited while stdin open: {exited_while_open}), got {out:?}"
     );
 }
@@ -1025,34 +1028,38 @@ END FUNC
 }
 
 #[test]
-fn native_term_mouse_keeps_poll_input_honest() {
-    // `io::pollInput` promises that a following read will not block. With mouse
-    // reporting on, "bytes are ready" stops implying "a character is ready" — the
-    // pending bytes may be a report the pump swallows whole — so an unverified
-    // TRUE would hand the program a `readChar` that blocks on a terminal that has
-    // gone quiet.
+fn native_term_mouse_keeps_immediate_reads_honest() {
+    // An immediate read (`timeoutMs = 0`) returns a byte only when one is there
+    // (bug-699 replaced `io::pollInput` + `io::readChar` with it). With mouse
+    // reporting on, "bytes are ready" stops implying "a byte for the program is
+    // ready" — the pending bytes may be a report the pump swallows whole.
     //
-    // The fix has to hold BOTH ways round, and this checks both: every character
-    // typed around the reports still arrives (the verification does not eat the
-    // byte it inspected — it pushes it back), and every report still decodes (the
-    // verification consumed them into the ring rather than discarding them).
+    // This has to hold BOTH ways round, and this checks both: every character
+    // typed around the reports still arrives, and every report still decodes
+    // (consumed into the ring rather than discarded).
     let source = r#"
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
 IMPORT io
 IMPORT term
 
 FUNC pump AS String
-  MUT chars AS String = ""
+  MUT bytes AS List OF Byte = []
   MUT polls AS Integer = 0
   WHILE polls < 40
-    IF io::pollInput(0) THEN
-      chars = chars & io::readChar()
+    LET b AS Byte = io::readRaw(0) TRAP(e)
+      IF e.code <> errorCode::ErrTimeout THEN
+        RETURN encoding::utf8Decode(bytes)
+      END IF
+      RECOVER 0
+    END TRAP
+    IF b <> 0 THEN
+      bytes = collections::append(bytes, b)
     END IF
     polls = polls + 1
   END WHILE
-  RETURN chars
-  TRAP(err)
-    RETURN chars
-  END TRAP
+  RETURN encoding::utf8Decode(bytes)
 END FUNC
 
 FUNC main AS Integer
@@ -1079,13 +1086,12 @@ END FUNC
     let out = run_with_stdin(&executable, b"ab\x1b[<0;4;2Mcd\x1b[<0;4;2mef");
     assert!(
         out.contains("CHARS:abcdef"),
-        "a pollInput-guarded read loop must still see every character — the \
-         verification reads a byte to classify it and must push back the ones that \
-         belong to the program, got {out:?}"
+        "an immediate-read loop must still see every character around the \
+         reports, got {out:?}"
     );
     assert!(
         out.contains("EVENTS:2"),
-        "the reports the verification consumed must land in the ring, not be \
+        "the reports the reads consumed must land in the ring, not be \
          discarded, got {out:?}"
     );
 }
@@ -1240,8 +1246,8 @@ ISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, seed AS String) AS 
   ELSE
     io::print("WORKER-KIND:other")
   END IF
-  LET c AS String = io::readChar()
-  io::print("WORKER-READ:" & c)
+  LET c AS Byte = io::readRaw()
+  io::print("WORKER-READ:" & toString(c))
   RETURN 0
   TRAP(err)
     io::print("WORKER-TRAP:" & toString(err.code))

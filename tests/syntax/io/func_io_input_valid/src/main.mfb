@@ -2,7 +2,7 @@ IMPORT io
 
 FUNC compileInput AS Integer
   IF FALSE THEN
-    RETURN len(io::input()) + len(io::input("name> ")) + len(io::input(prompt := "name> "))
+    RETURN len(io::input()) + len(io::input("name> ")) + len(io::input(prompt := "name> ")) + len(io::input("name> ", 500)) + len(io::input(prompt := "", timeoutMs := 500))
   END IF
 
   RETURN 0
