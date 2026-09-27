@@ -119,7 +119,14 @@ Search: every `render()` / `field_value` in `src/arch/riscv64/select.rs` and
 - `expand_fused` `get` — unaffected: used only for immediates (`rhs` of `cmp_imm`) and
   the `cond` text; registers go through `get_op`.
 - `select_riscv64` `AddrOf` — unaffected: keeps `dst` typed; renders only `symbol`.
-- `v128.rs` `f()` / `is_vector_operand` renders — see Phase 1 audit result.
+- `v128.rs` `f()` renders (`base`/`dst`/`src` of the scalarized loads/stores and lane
+  moves) — latent, same shape, NOT observed: no emitter feeds a v128 op a convention
+  token today. Measured, not assumed: a pre-fix `-ncode --target linux-riscv64` sweep of
+  all 877 projects under `tests/rt-behavior`, `tests/byte-identity`, `tests/rt-error`
+  and `examples/` for a literal `"%…"` register operand found exactly one site — this
+  bug's (`examples/swat/tui`). A string literal `"%zz"` (the `value` of an encoding
+  fixture's data) is not a register. Left as-is: changing it would move no byte and
+  has no failing input to prove against.
 
 ## Fix Design
 
@@ -143,7 +150,7 @@ same trap waits for the next caller); making `remap_riscv_abi` parse `%retMFB…
 - [x] Blast-radius audit above.
 
 Acceptance: both tests fail for the documented reason.
-Commit: —
+Commit: 10fa559e9 (doc), 564a6e18a (tests landed with the fix; RED recorded in its message)
 
 ### Phase 2 — the fix
 
@@ -153,7 +160,7 @@ Commit: —
       still described the pre-bug-381 "rhs kept by name" design).
 
 Acceptance: both tests pass; the example builds.
-Commit: —
+Commit: 564a6e18a; 535b873eb (`.ai/codegen-invariants.md` lesson)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
