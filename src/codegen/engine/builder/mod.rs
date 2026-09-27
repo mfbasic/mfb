@@ -2910,6 +2910,60 @@ pub(crate) fn lower_module_for_platform(
             type_model.clone(),
         )?);
     }
+    // plan-158-A: the status-message raise. Same relocation gate, and it must run
+    // BEFORE the park's gate below: `_mfb_rt_fail_status` calls the park, and that
+    // call is what makes a module whose only parker is this helper emit the park.
+    let fail_status_callers: Vec<&str> = code_functions
+        .iter()
+        .filter(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == FAIL_STATUS_SYMBOL)
+        })
+        .map(|function| function.symbol.as_str())
+        .collect();
+    if !fail_status_callers.is_empty() {
+        // A helper outside `PARKING_HELPER_PACKAGES` would return a parked error to
+        // call sites that carry no re-stamp branch: the error would lose its
+        // location. Refuse the build instead.
+        if let Some(caller) = fail_status_callers
+            .iter()
+            .find(|symbol| !runtime_helper_symbol_may_park_error(symbol))
+        {
+            return Err(format!(
+                "`{caller}` raises through `{FAIL_STATUS_SYMBOL}`, but its package is \
+                 not in PARKING_HELPER_PACKAGES, so its call sites do not re-stamp a \
+                 parked error"
+            ));
+        }
+        code_functions.push(
+            crate::codegen::error::emission::fail_status::lower_fail_status_helper(),
+        );
+    }
+    // plan-158-A: the call-site re-stamp of a parked helper error. Same gate, and
+    // also ahead of the park's: it calls the park.
+    let uses_restamp_parked_error = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == RESTAMP_PARKED_ERROR_SYMBOL)
+    });
+    if uses_restamp_parked_error {
+        code_functions.push(
+            crate::codegen::error::emission::fail_status::lower_restamp_parked_error_helper(
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?,
+        );
+    }
     // plan-118-E: the shared error-block park, the single largest shape left in
     // the module after B/C/D. Same relocation gate.
     let uses_park_error = code_functions.iter().any(|function| {
@@ -3169,6 +3223,25 @@ pub(crate) fn lower_module_for_platform(
                 data_objects.push(string_data_object(symbol, message.to_string()));
             }
         }
+    }
+
+    // plan-158-A: the `"<message> (<call>: "` prefixes `_mfb_rt_fail_status`
+    // formats from. Each symbol encodes its own text
+    // (`error_status_prefix_symbol`), so the scan decodes it rather than looking it
+    // up. A `BTreeSet` fixes the data-section order.
+    let referenced_status_prefixes: std::collections::BTreeSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
+            relocation.binding == "data"
+                && relocation.to.starts_with(ERROR_STATUS_PREFIX_SYMBOL_PREFIX)
+        })
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    for symbol in referenced_status_prefixes {
+        let text = decode_error_status_prefix_symbol(symbol)
+            .ok_or_else(|| format!("malformed error-status prefix symbol `{symbol}`"))?;
+        data_objects.push(string_data_object(symbol, text));
     }
 
     // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a
