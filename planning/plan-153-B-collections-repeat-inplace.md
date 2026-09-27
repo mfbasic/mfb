@@ -42,7 +42,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-153-A complete | `ls planning/plan-153-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-09-24) |
+| plan-153-A complete | `ls planning/plan-153-A-*` → no match (archived to `planning/completed/`) | MET (2026-09-26: `no matches found: planning/plan-153-A-*`; archived in 0b2544519) |
 
 If plan-153-A is not complete, this plan cannot start, full stop.
 
@@ -103,15 +103,19 @@ If plan-153-A is not complete, this plan cannot start, full stop.
 
 | What | Count | Command |
 |---|---|---|
-| `collections::` rows in cases.tsv today | 27 | `grep -c "^collections::" tests/runtime/inplace_self_update/cases.tsv` → 27 (re-measure at start; plan-153-A must not have changed it) |
+| `collections::` rows in cases.tsv today | 27 | `grep -c "^collections::" tests/runtime/inplace_self_update/cases.tsv` → 27 (re-measure at start; plan-153-A must not have changed it). Re-measured 2026-09-26 after plan-153-A: 27. |
 
 ### Verified properties
 
 - **The string arm declines 4 arguments.** Its arity range is `2..=2`,
   measured by
-  `grep -n '"repeat"' src/codegen/collection/assign/string_self_update.rs`.
-  UNVERIFIED: whether the arity check runs before any emission. Phase 1's
-  first task confirms it.
+  `grep -n '"repeat"' src/codegen/collection/assign/string_self_update.rs`
+  → `195:    ("repeat", 2..=2, GrowKind::Repeat),`. VERIFIED (2026-09-26): the
+  check runs before any emission. `try_inplace_string_grow_assign` calls
+  `resolve_string_self_update`, a `&self` gate (it cannot emit), and emits only
+  after it returns `Some`. That gate rejects any site whose type is not `String`
+  (G-string-type) and any arity outside `2..=2` (G3/G4), so a `collections.repeat`
+  on a `List` is refused twice before the arm writes anything.
 
 ## 3. Design Overview
 
@@ -160,21 +164,35 @@ the exemption excludes.
 
 ### Phase 1 — census rows (red)
 
-- [ ] Confirm the string arm declines a 4-argument `repeat` before emitting
+- [x] Confirm the string arm declines a 4-argument `repeat` before emitting
       anything. Read `string_self_update.rs`'s arity check, and record the
       result in §2 Verified properties.
-- [ ] Add the `cases.tsv` row
+- [x] Add the `cases.tsv` row
       `collections::repeat(value AS List OF T, …) AS List OF T	arm	List OF Integer = [1, 2, 3]	x = collections::repeat(x, 7, 3)	showInts(before)`.
       Copy the signature exactly as `mfb man collections repeat` renders it.
-- [ ] Add a growing row: `x = collections::repeat(x, 7, 2, len(x))`.
-- [ ] Add a `String`-element row.
-- [ ] Add the two failure cases to `tests/runtime/rt_inplace_failure_atomic.rs`.
+      Landed as one row (Correction C1): `x = collections::repeat(x, 7, 3) ; x = collections::repeat(x, 8, 2, 3) ; x = collections::take(x, 3)`.
+- [x] Add a growing row: `x = collections::repeat(x, 7, 2, len(x))`.
+      Folded into the one row as `repeat(x, 8, 2, 3)`, which extends `[…3]` to 5 every
+      iteration after `take` cuts it back (Correction C1).
+- [x] Add a `String`-element row.
+      As `tests/runtime/rt_repeat_self_update.rs` (Correction C1): the same N/2N `alloc_calls`
+      bound on a `List OF String`. Red at this phase: `2000 more runs allocated 8000 more blocks`.
+- [x] Add the two failure cases to `tests/runtime/rt_inplace_failure_atomic.rs`.
+- [x] (added, from Phase 2) Teach `field_expect_gen.py` about `repeat` and regenerate
+      `field_expect.tsv`: the harness refuses a row with no field lines, so it cannot go red
+      on the bound without them (Correction C2). Regenerating before the edit reproduced the
+      checked-in file byte for byte (`diff` → empty); after it, the diff is the 15 new lines.
 
 Acceptance: the census guard passes (the row exists), and the runtime
 harness fails the new rows on the `arm` bound, because the value path still
 copies.
   Check: `cargo test --test inplace_self_update_census` → pass; `MFB_SELF_UPDATE_FILTER=repeat cargo test --test rt_inplace_self_update -- --ignored` → fails on the bound (est. 4 min).
-Commit: —
+  Measured (2026-09-26): census `test result: ok. 2 passed`; `rt_inplace_failure_atomic` `ok. 3 passed`
+  (the value path is already atomic); `MFB_SELF_UPDATE_FILTER='collections::repeat'` fails every arm site
+  on the bound (`Local … allocated 6000 more blocks … not below the bound of 250 — the statement copies`,
+  `S4 … 10000 more blocks … rebuilds the owner`, likewise ForEach/Lambda/Global/OwnedParam/S5–S10/T2–T8)
+  while S3/T1/T3 meet `rebuild:not-last-grow`. The filter is the full signature prefix
+  `collections::repeat`: a bare `repeat` also selects the `strings::repeat` rows.
 
 ### Phase 2 — the arm
 
@@ -215,7 +233,7 @@ Commit: —
 - Tests: `cases.tsv` rows (in place, growing, `String`),
   `rt_inplace_failure_atomic.rs` cases, `field_expect.tsv` lines, and
   plan-153-A's fixtures unchanged.
-- Coverage check: `grep -c "collections::repeat" tests/runtime/inplace_self_update/cases.tsv` → 3.
+- Coverage check: `grep -c "^collections::repeat" tests/runtime/inplace_self_update/cases.tsv` → 1 (Correction C1), plus `tests/runtime/rt_repeat_self_update.rs`.
 - Runtime proof: the `rt_inplace_self_update` output for the `repeat` rows,
   and wind's `--debug` report.
 - Doc sync: `mfb spec memory collections`.
@@ -231,7 +249,20 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+- **C1 — one `cases.tsv` row per signature.** The plan asked for three rows (in place,
+  growing, `String`). `field_expect.tsv` is keyed on `(signature, site)` and
+  `field_expectations` asserts no duplicate key, so a signature has exactly one line.
+  The in-place and growing statements share the one row; the `String` element, which
+  cannot share a row whose `x` is a `List OF Integer`, is measured by
+  `tests/runtime/rt_repeat_self_update.rs` with the harness's own N/2N bound. The growing
+  statement uses a constant start (`repeat(x, 8, 2, 3)`) rather than `len(x)`: at a field
+  site `len(r.b)` reads the owner, which `field_realloc_admitted` treats as a possible view
+  and rebuilds. The Validation Plan's coverage count is therefore 1 line, not 3.
+- **C2 — the field expectations have no findings row.** `field_expect_gen.py` derives each
+  line from plan-144's audit tables, which predate `repeat`. It gained a `POST_AUDIT` map
+  (op → can-grow); `repeat` grows, so S3/T1/T3 are `rebuild:not-last-grow` and every other
+  field site `arm`, the class `insert`/`prepend` have. This was Phase 2's regeneration task,
+  pulled into Phase 1 because the harness panics on a row with no field lines.
 
 ## Summary
 
