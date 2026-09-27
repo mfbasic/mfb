@@ -239,6 +239,10 @@ Both writes went to the same file, and `a` was still usable after `writeLine`
 returned. The call was given an alias, not a copy, and it did not take the
 handle away.
 
+Binding a handle to a new `RES` name is different: `RES g = f` hands the handle
+to `g`, and `f` cannot be used again — the compiler rejects any later use of `f`
+(`TYPE_USE_AFTER_MOVE`). There is still one open thing; it now has one name.
+
 The flip side of one open thing is that closing through **either** name closes
 it. After `fs::close(a)`, `a` cannot be used again — and neither can any other
 name for the same file. Using a closed handle is refused at compile time where

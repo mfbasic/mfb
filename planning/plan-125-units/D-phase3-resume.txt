@@ -1,0 +1,12 @@
+man-page:term/getUnderline
+man-page:term/isOn
+man-page:term/moveTo
+man-page:term/off
+man-page:term/on
+man-page:term/setBackground
+man-page:term/setBold
+man-page:term/setForeground
+man-page:term/setUnderline
+man-page:term/showCursor
+man-page:term/sync
+man-page:term/terminalSize

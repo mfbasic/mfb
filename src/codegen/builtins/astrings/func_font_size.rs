@@ -12,8 +12,8 @@ const INTRO: &str = r#"Construct a font-size `astrings::Attribute`."#;
 
 const DESC: &str = r#"`fontSize` returns an `astrings::Attribute` wrapping the `astrings::AttrNumber` with `kind` `astrings::AttrTypeNumber.FontSize` and
 `value` `size`. Pass it to `astrings::addAttribute` to set the font size (e.g. in points) over a
-scalar range. Font size is an Integer-valued attribute: overlapping font-size spans resolve by
-higher-start-wins at read time."#;
+scalar range. Font size is an Integer-valued attribute. Where font-size spans overlap, the one with the higher
+start wins at read time; when their starts are equal, the one added later wins."#;
 
 const EX: &str = r#"```
 IMPORT astrings
@@ -41,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "size",
-                desc: "The font size.",
+                desc: "The font size in points. Any Integer is accepted and kept as given, including zero and negative values.",
                 aliases: &[],
                 ty: ParameterType::Integer,
                 default: DefaultValue::None,

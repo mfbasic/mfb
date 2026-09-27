@@ -1,0 +1,16 @@
+man-page:io/overview
+man-page:io/flush
+man-page:io/input
+man-page:io/isBuffered
+man-page:io/isErrorTerminal
+man-page:io/isInputTerminal
+man-page:io/isOutputTerminal
+man-page:io/pollInput
+man-page:io/print
+man-page:io/printError
+man-page:io/readByte
+man-page:io/readChar
+man-page:io/readLine
+man-page:io/setBuffered
+man-page:io/write
+man-page:io/writeError

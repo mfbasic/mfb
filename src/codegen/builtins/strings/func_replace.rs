@@ -24,9 +24,9 @@ original bytes are copied through unchanged.
 
 Matching is an exact byte comparison. `replace` performs no Unicode
 normalization, no case folding, and no grapheme-cluster awareness — `old` must
-match byte for byte. Because both operands are well-formed UTF-8 and UTF-8 is
-self-synchronizing, a byte match is always a whole-scalar match, so the result is
-always well-formed UTF-8.
+match byte for byte. A match always covers whole Unicode scalars, so the result
+is always a valid string — but it can split a character: replacing `"e"` in
+`"e\u{0301}"` leaves the combining accent attached to whatever replaced it.
 
 An empty `old` is refused with `ErrInvalidArgument`. It occurs at every position,
 and rewriting at every position would insert `new` between every pair of scalars

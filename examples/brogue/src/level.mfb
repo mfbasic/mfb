@@ -84,21 +84,25 @@ PUBLIC FUNC hasFlag(flags AS Integer, mask AS Integer) AS Boolean
 END FUNC
 
 ' Globals.c `terrainFlags`: the union of the four layers' terrain flags.
+' Reads tileFlagsCatalog (bug-707), a flat List OF Integer, instead of
+' materializing a whole FloorTileType per layer per call via tileInfo just
+' to read its .flags field.
 PUBLIC FUNC terrainFlags(x AS Integer, y AS Integer) AS Integer
   LET base = layerIndex(x, y, 0)
   MUT flags AS Integer = 0
   FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
-    flags = bits::bor(flags, tileInfo(collections::get(pmapLayers, base + layer)).flags)
+    flags = bits::bor(flags, collections::get(tileFlagsCatalog, collections::get(pmapLayers, base + layer)))
   NEXT
   RETURN flags
 END FUNC
 
-' Globals.c `terrainMechFlags`: the union of the four layers' mechanical flags.
+' Globals.c `terrainMechFlags`: the union of the four layers' mechanical
+' flags. Reads tileMechFlagsCatalog (bug-707); see terrainFlags above.
 PUBLIC FUNC terrainMechFlags(x AS Integer, y AS Integer) AS Integer
   LET base = layerIndex(x, y, 0)
   MUT flags AS Integer = 0
   FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
-    flags = bits::bor(flags, tileInfo(collections::get(pmapLayers, base + layer)).mechFlags)
+    flags = bits::bor(flags, collections::get(tileMechFlagsCatalog, collections::get(pmapLayers, base + layer)))
   NEXT
   RETURN flags
 END FUNC

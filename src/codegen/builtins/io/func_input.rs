@@ -29,8 +29,9 @@ returns the line as a `String` with its terminator removed. A preceding carriage
 return (CR, byte `0x0D`, from a CRLF ending) is stripped as well. A line that is
 empty before its terminator returns an empty `String`.
 
-**`io::input` does not change the terminal mode**, so typed characters are echoed
-by the terminal in the usual way and the line is submitted with Return. This is
+**`io::input` reads an ordinary echoed line**: typed characters are echoed by the
+terminal and the line is submitted with Return. If single-key terminal mode is
+active, it restores ordinary line entry for the duration of this read. This is
 the difference from `io::readLine`, which suppresses echo for the read; reach for
 `io::input` when the user should see what they type.
 
@@ -47,10 +48,9 @@ ill-formed sequence fails rather than yielding a replacement character. End of
 input is an error rather than an empty result, but only when it arrives before any
 byte of the line: if input ends after some bytes were read, those bytes are
 returned as the final unterminated line and the following call raises `ErrEndOfFile`.
-Standard input is a per-thread broadcast log; a thread other than the main thread
-must subscribe with `thread::openStdIn` before reading, or the call raises
-`ErrInvalidContext`. In app mode the prompt goes to the application transcript and
-the line is read from the window input pipe."#;
+A worker thread must subscribe with `thread::openStdIn` before reading, or the call
+raises `ErrInvalidContext`. In app mode the prompt and the entered line are handled
+by the application window."#;
 const EX: &str = r#"Prompt on the same line and greet the user:
 
 ```

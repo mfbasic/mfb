@@ -20,7 +20,9 @@ has returned. It takes no arguments.
 The call does four things, in this order.
 
 1. **Sets up the drawing surface.** It asks the terminal for its size, falling
-   back to 24 rows by 80 columns when the terminal cannot say. The surface
+   back to a 24-row by 80-column surface when the terminal cannot say — though
+   `term::terminalSize` then still raises `ErrUnsupported` rather than reporting
+   the fallback, so trap it if the program may run with output redirected. The surface
    starts cleared, and the first `term::sync` repaints all of it. If the surface
    cannot be set up, `ErrOutOfMemory` is raised and the terminal is left
    completely untouched — TUI mode is never left half-on.
@@ -32,21 +34,30 @@ The call does four things, in this order.
    terminal's own colours.
 4. **Puts the terminal into single-key mode**, so an `io::pollInput` +
    `io::readChar` loop sees each keypress as it happens instead of waiting for
-   Return, and keys are not echoed as the user types. The normal line-editing
-   mode is remembered, so `term::off`, `io::input` and `io::readLine` restore
-   it. When standard input is not a terminal — piped input, a test harness —
+   Return, and keys are not echoed as the user types. `term::off` restores the
+   normal line-editing mode. `io::input` and `io::readLine` switch to it just for
+   that one read — waiting for Return and echoing as usual — and put single-key
+   mode back afterwards. When standard input is not a terminal — piped input, a test harness —
    this step does nothing, and if the terminal will not change mode it is
    skipped rather than failing the call.
 
 Drawing is **buffered**: from here on, every drawing call — including
-`io::print` and `io::write` — updates the surface rather than the terminal, and
-only `term::sync` puts a frame on screen. **A program that draws without
-calling `term::sync` displays nothing.**
+`io::print` and `io::write` — updates the surface rather than the terminal.
+Only `term::sync` presents a frame while TUI mode is on. `term::off` — and
+program exit, which calls it for you — presents whatever is pending and then
+leaves the alternate screen, so **a program that never calls `term::sync` shows
+its frame only for the instant before the screen is restored, which in practice
+is nothing.**
 
 `term::on` is one of the calls that are not gated, so calling it while TUI mode is
 already on runs the whole sequence again: a fresh surface sized to the
-terminal, defaults restored, and the previously drawn frame discarded. Guard with
-`term::isOn` if that is not wanted."#;
+terminal, defaults restored, and the previously drawn frame discarded.
+**Always guard a second `term::on` with `term::isOn`:** today a `term::off` after
+a repeated `term::on` leaves the terminal in single-key mode when the program
+exits.
+
+In an `--app` program, `term::on` — like every `term::` call — raises
+`ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Enter TUI mode, draw one frame, present it, and restore the terminal:
 

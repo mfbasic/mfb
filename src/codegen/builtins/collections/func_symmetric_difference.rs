@@ -10,9 +10,7 @@ const INTRO: &str = r#"Return the set of elements in exactly one of two sets"#;
 
 const DESC: &str = r#"`collections::symmetricDifference` returns a new `Set OF T` holding the elements
 that are in exactly one of `a` and `b` — every element of their union that is not
-in their intersection. It is computed as a two-pass fold: it keeps each element of
-`a` that `collections::contains` reports as absent from `b`, then adds each
-element of `b` that is absent from `a`. Unlike `difference`, the operation is
+in their intersection. Unlike `difference`, the operation is
 symmetric: `symmetricDifference(a, b)` and `symmetricDifference(b, a)` are equal.
 
 `symmetricDifference` is **pure**: it returns a new value and mutates neither
@@ -20,11 +18,11 @@ argument. Element insertion order follows the surviving elements of `a` first,
 then the surviving elements of `b`. The symmetric difference of two equal sets is
 the empty set, and of a set with the empty set is a copy of that set.
 
-`symmetricDifference` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is
-classified infallible.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`symmetricDifference` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"Elements in exactly one of two sets:
 

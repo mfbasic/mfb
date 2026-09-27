@@ -26,8 +26,9 @@ occupies, not into the ones the clear leaves behind.
 `term::moveTo(0, 0)` is redundant.
 
 Like the rest of the surface, `term::clear` is buffered: it changes the surface
-and sends nothing to the terminal. The blanked screen appears when the
-program calls `term::sync`. It also leaves the *current* attributes alone — the
+and sends nothing to the terminal. In a terminal and in a macOS `--app` build the
+blanked screen appears when the program calls `term::sync`; a Linux `--app` build
+repaints from the clear itself. It also leaves the *current* attributes alone — the
 foreground, background, bold, underline, and cursor-visibility settings that
 subsequent drawing will use are untouched; only the cells are.
 

@@ -29,10 +29,9 @@ failing, so it never raises.
 The probe inspects state only. It does not modify the stream, read any input,
 or block waiting for data, so it is safe to call before deciding whether to
 prompt interactively, enable line editing, or read a piped stream straight
-through. In app mode the program has no real standard streams — input is served by
-the application window, which is treated as an interactive console — so this call
-returns `TRUE`."#;
-const EX: &str = r#"Prompt only when a human is attached, otherwise read the piped stream:
+through. In app mode this call returns `TRUE`, because the application window is
+treated as an interactive console."#;
+const EX: &str = r#"Prompt only when standard input is a terminal, otherwise read the piped stream:
 
 ```
 IMPORT io

@@ -18,10 +18,11 @@ exactly when their intersection is empty.
 empty set is disjoint from every set, so a call with an empty argument is always
 `TRUE`. The relation is symmetric: `isDisjoint(a, b)` equals `isDisjoint(b, a)`.
 
-`isDisjoint` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isDisjoint` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"Two sets with no common element:
 

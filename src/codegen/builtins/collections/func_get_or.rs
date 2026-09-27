@@ -12,15 +12,13 @@ const INTO_GET_OR: &str =
     "Read a list item or map value, returning a supplied default when it is absent.";
 const DESC_GET_OR: &str = r#"`collections::getOr` is the total counterpart of `collections::get`. It performs
 the same lookup, but instead of raising a domain error when the element is
-missing it returns `default`. It raises no trappable error at all, which is
-precisely the difference between the two: an inline `TRAP` on a
-`collections::getOr` call has a dead handler.
+missing it returns `default`. The lookup itself raises nothing,
+which is precisely the difference between the two. An expression you pass as
+`default` is still evaluated normally and can raise on its own.
 
-The collection is neither copied nor mutated; only the selected item or value is
-copied out.
+The collection is not modified.
 
-Both paths return a value that is yours to keep and independent of the
-collection. When the element type is `String`, the supplied `default` is copied
+Both paths return a copy: changing it does not change the collection. When the element type is `String`, the supplied `default` is copied
 on the fallback path, so the result behaves the same however it was produced. A
 composite value read out of the collection is likewise copied before it is
 returned.
@@ -30,14 +28,7 @@ lookup runs, whether or not it ends up being used.
 
 For the map overload, keys compare exactly: a `String` key byte for byte, and a
 `Float` key by bit pattern, so `-0.0` does not find a key stored as `0.0` and
-such a lookup simply yields `default`.
-
-Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` is a direct lookup — the same one
-`collections::get` uses — with `default` substituted on the probe's not-found
-branch; other key types are found by scanning the map. This is
-a performance difference only — both paths select the same entry and yield the
-same `default` when the key is absent."#;
+such a lookup simply yields `default`."#;
 
 const EX: &str = r#"Read a list item with a fallback for an out-of-range index:
 
@@ -101,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "index",
-                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
+                        desc: "The zero-based list index. A negative index, or one at or beyond `len(value)`, returns `default`; that includes index 0 on an empty list.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
@@ -129,7 +120,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "index",
-                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
+                        desc: "The key to look up. If the map has no such key, `getOr` returns `default`.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,

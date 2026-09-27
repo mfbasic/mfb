@@ -18,11 +18,11 @@ Surviving elements keep the insertion order they had in `a`. The intersection of
 disjoint sets is the empty set, and the intersection of a set with itself is a
 set equal to it.
 
-`intersection` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is classified
-infallible.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`intersection` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"Elements common to two sets:
 
@@ -80,14 +80,14 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "a",
-                    desc: "The first set, walked to decide element order. Not modified. `T` must be a comparable type.",
+                    desc: "The first set, walked to decide element order. Not modified. If it is empty the result is empty. `T` must be a comparable type.",
                     aliases: &[],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "b",
-                    desc: "The second set, of the same type as `a`, tested for membership. Not modified.",
+                    desc: "The second set, of the same type as `a`, tested for membership. Not modified. If it is empty the result is empty.",
                     aliases: &[],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,

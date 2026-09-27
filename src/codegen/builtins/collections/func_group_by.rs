@@ -499,30 +499,30 @@ the bucket on first use.
 Because the walk proceeds in list order and each value is appended to the end of
 its bucket, the items inside a bucket appear in the same relative order they had
 in `value`. `groupBy` never merges, reorders, or deduplicates within a bucket:
-two items that produce equal keys *and* equal values both appear.
+two items that produce equal keys *and* equal values both appear. The result has
+one bucket per distinct key. Current builds insert the groups in the order each
+key first appears in `value`, but map iteration order is implementation-defined,
+so do not depend on it.
 
 `groupBy` takes three arguments. There is no single-argument-projection form that
 groups items by a key and stores the original items — pass an identity `FUNC` as
-`valFn` to get that behavior. Calling it with two arguments is a compile-time
-error, because the compiler cannot infer the template argument `V` (it appears
-only in the return type).
+`valFn` to get that behavior. Both projections are required: a two-argument call
+is a compile-time error.
 
 `value` is not modified; the result is a newly built map. The key type `K` must
 be a usable map key type, since the result is a `Map OF K TO List OF V`.
 
 `keyFn` and `valFn` are ordinary MFBASIC function values and are called with
 ordinary calls. If either callback fails, its error propagates out of `groupBy`
-to the caller and can be caught by the caller's `TRAP` block; the partially built
-map is discarded. `groupBy` itself raises no error of its own.
+to the caller and can be caught by the caller's `TRAP` block; no result map is
+produced. `groupBy` defines no error of its own, but building the projected
+lists, the buckets, and the result needs memory, so it can raise `ErrOutOfMemory`.
 
 Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
 produce a function value of the required type.
 
-`groupBy` is generic over three template parameters: `T`, the element type of
-`value`; `K`, the key type returned by `keyFn`; and `V`, the value type returned
-by `valFn`. All three are inferred from the argument types, so every one of them
-must be determined by an argument — `V` cannot be supplied from the annotation on
-the binding that receives the result. `K` must be a valid map key type."#;
+The result map uses the keys `keyFn` produces and the bucket items `valFn`
+produces."#;
 
 const EX: &str = r#"Group numbers by parity, keeping the numbers themselves:
 

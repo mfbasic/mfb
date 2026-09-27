@@ -31,10 +31,8 @@ element stays cheap however long the list grows. Assigning the result anywhere
 else — `ys = collections::removeAt(xs, i)` — builds a new list and leaves `xs` as
 it was. The result is the same either way.
 
-`removeAt` is **fallible**: the range check is a real trappable domain error, so
-an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
-failure rather than being reported as a dead handler. The bounds test runs before
-the result is built, so a rejected index builds nothing.
+An out-of-range `index` raises `ErrIndexOutOfRange`, which an inline `TRAP` on
+the call can catch.
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not

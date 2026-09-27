@@ -15,9 +15,12 @@ against every byte of `suffix`, in order; it succeeds only when all of them
 match.
 
 No normalization, case folding, or other transformation is applied to either
-operand, so `endsWith("Hello", "LO")` is `FALSE`. Because both operands are
-well-formed UTF-8 and UTF-8 is self-synchronizing, a matching byte suffix is
-always also a whole-scalar suffix — a match can never land mid-scalar.
+operand, so `endsWith("Hello", "LO")` is `FALSE`. Matching is by Unicode scalar:
+a match always covers whole scalars, but not necessarily whole
+characters: it can begin or end inside a combining sequence, an emoji sequence or
+a flag, so `endsWith("cafe\u{0301}", "\u{0301}")` is `TRUE` even though
+the visible text ends in `é`. Apply `strings::normalizeNfc` to both operands first
+if composed and decomposed spellings must compare equal.
 
 The boundary cases follow from the byte comparison. A `suffix` longer than
 `value` cannot match and returns `FALSE`. The empty `suffix` matches every

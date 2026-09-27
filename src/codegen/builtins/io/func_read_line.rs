@@ -29,11 +29,9 @@ its terminator returns an empty `String`, and the terminator is read too. It
 takes no arguments.
 
 **On a terminal, `io::readLine` suppresses echo for the duration of the read.**
-It clears `ECHO` on standard input while leaving canonical (line) mode intact, so
-the user still edits the line normally and submits it with Return, but the typed
-characters are not displayed. The previous line discipline is restored before the
-call returns. This is the difference from `io::input`, which leaves the terminal
-untouched and therefore echoes; use `io::readLine` for passphrases and
+The user still edits the line normally and submits it with Return, but the typed
+characters are not displayed, and the terminal's usual input behavior is restored
+when the call finishes. This is the difference from `io::input`, which echoes; use `io::readLine` for passphrases and
 `io::input` when the user should see what they type. When standard input is not a
 terminal the stream is read as is with no mode change.
 
@@ -42,11 +40,9 @@ produced — including a prompt written with `io::write` — appears before the
 program waits. Bytes are decoded as UTF-8 as they arrive, with the full validity
 check; an ill-formed sequence fails rather than yielding a replacement character.
 End of input is reported as an error, not as an empty result — but only when it
-arrives before any byte of the line. Input that ends mid-line is not lost: those
-bytes come back as the final, unterminated line, and the *next* call raises
-`ErrEndOfFile`. Standard input is a per-thread broadcast log;
-a thread other than the main thread must subscribe with `thread::openStdIn` before
-reading, or the call raises `ErrInvalidContext`."#;
+arrives before any byte of the line. Input that ends mid-line is not lost: those bytes come back as the final, unterminated
+line, with a trailing CR still removed, and the *next* call raises `ErrEndOfFile`. A worker thread must subscribe with `thread::openStdIn` before reading, or the call
+raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read a line and echo it back:
 
 ```

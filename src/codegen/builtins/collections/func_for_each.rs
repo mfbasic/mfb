@@ -17,7 +17,7 @@ calls `action` once per element, passing the element as the single argument.
 
 The loop visits each element once, front to back, with no
 reordering and no skipping, so `action` observes exactly the elements of `value`
-in their stored order. `value` is neither copied nor modified; `forEach` builds
+in their stored order. `value` is not modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.
 
 `action` must accept exactly one argument of the element type `T` and its
@@ -26,19 +26,18 @@ success type must be `Nothing`. A `SUB` is therefore accepted directly, since a
 compile time. To collect results instead of discarding them, use
 `collections::transform`.
 
-`action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`.
+`action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`,
+or a `LAMBDA` taking one `T` and returning nothing.
 A package member such as `io::print` is not a callable value and cannot be
 passed here; wrap it in a `SUB` of your own, as the first example below does.
 
-`action` is invoked through the shared direct-callable path, which restores a
-closure's captured environment around each call, so a callable value that
-carries an environment works as well as a plain named reference.
+Unlike the other higher-order helpers, a `LAMBDA` passed here may use an outer
+`MUT` binding and update it during the call.
 
 `forEach` raises no domain error of its own. It can fail only
 because a failing `action` propagates: when the callback fails, the loop stops immediately at that element, later elements are never
 visited, and the callback's own error is passed straight through — unchanged, so
-whatever code and message the callback raised is what the caller sees. Because
-`forEach` holds no accumulator, no cleanup runs on that path.
+whatever code and message the callback raised is what the caller sees.
 
 An inline `TRAP` on a `forEach` call captures that propagated callback error at
 the call site rather than letting it auto-propagate.

@@ -15,21 +15,23 @@ const INTRO: &str = r#"Construct a foreground-color `astrings::Attribute` from a
 const DESC: &str = r#"`foreground` returns an `astrings::Attribute` wrapping the `astrings::AttrNumber`
 with `kind` `astrings::AttrTypeNumber.Foreground` and a `value` that packs `base`
 into a single `0xAARRGGBB` Integer — alpha in the high byte, blue in the low one.
-That is `color::toPacked`'s order, so `color::fromPacked` reads the attribute back
-and the colour round-trips exactly, alpha included. Pass the attribute to
+That is `color::toPacked`'s order: match the attribute as `astrings::AttrNumber`
+and pass its `value` to `color::fromPacked`, and the colour round-trips exactly,
+alpha included. Pass the attribute to
 `astrings::addAttribute` to set the text foreground over a scalar range;
-overlapping foreground spans resolve by higher-start-wins at read time.
+where foreground spans overlap, the one with the higher start wins at read time, and
+when their starts are equal, the one added later wins.
 
 **A program that names a `color::Color` must `IMPORT color`** as well as
 `astrings` — imports are not transitive and a package cannot re-export another's
 types.
 
-When such an `AttributedString` is drawn with `term::drawText(x, y, value)` (both
+When such an `AttributedString` is drawn with `term::drawText(row, column, value)` (both
 `term` and `astrings` imported), the colour is emitted as a truecolor foreground.
 **The terminal has no alpha and the bridge ignores it**: a half-transparent
-foreground draws exactly the cells an opaque one draws. The alpha is preserved in
-the attribute rather than dropped at construction, so a renderer that *can* model
-it — a canvas surface, say — still gets the whole colour. Renderers that do not
+foreground draws exactly the cells an opaque one draws. The alpha stays in the
+attribute rather than being dropped at construction, so a program can read the
+whole colour back with `color::fromPacked`. Renderers that do not
 model colour at all, such as `astrings::toMarkdown`, ignore the attribute
 entirely."#;
 

@@ -30,10 +30,9 @@ Standard error is probed independently of standard output, which matters in the
 common case where one is redirected and the other is not: a program run as
 `prog > out.txt` should still colour its diagnostics, and `prog 2> log.txt`
 should not. Ask this question about the stream you are about to write to. The
-probe inspects state only: it writes nothing and changes nothing. In app mode the
-program has no real standard streams — error output is rendered by the application
-transcript, which is treated as an interactive console — so this call returns
-`TRUE` without probing a descriptor."#;
+probe inspects state only: it writes nothing and changes nothing. In app mode this
+call returns `TRUE`, because the application window is treated as an interactive
+console."#;
 const EX: &str = r#"Colour diagnostics only when the error stream is a terminal:
 
 ```
