@@ -225,7 +225,8 @@ a `cargo test` target, another script, or a person.
   spec` link resolution, rendered-markup leaks, and fenced-example shape.
   Usage: `bash scripts/spec-census.sh --fill|--citations|--links|--render|--fences [pkg...]`.
   Run by: plan-125 spec letters; by hand.
-- **doc-review-fanout.sh** — Runs one `codex exec` documentation review per unit
+- **doc-review-fanout.sh** — Runs one headless Claude Code documentation review
+  (`claude -p`, Claude Fable 5.1 by default; `REVIEWER_MODEL` overrides) per unit
   line (`man-pkg:`, `man-page:`, `man-topic:`, `man-consistency:`, `spec-pkg:`,
   `spec-file:`) from a prompt template, each in its own worktree, with a wall-clock
   watchdog. It records every unit's exit, duration, findings size and dirtiness in

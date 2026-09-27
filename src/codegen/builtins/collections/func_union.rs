@@ -18,11 +18,12 @@ insertion order follows the elements of `a` first, then the elements of `b` that
 were not already in `a`. The union of a set with the empty set is a copy of that
 set, and the union of two equal sets is a set equal to either one.
 
-`union` raises no user-trappable error of its own. While building the result it needs memory, but running out of memory is not a trappable domain error, and the
-`add` it is built on is classified infallible for exactly that reason.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`union` raises no error of its own. Building the result needs memory, so it can
+raise `ErrOutOfMemory`.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
-rejected at compile time."#;
+arguments are sets of different element types is rejected at compile time."#;
 
 const EX: &str = r#"Combine two sets:
 

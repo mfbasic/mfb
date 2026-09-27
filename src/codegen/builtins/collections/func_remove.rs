@@ -20,14 +20,10 @@ remaining elements keep their relative insertion order.
 
 `remove` does not change `value`. The set it names is unchanged; the modified
 set is the returned value, and a program observes the update only through what it
-does with that return value. When the compiler can prove the target is a
-same local being reassigned — the `set = collections::remove(set, x)`
-shape — is the cheap shape: it updates the set rather than building a second
-one. The result is the same either way.
+does with that return value.
 
-`remove` is **infallible**: removing an absent element is defined as a no-op
-rather than a failure, so no path raises a trappable domain error and an inline
-`TRAP` written on a `remove` call has a dead handler."#;
+Removing an absent element is a no-op rather than a failure, so `remove` raises
+no error of its own."#;
 
 const EX: &str = r#"Remove a present element:
 

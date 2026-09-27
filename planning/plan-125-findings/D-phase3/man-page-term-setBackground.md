@@ -1,0 +1,15 @@
+### 1. Round-trip claim is not exact: the alpha read back is always 255
+UNIT:      man-page:term/setBackground
+CLAIM:     "The colour round-trips through term::getBackground, so saving and restoring needs no channel unpacking:"
+VERDICT:   misleading
+EVIDENCE:  Probe `/tmp/plan-125-scratch/D-phase3/man-page-term-setBackground/probe/src/main.mfb`: `term::setBackground(color::rgba(10, 20, 30, 128))` then `color::toHexAlpha(term::getBackground())` printed `#0a141eff` — red/green/blue survive, alpha comes back as 255, not 128. Source: `src/codegen/term/core/term.rs:emit_get_color` stores the literal `255` into the alpha field (comment: "a terminal cell has no alpha channel, so the fourth field is" fixed), and `emit_set_color` never reads alpha. Save-then-restore therefore works for the terminal, but the value read back is not equal to the value passed in whenever alpha ≠ 255, and the page's `alpha` paragraph does not say what the reader sees on the way back out.
+SUGGESTED: "The red, green and blue channels round-trip through term::getBackground, so saving and restoring needs no channel unpacking. The colour read back always carries an alpha of 255, whatever alpha was passed in, because the terminal never kept it:"
+
+### 2. Internal state vocabulary in the description
+UNIT:      man-page:term/setBackground
+CLAIM:     "The colour is packed into the module's current-attribute state and no escape sequence is emitted."
+VERDICT:   out-of-scope
+EVIDENCE:  `.ai/man-content.md` §1/§3 — "packed into the module's current-attribute state" describes the implementation's storage (`src/codegen/term/core/term.rs:emit_set_color` packs `r|g<<8|b<<16` into a term-state slot). A developer observes only that nothing is written to the terminal until `term::sync`, which the very next sentence already says. No banned word, but "module" and "packed … state" are compiler-side notions.
+SUGGESTED: "Nothing is written to the terminal by this call. Like every other drawing operation on this retained surface, the effect becomes visible only when term::sync presents the frame."
+
+All other sentences verified true at HEAD. Probe evidence: example 1 (`ex1/src/main.mfb`) compiles and `term::sync` emits `ESC[48;2;255;0;0m alert` with the remaining cells on `48;2;0;0;0`, so `io::print` does land on the surface and the background applies only to the printed text; example 2 compiles and runs to exit 0. The gating probe (`probe/src/main.mfb`) shows a `setBackground` before `term::on` neither errors nor takes effect (`#000000ff`), the default after `term::on` is black `#000000ff`, foreground `#090909ff` and bold `true` are untouched by a background change, and a second `term::on` resets the background to black. The per-cell probe (`percell/src/main.mfb`) drew "A" before and "B" after the call: "A" presents on `48;2;0;0;0`, "B" on `48;2;255;0;0`, confirming text already in the surface is not restyled. Errors table is empty and `func_set_background.rs` registers `errors: vec![]`, consistent with the "reports no error" claim. `scripts/man-census.sh` banned list: no hits on this page.

@@ -30,6 +30,10 @@ When TUI mode is on, the teardown runs in this order.
    normally.
 4. **TUI mode is switched off** and the drawing surface goes away.
 
+In an `mfb build --app` window there is no cursor or alternate screen to restore:
+step 3 instead swaps the window back to its scrolling text view, which regains
+keyboard focus, and typing returns to line input. Steps 1, 2 and 4 are the same.
+
 After `term::off` returns, `term::isOn` reports `FALSE` and the surface is
 inactive again: every `term::` call except `term::on`, `term::isOn` and
 `term::didResize` does nothing, returns an inert default, or — for
@@ -38,10 +42,13 @@ which). A later `term::on` starts
 over with a fresh surface and the default state; nothing drawn before
 `term::off` survives it.
 
-Because the alternate screen and the terminal's line discipline are both process
-state, a program that enters TUI mode should reach `term::off` on every exit path
-— including its error paths — or leave the user's terminal in single-key mode on
-the alternate screen."#;
+You do not have to reach `term::off` before the program ends: when a program that
+uses `term::` exits — by returning from `main`, by an unhandled error, or on
+Ctrl-C or `SIGTERM` — the runtime calls `term::off` for it, so the terminal is
+restored. Call it explicitly when you want to print ordinary output after the
+TUI part of the program, or to leave and re-enter TUI mode. A `kill -9`, or a
+crash the runtime cannot intercept, still leaves the terminal on the alternate
+screen in single-key mode; `reset` at the shell recovers it."#;
 
 const EX: &str = r#"Draw one frame and restore the terminal:
 

@@ -148,7 +148,9 @@ shows or hides the cursor, reports the surface size, and reports whether the
 surface was resized (`term::didResize`). The same surface is
 rendered on the console backend (using the terminal's alternate screen and ANSI
 sequences) and in windowed app mode (`mfb build --app`), so the same program
-source drives both.
+source drives both. In an `--app` program the character grid exists only in
+`app::Mode.Console`: every `term::` call made while the program is in
+`app::Mode.None` or `app::Mode.Canvas` raises `ErrWrongMode`.
 
 `term::on` is the gate for the whole module. It switches the terminal into TUI
 mode and resets all `term::` state to its defaults (white foreground, black
@@ -215,7 +217,8 @@ corners). `term::fillRect` fills a rectangular region with a block or shade glyp
 chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
 `CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
 a string at an absolute position (without moving the cursor), and
-`term::drawGlyph` stamps a single scalar by code point.
+`term::drawGlyph` stamps one glyph from an Integer code point; a value below
+`U+0020` is skipped.
 
 The mouse is available too, and it is **opt-in**: `term::enableMouse(TRUE)`
 asks the terminal to report mouse activity and `term::pollMouse` takes the
@@ -249,7 +252,25 @@ glyph for `term::fillRect`.
 `Right`), the `row` and `column` cell it happened over, and the `shift`, `ctrl`
 and `alt` modifier flags. `None` is the first variant of both enums, so the
 record an idle poll reports reads as "nothing pending, no button" without a
-program having to spell that out."#;
+program having to spell that out.
+
+A whole frame: enter TUI mode, draw, present once, and leave.
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::clear()
+  LET size AS term::TermSize = term::terminalSize()
+  term::drawBox(term::LineStyle.Light, 0, 0, size.rows - 1, size.columns - 1)
+  term::drawText(1, 2, "hello")
+  term::sync()
+  term::off()
+  io::print("drew on " & toString(size.columns) & "x" & toString(size.rows))
+END SUB
+```"#;
 
 /// Register the `term` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -266,21 +287,24 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
-        description: "The size of the drawing surface in whole character cells, as \
-                      returned by `term::terminalSize`. Ask again after a resize \
-                      rather than caching the first answer.",
+        description: "The size of the drawing surface in whole character cells, \
+                      returned by `term::terminalSize`. A program cannot build one \
+                      or `WITH`-update it; ask `term::terminalSize` again after a \
+                      resize rather than caching the first answer.",
         props: vec![
             RecordProp {
                 name: "columns",
                 ty: ParameterType::Integer,
-                description: "The width in character cells, never pixels. Valid \
-                              columns are 0 through columns-1.",
+                description: "The surface width in character cells, never pixels. \
+                              Valid column positions run from 0 through \
+                              `columns - 1`, inclusive.",
             },
             RecordProp {
                 name: "rows",
                 ty: ParameterType::Integer,
-                description: "The height in character cells, never pixels. Valid \
-                              rows are 0 through rows-1.",
+                description: "The surface height in character cells, never pixels. \
+                              Valid row positions run from 0 through \
+                              `rows - 1`, inclusive.",
             },
         ],
     });

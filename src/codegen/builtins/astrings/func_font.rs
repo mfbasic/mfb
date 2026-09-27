@@ -12,7 +12,8 @@ const INTRO: &str = r#"Construct a font-family `astrings::Attribute`."#;
 
 const DESC: &str = r#"`font` returns an `astrings::Attribute` wrapping the `astrings::AttrText` with `kind` `astrings::AttrTypeText.Font` and `value`
 `name`. Pass it to `astrings::addAttribute` to set the font family over a scalar range. Font is a
-String-valued attribute: overlapping font spans resolve by higher-start-wins at read time."#;
+String-valued attribute. Where font spans overlap, the one with the higher start wins at read
+time; when their starts are equal, the one added later wins."#;
 
 const EX: &str = r#"```
 IMPORT astrings
@@ -40,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "name",
-                desc: "The font family name.",
+                desc: "The font family name, stored as given; it may be empty.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

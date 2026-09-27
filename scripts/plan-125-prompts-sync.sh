@@ -55,7 +55,7 @@ render() {
 	printf '%s\n\n' "$BEGIN"
 	printf 'The prompts every one of plan-125'"'"'s reviewer runs uses, verbatim.\n'
 	printf 'They are generated from `planning/plan-125-prompts/*.txt`, which is what\n'
-	printf '`doc-review-fanout.sh --prompt` actually passes to `codex exec`; run\n'
+	printf '`doc-review-fanout.sh --prompt` actually passes to the reviewer; run\n'
 	printf '`./scripts/plan-125-prompts-sync.sh --check` to prove this section matches.\n\n'
 	printf 'The harness substitutes `{{UNIT}}`, `{{KIND}}`, `{{TARGET}}`, `{{MFB}}` and\n'
 	printf '`{{SCRATCH}}` per run; everything else is identical across all ~900 runs, so\n'

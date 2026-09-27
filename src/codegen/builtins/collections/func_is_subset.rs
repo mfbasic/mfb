@@ -15,11 +15,15 @@ with no such element, it returns `TRUE`.
 
 `isSubset` is **pure**: it inspects both arguments and mutates neither. The empty
 set is a subset of every set, so `isSubset(Set OF T { }, b)` is always `TRUE`. A
-set is a subset of itself, and equal sets are subsets of each other.
+set is a subset of itself, and equal sets are subsets of each other. Membership
+uses the set's element comparison, so a `Float` `-0.0` does not match a stored
+`0.0` even though `-0.0 = 0.0` is `TRUE`.
 
-`isSubset` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isSubset` raises no error of its own.
+
+Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
-arguments are not both sets of the same element type does not resolve and is
+arguments are sets of different element types is
 rejected at compile time."#;
 
 const EX: &str = r#"A smaller set contained in a larger one:
@@ -84,7 +88,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
                 Parameter {
                     name: "b",
-                    desc: "The candidate superset, of the same type as `a`. Not modified.",
+                    desc: "The candidate superset, of the same type as `a`. Not modified. If it is empty, the result is `TRUE` only when `a` is also empty.",
                     aliases: &[],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,

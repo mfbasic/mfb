@@ -26,9 +26,8 @@ describes map iteration order as implementation-defined but stable for a given
 unchanged map, so treat insertion order as the current implementation's behavior
 rather than a guarantee to rely on across versions.
 
-`collections::values` raises no trappable domain error, so an inline `TRAP` on a
-`values` call has a dead handler. Building the result list needs memory, and
-running out of memory is not something a `TRAP` can catch."#;
+`collections::values` raises no error of its own. Building the result list needs
+memory, so it can raise `ErrOutOfMemory`."#;
 
 const EX: &str = r#"Get the values of a map:
 

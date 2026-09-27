@@ -13,8 +13,9 @@ const INTRO: &str = r#"Record an attribute over an inclusive scalar range."#;
 
 const DESC: &str = r#"`addAttribute` returns a new `AttributedString` with `attr` recorded over the **inclusive** scalar
 range `[start, endIndex]` (length `endIndex − start + 1`; `start == endIndex` is a single scalar).
-Spans are stored as-is and never merged; overlapping same-member spans resolve at read time by
-higher-start-wins (see `getAttributes`). The end-of-range parameter is `endIndex` rather than `end`
+Spans are stored as-is and never merged. Where spans of the same attribute member overlap, the one
+with the higher start wins; when their starts are equal, the one added later wins (see
+`getAttributes`). The end-of-range parameter is `endIndex` rather than `end`
 because `end` is a reserved keyword.
 
 **An invalid range raises.** `start` must be zero or more and no greater than
@@ -56,14 +57,14 @@ fn ranged_attr_params() -> Vec<Parameter> {
         },
         Parameter {
             name: "start",
-            desc: "The first scalar index of the range (0-based).",
+            desc: "The first scalar index of the inclusive range (0-based); zero or more and no greater than `endIndex`.",
             aliases: &[],
             ty: ParameterType::Integer,
             default: DefaultValue::None,
         },
         Parameter {
             name: "endIndex",
-            desc: "The last scalar index of the range (inclusive).",
+            desc: "The last scalar index of the inclusive range; at least `start` and inside the visible text.",
             aliases: &[],
             ty: ParameterType::Integer,
             default: DefaultValue::None,

@@ -45,7 +45,8 @@ producing its result.
 In app mode (`mfb build --app`) the size comes from the application's terminal
 view rather than from the console, and follows the window as the user resizes it;
 the same `ErrUnsupported` is raised when TUI mode is off or no view is
-attached."#;
+attached. In a macOS `--app` build a failure to produce the
+result also raises `ErrUnsupported`, never `ErrOutOfMemory`."#;
 
 const EX: &str = r#"Report the surface dimensions:
 

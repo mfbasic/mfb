@@ -258,12 +258,13 @@ scope without an import.
 `FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
 inside `predicate` is **not** absorbed by `partition`: it propagates out of the
 `collections::partition` call to the caller, abandoning the partially built
-result. `partition` itself defines no error of its own. Note that a lambda
-passed here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `partition`.
+result. `partition` itself defines no error of its own. A lambda passed to
+`partition` cannot capture an outer `MUT` binding; see `mfb man lambda`.
 
-`partition` does not mutate `value`; it builds two new lists. Doing so needs memory, but running out of memory is not a trappable domain error, and the
-`append` it uses is classified infallible for exactly that reason.`T` is inferred from the element type of `value` and may be any type;
+`partition` does not modify `value`; it builds two new lists. Building them needs
+memory, so it can raise `ErrOutOfMemory`.
+
+`T` is inferred from the element type of `value` and may be any type;
 `partition` imposes no comparability or orderability constraint on `T`, because
 elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`

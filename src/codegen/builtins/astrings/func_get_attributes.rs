@@ -14,8 +14,10 @@ const INTRO: &str = r#"The resolved attributes active at a scalar index."#;
 
 const DESC: &str = r#"`getAttributes` returns the attributes in effect at scalar `index`: for each enum member with any
 covering span, the covering span with the **highest start** wins (ties break to the later insertion).
-The result carries at most one `astrings::Attribute` per member — flags are present when any covering span
-carries them; font/font-size take the winning span's value. Attributes are never merged on write, so
+The result is an empty list when no span covers the scalar; otherwise it carries at most one
+`astrings::Attribute` per member — flags are present when any covering span carries them;
+font/font-size take the winning span's value. The resolved attributes come back in the order their
+winning spans were added. Attributes are never merged on write, so
 this read-time resolution is where overlaps are decided.
 
 **An invalid index raises.** `index` must identify a scalar that exists: a
@@ -83,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "index",
-                    desc: "The scalar index to resolve (0-based).",
+                    desc: "The scalar index to resolve (0-based); it must identify a scalar that exists in the visible text.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

@@ -78,7 +78,8 @@ canonical line mode suppressed for the read before the prior mode is restored.
 Character and line reads decode input as UTF-8 and reject ill-formed byte
 sequences rather than substituting replacement characters; `io::readByte`
 transfers bytes verbatim with no decoding. End of input is reported as an error,
-not as an empty or sentinel result. `io::pollInput` tests whether input is ready
+not as an empty or sentinel result, once no input is left: a final line with no
+terminator is still returned, and only the next read reports end of input. `io::pollInput` tests whether input is ready
 to read, optionally waiting up to a timeout in milliseconds, without reading
 any input.
 
@@ -89,14 +90,12 @@ read input, or raise. Each call uses its own standard stream; in app mode all of
 them are routed to the application transcript window, which is treated as an
 interactive terminal.
 
-Standard input is a per-thread broadcast. The runtime reads standard input once,
-in chunks, into a single log all threads share; each subscribed thread reads at
-its own position in that log, so every subscriber sees the whole stdin stream
-from the point it subscribed, and a byte one thread reads is still there for the
-others. The compiler subscribes the main thread at
-program entry, so a single-threaded program is byte-identical to a direct per-byte
-reader. A thread other than main must subscribe with `thread::openStdIn` before
-reading, or the read raises `ErrInvalidContext`; `thread::closeStdIn`
+Each thread that reads standard input has its own view of it: reading in one
+thread does not take input away from another, and a thread sees the input that
+arrives after it subscribes. The main thread can read without subscribing. A
+worker thread must subscribe with `thread::openStdIn` before reading, or the read
+raises `ErrInvalidContext`; at most 128 threads can be subscribed at once, and a
+thread beyond that cannot read and gets the same error; `thread::closeStdIn`
 unsubscribes."#;
 
 /// Register the `io` package on the clean-room registry.

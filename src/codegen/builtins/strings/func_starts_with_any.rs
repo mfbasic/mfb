@@ -17,7 +17,10 @@ reported, only that one did.
 
 Each individual test is the same exact byte comparison `strings::startsWith`
 performs: the leading bytes of `value` must equal every byte of the candidate, in
-order, with no normalization and no case folding. A candidate longer than `value`
+order, with no normalization and no case folding. A match always covers whole
+Unicode scalars but not necessarily whole characters: a decomposed `é` (`e`
+followed by a combining accent) begins with `"e"`, while the precomposed `é` does
+not, and the two spellings never match each other. A candidate longer than `value`
 cannot match and is skipped rather than treated as an error.
 
 An empty string appearing as a candidate matches everything, so a `prefixes` list

@@ -1,0 +1,3 @@
+NO FINDINGS for man-page:term/drawHLine
+
+I compiled both rendered examples under `/tmp/plan-125-scratch/D-phase3/man-page-term-drawHLine` with the required release binary and ran them in a pseudo-terminal. The first printed a full-width `━` line on row 0; the second printed the expected 21-column light box. I also traced `func_draw_hline.rs:register` through `term::core::emit_draw_line` and `emit_stamp_run`, confirming normalization, inclusive clamping, off-grid no-op behavior, attributes, and the inactive-TUI gate.
