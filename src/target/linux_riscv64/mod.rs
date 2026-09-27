@@ -353,6 +353,54 @@ mod tests {
         }
     }
 
+    /// bug-749: the checked-in `tests/byte-identity/general` program gives `main`
+    /// a frame over 2 KiB, so a spill or eviction store there is encoded with its
+    /// address built in `t0`. No such store may sit between the selector writing
+    /// `t0` and reading it back: at base, every `toMoney(String)` character test
+    /// compared against the frame address instead of the character constant.
+    #[test]
+    fn a_large_frame_spill_store_never_lands_in_a_t0_window() {
+        let src = include_str!("../../../tests/byte-identity/general/src/main.mfb");
+        let plan = crate::testutil::code_for_src_on(src, crate::testutil::CodeTarget::LinuxRiscv64);
+        for function in &plan.functions {
+            let ins = &function.instructions;
+            for (w, inst) in ins.iter().enumerate() {
+                if inst.get("dst").as_deref() != Some("t0") {
+                    continue;
+                }
+                for later in &ins[w + 1..] {
+                    let reads = later
+                        .fields
+                        .iter()
+                        .any(|(k, v)| *k != "dst" && v.render() == "t0");
+                    if reads || later.get("dst").as_deref() == Some("t0") {
+                        break;
+                    }
+                    let mnemonic = later.op.mnemonic();
+                    let offset = later.get("offset").and_then(|o| o.parse::<u64>().ok());
+                    let spill_store = (mnemonic.starts_with("str_") || mnemonic == "ldr_d")
+                        && later.get("base").as_deref() == Some("sp");
+                    if spill_store && offset.is_some_and(|o| o > 2047) {
+                        panic!(
+                            "{}: `{mnemonic}` at sp+{} is encoded through t0 while t0 \
+                             (written at {w}) is still to be read",
+                            function.name,
+                            offset.unwrap()
+                        );
+                    }
+                }
+            }
+            if function.name == "main" {
+                assert!(
+                    function.frame.stack_size > 2047,
+                    "the fixture must keep main's frame over 2 KiB to exercise the \
+                     encoder's t0-addressed store (got {})",
+                    function.frame.stack_size
+                );
+            }
+        }
+    }
+
     /// The companion fact: `supports_app_mode()` stays false, which is what makes
     /// the CLI reject `--app` before it ever gets here (defense layer 2).
     #[test]

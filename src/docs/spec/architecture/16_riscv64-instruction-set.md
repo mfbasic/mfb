@@ -221,6 +221,15 @@ first. A load or store whose displacement exceeds ±2047 stages the address thro
 `t0` (or, for a load whose destination differs from its base, through the
 destination register itself, avoiding a clobber of a live lane in a scalarized
 vector sequence). [[src/arch/riscv64/encode/emitter.rs:emit_load]]
+[[src/arch/riscv64/encode/emitter.rs:emit_store]]
+
+So in a frame over 2 KiB the allocator's spill code — a store after a definition,
+an eviction save before an instruction — overwrites `t0`, and nothing else among the
+lowering scratch registers. Because allocation runs after selection, spill code can
+land between any two selected instructions that name a virtual register. Selection
+therefore never keeps a value in `t0` from one emitted instruction to a later one
+across such an instruction (or into a reader that names one): a value that must
+survive there is held in `t1`/`t2`. [[src/arch/riscv64/select.rs:T0]]
 
 ### Immediate materialization
 
@@ -247,7 +256,8 @@ RISC-V has no condition flags, so every compare-and-branch is self-contained.
   long form. Because RISC-V provides only `beq`/`bne`, signed `blt`/`bge`, and
   unsigned `bltu`/`bgeu`, the relations `>`/`<=`/`>`(unsigned)/`<=`(unsigned) are
   produced by **swapping the two operands** (e.g. `lhs > rhs` becomes `rhs < lhs`).
-  A non-zero immediate rhs is materialized into `t0`; a zero rhs uses the hardware
+  A non-zero immediate rhs is materialized into `t1` (not `t0`, which the branch's
+  own reload/eviction code may overwrite in a large frame); a zero rhs uses the hardware
   `zero` register directly. [[src/arch/riscv64/select.rs:int_branch]]
   [[src/arch/riscv64/select.rs:expand_fused]]
 - **Float compare-and-branch** (`fbr_cc`/`fbr_cc_zero`) emits `feq.d`/`flt.d`/`fle.d`
@@ -261,7 +271,9 @@ RISC-V has no condition flags, so every compare-and-branch is self-contained.
 - **Overflow-checked arithmetic** (`add_ovf`/`sub_ovf`) computes the sum/difference
   and detects signed overflow with a sign-comparison sequence (`eor`/`mvn`/`and`),
   then branches on the detection word's sign bit — writing the destination
-  **before** the branch, since the branch jumps away on the no-overflow path.
+  **before** the branch, since the branch jumps away on the no-overflow path. The
+  result is held in `t2` and the detection word in `t1`; `t0` carries only the
+  intermediate consumed by the next register-free instruction.
   [[src/arch/riscv64/select.rs:expand_fused]]
 - A bare (non-fused) integer compare whose flag-reading branch is not adjacent
   (fusion missed it) is handled specially: the compare snapshots its left operand

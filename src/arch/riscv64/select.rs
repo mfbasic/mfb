@@ -38,6 +38,15 @@ use super::regmodel::ARENA_BASE_REGISTER;
 /// The fixed lowering-scratch integer registers, reserved from allocation
 /// (`regmodel`): `t0`–`t2` stage immediate materialization, overflow detection,
 /// and the float-compare boolean.
+///
+/// **Spill-safe scratch (bug-749).** The allocator runs AFTER selection, so any
+/// instruction naming a virtual register may get a reload before it, a store after
+/// it, and an eviction save/restore around it. The encoder builds the address of an
+/// `sp` store (and of any FP load/store) whose offset exceeds the 12-bit immediate
+/// in `t0` (`encode::emitter::Encoder::emit_store`), so in a frame over 2 KiB spill
+/// code overwrites `t0` — and only `t0`. A value the selector writes in one emitted
+/// instruction and reads in a later one, with a virtual register named in between
+/// (or by the reader itself), must therefore live in `t1`/`t2`, never `t0`.
 const T0: &str = "t0";
 const T1: &str = "t1";
 const T2: &str = "t2";
@@ -239,7 +248,10 @@ fn expand_fused(
                 .field("target", &target)]
         }
         // Integer register-immediate compare-and-branch. RISC-V branches take
-        // registers only, so a non-zero immediate is materialized into `t0`.
+        // registers only, so a non-zero immediate is materialized into `t1` —
+        // NOT `t0`: the allocator inserts `lhs`'s spill code between the two
+        // instructions, and in a >2 KiB frame a spill store builds its address in
+        // `t0` (bug-749; see the spill-safe scratch rule on [`T0`]).
         CodeOp::CmpImm => {
             let lhs = get_op("lhs");
             let imm = get("rhs");
@@ -247,8 +259,8 @@ fn expand_fused(
             let imm_reg: Operand = if imm == "0" {
                 Operand::from(ZERO)
             } else {
-                out.push(ci("mov_imm", &[("dst", T0), ("value", &imm)]));
-                Operand::from(T0)
+                out.push(ci("mov_imm", &[("dst", T1), ("value", &imm)]));
+                Operand::from(T1)
             };
             let (a, b, rvcond) = int_branch(&cond, &lhs, &imm_reg);
             out.push(
@@ -286,11 +298,16 @@ fn expand_fused(
             let branch_cond = overflow_branch_cond(&cond);
             // The result must be written into `dst` BEFORE the branch: the fused
             // `adds; b.vc` writes the destination and *then* branches, and the
-            // branch jumps away on the no-overflow path — so a `mov dst, t0` after
+            // branch jumps away on the no-overflow path — so a `mov dst, t2` after
             // it would be skipped, leaving `dst` undefined.
+            //
+            // bug-749: the sum (`t2`) and the sign word (`t1`) live across
+            // instructions that name virtual registers, so they must not be in
+            // `t0`; `t0` carries only `sum ^ lhs`, consumed by the very next
+            // register-free `and` after `mvn`.
             vec![
                 CodeInstruction::new("add")
-                    .physical_field("dst", T0)
+                    .physical_field("dst", T2)
                     .physical_field("lhs", &lhs)
                     .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
@@ -298,14 +315,14 @@ fn expand_fused(
                     .physical_field("lhs", &lhs)
                     .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .physical_field("dst", T2)
-                    .physical_field("lhs", T0)
+                    .physical_field("dst", T0)
+                    .physical_field("lhs", T2)
                     .physical_field("rhs", &lhs),
                 ci("mvn", &[("dst", T1), ("src", T1)]),
-                ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
+                ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T0)]),
                 CodeInstruction::new("mov")
                     .physical_field("dst", &dst)
-                    .physical_field("src", T0),
+                    .physical_field("src", T2),
                 ci(
                     "rv.br",
                     &[
@@ -325,10 +342,11 @@ fn expand_fused(
             let lhs = get_op("lhs");
             let rhs = get_op("rhs");
             let branch_cond = overflow_branch_cond(&cond);
-            // Write `dst` before the branch (see the `Adds` case above).
+            // Write `dst` before the branch, and keep `t0` out of every value
+            // held across a virtual register (see the `Adds` case above).
             vec![
                 CodeInstruction::new("sub")
-                    .physical_field("dst", T0)
+                    .physical_field("dst", T2)
                     .physical_field("lhs", &lhs)
                     .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
@@ -336,13 +354,13 @@ fn expand_fused(
                     .physical_field("lhs", &lhs)
                     .physical_field("rhs", &rhs),
                 CodeInstruction::new("eor")
-                    .physical_field("dst", T2)
+                    .physical_field("dst", T0)
                     .physical_field("lhs", &lhs)
-                    .physical_field("rhs", T0),
-                ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T2)]),
+                    .physical_field("rhs", T2),
+                ci("and", &[("dst", T1), ("lhs", T1), ("rhs", T0)]),
                 CodeInstruction::new("mov")
                     .physical_field("dst", &dst)
-                    .physical_field("src", T0),
+                    .physical_field("src", T2),
                 ci(
                     "rv.br",
                     &[
@@ -407,14 +425,16 @@ fn flag_rhs_address(dst: &str) -> Vec<CodeInstruction> {
 }
 
 /// bug-381: spill a bare compare's rhs *value* to the per-thread snapshot word.
-/// Uses `t0` as the address scratch (reserved lowering scratch, free at a bare
-/// compare); `rhs` is never `t0`, so the store is safe.
+/// Uses `t1` as the address scratch (reserved lowering scratch, free at a bare
+/// compare): the address is held across the store of `rhs`, a virtual register
+/// whose spill code the allocator places in between, so it must not be `t0`
+/// (bug-749, the spill-safe scratch rule on [`T0`]).
 fn store_flag_rhs(rhs: &Operand) -> Vec<CodeInstruction> {
-    let mut out = flag_rhs_address(T0);
+    let mut out = flag_rhs_address(T1);
     out.push(
         CodeInstruction::new("str_u64")
             .physical_field("src", rhs)
-            .physical_field("base", T0)
+            .physical_field("base", T1)
             .physical_field("offset", "0"),
     );
     out
@@ -965,10 +985,11 @@ mod tests {
             build("b.eq", &[("target", "L")]),
             build("ret", &[]),
         ]);
-        // A non-zero immediate is materialized into t0.
+        // A non-zero immediate is materialized into t1 (bug-749: t0 is not
+        // spill-safe across the rv.br's own reload).
         assert!(out
             .iter()
-            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t0")));
+            .any(|i| i.op == CodeOp::MovImm && i.get("dst").as_deref() == Some("t1")));
         assert!(out.iter().any(|i| i.op == CodeOp::RvBr));
     }
 
@@ -1200,14 +1221,15 @@ mod tests {
             .iter()
             .any(|i| i.op == CodeOp::Mov && i.get("dst").as_deref() == Some("gp")));
         // rhs value spilled to and reloaded from the snapshot word: the address is
-        // built off the arena base (s11) into t0, then the value is stored/loaded
-        // through it.
+        // built off the arena base (s11) — into t1 for the store (bug-749: held
+        // across the rhs's spill code) and into t0 for the reload — then the
+        // value is stored/loaded through it.
         assert!(out
             .iter()
             .any(|i| i.op.mnemonic() == "add" && i.get("lhs").as_deref() == Some("s11")));
         assert!(out
             .iter()
-            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t0")));
+            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t1")));
         assert!(out
             .iter()
             .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst").as_deref() == Some("t0")));
@@ -1266,10 +1288,106 @@ mod tests {
         assert_eq!(snapshots, ["a0", "a1"], "gp snapshots the realized lhs");
         let spilled: Vec<String> = out
             .iter()
-            .filter(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t0"))
+            .filter(|i| i.op.mnemonic() == "str_u64" && i.get("base").as_deref() == Some("t1"))
             .filter_map(|i| i.get("src"))
             .collect();
         assert_eq!(spilled, ["a2"], "the rhs snapshot stores the realized rhs");
+    }
+
+    /// bug-749: the first index at which `t0` holds a value the selector wrote
+    /// and still reads later while an instruction naming a virtual register sits
+    /// in between — the allocator inserts that operand's spill code there, and in
+    /// a >2 KiB frame the encoder builds a spill store's address in `t0`.
+    fn t0_held_across_a_vreg(out: &[CodeInstruction]) -> Option<usize> {
+        use crate::codegen::engine::regalloc::parse_vreg;
+        let names = |i: &CodeInstruction| -> Vec<(&'static str, String)> {
+            i.fields.iter().map(|(k, v)| (*k, v.render())).collect()
+        };
+        let writes_t0 =
+            |i: &CodeInstruction| names(i).iter().any(|(k, v)| *k == "dst" && v == "t0");
+        let reads_t0 = |i: &CodeInstruction| names(i).iter().any(|(k, v)| *k != "dst" && v == "t0");
+        let has_vreg = |i: &CodeInstruction| names(i).iter().any(|(_, v)| parse_vreg(v).is_some());
+        for (w, inst) in out.iter().enumerate() {
+            if !writes_t0(inst) {
+                continue;
+            }
+            let mut crossed = false;
+            for later in &out[w + 1..] {
+                if reads_t0(later) {
+                    if crossed {
+                        return Some(w);
+                    }
+                    // The reader itself may carry a vreg: its spill code lands
+                    // BEFORE it, i.e. inside the window, too.
+                    if has_vreg(later) {
+                        return Some(w);
+                    }
+                    break;
+                }
+                if writes_t0(later) {
+                    break;
+                }
+                crossed |= has_vreg(later);
+            }
+        }
+        None
+    }
+
+    /// bug-749: no selector expansion may hold `t0` across an instruction that
+    /// names a virtual register (the allocator's spill code for it can clobber
+    /// `t0`). Covers every multi-instruction scratch sequence the selector emits
+    /// for integer operands: the fused immediate compare, the overflow-checked
+    /// add/subtract, and the bare register compare's rhs snapshot.
+    #[test]
+    fn no_selected_sequence_holds_t0_across_a_virtual_register() {
+        use crate::codegen::engine::regalloc::vreg_name;
+        let (a, b, d) = (vreg_name(1), vreg_name(2), vreg_name(3));
+        let cases: Vec<(&str, Vec<CodeInstruction>)> = vec![
+            (
+                "cmp_imm + b.ne (fused)",
+                vec![
+                    build("cmp_imm", &[("lhs", &a), ("rhs", "45")]),
+                    build("b.ne", &[("target", "L")]),
+                ],
+            ),
+            (
+                "adds + b.vs (fused)",
+                vec![
+                    build("adds", &[("dst", &d), ("lhs", &a), ("rhs", &b)]),
+                    build("b.vs", &[("target", "L")]),
+                ],
+            ),
+            (
+                "subs + b.vc (fused)",
+                vec![
+                    build("subs", &[("dst", &d), ("lhs", &a), ("rhs", &b)]),
+                    build("b.vc", &[("target", "L")]),
+                ],
+            ),
+            (
+                "bare cmp (rhs snapshot)",
+                vec![
+                    build("cmp", &[("lhs", &a), ("rhs", &b)]),
+                    build("mov", &[("dst", "x12"), ("src", "x13")]),
+                    build("b.lt", &[("target", "L")]),
+                ],
+            ),
+        ];
+        for (name, mut stream) in cases {
+            stream.push(build("label", &[("name", "L")]));
+            stream.push(build("ret", &[]));
+            let out = sel(&stream);
+            if let Some(at) = t0_held_across_a_vreg(&out) {
+                let dump: Vec<String> = out
+                    .iter()
+                    .map(|i| format!("{} {:?}", i.op.mnemonic(), values(std::slice::from_ref(i))))
+                    .collect();
+                panic!(
+                    "{name}: t0 written at {at} is held across a virtual register:\n{}",
+                    dump.join("\n")
+                );
+            }
+        }
     }
 
     #[test]
