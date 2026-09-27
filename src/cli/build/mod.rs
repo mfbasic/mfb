@@ -3064,6 +3064,49 @@ mod tests {
         );
     }
 
+    /// plan-158-D: a dependency compiled from source (`"source": "file:…"`) has its
+    /// `.mfp` in the build's package cache, and its vendored libraries beside it in
+    /// `build/packages/<name>.vendor/` — not in `packages/<name>.vendor/`, which only
+    /// `mfb pkg` fills. Reading the latter made every such dependency that vendors a
+    /// library fail with `NATIVE_LIBRARY_FILE_MISSING`.
+    #[test]
+    fn vendor_source_path_finds_a_source_dependency_s_staged_vendor() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let cache = crate::manifest::package::source_package_cache_dir(root);
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("dep.mfp"), b"mfp").unwrap();
+        let library = resolved("dep", "libdep.so");
+        assert_eq!(
+            vendor_source_path(root, OWN_UNIT, &library),
+            cache.join("dep.vendor").join("libdep.so"),
+        );
+    }
+
+    /// plan-158-D: building a source dependency stages its flat `vendor/` files into
+    /// the cache's `<name>.vendor/`, where `vendor_source_path` reads them.
+    #[test]
+    fn stage_source_dependency_vendor_copies_the_flat_vendor_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let dep = dir.path().join("dep");
+        std::fs::create_dir_all(dep.join("vendor").join("nested")).unwrap();
+        std::fs::write(dep.join("vendor").join("libdep.so"), b"lib").unwrap();
+        std::fs::write(dep.join("vendor").join("nested").join("ignored"), b"x").unwrap();
+        let cache = dir.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        super::source_packages::stage_source_dependency_vendor(&dep, &cache, "dep").unwrap();
+        assert_eq!(
+            std::fs::read(cache.join("dep.vendor").join("libdep.so")).unwrap(),
+            b"lib"
+        );
+        assert!(!cache.join("dep.vendor").join("nested").exists());
+        // A dependency with no vendor directory stages nothing and succeeds.
+        let bare = dir.path().join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        super::source_packages::stage_source_dependency_vendor(&bare, &cache, "bare").unwrap();
+        assert!(!cache.join("bare.vendor").exists());
+    }
+
     /// `copy_vendor_libraries` surfaces the copy error when a resolved vendor
     /// source file does not exist on disk (the `fs::copy` failure arm).
     #[test]

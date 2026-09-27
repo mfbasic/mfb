@@ -18,7 +18,7 @@ References: `packages/libsnd/project.json`, `packages/libsnd/vendor/sndfile.dll`
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-158-C complete (archived) | `ls planning/completed/plan-158-C-*` → one file | NOT MET |
+| plan-158-C complete (archived) | `ls planning/completed/plan-158-C-*` → one file | MET (2026-09-27: `planning/completed/plan-158-C-windows-audio-exclusive-fixes.md`) |
 
 If plan-158-C is not complete, this plan cannot start, full stop.
 
@@ -64,21 +64,32 @@ example source). Expected diffs: none in `tests/byte-identity`.
 
 ### Phase 1 — Source-dependency vendor bug
 
-- [ ] RED test in `src/cli/build/mod.rs` tests (next to
+- [x] RED test in `src/cli/build/mod.rs` tests (next to
       `vendor_source_path_distinguishes_own_and_imported_units`): a project with a
       `file:` source dependency that declares a `vendor` library resolves the library's
-      path under `build/packages/<name>.vendor/`. It fails at HEAD.
-- [ ] `src/cli/build/source_packages.rs`: after `build_source_dependency`, copy the
-      dependency's flat `vendor/` files to `<cache>/<name>.vendor/`.
-- [ ] `src/cli/build/native_libs.rs` `vendor_source_path`: for an imported unit, use
+      path under `build/packages/<name>.vendor/`. It fails at HEAD. —
+      `vendor_source_path_finds_a_source_dependency_s_staged_vendor` failed before the
+      fix (`left: …/packages/dep.vendor/libdep.so`, `right: …/build/packages/dep.vendor/
+      libdep.so`); plus `stage_source_dependency_vendor_copies_the_flat_vendor_files`.
+- [x] `src/cli/build/source_packages.rs`: after `build_source_dependency`, copy the
+      dependency's flat `vendor/` files to `<cache>/<name>.vendor/`. —
+      `stage_source_dependency_vendor`, called from `build_source_dependency` (before
+      the nested build; the cache already exists, and staging first means a failed
+      copy stops the build before any compile work).
+- [x] `src/cli/build/native_libs.rs` `vendor_source_path`: for an imported unit, use
       the `.vendor` dir beside `resolved_package_file(project_root, unit)`, falling back
       to `imported_vendor_path`.
-- [ ] Spec: `src/docs/spec/tooling/07_cli-reference.md` / the architecture packages
+- [x] Spec: `src/docs/spec/tooling/07_cli-reference.md` / the architecture packages
       section states where a source dependency's vendor files are staged; cite
-      `stage_source_dependency_vendor`.
+      `stage_source_dependency_vendor`. — in `language/13_modules-and-packages.md`, the
+      paragraph that documents source dependencies (C1); `spec-census.sh --citations`
+      → 0 misses.
 
 Acceptance: the test passes; the example builds against the source package.
-  Check: `cargo test --bin mfb vendor_source` → pass (est. 3 min).
+  Check: `cargo test --bin mfb vendor_source` → pass (est. 3 min). — `2 passed`; a
+  copy of `examples/audio` with `"source": "file:…/packages/libsnd"` →
+  `Wrote executable to /tmp/p158/audiofile/build/audio.out`, and
+  `build/packages/libsnd.vendor/` holds the vendored libraries.
 Commit: —
 
 ### Phase 2 — libsnd Windows locator + release
@@ -129,6 +140,10 @@ Commit: —
    Phase 1 lands either way: it is a bug.
 
 ## Corrections
+
+- **C1 (spec location).** The source-dependency mechanism is documented in
+  `mfb spec language modules-and-packages` (the `build_source_dependencies`
+  paragraph), not in the CLI reference, so the staging sentence went there.
 
 ## Summary
 
