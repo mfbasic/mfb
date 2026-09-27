@@ -338,10 +338,8 @@ r#"FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS
   MUT matched AS List OF T = []
   MUT unmatched AS List OF T = []
   MUT i AS Integer = 0
-  ' bug-752: each element is read where it is appended, never bound: a `LET` of a
-  ' `RES` element is rejected (TYPE_RESOURCE_REQUIRES_RES), and a generic body
-  ' cannot spell `RES` for a `T` that may be one.
   WHILE i < len(value)
+    ' bug-752: read, never bound — a `LET` of a `RES` element is rejected.
     IF collections::get(flags, i) THEN
       matched = collections::append(matched, collections::get(value, i))
     ELSE
