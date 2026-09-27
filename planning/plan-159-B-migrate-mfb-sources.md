@@ -77,7 +77,7 @@ ONE fixture, find the cause, fix the cause, and continue.
 - the one fixture whose golden says `must begin with FUNC or SUB`
 
 Find their paths with
-`rg -l 'SUB_RETURN_FORBIDDEN|EXIT_SUB_IN_FUNC|TYPE_NOTHING_CALL_HAS_NO_VALUE|ISOLATED is valid only|must begin with FUNC or SUB' tests -g '*.log'`.
+`rg -l 'SUB_RETURN_FORBIDDEN|EXIT_SUB_IN_FUNC|TYPE_SUB_HAS_NO_VALUE|ISOLATED is valid only|must begin with FUNC or SUB' tests -g '*.log'`.
 Record the resolved list here in task 1.1.
 
 ## 3. Design Overview
