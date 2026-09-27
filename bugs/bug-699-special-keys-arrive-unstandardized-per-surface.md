@@ -691,8 +691,22 @@ Commit: 0ef602045 (migration), plus the spec commit that follows it
 
 - [ ] Full suite (`cargo test`), `cargo test --bin mfb spec`,
       `scripts/man-census.sh --memory-scope` (0 unclassified).
-- [ ] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
+- [x] The probe on macOS, Linux and Windows, console and `--app`; `wind`'s arrow
       keys by hand in `--app`.
+      — `tools/key-probe` (`9e6d3b4e3`). Every run printed the same
+      `PRESSES: a Left Right Up Down Backspace Delete Escape F5 Shift+Left Home
+      EndKey é q`: macOS console (reader mode, `term::on` legacy, `term::on`
+      kitty — pty) and `--app` transcript / TUI / canvas (`CGEventPostToPid`);
+      Linux aarch64 GTK 4 on box 2226, the same six; Windows 11 on box 206 (real
+      session) `--app` transcript / TUI / canvas by `SendInput` and console reader
+      mode / `term::on` by `WriteConsoleInputW`. Releases appear on every `--app`
+      surface and under the kitty pty, `NotSupported` on legacy terminals and the
+      Windows console. **Not measured:** Linux x86_64 GTK (2227 and 2228 refused
+      ssh all session) and a real kitty-capable terminal emulator (the pty answers
+      as one). `wind` `--app` on macOS, keys by `CGEventPostToPid` and checked by
+      window screenshots: Left ×6 spun the map to centre the Pacific, `q` ×3
+      zoomed to 1.6×, Up ×4 panned north, Esc quit. Not by a human hand — no one
+      was at the keyboard.
 
 Acceptance: full suite green; the probe prints the same key sequence everywhere.
 Commit: —
