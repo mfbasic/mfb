@@ -322,9 +322,17 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             return Err(());
         }
         if !target::target_supports_app_mode(&target) {
+            // Named from the registered backends, so the list cannot drift: "Linux"
+            // alone read as including linux-riscv64, which has no app backend.
+            let app_targets: Vec<String> = target::registered_targets()
+                .iter()
+                .filter(|candidate| target::target_supports_app_mode(candidate))
+                .map(|candidate| candidate.name())
+                .collect();
             eprintln!(
-                "error: app mode requires a macOS, Linux, or Windows target (got {})",
-                target.name()
+                "error: app mode is not supported on {} (app-mode targets: {})",
+                target.name(),
+                app_targets.join(", ")
             );
             return Err(());
         }
