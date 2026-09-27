@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Open — BLOCKED on a design conflict with plan-159-A (see Open Decisions)
 Regression Test: tests/runtime/rt_nothing_func_value_position.rs
 
 Owner report: `LET y = f(1)`, where `f` is `FUNC f(x AS Integer) AS Nothing`, makes
@@ -229,8 +229,27 @@ Commit: —
 
 ## Open Decisions
 
-- Diagnostic vs. valid program — **valid program** (recommended by the spec text
-  quoted above; a diagnostic would contradict §4.6, §6 and §7).
+- Diagnostic vs. valid program. This branch implements **valid program**, from the
+  spec text at 5c4ea72e3 quoted above. **CONFLICT (found after the fix landed on this
+  branch):** `planning/plan-159-A-nothing-func-parity.md` (on main since 78e0eb6f0,
+  owner-authored, not yet implemented) decides the opposite. Its Phase 1 makes a call
+  to any `Nothing`-returning callee in value position a compile error (rename
+  `TYPE_SUB_HAS_NO_VALUE` to `TYPE_NOTHING_CALL_HAS_NO_VALUE`, keeping `2-203-0074`).
+  Its §3 explicitly rejects "let `LET v = f()` bind a `Nothing`". Owner decision
+  needed:
+  - **Follow plan-159-A:** this branch's value-position materialization in
+    `lower_value` becomes unreachable for rejected shapes. The spec edits in
+    `04_types.md`/`07_subs.md` must be reverted, and plan-159-A Phase 1 is the fix
+    for this bug. What survives either way: the `Eval`/`RETURN` discard arming. The
+    return path is what keeps `LAMBDA(x) -> io::print(x)` legal. Note for plan-159-A:
+    the verifier rejects `LAMBDA(x) -> sb(x)` and `RETURN sb(1)` for a `SUB` at HEAD
+    (probed). Generalizing the rule to every `Nothing` callee therefore rejects
+    `LAMBDA(x) -> io::print(x)` and every `FUNC … AS Nothing` lambda body, unless the
+    lambda body and `RETURN` are exempted. The `ResultValue` fix is also not in the
+    plan's scope; it matters only if a value-position trapped `Nothing` call stays
+    legal. The memory-ABI spec correction (x1 unspecified on a `Nothing` success)
+    stands.
+  - **Keep this branch:** plan-159-A §1/§3 would need amending.
 
 ## Summary
 
