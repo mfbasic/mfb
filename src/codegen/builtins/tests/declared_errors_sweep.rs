@@ -197,11 +197,13 @@ pub(crate) fn lower_body_call(
         let ctx = AbiCtx {
             call,
             // `app::getMode`/`setMode` (and every `term::` cursor/style member)
-            // require an arena presentation-mode slot; supply a placeholder
-            // offset so those bodies lower instead of refusing, per bug-698's
-            // "make the harness lower it" (not a real arena layout, so the
-            // instructions this test scans never dereference it).
+            // require an arena presentation-mode slot; `canvas::enableMouse`/
+            // `pollMouse` require a mouse-state slot. Supply placeholder
+            // offsets so those bodies lower instead of refusing, per
+            // bug-698's "make the harness lower it" (not a real arena layout,
+            // so the instructions this test scans never dereference it).
             presentation_mode_offset: Some(0),
+            mouse_state_offset: Some(0),
             ..harness.abi_ctx(platform)
         };
         let result = match implementation.body {
@@ -302,6 +304,7 @@ pub(crate) fn sweep_package(
     unreachable_via_callee: &[(&str, &str, &str)],
     unreachable_own_raise: &[(&str, &str, &str)],
     skip_platforms: &[&str],
+    skip_members: &[&str],
 ) -> SweepResult {
     let codes = codes_by_value();
     let package = registry()
@@ -311,6 +314,10 @@ pub(crate) fn sweep_package(
 
     let mut own = BTreeMap::new();
     for function in package.functions() {
+        if skip_members.contains(&function.name) {
+            own.insert(function.name, (BTreeSet::new(), BTreeSet::new()));
+            continue;
+        }
         own.insert(
             function.name,
             lower_member(package_name, function, &codes, skip_platforms, &mut failures),
@@ -323,6 +330,9 @@ pub(crate) fn sweep_package(
 
     let mut mismatched = Vec::new();
     for function in package.functions() {
+        if skip_members.contains(&function.name) {
+            continue;
+        }
         let has_native_body = function
             .implementations()
             .iter()
@@ -428,6 +438,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises(
         unreachable_via_callee,
         &[],
         &[],
+        &[],
         min_lowered_members,
     );
 }
@@ -444,6 +455,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises_on(
     unreachable_via_callee: &[(&str, &str, &str)],
     unreachable_own_raise: &[(&str, &str, &str)],
     skip_platforms: &[&str],
+    skip_members: &[&str],
     min_lowered_members: usize,
 ) {
     let result = sweep_package(
@@ -453,6 +465,7 @@ pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises_on(
         unreachable_via_callee,
         unreachable_own_raise,
         skip_platforms,
+        skip_members,
     );
     assert!(
         result.failures.is_empty(),
