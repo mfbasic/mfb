@@ -132,6 +132,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrInputFailed",
                 "ErrInvalidContext",
                 "ErrOutOfMemory",
+                "ErrWrongMode",
             ],
             body: Body::abi_function(lower_input),
         }],

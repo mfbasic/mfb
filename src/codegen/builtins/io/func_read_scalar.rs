@@ -106,6 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrEndOfFile",
                 "ErrInputFailed",
                 "ErrInvalidContext",
+                "ErrWrongMode",
             ],
             body: Body::abi_function(lower_read_scalar),
         }],
