@@ -581,3 +581,39 @@ fn a_value_dead_at_a_raise_call_keeps_its_register_at_level_one() {
     });
     assert_eq!(outcome.spill_slots, vec![64], "-O0 spills across the call");
 }
+
+/// plan-158-B: register coalescing runs at the default `-O1` — a copy whose
+/// source dies at it gets the source's register and the copy disappears — and
+/// stays off at `-O0`.
+#[test]
+fn coalescing_removes_a_dying_copy_at_level_one() {
+    let stream = || {
+        vec![
+            CodeInstruction::new("label").field("name", "entry"),
+            CodeInstruction::new("mov_imm")
+                .physical_field("dst", &vreg_name(0))
+                .field("type", "Integer")
+                .field("value", "5"),
+            CodeInstruction::new("mov")
+                .physical_field("dst", &vreg_name(1))
+                .physical_field("src", &vreg_name(0)),
+            CodeInstruction::new("str_u64")
+                .physical_field("src", &vreg_name(1))
+                .physical_field("base", "sp")
+                .field("offset", "0"),
+            CodeInstruction::new("ret"),
+        ]
+    };
+    let copies = |level: u8| {
+        let mut instructions = stream();
+        crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+            allocate(&mut instructions, &Aarch64RegisterModel, 64, &[])
+        });
+        instructions
+            .iter()
+            .filter(|instruction| instruction.op == crate::arch::ops::CodeOp::Mov)
+            .count()
+    };
+    assert_eq!(copies(1), 0, "-O1 coalesces the copy away");
+    assert_eq!(copies(0), 1, "-O0 keeps it");
+}

@@ -151,13 +151,14 @@ pub(crate) fn run(
     vregs.sort_by_key(|&(v, s, _)| (s, v));
 
     // Coalescing hints (`optimizer` catalog row "Register coalescing", Level
-    // 2): for a `mov dst, src` between two vregs of this class where `src`
+    // 1 since plan-158-B — stack slot promotion leaves a copy at every former
+    // store and load, and this is what collapses them): for a `mov dst, src` between two vregs of this class where `src`
     // dies at the copy, giving `dst` the same physical turns the copy into
     // `mov xN, xN`, which the sweep at the end of this function deletes. The
     // hint is only ever *tried* — every interference test below still has to
     // pass, so coalescing can lose a register choice but never make an unsafe
     // one.
-    let coalescing = crate::optimizer::level_enabled(2);
+    let coalescing = crate::optimizer::level_enabled(1);
     let mut copy_hint: analysis::U32Map<u32> = analysis::U32Map::default();
     if coalescing {
         for (i, instruction) in instructions.iter().enumerate() {

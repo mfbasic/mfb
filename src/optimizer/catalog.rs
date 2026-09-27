@@ -530,7 +530,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Register coalescing",
-            level: 2,
+            level: 1,
             stage: "regalloc",
             summary: "Gives a copy's source and destination the same register \
                       when they never hold different values, so the copy \

@@ -170,13 +170,34 @@ by hand. [[src/target/shared/abi.rs:Reg]]
 The allocator, **linear scan**, computes liveness over the lowered
 stream and colors the integer class by live interval, reusing a register as soon
 as its previous occupant dies and **spilling to a stack slot under pressure**.
-A value whose live range crosses a call is spilled, since no register survives an
-internal runtime helper (e.g. `_mfb_arena_alloc` clobbers callee-saved
-`x20`–`x28`). Because pressure spills rather than failing, there is **no
+A value must avoid every register a call clobbers if it is live across that
+call: an ordinary MFB call preserves the callee-saved registers, so such a value
+can stay in one, while an internal `_mfb_*` runtime helper clobbers every integer
+register, so a value live across one is spilled. At `-O1` and above only the
+calls a value is **live across** (still needed after the call, by the dataflow)
+constrain it; a call inside its interval at which it is dead — the inline raise
+path of a checked operation, which calls the error builders and returns — does
+not. At `-O0` every call inside the interval counts. [[src/codegen/engine/regalloc/analysis.rs:Liveness]]
+Because pressure spills rather than failing, there is **no
 "break a deep expression into `LET` bindings" limit** — an arbitrarily nested
 expression compiles. (The legacy `bump` reference strategy and its
 `--regalloc` selection flag were removed; linear scan is the only
 allocator.) [[src/codegen/engine/regalloc/linear_scan.rs:run]]
+
+The lowering gives every local, parameter and operand temporary its own 8-byte
+frame object and stores and reloads the value through it. At `-O1` and above,
+**stack slot promotion** runs on the lowered stream just before instruction
+selection: a one-word frame object whose every access is a whole-word load or
+store at its start, whose address is never taken except by an owned-value drop
+helper (which reads and zeroes only that word), which the prologue does not
+zero after allocation, and which no path reads before writing, becomes a
+virtual register — the stores and loads become register copies, and the
+allocator decides whether the value lives in a register or a spill slot. Any
+other use of the stack pointer in a function turns promotion off for that
+whole function. Register coalescing (a copy whose source dies at it takes the
+source's register, and the copy is deleted) also runs from `-O1`. Neither
+changes which instructions execute or in what order, only where values live.
+[[src/optimizer/opt2/promote.rs:promote]] [[src/codegen/engine/regalloc/builder_registers.rs:run_register_allocation]]
 
 When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
 the frame finalizer saves and restores it. [[src/codegen/engine/regalloc/builder_registers.rs:mark_register_used]]

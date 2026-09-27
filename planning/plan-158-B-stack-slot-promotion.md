@@ -194,9 +194,11 @@ Commit: —
 
 ### Phase 3 — register coalescing at Level 1
 
-- [ ] `linear_scan.rs`: `coalescing = level_enabled(1)`; `catalog.rs`: the row's
+- [x] `linear_scan.rs`: `coalescing = level_enabled(1)`; `catalog.rs`: the row's
       level 2 → 1.
-- [ ] Unit test: the coalescing hint fires at `-O1` and not at `-O0`.
+- [x] Unit test: the coalescing hint fires at `-O1` and not at `-O0`
+      (`coalescing_removes_a_dying_copy_at_level_one`). `cargo test --bin mfb
+      regalloc` → 22 passed.
 
 Acceptance: `cargo test --bin mfb regalloc` passes.
 Commit: —
@@ -205,7 +207,7 @@ Commit: —
 
 - [ ] Classify then regenerate the native goldens (`scripts/regen-native-goldens.sh`)
       against a detached main-tip baseline gate; inspect one fixture's `.ncode`.
-- [ ] `planning/optimizations.md`: the new row and the coalescing level change;
+- [x] `planning/optimizations.md`: the new row and the coalescing level change;
       spec: `mfb spec tooling cli-reference`'s `-O` line and
       `mfb spec memory native-calling-convention`'s frame section (which values
       live in frame objects at `-O1`).
