@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: `src/arch/riscv64/select.rs:tests::no_selected_sequence_holds_t0_across_a_virtual_register`,
 `src/target/linux_riscv64/mod.rs:tests::a_large_frame_spill_store_never_lands_in_a_t0_window`
 
@@ -18,6 +18,22 @@ and run under qemu (Alpine musl), it prints correctly up to `toByte`, then
 representation conversion failed.` and exits 255. The host and the other targets
 print `1.25`. The failure is silent in kind: every mis-evaluated branch goes
 somewhere legal.
+
+## STATUS: FIXED (9c553031e)
+
+Shipped as designed: `CmpImm` materializes its immediate in `t1`, `Adds`/`Subs` keep
+the result in `t2` and the sign word in `t1`, and `store_flag_rhs` builds its
+address in `t1`. The rule is documented on `select.rs:T0` and in the riscv64 spec.
+Goldens: `a0defdcb7`. All 29 linux-riscv64 `.ncodesum` move and no other target
+does; the inspected `byte-identity/os` delta is only the `t0` → `t1` rename.
+Verified on merged tip 9a5278d60: `artifact-gate all` → 0 diffs / 2166 goldens,
+and full `cargo test --no-fail-fast` → 247 binaries ok. The corpus checker went
+from 1017/398 broken windows to 0. Runtime (qemu riscv64, Alpine musl; boxes
+2229/2232 refused ssh): `byte-identity/general` now matches the host.
+
+Deviation: three existing selector tests pinned `t0` in exactly these sequences.
+Each passed the 4-question rule (see commit 9c553031e), and only its register line
+changed.
 
 **The single correct behavior:** a register value the rv64 selector keeps between
 two of its own instructions survives any spill code the allocator inserts between
@@ -110,8 +126,26 @@ Selector sequences that write a scratch in one instruction and read it in a late
   setup. **Unaffected**, measured by the corpus checker below.
 - Measured: a post-allocation checker (`t0` written, then an `sp`-based store or FP
   memory op before `t0` is read) swept over every executable project's linux-riscv64
-  `-ncode` in `tests/{rt-behavior,byte-identity,rt-error}` and `examples/`. The
-  counts are recorded in Phase 1 below.
+  `-ncode` in `tests/{rt-behavior,byte-identity,rt-error}` and `examples/` (860
+  projects built):
+  - **base:** 1017 `t0` windows contain an `sp` store, and 398 of those stores have
+    an offset > 2047, i.e. they really overwrite `t0`. They are spread over **12 projects**:
+    `rt-behavior/strings/self-update-grow-valid` (160),
+    `rt-behavior/strings/strings-pad-to-width-rt` (81), `examples/browser/app` (81),
+    `examples/wide-demo` (27), `examples/ai/chat` (10),
+    `rt-behavior/astrings/tier-a-queries-rt` (9),
+    `rt-behavior/strings/self-update-window-valid` (8),
+    `rt-behavior/money/money_operations` (7), `byte-identity/general` (7),
+    `rt-behavior/lexical/strings-artifact-coverage-rt` (4),
+    `rt-behavior/astrings/tier-b-transforms-rt` (2), `byte-identity/strings` (2).
+    Every window is the `CmpImm` shape (`mov_imm t0` … eviction `str` … reload …
+    `rv.br`). The other shapes in the audit were latent: no broken window measured.
+  - **after the fix:** 0 windows, 0 over 2047.
+
+  Runtime (qemu-user riscv64, Alpine musl): `byte-identity/general` matches the host
+  after the fix, and `money/money_operations`, `strings/self-update-{grow,window}-valid`
+  and `strings/strings-pad-to-width-rt` differ from the host at base and match after
+  bugs 746 + 749 (see bug-746's runtime table).
 
 ## Fix Design
 
@@ -137,25 +171,25 @@ No other target moves.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Selector invariant test: no fused `CmpImm`/`Adds`/`Subs` expansion and no bare
+- [x] Selector invariant test: no fused `CmpImm`/`Adds`/`Subs` expansion and no bare
       register compare holds `t0` across an instruction naming a virtual register.
-- [ ] Whole-pipeline test: `tests/byte-identity/general`'s real source, lowered for
+- [x] Whole-pipeline test: `tests/byte-identity/general`'s real source, lowered for
       linux-riscv64, has no `t0` window broken by an `sp` store at offset > 2047.
-- [ ] Corpus checker counts, at base and after.
+- [x] Corpus checker counts, at base and after (Blast Radius).
 
-Commit: —
+Commit: 9c553031e (tests landed with the fix; RED recorded in its message)
 
 ### Phase 2 — the fix
 
-- [ ] `select.rs`: `CmpImm` → `t1`; `Adds`/`Subs` rework; `store_flag_rhs` → `t1`.
-- [ ] Spec: the riscv64 selection section states the scratch rule.
+- [x] `select.rs`: `CmpImm` → `t1`; `Adds`/`Subs` rework; `store_flag_rhs` → `t1`.
+- [x] Spec: the riscv64 selection section states the scratch rule.
 
-Commit: —
+Commit: 9c553031e
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate the linux-riscv64 goldens it moves; classify the diff by target.
-- [ ] Full `cargo test`; `scripts/artifact-gate.sh target/release/mfb all`.
-- [ ] `tests/byte-identity/general` under qemu riscv64 matches the host.
+- [x] Regenerate the linux-riscv64 goldens it moves; classify the diff by target.
+- [x] Full `cargo test`; `scripts/artifact-gate.sh target/release/mfb all`.
+- [x] `tests/byte-identity/general` under qemu riscv64 matches the host.
 
-Commit: —
+Commit: a0defdcb7
