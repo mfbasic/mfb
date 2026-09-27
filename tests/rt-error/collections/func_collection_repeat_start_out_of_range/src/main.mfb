@@ -1,0 +1,15 @@
+IMPORT collections
+IMPORT io
+
+' startAt = -1 is caught and reported; startAt = len + 1 is not caught and ends
+' the program with ErrIndexOutOfRange. Nothing else prints.
+FUNC main AS Integer
+  LET xs AS List OF Integer = [1, 2, 3]
+  LET low AS List OF Integer = collections::repeat(xs, 0, 1, -1) TRAP(e)
+    io::print("low: " & e.message)
+    RECOVER xs
+  END TRAP
+  LET high AS List OF Integer = collections::repeat(xs, 0, 1, len(xs) + 1)
+  io::print("unreachable " & toString(len(high) + len(low)))
+  RETURN 0
+END FUNC

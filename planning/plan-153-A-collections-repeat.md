@@ -39,8 +39,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| No `repeat` member in `collections` yet | `ls src/codegen/builtins/collections/func_repeat.rs` → no such file | MET (2026-09-24) |
-| The registry count test reads 49 | `grep -n "functions().len()" src/codegen/builtins/collections/mod.rs` → `assert_eq!(pkg.functions().len(), 49)` | MET (2026-09-24) |
+| No `repeat` member in `collections` yet | `ls src/codegen/builtins/collections/func_repeat.rs` → no such file | MET (2026-09-26) |
+| The registry count test reads 49 | `grep -n "functions().len()" src/codegen/builtins/collections/mod.rs` → `assert_eq!(pkg.functions().len(), 49)` | MET (2026-09-26) |
 
 Everything below assumes both hold.
 
@@ -176,7 +176,7 @@ Rejected alternatives:
 These are the tests that define the contract. They fail at HEAD because the
 member doesn't exist.
 
-- [ ] Add `tests/rt-behavior/collections/func_collection_repeat/`
+- [x] Add `tests/rt-behavior/collections/func_collection_repeat/`
       (project.json + `src/main.mfb` + golden), following the directory shape
       of `tests/rt-error/collections/func_collection_set_out_of_range/`. Cover:
       - build from `[]`;
@@ -190,11 +190,11 @@ member doesn't exist.
         overwritten one, and a shorter one), a record with a `String` field,
         and `List OF Integer`;
       - the input list printed after the call, to show it is unchanged.
-- [ ] Add `tests/rt-error/collections/func_collection_repeat_start_out_of_range/`
+- [x] Add `tests/rt-error/collections/func_collection_repeat_start_out_of_range/`
       (`startAt = len + 1`, and `startAt = -1`) and
       `…/func_collection_repeat_negative_count/`. Each golden shows the error
       code and that nothing else printed.
-- [ ] Add `tests/syntax/collections/func_collection_repeat_invalid/`, the
+- [x] Add `tests/syntax/collections/func_collection_repeat_invalid/`, the
       mandatory invalid fixture (`.ai/compiler.md` *Validation*). Cover:
       - a wrong argument count (2 args, and 5);
       - a `value` whose type is not `T` (`repeat([1, 2], "x", 3)`);
@@ -205,6 +205,9 @@ Acceptance: all four directories exist, and they fail at HEAD. The valid
 fixtures fail because the member is unknown; the invalid fixture's golden is
 not yet the new diagnostic.
   Check: `scripts/test-accept.sh target/debug/mfb target/accept-actual 'func_collection_repeat*'` → the 4 fixtures fail (est. 2 min).
+  Measured (2026-09-26): `acceptance tests failed: 4 mismatch(es) (4 test(s) ran)`; every call site reports
+  `Built-in package \`collections\` does not export \`collections.repeat\``. Goldens are written in Phase 2,
+  from the first run that implements the member.
 Commit: —
 
 ### Phase 2 — registry entry and lowering
@@ -259,6 +262,8 @@ Commit: —
 - **Name: `repeat`** (the user's proposal) **vs `fill`.** Recommend `repeat`,
   because it mirrors `strings::repeat` and the build case reads naturally.
   `fill` describes the range case better. Decide before Phase 2.
+  **Settled 2026-09-26: `repeat`** — the recommended default and the user's own
+  proposal; plan-153-B's census rows and self-update matcher are written against it.
 
 ## Corrections
 
