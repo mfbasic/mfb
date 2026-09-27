@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{function, lowering, opt, overload, req, th};
+use super::{function, lowering, opt, overload_errs, req, th};
 
 const INTRO: &str = r#"Start an isolated function running on its own thread."#;
 
@@ -39,7 +39,7 @@ worth checking before it gets here.
 
 Collect the thread with `thread::waitFor`, which waits for it to finish and
 gives you its result. The handle closes when the variable holding it goes out of
-scope, and a thread still running then is cancelled (see `thread::cancel`)."#;
+scope, and a thread still running then is cancelled (see `thread::cancel`). If the host cannot create the worker's synchronization primitives or the worker thread itself — typically because the process has hit a thread or resource limit — `start` raises `ErrInterrupted`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Start a worker and wait for its answer:
 
@@ -88,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     // return-inference binds every slot (a `Nothing` slot binds under lenient and
     // elides in `name()`); the `Nothing`-literal overloads exist for strict validation.
     let start_overload = |worker_msg: ParameterType, worker_res: ParameterType| {
-        overload(
+        overload_errs(
             vec![
                 req(
                     "f",
@@ -123,6 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             th(false, worker_msg, worker_res, out()),
             Body::abi_function(lowering::lower_start),
+            vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory"],
         )
     };
 

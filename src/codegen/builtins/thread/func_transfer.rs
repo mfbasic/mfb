@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{function, lowering, overload, transfer_params};
+use super::{function, lowering, overload_errs, transfer_params};
 
 const INTRO: &str = r#"Hand an open resource across to the other end of a thread."#;
 
@@ -53,7 +53,7 @@ is the only way one moves between threads.
 Like the message queue, the resource queue is bounded, and `transfer` waits up
 to `timeoutMs` milliseconds for room in it. If the queue is still full when that
 time runs out, `transfer` raises `ErrTimeout` and the handle is still open. A
-negative `timeoutMs` raises `ErrInvalidArgument`."#;
+negative `timeoutMs` raises `ErrInvalidArgument`. `ErrResourceClosed` means the handle behind the thread was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. If the calling thread is cancelled with `thread::cancel` while waiting, it raises `ErrInterrupted`. `ErrOutOfMemory` means the program ran out of memory. A negative `timeoutMs` raises `ErrInvalidArgument`, and a deadline that expires with no room raises `ErrTimeout`."#;
 
 const EX: &str = r#"Open a file and hand it to a worker to write:
 
@@ -83,21 +83,23 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer"),
         (INTRO, DESC, EX),
         vec![
-            overload(
+            overload_errs(
                 transfer_params(false),
                 ParameterType::Nothing,
                 Body::abi_function_aliased(
                     lowering::lower_transfer,
                     &["transferResource", "emitResource"],
                 ),
+                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
             ),
-            overload(
+            overload_errs(
                 transfer_params(true),
                 ParameterType::Nothing,
                 Body::abi_function_aliased(
                     lowering::lower_transfer,
                     &["transferResource", "emitResource"],
                 ),
+                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
             ),
         ],
     ));

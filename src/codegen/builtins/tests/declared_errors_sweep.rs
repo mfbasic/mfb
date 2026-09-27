@@ -77,8 +77,19 @@ pub(crate) fn platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
 pub(crate) enum Propagating {
     /// Another member of the SAME package, by its `RegistryFunction::name`.
     Member(&'static str),
-    /// A standalone helper that is not a registry member.
+    /// A standalone helper that is not a registry member, re-lowered here to
+    /// scan for its raises (only viable for a helper whose lowering needs no
+    /// `platform`/`platform_imports` of its own).
     Helper(fn() -> (Vec<CodeInstruction>, Vec<CodeRelocation>)),
+    /// A standalone helper's raise set, verified by READING its lowering
+    /// source rather than re-driving it here — the sanctioned escape hatch
+    /// for a helper whose own `lower_*` takes a `platform`/`platform_imports`
+    /// (so it cannot be re-lowered standalone the way [`Helper`] re-lowers a
+    /// platform-agnostic one). Same evidentiary standard as
+    /// `UNREACHABLE_VIA_CALLEE`/`unreachable_own_raise`: cite the exact
+    /// `raise_error_into`/`raise_error_bare` site in the classification's
+    /// reason string.
+    Known(&'static [&'static str]),
 }
 
 /// Error codes by numeric value (`"77030001"` -> `"ErrPathNotFound"`).
@@ -366,6 +377,7 @@ pub(crate) fn sweep_package(
                     );
                     raised
                 }
+                Propagating::Known(codes) => codes.iter().copied().collect(),
             };
             for code in inherited {
                 let unreachable = unreachable_via_callee

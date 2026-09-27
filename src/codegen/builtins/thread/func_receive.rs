@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{function, lowering, overload, receive_params};
+use super::{function, lowering, overload_errs, receive_params};
 
 const INTRO: &str = r#"Take the next value from a thread's message channel."#;
 
@@ -31,7 +31,7 @@ whether a message is ready without taking it, and answers `FALSE` instead of
 raising when there is nothing there.
 
 `receive` does not close the handle; the thread is still collected with
-`thread::waitFor`."#;
+`thread::waitFor`. `ErrResourceClosed` means the handle behind the thread was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. If the calling thread is cancelled with `thread::cancel` while waiting, it raises `ErrInterrupted`. If the channel is empty and the other side is gone for good — the thread it belonged to has finished — `receive` raises `ErrNotFound` instead of waiting for a message that can never arrive."#;
 
 const EX: &str = r#"Read what a worker sent, then reply:
 
@@ -73,15 +73,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         (INTRO, DESC, EX),
         vec![
-            overload(
+            overload_errs(
                 receive_params(false, msg()),
                 msg(),
                 Body::abi_function_aliased(lowering::lower_receive, &["read"]),
+                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrNotFound", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
             ),
-            overload(
+            overload_errs(
                 receive_params(true, msg()),
                 msg(),
                 Body::abi_function_aliased(lowering::lower_receive, &["read"]),
+                vec!["ErrInterrupted", "ErrInvalidArgument", "ErrNotFound", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout"],
             ),
         ],
     ));

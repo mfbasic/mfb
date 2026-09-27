@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{function, lowering, overload, req, th};
+use super::{function, lowering, overload_errs, req, th};
 
 const INTRO: &str = r#"Wait for a thread to finish and take its result."#;
 
@@ -23,7 +23,7 @@ helper may wait for the thread and the caller can still ask afterwards.
 `waitFor` does not cancel anything. On a thread you no longer want, call
 `thread::cancel` first and then `waitFor` to collect it. The handle closes when
 the variable holding it goes out of scope; see `thread::cancel` for what that
-does to a thread still running."#;
+does to a thread still running. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Collect a worker's return value:
 
@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "waitFor",
         Some("Thread OF Msg TO Out"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![req(
                 "t",
                 &["thread"],
@@ -84,6 +84,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             )],
             out(),
             Body::abi_function(lowering::lower_wait_for),
+            vec!["ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }

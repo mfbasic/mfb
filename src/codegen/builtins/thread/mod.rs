@@ -236,10 +236,23 @@ pub(super) fn overload(
     return_type: ParameterType,
     body: Body,
 ) -> Implementation {
+    overload_errs(params, return_type, body, vec![])
+}
+
+/// As [`overload`], but with an explicit declared-`errors` list — every
+/// overload of a `thread` member shares one body branching off `AbiCtx::call`
+/// (see `overload`'s doc), so the same raise set applies to every overload of
+/// a member unless a member's own file overrides a specific overload's list.
+pub(super) fn overload_errs(
+    params: Vec<Parameter>,
+    return_type: ParameterType,
+    body: Body,
+    errors: Vec<&'static str>,
+) -> Implementation {
     Implementation {
         params,
         return_type,
-        errors: vec![],
+        errors,
         body,
     }
 }

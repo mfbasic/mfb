@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{any, function, lowering, overload, req};
+use super::{any, function, lowering, overload_errs, req};
 
 const INTRO: &str = r#"Ask a thread to stop at its next opportunity."#;
 
@@ -33,7 +33,7 @@ waiting for it. So a thread you started and no longer need does not have to be
 cancelled by hand — but its result is then lost, so call `thread::waitFor`
 before the variable goes away if you want it.
 
-Cancelling twice is harmless — the flag is already up."#;
+Cancelling twice is harmless — the flag is already up. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Ask a worker to stop, then collect what it did:
 
@@ -56,7 +56,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "cancel",
         Some("Thread OF Msg TO Out"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![req(
                 "t",
                 &["thread"],
@@ -65,6 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             )],
             ParameterType::Nothing,
             Body::abi_function_aliased(lowering::lower_cancel, &["drop"]),
+            vec!["ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }

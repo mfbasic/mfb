@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{any, function, lowering, overload, req};
+use super::{any, function, lowering, overload_errs, req};
 
 const INTRO: &str = r#"Wait up to a time limit for a message to be ready to read."#;
 
@@ -25,7 +25,7 @@ crossing on the resource channel, and nothing about whether the thread has
 finished — for that, use `thread::isRunning`.
 
 A `FALSE` is not a failure. It means nothing had arrived yet, and the thread may
-well send something a moment later."#;
+well send something a moment later. A negative `ms` raises `ErrInvalidArgument`. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Check for a message before committing to a wait:
 
@@ -54,7 +54,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "poll",
         Some("Thread OF Msg TO Out, Integer"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![
                 req(
                     "t",
@@ -71,6 +71,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             ParameterType::Boolean,
             Body::abi_function(lowering::lower_poll),
+            vec!["ErrInvalidArgument", "ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }

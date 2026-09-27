@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, RegistryPackage};
 use crate::types::ParameterType;
 
-use super::{any, function, lowering, opt, overload};
+use super::{any, function, lowering, opt, overload_errs};
 
 const INTRO: &str = r#"Let a thread read standard input."#;
 
@@ -31,7 +31,7 @@ you only need `thread::closeStdIn` to stop reading earlier than that.
 
 A subscriber that stops reading holds the stream up for the others, since input
 is kept until everyone has seen it — so unsubscribe a thread that is done with
-input rather than leaving it subscribed."#;
+input rather than leaving it subscribed. `ErrResourceClosed` means the handle behind `t` was already closed, and `ErrResourceMoved` that it was handed to another thread with `thread::transfer`."#;
 
 const EX: &str = r#"Grant a worker access to standard input, then take it away again:
 
@@ -56,7 +56,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "openStdIn",
         Some("() or Thread OF Msg TO Out"),
         (INTRO, DESC, EX),
-        vec![overload(
+        vec![overload_errs(
             vec![opt(
                 "t",
                 &["thread"],
@@ -65,6 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             )],
             ParameterType::Nothing,
             Body::abi_function(lowering::lower_open_std_in),
+            vec!["ErrResourceClosed", "ErrResourceMoved"],
         )],
     ));
 }
