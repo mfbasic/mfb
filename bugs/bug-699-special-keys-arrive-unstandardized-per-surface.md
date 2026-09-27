@@ -629,14 +629,14 @@ Measured: `cargo test --release --test rt_io_key_readers` (8 pipe/pty cases),
 `cargo test --bin mfb reader_tests`, `STDIN_FILE=… scripts/man-run-examples.sh io
 --run input isInputTerminal readGrapheme readKey readLine readRaw readScalar write`
 (18 built, 18 ran, 0 failed).
-Commit: (this commit; recorded in the Phase 5 commit)
+Commit: 7e554824c
 
 ### Phase 5: kitty in `term::on` / `term::off`
 
-- [ ] Detection (`CSI ? u` + `CSI c`), push flags in `term::on` — disambiguate,
+- [x] Detection (`CSI ? u` + `CSI c`), push flags in `term::on` — disambiguate,
       event types, alternate keys, all keys as escape codes, associated text
       (`CSI > 31 u`; Decision 9) — pop in `term::off` and the exit-path restore.
-- [ ] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
+- [x] Console `readKey` reports `Press`/`Repeat`/`Release` under a kitty terminal and
       `NotSupported` elsewhere; `readScalar`/`readGrapheme`/`readLine` see plain text
       either way.
 - [ ] Windows console: VT input per the Phase 1 measurement.
@@ -644,7 +644,20 @@ Commit: (this commit; recorded in the Phase 5 commit)
 Acceptance: a kitty-capable terminal (manual, named in the commit) shows releases;
 Terminal.app shows `NotSupported`; the terminal is clean after exit, including after
 a crash.
-Commit: —
+Done: `term::on` (console, in a program with key readers, stdin in raw mode)
+writes `CSI ? u CSI c`, reads the replies for up to 500 ms, keeps any key typed
+meanwhile in the input buffer, and pushes `CSI > 31 u` only on a flags reply;
+`term::off` (also run by the exit/crash/signal teardown) pops it. `io::readLine`
+and `io::input` under `term::on` pop around the cooked line read and push again.
+Found while testing: under the protocol Ctrl+C arrives as a key, not SIGINT, so
+the console reader raises SIGINT itself for a bare Ctrl+C press (POSIX).
+Measured: `cargo test --release --test rt_io_key_readers` — a pty that answers
+as kitty (`ESC[?0u ESC[?62;c`) sees push → keys with Press/Release/Shift → pop;
+one that answers only DA sees neither and keeps `z`/Left typed before the reply;
+readLine under term::on pops then re-pushes; Ctrl+C exits 130 with the pop.
+Manual run in a real kitty-capable terminal: not done (no GUI terminal can be
+driven from this session) — the pty emulates the terminal's replies.
+Commit: (see git log: "bug-699 Phase 5")
 
 ### Phase 6: remove `readChar` / `readByte` / `pollInput`
 

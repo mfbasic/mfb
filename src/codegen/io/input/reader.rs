@@ -362,6 +362,9 @@ pub(crate) fn emit_engine(
     ));
     emit_consume(consumed, e.state_offset, ctx, vregs);
     store_slot_imm(ctx, vregs, s.final_flag, 0);
+    if let Some(events_symbol) = e.events_symbol {
+        emit_interrupt_key(events_symbol, e.state_offset, &next, ctx, vregs)?;
+    }
     store_slot_imm(ctx, vregs, s.outcome, OUT_TOKEN);
     ctx.instructions.push(abi::branch(&done));
 
@@ -571,6 +574,81 @@ pub(crate) fn emit_engine(
         abi::branch(labels.timeout),
         abi::label(&done),
     ]);
+    Ok(())
+}
+
+/// Ctrl+C under the kitty keyboard protocol (bug-699 Phase 5). A terminal in
+/// that mode sends Ctrl+C as a key (`ESC [ 99 ; 5 u`) instead of the `0x03` the
+/// line discipline turns into SIGINT, so a program in `term::on` could no longer
+/// be interrupted from the keyboard. The console reader does what the line
+/// discipline would have done: a Ctrl+C press or repeat with no other modifier,
+/// while the protocol is on, raises SIGINT and is not returned. Emitted after
+/// the token is consumed, so a program that survives the signal reads on past
+/// it (`next`).
+///
+/// **POSIX only**: `term::on` never finds the protocol on a Windows console in
+/// practice, and `raise` is not one of its imports.
+fn emit_interrupt_key(
+    events_symbol: &str,
+    state_offset: usize,
+    next: &str,
+    ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    use super::decode::{TOKEN_EVENT, TOKEN_GRAPHEME, TOKEN_GRAPHEME_LEN, TOKEN_KEY, TOKEN_MODS};
+    use super::keys::{KeyEvent, KeyName, MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT};
+    use crate::codegen::engine::types::PlatformFamily;
+    const SIGINT: &str = "2";
+    if ctx.platform.family() == PlatformFamily::Windows {
+        return Ok(());
+    }
+    let symbol = ctx.symbol;
+    let not_interrupt = format!("{symbol}_in_not_interrupt");
+    let addr = vregs.next();
+    let t = vregs.next();
+    push_symbol_address(symbol, events_symbol, addr, ctx.instructions, ctx.relocations);
+    ctx.instructions.extend([
+        abi::load_u64(t, addr, 0),
+        abi::compare_immediate(t, "0"),
+        abi::branch_eq(&not_interrupt),
+    ]);
+    let r = vregs.next();
+    let v = vregs.next();
+    let mask = vregs.next();
+    region(r, state_offset, ctx);
+    let token = INPUT_STATE_TOKEN_OFFSET;
+    ctx.instructions.extend([
+        abi::load_u64(v, r, token + TOKEN_KEY),
+        abi::compare_immediate(v, &(KeyName::Unicode as u64).to_string()),
+        abi::branch_ne(&not_interrupt),
+        abi::load_u64(v, r, token + TOKEN_EVENT),
+        abi::compare_immediate(v, &(KeyEvent::Release as u64).to_string()),
+        abi::branch_eq(&not_interrupt),
+        abi::load_u64(v, r, token + TOKEN_MODS),
+        abi::move_immediate(
+            mask,
+            "Integer",
+            &(MOD_SHIFT | MOD_ALT | MOD_CTRL | MOD_META).to_string(),
+        ),
+        abi::and_registers(v, v, mask),
+        abi::compare_immediate(v, &MOD_CTRL.to_string()),
+        abi::branch_ne(&not_interrupt),
+        abi::load_u64(v, r, token + TOKEN_GRAPHEME_LEN),
+        abi::compare_immediate(v, "1"),
+        abi::branch_ne(&not_interrupt),
+        abi::load_u8(v, r, token + TOKEN_GRAPHEME),
+        abi::compare_immediate(v, &u64::from(b'c').to_string()),
+        abi::branch_ne(&not_interrupt),
+        abi::move_immediate(abi::c_arg(0), "Integer", SIGINT),
+    ]);
+    ctx.platform.emit_external_call(
+        "raise",
+        symbol,
+        ctx.platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions.extend([abi::branch(next), abi::label(&not_interrupt)]);
     Ok(())
 }
 

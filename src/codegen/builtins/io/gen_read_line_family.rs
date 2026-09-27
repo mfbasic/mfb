@@ -266,6 +266,24 @@ pub(crate) fn lower_read_line_family(
                 &mut vregs,
             )?;
         }
+        // bug-699 Phase 5: likewise hand the keyboard back to the terminal's
+        // ordinary encoding before the cooked restore — under the kitty protocol
+        // Return is an escape sequence, and the line discipline would never see
+        // the end of the line.
+        if ctx.input_state_offset.is_some() {
+            crate::codegen::term::core::emit_kitty_line_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                false,
+                false,
+                &mut vregs,
+            )?;
+        }
         emit_console_raw_line_mode(
             &mut EmitCtx {
                 symbol,
@@ -805,6 +823,21 @@ pub(crate) fn lower_read_line_family(
             false,
             true,
         )?;
+        if ctx.input_state_offset.is_some() {
+            crate::codegen::term::core::emit_kitty_line_window(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                true,
+                // The read's result is already in the result bank.
+                true,
+                &mut vregs,
+            )?;
+        }
         if mouse.is_some() {
             emit_mouse_tracking_window(
                 &mut EmitCtx {

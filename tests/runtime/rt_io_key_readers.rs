@@ -393,3 +393,186 @@ END FUNC
     let out = run_on_terminal(&exe, "ready> ", &[(0, b"ha"), (500, b"lf\r")]);
     assert!(out.contains("timeout\n[half]\n"), "{out:?}");
 }
+
+/// Drive `exe` on a pty that answers `term::on`'s keyboard-protocol query: wait
+/// for the query (`ESC [ ? u`), write `reply` (what the terminal answers, plus
+/// any keys "typed" before the answer), then write each piece 100 ms apart;
+/// return everything the child printed, escapes included.
+#[cfg(unix)]
+fn run_on_replying_terminal(exe: &std::path::Path, reply: &[u8], pieces: &[&[u8]]) -> String {
+    let (status, out) = run_on_replying_terminal_status(exe, reply, pieces);
+    assert_eq!(status, 0, "the program failed: {out:?}");
+    out
+}
+
+/// [`run_on_replying_terminal`], returning the child's exit status (128 + the
+/// signal for a signal death, as a shell reports it) instead of requiring 0.
+/// The child runs on the pty as its controlling terminal (`pty.fork`), so the
+/// terminal's own signals reach it as they would from a keyboard.
+#[cfg(unix)]
+fn run_on_replying_terminal_status(
+    exe: &std::path::Path,
+    reply: &[u8],
+    pieces: &[&[u8]],
+) -> (i32, String) {
+    let script = r#"import os, pty, select, sys, time
+reply = bytes.fromhex(sys.argv[2])
+pieces = [bytes.fromhex(p) for p in sys.argv[3:]]
+pid, master = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1], [sys.argv[1]])
+out = b""
+def drain(t):
+    global out
+    end = time.time() + t
+    while time.time() < end:
+        r, _, _ = select.select([master], [], [], 0.01)
+        if r:
+            try:
+                out += os.read(master, 4096)
+            except OSError:
+                return
+deadline = time.time() + 10
+while b"\x1b[?u" not in out and time.time() < deadline:
+    drain(0.02)
+os.write(master, reply)
+drain(0.1)
+for data in pieces:
+    os.write(master, data)
+    drain(0.1)
+deadline = time.time() + 10
+status = None
+while status is None and time.time() < deadline:
+    drain(0.05)
+    done, raw = os.waitpid(pid, os.WNOHANG)
+    if done:
+        status = raw
+drain(0.1)
+if status is None:
+    os.kill(pid, 9)
+    sys.exit(124)
+sys.stdout.buffer.write(out)
+code = 128 + os.WTERMSIG(status) if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
+sys.stderr.write("status %d" % code)
+sys.exit(0)"#;
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    let mut command = Command::new("python3");
+    command.arg("-c").arg(script).arg(exe).arg(hex(reply));
+    for piece in pieces {
+        command.arg(hex(piece));
+    }
+    let output = command.output().expect("run pty driver");
+    let out = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let err = String::from_utf8_lossy(&output.stderr);
+    let status = err
+        .strip_prefix("status ")
+        .and_then(|code| code.trim().parse::<i32>().ok())
+        .unwrap_or_else(|| panic!("pty run failed ({:?}): {out:?}\n{err}", output.status));
+    (status, out)
+}
+
+/// `term::on`, four keys, `term::off`, then the keys printed (after `term::off`,
+/// so the alternate screen does not swallow them).
+#[cfg(unix)]
+const TERM_KEYS: &str = r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  MUT out AS String = ""
+  MUT n AS Integer = 0
+  WHILE n < 4
+    LET k AS io::Key = io::readKey()
+    out = out & "<" & toString(k.key) & " " & k.grapheme & " " & toString(k.event) & " " & toString(k.shift) & ">"
+    n = n + 1
+  END WHILE
+  term::off()
+  io::print(out)
+  RETURN 0
+END FUNC
+"#;
+
+#[cfg(unix)]
+#[test]
+fn term_on_switches_a_kitty_terminal_to_key_events_and_off_restores_it() {
+    let exe = build_project(&temp_project("rt_io_term_kitty", TERM_KEYS));
+    // The terminal reports its flags, then its device attributes; then `a` is
+    // pressed and released, Shift+A pressed, Left pressed — all in the kitty form.
+    let out = run_on_replying_terminal(
+        &exe,
+        b"\x1b[?0u\x1b[?62;c",
+        &[b"\x1b[97;1:1u", b"\x1b[97;1:3u", b"\x1b[65;2:1u", b"\x1b[1;1:1D"],
+    );
+    let push = out.find("\x1b[>31u").unwrap_or_else(|| panic!("no push: {out:?}"));
+    let pop = out.find("\x1b[<u").unwrap_or_else(|| panic!("no pop: {out:?}"));
+    assert!(push < pop, "{out:?}");
+    assert!(
+        out.contains("<Unicode a Press FALSE><Unicode a Release FALSE><Unicode A Press TRUE><Left  Press FALSE>"),
+        "{out:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn term_on_leaves_a_legacy_terminal_alone_and_keeps_keys_typed_meanwhile() {
+    let exe = build_project(&temp_project("rt_io_term_legacy", TERM_KEYS));
+    // No flags reply — only device attributes, with `z` and Left typed before
+    // it arrived. Neither key is lost, and nothing is pushed or popped.
+    let out = run_on_replying_terminal(&exe, b"z\x1b[D\x1b[?62;c", &[b"q", b"\x1bx"]);
+    assert!(!out.contains("\x1b[>31u"), "{out:?}");
+    assert!(!out.contains("\x1b[<u"), "{out:?}");
+    assert!(
+        out.contains("<Unicode z NotSupported FALSE><Left  NotSupported FALSE><Unicode q NotSupported FALSE><Unicode x NotSupported FALSE>"),
+        "{out:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn read_line_under_term_on_reads_the_line_in_the_terminals_ordinary_encoding() {
+    let exe = build_project(&temp_project(
+        "rt_io_term_kitty_read_line",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  LET line AS String = io::readLine()
+  LET k AS io::Key = io::readKey()
+  term::off()
+  io::print("[" & line & "] <" & toString(k.key) & " " & toString(k.event) & ">")
+  RETURN 0
+END FUNC
+"#,
+    ));
+    // A kitty terminal: the line is typed after the pop (ordinary bytes), the key
+    // after the push again (kitty form, a release).
+    let out = run_on_replying_terminal(
+        &exe,
+        b"\x1b[?0u\x1b[?62;c",
+        &[b"hi\r", b"\x1b[97;1:3u"],
+    );
+    let first_pop = out.find("\x1b[<u").unwrap_or_else(|| panic!("no pop: {out:?}"));
+    assert!(
+        out[first_pop..].contains("\x1b[>31u"),
+        "the flags were not pushed again after the line: {out:?}"
+    );
+    assert!(out.contains("[hi] <Unicode Release>"), "{out:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_under_the_kitty_protocol_still_interrupts_the_program() {
+    // A kitty terminal sends Ctrl+C as a key, not the byte the line discipline
+    // turns into SIGINT; the reader raises it instead. The teardown still runs:
+    // the flags are popped and the exit status is the signal's.
+    let exe = build_project(&temp_project("rt_io_term_kitty_ctrl_c", TERM_KEYS));
+    let (status, out) =
+        run_on_replying_terminal_status(&exe, b"\x1b[?0u\x1b[?62;c", &[b"\x1b[99;5u"]);
+    assert_eq!(status, 130, "{out:?}");
+    let push = out.find("\x1b[>31u").unwrap_or_else(|| panic!("no push: {out:?}"));
+    assert!(out[push..].contains("\x1b[<u"), "not popped: {out:?}");
+    assert!(!out.contains("<Unicode"), "Ctrl+C was returned as a key: {out:?}");
+}

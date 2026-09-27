@@ -1467,6 +1467,14 @@ pub(crate) fn lower_module_for_platform(
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
     {
         data_objects.extend(term::console_data_objects());
+        // bug-699 Phase 5: `term::on`/`term::off` (and `io::readLine`'s line-mode
+        // window) switch the kitty keyboard protocol for a console program whose
+        // `io` readers decode keys — the same key that reserves the input region.
+        if !module.build_mode.is_app()
+            && crate::codegen::io::input::program_uses_input_buffer(&native_plan.runtime_symbols)
+        {
+            data_objects.extend(term::kitty_data_objects());
+        }
     }
     // plan-94-B: the mouse-tracking escapes and the injection variable's name.
     // Gated on the mouse members rather than on `term::` at all, so a program that
