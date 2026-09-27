@@ -1,20 +1,8 @@
 $ mfb build -ast -ir tests/rt-behavior/regex/replace-empty-pattern-rt
- 133 |   ' the build log carries its TYPE_INLINE_TRAP_DEAD_HANDLER advisory. If that
- 134 |   ' warning ever disappears, the fail-closed rule has widened too far.
- 135 |   LET kept AS List OF String = collections::replace(l, e, "Z") TRAP(err)
-     | ^
-tests/rt-behavior/regex/replace-empty-pattern-rt/src/main.mfb:135 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
-               Inline TRAP handler is unreachable — `collections.replace` cannot fail, so the handler is dead code.
 Wrote AST to tests/rt-behavior/regex/replace-empty-pattern-rt/replace_empty_pattern_rt.ast
 Wrote IR to tests/rt-behavior/regex/replace-empty-pattern-rt/replace_empty_pattern_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/regex/replace-empty-pattern-rt
- 133 |   ' the build log carries its TYPE_INLINE_TRAP_DEAD_HANDLER advisory. If that
- 134 |   ' warning ever disappears, the fail-closed rule has widened too far.
- 135 |   LET kept AS List OF String = collections::replace(l, e, "Z") TRAP(err)
-     | ^
-tests/rt-behavior/regex/replace-empty-pattern-rt/src/main.mfb:135 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
-               Inline TRAP handler is unreachable — `collections.replace` cannot fail, so the handler is dead code.
 Wrote executable to tests/rt-behavior/regex/replace-empty-pattern-rt/build/replace_empty_pattern_rt.out
 [exit 0]
 $ tests/rt-behavior/regex/replace-empty-pattern-rt/build/replace_empty_pattern_rt.out
