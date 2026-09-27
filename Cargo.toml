@@ -703,6 +703,10 @@ name = "rt_bounds_elim_backedge"
 path = "tests/runtime/rt_bounds_elim_backedge.rs"
 
 [[test]]
+name = "rt_global_init_order_fold"
+path = "tests/runtime/rt_global_init_order_fold.rs"
+
+[[test]]
 name = "rt_encoding_punycode_bounds"
 path = "tests/runtime/rt_encoding_punycode_bounds.rs"
 

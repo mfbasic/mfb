@@ -120,13 +120,31 @@ fn constify(module: &mut NirModule, census: &Census) -> u64 {
             _ => None,
         })
         .collect();
+    substitute_outside_initialization(module, &constants)
+}
+
+/// Replace every read of a global in `constants` with its literal, in every
+/// function that cannot run during global initialization.
+///
+/// A function the initializer can reach may read a global before that
+/// global's own store has run, and such a read observes zero, not the
+/// initializer (`plans::globals::initializer_reachable`, bug-744). Those
+/// functions — and the initializer SUB itself — keep their reads.
+fn substitute_outside_initialization(
+    module: &mut NirModule,
+    constants: &std::collections::HashMap<String, NirValue>,
+) -> u64 {
     if constants.is_empty() {
         return 0;
     }
+    let initializing = globals::initializer_reachable(module);
     let mut substituted = 0;
     for function in &mut module.functions {
+        if initializing.contains(&function.name) {
+            continue;
+        }
         for op in &mut function.body {
-            substitute_op(op, &constants, &mut substituted);
+            substitute_op(op, constants, &mut substituted);
         }
     }
     substituted
@@ -424,6 +442,78 @@ mod tests {
             module.globals.iter().any(|g| g.name == "seed"),
             "still named by derived's initializer"
         );
+    }
+
+    /// bug-744: a function the global initializer can reach may run before a
+    /// global's own store, when the slot still reads zero — so it keeps its
+    /// read (and so does the initializer SUB itself), while a function that
+    /// only runs after initialization gets the literal.
+    #[test]
+    fn reads_that_can_run_during_initialization_are_kept() {
+        let initializer = crate::target::shared::nir::global_initializer_name("test");
+        let mut early = function(vec![NirOp::Return {
+            value: Some(read("limit")),
+        }]);
+        early.name = "early".to_string();
+        let mut init = function(vec![
+            NirOp::StoreGlobal {
+                name: "first".to_string(),
+                type_: ParameterType::Integer,
+                value: Some(NirValue::Binary {
+                    op: crate::operators::BinaryOp::Add,
+                    left: Box::new(read("limit")),
+                    right: Box::new(NirValue::Call {
+                        target: "early".to_string(),
+                        args: vec![],
+                        loc: Default::default(),
+                    }),
+                    loc: Default::default(),
+                }),
+            },
+            NirOp::StoreGlobal {
+                name: "limit".to_string(),
+                type_: ParameterType::Integer,
+                value: Some(int_const("42")),
+            },
+        ]);
+        init.name = initializer;
+        let mut late = function(vec![NirOp::Return {
+            value: Some(read("limit")),
+        }]);
+        late.name = "late".to_string();
+        let mut module = test_module(vec![init, early, late]);
+        // `first` is public so the dead-global row keeps it (and the store
+        // this test inspects); only `limit` is a constification candidate.
+        module.globals = vec![
+            global("first", true, "public", None),
+            global("limit", true, "private", Some(int_const("42"))),
+        ];
+        run(&mut module, 2);
+
+        let returned = |index: usize| match &module.functions[index].body[0] {
+            NirOp::Return { value: Some(value) } => value.clone(),
+            _ => panic!("expected the return"),
+        };
+        assert!(
+            matches!(returned(1), NirValue::Global { .. }),
+            "`early` runs inside the initializer: its read stays a read"
+        );
+        assert!(
+            matches!(returned(2), NirValue::Const { value, .. } if value == "42"),
+            "`late` runs after initialization: its read is the literal"
+        );
+        let NirOp::StoreGlobal {
+            value: Some(NirValue::Binary { left, .. }),
+            ..
+        } = &module.functions[0].body[0]
+        else {
+            panic!("expected the initializer's first store");
+        };
+        assert!(
+            matches!(**left, NirValue::Global { .. }),
+            "the initializer SUB's own read runs before `limit` is stored"
+        );
+        assert_eq!(module.globals.len(), 2, "`limit` is still read");
     }
 
     /// The rows are off at `-O1`.
