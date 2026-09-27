@@ -1,8 +1,8 @@
-# plan-160-C: Windows audio — exclusive-mode write and stream preemption
+# plan-158-C: Windows audio — exclusive-mode write and stream preemption
 
 Last updated: 2026-09-26
 Effort: large (3h–1d)
-Depends on: plan-160-B
+Depends on: plan-158-B
 
 Two Windows `audio::` bugs measured on 2026-09-26 on box 192.168.1.206 (Win11 26200):
 
@@ -33,9 +33,9 @@ first: the `audio::` no-resampling s16le contract).
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-160-B complete (archived) | `ls planning/completed/plan-160-B-*` → one file | NOT MET |
+| plan-158-B complete (archived) | `ls planning/completed/plan-158-B-*` → one file | NOT MET |
 
-If plan-160-B is not complete, this plan cannot start, full stop. (plan-160-A's status
+If plan-158-B is not complete, this plan cannot start, full stop. (plan-158-A's status
 messages are what Phase 1 reads.)
 
 ## 1. Goal
@@ -78,7 +78,7 @@ messages are what Phase 1 reads.)
 
 ## 3. Design Overview
 
-Measure first, using plan-160-A's status messages plus a bounded wait, then fix.
+Measure first, using plan-158-A's status messages plus a bounded wait, then fix.
 
 Expected design, to be confirmed by Phase 1:
 
@@ -97,7 +97,7 @@ Byte-identity is not the gate. Expected diff: the Windows audio ncodesum.
 
 ## Phases
 
-> **NOTE — keep the checkboxes current as you go** (same rules as plan-160-A).
+> **NOTE — keep the checkboxes current as you go** (same rules as plan-158-A).
 
 ### Phase 1 — Measure the hang and the preemption
 
@@ -109,7 +109,7 @@ Byte-identity is not the gate. Expected diff: the Windows audio ncodesum.
       the SHARED stream's status afterwards.
 
 Acceptance: §Corrections names the root cause of both bugs, with probe output.
-  Check: `grep -c 'root cause' planning/plan-160-C-windows-audio-exclusive-fixes.md` → ≥ 2
+  Check: `grep -c 'root cause' planning/plan-158-C-windows-audio-exclusive-fixes.md` → ≥ 2
   (est. 1 min).
 Commit: —
 
@@ -143,7 +143,7 @@ Commit: —
 ## Validation Plan
 
 - Runtime proof: the box probes, plus `examples/audio` menu items 1–4 played by the user
-  (plan-160-D re-runs this with the final package).
+  (plan-158-D re-runs this with the final package).
 - Doc sync: `.ai/arch-abi.md` §Windows audio (EXCLUSIVE render pre-roll and carry
   invariant); `src/docs/spec/stdlib/11_audio.md`.
 - Final gate: `scripts/artifact-gate.sh` (est. 15 min).

@@ -1,4 +1,4 @@
-# plan-160-A: Native error status messages + Windows audio adoption
+# plan-158-A: Native error status messages + Windows audio adoption
 
 Last updated: 2026-09-26
 Overall Effort: x-large (1d–3d)
@@ -59,7 +59,7 @@ Everything below is written for a world where both hold.
 - No new ownership rule and no arena-state change: the parked-block protocol is used as it is.
 - `raise_error_into` / `emit_fail` output is byte-identical for every non-adopting site.
 - `Error` block layout unchanged.
-- macOS and ALSA adoption is plan-160-B; the Windows exclusive-mode fixes are plan-160-C.
+- macOS and ALSA adoption is plan-158-B; the Windows exclusive-mode fixes are plan-158-C.
 
 ## 2. Current State
 
@@ -156,7 +156,7 @@ fixture.
 
 **Rejected:** a separate owned-message scheme (a pending-message arena word plus a
 conditional free in `emit_build_error_inline`). It duplicates what the parked-block
-protocol already does. The design from deleted plan-158-A.
+protocol already does. The design from the first draft of this plan.
 
 ## 4. Detailed Design
 
@@ -233,7 +233,7 @@ Windows frame slots 160 and 168 are unused (`gen_windows.rs`: 152 = `COUNT_OFF`,
       call; record whether a tag-3 result can reach it.
 
 Acceptance: no UNVERIFIED line remains in §Verified properties.
-  Check: `grep -c UNVERIFIED planning/plan-160-A-native-error-status-messages.md` → 0 (est. 1 min).
+  Check: `grep -c UNVERIFIED planning/plan-158-A-native-error-status-messages.md` → 0 (est. 1 min).
 Commit: —
 
 ### Phase 2 — Primitive + call-site branch
@@ -268,7 +268,7 @@ Commit: —
       and close a second stream on the same device, write to the first. Print `e.message`
       and `e.source` under TRAP, and once uncaught. Run the same failure 10 000 times in
       a loop under `mfb build --debug`: arena counters show no net growth. Record the
-      output in §Corrections and hand the statuses to plan-160-C.
+      output in §Corrections and hand the statuses to plan-158-C.
 
 Acceptance: the box prints `… (IAudioRenderClient::GetBuffer: 0x88890004)` with the
 call-site line in `e.source`; the loop shows no growth.
@@ -292,7 +292,7 @@ Commit: —
 ## Open Decisions
 
 - Status format: `0x%08x` everywhere (recommended; HRESULT, OSStatus and negative errno
-  are all 32-bit and documented in hex) vs. per-backend decimal. plan-160-B inherits it.
+  are all 32-bit and documented in hex) vs. per-backend decimal. plan-158-B inherits it.
 
 ## Corrections
 

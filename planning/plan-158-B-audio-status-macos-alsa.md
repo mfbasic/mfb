@@ -1,15 +1,15 @@
-# plan-160-B: macOS and ALSA audio adopt status messages
+# plan-158-B: macOS and ALSA audio adopt status messages
 
 Last updated: 2026-09-26
 Effort: medium (1h–2h)
-Depends on: plan-160-A
+Depends on: plan-158-A
 
-Extends plan-160-A's `emit_fail_status` to the two remaining `audio::` backends, so a
+Extends plan-158-A's `emit_fail_status` to the two remaining `audio::` backends, so a
 failed Core Audio or ALSA call reports its call name and OS status the way Windows does.
 **Outcome:** on macOS and Linux, an `audio::` failure's `e.message` ends in
 `(<call>: 0x<status>)`, and `e.code` is unchanged.
 
-References: plan-160-A (§3 design, §4.2 `_mfb_rt_fail_status`, `StatusFailSites`; its §Prerequisites table is the gate for this
+References: plan-158-A (§3 design, §4.2 `_mfb_rt_fail_status`, `StatusFailSites`; its §Prerequisites table is the gate for this
 letter too), `src/codegen/builtins/audio/gen_macos_*.rs`,
 `src/codegen/builtins/audio/gen_alsa_*.rs`, `src/docs/spec/stdlib/11_audio.md`.
 
@@ -17,9 +17,9 @@ letter too), `src/codegen/builtins/audio/gen_macos_*.rs`,
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-160-A complete (archived) | `ls planning/completed/plan-160-A-*` → one file | NOT MET |
+| plan-158-A complete (archived) | `ls planning/completed/plan-158-A-*` → one file | NOT MET |
 
-If plan-160-A is not complete, this plan cannot start, full stop.
+If plan-158-A is not complete, this plan cannot start, full stop.
 
 ## 1. Goal
 
@@ -28,7 +28,7 @@ If plan-160-A is not complete, this plan cannot start, full stop.
 
 ### Non-goals
 
-- No change to Windows code (plan-160-A) or to the status format (decided in plan-160-A).
+- No change to Windows code (plan-158-A) or to the status format (decided in plan-158-A).
 - No new error codes.
 
 ## 2. Current State
@@ -57,13 +57,13 @@ If plan-160-A is not complete, this plan cannot start, full stop.
 
 ## 3. Design Overview
 
-Mechanical adoption of plan-160-A's API. Byte-identity is not the gate. Expected diffs:
+Mechanical adoption of plan-158-A's API. Byte-identity is not the gate. Expected diffs:
 `audio_codegen_cover_rt.{macos-aarch64,linux-aarch64,linux-riscv64,linux-x86_64}.ncodesum`.
 Risk is low: each site keeps its label structure and only swaps its raise tail.
 
 ## Phases
 
-> **NOTE — keep the checkboxes current as you go** (same rules as plan-160-A).
+> **NOTE — keep the checkboxes current as you go** (same rules as plan-158-A).
 
 ### Phase 1 — Classify sites
 
@@ -72,7 +72,7 @@ Risk is low: each site keeps its label structure and only swaps its raise tail.
 - [ ] Pick the frame-slot pair per backend; record the grep that proves it free.
 
 Acceptance: the table covers 33 rows.
-  Check: `grep -c '^| gen_' planning/plan-160-B-audio-status-macos-alsa.md` → 33 (est. 1 min).
+  Check: `grep -c '^| gen_' planning/plan-158-B-audio-status-macos-alsa.md` → 33 (est. 1 min).
 Commit: —
 
 ### Phase 2 — Adopt
@@ -98,11 +98,11 @@ Commit: —
 ## Open Decisions
 
 - ALSA: append `snd_strerror(err)` text instead of hex? Recommended **no** for this plan:
-  it needs the C string copied into the message, which the plan-160-A primitive does not
+  it needs the C string copied into the message, which the plan-158-A primitive does not
   support. File it as a follow-up if wanted.
 
 ## Corrections
 
 ## Summary
 
-Adoption only; the error-path logic (call-site tag-3 re-stamp, OOM arms) is proven in plan-160-A.
+Adoption only; the error-path logic (call-site tag-3 re-stamp, OOM arms) is proven in plan-158-A.
