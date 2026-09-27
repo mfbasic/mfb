@@ -106,12 +106,13 @@ Byte-identity is not the gate. Expected diff: the Windows audio ncodesum.
 
 ### Phase 1 — Measure the hang and the preemption
 
-- [ ] Temporarily bound `lower_write`'s wait (not committed), and run the EXCLUSIVE
+- [x] Temporarily bound `lower_write`'s wait (not committed), and run the EXCLUSIVE
       44100/2 probe with a watchdog on the box. Record where it spins (padding == buffer
       forever? `GetBuffer` failure? event never signalled?) and the statuses, in
-      §Corrections.
-- [ ] Record whether EXCLUSIVE `Initialize` succeeds while a SHARED stream is open, and
-      the SHARED stream's status afterwards.
+      §Corrections. — padding == buffer forever (C1).
+- [x] Record whether EXCLUSIVE `Initialize` succeeds while a SHARED stream is open, and
+      the SHARED stream's status afterwards. — the attempt invalidates the SHARED
+      stream whether or not it succeeds (C2).
 
 Acceptance: §Corrections names the root cause of both bugs, with probe output.
   Check: `grep -c 'root cause' planning/plan-158-C-windows-audio-exclusive-fixes.md` → ≥ 2
@@ -166,6 +167,33 @@ Commit: —
   Recommended option changes plan-66 Open Decision 1's order; the user decides.
 
 ## Corrections
+
+Phase 1 instruments (never committed): a detached worktree at `c58e7dbab`
+(`/tmp/p158/instr`) whose `lower_write` waits at most 2000 ms and raises
+`INSTR WaitForSingleObject` on a timeout, raises `INSTR padding stuck` with the padding
+after 200 consecutive zero-avail passes, and whose `lower_open` stores
+`1000 + W_SHARED` in `W_XRUNS` so `audio::xruns` reports the share mode (1000 =
+EXCLUSIVE, 1001 = SHARED). Probe `/tmp/p158/cprobe` on box 206, default output
+("Speakers (2- Synaptics HD Audio)", mix format 48000 Hz float).
+
+- **C1 — root cause of bug 1 (EXCLUSIVE write never returns).** `cprobe tone 44100 2`
+  → `opened 44100/2 mode=1000`, `tone write failed: … (INSTR padding stuck:
+  0x00000200)`. `tone 48000 2` → `mode=1000`, the same. `tone 48000 1` →
+  `mode=1001`, `wrote 192 chunks OK in 1969 ms`. The event IS signalled (200 waits,
+  none timed out) and `GetBuffer` is never reached: in EXCLUSIVE event-driven mode
+  `GetCurrentPadding` reports the whole buffer (512 frames) on every pass, so
+  `avail = W_BUFFER - padding` is 0 forever and the loop spins. A 48000/1 open
+  works only because EXCLUSIVE refuses mono and the open falls back to SHARED.
+- **C2 — root cause of bug 2 (a second open invalidates the first).**
+  `cprobe preempt 48000 1` → the second stream ends up SHARED (`mode=1001`), plays
+  (`wrote 192 chunks OK`), and still the first fails afterwards with
+  `(IAudioClient::GetCurrentPadding: 0x88890004)`. `preempt 44100 2` (second is
+  EXCLUSIVE) → the same failure on the first. With the EXCLUSIVE attempt removed
+  from `lower_open` (instrument variant, every open SHARED), `preempt 48000 1` →
+  `first after: wrote 192 chunks OK in 1980 ms`. So the EXCLUSIVE `Initialize`
+  attempt invalidates every SHARED stream on the endpoint, even when it fails and
+  the open falls back to SHARED. Under EXCLUSIVE-first, opening ANY stream kills
+  the others.
 
 ## Summary
 
