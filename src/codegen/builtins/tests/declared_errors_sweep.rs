@@ -1,0 +1,378 @@
+//! Shared engine behind the per-package "declares exactly the errors its
+//! lowering raises" guards (bug-694 for `fs`, generalized to every package by
+//! bug-698).
+//!
+//! `mfb man <pkg> <member>` derives its Errors table from the descriptor's
+//! `errors`, and nothing ties that list to the code a member's lowering
+//! actually emits: a descriptor is hand-written, the raise can live in a
+//! shared helper several calls away, and the textual guard
+//! `every_raise_error_site_is_declared_in_its_descriptor` only sees a
+//! two-string-literal `CodeBuilder::raise_error` call — not
+//! `raise_error_into(symbol, "Err…", …)` inside an `abi_function` helper, nor
+//! a code a shared emitter raises on the caller's behalf.
+//!
+//! So this module does not read the source: it LOWERS each member's real body
+//! on all five backends and collects every error code the emitted
+//! instructions load. Every raise path (`raise_error_into`,
+//! `CodeBuilder::raise_error_bare`) moves the error's numeric `errorCode`
+//! value into a register, so an 8-digit code immediate is the one signal
+//! shared by all of them. The POSIX and Windows errno mappers dispatch to
+//! different code sets, so one backend is not enough.
+//!
+//! A body can also return an error raised by a helper it calls. Every
+//! internal call target must be classified: either scanned too
+//! ([`Propagating`]) or listed as raising nothing of its own. An
+//! unclassified callee fails the sweep, so a new call cannot hide a new
+//! error.
+
+use crate::codegen::engine::builder::ValueResult;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::tests::test_support::BuilderHarness;
+use crate::codegen::engine::types::{CodeInstruction, CodeRelocation, CodegenPlatform};
+use crate::codegen::engine::util::vreg_frame::Vregs;
+use crate::codegen::registry::{registry, AbiCtx, Body, Implementation, RegistryFunction};
+use crate::os::linux::flavor::LinuxFlavor;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// The five real backends. The stub `TestPlatform` leaves the OS hooks
+/// `unimplemented!()`, and the errno mapping differs between POSIX and
+/// Windows.
+pub(crate) fn platforms() -> Vec<(&'static str, Box<dyn CodegenPlatform>)> {
+    vec![
+        (
+            "macos-aarch64",
+            Box::new(crate::target::macos_aarch64::code::Platform),
+        ),
+        (
+            "windows-x86_64",
+            Box::new(crate::target::win_x86_64::code::Platform),
+        ),
+        (
+            "linux-aarch64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_aarch64::code::Aarch64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+        (
+            "linux-x86_64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_x86_64::code::X86_64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+        (
+            "linux-riscv64",
+            Box::new(crate::target::linux_common::code::Platform::for_test(
+                crate::target::linux_riscv64::code::Riscv64,
+                LinuxFlavor::Glibc,
+            )),
+        ),
+    ]
+}
+
+/// An internal callee's classification for a package's sweep.
+pub(crate) enum Propagating {
+    /// Another member of the SAME package, by its `RegistryFunction::name`.
+    Member(&'static str),
+    /// A standalone helper that is not a registry member.
+    Helper(fn() -> (Vec<CodeInstruction>, Vec<CodeRelocation>)),
+}
+
+/// Error codes by numeric value (`"77030001"` -> `"ErrPathNotFound"`).
+pub(crate) fn codes_by_value() -> BTreeMap<&'static str, &'static str> {
+    registry()
+        .resolve_package("errorCode")
+        .expect("errorCode package")
+        .constants()
+        .iter()
+        .filter_map(|constant| Some((constant.value?, constant.name)))
+        .collect()
+}
+
+/// The error codes an instruction stream loads, and the internal symbols it
+/// calls.
+pub(crate) fn scan(
+    instructions: &[CodeInstruction],
+    relocations: &[CodeRelocation],
+    codes: &BTreeMap<&'static str, &'static str>,
+    raised: &mut BTreeSet<&'static str>,
+    callees: &mut BTreeSet<String>,
+) {
+    for instruction in instructions {
+        if let Some(name) = instruction
+            .get("value")
+            .and_then(|value| codes.get(value.as_str()))
+        {
+            raised.insert(name);
+        }
+    }
+    for relocation in relocations {
+        // External (libc/kernel32) calls report failure through errno, which the
+        // body maps itself; `_mfb_str*` are the error-message data objects.
+        if relocation.library.is_none() && !relocation.to.starts_with("_mfb_str") {
+            callees.insert(relocation.to.clone());
+        }
+    }
+}
+
+/// Lower one implementation of a `<package>.<member>` on one backend and
+/// return the emitted instructions and relocations.
+///
+/// A body refuses when an import or string literal it needs is not declared.
+/// The plan derives both from the program, so supply each one it names and
+/// lower again until it succeeds.
+pub(crate) fn lower_body(
+    package: &str,
+    function: &RegistryFunction,
+    implementation: &Implementation,
+    platform: &dyn CodegenPlatform,
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    let call = format!("{package}.{}", function.name);
+    let mut vregs = Vregs::new();
+    let args: Vec<ValueResult> = implementation
+        .params
+        .iter()
+        .map(|param| ValueResult {
+            type_: param.ty.clone(),
+            location: Operand::from(vregs.next()),
+            text: param.name.to_string(),
+            origin: None,
+        })
+        .collect();
+    let mut harness = BuilderHarness::default();
+    for _ in 0..64 {
+        let mut builder = harness.builder("_mfb_rt_probe", platform);
+        let ctx = AbiCtx {
+            call: &call,
+            ..harness.abi_ctx(platform)
+        };
+        let result = match implementation.body {
+            Body::AbiFunction { lower, .. } | Body::AbiInline(lower) => {
+                lower(&mut builder, &args, &ctx)
+            }
+            _ => Err(format!("{call}: not a native body")),
+        };
+        let error = match result {
+            Ok(_) => return Ok((builder.instructions, builder.relocations)),
+            Err(error) => error,
+        };
+        drop(builder);
+        if let Some(import) = error
+            .split_once("requires ")
+            .and_then(|(_, rest)| rest.strip_suffix(" import"))
+        {
+            harness
+                .platform_imports
+                .insert(import.to_string(), "libc".to_string());
+        } else if let Some(literal) = error
+            .strip_prefix("native code string literal '")
+            .and_then(|rest| rest.strip_suffix("' has no data object"))
+        {
+            harness
+                .string_symbols
+                .insert(literal.to_string(), "_mfb_str_probe".to_string());
+        } else {
+            return Err(error);
+        }
+    }
+    Err(format!("{call}: still refusing after supplying 64 imports"))
+}
+
+/// Lower one member's every implementation on every backend and return the
+/// codes its own instructions load plus the internal symbols it calls.
+pub(crate) fn lower_member(
+    package: &str,
+    function: &RegistryFunction,
+    codes: &BTreeMap<&'static str, &'static str>,
+    failures: &mut Vec<String>,
+) -> (BTreeSet<&'static str>, BTreeSet<String>) {
+    let mut raised = BTreeSet::new();
+    let mut callees = BTreeSet::new();
+    for (target, platform) in platforms() {
+        for implementation in function.implementations() {
+            // Only AbiFunction/AbiInline bodies lower here; Mfb bodies are
+            // covered by the separate `mfb_body_declared_errors` guard.
+            if !matches!(
+                implementation.body,
+                Body::AbiFunction { .. } | Body::AbiInline(_)
+            ) {
+                continue;
+            }
+            match lower_body(package, function, implementation, platform.as_ref()) {
+                Ok((instructions, relocations)) => scan(
+                    &instructions,
+                    &relocations,
+                    codes,
+                    &mut raised,
+                    &mut callees,
+                ),
+                Err(error) => failures.push(format!(
+                    "{target} {package}::{} refused: {error}",
+                    function.name
+                )),
+            }
+        }
+    }
+    (raised, callees)
+}
+
+/// The result of sweeping one package: any lowering failure (a body the
+/// harness could not drive), and any member whose declared `errors` differ
+/// from what its lowering actually raises.
+pub(crate) struct SweepResult {
+    pub(crate) failures: Vec<String>,
+    pub(crate) mismatched: Vec<String>,
+    /// Number of `AbiFunction`/`AbiInline` members the sweep actually lowered
+    /// (at least one implementation). Used to assert the sweep did not
+    /// silently see zero members (e.g. a package renamed or the harness
+    /// changed shape).
+    pub(crate) lowered_members: usize,
+}
+
+/// Sweep every `AbiFunction`/`AbiInline` member of `package_name`, comparing
+/// each member's declared `errors` (unioned across its implementations, since
+/// this sweep does not distinguish overloads within one member — see the
+/// per-overload guard for that) against the codes its lowering raises,
+/// directly or through a classified callee.
+pub(crate) fn sweep_package(
+    package_name: &str,
+    raises_nothing: &[(&str, &str)],
+    propagating: &[(&str, Propagating)],
+    unreachable_via_callee: &[(&str, &str, &str)],
+) -> SweepResult {
+    let codes = codes_by_value();
+    let package = registry()
+        .resolve_package(package_name)
+        .unwrap_or_else(|| panic!("{package_name} package"));
+    let mut failures = Vec::new();
+
+    let mut own = BTreeMap::new();
+    for function in package.functions() {
+        own.insert(
+            function.name,
+            lower_member(package_name, function, &codes, &mut failures),
+        );
+    }
+    let lowered_members = own
+        .values()
+        .filter(|(raised, callees)| !raised.is_empty() || !callees.is_empty())
+        .count();
+
+    let mut mismatched = Vec::new();
+    for function in package.functions() {
+        let has_native_body = function
+            .implementations()
+            .iter()
+            .any(|implementation| {
+                matches!(
+                    implementation.body,
+                    Body::AbiFunction { .. } | Body::AbiInline(_)
+                )
+            });
+        if !has_native_body {
+            continue;
+        }
+        let (raised, callees) = &own[function.name];
+        let mut expected: BTreeSet<&'static str> = raised.clone();
+        for callee in callees {
+            if raises_nothing.iter().any(|(symbol, _)| symbol == callee) {
+                continue;
+            }
+            let Some((_, how)) = propagating.iter().find(|(symbol, _)| symbol == callee) else {
+                failures.push(format!(
+                    "{package_name}::{} calls `{callee}`, which is in neither \
+                     RAISES_NOTHING nor PROPAGATING — classify it",
+                    function.name
+                ));
+                continue;
+            };
+            let inherited = match how {
+                Propagating::Member(member) => own
+                    .get(member)
+                    .unwrap_or_else(|| {
+                        panic!("{package_name}::{member}: PROPAGATING target not registered")
+                    })
+                    .0
+                    .clone(),
+                Propagating::Helper(lower) => {
+                    let (instructions, relocations) = lower();
+                    let mut raised = BTreeSet::new();
+                    scan(
+                        &instructions,
+                        &relocations,
+                        &codes,
+                        &mut raised,
+                        &mut BTreeSet::new(),
+                    );
+                    raised
+                }
+            };
+            for code in inherited {
+                let unreachable = unreachable_via_callee
+                    .iter()
+                    .any(|(caller, error, _)| *caller == function.name && *error == code);
+                if !unreachable {
+                    expected.insert(code);
+                }
+            }
+        }
+
+        let declared: BTreeSet<&'static str> = function
+            .implementations()
+            .iter()
+            .flat_map(|implementation| implementation.errors.iter().copied())
+            .collect();
+        if declared != expected {
+            let missing: Vec<_> = expected.difference(&declared).collect();
+            let extra: Vec<_> = declared.difference(&expected).collect();
+            mismatched.push(format!(
+                "{package_name}::{}: undeclared {missing:?}, declared but never raised {extra:?}",
+                function.name
+            ));
+        }
+    }
+
+    SweepResult {
+        failures,
+        mismatched,
+        lowered_members,
+    }
+}
+
+/// Assert a package's sweep is clean: every native member's declared `errors`
+/// equals what its lowering (own raise sites plus classified callees) can
+/// raise, and every callee the sweep found is classified.
+pub(crate) fn assert_package_declares_exactly_the_errors_its_lowering_raises(
+    package_name: &str,
+    raises_nothing: &[(&str, &str)],
+    propagating: &[(&str, Propagating)],
+    unreachable_via_callee: &[(&str, &str, &str)],
+    min_lowered_members: usize,
+) {
+    let result = sweep_package(
+        package_name,
+        raises_nothing,
+        propagating,
+        unreachable_via_callee,
+    );
+    assert!(
+        result.failures.is_empty(),
+        "the sweep could not lower or classify every {package_name} member:\n  {}",
+        result.failures.join("\n  ")
+    );
+    assert!(
+        result.lowered_members >= min_lowered_members,
+        "the sweep found only {} {package_name} members with a native body; \
+         there were at least {min_lowered_members} when this was written",
+        result.lowered_members
+    );
+    assert!(
+        result.mismatched.is_empty(),
+        "{} {package_name} member(s) declare errors that differ from what their \
+         lowering raises (fix the descriptor `errors` in \
+         src/codegen/builtins/{package_name}/func_*.rs):\n  {}",
+        result.mismatched.len(),
+        result.mismatched.join("\n  ")
+    );
+}
