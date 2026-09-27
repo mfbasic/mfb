@@ -659,20 +659,26 @@ pub fn nir_for_src(
     build_mode: crate::target::NativeBuildMode,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     let source = source.to_string();
+    // The dial is a THREAD-local override in tests (`optimizer::with_opt_level`),
+    // so the lowering thread below would otherwise run at the default level
+    // whatever the caller pinned. Carry the caller's level across.
+    let level = crate::optimizer::active_opt_level();
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .name(format!("nir_for_src({})", target.name()))
         .spawn(move || {
-            let ir = lower_src_concrete(&source, Some(main_entry(&source)));
-            crate::target::shared::lower::lower_project(
-                &ir,
-                target.name().to_string(),
-                &[],
-                build_mode,
-                None,
-                crate::codegen::debug::DebugOptions::OFF,
-            )
-            .map_err(|err| format!("{err:?}"))
+            crate::optimizer::with_opt_level(level, || {
+                let ir = lower_src_concrete(&source, Some(main_entry(&source)));
+                crate::target::shared::lower::lower_project(
+                    &ir,
+                    target.name().to_string(),
+                    &[],
+                    build_mode,
+                    None,
+                    crate::codegen::debug::DebugOptions::OFF,
+                )
+                .map_err(|err| format!("{err:?}"))
+            })
         })
         .expect("spawn the lowering thread")
         .join()

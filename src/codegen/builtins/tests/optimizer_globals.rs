@@ -213,8 +213,15 @@ END FUNC
 /// asserts exactly that, and it could not have been written against the dropped
 /// module.
 fn module_at(level: u8, source: &str) -> NirModule {
-    let mut module = nir_for_src(source, CodeTarget::LinuxX86_64, Console)
-        .unwrap_or_else(|err| panic!("the program must lower to NIR: {err}"));
+    // Lower with every dial row off, so the only optimization the module sees
+    // is the `simplify` call below at `level`. `nir_for_src` runs the Opt1 seam
+    // at whatever level is active, and since plan-161-A the default `-O1` folds
+    // literal `LET` reads — so lowering at the ambient level handed these tests
+    // a module whose `LIMIT` reads were already gone, whatever `level` said.
+    let mut module = with_opt_level(OptLevel(0), || {
+        nir_for_src(source, CodeTarget::LinuxX86_64, Console)
+    })
+    .unwrap_or_else(|err| panic!("the program must lower to NIR: {err}"));
     let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
     assert!(
         module
