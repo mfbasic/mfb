@@ -193,6 +193,7 @@ copies.
   `S4 … 10000 more blocks … rebuilds the owner`, likewise ForEach/Lambda/Global/OwnedParam/S5–S10/T2–T8)
   while S3/T1/T3 meet `rebuild:not-last-grow`. The filter is the full signature prefix
   `collections::repeat`: a bare `repeat` also selects the `strings::repeat` rows.
+Commit: 45ebf7fe3
 
 ### Phase 2 — the arm
 
@@ -220,7 +221,7 @@ Acceptance: the Phase 1 rows pass the `arm` bound and the failure-atomicity
 cases pass.
   Check: `cargo test --test rt_inplace_self_update -- --ignored && cargo test --test rt_inplace_failure_atomic` → pass (est. 6 min);
   `cargo test --bin mfb self_update` → the table and census unit tests pass (est. 3 min).
-Commit: 45ebf7fe3
+Commit: —
 
 ### Phase 3 — spec sync and example adoption
 

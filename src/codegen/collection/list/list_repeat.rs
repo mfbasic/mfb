@@ -240,7 +240,11 @@ impl CodeBuilder<'_> {
         // alloc size = HEADER + newCapacity * ENTRY + newDataCapacity (checked,
         // bug-147.7: every term is runtime-derived).
         self.emit(abi::load_u64(&a, abi::stack_pointer(), new_cap_slot));
-        self.emit(abi::move_immediate(&b, "Integer", &entry_stride.to_string()));
+        self.emit(abi::move_immediate(
+            &b,
+            "Integer",
+            &entry_stride.to_string(),
+        ));
         self.emit_checked_size_multiply(&c, &a, &b, &size_overflow);
         self.emit_checked_size_add_immediate(
             abi::return_register(),
@@ -307,7 +311,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
             self.emit(abi::add_immediate(&src, &base, COLLECTION_HEADER_SIZE));
             self.emit(abi::load_u64(&a, &base, COLLECTION_OFFSET_COUNT));
-            self.emit(abi::move_immediate(&b, "Integer", &entry_stride.to_string()));
+            self.emit(abi::move_immediate(
+                &b,
+                "Integer",
+                &entry_stride.to_string(),
+            ));
             self.emit(abi::multiply_registers(&len, &a, &b));
             self.emit_block_copy_advance(&dst, &src, &len, &copy, "list_repeat_grow_entries");
         }
@@ -346,7 +354,11 @@ impl CodeBuilder<'_> {
                 let list = self.temporary_vreg();
                 self.emit(abi::load_u64(&b, abi::stack_pointer(), start_slot));
                 self.emit(abi::subtract_registers(&a, &a, &b));
-                self.emit(abi::move_immediate(&b, "Integer", &entry_stride.to_string()));
+                self.emit(abi::move_immediate(
+                    &b,
+                    "Integer",
+                    &entry_stride.to_string(),
+                ));
                 self.emit(abi::multiply_registers(&a, &a, &b));
                 self.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
                 self.emit(abi::add_registers(&a, &a, &list));
