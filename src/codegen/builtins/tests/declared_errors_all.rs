@@ -26,6 +26,22 @@ const ARENA: &[(&str, &str)] = &[
     ("_mfb_arena_free", "releases a block; never fails"),
 ];
 
+/// [`ARENA`] plus `_mfb_rt_validate_utf8` — the shared UTF-8 validation helper
+/// (`fs_declared_errors.rs` classifies the same symbol the same way): it
+/// returns 0/1 in `x0` and the caller raises `ErrEncoding` off that, so the
+/// helper itself never raises.
+const ARENA_UTF8: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_rt_validate_utf8",
+        "returns 0/1 in x0; the caller raises ErrEncoding",
+    ),
+];
+
 #[test]
 fn every_datetime_member_declares_exactly_the_errors_its_lowering_raises() {
     assert_package_declares_exactly_the_errors_its_lowering_raises(
@@ -143,6 +159,46 @@ const TCP_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
      branches to the shared connect_timeout/ErrTimeout label; the `if listen` \
      arm (bind + listen(2)) does not",
 )];
+
+#[test]
+fn every_big_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises("big", ARENA, NONE_P, NONE_U, 1);
+}
+
+#[test]
+fn every_os_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "os", ARENA_UTF8, NONE_P, NONE_U, 1,
+    );
+}
+
+#[test]
+fn every_process_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "process", ARENA, NONE_P, NONE_U, 1,
+    );
+}
+
+#[test]
+fn every_thread_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "thread", ARENA, NONE_P, NONE_U, 1,
+    );
+}
+
+#[test]
+fn every_canvas_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "canvas", ARENA, NONE_P, NONE_U, 1,
+    );
+}
+
+#[test]
+fn every_crypto_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "crypto", ARENA, NONE_P, NONE_U, 1,
+    );
+}
 
 #[test]
 fn every_tcp_member_declares_exactly_the_errors_its_lowering_raises() {

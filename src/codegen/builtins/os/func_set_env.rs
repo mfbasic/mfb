@@ -132,7 +132,7 @@ processes spawned afterward. It maps to the host `setenv(name, value, 1)`.
 environment calls, so a read in another `thread::` worker sees the variable
 either before or after the change. A `name` that is empty or contains `=` is
 rejected with `ErrInvalidArgument`, since the host uses `=` to separate a name
-from its value."#;
+from its value. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Set a variable and read it back:
 
 ```
@@ -171,7 +171,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::abi_function(lower_set_env),
         }],
     });

@@ -37,7 +37,7 @@ one deliberately set to the empty string. Use `os::getEnvOr` to supply a fallbac
 instead of raising, or `os::hasEnv` to test presence without reading the value.
 
 `os::getEnv` is **not pure**: its result depends on host and prior-`setEnv`
-state. It reads process state only and has no side effects."#;
+state. It reads process state only and has no side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read a variable that is expected to be present:
 
 ```
@@ -82,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrNotFound", "ErrOutOfMemory"],
             body: Body::abi_function(lower_get_env),
         }],
     });

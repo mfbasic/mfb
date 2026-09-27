@@ -176,7 +176,7 @@ pub(crate) fn lower_version(
 const INTRO: &str = r#"The operating-system version string"#;
 const DESC: &str = r#"`os::version` returns the host operating-system version: the kernel release on
 Linux, the user-facing product version on macOS, and the Windows build number on
-Windows."#;
+Windows. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the OS version:
 
 ```
@@ -199,7 +199,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrUnsupported"],
+            errors: vec!["ErrUnsupported", "ErrOutOfMemory"],
             body: Body::abi_function(lower_version),
         }],
     });

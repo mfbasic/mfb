@@ -29,7 +29,7 @@ const INTRO: &str = r#"The CPU architecture the program was built for"#;
 const DESC: &str = r#"`os::arch` returns the CPU architecture of the build target: `"aarch64"`,
 `"x86_64"`, or `"riscv64"`. Like `os::name`, it is a compile-time constant fixed
 at build time and produced directly as a `String`, with no host
-call."#;
+call. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Print the architecture:
 
 ```
@@ -52,7 +52,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_arch),
         }],
     });
