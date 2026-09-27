@@ -22,7 +22,11 @@
 #
 # The six `*_on_black` rows are bug-687's: shapes over the default black surface, where
 # one step of coverage is several sRGB levels, so a GPU distance that rounds to a different
-# coverage step than the oracle's shows past `GPU_DEFAULT`.
+# coverage step than the oracle's shows past `GPU_DEFAULT`. The eleven after them are
+# bug-735's: the same bar for every other shape kind, a non-grid stroke half-width, a
+# non-grid group offset, transformed and clipped shapes, and rectangle and clip edges
+# placed beside a coverage step; and `hairline`, a blended item stroked under the 16.16
+# step, which the draw list and the emitters used to split differently.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -37,8 +41,15 @@
 #                                        [--rows <name,name,...>]
 #
 #   --target  linux-x86_64 (default, box 2228), linux-aarch64 (box 2226) or
-#             windows-x86_64 (box 2230).
-#   --box     the ssh port, when it is not the target's default box.
+#             windows-x86_64 (box 206, `test@192.168.1.206`: real hardware, an Intel
+#             UHD 630 with Intel's own Vulkan driver).
+#   --box     the ssh port, when it is not the target's default box. A port names one
+#             of the forwarded boxes on 127.0.0.1 (2230 for Windows lavapipe).
+#
+# Windows rows run on 206, not 2230, by owner decision (bug-741): 2230's lavapipe faults
+# inside `vulkan_lvp.dll` in about 1 GPU run in 7 whatever the scene, and 206's real
+# driver ran the same program 40 of 40 times clean. 2230 stays for non-GPU Windows
+# tests.
 #   --libc    which AppImage to ship on Linux (default glibc; box 2227 is musl).
 #   --icd     a Linux Vulkan driver manifest, or `auto` to provision Mesa's software
 #             driver on an Alpine box — as `test-canvas-vulkan.sh --icd`.
@@ -70,7 +81,7 @@ done
 case "$TARGET" in
   linux-x86_64) PORT="${PORT:-2228}" ;;
   linux-aarch64) PORT="${PORT:-2226}" ;;
-  windows-x86_64) PORT="${PORT:-2230}" ;;
+  windows-x86_64) PORT="${PORT:-22}" ;;
   *) echo "unsupported --target $TARGET" >&2; exit 2 ;;
 esac
 
@@ -80,6 +91,8 @@ cd "$ROOT"
 rc_workdir
 SCENES="tests/canvas/scenes"
 host="test@127.0.0.1"
+# Port 22 is box 206 on the LAN; every other port is a box forwarded to localhost.
+[ "$PORT" = 22 ] && host="test@192.168.1.206"
 
 # name | scene file | kind
 #   render   sw + gpu, compared; the gpu frame must be a GPU frame
@@ -100,6 +113,18 @@ star301x2|star_301_2_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
 rectsblack|rectangles_on_black|render
+circlesblack|circles_on_black|render
+ellipsesblack|ellipses_on_black|render
+linesblack|lines_on_black|render
+arcsblack|arcs_on_black|render
+strokedpolysblack|stroked_polygons_on_black|render
+polylinesblack|polylines_on_black|render
+groupsblack|grouped_polygons_on_black|render
+strokedblack|stroked_shapes_on_black|render
+rectstepblack|rectangles_at_a_step_on_black|render
+clipstepblack|clips_at_a_step_on_black|render
+xformblack|transformed_shapes_on_black|render
+hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo
@@ -207,7 +232,7 @@ check_geometry() {
   fi
 }
 
-echo "=== bug-688 rows on $TARGET, box $PORT ==="
+echo "=== bug-688 rows on $TARGET, $host port $PORT ==="
 if [ "$TARGET" != windows-x86_64 ]; then
   remote_ssh "$PORT" "$host" "rm -rf /tmp/mfb-rows-$$"
 fi
@@ -301,7 +326,7 @@ while IFS='|' read -r row scene kind <&3; do
 done 3<<< "$ROWS"
 
 # The work dirs carry this run's pid, on Windows as on Linux, so two runs against one box
-# (several agents share 2230) never overwrite each other's programs or frames.
+# (several agents share a box) never overwrite each other's programs or frames.
 if [ "$TARGET" != windows-x86_64 ]; then
   remote_ssh "$PORT" "$host" "rm -rf /tmp/mfb-rows-$$"
 else

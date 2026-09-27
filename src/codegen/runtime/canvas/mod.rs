@@ -390,8 +390,8 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
 /// staying in step. Each backend emits the *stores* in its own IR flavour; the
 /// *layout* is here, once.
 ///
-/// Six `ivec4`s and a seventh holding the surface size. Every member is an `ivec4` so
-/// the two shading languages' packing rules cannot disagree.
+/// Seventeen `ivec4`s, one of them holding the surface size. Every member is an `ivec4`
+/// so the two shading languages' packing rules cannot disagree.
 ///
 /// **The bound is the item buffer, not a push-constant range** (plan-116-A). Until
 /// then the block rode `vkCmdPushConstants` / `setVertexBytes:` and 112 was chosen to
@@ -405,14 +405,14 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 208` with members at
-/// 0/16/32/48/64/80/96/112/128/144/160/176/192 (`glslangValidator -V -q
-/// mfb_canvas.vert`, re-measured 2026-09-02 when plan-116-F added the gradient axis
-/// `ivec4`), matching the
+/// `ItemBlock` must report `topLevelArrayStride` equal to this size with one member per
+/// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
+/// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
+/// residual `ivec4`s at 208/224/240/256 since bug-735), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 208;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 272;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -422,11 +422,13 @@ pub(crate) const ITEM_OFFSET_FILL: usize = 32;
 pub(crate) const ITEM_OFFSET_STROKE: usize = 48;
 /// `kind`, `radius` (16.16), `strokeHalf` (16.16), `edgeCount`.
 pub(crate) const ITEM_OFFSET_MISC: usize = 64;
-/// The arc's `startAngle`, `endAngle` (16.16 radians), then the polygon's first-edge
-/// index into the Vulkan edge buffer, then one unused word.
+/// A glyph's or picture's bitmap height (`ITEM_ARC_GLYPH_HEIGHT`, 0 otherwise), an
+/// arc's `reflex` flag (`ITEM_ARC_REFLEX`), then the polygon's first-edge index into the
+/// frame's edge region, then the cap tag. The first two words held the arc's 16.16
+/// angles until bug-735.
 ///
-/// Slots 2 and 3 are per-kind the same way `HEADER_AUX0` is: an arc never reads the
-/// edge base and a polygon never reads the angles, so one `ivec4` carries both rather
+/// The words are per-kind the same way `HEADER_AUX0` is: an arc never reads the
+/// edge base and a polygon never reads the flag, so one `ivec4` carries both rather
 /// than each taking its own. Both backends carry the edge base since plan-116-A: each
 /// polygon takes a slice of one buffer that serves the whole frame, and this is where
 /// the offset travels.
@@ -494,10 +496,13 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// 16 so std430's array stride still equals the size —
 /// `the_item_block_matches_the_std430_stride` is what pins that.
 ///
-/// Only a `Round`-capped arc reads them. Every item pays 16 bytes of buffer for it,
-/// which is the trade: the alternative is a per-pixel `sin`/`cos` pair in three
-/// renderers, and the deterministic series the oracle requires is far more expensive
-/// than a fetch.
+/// Every arc reads them since bug-735: a `Round` cap's two discs, and for every cap the
+/// sweep test's direction vectors, which are the endpoints less the centre -- a positive
+/// multiple of the oracle's Taylor `(cos, sin)`, so the shaders need no trigonometry at
+/// all. Every item pays 16 bytes of buffer for it, which is the trade: the alternative
+/// is a per-pixel `sin`/`cos` pair in three renderers, and the deterministic series the
+/// oracle requires is far more expensive than a fetch. Their residuals are in
+/// `ITEM_OFFSET_CAPS_LO`.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
 /// A **polygon**'s band-index header in the same `ivec4` (bug-686 on Metal, bug-688 on
 /// Vulkan): `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over
@@ -519,11 +524,12 @@ pub(crate) const ITEM_BAND_START: usize = 12;
 /// costs exactly what a full one does and keeps every member `ivec4`-sized — which is
 /// the property `the_item_block_matches_the_std430_stride` exists to hold.
 ///
-/// **16.16 is enough here and would not be for the radii.** These are a cosine and a
-/// sine, so `|v| <= 1` and the fixed-point step is 1/65536 — an angular error under
-/// 1.6e-5 rad, which at radius 900 displaces the rim by 0.014 px, a fiftieth of a
-/// coverage step. The CPU still evaluates the deterministic Taylor pair; this is only
-/// how the answer travels.
+/// **16.16 alone was not enough here**, though this said it was: the fixed-point step
+/// is an angular error up to 7.6e-6 rad, which at radius 26 moves the rim by 2e-4 px,
+/// and a pixel within that of a coverage step rounds to the neighbouring step -- 3-9
+/// sRGB levels near black (bug-735). Both words carry a residual in `ITEM_OFFSET_MISC_LO`
+/// since. The CPU still evaluates the deterministic Taylor pair; this is only how the
+/// answer travels.
 pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
 /// A gradient's axis in 16.16 — `startPoint.x, startPoint.y, endPoint.x, endPoint.y`
 /// (plan-116-F).
@@ -537,6 +543,222 @@ pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
 /// `.ai/canvas-threading.md` lists the five things that move and which three are
 /// silent.
 pub(crate) const ITEM_OFFSET_GRADIENT: usize = 192;
+/// bug-735: the **residual words** of the fields a distance reads, one `ivec4` per
+/// 16.16 `ivec4` they refine, each `round((v * 65536 - word) * 2^31)` in units of
+/// 2^-47 px (`EDGE_RESIDUAL_SCALE`, the encoding bug-687 gave the polygon edges).
+///
+/// A field narrowed to 16.16 alone moves a distance by up to ~1.5e-5 px, and where the
+/// oracle's f64 distance lies closer than that to a coverage quantisation step the GPU
+/// rounds to the neighbouring one -- near black, 3-12 sRGB levels, past `GPU_DEFAULT`.
+/// bug-735's C model showed the narrowing alone does it for rectangles and clips whose
+/// edges sit near a step (the arithmetic there is nearly exact in fp32), so every field
+/// a distance reads carries its residual and both shaders add it back in double-float:
+///
+/// * `shapeLo` (208) -- `shape.xyzw`: centres, half-extents, radii, line endpoints,
+///   ellipse axes;
+/// * `capsLo` (224) -- `arcCaps.xyzw`, an arc's sweep endpoints (a polygon's band
+///   header there has none: its header slots are zero, so these are too);
+/// * `clipLo` (240) -- `clip.xyzw`;
+/// * `miscLo` (256) -- the residuals of `misc.y` (radius) and `misc.z` (stroke
+///   half-width), then of `ellipse.x`/`.y` (the rotation's cosine and sine).
+///
+/// Four `ivec4`s at the block's end rather than a parallel region like the edges':
+/// every item has these fields, so a per-item index would cost as much as the words.
+pub(crate) const ITEM_OFFSET_SHAPE_LO: usize = 208;
+pub(crate) const ITEM_OFFSET_CAPS_LO: usize = 224;
+pub(crate) const ITEM_OFFSET_CLIP_LO: usize = 240;
+pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
+/// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
+/// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
+/// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
+/// differ from the oracle's. It replaced the 16.16 end angle, which the shaders turned
+/// into a sweep vector with GPU `cos`/`sin` -- transcendentals that do not match the
+/// oracle's deterministic Taylor pair. The sweep vectors now come from the arc's cap
+/// endpoints (`arcCaps` minus the centre, a positive multiple of `(cos, sin)`), so no
+/// angle reaches either shader and `arc.x` is written 0 for every kind but a glyph or
+/// picture, which put their bitmap height there.
+pub(crate) const ITEM_ARC_REFLEX: usize = 4;
+
+/// bug-735: every item-block field a distance reads, as `(header slot, word offset,
+/// residual offset)` -- offsets into the block. Both emitters narrow each one with
+/// [`emit_item_residual_field`], so the Metal and Vulkan blocks carry the same residuals
+/// by construction.
+pub(crate) const ITEM_RESIDUAL_FIELDS: [(usize, usize, usize); 16] = [
+    (HEADER_SHAPE, ITEM_OFFSET_SHAPE, ITEM_OFFSET_SHAPE_LO),
+    (
+        HEADER_SHAPE + 1,
+        ITEM_OFFSET_SHAPE + 4,
+        ITEM_OFFSET_SHAPE_LO + 4,
+    ),
+    (
+        HEADER_SHAPE + 2,
+        ITEM_OFFSET_SHAPE + 8,
+        ITEM_OFFSET_SHAPE_LO + 8,
+    ),
+    (
+        HEADER_SHAPE + 3,
+        ITEM_OFFSET_SHAPE + 12,
+        ITEM_OFFSET_SHAPE_LO + 12,
+    ),
+    (
+        HEADER_CAP_START_X,
+        ITEM_OFFSET_ARC_CAPS,
+        ITEM_OFFSET_CAPS_LO,
+    ),
+    (
+        HEADER_CAP_START_X + 1,
+        ITEM_OFFSET_ARC_CAPS + 4,
+        ITEM_OFFSET_CAPS_LO + 4,
+    ),
+    (
+        HEADER_CAP_END_X,
+        ITEM_OFFSET_ARC_CAPS + 8,
+        ITEM_OFFSET_CAPS_LO + 8,
+    ),
+    (
+        HEADER_CAP_END_X + 1,
+        ITEM_OFFSET_ARC_CAPS + 12,
+        ITEM_OFFSET_CAPS_LO + 12,
+    ),
+    (HEADER_CLIP_X0, ITEM_OFFSET_CLIP, ITEM_OFFSET_CLIP_LO),
+    (
+        HEADER_CLIP_Y0,
+        ITEM_OFFSET_CLIP + 4,
+        ITEM_OFFSET_CLIP_LO + 4,
+    ),
+    (
+        HEADER_CLIP_X1,
+        ITEM_OFFSET_CLIP + 8,
+        ITEM_OFFSET_CLIP_LO + 8,
+    ),
+    (
+        HEADER_CLIP_Y1,
+        ITEM_OFFSET_CLIP + 12,
+        ITEM_OFFSET_CLIP_LO + 12,
+    ),
+    (HEADER_RADIUS, ITEM_OFFSET_MISC + 4, ITEM_OFFSET_MISC_LO),
+    (
+        HEADER_STROKE_HALF,
+        ITEM_OFFSET_MISC + 8,
+        ITEM_OFFSET_MISC_LO + 4,
+    ),
+    (
+        HEADER_ELLIPSE_COS,
+        ITEM_OFFSET_ELLIPSE,
+        ITEM_OFFSET_MISC_LO + 8,
+    ),
+    (
+        HEADER_ELLIPSE_SIN,
+        ITEM_OFFSET_ELLIPSE + 4,
+        ITEM_OFFSET_MISC_LO + 12,
+    ),
+];
+
+/// `PI` (`3.141592653589793`, the constant `__canvas_drawGeometry` compares an arc's
+/// sweep against) as its IEEE-754 double bit pattern.
+const PI_F64_BITS: &str = "4614256656552045848";
+
+/// bug-735: narrow one header slot to its 16.16 word at `block + word_at` and its
+/// residual `round((v * 65536 - word) * 2^31)` at `block + residual_at` (both offsets
+/// from the stack pointer) -- the encoding bug-687 gave the polygon edges, for a field
+/// of the item block. `v * 65536 - word` is exact: the two are within half a step.
+///
+/// Expects `FP_SCRATCH[0]` to hold 65536.0 (`FIXED_POINT_SCALE`) and `FP_SCRATCH[3]`
+/// 2^31 (`EDGE_RESIDUAL_SCALE`); clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`. Plain
+/// instructions, so the Metal `Asm` and the Vulkan `CodeBuilder` emit the same ones.
+pub(crate) fn emit_item_residual_field(
+    header: abi::Reg,
+    slot: usize,
+    word_at: usize,
+    residual_at: usize,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_double(abi::FP_SCRATCH[1], header, slot * 8),
+        abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[0]),
+        abi::float_round_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), word_at),
+        abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
+        abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
+        abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[3]),
+        abi::float_round_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+    ]
+}
+
+/// bug-735: make the stroke half-width's `(misc.z, miscLo.y)` pair positive exactly when
+/// the header's f64 half-width is -- the test the software rasteriser strokes on
+/// (`half > 0.0`) and `__canvas_blockInstances` splits a blended item on.
+///
+/// `__canvas_strokeHalf` answers -1 or `strokeWidth / 2`, so only a half-width under
+/// 2^-48 px can narrow to a zero word AND a zero residual; this makes its residual 1
+/// (2^-47 px). Without it the shaders and the emitters' split test would read it as "does
+/// not stroke" while the oracle strokes it and the draw list counts two records for it.
+/// `positive` and `done` are two fresh labels; clobbers `FP_SCRATCH[1..=2]` and
+/// `SCRATCH[1]`. Runs after [`emit_item_residual_field`] wrote the pair.
+pub(crate) fn emit_item_stroke_sign(
+    header: abi::Reg,
+    block_at: usize,
+    positive: &str,
+    done: &str,
+) -> Vec<CodeInstruction> {
+    let residual_at = block_at + ITEM_OFFSET_MISC_LO + 4;
+    vec![
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_STROKE_HALF * 8),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),
+        abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
+        abi::float_compare_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
+        abi::branch_gt(positive),
+        abi::branch(done),
+        abi::label(positive),
+        abi::load_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            block_at + ITEM_OFFSET_MISC + 8,
+        ),
+        abi::compare_immediate(abi::SCRATCH[1], "0"),
+        abi::branch_ne(done),
+        abi::load_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+        abi::compare_immediate(abi::SCRATCH[1], "0"),
+        abi::branch_ne(done),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", "1"),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+        abi::label(done),
+    ]
+}
+
+/// bug-735: the item block's `arc.x` (0) and `arc.y` (`ITEM_ARC_REFLEX`) at
+/// `block_at` from the stack pointer: `endAngle - startAngle > PI` in f64, the oracle's
+/// own test, for every kind -- only an arc reads it. `set` and `done` are two fresh
+/// labels. Clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`.
+pub(crate) fn emit_item_arc_flags(
+    header: abi::Reg,
+    block_at: usize,
+    set: &str,
+    done: &str,
+) -> Vec<CodeInstruction> {
+    let reflex_at = block_at + ITEM_OFFSET_ARC + ITEM_ARC_REFLEX;
+    vec![
+        abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),
+        abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            block_at + ITEM_OFFSET_ARC,
+        ),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), reflex_at),
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_AUX1 * 8),
+        abi::load_double(abi::FP_SCRATCH[2], header, HEADER_AUX0 * 8),
+        abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", PI_F64_BITS),
+        abi::float_move_d_from_x(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
+        abi::float_compare_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
+        abi::branch_gt(set),
+        abi::branch(done),
+        abi::label(set),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", "1"),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), reflex_at),
+        abi::label(done),
+    ]
+}
 /// The gradient's kind (0 linear, 1 radial) in `surface.w`, which was the block's last
 /// spare word.
 pub(crate) const ITEM_SURFACE_GRADIENT_KIND: usize = 12;
@@ -757,9 +979,10 @@ pub(crate) const HEADER_CAP: usize = 34;
 /// An arc's two sweep endpoints in surface pixels, `startX, startY, endX, endY`
 /// (plan-116-D).
 ///
-/// Only a `Round`-capped arc reads them, but they are written by every arc, because a
-/// per-shape constant computed once at header-build time is the cheap half of this
-/// letter: a cap disc centred on the endpoint would otherwise need a `sin`/`cos` pair
+/// Written by every arc and, on the GPU since bug-735, read by every arc (the sweep
+/// test's direction vectors; the software rasteriser reads them for a `Round` cap
+/// only), because a per-shape constant computed once at header-build time is the cheap
+/// half of this letter: a cap disc centred on the endpoint would otherwise need a `sin`/`cos` pair
 /// **per pixel** in each of three renderers, and `__canvas_cos`/`__canvas_sin` are the
 /// deterministic Taylor series the oracle needs rather than libm. The arc header
 /// already calls them for its sweep vectors, so this costs two multiply-adds each.

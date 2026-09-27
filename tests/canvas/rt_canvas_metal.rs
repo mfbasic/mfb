@@ -1230,3 +1230,173 @@ fn rectangles_over_black_match_the_software_oracle() {
         "140 filled rectangles over black",
     );
 }
+
+// ---------------------------------------------------------------------------------------
+// bug-735: every other shape kind over black. bug-687 fixed the filled polygon; these rows
+// hold the rest -- every distance input carried at double-float precision and every
+// distance evaluated in double-float, in both shaders. Shared with
+// `scripts/test-canvas-gpu-rows.sh`, which draws them on Vulkan.
+// ---------------------------------------------------------------------------------------
+
+/// 140 filled circles over black (bug-735). Metal put 2 pixels past `GPU_DEFAULT` here before
+/// bug-735, worst 6.
+const CIRCLES_ON_BLACK: &str = include_str!("scenes/circles_on_black.mfb");
+
+#[test]
+fn circles_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_circles_on_black",
+        CIRCLES_ON_BLACK,
+        "140 filled circles over black",
+    );
+}
+
+/// 140 filled rotated ellipses over black (bug-735): the 24-step bisection in fp32 took a
+/// different branch than the oracle's f64 one. 8 pixels past `GPU_DEFAULT` before, worst 9.
+const ELLIPSES_ON_BLACK: &str = include_str!("scenes/ellipses_on_black.mfb");
+
+#[test]
+fn rotated_ellipses_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_ellipses_on_black",
+        ELLIPSES_ON_BLACK,
+        "140 filled rotated ellipses over black",
+    );
+}
+
+/// 140 round-capped 2-px lines over black (bug-735). 1 pixel past `GPU_DEFAULT` before, worst 3.
+const LINES_ON_BLACK: &str = include_str!("scenes/lines_on_black.mfb");
+
+#[test]
+fn round_capped_lines_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_lines_on_black",
+        LINES_ON_BLACK,
+        "140 round-capped lines over black",
+    );
+}
+
+/// 140 butt-capped 2-px arcs over black (bug-735). 3 pixels past `GPU_DEFAULT` before, worst 9.
+const ARCS_ON_BLACK: &str = include_str!("scenes/arcs_on_black.mfb");
+
+#[test]
+fn butt_capped_arcs_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_arcs_on_black",
+        ARCS_ON_BLACK,
+        "140 butt-capped arcs over black",
+    );
+}
+
+/// 140 stroked polygons over black whose half-width is off the 16.16 grid (bug-735): the
+/// half-width reached the shader as 16.16. 1 pixel past `GPU_DEFAULT` before, worst 3.
+const STROKED_POLYGONS_ON_BLACK: &str = include_str!("scenes/stroked_polygons_on_black.mfb");
+
+#[test]
+fn polygon_strokes_off_the_fixed_point_grid_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_stroked_polygons_on_black",
+        STROKED_POLYGONS_ON_BLACK,
+        "140 stroked polygons over black",
+    );
+}
+
+/// 140 round-capped 40-point polylines over black (bug-735). 2 pixels past `GPU_DEFAULT`
+/// before, worst 6.
+const POLYLINES_ON_BLACK: &str = include_str!("scenes/polylines_on_black.mfb");
+
+#[test]
+fn polylines_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_polylines_on_black",
+        POLYLINES_ON_BLACK,
+        "140 round-capped polylines over black",
+    );
+}
+
+/// 140 filled polygons over black, each in a group drawn at an offset off the 16.16 grid
+/// (bug-735): the draw offset reached the shader as 16.16. 4 pixels past `GPU_DEFAULT`
+/// before, worst 4.
+const GROUPED_POLYGONS_ON_BLACK: &str = include_str!("scenes/grouped_polygons_on_black.mfb");
+
+#[test]
+fn polygons_in_groups_at_off_grid_offsets_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_grouped_polygons_on_black",
+        GROUPED_POLYGONS_ON_BLACK,
+        "140 grouped polygons over black",
+    );
+}
+
+/// Butt-capped lines, round-capped arcs, filled-and-stroked circles, ellipses and rounded
+/// rectangles, and butt-capped polylines over black, every stroke width off the 16.16 grid
+/// (bug-735). 5 pixels past `GPU_DEFAULT` before, worst 12.
+const STROKED_SHAPES_ON_BLACK: &str = include_str!("scenes/stroked_shapes_on_black.mfb");
+
+#[test]
+fn stroked_and_capped_shapes_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_stroked_shapes_on_black",
+        STROKED_SHAPES_ON_BLACK,
+        "butt lines, round arcs, stroked closed shapes and butt polylines over black",
+    );
+}
+
+/// 140 rectangles over black whose every edge sits a few 1e-6 px from a coverage step
+/// (bug-735). `rectangles_on_black` passes at worst 2 only because its edges happen to
+/// land away from one; these do not, and the 16.16 narrowing alone moved 3,623 pixels
+/// past `GPU_DEFAULT` before (worst 12).
+const RECTANGLES_AT_A_STEP_ON_BLACK: &str =
+    include_str!("scenes/rectangles_at_a_step_on_black.mfb");
+
+#[test]
+fn rectangles_with_edges_at_a_coverage_step_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_rectangles_at_a_step",
+        RECTANGLES_AT_A_STEP_ON_BLACK,
+        "rectangles with every edge beside a coverage step",
+    );
+}
+
+/// The same edges as `rectangles_at_a_step_on_black`, but as a `Paint.clip` (bug-735):
+/// the clip's own coverage is the same rectangle distance. 4,684 pixels past
+/// `GPU_DEFAULT` before, worst 12.
+const CLIPS_AT_A_STEP_ON_BLACK: &str = include_str!("scenes/clips_at_a_step_on_black.mfb");
+
+#[test]
+fn clips_with_edges_at_a_coverage_step_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_clips_at_a_step",
+        CLIPS_AT_A_STEP_ON_BLACK,
+        "clip rectangles with every edge beside a coverage step",
+    );
+}
+
+/// The items of `stroked_shapes_on_black`, each under a rotation and scale about its
+/// centre, every other one clipped (bug-735): the five-sample transformed path and the
+/// clip in double-float. 5 pixels past `GPU_DEFAULT` before, worst 9.
+const TRANSFORMED_SHAPES_ON_BLACK: &str = include_str!("scenes/transformed_shapes_on_black.mfb");
+
+#[test]
+fn transformed_and_clipped_shapes_over_black_match_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_transformed_shapes_on_black",
+        TRANSFORMED_SHAPES_ON_BLACK,
+        "transformed, clipped, stroked and capped shapes over black",
+    );
+}
+
+/// A Multiply-blended filled rectangle stroked 1e-5 px wide, then two opaque items
+/// (bug-735). The draw list splits it into two records on the f64 `half > 0`; before
+/// bug-735 both emitters split on the 16.16 word, 0 here, and published one, so every
+/// later draw named the wrong block: 20,632 pixels wrong on Metal, worst 101.
+const BLENDED_HAIRLINE_STROKE: &str = include_str!("scenes/blended_hairline_stroke.mfb");
+
+#[test]
+fn a_blended_item_stroked_under_the_fixed_point_step_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_blended_hairline_stroke",
+        BLENDED_HAIRLINE_STROKE,
+        "a blended rectangle with a 1e-5 px stroke, then two opaque items",
+    );
+}

@@ -458,8 +458,14 @@ worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, 
 per contiguous run of blocks at a given offset:
 
 ```
-(itemBase, itemCount, dx, dy, blendMode, 0, 0, 0)     eight 64-bit words
+(itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo, 0)     eight 64-bit words
 ```
+
+`dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
+words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
+(`int4`/`ivec4`, 16 bytes), and the fragment stage subtracts word plus residual in
+double-float. The 16.16 word alone is up to 2^-16 px from the offset the software
+rasteriser subtracts, and near black that moved a coverage step of every grouped item.
 
 Each backend walks it once, after every block is published, and issues one instanced
 draw per entry: `vkCmdDraw` with `firstInstance = itemBase`, or
@@ -998,8 +1004,8 @@ capped at 64.
 
 Widening the per-item block is the single most repeated change in plan-116 — A grew it
 for the item buffer, C for the transform, D for the arc caps, E for the ellipse, and F
-twice (the ellipse `ivec4`, then the gradient one, reaching 208) — and each time it
-moved the same set. Three of them are unrelated by any type, and none of the three
+twice (the ellipse `ivec4`, then the gradient one, reaching 208) — and bug-735 added four
+residual `ivec4`s (272); each time it moved the same set. Three of them are unrelated by any type, and none of the three
 fails loudly.
 
 It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
@@ -1014,10 +1020,13 @@ It was five until plan-116-F added a **third** buffer region; the sixth is item 
    `glslangValidator -V -q mfb_canvas.vert | grep topLevelArrayStride` on box 2228
    (`scripts/regen-spirv.sh` shows how it gets there; the tool is not on the mac host).
 3. **Metal's hand-assigned stack frame.** The block is built at `OFF_ITEM` in a frame
-   whose slots are hand-numbered, so widening it runs the block into `OFF_TEXTURE` and
-   every slot above must shift, with `DRAW_FRAME` growing to match. An overlap
-   corrupts a pointer the `objc_msgSend` sequence reads and produces a **black GPU
-   frame that reports success**.
+   whose slots are hand-numbered. Until bug-735 widening it ran the block into
+   `OFF_TEXTURE` and every slot above had to shift by hand; they are now written as
+   `OFF_TEXTURE + n` with `OFF_TEXTURE = OFF_ITEM + ITEM_BLOCK_SIZE`, so they move by
+   construction and `DRAW_FRAME` with them. An overlap corrupts a pointer the
+   `objc_msgSend` sequence reads and produces a **black GPU frame that reports
+   success**, so the overlap test still earns its keep: a slot that GROWS (bug-735's
+   16-byte `OFF_DRAW_PAIR`) is the case construction does not cover.
 4. **`METAL_EDGE_BASE`** and every later Metal region base (band, gradient, glyph,
    picture table). Since bug-686 these are no longer literals: `METAL_SHADER_SOURCE` is
    built at first use with the bases formatted in from the `METAL_*_BASE_WORDS`

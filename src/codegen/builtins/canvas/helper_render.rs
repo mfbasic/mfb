@@ -395,8 +395,9 @@ FUNC __canvas_memoLookup(slot AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-' Append one draw entry: four integers, offsets in 16.16 so the whole list stays
-' `List OF Integer` and reaches an emitter without a second parallel Float list.
+' Append one draw entry: offsets in 16.16 so the whole list stays `List OF Integer`
+' and reaches an emitter without a second parallel Float list -- each with its residual
+' word (bug-735), so the shaders recover the offset the oracle subtracts to 2^-47 px.
 SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
   IF count <= 0 THEN
     EXIT SUB
@@ -416,7 +417,7 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
     EXIT SUB
   END IF
   ' EIGHT words per entry, not four. The emitter addresses an entry with a shift, so the
-  ' stride has to be a power of two; the three trailing words are reserved rather than
+  ' stride has to be a power of two; the trailing words are their own rather than
   ' packed into the others, because a mode smuggled into the high bits of `count` is the
   ' kind of encoding that survives exactly until someone draws 65536 instances.
   '
@@ -430,15 +431,24 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   ' code, with a backtrace containing no MFBASIC frame at all.
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instBase)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instCount)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dx * 65536.0))
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt(dy * 65536.0))
+  LET wordX AS Integer = toInt(dx * 65536.0)
+  LET wordY AS Integer = toInt(dy * 65536.0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, wordX)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, wordY)
   ' The BlendMode every block in this run shares. It travels with the entry because the
   ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
   ' left in the publish walk would apply the LAST item's mode to the whole frame.
   LET mode AS Integer = toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, mode)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  ' bug-735: words 5 and 6 are the offsets' residual words, `(d * 65536 - word) * 2^31`
+  ' in units of 2^-47 px (`EDGE_RESIDUAL_SCALE`) -- the 16.16 word alone is up to 2^-16
+  ' px from the offset the software rasteriser subtracts, and that moved a coverage step
+  ' of every grouped item near black. `d * 65536 - word` is exact (the two are within one
+  ' of each other) and under 1 in magnitude, so the residual fits the 32-bit word the
+  ' emitters store. A frame with no group lays its entries out natively
+  ' (`canvas::sceneDrawsFlat`) at offset 0, residuals 0.
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dx * 65536.0 - toFloat(wordX)) * 2147483648.0))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dy * 65536.0 - toFloat(wordY)) * 2147483648.0))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END SUB
 
