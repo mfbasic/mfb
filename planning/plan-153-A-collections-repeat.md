@@ -208,7 +208,7 @@ not yet the new diagnostic.
   Measured (2026-09-26): `acceptance tests failed: 4 mismatch(es) (4 test(s) ran)`; every call site reports
   `Built-in package \`collections\` does not export \`collections.repeat\``. Goldens are written in Phase 2,
   from the first run that implements the member.
-Commit: —
+Commit: 353915770
 
 ### Phase 2 — registry entry and lowering
 
@@ -248,18 +248,20 @@ examples.
   `acceptance tests passed (4 test(s) ran)`; `examples: 2   built: 2   ran: 2   not run: 0   failed: 0`;
   `unclassified memory-vocabulary hits: 0` (after rewording "named by `value`", which hit `by value`).
   Expected red until plan-153-B Phase 2: `self_update_census_covers_every_registry_overload` (Correction C4).
-Commit: —
+Commit: 118f03f25
 
 ### Phase 3 — spec sync
 
-- [ ] `src/docs/spec/language/12_collections.md`: add `collections::repeat` to
+- [x] `src/docs/spec/language/12_collections.md`: add `collections::repeat` to
       the **Native members** list.
-- [ ] `src/docs/spec/memory/05_collections.md`: add a `### repeat` section with
+- [x] `src/docs/spec/memory/05_collections.md`: add a `### repeat` section with
       the value path, the growth rule (one grow to `max(n, startAt + count)`),
       error order, and element ownership. Cite `lower_repeat`.
 
 Acceptance: the citations resolve and the spec builds.
   Check: `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0` (est. 1 min); `cargo test --bin mfb spec` → pass (est. 3 min).
+  Measured (2026-09-26): `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`; `test result: ok. 44 passed; 0 failed`;
+  `mfb spec memory collections` renders the section with no leaked `[[`.
 Commit: —
 
 ## Validation Plan
