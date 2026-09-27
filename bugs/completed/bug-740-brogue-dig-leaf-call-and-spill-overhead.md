@@ -5,7 +5,7 @@ Effort: huge (>3d)
 Severity: MEDIUM
 Class: Performance
 
-Status: Open
+Status: FIXED (plan-161-A/B/C) — 16.3x → 5.9x of the oracle (goal 10x), `bench.sh --runs 7` lock held on the merged tip; full suite 255/0, artifact gate 0 diffs over 2178, check-terrain 320/320; cross-target 80/80 on linux x86_64 (Docker), aarch64 (2226), riscv64 (2229), windows (206)
 Regression Test: tools/brogue-perf/bench.sh (existing; its budget is the gate)
 
 bug-737 removed the copying that made `examples/brogue`'s `dig` 120x slower
@@ -188,3 +188,6 @@ memory mechanism; it needs optimizer work, not an example change.
   linux-aarch64 80/80 (box 2226), linux-riscv64 80/80 (box 2229),
   windows-x86_64 80/80 (the real Windows box 206); macOS host 320/320.
 - Remaining: goldens, full gates, bench under the lock; budget commits.
+- Final (coordinator, after merging main 3fc619a21): goldens reconciled (the 7
+  fixtures both sides moved), artifact gate 0 diffs, full suite 255/0,
+  check-terrain 320/320, bench 5.9x (lock held). Budget stays 8x.
