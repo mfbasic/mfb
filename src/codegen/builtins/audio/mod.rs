@@ -170,11 +170,18 @@ returned, as eight hex digits. On Windows, `(IAudioRenderClient::GetBuffer:
 or taken over by another stream. On macOS the status is Core Audio's, as in
 `(AudioQueueStart: 0xfffefbb3)`. On Linux it is ALSA's negative error number:
 `(snd_pcm_open: 0xfffffff0)` is `-16`, the device is busy. Look the status up in
-the platform's documentation for that call. When the device cannot run the
-stream's format, the message names the setting and the value the device runs at
-instead: `(mix rate: 0x0000bb80)` is a Windows device fixed at 48000 Hz
-(`0xbb80`), and `rate` or `channels` names the value an ALSA device settled on.
-`e.code` is the same either way."#;
+the platform's documentation for that call. When an ALSA device cannot run the
+stream's format, the message names the setting and the value the device settled
+on instead (`rate` or `channels`). `e.code` is the same either way.
+
+
+On Windows a stream at the device's own sample rate shares the device with other
+programs and other streams. A stream at any other rate (44100 Hz on a 48000 Hz
+device, say) must take the device exclusively, and opening it ends every other
+stream on the device: their next `audio::write` or `audio::read` raises
+`ErrAudioDevice` with status `0x88890004`, and they must be reopened. To play two
+sounds at different rates on Windows, close one before opening the other, or open
+both at the device's rate."#;
 
 /// A required parameter with optional keyword aliases.
 pub(crate) fn param(
