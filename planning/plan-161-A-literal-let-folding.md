@@ -1,7 +1,7 @@
-# plan-158-A: Literal `LET` folding at the default level
+# plan-161-A: Literal `LET` folding at the default level
 
 Last updated: 2026-09-26
-Overall Effort: huge (>3d) — plan-158 is bug-740's three mechanisms, one letter each
+Overall Effort: huge (>3d) — plan-161 is bug-740's three mechanisms, one letter each
 Effort: medium (1h–2h)
 Depends on: bug-747 (fixed first; this row reuses its guard)
 
@@ -83,7 +83,7 @@ Everything below is written against a tree where that guard exists.
 | `.nir` goldens that contain a global read | 2 of 23 | `find tests -name '*.nir' \| xargs grep -l '"kind": "global"' \| wc -l` |
 
 The measured share of this row on its own is **zero within noise**. It lands
-first because it is cheap and because plan-158-C's inlined bodies need it: an
+first because it is cheap and because plan-161-C's inlined bodies need it: an
 inlined `gi` with `DROWS` still a load keeps a memory access in the hottest loop.
 
 ### Verified properties
@@ -212,4 +212,4 @@ Commit: —
 
 Small and nearly free: the risk was the initialization-order hazard, which
 bug-747 found and fixed in the older row first. On its own it moves brogue by
-nothing measurable; it exists so that plan-158-C's inlined helpers see constants.
+nothing measurable; it exists so that plan-161-C's inlined helpers see constants.

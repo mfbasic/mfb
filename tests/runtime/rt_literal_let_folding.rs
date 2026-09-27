@@ -1,4 +1,4 @@
-//! plan-158-A: the Level-1 literal-`LET` folding row replaces a read of a
+//! plan-161-A: the Level-1 literal-`LET` folding row replaces a read of a
 //! module-level `LET` whose initializer is a scalar literal with that literal.
 //!
 //! What must hold, and what each case pins:

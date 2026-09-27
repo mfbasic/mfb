@@ -1,6 +1,6 @@
 //! The Opt1 global rows (`planning/optimizations.md`), all reading one
 //! whole-module census ([`super::plans::globals`]). One is Level 1 — **literal
-//! `LET` folding** ([`fold_literal_lets`], plan-158-A), which needs no privacy
+//! `LET` folding** ([`fold_literal_lets`], plan-161-A), which needs no privacy
 //! proof because nothing can write a `LET` — and three are Level 2:
 //!
 //! - **Dead global elimination** — a private global no function and no other
@@ -601,7 +601,7 @@ mod tests {
         }
     }
 
-    /// plan-158-A: a `LET` (immutable) with a literal of its own scalar type is
+    /// plan-161-A: a `LET` (immutable) with a literal of its own scalar type is
     /// folded at `-O1` whatever its visibility — an importer cannot write a
     /// `LET` either — and its storage stays for anything that still names it.
     #[test]

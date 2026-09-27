@@ -178,12 +178,12 @@ memory mechanism; it needs optimizer work, not an example change.
 
 ## WIP status (2026-09-26, paused by coordinator)
 
-- Landed on `worktree-B-740`: bug-747 (fixed, archived), plan-158-A phase 1
-  (literal `LET` folding, `2d170c339`); main merged (`876128d36`). plan-158-A
+- Landed on `worktree-B-740`: bug-747 (fixed, archived), plan-161-A phase 1
+  (literal `LET` folding, `2d170c339`); main merged (`876128d36`). plan-161-A
   phase 2 (golden regen, full gates, bench) not run yet.
 - Written but NOT on the branch (scratch detached worktree `/tmp/b740-dev`,
-  commits reachable by hash): plan-158-B phases 1–3 (`384d52d67`, `a501f58f5`,
-  `9a2c41a69`) and plan-158-C phase 1 (`be0d7abdb`), with their plan docs.
+  commits reachable by hash): plan-161-B phases 1–3 (`384d52d67`, `a501f58f5`,
+  `9a2c41a69`) and plan-161-C phase 1 (`be0d7abdb`), with their plan docs.
   Measured (lock not held): base 17.6x → A+B 7.5x → A+B+C 5.9x; brogue 320/320
   on the host; linux-aarch64 (2226) and windows-x86_64 (real box) 80/80.
 - Blocker before B/C can land: bug-746 (allocator eviction around riscv64

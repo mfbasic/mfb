@@ -8,8 +8,8 @@ Class: Correctness
 Status: Open
 Regression Test: — (to write: rv64 build of the repro below, run on box 2229)
 
-Found during bug-740 / plan-158-B/C. Pre-existing in the allocator; exposed on
-riscv64 by the extra register pressure plan-158-B/C create.
+Found during bug-740 / plan-161-B/C. Pre-existing in the allocator; exposed on
+riscv64 by the extra register pressure plan-161-B/C create.
 
 ## Failing Reproduction
 
@@ -18,7 +18,7 @@ binds `newX = x + dir`, `newY = y + dir`, `oppX = x - dir`, `oppY = y - dir`,
 tests `IF inMap(oppX, oppY) AND inMap(newX, newY)` where `inMap` is
 `x >= 0 AND x < 79 AND y >= 0 AND y < 29`, and does
 `hits = hits * 10 + dir + 1`; `probe(10, 10)` must be `1234`.
-With the plan-158-B/C compiler (dev commit be0d7abdb): `-O0` prints `1234`,
+With the plan-161-B/C compiler (dev commit be0d7abdb): `-O0` prints `1234`,
 `-O1` prints `1` on linux-riscv64 (box 2229). aarch64 host, linux-aarch64 (2226)
 and windows-x86_64 correct.
 

@@ -10,7 +10,7 @@ Regression Test: tests/runtime/rt_global_init_order_fold.rs; `optimizer::opt1::g
 
 ## STATUS: FIXED (see the commit that archived this file)
 
-Found while designing bug-740's literal-`LET` folding (plan-158-A), which
+Found while designing bug-740's literal-`LET` folding (plan-161-A), which
 needs the same guard. The fix is the guard: a new analysis,
 `initializer_reachable` (`src/optimizer/opt1/plans/globals.rs`), and the
 constification row now skips every function it returns
@@ -88,7 +88,7 @@ program reads, so the rewrite changed the result. The dial's contract is
   nothing reads it after constification, and a kept read keeps the global.
 - Read-only memory inference (Level 2): unaffected. It only clears `mutable`,
   which changes no value.
-- plan-158-A's new Level-1 literal-`LET` folding row uses the same guard from
+- plan-161-A's new Level-1 literal-`LET` folding row uses the same guard from
   the start.
 
 ## Fix Design
@@ -122,7 +122,7 @@ Commit: (this commit)
 ### Phase 3 — full validation
 
 - [x] No golden moves: every golden is built at the default `-O1`, where the
-      row is off. Covered by plan-158-A's full-suite run, which includes this
+      row is off. Covered by plan-161-A's full-suite run, which includes this
       commit.
 
 ## Summary
