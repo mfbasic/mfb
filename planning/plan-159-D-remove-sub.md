@@ -92,7 +92,7 @@ reports 30 files. Four of them are false positives: `arch/x86_64/encode/emitter.
 - `2-203-0042 TYPE_SUB_CANNOT_RETURN_VALUE` (l.561): already dead. Nothing emits it.
 - `2-203-0073 SUB_RETURN_FORBIDDEN` (l.971).
 - `2-203-0077 EXIT_SUB_IN_FUNC` (l.995).
-- `2-203-0074`: renamed in A. It stays live.
+- `2-203-0074 TYPE_SUB_HAS_NO_VALUE`: SUB-only (A no longer renames or widens it — plan-159-A Corrections). Retired here with `SUB`: nothing else can emit it, because a `Nothing` call's value is an ordinary `NOTHING` (bug-744).
 - The message text of `1-103-0002 DOC_BAD_HEADER` (l.1384, "FUNC, SUB, TYPE…") and
   `2-205-0019 DOC_GROUP_INVALID_CONTEXT` (l.1511) mentions SUB.
 
@@ -129,7 +129,7 @@ initializer). Any `.ncodesum` diff means a bug: objdump one fixture and fix.
 Correctness risk is concentrated in the package reader. The design choice
 (Open Decision 1) decides what an old `.mfp` with export kind 2 or the SUB flag
 bit does. Design uncertainty is concentrated in the spec rewrite. The `SUB`
-chapter's surviving truths (the value-less `Nothing` call, `Nothing` callbacks,
+chapter's surviving truths (a `Nothing` call's value is `NOTHING`, `Nothing` callbacks,
 inline-`TRAP` `RECOVER` with no operand, the trap-exit rules) move into
 `06_functions.md` / `08_error-model.md`, and the chapter is deleted.
 
@@ -137,10 +137,11 @@ inline-`TRAP` `RECOVER` with no operand, the trap-exit rules) move into
 the commit for each fixture:
 
 - `sub-value-less-invalid` → its `RETURN NOTHING` / `RETURN` cases no longer
-  exist as rules, and the value-position cases are already covered by A's
-  `nothing-call-value-invalid`. Delete it. Proof: the rule it pins is retired
-  by this plan (the spec diff), and its surviving behavior is pinned by A's
-  fixture.
+  exist as rules, and its value-position cases stop being errors once `SUB` is
+  gone (a `FUNC … AS Nothing` call yields `NOTHING`). Delete it. Proof: the rule
+  it pins (`2-203-0074`) is retired by this plan (the spec diff), and the
+  surviving behavior — `Nothing` calls in value position bind `NOTHING` — is
+  pinned by bug-744's `tests/runtime/rt_nothing_func_value_position.rs`.
 - `isolated_sub_invalid` / `func_isolated_requires_func_invalid` → with no
   `SUB`, `ISOLATED` can only precede `FUNC`. Keep the `ISOLATED`-on-non-FUNC
   cases that still exist (lambda, local function) and drop the SUB case.
@@ -220,13 +221,13 @@ Commit: —
       `SUB` is gone.
 
 Acceptance: `SUB` is rejected, and codegen is unchanged.
-  Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc sub-keyword-removed-invalid control-flow-sub-trap-invalid nothing-call-value-invalid` → PASS (est. 1 min); `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min).
+  Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc sub-keyword-removed-invalid control-flow-sub-trap-invalid` → PASS; `cargo test --release --test rt_nothing_func_value_position` → pass (est. 1 min); `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min).
 Commit: —
 
 ### Phase 3 — Spec, man, editor grammar
 
 - [ ] 3.1 Spec: move the surviving content of `language/07_subs.md` into
-      `06_functions.md` (value-less `Nothing` calls, `Nothing` callbacks) and
+      `06_functions.md` (a `Nothing` call's value is `NOTHING`, `Nothing` callbacks) and
       `08_error-model.md` (value-less `RECOVER`, trap exits via bare `RETURN`),
       then delete `07_subs.md`. Chapter numbering follows Open Decision 3. Fix
       the cross-references (`06_functions.md:15`, `04_types.md:399`,
@@ -248,8 +249,8 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `sub-keyword-removed-invalid` (negative), A's `nothing-call-value-invalid`
-  and `entry-func-nothing-*`, and the converted `control-flow-sub-trap-invalid`.
+- Tests: `sub-keyword-removed-invalid` (negative), bug-744's
+  `rt_nothing_func_value_position` and A's `entry-func-nothing-*`, and the converted `control-flow-sub-trap-invalid`.
 - Coverage: every deleted branch was reachable only from `SUB` input. After B and C
   the only `SUB` input is the new negative fixture, which exercises the parse-error
   path.
