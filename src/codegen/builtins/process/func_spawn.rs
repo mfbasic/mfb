@@ -168,7 +168,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![args.clone()],
                 return_type: ParameterType::named(super::PROCESS_TYPE_ID),
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrSpawnFailed"],
                     body: Body::abi_function_aliased(lower_spawn, &["spawnEnv"]),
             },
             // Full form: working directory + environment map + replace/merge flag.
@@ -198,7 +198,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::named(super::PROCESS_TYPE_ID),
-                errors: vec![],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrSpawnFailed"],
                     body: Body::abi_function_aliased(lower_spawn, &["spawnEnv"]),
             },
         ],

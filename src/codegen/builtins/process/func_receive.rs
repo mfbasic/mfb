@@ -123,7 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrEncoding", "ErrOutOfMemory", "ErrResourceClosed"],
             body: Body::abi_function_aliased(lower_receive, &["receiveFrom"]),
         }],
     });
