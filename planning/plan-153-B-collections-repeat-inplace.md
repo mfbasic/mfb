@@ -221,7 +221,12 @@ Acceptance: the Phase 1 rows pass the `arm` bound and the failure-atomicity
 cases pass.
   Check: `cargo test --test rt_inplace_self_update -- --ignored && cargo test --test rt_inplace_failure_atomic` → pass (est. 6 min);
   `cargo test --bin mfb self_update` → the table and census unit tests pass (est. 3 min).
-Commit: —
+  Measured (2026-09-26): `MFB_SELF_UPDATE_FILTER='collections::repeat' cargo test --test rt_inplace_self_update -- --ignored`
+  → `test result: ok. 2 passed` (every site, arm bound and field expectations); `rt_inplace_failure_atomic`
+  → `ok. 3 passed`; `rt_repeat_self_update` → `ok. 1 passed`; `cargo test --bin mfb self_update` →
+  `test result: ok. 11 passed; 0 failed` (after the `FIELD_NEVER` entry). The full unfiltered harness
+  runs in the final gate.
+Commit: 9a387e555
 
 ### Phase 3 — spec sync and example adoption
 
@@ -247,7 +252,7 @@ alloc count per frame does not rise.
   particles, 20 respawn rounds), same printed result both ways (`4000 136000 8160000.00`):
   `arena.0.alloc_calls` 2720120 → 80023, `peak_live_bytes` 8009520 → 4736416, user 0.41 s → 0.06 s.
   The 80000 left are the `Plane` records `project` returns, one per respawn instead of 34.
-Commit: —
+Commit: 9a387e555
 
 ## Validation Plan
 
