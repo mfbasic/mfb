@@ -262,7 +262,7 @@ Acceptance: the citations resolve and the spec builds.
   Check: `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0` (est. 1 min); `cargo test --bin mfb spec` → pass (est. 3 min).
   Measured (2026-09-26): `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`; `test result: ok. 44 passed; 0 failed`;
   `mfb spec memory collections` renders the section with no leaked `[[`.
-Commit: —
+Commit: 0195bd747
 
 ## Validation Plan
 
