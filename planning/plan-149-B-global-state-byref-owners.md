@@ -150,7 +150,7 @@ Commit: 7bb8c5f71
 
 Acceptance: `cargo test --test codegen_place_forward --test rt_place_forward` → all pass (est. 5 min).
 Verified 2026-09-27: 6 passed / 17 passed.
-Commit: —
+Commit: 87003d30d
 
 ## Corrections
 

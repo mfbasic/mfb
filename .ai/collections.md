@@ -358,6 +358,19 @@ easy to get wrong:
   (`gR = WITH gR { … }`, `StoreGlobal`) is the same site with its block pointer in
   the global (`G-global-operand` over every update value). A record captured by
   reference writes through `WriteBack::Ref`.
+* **`LET cur = rec.xs` reaches the seam through the Level-1 "Place copy forwarding"
+  row (plan-149), not through codegen.** Every arm matches only when the operand
+  *is* the field expression; `LET cur = rec.xs; rec = WITH rec { xs := set(cur, …) }`
+  would copy the field and then rebuild the record. `src/optimizer/opt1/placefwd.rs`
+  rewrites the NIR to the direct form when every read of `cur` precedes the next
+  write of the owner (`Assign` / `StoreGlobal` / `StateAssign`), so no arm changes.
+  It declines — and the copy plus rebuild stays, which is correct, only slow — when
+  the owner is written before a later read of `cur` (W1), when that write is nested
+  in the op holding the last read (W2: `FOR … get(cur) … rec = … NEXT`), when a read
+  is in a `TRAP` handler (W3), for a global / `STATE` / by-ref owner when the window
+  holds a user or indirect call or any function value (W4), and for `STATE` when the
+  handle itself is passed anywhere in the window (W5). It is off at `-O0`, so a
+  performance test of this shape must build at the default level.
 * **The third container is `RES … STATE`, and it differs from a record field by
   exactly one obligation (plan-121-D).** The reallocation split above transfers
   unchanged — it is a property of the operation, not of who owns the block — so

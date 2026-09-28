@@ -4,7 +4,8 @@
 //! (storage / `StorageType` / symbol assignment). Its rows are
 //! [`globals`]' literal `LET` folding, [`constant_folding`], [`algebraic`]
 //! simplification, and non-loop [`strength`] reduction (Level 1, the last
-//! three composed into one scope-tracked walk by [`local_rewrites`]);
+//! three composed into one scope-tracked walk by [`local_rewrites`]), and
+//! [`placefwd`]'s place copy forwarding (Level 1, right after them);
 //! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 2, the
 //! last consuming the [`plans`] name-usage census);
 //! and the six structured-loop rows (Level 3): [`licm`], [`unswitch`],

@@ -711,6 +711,17 @@ lies in its owner's block; the owner is not rebuilt.
   `String`, a collection or a data union — is rebuilt: its new value's size is
   known only after it is built.
   [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
+- **A copy of the field feeds the same site at the default level.**
+  `LET cur = r.f` followed by `r = WITH r { f := op(cur, …) }` (or
+  `h.state.f = op(cur, …)`, or through a module-level record) reaches the site as
+  if `r.f` were written directly: at `-O1` and above, the "Place copy forwarding"
+  optimizer row deletes `cur` and reads `r.f` in its place when every read of `cur`
+  comes before the owner's next write. Where it cannot prove that — the owner is
+  written before a later read, the write is nested in the statement holding the
+  last read, a read is in a `TRAP` handler, or (for a global or `STATE` owner) the
+  statements in between can run user code or pass the handle on — `cur` stays a
+  copy and the owner is rebuilt. At `-O0` it is always a copy.
+  [[src/optimizer/opt1/placefwd.rs:forward]]
 
 A **list element** is a field site too. Both spellings update element `i` where
 it lies in `xs`'s data region:

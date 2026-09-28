@@ -265,6 +265,16 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::AGGREGATE_COPIES_FORWARDED,
         },
         Row {
+            name: "Place copy forwarding",
+            level: 1,
+            stage: "NIR",
+            summary: "Removes a whole-block copy `LET b = <place>` of a local, a \
+                      global, a field or a `STATE` field when every read of `b` \
+                      comes before the next write of the place's owner, so an \
+                      update written through `b` runs in place.",
+            counter: &stats::PLACE_COPIES_FORWARDED,
+        },
+        Row {
             name: "Recovery-region simplification",
             level: 3,
             stage: "NIR",

@@ -58,22 +58,26 @@ is **not** fixed here (see Open Decisions).
 
 ### Phase C1 — Catalog, stats and docs
 
-- [ ] Add a `Row` to `src/optimizer/catalog.rs` with name `"Place copy forwarding"`, level 1, stage `"NIR"`, and
+- [x] Add a `Row` to `src/optimizer/catalog.rs` with name `"Place copy forwarding"`, level 1, stage `"NIR"`, and
       counter `&stats::PLACE_COPIES_FORWARDED`. Summary: "Removes a whole-block copy `LET b = <place>` of a local, a
       global, a field or a `STATE` field when every read of `b` comes before the next write of the place's owner, so an
       update written through `b` runs in place." Place it beside aggcopy's row.
-- [ ] Add a row to `planning/optimizations.md`, marked LANDED at Level 1: the module, the window rule W1–W5, and why
+- [x] Add a row to `planning/optimizations.md`, marked LANDED at Level 1: the module, the window rule W1–W5, and why
       it is Level 1 and not 0. Cross-reference aggcopy's row (line 269), and state that the two differ in their proof
       (a window versus never written).
-- [ ] Add one paragraph to `.ai/collections.md`, in the in-place section plan-145 updated: the `LET cur = rec.xs`
+- [x] Add one paragraph to `.ai/collections.md`, in the in-place section plan-145 updated: the `LET cur = rec.xs`
       shape reaches the seam through the Level-1 forward, with the windows it declines.
       Add the same fact to `src/docs/spec/memory/05_collections.md`, where plan-145 describes the direct form.
-- [ ] Update the pipeline comment in `src/optimizer/opt1/mod.rs` (the module doc lists the rows) to include the new
+- [x] Update the pipeline comment in `src/optimizer/opt1/mod.rs` (the module doc lists the rows) to include the new
       row.
 
 Acceptance: `cargo test --bin mfb optimizer::catalog` → pass; `target/debug/mfb man optimizations | grep -c 'Place copy'`
 → 1; building `/tmp/getprobe/a` with `-v` prints a `Place copy forwarding` line with a count of at least 1
 (est. 5 min).
+Verified 2026-09-27: `cargo test --bin mfb optimizer::catalog` → 1 passed; `grep -c` → 1;
+`target/debug/mfb build -v /tmp/p149/a3` → `Place copy forwarding: 3` (`/tmp/getprobe/a`'s source no longer exists;
+`/tmp/p149/a3` is the A3 probe with the record `set`, record `removeAt` and bare-local shapes). The spec gained a
+bullet in `memory/05_collections.md`; `cargo test --bin mfb spec` → 44 passed.
 Commit: —
 
 ### Phase C2 — `LET cur` coverage in the self-update harness
