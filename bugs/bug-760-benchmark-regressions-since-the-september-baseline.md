@@ -7,7 +7,7 @@ hundreds-× on one collection pattern, silently (every checksum still matches)
 Class: Other (performance regression)
 
 Status: Open
-Regression Test: to be added in Phase 1 — see each sub-issue
+Regression Test: `tests/codegen/codegen_forwarded_field_fast_path.rs` (A), `tests/runtime/rt_map_fifo_removal_flat.rs` (B1), `tests/runtime/rt_map_list_value_grow_cost.rs` (B2), `tests/codegen/codegen_regalloc_eviction.rs` (C, D)
 
 A full `./benchmark/run.sh 10` at `9c1ea5568` (logs `benchmark/*-20260928-055319.log`,
 now the committed baseline, `af442d65a`) against the previous baseline (`3ccc68297`,
@@ -389,26 +389,37 @@ lengthens a spilled interval. Fix or prove (with a hot-loop-in-many-locals test)
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] A: codegen test (model: `tests/codegen/codegen_place_forward.rs`) that
-      `groupBy`/`sortBy` on a forwarded record field and STATE field at -O1 lower
-      inline (no call to `_mfb_ifn_collections_5FgroupBy…` / `sortBy`). RED at HEAD.
-- [ ] B1: runtime scaling test (model: `tests/runtime/rt_list_set_widening_linear.rs`,
-      better-of-3, N vs 8N) for front-order `removeKey` and Set `remove` whose per-op
-      cost bound fails at HEAD and passed at `3bc7e42d2`.
-- [ ] B2: runtime or codegen test that an append-into-bucket loop does not run the
-      O(count) reclaim scan on every grow.
-- [ ] C: codegen test (model: `tests/codegen/codegen_stack_slot_promotion.rs`) bounding
-      the eviction signature / evict-slot stores in an nbody-shaped -O1 loop against
-      the `49f619092` count. RED at HEAD.
-- [ ] D: codegen test that an inline `collections::sort` merge loop in a many-locals
-      function at -O1 has no eviction brackets (RED at HEAD); bisect `string unicode`/
-      `unibig` — done: same cause (see D).
+- [x] A: `tests/codegen/codegen_forwarded_field_fast_path.rs` — at -O1 no probe calls
+      the `.mfb` `groupBy`/`sortBy` body; same output at -O0/-O1. RED at HEAD for the
+      three record-field probes (`probeRecStrGroupBy`, `probeRecIntGroupBy`,
+      `probeRecStrSortBy`). The two `STATE`-field probes already lower inline at HEAD
+      (so the STATE blast-radius item is **unaffected**); they stay as guards.
+- [x] B1: `tests/runtime/rt_map_fifo_removal_flat.rs` — 20000 FIFO steps (insert next,
+      remove oldest) at window 500 vs 4000, in-process best-of-3, map and set, plus a
+      full check of the survivors' order and values. HEAD ×8.3 (bound ×3). **Note:**
+      the pre-bug-732 compiler was O(window) per removal too (×9 on the same probe;
+      the regression multiplied the constant — 1.7× here, 12× on 300 front
+      removals), so this test pins the recommended tombstone design, not merely the
+      old constant (Open Decision B1 → tombstone + lazy compaction).
+- [x] B2: `tests/runtime/rt_map_list_value_grow_cost.rs` — N=5000 appends over 64
+      buckets as a `Map OF Integer TO List OF Integer` vs a `List OF List OF Integer`,
+      in-process best-of-5, checksums compared. Baseline compiler ×0.65–0.79, HEAD
+      ×2.14 (bound ×1.5). The work is O(n²) at both ends (each append copies the
+      bucket); the regression is the constant, so a same-process reference ratio is
+      the measure.
+- [x] C + D: `tests/codegen/codegen_regalloc_eviction.rs` with fixtures
+      `tests/codegen/regalloc_eviction/{float_fixed,inline_builtins}.mfb` (the bisect
+      probes) — restore-then-resave pairs in the -O1 AArch64 `.ncode`. `49f619092`:
+      nbody 0, fixedMath 2, inline `main` 11, `runtime.arena_alloc` 0; HEAD: 100,
+      333, 81, 16. Bounds 0 / 4 / 22 / 0. `string unicode`/`unibig` bisected — same
+      cause (see D).
 - [ ] Complete every "unverified / audit in Phase 1" blast-radius item above with a
-      verdict.
+      verdict (A's four `Local`-only sites and B1's set-algebra compaction are
+      assigned to the fixing agents' audits).
 
 Acceptance: each new test fails at HEAD for the documented reason; the audit list has
 a verdict per site.
-Commit: —
+Commit: `802c29611` (tests)
 
 ### Phase 2 — the fixes (one commit per sub-issue)
 
