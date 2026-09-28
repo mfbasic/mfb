@@ -303,6 +303,18 @@ fn global_ranges(
     models: &(ClassModel, ClassModel),
     overlay: &Ssa,
 ) -> Vec<Range> {
+    let budget = overlay.values.len().saturating_mul(8) + 1024;
+    global_ranges_within(instructions, models, overlay, budget)
+}
+
+/// [`global_ranges`] with an explicit worklist budget (the number of values
+/// the fixpoint may evaluate before it stops).
+fn global_ranges_within(
+    instructions: &[CodeInstruction],
+    models: &(ClassModel, ClassModel),
+    overlay: &Ssa,
+    mut budget: usize,
+) -> Vec<Range> {
     let count = overlay.values.len();
     // `None` is the optimistic bottom ("no evidence yet"), which is what lets
     // a loop-carried phi start from its initial value instead of the full
@@ -337,7 +349,6 @@ fn global_ranges(
     }
 
     let mut work: Vec<usize> = (0..count).collect();
-    let mut budget = count.saturating_mul(8) + 1024;
     while let Some(vid) = work.pop() {
         if budget == 0 {
             break;
@@ -1140,5 +1151,59 @@ mod tests {
         let positive = Range { lo: 0, hi: 100 };
         assert!(relation_on_edge(CodeOp::BranchLo, true, unknown, positive).is_none());
         assert!(relation_on_edge(CodeOp::BranchLo, true, positive, positive).is_some());
+    }
+
+    /// bug-761: a fixpoint stopped by its budget must never report a value
+    /// narrower than the converged one. The phi at `join` hulls `258` with a
+    /// chain of arithmetic on an unknown; stopped part-way, the chain is still
+    /// "no evidence yet" while the phi has already hulled only the `258` arm —
+    /// and the truncated `[258, 258]` let the check-elision rows decide
+    /// `compress::deflate`'s `IF maxLen >= 3` for a one-byte input.
+    #[test]
+    fn a_budget_stopped_fixpoint_is_never_narrower_than_the_converged_one() {
+        let mut stream = vec![
+            ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
+            ci("b.eq", &[("target", "short")]),
+            ci("subs", &[("dst", "%v1"), ("lhs", "%v8"), ("rhs", "%v7")]),
+        ];
+        for _ in 0..12 {
+            stream.push(ci(
+                "add_imm",
+                &[("dst", "%v1"), ("src", "%v1"), ("imm", "1")],
+            ));
+        }
+        stream.extend([
+            ci("b", &[("target", "join")]),
+            ci("label", &[("name", "short")]),
+            mov_imm("%v1", "258"),
+            ci("label", &[("name", "join")]),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "3")]),
+            ci("b.ge", &[("target", "long")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "long")]),
+            ci("ret", &[]),
+        ]);
+        let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+        let models = class_models(&model);
+        let blocks = build_cfg(&stream);
+        let overlay = super::super::ssa::build(&stream, &blocks, &models);
+        let converged = global_ranges(&stream, &models, &overlay);
+        let compared = overlay
+            .value_of_use(stream.len() - 5, (false, 1))
+            .expect("the join's %v1 is a tracked value");
+        assert!(
+            converged[compared].is_full(),
+            "the unknown arm makes the joined value unknown: {:?}",
+            converged[compared]
+        );
+        for budget in 0..=overlay.values.len() * 8 {
+            let truncated = global_ranges_within(&stream, &models, &overlay, budget);
+            for (value, (cut, full)) in truncated.iter().zip(&converged).enumerate() {
+                assert!(
+                    cut.lo <= full.lo && cut.hi >= full.hi,
+                    "budget {budget}: value {value} is {cut:?}, narrower than the converged {full:?}"
+                );
+            }
+        }
     }
 }

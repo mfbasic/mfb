@@ -891,6 +891,10 @@ name = "rt_compress_bounds"
 path = "tests/runtime/rt_compress_bounds.rs"
 
 [[test]]
+name = "rt_compress_deflate_o3"
+path = "tests/runtime/rt_compress_deflate_o3.rs"
+
+[[test]]
 name = "rt_list_append_growth_bounds"
 path = "tests/runtime/rt_list_append_growth_bounds.rs"
 

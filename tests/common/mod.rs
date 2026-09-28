@@ -81,11 +81,23 @@ pub fn temp_project(name: &str, source: &str) -> PathBuf {
 }
 
 pub fn build_project(project: &Path) -> PathBuf {
-    let output = Command::new(mfb_exe())
-        .arg("build")
-        .arg(project)
-        .output()
-        .expect("run mfb build");
+    let mut command = Command::new(mfb_exe());
+    command.arg("build").arg(project);
+    built_executable(command)
+}
+
+/// [`build_project`] at an explicit optimization level (`-O <level>`), for a
+/// test that proves a program runs the same under the optimizer's higher rows.
+pub fn build_project_opt(project: &Path, level: &str) -> PathBuf {
+    let mut command = Command::new(mfb_exe());
+    command.arg("build").arg("-O").arg(level).arg(project);
+    built_executable(command)
+}
+
+/// Run a prepared `mfb build` command and return the host-runnable executable
+/// it wrote.
+fn built_executable(mut command: Command) -> PathBuf {
+    let output = command.output().expect("run mfb build");
     assert!(
         output.status.success(),
         "build failed:\nstdout:\n{}\nstderr:\n{}",
