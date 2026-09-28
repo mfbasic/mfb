@@ -77,7 +77,7 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "control-flow-inline-trap-invalid",
     "control-flow-match-exhaustiveness-invalid",
     "control-flow-match-pattern-invalid",
-    "control-flow-sub-trap-invalid",
+    "control-flow-nothing-trap-invalid",
     "cross_invalid",
     "device_literal_invalid",
     "displayWidth",
@@ -86,9 +86,9 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "endpoints_invalid",
     "endsWith",
     "error_invalid",
+    "exit-func-invalid",
     "exit-loop-invalid",
     "exit-program-invalid",
-    "exit-sub-invalid",
     "find_invalid",
     "func_bits_band_invalid",
     "func_bits_bnot_invalid",
@@ -420,7 +420,6 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "startsWith",
     "state-opaque-narrow-bind-invalid",
     "state-opaque-narrow-return-invalid",
-    "sub-value-less-invalid",
     "thread-res-collection-plane-invalid",
     "thread-result-field-removed-invalid",
     "thread-start-non-isolated-entry-invalid",
@@ -619,10 +618,14 @@ fn the_syntax_corpus_still_reaches_every_rule_it_used_to() {
     for fixture in DIAGNOSTIC_CORPUS {
         produced.extend(check_src(&fixture_src(fixture)));
     }
+    // 77 when this list was generated; plan-159-D retired EXIT_SUB_IN_FUNC,
+    // SUB_RETURN_FORBIDDEN and TYPE_SUB_HAS_NO_VALUE with the callable kind they
+    // policed, and those three were exactly the difference (the reached sets,
+    // before and after, compared).
     assert!(
-        produced.len() >= 77,
-        "the corpus reached {} distinct diagnostic rules; it reached 77 when \
-         this list was generated, so a rule has stopped firing. Reached: {produced:?}",
+        produced.len() >= 74,
+        "the corpus reached {} distinct diagnostic rules; it reached 74 after \
+         plan-159-D, so a rule has stopped firing. Reached: {produced:?}",
         produced.len()
     );
 }
