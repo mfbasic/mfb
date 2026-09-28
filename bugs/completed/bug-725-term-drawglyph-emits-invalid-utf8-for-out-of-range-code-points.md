@@ -5,8 +5,8 @@ Effort: small
 Severity: MEDIUM
 Class: Correctness (invalid UTF-8 written to the terminal)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (10ae351fc) — drawGlyph skips a non-scalar (above U+10FFFF or a surrogate) exactly as it skips a control value, on the console and all three app backends; no new error. RED→GREEN on a real pty (f4 90 80 80 / ed a0 80 / ed bf bf no longer reach the terminal).
+Regression Test: tests/runtime/rt_term_draw_glyph_scalar.rs
 
 `term::drawGlyph(row, column, codePoint)` checks only that the code point is at
 least 32. Anything larger is encoded and written as-is, so a value above the
