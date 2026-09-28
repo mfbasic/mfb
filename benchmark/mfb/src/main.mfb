@@ -1586,6 +1586,12 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_convert_int(run, tests)
   tests = test_convert_float(run, tests)
 
+  ' bigint group (bigint.mfb) — P1 coverage: big:: arbitrary-precision integers
+  tests = test_bigint_pidigits(run, tests)
+  tests = test_bigint_factorial(run, tests)
+  tests = test_bigint_modpow(run, tests)
+  tests = test_bigint_gcd(run, tests)
+
   tests = test_primes(run, tests)
 
   tests = test_thread_sum(run, tests)

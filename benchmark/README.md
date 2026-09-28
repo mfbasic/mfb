@@ -48,6 +48,7 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `pipeline`          | chained collection HOF pipelines (plan-87) — the shape the per-member matrix never chains, stressing the intermediate lists materialized between stages: `int` (`filter`→`transform`→`reduce` over a `List OF Integer`), `groupagg` (`groupBy`→`mapValues(reduce)`→`values`→`reduce` map-of-list ETL fold), and `str` (the same chain over a `List OF String` with `strings::upper` — arena-gated, small) |
 | `convert`           | in-memory number-conversion throughput (plan-87), isolating `toString`/`toInt`/`toFloat` from the file-IO-bound `io format`/`readnum` rows: `int` (`toString`/`toInt` round-trip) and `float` (`toString(_,6)`/`toFloat` round-trip over exact dyadic values) |
 | `record wide`/`nested` + `float nbody_rec`/`nbody_vec` (`recordbench.*`) | record-shaped code the way users write it (P1 coverage): `wide` (1M `WITH`-updates of a 10-field mixed Integer/Float/String record passed into and returned from a FUNC), `nested` (the same update on that record inside a record inside a `List` — `get`, nested `WITH`, `collections::set` write-back); `nbody_rec` / `nbody_vec` are the **same simulation as `float nbody`** (same bodies, 100000 steps, same pair and float op order) over a `List OF Body` of records updated with `WITH` + `collections::set`, and over `vector::Float3` position/velocity fields with `vector::dot`/`vector::distance`. C peers use structs by value (a 3-double struct for `vec`), Python `dataclasses.replace` (records) and `__slots__` objects / tuples (n-body). Record-row Float ops are adds or power-of-two multiplies (exact), and the n-body rows fold `round(energy × 1e9)` — the nine decimals `float nbody` prints — so all checksums match bit-for-bit (`wide=10005154`, `nested=3543353`, `nbody_rec`=`nbody_vec`=`-169079859`) |
+| `bigint`            | the `big::Int` arbitrary-precision integer (P1): `pidigits` (Benchmarks Game spigot, 400 digits — add/multiply/divide/compare on growing state), `factorial` (`big::factorial(2000)` + `big::toString`), `modpow` (RSA-2048 public-key shape: 16 bases ^ 65537 mod a 2048-bit modulus), and `gcd` (200 Fibonacci pairs — Euclid's worst case — `big::parse`d, `big::gcd`'d and rendered back). Python peer is native `int`; no C peer (`--`) |
 
 The `io` group also gains `readnum` (read+parse), `buf_on`/`buf_off` (buffered vs
 unbuffered write, quantifying the buffering win), `format` (mixed Int/Float/String
@@ -277,6 +278,13 @@ Python `record(group, name, None)` does.
   recovers the exact `i*125000` in all three and the checksum matches
   (`int=5000438890`, `float=624993751111120`). This is a pre-existing runtime
   precision limitation, not a property of the benchmark.
+- **`bigint` (P1)** has no C column: libc has no bignum and the suite vendors
+  none (a GMP-class library would benchmark hand-tuned assembly, not C), so all
+  four rows print `--` in C, like `crypto ed25519`. mfb and Python's native `int`
+  agree bit-for-bit (`pidigits=888227773`, `factorial=29118`,
+  `modpow=37451214999`, `gcd=2652206916`). CPython >= 3.11 caps int↔str
+  conversion at 4300 digits by default, so the Python `factorial` row lifts it
+  (`sys.set_int_max_str_digits(0)`) to render 2000!'s 5736 digits.
 
 ### Arena-churn caveat + regression gate (plan-39-A)
 

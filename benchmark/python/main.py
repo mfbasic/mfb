@@ -14,6 +14,7 @@ up; the bignum test deliberately avoids Python's native pow() and does the same
 base-2^28 limb-list arithmetic as the other two.
 """
 import arenabench
+import bigintbench
 import bitsbench
 import churnbench
 import cryptobench
@@ -871,6 +872,9 @@ def main():
 
     # convert group (plan-87 number conversion — int/float)
     convertbench.run_all(RUN, now_ns, record)
+
+    # bigint group (P1 big:: coverage — pidigits/factorial/modpow/gcd)
+    bigintbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

@@ -24,6 +24,7 @@
 
 #include "arenabench.h"
 #include "bench.h"
+#include "bigintbench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
 #include "convertbench.h"
@@ -763,6 +764,8 @@ int main(int argc, char **argv) {
   run_pipeline_group();
 
   run_convert_group();
+
+  run_bigint_group();
 
   test_primes();
 

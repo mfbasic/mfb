@@ -1,0 +1,142 @@
+' Arbitrary-precision integer benchmarks (big:: package). Group `bigint`.
+'
+' The `bignum` group in main.mfb times 64-bit Integer modular arithmetic; this
+' group is the first benchmark of `big::Int`, the arbitrary-size integer. The
+' Python peer is CPython's native `int`; C has no bignum in libc and the suite
+' vendors none, so the C column prints `--` (as `crypto ed25519` does).
+'
+' Rows:
+'   pidigits   Benchmarks Game spigot, first 400 digits of pi (add/multiply/
+'              divide/compare on growing big::Int state); checksum folds the
+'              digits as fold = (fold*10 + d) MOD 1000000007
+'   factorial  big::factorial(2000) rendered with big::toString; checksum =
+'              decimal digit sum + digit count
+'   modpow     RSA-2048 public-key shape: 16 bases ^ 65537 mod a fixed 2048-bit
+'              odd modulus; checksum = sum of each result's low 32 bits
+'   gcd        200 Fibonacci pairs (Euclid's worst case, 100-300 digits) parsed
+'              from decimal text, gcd'd, and rendered back; checksum =
+'              sum(len(text) + g MOD 1000000007)
+IMPORT io
+IMPORT big
+IMPORT collections
+IMPORT datetime
+IMPORT strings
+
+' ---- bigint pidigits: Benchmarks Game spigot --------------------------------
+FUNC bigintPiDigits(n AS Integer) AS Integer
+  MUT acc AS big::Int = big::fromInteger(0)
+  MUT den AS big::Int = big::fromInteger(1)
+  MUT num AS big::Int = big::fromInteger(1)
+  LET three AS big::Int = big::fromInteger(3)
+  LET four AS big::Int = big::fromInteger(4)
+  LET ten AS big::Int = big::fromInteger(10)
+  MUT k AS Integer = 0
+  MUT i AS Integer = 0
+  MUT fold AS Integer = 0
+  WHILE i < n
+    k = k + 1
+    LET k2 AS big::Int = big::fromInteger(k * 2 + 1)
+    acc = big::multiply(big::add(acc, big::add(num, num)), k2)
+    den = big::multiply(den, k2)
+    num = big::multiply(num, big::fromInteger(k))
+    IF big::compare(num, acc) > 0 THEN
+      CONTINUE WHILE
+    END IF
+    LET d AS Integer = big::toInteger(big::divide(big::add(big::multiply(num, three), acc), den))
+    IF d <> big::toInteger(big::divide(big::add(big::multiply(num, four), acc), den)) THEN
+      CONTINUE WHILE
+    END IF
+    fold = (fold * 10 + d) MOD 1000000007
+    i = i + 1
+    acc = big::multiply(big::subtract(acc, big::multiply(den, big::fromInteger(d))), ten)
+    num = big::multiply(num, ten)
+  END WHILE
+  RETURN fold
+END FUNC
+
+FUNC test_bigint_pidigits(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = bigintPiDigits(400)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_bigint_pidigits = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bigint", "pidigits", times))
+END FUNC
+
+' ---- bigint factorial: big::factorial + big::toString -----------------------
+FUNC test_bigint_factorial(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT text AS String = ""
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    text = big::toString(big::factorial(2000))
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  MUT checksum AS Integer = len(text)
+  FOR EACH b IN strings::toBytes(text)
+    checksum = checksum + toInt(b) - 48
+  NEXT
+  io::printError("test_bigint_factorial = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bigint", "factorial", times))
+END FUNC
+
+' ---- bigint modpow: RSA-2048 public-key operation ---------------------------
+FUNC test_bigint_modpow(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET modulus AS big::Int = big::subtract(big::pow(big::fromInteger(2), 2048), big::fromInteger(1557))
+  LET e AS big::Int = big::fromInteger(65537)
+  LET low32 AS big::Int = big::fromInteger(4294967296)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR b = 2 TO 17
+      LET x AS big::Int = big::modPow(big::fromInteger(b), e, modulus)
+      acc = acc + big::toInteger(big::remainder(x, low32))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_bigint_modpow = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bigint", "modpow", times))
+END FUNC
+
+' ---- bigint gcd: parse + gcd + toString over Fibonacci pairs ----------------
+'
+' Untimed setup renders F(500+i) and F(700+2i) for i in 0..199 as decimal text;
+' consecutive-Fibonacci-like operands are Euclid's worst case.
+FUNC test_bigint_gcd(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT fib AS List OF big::Int = [big::fromInteger(0), big::fromInteger(1)]
+  WHILE len(fib) < 1100
+    fib = collections::append(fib, big::add(collections::get(fib, len(fib) - 1), collections::get(fib, len(fib) - 2)))
+  END WHILE
+  MUT textA AS List OF String = []
+  MUT textB AS List OF String = []
+  FOR i = 0 TO 199
+    textA = collections::append(textA, big::toString(collections::get(fib, 500 + i)))
+    textB = collections::append(textB, big::toString(collections::get(fib, 700 + 2 * i)))
+  NEXT
+  LET foldMod AS big::Int = big::fromInteger(1000000007)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 199
+      LET g AS big::Int = big::gcd(big::parse(collections::get(textA, i)), big::parse(collections::get(textB, i)))
+      LET s AS String = big::toString(g)
+      acc = acc + len(s) + big::toInteger(big::remainder(g, foldMod))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_bigint_gcd = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bigint", "gcd", times))
+END FUNC
