@@ -1357,10 +1357,12 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(CodeDataObject {
             symbol: CANVAS_FONTS_SYMBOL.to_string(),
             kind: "raw".to_string(),
-            layout: "mfb.runtime.canvas_fonts.v1 { u64 handle, block }[16]".to_string(),
+            // The first chunk of the chain (bug-756); later chunks are arena blocks.
+            layout: "mfb.runtime.canvas_fonts.v2 { { u64 handle, block }[16], u64 next }"
+                .to_string(),
             align: 8,
-            size: CANVAS_FONT_TABLE_BYTES,
-            value: "00".repeat(CANVAS_FONT_TABLE_BYTES),
+            size: CANVAS_FONT_CHUNK_BYTES,
+            value: "00".repeat(CANVAS_FONT_CHUNK_BYTES),
         });
         // plan-116-G: the named-group table, process-global for the same reason again —
         // `canvas::setGroup` runs on the worker and the renderer that draws a group

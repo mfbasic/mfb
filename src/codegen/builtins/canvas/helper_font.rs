@@ -282,7 +282,65 @@ FUNC __canvas_wrap16(v AS Integer) AS Integer
   RETURN r
 END FUNC"#;
 
+/// Text to glyphs: the **only** place a string becomes glyph ids and advances (bug-756).
+///
+/// `measureText`, the filled glyph run, the stroked text edges and the verify-mode
+/// reference all read this one run, which is what makes "measuring and drawing use the
+/// same glyph walk" (`canvas::measureText`) true by construction rather than by four
+/// copies agreeing. Kerning, spacing, ligatures and the parse-once face index
+/// (plan-162) change this body and none of its callers.
+///
+/// `fonts` is a list of font **handles**, and list order is fallback order: each
+/// codepoint takes the first font whose `cmap` maps it to a glyph other than `0`, and
+/// one no font maps is glyph `0` — `.notdef` — of `fonts[0]`, exactly what a one-font
+/// walk draws for it. The result is flat `(fontIndex, glyphId, advanceUnits)` triples,
+/// one per codepoint, in order. Advances stay in font units: the callers scale them
+/// differently on purpose (`measureText` sums Integers and scales once; the draw paths
+/// accumulate scaled Floats, snapped or not), and doing it here would change pixels.
+///
+/// It walks **font by font**, so each font's bytes are fetched and bound once per call.
+/// A font file is hundreds of kilobytes, and reading it out of a `List OF List OF Byte`
+/// per codepoint would copy it per codepoint. `fonts[0]` shapes every codepoint, `.notdef`
+/// included, and each later font replaces only the triples still at glyph `0` that it
+/// maps. That is the first-font-that-maps rule, and with one font it is exactly the old
+/// `cmap` + `hmtx` walk. An empty `fonts` shapes nothing. A handle with no published font
+/// reads as an empty file, whose every lookup answers `0`.
+#[rustfmt::skip]
+const SHAPE_RUN: &str =
+r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
+  LET cps AS List OF Integer = encoding::utf32Encode(text)
+  LET n AS Integer = len(cps)
+  MUT run AS List OF Integer = []
+  MUT which AS Integer = 0
+  FOR EACH f IN fonts
+    LET b AS List OF Byte = __canvas_fontBlob(f)
+    MUT c AS Integer = 0
+    WHILE c < n
+      LET cp AS Integer = collections::getOr(cps, c, 0)
+      IF which = 0 THEN
+        LET gid AS Integer = __canvas_glyphIndex(b, cp)
+        run = collections::append(run, 0)
+        run = collections::append(run, gid)
+        run = collections::append(run, __canvas_glyphAdvance(b, gid))
+      ELSE
+        IF collections::getOr(run, c * 3 + 1, 0) = 0 THEN
+          LET gid AS Integer = __canvas_glyphIndex(b, cp)
+          IF gid <> 0 THEN
+            run = collections::set(run, c * 3, which)
+            run = collections::set(run, c * 3 + 1, gid)
+            run = collections::set(run, c * 3 + 2, __canvas_glyphAdvance(b, gid))
+          END IF
+        END IF
+      END IF
+      c = c + 1
+    END WHILE
+    which = which + 1
+  NEXT
+  RETURN run
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper::always("canvas_shapeRun", SHAPE_RUN));
     pkg.add_helper(RegistryHelper::always("canvas_fontBytes", FONT_BYTES_READ));
     pkg.add_helper(RegistryHelper::always("canvas_fontTable", FONT_TABLE));
     pkg.add_helper(RegistryHelper::always("canvas_fontMetrics", FONT_METRICS));

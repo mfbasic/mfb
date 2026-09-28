@@ -647,22 +647,27 @@ pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
 /// scene carries. This table is that map: `handle` (the resource record's address,
 /// which is what a `FontRef` holds) to the byte block.
 ///
-/// A fixed table rather than a growing one because the alternative needs an allocator
-/// reachable from both threads, and a program with more than [`CANVAS_FONT_SLOTS`]
-/// fonts open *at once* is not what this letter is for. Loading a seventeenth font
-/// does not fail — it simply is not registered, and text in it draws empty, which is
-/// the same thing that happens to a released font.
+/// It is a **chain of fixed chunks**, not one fixed table (bug-756). It was sixteen
+/// slots and nothing more, so a seventeenth font open at once loaded and measured and
+/// every glyph drawn in it came out empty. A chunk never moves and is never freed, so
+/// the graphics thread can walk the chain without a lock: the worker appends a chunk
+/// only when every slot before it is taken, and publishes it with one store of the
+/// previous chunk's `next` word. This symbol is the first chunk; the rest are arena
+/// blocks of the same layout.
 pub(crate) const CANVAS_FONTS_SYMBOL: &str = "_mfb_rt_canvas_fonts";
-/// Slots in the font table. Each is `handle` then `block`, so 16 bytes.
+/// Slots per chunk. Each is `handle` then `block`, so 16 bytes.
 pub(crate) const CANVAS_FONT_SLOTS: usize = 16;
 /// A slot's two words.
 pub(crate) const CANVAS_FONT_SLOT_HANDLE: usize = 0;
 pub(crate) const CANVAS_FONT_SLOT_BLOCK: usize = 8;
-/// Bytes per slot, and the table's total size. There is no count word: a zero
-/// `handle` is the empty slot, and scanning sixteen words to find one is cheaper than
-/// keeping a count consistent between two threads.
+/// Bytes per slot. There is no count word: a zero `handle` is the empty slot, and
+/// scanning sixteen words to find one is cheaper than keeping a count consistent
+/// between two threads.
 pub(crate) const CANVAS_FONT_SLOT_BYTES: usize = 16;
-pub(crate) const CANVAS_FONT_TABLE_BYTES: usize = CANVAS_FONT_SLOTS * CANVAS_FONT_SLOT_BYTES;
+/// The chunk's last word: the next chunk's address, or zero at the end of the chain.
+pub(crate) const CANVAS_FONT_CHUNK_NEXT: usize = CANVAS_FONT_SLOTS * CANVAS_FONT_SLOT_BYTES;
+/// Bytes per chunk: the slots, then `next`.
+pub(crate) const CANVAS_FONT_CHUNK_BYTES: usize = CANVAS_FONT_CHUNK_NEXT + 8;
 
 /// The named-group table: a writable **process-global** block, for the same reason the
 /// scene region and the font table are (plan-116-G).
@@ -683,8 +688,8 @@ pub(crate) const CANVAS_GROUPS_SYMBOL: &str = "_mfb_rt_canvas_groups";
 ///
 /// **256, decided rather than inherited** (plan-116-G's G4 asks for the reasoning to be
 /// here). Six `u64` per slot × 256 is 12,288 bytes, emitted as literal zero bytes into
-/// **every** canvas binary — 48× the font table's 256 and 150× the scene region's 80,
-/// carried by a program that installs no groups at all.
+/// **every** canvas binary — 46× the font table's first chunk (264) and 150× the scene
+/// region's 80, carried by a program that installs no groups at all.
 ///
 /// It is still the right trade, for an asymmetry in what going wrong costs. Too large
 /// costs ~9 KB of zeros against the 64-slot alternative, in a binary measured in

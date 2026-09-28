@@ -742,6 +742,272 @@ END FUNC
     );
 }
 
+/// bug-756 guards: the four text paths — measure, filled run, stroked edges, and the
+/// verify reference — all walk the same glyphs with the same pen arithmetic.
+///
+/// `"ABXA"` exercises every column of that walk: two mapped glyphs with different
+/// advances (`A` 250 units, `B` 300), an unmapped `X` that falls to glyph 0 (500), and
+/// a repeat, so a walk that dropped a glyph, swapped two, or read an advance from the
+/// wrong glyph moves the second `A`. `B` and glyph 0 have no outline, so only the two
+/// `A`s draw, and where the second lands is the sum of the three advances before it.
+///
+/// At size 50 the scale is 0.05, so the advances are 12.5, 15 and 25 px — not whole
+/// pixels — and a start of `x = 100.25` puts the pens at 100.25, 112.75, 127.75 and
+/// 152.75. The filled run snaps each pen to a whole pixel (`toInt(pen + 0.5)`) and the
+/// stroked edges do not, so each path is compared against two single-`A` items at
+/// 100.25 and 152.75, which draw through the same path with no walk to get wrong.
+const WALK_TEXT: &str = "ABXA";
+const WALK_SIZE: &str = "50.0";
+const WALK_PENS: [&str; 2] = ["100.25", "152.75"];
+
+fn walk_scene(paint: &str, whole_string: bool) -> String {
+    let items = if whole_string {
+        format!(
+            "[canvas::Text[x := {}, y := 200.0, text := \"{WALK_TEXT}\", font := face, size := {WALK_SIZE}, paint := {paint}]]",
+            WALK_PENS[0]
+        )
+    } else {
+        let one = |x: &str| {
+            format!(
+                "canvas::Text[x := {x}, y := 200.0, text := \"A\", font := face, size := {WALK_SIZE}, paint := {paint}]"
+            )
+        };
+        format!("[{}, {}]", one(WALK_PENS[0]), one(WALK_PENS[1]))
+    };
+    format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN
+  END TRAP
+  canvas::present({items})
+END FUNC
+"#
+    )
+}
+
+/// The lit columns of a frame, as `(first, last)` runs left to right.
+fn lit_column_runs(frame: &[u8]) -> Vec<(usize, usize)> {
+    let mut lit = vec![false; WIDTH];
+    for i in 0..frame.len() / 4 {
+        if frame[i * 4] != 0 || frame[i * 4 + 1] != 0 || frame[i * 4 + 2] != 0 {
+            lit[i % WIDTH] = true;
+        }
+    }
+    let mut runs = Vec::new();
+    let mut start = None;
+    for (x, on) in lit.iter().enumerate() {
+        match (start, on) {
+            (None, true) => start = Some(x),
+            (Some(s), false) => {
+                runs.push((s, x - 1));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        runs.push((s, WIDTH - 1));
+    }
+    runs
+}
+
+/// `measureText` sums advances as **Integers** in font units and scales once. At size
+/// 35 that differs in the last bit from adding the scaled advances glyph by glyph,
+/// whether or not the target fuses the multiply-add (35 was chosen because both
+/// orders of rounding separate there), so the comparison is exact and only the
+/// Integer-sum form passes. The second printed line proves the size still separates.
+#[test]
+fn measure_text_sums_a_mixed_run_in_font_units_then_scales_once() {
+    let lines = run_with_font(
+        "canvas_measure_walk",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load failed")
+    RETURN
+  END TRAP
+  LET m AS canvas::TextMetrics = canvas::measureText(face, 35.0, "ABXA")
+  LET scale AS Float = 35.0 / toFloat(1000)
+  LET summed AS Float = toFloat(250 + 300 + 500 + 250) * scale
+  MUT stepped AS Float = 0.0
+  FOR EACH adv IN [250, 300, 500, 250]
+    stepped = stepped + toFloat(adv) * scale
+  NEXT
+  io::print("integer-sum " & toString(m.width = summed))
+  io::print("forms differ " & toString(summed <> stepped))
+END FUNC
+"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "integer-sum TRUE".to_string(),
+            "forms differ TRUE".to_string()
+        ],
+        "measureText must sum the run's advances in font units and scale once; the \
+         second line proves this size can tell that apart from a per-glyph sum",
+    );
+}
+
+/// A closed font still raises `ErrResourceClosed` from `measureText` — the man page
+/// says so — rather than measuring as zeroes the way a font with no `head` table does.
+#[test]
+fn measuring_a_closed_font_raises_resource_closed() {
+    let lines = run_with_font(
+        "canvas_measure_closed",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC closeIt(RES f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  closeIt(f)
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 100.0, "A") TRAP(e)
+    io::print("closed: " & toString(e.code))
+    RETURN
+  END TRAP
+  io::print("measured " & toString(m.width))
+END FUNC
+"#,
+    );
+    assert_eq!(lines, vec![format!("closed: {RESOURCE_CLOSED}")]);
+}
+
+/// The renderer's font table holds sixteen fonts, and a full table is documented as
+/// not an error: a seventeenth font still **measures**, and only text drawn in it comes
+/// out empty (`gen_font_table.rs:emit_register_font`). So measuring must not depend on
+/// the font having a table slot.
+#[test]
+fn a_font_past_the_renderers_table_still_measures() {
+    let mut source = String::from(
+        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+    );
+    for i in 1..=17 {
+        source.push_str(&format!(
+            "  RES f{i} AS canvas::Font = canvas::loadFont(\"fixture.ttf\")\n"
+        ));
+    }
+    source.push_str(
+        "  io::print(\"first \" & toString(canvas::measureText(f1, 100.0, \"AB\").width))\n  io::print(\"last \" & toString(canvas::measureText(f17, 100.0, \"AB\").width))\nEND FUNC\n",
+    );
+    let lines = run_with_font("canvas_measure_seventeenth", &source);
+    assert_eq!(
+        lines,
+        vec!["first 55.00".to_string(), "last 55.00".to_string()],
+        "the seventeenth font has no renderer table slot, and must measure anyway",
+    );
+}
+
+/// Every live font **draws**, however many are loaded. The renderer finds a font's
+/// outlines through a process-global table keyed by handle, and that table held
+/// sixteen fonts: the seventeenth loaded and measured, and every glyph drawn in it
+/// silently came out empty (bug-756). The table is now a chain of sixteen-slot chunks,
+/// so forty fonts span three: an `A` in the seventeenth (second chunk) and the fortieth
+/// (third) must light exactly what the same two `A`s in the first font light.
+#[test]
+fn every_live_font_draws_however_many_are_loaded() {
+    let scene = |left: &str, right: &str| {
+        let mut source = String::from(
+            "IMPORT app\nIMPORT canvas\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+        );
+        for i in 1..=40 {
+            source.push_str(&format!(
+                "  RES f{i} AS canvas::Font = canvas::loadFont(\"fixture.ttf\")\n"
+            ));
+        }
+        let text = |x: &str, font: &str| {
+            format!(
+                "canvas::Text[x := {x}, y := 200.0, text := \"A\", font := {font}, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]"
+            )
+        };
+        source.push_str(&format!(
+            "  canvas::present([{}, {}])\nEND FUNC\n",
+            text("100.0", left),
+            text("300.0", right)
+        ));
+        source
+    };
+    let first = render("canvas_font_first_of_40", &scene("f1", "f1"));
+    let later = render("canvas_font_later_of_40", &scene("f17", "f40"));
+    assert_eq!(
+        lit_column_runs(&first),
+        vec![(110, 139), (310, 339)],
+        "the first font's `A` is the 30 px square at each pen"
+    );
+    assert!(
+        first == later,
+        "text in the 17th and 40th live fonts drew {:?}, not the first font's {:?}",
+        lit_column_runs(&later),
+        lit_column_runs(&first),
+    );
+}
+
+/// The filled run places each glyph at its snapped pen: `"ABXA"` lights exactly what
+/// two single `A`s at the first and fourth pens light.
+#[test]
+fn a_filled_run_places_every_glyph_at_its_own_snapped_pen() {
+    let fill = "canvas::fill(color::rgb(255, 255, 255))";
+    let whole = render("canvas_walk_fill", &walk_scene(fill, true));
+    let parts = render("canvas_walk_fill_parts", &walk_scene(fill, false));
+    let runs = lit_column_runs(&whole);
+    assert_eq!(runs.len(), 2, "two `A`s, two separate bands: {runs:?}");
+    assert!(
+        whole == parts,
+        "the run {runs:?} is not two `A`s at pens {WALK_PENS:?} ({:?})",
+        lit_column_runs(&parts),
+    );
+}
+
+/// The stroked path (`__canvas_textEdges`) lays out the same run with an **unsnapped**
+/// pen, and must agree with two stroked single `A`s at the same unsnapped pens.
+#[test]
+fn a_stroked_run_places_every_glyph_at_its_own_pen() {
+    let stroke = "canvas::stroke(color::rgb(255, 255, 255), 2.0)";
+    let whole = render("canvas_walk_stroke", &walk_scene(stroke, true));
+    let parts = render("canvas_walk_stroke_parts", &walk_scene(stroke, false));
+    let runs = lit_column_runs(&whole);
+    assert_eq!(runs.len(), 2, "two `A`s, two separate outlines: {runs:?}");
+    assert!(
+        whole == parts,
+        "the stroked run {runs:?} is not two `A`s at pens {WALK_PENS:?} ({:?})",
+        lit_column_runs(&parts),
+    );
+}
+
+/// Verify mode rebuilds the glyph run through `__canvas_geoRunReference` and compares it
+/// with the record the renderer drew, so the two walks must agree glyph for glyph.
+#[test]
+fn verify_mode_agrees_with_the_filled_run() {
+    let (_, stats) = render_env(
+        "canvas_walk_verify",
+        &walk_scene("canvas::fill(color::rgb(255, 255, 255))", true),
+        &[("MFB_CANVAS_GEO_VERIFY", "1")],
+    );
+    assert!(
+        stat(&stats, "geoResolvedChecked") >= 1,
+        "the text record was never checked:\n{stats}"
+    );
+    assert_eq!(
+        stat(&stats, "geoVerifyMismatches"),
+        0,
+        "the verify reference walked the run differently from the renderer:\n{stats}"
+    );
+}
+
 #[test]
 fn text_whose_font_was_destroyed_draws_nothing() {
     // The runtime draws empty rather than following a font it cannot resolve. This is

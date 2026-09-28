@@ -1718,6 +1718,47 @@ mod tests {
         }
     }
 
+    /// bug-756: text becomes glyphs in exactly one function, `__canvas_shapeRun`.
+    ///
+    /// `measureText`'s DESC promises that "measuring and drawing use the same glyph
+    /// walk". That holds only if no other function turns a codepoint into a glyph id
+    /// or an advance itself: a second walk is where kerning, fallback or spacing gets
+    /// added to one path and not the other, and the measured width stops matching the
+    /// drawn one without any build failing. So the per-glyph readers may be called
+    /// from the shaping helper and nowhere else, in either build's assembled source.
+    #[test]
+    fn canvas_text_has_one_glyph_walk() {
+        // Both builds: `__canvas_geoRunReference`, the verify-mode reference for the
+        // glyph run, exists only in the `--debug` source.
+        let canvas = registry().resolve_package("canvas").expect("canvas");
+        let mut offenders: Vec<String> = Vec::new();
+        for debug in [false, true] {
+            let source = canvas.get_mfb_for(debug);
+            let mut current = String::new();
+            for line in source.lines() {
+                let code = line.trim_start();
+                if let Some(rest) = code.strip_prefix("FUNC ") {
+                    current = rest.split('(').next().unwrap_or("").trim().to_string();
+                    continue;
+                }
+                if code.starts_with('\'') {
+                    continue;
+                }
+                let calls = code.contains("__canvas_glyphIndex(")
+                    || code.contains("__canvas_glyphAdvance(");
+                if calls && current != "__canvas_shapeRun" && !offenders.contains(&current) {
+                    offenders.push(current.clone());
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "the per-glyph readers are called outside `__canvas_shapeRun`: \
+             {offenders:?}. Every text consumer must read the one shaped run, or \
+             measuring and drawing can drift apart",
+        );
+    }
+
     fn assert_parses(source: &str) {
         if crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-canvas>"),

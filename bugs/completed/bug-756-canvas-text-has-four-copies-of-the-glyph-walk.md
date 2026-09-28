@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun (duplicated invariant — no wrong output today)
 
-Status: Open
+Status: Fixed — see the STATUS block at the end
 Regression Test: `canvas_text_has_one_glyph_walk` (structural, RED today) +
 the Phase 1 guard tests in `tests/canvas/rt_canvas_font.rs` (GREEN today, must stay GREEN)
 
@@ -350,43 +350,75 @@ is a whole number of pixels. A refactor that swapped glyph order, read the wrong
 column of the triple list, or broke fractional pen accumulation would pass every
 existing test. So the guards come first, and they must be GREEN at HEAD.
 
-- [ ] Extend the fixture builder, or add a second fixture, so it provides **two
+- [x] Extend the fixture builder, or add a second fixture, so it provides **two
       mapped glyphs with different advances** that are not whole pixels at the test
       size, plus an **unmapped codepoint** (so the run includes glyph 0).
-- [ ] Guard `measureText`: exact `width` for a mixed string such as `"AB?A"` with `?`
+- [x] Guard `measureText`: exact `width` for a mixed string such as `"AB?A"` with `?`
       unmapped, compared against the hand-computed Integer-sum-then-scale value.
-- [ ] Guard the closed-font contract: `measureText` on a destroyed font raises
+- [x] Guard the closed-font contract: `measureText` on a destroyed font raises
       `ErrResourceClosed`. Check that an existing test in `rt_canvas_font.rs` already
       asserts this before adding one.
-- [ ] Guard the filled path: the lit-column extents of the same string, pinning every
+- [x] Guard the filled path: the lit-column extents of the same string, pinning every
       glyph's snapped pen.
-- [ ] Guard the stroked path (`strokeWidth > 0`, which routes through
+- [x] Guard the stroked path (`strokeWidth > 0`, which routes through
       `__canvas_textEdges`): the lit extents of the same string.
-- [ ] Guard verify-mode agreement: render the filled string with
+- [x] Guard verify-mode agreement: render the filled string with
       `MFB_CANVAS_GEO_VERIFY=1` and assert zero mismatches, reusing whatever stat
       `rt_canvas_geo_native.rs` already reads for `__CANVAS_GEO_MISMATCHES`.
-- [ ] Add the RED structural test `canvas_text_has_one_glyph_walk` as an in-crate
+- [x] Add the RED structural test `canvas_text_has_one_glyph_walk` as an in-crate
       `#[cfg(test)]` test in the canvas module. It scans the canvas MFBASIC helper
       source constants and asserts that `__canvas_glyphIndex(` and
       `__canvas_glyphAdvance(` appear only inside the body of `__canvas_shapeRun`.
       It fails today with the four functions named in the reproduction.
-- [ ] Confirm the audit verdicts above still hold by re-running both grep commands.
+- [x] Confirm the audit verdicts above still hold by re-running both grep commands.
 
 Acceptance: the four guards pass at HEAD, and the structural test fails, naming exactly
 `__canvas_measureText`, `__canvas_textGlyphRun`, `__canvas_textEdges` and
 `__canvas_geoRunReference`.
-Commit: —
+Commit: df06d0104 (guards) + a2e3c2bab (structural test, landed with the fix it gates)
+
+### Phase 1b — the renderer's font table must not cap (found during the fix)
+
+Found at step 2, before any refactor. Fix Design step 3 reads `measureText`'s bytes
+through `__canvas_fontBlob(handle)`, i.e. the renderer's process-global font table. That
+table was **sixteen fixed slots** (`CANVAS_FONT_SLOTS`), and `emit_register_font`
+silently skipped a font when all sixteen were taken. Its own doc comment said a
+seventeenth font "still measures, because `measureText` reads the resource record
+directly". So the design as written would have turned a seventeenth live font's metrics
+into all zeroes, a change the Non-goals forbid. Independently, every glyph drawn in such
+a font already came out empty at HEAD, silently.
+
+Decided 2026-09-27 (user): lift the limit first, then land the design unchanged.
+
+- [x] RED test `every_live_font_draws_however_many_are_loaded` (`rt_canvas_font.rs`):
+      forty fonts; an `A` in the 17th and the 40th must light exactly what the first
+      font's does. At HEAD the 17th drew `[]`.
+- [x] Guard `a_font_past_the_renderers_table_still_measures` (GREEN at HEAD): the
+      seventeenth font measures `55.00` for `"AB"`, as the first does. It is the test
+      that would have caught the design flaw.
+- [x] `gen_font_table.rs`: the table is a chain of sixteen-slot chunks with a `next`
+      word. The worker appends a zeroed arena chunk only when every slot is taken, and
+      links it with one store; readers follow `next`. Chunks never move and are never
+      freed, so a lock-free reader is safe (`.ai/canvas-threading.md` §2, §13). An
+      allocation failure raises `ErrOutOfMemory` from `loadFont` instead of skipping.
+- [x] **Latent ordering bug fixed alongside:** the slot publish was two plain stores
+      ("the block goes in first"), and a plain `str` may become visible out of order on
+      AArch64 (the bug-564 class). `handle` and `next` are now store-release /
+      load-acquire there, via `scene_base::orders_scene_accesses`. x86-64 stays plain
+      (TSO).
+
+Commit: 690cbfcab
 
 ### Phase 2 — the refactor
 
-- [ ] Add `__canvas_shapeRun(fonts, text)` to `helper_font.rs` with its "only place /
+- [x] Add `__canvas_shapeRun(fonts, text)` to `helper_font.rs` with its "only place /
       list order is fallback order" doc comment.
-- [ ] Replace internal `canvas::fontBytes` with `canvas::fontOpenHandle`
+- [x] Replace internal `canvas::fontBytes` with `canvas::fontOpenHandle`
       (`func_measure_text.rs`). Move the copy-not-alias lesson to
       `canvas::fontBlobUnchecked`.
-- [ ] Route `__canvas_measureText` through the helper, reading the handle via
+- [x] Route `__canvas_measureText` through the helper, reading the handle via
       `canvas::fontOpenHandle` (`func_measure_text.rs`).
-- [ ] Route `__canvas_textGlyphRun`, `__canvas_textEdges` and
+- [x] Route `__canvas_textGlyphRun`, `__canvas_textEdges` and
       `__canvas_geoRunReference` through it (`helper_geometry.rs`). Add the pinning
       comment at the `__canvas_textGlyphRun` call.
 
@@ -395,28 +427,32 @@ member or caller (only the relocated history comment, if it names it), all Phase
 still pass, and
 `cargo test --test rt_canvas_font` / `rt_canvas_golden` / `rt_canvas_geo_native` pass.
 Nothing in Non-goals changed.
-Commit: —
+Commit: a2e3c2bab
 
 ### Phase 3 — regenerate the sentinel + full validation
 
-- [ ] Run the full suite first, never one module.
-- [ ] Confirm `tests/golden/canvas/*.png` are untouched (`git status tests/golden/canvas`
+- [x] Run the full suite first, never one module.
+- [x] Confirm `tests/golden/canvas/*.png` are untouched (`git status tests/golden/canvas`
       shows nothing).
-- [ ] Regenerate only `tests/syntax/app/app-mouse-surface/golden/*`, following
+- [x] Regenerate only `tests/syntax/app/app-mouse-surface/golden/*`, following
       `.ai/testing-gates.md` (`sync-goldens.sh` takes the **mfb binary** as its first
       argument). Inspect the `.ir` diff: it must be confined to the four rewritten
       functions and the new helper.
 - [ ] `scripts/test-canvas-vulkan.sh` on a Vulkan box (see `.ai/remote_systems.md`) and
       the Metal path locally. GPU text uses the same glyph run, so a regression shows up
       as a tolerance failure.
-- [ ] Render one real-font scene before and after (a scratch program in `/tmp` using
+      **NOT RUN (2026-09-27):** every Linux box was unreachable (`ssh -p 2222..2228` →
+      connection refused; `scripts/test-canvas-vulkan.sh` exited 255 at the ssh step).
+      The Metal path ran locally inside the full suite (`rt_canvas_metal` 38/38 ok). Run it
+      when a box is back: `scripts/test-canvas-vulkan.sh target/debug/mfb`.
+- [x] Render one real-font scene before and after (a scratch program in `/tmp` using
       `canvas::systemFonts()`, dumped with `MFB_CANVAS_DUMP` + `MFB_CANVAS_SYNC=1`
       from a `--debug` build) and `cmp` the frames. The fixture font can't show kerning-
       or width-sensitive drift, and a real font can.
 
 Acceptance: full suite green, PNG goldens byte-identical, the sentinel diff confined to
 the canvas text helpers, and the real-font frames byte-identical.
-Commit: —
+Commit: e1c1fdaf1
 
 ## Validation Plan
 
@@ -458,3 +494,40 @@ Today's tests are too weak to catch a pen mistake (one glyph, whole-pixel advanc
 Phase 1's guards are the real work. Left for later plans: the parse-once font cache,
 the public font-list API (`measureText` overload and the `Text` font list), `cmap`
 subtable lookup cost, and the hash key. Every pixel is unchanged.
+
+## STATUS: FIXED (a2e3c2bab; font table 690cbfcab; sentinel e1c1fdaf1)
+
+Deviations from the plan above, each on purpose:
+
+- **Phase 1b was added (user decision, 2026-09-27).** The design read `measureText`'s
+  bytes through the renderer's 16-slot font table, which would have made a 17th live
+  font measure as zeroes. The table is now a chain of 16-slot chunks, so every live font
+  draws and measures. That also fixed an existing silent failure (the 17th font drew
+  nothing) and a latent AArch64 publish-ordering bug in the same table.
+- **No new fixture.** `truetype_fixture` already had two mapped glyphs with different
+  advances (`A` 250, `B` 300) and unmapped codepoints (glyph 0, 500). At size 50 from
+  `x = 100.25`, those are fractional pens, and the guards use them.
+- **The size-37 example was wrong on AArch64.** With a fused multiply-add, the per-glyph
+  sum and the Integer sum agree there. Size 35 separates them with and without FMA, and
+  the guard prints that it still does.
+- **`__canvas_shapeRun` walks font by font, not codepoint by codepoint.** The Fix Design
+  sketch read each font's bytes back out of a `List OF List OF Byte` per codepoint, and a
+  nested-list `getOr` copies the element, so that would have copied a font file per
+  glyph. Same fallback rule, one byte binding per font per call.
+- **`canvas.fontBytes` had more references than the audit found.** It was also in the
+  three target allowlists (`src/target/*/mod.rs`, renamed) and in the registry's
+  caller-arena-result list (`src/codegen/registry/mod.rs`, removed, since
+  `fontOpenHandle` returns an Integer).
+- **Vulkan acceptance was not run.** No box was reachable (see Phase 3).
+
+Proof: the full `cargo test --no-fail-fast` passed every binary except
+`artifact_gate_all`, whose 7 diffs were exactly the `app-mouse-surface` sentinel. Once
+source positions are normalized, the sentinel's `.ir` diff touches only
+`__canvas_shapeRun`, `__canvas_measureText`, `__canvas_textGlyphRun` and
+`__canvas_textEdges`. `tests/golden/canvas/*.png` did not change. A real-font scene
+(Helvetica / Helvetica Bold, filled, stroked, fill+stroke and rotated, with accented,
+CJK, emoji and ligature codepoints) gave a byte-identical frame and identical widths
+(printed ×10¹⁵) from the `main` compiler and the fixed one. Its `--debug` allocation
+total rose from 7,091,000 to 7,422,000 bytes: the second font copy per `measureText`
+that Blast Radius predicted, which plan-162-A removes.
+

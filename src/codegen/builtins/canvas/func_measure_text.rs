@@ -1,4 +1,4 @@
-//! `canvas::measureText` and the internal `canvas::fontBytes` it reads through.
+//! `canvas::measureText` and the internal `canvas::fontOpenHandle` it reads through.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
@@ -10,7 +10,6 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_font::FONT_BYTES;
 use super::gen_image::emit_closed_guard;
 
 const INTRO: &str = r#"Measure a string in a font without drawing it."#;
@@ -50,21 +49,32 @@ END FUNC
 
 /// `canvas::measureText(font, size, text)` — sum the advances, scale the metrics.
 ///
-/// MFBASIC, over the table readers in `helper_font.rs`. The one thing it cannot do
-/// itself is reach the resource's bytes, which is what `canvas::fontBytes` is for.
+/// MFBASIC, over the shaped run every text path reads (`__canvas_shapeRun`), so the
+/// width is the drawn width by construction. The width is an **Integer** sum of the
+/// run's advances in font units, scaled once; the draw paths add scaled Floats glyph by
+/// glyph, and the two are not interchangeable to the last bit.
+///
+/// The handle comes from `canvas::fontOpenHandle`, which is what keeps a closed font an
+/// `ErrResourceClosed` rather than the all-zero metrics an unpublished handle would read
+/// as. The `head`/`hhea` metrics still read the font file through `__canvas_fontBlob`
+/// until plan-162-A's face index answers them by handle.
 #[rustfmt::skip]
 const MEASURE_TEXT: &str =
 r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String) AS TextMetrics
-  LET b AS List OF Byte = canvas::fontBytes(font)
+  LET handle AS Integer = canvas::fontOpenHandle(font)
+  LET b AS List OF Byte = __canvas_fontBlob(handle)
   LET upem AS Integer = __canvas_fontUnitsPerEm(b)
   IF upem <= 0 THEN
     RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0]
   END IF
   LET scale AS Float = size / toFloat(upem)
+  LET run AS List OF Integer = __canvas_shapeRun([handle], text)
   MUT advance AS Integer = 0
-  FOR EACH cp IN encoding::utf32Encode(text)
-    advance = advance + __canvas_glyphAdvance(b, __canvas_glyphIndex(b, cp))
-  NEXT
+  MUT i AS Integer = 2
+  WHILE i < len(run)
+    advance = advance + collections::getOr(run, i, 0)
+    i = i + 3
+  END WHILE
   LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
   ' `hhea.descender` is negative in the file -- it measures downward from the
   ' baseline -- and `TextMetrics.descent` is documented as a positive number, so the
@@ -74,22 +84,16 @@ r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String
   RETURN TextMetrics[width := toFloat(advance) * scale, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap]
 END FUNC"#;
 
-/// `canvas::fontBytes(font) AS List OF Byte` — an owned copy of the font file.
+/// `canvas::fontOpenHandle(font) AS Integer` — the font's handle, or `ErrResourceClosed`.
 ///
-/// **It copies, and the first version did not.** Returning the resource's own block as
-/// a read-only alias is the obvious optimisation — a font file is hundreds of
-/// kilobytes and `measureText` runs per string per frame, so copying makes measuring
-/// cost the font's size rather than the string's length. It is also wrong: the
-/// returned value is bound to an ordinary `LET` inside `__canvas_measureText`, and the
-/// binding's scope-drop reclaims it, so the *second* call on the same font reads a
-/// block the first call freed. Measured, not reasoned: the first `measureText` printed
-/// correct metrics and the next one segfaulted (exit 139).
-///
-/// So the cost is real and paid deliberately, for now. What removes it is a glyph
-/// cache — plan-98-G Phase 2 — not an alias: caching the *rasterised glyph* skips the
-/// whole read, where aliasing only skips the copy and hands out a dangling block to do
-/// it. `canvas::getBytes` copies for the same reason.
-pub(crate) fn lower_font_bytes(
+/// `canvas::fontHandle` answers `0` for a closed font, because the renderer must draw a
+/// scene naming one as nothing rather than stop the frame. Measuring is different: the
+/// man page promises `ErrResourceClosed`, and `0` would read as a font with no tables and
+/// measure as zeroes. So this is the same closed-before-handle read with the other
+/// answer. It replaced `canvas::fontBytes`, which raised the same way but copied the
+/// whole font file to hand back (bug-756): text code now asks by handle, and only the
+/// readers that need the file fetch it.
+pub(crate) fn lower_font_open_handle(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
     _ctx: &AbiCtx,
@@ -101,20 +105,18 @@ pub(crate) fn lower_font_bytes(
         .location
         .clone();
 
-    let closed = builder.label("canvas_font_bytes_closed");
-    let done = builder.label("canvas_font_bytes_done");
+    let closed = builder.label("canvas_font_open_closed");
+    let done = builder.label("canvas_font_open_done");
 
-    let record_slot = builder.allocate_stack_object("canvas_font_bytes_rec", 8);
+    let record_slot = builder.allocate_stack_object("canvas_font_open_rec", 8);
     builder.emit(abi::store_u64(&record, abi::stack_pointer(), record_slot));
     emit_closed_guard(builder, &record, &closed);
 
     let source = builder.temporary_vreg();
-    let bytes = builder.temporary_vreg();
+    let handle = builder.temporary_vreg();
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), record_slot));
-    builder.emit(abi::load_u64(&bytes, &source, FONT_BYTES));
-    let copy = builder.copy_flat_block(&ParameterType::list_of(ParameterType::Byte), &bytes)?;
-
-    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &copy));
+    builder.emit(abi::load_u64(&handle, &source, RESOURCE_OFFSET_HANDLE));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &handle));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -132,17 +134,16 @@ pub(crate) fn lower_font_bytes(
         origin: None,
         type_: ParameterType::Nothing,
         location: Operand::from("void"),
-        text: "canvas.fontBytes".to_string(),
+        text: "canvas.fontOpenHandle".to_string(),
     })
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
-        name: "fontBytes",
-        intro: "The font file's bytes, as a read-only alias.",
-        desc: "Internal. Returns an owned copy of the font file — an alias would be \
-               freed by the caller's scope-drop and leave the resource holding a dead \
-               block.",
+        name: "fontOpenHandle",
+        intro: "The handle of an open font.",
+        desc: "Internal. Raises `ErrResourceClosed` for a closed font, where \
+               `canvas::fontHandle` answers `0`.",
         example: "",
         expected_arguments: None,
         internal_only: true,
@@ -154,9 +155,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::named(super::FONT_TYPE_ID),
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
-            body: Body::abi_function(lower_font_bytes),
+            return_type: ParameterType::Integer,
+            errors: vec!["ErrResourceClosed"],
+            body: Body::abi_function(lower_font_open_handle),
         }],
     });
     pkg.add_function(RegistryFunction {

@@ -755,6 +755,45 @@ whose directory or tables run past the end of the file is dropped or refused wit
 `ErrBadFontFile` — the bug-509 rule that a hostile header costs a comparison, not a
 loop or an out-of-bounds read.
 
+## Every text path reads one shaped run
+
+A string becomes glyphs in exactly one function, `__canvas_shapeRun(fonts, text)`,
+which takes font **handles** in fallback order and returns flat
+`(fontIndex, glyphId, advanceUnits)` triples, one per codepoint. Each codepoint takes
+the first font whose `cmap` maps it to a glyph other than `0`; one no font maps is
+glyph `0` (`.notdef`) of the first font.
+[[src/codegen/builtins/canvas/helper_font.rs:SHAPE_RUN]] `canvas::measureText`, the
+filled glyph run, the stroked text edges, and the `MFB_CANVAS_GEO_VERIFY` reference for
+the glyph run all read that run, and none of them looks up a glyph or an advance
+itself. The `canvas` unit test `canvas_text_has_one_glyph_walk` enforces this over the
+assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph_walk]]
+Today each caller passes a one-font list.
+
+Advances stay in font units, because the callers deliberately convert them
+differently. `measureText` sums the advances as Integers and scales once.
+[[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_TEXT]] The filled run and
+its verify reference add a scaled Float per glyph and snap each glyph's pen to a whole
+pixel, because a glyph is a cached bitmap placed on integer pixels. The stroked edges
+add the same Floats but do not snap, because edges are exact geometry.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_textGlyphRun]] The two sums
+can differ in the last bit, so this split is part of the output, not an accident of
+it.
+
+`measureText` gets its handle from the internal `canvas::fontOpenHandle`, which raises
+`ErrResourceClosed` for a closed font; the renderer's `canvas::fontHandle` answers `0`
+instead, so that a scene naming a closed font draws nothing rather than stopping.
+[[src/codegen/builtins/canvas/func_measure_text.rs:lower_font_open_handle]]
+
+The bytes behind a handle come from the process-global font table that `loadFont`
+registers into and `destroyFont` clears. It is a chain of sixteen-slot chunks. The
+worker links in a new arena chunk only when every slot is taken, and chunks never move
+and are never freed, so the graphics thread walks the chain without a lock. A slot's
+handle and a chunk's `next` word are published with a store-release and read with a
+load-acquire on AArch64. [[src/codegen/builtins/canvas/gen_font_table.rs:emit_register_font]]
+[[src/codegen/builtins/canvas/gen_font_table.rs:emit_lookup_font]] Every live font
+therefore draws and measures, however many are open. The table was once sixteen fixed
+slots, and a seventeenth font's glyphs silently drew nothing (bug-756).
+
 ## System fonts are an OS query, then an ordinary load
 
 `canvas::listSystemFonts` and `canvas::loadSystemFont` rest on one native member,

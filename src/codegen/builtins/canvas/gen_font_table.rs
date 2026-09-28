@@ -8,11 +8,26 @@
 //! in a `FontRef` to the block. This table is that map, and it is a process-global for
 //! exactly the reason the scene region is one (`.ai/canvas-threading.md` §2).
 //!
-//! Sixteen fixed slots, `handle` then `block`, no count word: a zero handle is the
-//! empty slot, and scanning sixteen words is cheaper than keeping a count consistent
-//! between two threads without a lock. Registering is a single 16-byte write into a
-//! slot no other thread is writing, and releasing is a single store of zero — both are
-//! naturally atomic enough for a reader that only ever asks "is this handle here".
+//! Chunks of sixteen slots, `handle` then `block`, and a `next` word linking each chunk
+//! to the one after it (bug-756; it was one fixed table, and a seventeenth open font
+//! silently drew nothing). No count word: a zero handle is the empty slot, and scanning
+//! sixteen words is cheaper than keeping a count consistent between two threads without
+//! a lock. The first chunk is the process-global symbol; the worker appends an arena
+//! chunk only when every slot in the chain is taken. A chunk never moves and is never
+//! freed, and arena memory stays mapped for the life of the process
+//! (`.ai/canvas-threading.md` §2), so a reader holding a chunk address always holds a
+//! valid one — which is why the chain can grow under a lock-free reader when an array
+//! that reallocated could not.
+//!
+//! **Publishing is ordered.** A reader matches on `handle` and then follows `block`, and
+//! walks on through `next`, so a `handle` must never be visible before its `block`, nor
+//! a `next` before the chunk it names is filled. On AArch64 a plain `str` can become
+//! visible out of program order, so `handle` and `next` are written with a store-release
+//! and read with a load-acquire there (the scene region's rule,
+//! `scene_base::orders_scene_accesses`). x86-64 keeps stores and loads in order, and
+//! there both are plain. Releasing a font is a single store of zero to its `handle`.
+
+use super::scene_base::orders_scene_accesses;
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
@@ -27,7 +42,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// Park the font table's address in a fresh vreg.
+/// Park the first chunk's address in a fresh vreg.
 fn table_base(builder: &mut CodeBuilder) -> VirtualRegister {
     let base = builder.temporary_vreg();
     let symbol = builder.current_symbol.clone();
@@ -41,66 +56,162 @@ fn table_base(builder: &mut CodeBuilder) -> VirtualRegister {
     base
 }
 
-/// Claim the first free slot for `handle` -> `block`.
+/// Publish `value` at `base + offset`: a store-release where the target needs one.
+fn emit_publish(
+    builder: &mut CodeBuilder,
+    base: &VirtualRegister,
+    offset: usize,
+    value: &VirtualRegister,
+) {
+    if orders_scene_accesses(builder) {
+        let at = builder.temporary_vreg();
+        builder.emit(abi::add_immediate(&at, base, offset));
+        builder.emit(abi::store_release_u64(value, &at));
+    } else {
+        builder.emit(abi::store_u64(value, base, offset));
+    }
+}
+
+/// Read a published word at `base + offset`: a load-acquire where the target needs one,
+/// so the loads after it cannot see memory older than the word.
+fn emit_observe(
+    builder: &mut CodeBuilder,
+    base: &VirtualRegister,
+    offset: usize,
+    dst: &VirtualRegister,
+) {
+    if orders_scene_accesses(builder) {
+        let at = builder.temporary_vreg();
+        builder.emit(abi::add_immediate(&at, base, offset));
+        builder.emit(abi::load_acquire_u64(dst, &at));
+    } else {
+        builder.emit(abi::load_u64(dst, base, offset));
+    }
+}
+
+/// Claim the first free slot in the chain for `handle` -> `block`, appending a chunk
+/// when every slot is taken.
 ///
-/// A full table is **not** an error. `loadFont` still returns a working `Font` — it
-/// measures, because `measureText` reads the resource record directly — and only text
-/// *drawn* in it comes out empty, which is the same thing that happens to a font the
-/// program released while a scene still named it. Failing the load instead would turn
-/// a rendering limit into a program-stopping error at a point the program cannot
-/// predict.
-pub(crate) fn emit_register_font(builder: &mut CodeBuilder, handle: &Operand, block: &Operand) {
+/// Only the worker registers and releases, so the scan for a free slot races no other
+/// writer. The new chunk is filled — zeroed, its first slot written — before the one
+/// store that links it in, so a reader either does not reach it yet or sees it whole.
+/// An allocation failure raises `ErrOutOfMemory` and branches to `failed`: a font that
+/// loads but can never be drawn is the silent failure this chain exists to remove.
+pub(crate) fn emit_register_font(
+    builder: &mut CodeBuilder,
+    handle: &Operand,
+    block: &Operand,
+    failed: &str,
+) -> Result<(), String> {
+    let scan_chunk = builder.label("canvas_font_table_chunk");
     let scan = builder.label("canvas_font_table_scan");
     let next = builder.label("canvas_font_table_next");
+    let follow = builder.label("canvas_font_table_follow");
+    let grow = builder.label("canvas_font_table_grow");
+    let alloc_ok = builder.label("canvas_font_table_alloc_ok");
     let done = builder.label("canvas_font_table_done");
 
-    let base = table_base(builder);
+    // Parked: the grow path calls the allocator, and nothing survives that in a register.
+    let handle_slot = builder.allocate_stack_object("canvas_font_reg_handle", 8);
+    let block_slot = builder.allocate_stack_object("canvas_font_reg_block", 8);
+    let chunk_slot = builder.allocate_stack_object("canvas_font_reg_chunk", 8);
+    builder.emit(abi::store_u64(handle, abi::stack_pointer(), handle_slot));
+    builder.emit(abi::store_u64(block, abi::stack_pointer(), block_slot));
+
+    let chunk = table_base(builder);
     let slot = builder.temporary_vreg();
     let limit = builder.temporary_vreg();
     let occupant = builder.temporary_vreg();
-    builder.emit(abi::move_register(&slot, &base));
-    builder.emit(abi::add_immediate(&limit, &base, CANVAS_FONT_TABLE_BYTES));
+    let value = builder.temporary_vreg();
+
+    builder.emit(abi::label(&scan_chunk));
+    builder.emit(abi::move_register(&slot, &chunk));
+    builder.emit(abi::add_immediate(&limit, &chunk, CANVAS_FONT_CHUNK_NEXT));
 
     builder.emit(abi::label(&scan));
     builder.emit(abi::compare_registers(&slot, &limit));
-    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::branch_ge(&follow));
     builder.emit(abi::load_u64(&occupant, &slot, CANVAS_FONT_SLOT_HANDLE));
     builder.emit(abi::compare_immediate(&occupant, "0"));
     builder.emit(abi::branch_ne(&next));
-    // The block goes in first. A reader that saw the handle appear before the block
-    // would follow a null pointer, and the two stores are not one operation.
-    builder.emit(abi::store_u64(block, &slot, CANVAS_FONT_SLOT_BLOCK));
-    builder.emit(abi::store_u64(handle, &slot, CANVAS_FONT_SLOT_HANDLE));
+    // The block goes in first, and the handle is published after it.
+    builder.emit(abi::load_u64(&value, abi::stack_pointer(), block_slot));
+    builder.emit(abi::store_u64(&value, &slot, CANVAS_FONT_SLOT_BLOCK));
+    builder.emit(abi::load_u64(&value, abi::stack_pointer(), handle_slot));
+    emit_publish(builder, &slot, CANVAS_FONT_SLOT_HANDLE, &value);
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&next));
     builder.emit(abi::add_immediate(&slot, &slot, CANVAS_FONT_SLOT_BYTES));
     builder.emit(abi::branch(&scan));
 
+    // Every slot in this chunk is taken: on to the next chunk, or grow the chain. Only
+    // this thread writes `next`, so reading it needs no ordering.
+    builder.emit(abi::label(&follow));
+    builder.emit(abi::load_u64(&value, &chunk, CANVAS_FONT_CHUNK_NEXT));
+    builder.emit(abi::compare_immediate(&value, "0"));
+    builder.emit(abi::branch_eq(&grow));
+    builder.emit(abi::move_register(&chunk, &value));
+    builder.emit(abi::branch(&scan_chunk));
+
+    builder.emit(abi::label(&grow));
+    builder.emit(abi::store_u64(&chunk, abi::stack_pointer(), chunk_slot));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &CANVAS_FONT_CHUNK_BYTES.to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_eq(&alloc_ok));
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::branch(failed));
+    builder.emit(abi::label(&alloc_ok));
+
+    let fresh = builder.temporary_vreg();
+    builder.emit(abi::move_register(&fresh, abi::mfb_return(1)));
+    for word in 0..CANVAS_FONT_CHUNK_BYTES / 8 {
+        builder.emit(abi::store_u64(abi::ZERO, &fresh, word * 8));
+    }
+    builder.emit(abi::load_u64(&value, abi::stack_pointer(), block_slot));
+    builder.emit(abi::store_u64(&value, &fresh, CANVAS_FONT_SLOT_BLOCK));
+    builder.emit(abi::load_u64(&value, abi::stack_pointer(), handle_slot));
+    builder.emit(abi::store_u64(&value, &fresh, CANVAS_FONT_SLOT_HANDLE));
+    // Linking it in is the publish: everything above is visible before the link is.
+    let tail = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&tail, abi::stack_pointer(), chunk_slot));
+    emit_publish(builder, &tail, CANVAS_FONT_CHUNK_NEXT, &fresh);
+
     builder.emit(abi::label(&done));
+    Ok(())
 }
 
-/// Clear the slot naming `handle`, if it is there.
+/// Clear the slot naming `handle`, wherever in the chain it is.
 ///
 /// Called from `destroyFont`, so that text still naming a released font draws empty
 /// rather than reading a block the program has finished with. Clearing the *handle*
 /// is what unpublishes it: a reader matches on the handle, so the block word left
-/// behind is unreachable, and zeroing it too would be two stores where one does.
+/// behind is unreachable, and zeroing it too would be two stores where one does. The
+/// chunk stays linked, and the next font loaded reuses the slot.
 pub(crate) fn emit_unregister_font(builder: &mut CodeBuilder, handle: &Operand) {
+    let scan_chunk = builder.label("canvas_font_drop_chunk");
     let scan = builder.label("canvas_font_drop_scan");
     let next = builder.label("canvas_font_drop_next");
+    let follow = builder.label("canvas_font_drop_follow");
     let done = builder.label("canvas_font_drop_done");
 
-    let base = table_base(builder);
+    let chunk = table_base(builder);
     let slot = builder.temporary_vreg();
     let limit = builder.temporary_vreg();
     let occupant = builder.temporary_vreg();
-    builder.emit(abi::move_register(&slot, &base));
-    builder.emit(abi::add_immediate(&limit, &base, CANVAS_FONT_TABLE_BYTES));
+
+    builder.emit(abi::label(&scan_chunk));
+    builder.emit(abi::move_register(&slot, &chunk));
+    builder.emit(abi::add_immediate(&limit, &chunk, CANVAS_FONT_CHUNK_NEXT));
 
     builder.emit(abi::label(&scan));
     builder.emit(abi::compare_registers(&slot, &limit));
-    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::branch_ge(&follow));
     builder.emit(abi::load_u64(&occupant, &slot, CANVAS_FONT_SLOT_HANDLE));
     builder.emit(abi::compare_registers(&occupant, handle));
     builder.emit(abi::branch_ne(&next));
@@ -111,6 +222,11 @@ pub(crate) fn emit_unregister_font(builder: &mut CodeBuilder, handle: &Operand) 
     builder.emit(abi::add_immediate(&slot, &slot, CANVAS_FONT_SLOT_BYTES));
     builder.emit(abi::branch(&scan));
 
+    builder.emit(abi::label(&follow));
+    builder.emit(abi::load_u64(&chunk, &chunk, CANVAS_FONT_CHUNK_NEXT));
+    builder.emit(abi::compare_immediate(&chunk, "0"));
+    builder.emit(abi::branch_ne(&scan_chunk));
+
     builder.emit(abi::label(&done));
 }
 
@@ -119,26 +235,31 @@ pub(crate) fn emit_unregister_font(builder: &mut CodeBuilder, handle: &Operand) 
 /// Zero is the answer for a handle that was never registered, one whose font was
 /// released, and the `0` a `FontRef` holds when nothing was ever assigned to it. All
 /// three mean the same thing to a caller — there is nothing to draw — so they get the
-/// same answer rather than three.
+/// same answer rather than three. It runs on the graphics thread, so every `handle` and
+/// `next` it follows is read with `emit_observe`.
 pub(crate) fn emit_lookup_font(builder: &mut CodeBuilder, handle: &Operand, out: &VirtualRegister) {
+    let scan_chunk = builder.label("canvas_font_find_chunk");
     let scan = builder.label("canvas_font_find_scan");
     let next = builder.label("canvas_font_find_next");
+    let follow = builder.label("canvas_font_find_follow");
     let done = builder.label("canvas_font_find_done");
 
-    let base = table_base(builder);
+    let chunk = table_base(builder);
     let slot = builder.temporary_vreg();
     let limit = builder.temporary_vreg();
     let occupant = builder.temporary_vreg();
     builder.emit(abi::move_immediate(out, "Integer", "0"));
     builder.emit(abi::compare_immediate(handle, "0"));
     builder.emit(abi::branch_eq(&done));
-    builder.emit(abi::move_register(&slot, &base));
-    builder.emit(abi::add_immediate(&limit, &base, CANVAS_FONT_TABLE_BYTES));
+
+    builder.emit(abi::label(&scan_chunk));
+    builder.emit(abi::move_register(&slot, &chunk));
+    builder.emit(abi::add_immediate(&limit, &chunk, CANVAS_FONT_CHUNK_NEXT));
 
     builder.emit(abi::label(&scan));
     builder.emit(abi::compare_registers(&slot, &limit));
-    builder.emit(abi::branch_ge(&done));
-    builder.emit(abi::load_u64(&occupant, &slot, CANVAS_FONT_SLOT_HANDLE));
+    builder.emit(abi::branch_ge(&follow));
+    emit_observe(builder, &slot, CANVAS_FONT_SLOT_HANDLE, &occupant);
     builder.emit(abi::compare_registers(&occupant, handle));
     builder.emit(abi::branch_ne(&next));
     builder.emit(abi::load_u64(out, &slot, CANVAS_FONT_SLOT_BLOCK));
@@ -147,6 +268,11 @@ pub(crate) fn emit_lookup_font(builder: &mut CodeBuilder, handle: &Operand, out:
     builder.emit(abi::label(&next));
     builder.emit(abi::add_immediate(&slot, &slot, CANVAS_FONT_SLOT_BYTES));
     builder.emit(abi::branch(&scan));
+
+    builder.emit(abi::label(&follow));
+    emit_observe(builder, &chunk, CANVAS_FONT_CHUNK_NEXT, &chunk);
+    builder.emit(abi::compare_immediate(&chunk, "0"));
+    builder.emit(abi::branch_ne(&scan_chunk));
 
     builder.emit(abi::label(&done));
 }
@@ -197,14 +323,20 @@ pub(crate) fn lower_font_registered(
 
 /// `canvas::fontBlobUnchecked(id) AS List OF Byte` — an owned copy of the font file.
 ///
-/// It copies, for the reason `canvas::fontBytes` does: the returned value binds to an
-/// ordinary `LET`, and that binding's scope-drop reclaims it — so returning the table's
-/// own block would hand the *next* caller a block the previous one freed and the arena
-/// filled with noise. Measured there, not reasoned (exit 139 on the second call).
+/// **It copies, and the first version of this read did not.** Returning the font's own
+/// block as a read-only alias is the obvious optimisation — a font file is hundreds of
+/// kilobytes, and `measureText` runs per string per frame, so copying makes a read cost
+/// the font's size rather than the string's length. It is also wrong: the returned value
+/// binds to an ordinary `LET`, and that binding's scope-drop reclaims it, so the
+/// *second* call on the same font reads a block the first call freed. Measured, not
+/// reasoned: in the retired `canvas::fontBytes` (bug-756 replaced it with this read), the
+/// first `measureText` printed correct metrics and the next one segfaulted (exit 139).
 ///
-/// The copy is paid once per geometry-cache **miss**, not per glyph: the caller reads
-/// every glyph of a string out of one copy, and the cache means a string is only walked
-/// again when it changes.
+/// So the cost is real and paid deliberately. What removes it is not an alias but not
+/// reading the file at all: plan-162-A's parse-once face index answers glyphs, advances
+/// and metrics by handle. Until then `__canvas_shapeRun` binds one copy per font per run,
+/// and the draw paths pay it once per geometry-cache **miss**, not per glyph or frame:
+/// the cache means a string is only shaped again when it changes.
 ///
 /// `Unchecked` because it must be called with a handle `canvas::fontRegistered` just
 /// said yes to; on any other it would copy from a null pointer.
