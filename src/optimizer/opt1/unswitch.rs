@@ -294,6 +294,43 @@ mod tests {
         assert!(matches!(&trapping[0], NirOp::While { .. }));
     }
 
+    /// bug-763: a condition reading a `MUT` the body hands to a callback by
+    /// reference (`LocalRef` in a closure's captures) is variant — the callee
+    /// writes it through the slot with no `Assign` in this body.
+    #[test]
+    fn byref_captured_condition_is_variant() {
+        let mut body = while_with_if(binary(BinaryOp::Less, local("acc"), local("q")));
+        let NirOp::While { body: inner, .. } = &mut body[0] else {
+            unreachable!()
+        };
+        inner.push(NirOp::Eval {
+            value: NirValue::Call {
+                target: "collections.forEach".to_string(),
+                args: vec![
+                    local("xs"),
+                    NirValue::Closure {
+                        name: "$lambda0".to_string(),
+                        type_: ParameterType::Func(
+                            vec![ParameterType::Integer],
+                            Box::new(ParameterType::Nothing),
+                            false,
+                        ),
+                        captures: vec![NirValue::LocalRef {
+                            name: "acc".to_string(),
+                            type_: ParameterType::Integer,
+                        }],
+                    },
+                ],
+                loc: Default::default(),
+            },
+        });
+        let body = run(body, 3);
+        assert!(
+            matches!(&body[0], NirOp::While { .. }),
+            "a by-ref captured read must not be unswitched"
+        );
+    }
+
     /// The loop *variable* counts as defined-per-iteration even though it is
     /// no body statement: a condition reading it is variant.
     #[test]

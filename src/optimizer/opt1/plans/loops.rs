@@ -13,14 +13,25 @@ use crate::target::shared::nir::{NirOp, NirValue};
 use super::super::dce::{pure_non_trapping, scalar_type};
 
 /// Every name a statement list can (re)define anywhere within it: `Bind` and
-/// `Assign` targets, `STATE` assigns, loop variables, `TRAP` bindings.
-/// Scope-blind like the DCE census, so shadowing is conservative.
+/// `Assign` targets, `STATE` assigns, loop variables, `TRAP` bindings — and
+/// every name whose slot address it takes (`LocalRef`, a `MUT` captured by
+/// reference into a non-escaping callback's environment). A by-ref capture is
+/// a write the parent body never spells as an `Assign`: the lifted lambda
+/// stores through the slot pointer while the callee (`collections::forEach`)
+/// runs, so the name is redefined at that call (bug-763). Scope-blind like
+/// the DCE census, so shadowing is conservative.
 pub(crate) fn defined_names(ops: &[NirOp]) -> HashSet<String> {
     #[derive(Default)]
     struct Defs {
         names: HashSet<String>,
     }
     impl NirVisitor for Defs {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::LocalRef { name, .. } = value {
+                self.names.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
         fn visit_op(&mut self, op: &NirOp) {
             match op {
                 NirOp::Bind { name, .. }
@@ -41,6 +52,28 @@ pub(crate) fn defined_names(ops: &[NirOp]) -> HashSet<String> {
     let mut defs = Defs::default();
     defs.visit_ops(ops);
     defs.names
+}
+
+/// Every name whose slot address `ops` takes anywhere (`LocalRef` — a `MUT`
+/// captured by reference). Such a binding is written through the reference by
+/// the callee the closure is handed to, so no `Assign` count bounds its
+/// definitions (bug-763).
+pub(crate) fn ref_taken_names(ops: &[NirOp]) -> HashSet<String> {
+    #[derive(Default)]
+    struct Refs {
+        names: HashSet<String>,
+    }
+    impl NirVisitor for Refs {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::LocalRef { name, .. } = value {
+                self.names.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut refs = Refs::default();
+    refs.visit_ops(ops);
+    refs.names
 }
 
 /// The names a loop op's body can redefine — **including the loop's own

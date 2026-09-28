@@ -11,16 +11,19 @@
 //! `ErrOverflow`, and note a bind of a Float *leaf* is fine because the leaf
 //! already passed its own §4.1 observation boundary). Invariance is
 //! conservative ([`plans::loops::invariant`]): the initializer reads no name
-//! the body can redefine (loop variables included) and no global. Moving the
-//! bind is scope-safe only when every occurrence of its name lives inside the
-//! loop body (whole-function census vs body census — scope-blind, so
-//! shadowing anywhere blocks the hoist) and the body defines the name exactly
-//! once. Hoisting runs to a fixpoint, so an inner loop's hoisted bind can
+//! the body can redefine (loop variables included, and any name the body
+//! captures by reference — `LocalRef`) and no global. Moving the bind is
+//! scope-safe only when every occurrence of its name lives inside the loop
+//! body (whole-function census vs body census — scope-blind, so shadowing
+//! anywhere blocks the hoist) and the body defines the name exactly once and
+//! never captures it by reference: a by-ref capture is a write the callee
+//! makes through the slot, with no `Assign` for `count_defs` to see
+//! (bug-763). Hoisting runs to a fixpoint, so an inner loop's hoisted bind can
 //! ride outward through the enclosing loop in a later round.
 
 use crate::target::shared::nir::{NirModule, NirOp};
 
-use super::plans::loops::{invariant, loop_body_defined};
+use super::plans::loops::{invariant, loop_body_defined, ref_taken_names};
 use super::plans::reads::NameUses;
 #[cfg(test)]
 use crate::operators::BinaryOp;
@@ -111,6 +114,7 @@ fn hoistable_bind(
     defined: &HashSet<String>,
 ) -> Option<usize> {
     let body_uses = NameUses::census(body);
+    let ref_taken = ref_taken_names(body);
     body.iter().position(|op| {
         let NirOp::Bind {
             name,
@@ -129,6 +133,13 @@ fn hoistable_bind(
         // Every occurrence of the name lives inside this loop, and the body
         // holds no *other* definition of it.
         if function_uses.count(name) != body_uses.count(name) {
+            return false;
+        }
+        // A by-ref captured `MUT` is written through its slot by the callee
+        // the closure is handed to — a definition `count_defs` cannot see.
+        // Hoisting its bind would run the initializer once, so the next
+        // iteration would start from the last one's value (bug-763).
+        if ref_taken.contains(name) {
             return false;
         }
         let mut defs = 0;
@@ -255,6 +266,73 @@ mod tests {
             panic!("loop follows the hoisted bind");
         };
         assert_eq!(rest.len(), 5, "arith (trap-capable) and var (variant) stay");
+    }
+
+    fn for_each_byref(name: &str) -> NirOp {
+        NirOp::Eval {
+            value: NirValue::Call {
+                target: "collections.forEach".to_string(),
+                args: vec![
+                    local("xs"),
+                    NirValue::Closure {
+                        name: "$lambda0".to_string(),
+                        type_: ParameterType::Func(
+                            vec![ParameterType::Integer],
+                            Box::new(ParameterType::Nothing),
+                            false,
+                        ),
+                        captures: vec![NirValue::LocalRef {
+                            name: name.to_string(),
+                            type_: ParameterType::Integer,
+                        }],
+                    },
+                ],
+                loc: Default::default(),
+            },
+        }
+    }
+
+    /// bug-763: a `MUT` bind the body captures by reference is redefined by
+    /// the callee (it stores through the slot), so its per-iteration
+    /// initialization stays in the loop even with no `Assign` in sight.
+    #[test]
+    fn byref_captured_bind_stays() {
+        let body = run(
+            vec![while_loop(vec![
+                NirOp::Bind {
+                    mutable: true,
+                    name: "total".to_string(),
+                    type_: ParameterType::Integer,
+                    value: Some(int_const("0")),
+                },
+                for_each_byref("total"),
+                NirOp::Eval {
+                    value: local("total"),
+                },
+            ])],
+            3,
+        );
+        assert!(
+            matches!(&body[0], NirOp::While { .. }),
+            "the by-ref captured accumulator must be re-initialized per iteration"
+        );
+    }
+
+    /// bug-763: a comparison reading an outer by-ref-captured `MUT` is
+    /// variant, so it is not hoisted.
+    #[test]
+    fn read_of_byref_captured_name_is_variant() {
+        let body = run(
+            vec![while_loop(vec![
+                bind("small", binary(BinaryOp::Less, local("acc"), local("b"))),
+                NirOp::Eval {
+                    value: local("small"),
+                },
+                for_each_byref("acc"),
+            ])],
+            3,
+        );
+        assert!(matches!(&body[0], NirOp::While { .. }), "nothing moved");
     }
 
     /// A name also used outside the loop is not scope-safe to move.
