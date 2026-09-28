@@ -91,7 +91,7 @@ FUNC emptyField AS Field
   RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
 END FUNC
 
-SUB main
+FUNC main AS Nothing
   LET corruptCycle AS Cycle = Cycle[day := "19990101", hour := "00", caption := "bug711-corrupt", seconds := 0]
   LET validCycle AS Cycle = Cycle[day := "19990101", hour := "06", caption := "bug711-valid", seconds := 21600]
 
@@ -115,7 +115,7 @@ SUB main
   io::print("VALID_PROBLEM_EMPTY=" & toString(validAttempt.problem = ""))
   io::print("VALID_LABEL_OK=" & toString(validAttempt.winds.label = "GFS surface weather  bug711-valid"))
   io::print("VALID_FILE_KEPT=" & toString(fs::fileExists(validPath)))
-END SUB
+END FUNC
 EOF
 
 # Compute the two paths this test plants (and must clean up) the same way

@@ -23,7 +23,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"SUB __datetime_checkFields(year AS Integer, month AS Integer, day AS Integer, hour AS Integer, minute AS Integer, second AS Integer, nanos AS Integer)
+r#"FUNC __datetime_checkFields(year AS Integer, month AS Integer, day AS Integer, hour AS Integer, minute AS Integer, second AS Integer, nanos AS Integer) AS Nothing
   IF month < 1 OR month > 12 THEN
     FAIL error(77050003, "datetime: month out of range")
   END IF
@@ -42,7 +42,7 @@ r#"SUB __datetime_checkFields(year AS Integer, month AS Integer, day AS Integer,
   IF nanos < 0 OR nanos > 999999999 THEN
     FAIL error(77050003, "datetime: nanos out of range")
   END IF
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("datetime_checkFields", BODY));

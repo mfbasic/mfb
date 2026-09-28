@@ -44,14 +44,14 @@ const EX: &str = r#"Read exactly what is available, without blocking:
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET n = audio::available(mic)
   IF n > 0 THEN
     LET pcm = audio::read(mic, n)
   END IF
   audio::close(mic)
-END SUB
+END FUNC
 ```"#;
 
 const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. The handle stays open — you still close it. A closed handle reports `0`.";

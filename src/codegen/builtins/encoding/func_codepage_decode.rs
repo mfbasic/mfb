@@ -60,10 +60,10 @@ const EX: &str = r#"Read `windows-1252` bytes that are not valid UTF-8:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = [toByte(99), toByte(97), toByte(102), toByte(233)]
   io::print(encoding::codepageDecode(encoding::Codepage.Windows1252, bytes))
-END SUB
+END FUNC
 ```
 
 Pick the codepage from a charset the caller already knows, with UTF-8 handled by
@@ -73,12 +73,12 @@ the same call:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET cyrillic AS List OF Byte = encoding::hexDecode("cff0e8e2e5f2")
   io::print(encoding::codepageDecode(encoding::Codepage.Windows1251, cyrillic))
   LET utf AS List OF Byte = encoding::utf8Encode("héllo")
   io::print(encoding::codepageDecode(encoding::Codepage.Utf8, utf))
-END SUB
+END FUNC
 ```
 
 Fall back to a replacement character when a codepage leaves a byte undefined:
@@ -94,12 +94,12 @@ FUNC readOr(cp AS encoding::Codepage, bytes AS List OF Byte, fallback AS String)
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET thai AS List OF Byte = [toByte(161), toByte(162)]
   LET hole AS List OF Byte = [toByte(219)]
   io::print(readOr(encoding::Codepage.Windows874, thai, "?"))
   io::print(readOr(encoding::Codepage.Windows874, hole, "?"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

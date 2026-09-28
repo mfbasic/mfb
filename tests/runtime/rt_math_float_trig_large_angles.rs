@@ -250,7 +250,7 @@ END FUNC
 IMPORT math
 IMPORT collections
 {funcs}
-SUB main()
+FUNC main() AS Nothing
   LET xs AS List OF Float = [{list}]
   MUT i AS Integer = 0
   WHILE i < len(xs)
@@ -258,7 +258,7 @@ SUB main()
     io::print(toString(x, toByte(255)) & "|" & sinOf(x) & "|" & cosOf(x) & "|" & tanOf(x) & "|" & sinListOf(x) & "|" & cosListOf(x) & "|" & tanListOf(x))
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("math_float_trig_large_angles", &source);
@@ -385,7 +385,7 @@ fn a_zero_argument_keeps_its_sign() {
 IMPORT math
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET negz AS Float = (0.0 - 1.0) * 0.0
   LET posz AS Float = 0.0
   LET pair AS List OF Float = [negz, posz]
@@ -394,7 +394,7 @@ SUB main()
   io::print(toString(math::sin(posz), p) & "|" & toString(math::cos(posz), p) & "|" & toString(math::tan(posz), p))
   io::print(toString(collections::get(math::sin(pair), 0), p) & "|" & toString(collections::get(math::cos(pair), 0), p) & "|" & toString(collections::get(math::tan(pair), 0), p))
   io::print(toString(collections::get(math::sin(pair), 1), p) & "|" & toString(collections::get(math::cos(pair), 1), p) & "|" & toString(collections::get(math::tan(pair), 1), p))
-END SUB
+END FUNC
 "#;
     let project = common::temp_project("math_float_trig_signed_zero", source);
     let binary = common::build_project(&project);

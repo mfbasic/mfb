@@ -75,11 +75,11 @@ const EX: &str = r#"Create a temporary file in the host temporary directory and 
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   RES f = fs::createTempFile()
   fs::writeAll(f, "data")
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Create a temporary file in a specific directory:
@@ -87,12 +87,12 @@ Create a temporary file in a specific directory:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   RES g = fs::createTempFile("output")
   fs::writeAll(g, "data")
   ' g closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

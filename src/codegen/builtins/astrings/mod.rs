@@ -151,14 +151,14 @@ IMPORT astrings
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET plain AS AttributedString = astrings::fromString("hello world")
   LET styled AS AttributedString = astrings::addAttribute(plain, 0, 4, astrings::bold())
   io::print(astrings::toMarkdown(styled))
   io::print(astrings::toMarkdown(strings::left(styled, 3)))
   io::print(astrings::toMarkdown(strings::replace(styled, "l", "L")))
   io::print(toString(styled))
-END SUB
+END FUNC
 ```
 
 prints:

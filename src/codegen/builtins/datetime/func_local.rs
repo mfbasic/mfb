@@ -45,9 +45,9 @@ const EX: &str = r#"Obtain the local zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::local()
-END SUB
+END FUNC
 ```
 
 Project the current instant into the local zone to read its civil fields:
@@ -55,10 +55,10 @@ Project the current instant into the local zone to read its civil fields:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::now()
   LET here AS datetime::DateTime = datetime::inZone(t, datetime::local())
-END SUB
+END FUNC
 ```
 
 Combine a date and time into a `datetime::DateTime` in the local zone:
@@ -66,11 +66,11 @@ Combine a date and time into a `datetime::DateTime` in the local zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

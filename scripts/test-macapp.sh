@@ -120,20 +120,20 @@ else
   fi
 fi
 
-# Case 2: SUB main() runs to completion -> process exits 0.
+# Case 2: a `FUNC main() AS Nothing` runs to completion -> process exits 0.
 proj="$work/nothing"
 mkdir -p "$proj/src"
 scaffold_project "$proj" nothing
 cat > "$proj/src/main.mfb" <<'MFB'
-SUB main()
-END SUB
+FUNC main() AS Nothing
+END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   fail "build -app nothing"
 else
   result=$(run_headless "$(bundle "$proj" nothing)/Contents/MacOS/nothing")
   if [ "$result" = "code=0" ]; then
-    pass "SUB main() worker ran and exited cleanly ($result)"
+    pass "FUNC main() AS Nothing worker ran and exited cleanly ($result)"
   else
     fail "expected code=0, got '$result'"
   fi
@@ -148,10 +148,10 @@ mkdir -p "$proj/src"
 scaffold_project "$proj" output
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print("APPMODE_LINE")
   io::write("APPMODE_NONL")
-END SUB
+END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   fail "build -app output"
@@ -330,7 +330,7 @@ scaffold_project "$proj" reconcile
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.None)
   io::print("RECONCILE_BEFORE")
   io::flush()
@@ -339,7 +339,7 @@ SUB main()
   io::flush()
   WHILE TRUE
   END WHILE
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: setMode reconcile GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -387,7 +387,7 @@ scaffold_project "$proj" canvasmode
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Console)
   io::print("CANVAS_HIDDEN")
   io::flush()
@@ -402,7 +402,7 @@ SUB main()
   io::flush()
   WHILE TRUE
   END WHILE
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: Mode.Canvas reconcile GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -449,7 +449,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET size AS canvas::Size = canvas::getSize()
   LET w AS Float = toFloat(size.width)
@@ -461,7 +461,7 @@ SUB main()
   io::flush()
   WHILE TRUE
   END WHILE
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: canvas blit screenshot GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -528,16 +528,16 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET mark AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::present([mark])
   io::print("RESIZE_READY")
   io::flush()
   LET k AS io::Key = io::readKey() TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 MFB
 #
 # Run once per renderer. The resize path is shared — main publishes the new size into
@@ -657,7 +657,7 @@ IMPORT color
 IMPORT io
 IMPORT math
 IMPORT os
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   ' Built first, so the second present is not waiting on the loop.
   MUT points AS List OF canvas::Point = []
@@ -682,9 +682,9 @@ SUB main()
   io::print("SOFTWARE_PRESENTED")
   io::flush()
   LET k AS io::Key = io::readKey() TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 MFB
 
 # Capture the on-screen window owned by process $1 into $2 (by CoreGraphics window
@@ -883,7 +883,7 @@ cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 IMPORT os
-SUB main()
+FUNC main() AS Nothing
   app::setTitle("MFB Window One")
   app::setFullscreen(TRUE)
   app::setMode(app::Mode.Canvas)
@@ -893,7 +893,7 @@ SUB main()
   app::setTitle("MFB Window Two")
   app::setFullscreen(TRUE)
   os::sleep(7000)
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: app window title/fullscreen GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -939,9 +939,9 @@ mkdir -p "$proj/src"
 scaffold_project "$proj" keepopen
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print("finished")
-END SUB
+END FUNC
 MFB
 # Only a `--debug` build keeps the window open (6ed5cc234; `mfb spec app
 # macos-runtime`, "Program-finish path"): a release build closes when its program does,
@@ -994,12 +994,12 @@ mkdir -p "$proj/src"
 scaffold_project "$proj" input
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   LET name AS String = io::input("Name? ")
   io::print("Hi " & name)
   LET line AS String = io::readLine()
   io::print("Echo " & line)
-END SUB
+END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   fail "build -app input"
@@ -1022,10 +1022,10 @@ mkdir -p "$proj/src"
 scaffold_project "$proj" inputonly
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   LET name AS String = io::input("Name? ")
   io::print("Hi " & name)
-END SUB
+END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   fail "build -app inputonly (bug-247: missing _isatty/_tcgetattr imports?)"
@@ -1049,10 +1049,10 @@ scaffold_project "$proj" keyinput
 cat > "$proj/src/main.mfb" <<MFB
 IMPORT io
 IMPORT fs
-SUB main()
+FUNC main() AS Nothing
   LET name AS String = io::readLine()
   fs::writeText("$proj/got.txt", "got:" & name)
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: window keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -1092,11 +1092,11 @@ cat > "$proj/src/main.mfb" <<MFB
 IMPORT app
 IMPORT io
 IMPORT fs
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET name AS String = io::readLine()
   fs::writeText("$proj/got.txt", "got:" & name)
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: Mode.Canvas keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
@@ -1125,13 +1125,13 @@ mkdir -p "$proj/src"
 scaffold_project "$proj" isterm
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   IF io::isInputTerminal() AND io::isOutputTerminal() AND io::isErrorTerminal() THEN
     io::print("terminal:yes")
   ELSE
     io::print("terminal:no")
   END IF
-END SUB
+END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   fail "build -app isterm"
@@ -1156,12 +1156,12 @@ scaffold_project "$proj" tsize
 cat > "$proj/src/main.mfb" <<MFB
 IMPORT term
 IMPORT fs
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET s AS term::TermSize = term::terminalSize()
   term::off()
   fs::writeText("$proj/size.txt", toString(s.columns) & "x" & toString(s.rows))
-END SUB
+END FUNC
 MFB
 if ! gui_enabled; then
   echo "skip: terminalSize GUI test (set MFB_MACAPP_GUI=1 when idle)"

@@ -30,10 +30,10 @@ const EX: &str = r#"Always seven characters, with the leading zero kept:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::rgb(51, 102, 204)))
   io::print(color::toHex(color::rgb(1, 2, 3)))
-END SUB
+END FUNC
 ```
 
 Alpha is dropped — use `toHexAlpha` to keep it:
@@ -42,11 +42,11 @@ Alpha is dropped — use `toHexAlpha` to keep it:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wash AS color::Color = color::rgba(255, 0, 0, 128)
   io::print(color::toHex(wash))
   io::print(color::toHexAlpha(wash))
-END SUB
+END FUNC
 ```"#;
 
 // `r##"…"##`, not `r#"…"#`: the body contains the literal `"#`, which would

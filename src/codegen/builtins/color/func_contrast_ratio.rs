@@ -37,12 +37,12 @@ black against white gives `21.0`:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET white AS color::Color = color::rgb(255, 255, 255)
   LET black AS color::Color = color::rgb(0, 0, 0)
   io::print(toString(color::contrastRatio(white, white)))
   io::print(toString(color::contrastRatio(black, white)))
-END SUB
+END FUNC
 ```
 
 Check a foreground against a background for body text:
@@ -51,12 +51,12 @@ Check a foreground against a background for body text:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET fg AS color::Color = color::fromHex("#767676")
   LET bg AS color::Color = color::fromHex("#ffffff")
   LET ratio AS Float = color::contrastRatio(fg, bg)
   io::print("passes body text: " & toString(ratio >= 4.5))
-END SUB
+END FUNC
 ```"##;
 
 /// Sorting inside the function rather than documenting an order is what makes the

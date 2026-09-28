@@ -1847,14 +1847,14 @@ mod tests {
         ] {
             assert!(
                 resolve_source_fails(&format!(
-                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{gone}()\nEND SUB\n"
+                    "IMPORT crypto\nFUNC main() AS Nothing\n  LET k = crypto::{gone}()\nEND FUNC\n"
                 )),
                 "crypto::{gone} must not resolve from user source"
             );
         }
         assert!(
             !resolve_source_fails(
-                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(crypto::Certificate.P256)\nEND SUB\n"
+                "IMPORT crypto\nFUNC main() AS Nothing\n  LET k = crypto::generate(crypto::Certificate.P256)\nEND FUNC\n"
             ),
             "crypto::generate(Certificate) must resolve as the unified generator"
         );
@@ -1882,7 +1882,7 @@ mod tests {
         ] {
             assert!(
                 resolve_source_fails(&format!(
-                    "IMPORT crypto\nSUB main()\n  LET k = {gone}\nEND SUB\n"
+                    "IMPORT crypto\nFUNC main() AS Nothing\n  LET k = {gone}\nEND FUNC\n"
                 )),
                 "{gone} must not resolve from user source"
             );
@@ -1894,7 +1894,7 @@ mod tests {
         ] {
             assert!(
                 !resolve_source_fails(&format!(
-                    "IMPORT crypto\nSUB main()\n  LET k = {ok}\nEND SUB\n"
+                    "IMPORT crypto\nFUNC main() AS Nothing\n  LET k = {ok}\nEND FUNC\n"
                 )),
                 "{ok} must resolve as a unified crypto member"
             );
@@ -1936,68 +1936,68 @@ mod tests {
     #[test]
     fn unknown_identifier_reports() {
         assert!(resolve_source_fails(
-            "IMPORT io\n\nSUB main()\n  io::print(missingVar)\nEND SUB\n"
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(missingVar)\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn unknown_type_reports() {
         assert!(resolve_source_fails(
-            "SUB main()\n  LET x AS NoSuchType = 0\nEND SUB\n"
+            "FUNC main() AS Nothing\n  LET x AS NoSuchType = 0\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn result_type_not_user_visible_reports() {
         assert!(resolve_source_fails(
-            "SUB main()\n  LET x AS Result = 0\nEND SUB\n"
+            "FUNC main() AS Nothing\n  LET x AS Result = 0\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn duplicate_local_reports() {
         assert!(resolve_source_fails(
-            "SUB main()\n  LET x AS Integer = 1\n  LET x AS Integer = 2\nEND SUB\n"
+            "FUNC main() AS Nothing\n  LET x AS Integer = 1\n  LET x AS Integer = 2\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn duplicate_parameter_reports() {
         assert!(resolve_source_fails(
-            "SUB doit(a AS Integer, a AS Integer)\nEND SUB\n\nSUB main()\nEND SUB\n"
+            "FUNC doit(a AS Integer, a AS Integer) AS Nothing\nEND FUNC\n\nFUNC main() AS Nothing\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn unknown_import_qualified_use_reports() {
-        assert!(resolve_source_fails("SUB main()\n  foo::bar()\nEND SUB\n"));
+        assert!(resolve_source_fails("FUNC main() AS Nothing\n  foo::bar()\nEND FUNC\n"));
     }
 
     #[test]
     fn duplicate_import_binding_reports() {
         assert!(resolve_source_fails(
-            "IMPORT io\nIMPORT io\n\nSUB main()\nEND SUB\n"
+            "IMPORT io\nIMPORT io\n\nFUNC main() AS Nothing\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn unknown_type_field_reports() {
         assert!(resolve_source_fails(
-            "TYPE Widget\n  size AS NoSuchType\nEND TYPE\n\nSUB main()\nEND SUB\n"
+            "TYPE Widget\n  size AS NoSuchType\nEND TYPE\n\nFUNC main() AS Nothing\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn builtin_member_unknown_reports() {
         assert!(resolve_source_fails(
-            "IMPORT io\n\nSUB main()\n  io::notARealFunction()\nEND SUB\n"
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::notARealFunction()\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn callable_not_top_level_reports() {
         assert!(resolve_source_fails(
-            "SUB main()\n  notAFunction()\nEND SUB\n"
+            "FUNC main() AS Nothing\n  notAFunction()\nEND FUNC\n"
         ));
     }
 
@@ -2042,15 +2042,15 @@ mod tests {
             "    RECOVER err.code\n",
             "  END TRAP\n",
             "END FUNC\n\n",
-            "SUB stop()\n",
+            "FUNC stop() AS Nothing\n",
             "  EXIT PROGRAM 0\n",
-            "END SUB\n\n",
+            "END FUNC\n\n",
             "FUNC boom AS Integer\n",
             "  FAIL error(1, \"x\")\n",
             "END FUNC\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  io::print(toString(pick()))\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2061,11 +2061,11 @@ mod tests {
             "FUNC helper() AS Integer\n",
             "  RETURN 1\n",
             "END FUNC\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  MUT total AS Integer = 0\n",
             "  total = total + helper()\n",
             "  io::print(toString(total))\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2073,7 +2073,7 @@ mod tests {
     fn nested_blocks_if_while_dountil() {
         assert_source_ok(concat!(
             "IMPORT io\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  MUT n AS Integer = 0\n",
             "  IF n < 1 THEN\n",
             "    n = 1\n",
@@ -2087,7 +2087,7 @@ mod tests {
             "    n = n + 1\n",
             "  LOOP UNTIL n > 5\n",
             "  io::print(toString(n))\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2095,7 +2095,7 @@ mod tests {
     fn foreach_with_list_and_map_types() {
         assert_source_ok(concat!(
             "IMPORT io\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET xs AS List OF Integer = [1, 2, 3]\n",
             "  FOR EACH x IN xs\n",
             "    io::print(toString(x))\n",
@@ -2104,30 +2104,30 @@ mod tests {
             "  FOR EACH e IN m\n",
             "    io::print(e.key)\n",
             "  NEXT\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
     #[test]
     fn duplicate_local_in_for_loop_reports() {
         assert!(resolve_source_fails(concat!(
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET i AS Integer = 0\n",
             "  FOR i = 1 TO 3\n",
             "  NEXT\n",
-            "END SUB\n",
+            "END FUNC\n",
         )));
     }
 
     #[test]
     fn duplicate_local_in_foreach_reports() {
         assert!(resolve_source_fails(concat!(
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET item AS Integer = 0\n",
             "  LET xs AS List OF Integer = [1]\n",
             "  FOR EACH item IN xs\n",
             "  NEXT\n",
-            "END SUB\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2147,14 +2147,14 @@ mod tests {
             "      RETURN 0\n",
             "  END MATCH\n",
             "END FUNC\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  MATCH 2\n",
             "    CASE 1, 2\n",
             "      io::print(\"lo\")\n",
             "    CASE ELSE\n",
             "      io::print(\"hi\")\n",
             "  END MATCH\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2165,7 +2165,7 @@ mod tests {
         assert_source_ok(concat!(
             "IMPORT io\n\n",
             "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET p AS Point = Point[1, 2]\n",
             "  LET q AS Point = WITH p { x := 5 }\n",
             "  LET neg AS Integer = -p.x\n",
@@ -2174,7 +2174,7 @@ mod tests {
             "  LET applied AS Integer = f(neg)\n",
             "  LET xs AS List OF Integer = [1, 2, 3]\n",
             "  io::print(toString(applied))\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2185,13 +2185,13 @@ mod tests {
             "FUNC risky AS Integer\n",
             "  RETURN 1\n",
             "END FUNC\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET v AS Integer = risky() TRAP(err)\n",
             "    io::print(toString(err.code))\n",
             "    RECOVER 0\n",
             "  END TRAP\n",
             "  io::print(toString(v))\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2200,14 +2200,14 @@ mod tests {
     #[test]
     fn type_name_function_type_and_nested_generics() {
         assert_source_ok(concat!(
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET a AS FUNC(Integer, String) AS Boolean = LAMBDA(n AS Integer, s AS String) -> n > 0\n",
             "  LET b AS List OF List OF Integer = [[1], [2]]\n",
             "  LET c AS Map OF String TO List OF Integer = Map OF String TO List OF Integer {}\n",
             "  LET e AS FUNC() AS Integer = LAMBDA() -> 0\n",
             "  LET used AS Boolean = a(1, \"x\")\n",
             "  LET zero AS Integer = e()\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2215,9 +2215,9 @@ mod tests {
     fn malformed_function_type_reports() {
         // `FUNC(...)` without `) AS` return separator is malformed.
         assert!(resolve_source_fails(concat!(
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET a AS FUNC(Integer = 0\n",
-            "END SUB\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2229,9 +2229,9 @@ mod tests {
             "TYPE Square\n  side AS Integer\nEND TYPE\n\n",
             "UNION Shape\n  Circle\n  Square\nEND UNION\n\n",
             "ENUM Color\n  Red, Green, Blue\nEND ENUM\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  io::print(\"ok\")\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2254,8 +2254,8 @@ mod tests {
             "  END FUNC\n",
             "END LINK\n\n",
             "EXPORT FUNC closeDb AS dbLink::close\n\n",
-            "SUB main()\n",
-            "END SUB\n",
+            "FUNC main() AS Nothing\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2263,8 +2263,8 @@ mod tests {
     fn resource_close_unknown_alias_reports() {
         assert!(resolve_source_fails(concat!(
             "RESOURCE Db CLOSE BY ghostLink::close\n\n",
-            "SUB main()\n",
-            "END SUB\n",
+            "FUNC main() AS Nothing\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2279,8 +2279,8 @@ mod tests {
             "    SUCCESS_ON status = 0\n",
             "  END FUNC\n",
             "END LINK\n\n",
-            "SUB main()\n",
-            "END SUB\n",
+            "FUNC main() AS Nothing\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2288,8 +2288,8 @@ mod tests {
     fn func_alias_unknown_target_reports() {
         assert!(resolve_source_fails(concat!(
             "EXPORT FUNC bogus AS ghostLink::nope\n\n",
-            "SUB main()\n",
-            "END SUB\n",
+            "FUNC main() AS Nothing\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2305,9 +2305,9 @@ mod tests {
             "  END FUNC\n",
             "END LINK\n\n",
             "RESOURCE Db CLOSE BY dbLink::close\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  dbLink::notThere()\n",
-            "END SUB\n",
+            "END FUNC\n",
         )));
     }
 
@@ -2328,7 +2328,7 @@ mod tests {
             "EXPORT ENUM Color\n  Red, Green\nEND ENUM\n\n",
             "DOC\n  UNION Shape\n  PROP Point a point\nEND DOC\n",
             "EXPORT UNION Shape\n  Point\nEND UNION\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         ));
     }
 
@@ -2343,7 +2343,7 @@ mod tests {
             "EXPORT FUNC scale(n AS Float) AS Float\n",
             "  RETURN n * 2.0\n",
             "END FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         ));
     }
 
@@ -2353,7 +2353,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "DOC\n  TYPE Point\n  RET nonsense\nEND DOC\n",
             "TYPE Point\n  x AS Integer\nEND TYPE\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2365,7 +2365,7 @@ mod tests {
             "EXPORT FUNC add(a AS Integer) AS Integer\n",
             "  RETURN a\n",
             "END FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2376,7 +2376,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "DOC INTERNAL INTERNAL\n  FUNC f\nEND DOC\n",
             "EXPORT FUNC f() AS Integer\n  RETURN 0\nEND FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2386,7 +2386,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "DOC\n  TYPE Point\n  ARG a nope\n  ERROR 1 nope\nEND DOC\n",
             "EXPORT TYPE Point\n  x AS Integer\nEND TYPE\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2399,7 +2399,7 @@ mod tests {
             "  DEPRECATED first\n  DEPRECATED second\n",
             "  GROUP A\n  GROUP B\nEND DOC\n",
             "EXPORT FUNC f() AS Integer\n  RETURN 0\nEND FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2409,7 +2409,7 @@ mod tests {
             "DOC\n  FUNC f\n  PROP x nope\nEND DOC\n",
             "EXPORT FUNC f() AS Integer\n  RETURN 0\nEND FUNC\n\n",
             "DOC INTERNAL\n  PACKAGE\nEND DOC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2430,7 +2430,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "DOC\n  TYPE Color\n  DESC wrong kind.\nEND DOC\n",
             "EXPORT ENUM Color\n  Red, Green\nEND ENUM\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2438,7 +2438,7 @@ mod tests {
     fn doc_type_unresolved_reports() {
         assert!(resolve_source_fails(concat!(
             "DOC\n  TYPE NoSuchType\n  DESC nothing.\nEND DOC\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2448,7 +2448,7 @@ mod tests {
             "DOC\n  TYPE Point\n  DESC first.\nEND DOC\n",
             "DOC\n  TYPE Point\n  DESC second (duplicate).\nEND DOC\n",
             "EXPORT TYPE Point\n  x AS Integer\nEND TYPE\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2459,7 +2459,7 @@ mod tests {
         // A close op with no `alias.func` form is RESOURCE_CLOSE_NOT_NATIVE.
         assert!(resolve_source_fails(concat!(
             "RESOURCE Db CLOSE BY plainName\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2477,7 +2477,7 @@ mod tests {
             "    SUCCESS_ON status = 0\n",
             "  END FUNC\n",
             "END LINK\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2488,9 +2488,9 @@ mod tests {
         assert_source_ok(concat!(
             "IMPORT io\n\n",
             "LET GREETING AS String = \"hi\"\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  io::print(GREETING)\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2504,9 +2504,9 @@ mod tests {
             "TYPE Square\n  side AS Integer\nEND TYPE\n\n",
             "UNION Round\n  Circle\nEND UNION\n\n",
             "UNION Shape INCLUDES Round\n  Square\nEND UNION\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  io::print(\"ok\")\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2515,7 +2515,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "TYPE Circle\n  radius AS Integer\nEND TYPE\n\n",
             "UNION Shape\n  Circle\n  Circle\nEND UNION\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2523,7 +2523,7 @@ mod tests {
     fn enum_duplicate_member_reports() {
         assert!(resolve_source_fails(concat!(
             "ENUM Color\n  Red, Red\nEND ENUM\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2534,9 +2534,9 @@ mod tests {
         assert_source_ok(concat!(
             "IMPORT fs\nIMPORT io\n\n",
             "TYPE FileState\n  pos AS Integer\nEND TYPE\n\n",
-            "SUB advance(RES f AS fs::File STATE FileState, by AS Integer)\n",
+            "FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing\n",
             "  f.state = WITH f.state { pos := f.state.pos + by }\n",
-            "END SUB\n\n",
+            "END FUNC\n\n",
             "FUNC main AS Integer\n",
             "  RES f AS fs::File STATE FileState = fs::createTempFile()\n",
             "  f.state = WITH f.state { pos := 10 }\n",
@@ -2556,13 +2556,13 @@ mod tests {
             "EXPORT ISOLATED FUNC echo(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n",
             "  RETURN 0\n",
             "END FUNC\n\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }\n",
             "  FOR EACH e IN m\n",
             "    LET pair AS MapEntry OF String TO Integer = e\n",
             "    io::print(pair.key)\n",
             "  NEXT\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2573,7 +2573,7 @@ mod tests {
         // Aliasing an import to a built-in package name conflicts.
         assert!(resolve_source_fails(concat!(
             "IMPORT thread AS io\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2583,7 +2583,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "IMPORT io AS helper\n\n",
             "FUNC helper() AS Integer\n  RETURN 0\nEND FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2593,7 +2593,7 @@ mod tests {
     fn duplicate_type_field_reports() {
         assert!(resolve_source_fails(concat!(
             "TYPE Point\n  x AS Integer\n  x AS Integer\nEND TYPE\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2625,12 +2625,12 @@ mod tests {
     #[test]
     fn isolated_func_type_name_resolves() {
         assert_source_ok(concat!(
-            "SUB run(job AS ISOLATED FUNC(Integer) AS Integer)\n",
+            "FUNC run(job AS ISOLATED FUNC(Integer) AS Integer) AS Nothing\n",
             "  LET r AS Integer = job(1)\n",
-            "END SUB\n\n",
-            "SUB main()\n",
+            "END FUNC\n\n",
+            "FUNC main() AS Nothing\n",
             "  run(LAMBDA(n AS Integer) -> n + 1)\n",
-            "END SUB\n",
+            "END FUNC\n",
         ));
     }
 
@@ -2643,7 +2643,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "DOC\n  FUNC Point\n  DESC Point is a type, not a func.\nEND DOC\n",
             "EXPORT TYPE Point\n  x AS Integer\nEND TYPE\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 
@@ -2655,7 +2655,7 @@ mod tests {
             "DOC\n  FUNC scale(Integer)\n  ARG n first.\nEND DOC\n",
             "DOC\n  FUNC scale(Integer)\n  ARG n duplicate.\nEND DOC\n",
             "EXPORT FUNC scale(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\n",
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )));
     }
 }

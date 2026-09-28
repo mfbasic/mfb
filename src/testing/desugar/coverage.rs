@@ -8,7 +8,7 @@ use crate::operators::BinaryOp;
 
 /// Instrument every user statement with a hit counter and append the coverage
 /// runtime helpers to the first source file. Returns the `slot -> (file, line)`
-/// map. Runs after the TESTING desugaring, so the generated driver and case SUBs
+/// map. Runs after the TESTING desugaring, so the generated driver and case functions
 /// are already present; the driver and the `__mfb_cov*` helpers are skipped.
 /// `project_dir` (absolute) fixes where the runtime writes its sidecar files.
 pub(crate) fn instrument_coverage(ast: &mut AstProject, project_dir: &Path) -> Vec<CovSlot> {
@@ -147,7 +147,7 @@ fn statement_line(statement: &Statement) -> usize {
 }
 
 /// Build the coverage runtime: the counter/failed-line globals, the increment and
-/// record SUBs, and the shutdown dump SUB (plan-18-C §3).
+/// record functions, and the shutdown dump function (plan-18-C §3).
 fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<Item> {
     let mut items = Vec::new();
 
@@ -195,10 +195,11 @@ fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<It
         call(COV_EMPTY_STRINGS, Vec::new()),
     )));
 
-    // SUB __mfb_cov_hit(slot) — counters[slot] += 1
-    items.push(Item::Function(sub(
+    // FUNC __mfb_cov_hit(slot) AS Nothing — counters[slot] += 1
+    items.push(Item::Function(func(
         COV_HIT,
         vec![param("slot", "Integer")],
+        Some("Nothing"),
         vec![assign_at(
             COV_ARRAY,
             call(
@@ -217,10 +218,11 @@ fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<It
         )],
     )));
 
-    // SUB __mfb_cov_fail(loc) — record a failed source line
-    items.push(Item::Function(sub(
+    // FUNC __mfb_cov_fail(loc) AS Nothing — record a failed source line
+    items.push(Item::Function(func(
         COV_FAIL,
         vec![param("loc", "String")],
+        Some("Nothing"),
         vec![assign_at(
             COV_FAILED,
             call("collections.append", vec![ident(COV_FAILED), ident("loc")]),
@@ -228,10 +230,11 @@ fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<It
         )],
     )));
 
-    // SUB __mfb_cov_dump() — write counts + failed lines to the sidecar files
-    items.push(Item::Function(sub(
+    // FUNC __mfb_cov_dump() AS Nothing — write counts + failed lines to the sidecar files
+    items.push(Item::Function(func(
         COV_DUMP,
         Vec::new(),
+        Some("Nothing"),
         vec![
             dump_list_to_file(COV_ARRAY, true, covdata),
             dump_list_to_file(COV_FAILED, false, covfail),
@@ -270,8 +273,8 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
             ],
         ),
         // fs::writeText(path, acc) — swallow any failure (best-effort coverage).
-        // bug-176 F: RECOVER (continue past the trap), not EXIT SUB — the two dump
-        // blocks are flattened into one SUB, so an EXIT SUB on the first file's
+        // bug-176 F: RECOVER (continue past the trap), not RETURN — the two dump
+        // blocks are flattened into one function, so a RETURN on the first file's
         // write error would skip the second dump. RECOVER keeps each dump
         // independently best-effort.
         Statement::Expression {

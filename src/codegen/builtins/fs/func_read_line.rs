@@ -79,12 +79,12 @@ const EX: &str = r#"Read the first line of a file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET line AS String = fs::readLine(f)
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Read every line until end of input:
@@ -93,13 +93,13 @@ Read every line until end of input:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

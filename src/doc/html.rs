@@ -522,12 +522,12 @@ EXPORT FUNC greet(who AS String) AS String
   RETURN who
 END FUNC
 DOC
-  SUB shout
+  FUNC shout
   DESC Shouts.
 END DOC
-SUB shout(msg AS String)
+FUNC shout(msg AS String) AS Nothing
   io::print(msg)
-END SUB
+END FUNC
 DOC
   TYPE Point
   DESC A point.

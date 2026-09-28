@@ -25,11 +25,11 @@ const EX: &str = r#"Bit lengths around a byte boundary:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::bitLength(big::fromInteger(0))))
   io::print(toString(big::bitLength(big::fromInteger(255))))
   io::print(toString(big::bitLength(big::fromInteger(-256))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -83,10 +83,10 @@ const EX: &str = r##"Replace every match, and reorder capture groups (note the d
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET masked AS String = regex::replace("a1b2", "\\d", "#")
   LET ymd AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
-END SUB
+END FUNC
 ```
 
 `$$` inserts a literal dollar sign:
@@ -94,9 +94,9 @@ END SUB
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET price AS String = regex::replace("5", "5", "$$")
-END SUB
+END FUNC
 ```
 
 A zero-width pattern still interleaves; only the *empty* pattern is refused:

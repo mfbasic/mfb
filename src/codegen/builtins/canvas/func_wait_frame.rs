@@ -41,7 +41,7 @@ IMPORT canvas
 IMPORT color
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT x AS Float = 0.0
   MUT i AS Integer = 0
@@ -53,7 +53,7 @@ SUB main()
     canvas::waitFrame()
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 ```
 
 At 60 Hz this runs for about a second, and at 120 Hz for about half a second — the

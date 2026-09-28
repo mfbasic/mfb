@@ -82,13 +82,13 @@ fn calls(plan: &Value, symbol: &str, target: &str) -> usize {
 /// reproduction, which is also the smallest program that emits `_mfb_rt_park_error`.
 const RAISES: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 LET xs AS List OF String = [\"aa\", \"bb\"]\n\
 \x20 LET g AS String = collections::get(xs, 9) TRAP(e)\n\
 \x20   RECOVER \"zz\"\n\
 \x20 END TRAP\n\
 \x20 io::print(g)\n\
-END SUB\n";
+END FUNC\n";
 
 /// The park is ONE synthesized function, so the free is emitted exactly once
 /// however many sites call it — which is the whole reason it went in there rather
@@ -195,12 +195,12 @@ fn every_raise_shape_reaches_the_same_park_body() {
         "b573_site_helper",
         "IMPORT io\n\
          IMPORT fs\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET s AS String = fs::readText(\"/tmp/b573_absent.txt\") TRAP(e)\n\
         \x20   RECOVER \"x\"\n\
         \x20 END TRAP\n\
         \x20 io::print(s)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let user_fail = ncode(
         "b573_site_fail",
@@ -208,12 +208,12 @@ fn every_raise_shape_reaches_the_same_park_body() {
          FUNC boom() AS Integer\n\
         \x20 FAIL error(90000001, \"boom\")\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET v AS Integer = boom() TRAP(e)\n\
         \x20   RECOVER e.code\n\
         \x20 END TRAP\n\
         \x20 io::print(toString(v))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     for (name, plan) in [
         ("builtin", &builtin),

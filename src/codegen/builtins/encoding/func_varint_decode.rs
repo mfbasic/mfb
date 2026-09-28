@@ -42,10 +42,10 @@ const EX: &str = r#"Round-trip a signed value through `varintEncode` and back:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::varintEncode(-75)
   io::print(toString(encoding::varintDecode(bytes)))
-END SUB
+END FUNC
 ```
 
 Decode a literal two-byte sequence (`-75` = `[0x95, 0x01]`):
@@ -55,12 +55,12 @@ IMPORT encoding
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT bytes AS List OF Byte = []
   bytes = collections::append(bytes, toByte(149))
   bytes = collections::append(bytes, toByte(1))
   io::print(toString(encoding::varintDecode(bytes)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

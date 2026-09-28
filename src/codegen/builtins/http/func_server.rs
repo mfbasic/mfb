@@ -49,14 +49,14 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```
 
 Bind loopback only, with an explicit backlog:
@@ -67,11 +67,11 @@ IMPORT net
 IMPORT tcp
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS tcp::Listener = http::server(8080, "127.0.0.1", 16)
   LET bound = tcp::localAddress(s)
   io::print("listening on port " & toString(bound.port))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

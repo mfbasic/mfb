@@ -17,15 +17,15 @@ so the drive loop stays simple and the error surfaces from `http::finish`.
 Each call reads at most one 64 KiB chunk, so a large reply is accumulated across
 several `pump` calls — the point of the cooperative API. If the accumulated
 `state.raw` exceeds the internal 64 MiB response cap, `state.err` is set to the
-overflow code and the exchange ends. `pump` is a `SUB`: it advances the stream's
-STATE in place and returns nothing."#;
+overflow code and the exchange ends. `pump` advances the stream's STATE in place
+and returns `Nothing`."#;
 
 const EX: &str = r#"```
 IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
@@ -33,7 +33,7 @@ SUB main()
     END IF
   END WHILE
   io::print(toString(len(s.state.raw)) & " bytes accumulated")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]
@@ -42,9 +42,9 @@ r#"' One non-blocking read of available bytes (gated on readiness so it never
 ' blocks), appended to `s.state.raw`. The MATCH only CALLS a top-level read helper
 ' and assigns into the pre-declared `r` — no `<call> TRAP` binding inside the CASE
 ' (Correction D3). A 0-byte read sets `closed`; a transport failure sets `err`.
-SUB __http_pump(RES s AS Stream STATE PendingState)
+FUNC __http_pump(RES s AS Stream STATE PendingState) AS Nothing
   IF __http_ready(s) = FALSE THEN
-    EXIT SUB
+    RETURN
   END IF
   MUT r AS __http_PumpRead = __http_PumpRead[[], FALSE, 0]
   MATCH s
@@ -65,7 +65,7 @@ SUB __http_pump(RES s AS Stream STATE PendingState)
   IF len(s.state.raw) > __HTTP_MAX_RESPONSE THEN
     s.state.err = 77050010
   END IF
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {

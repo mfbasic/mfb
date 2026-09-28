@@ -34,12 +34,12 @@ const EX: &str = r##"The endpoints, and a step between them:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::fromHex("#3366cc")
   io::print(color::toHex(color::darken(c, 0.0)))
   io::print(color::toHex(color::darken(c, 0.5)))
   io::print(color::toHex(color::darken(c, 1.0)))
-END SUB
+END FUNC
 ```
 
 Build a two-tone pair from one brand colour:
@@ -48,11 +48,11 @@ Build a two-tone pair from one brand colour:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET brand AS color::Color = color::fromHex("#3366cc")
   io::print("hover  " & color::toHex(color::brighten(brand, 0.2)))
   io::print("active " & color::toHex(color::darken(brand, 0.2)))
-END SUB
+END FUNC
 ```"##;
 
 /// `lin - lin * amount`, per channel. At `1.0` the product is exactly `lin`, so the

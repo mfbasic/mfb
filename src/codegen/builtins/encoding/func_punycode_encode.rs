@@ -62,9 +62,9 @@ const EX: &str = r#"Encode a Unicode hostname to Punycode:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::punycodeEncode("bücher.example"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `punycodeDecode`:
@@ -73,11 +73,11 @@ Round-trip through `punycodeDecode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET ace AS String = encoding::punycodeEncode("münchen.de")
   io::print(ace)
   io::print(encoding::punycodeDecode(ace))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

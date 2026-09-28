@@ -50,11 +50,11 @@ const EX: &str = r#"Open the default mono output at 48 kHz and play a short MML 
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, "T120 O4 L8 I sine C E G")
   audio::close(out)
-END SUB
+END FUNC
 ```"#;
 
 const SAMPLE_RATE: &str = "Playback rate in Hz. Must be in `8000..=192000`.";

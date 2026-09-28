@@ -42,10 +42,10 @@ const EX: &str = r#"Encode a signed value and round-trip it back through `varint
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::varintEncode(-75)
   io::print(toString(encoding::varintDecode(bytes)))
-END SUB
+END FUNC
 ```
 
 Small-magnitude values, positive or negative, fit in a single byte:
@@ -54,11 +54,11 @@ Small-magnitude values, positive or negative, fit in a single byte:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(len(encoding::varintEncode(0))))
   io::print(toString(len(encoding::varintEncode(-1))))
   io::print(toString(len(encoding::varintEncode(63))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

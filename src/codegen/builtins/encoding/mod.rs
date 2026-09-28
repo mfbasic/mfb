@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn augmented_project_injects_when_imported() {
-        let ast = project("IMPORT encoding\nSUB main\nEND SUB\n");
+        let ast = project("IMPORT encoding\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(registry()
             .resolve_package("encoding")
             .unwrap()
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn augmented_project_noop_without_import() {
-        let ast = project("SUB main\nEND SUB\n");
+        let ast = project("FUNC main AS Nothing\nEND FUNC\n");
         assert!(!registry()
             .resolve_package("encoding")
             .unwrap()

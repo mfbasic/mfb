@@ -36,11 +36,11 @@ const EX: &str = r#"Read a big-endian magnitude, as a wire format would carry it
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wire AS List OF Byte = [1, 0]
   LET x AS big::Int = big::fromBytes(wire, FALSE, big::Endian.Big)
   io::print(toString(big::toInteger(x)))
-END SUB
+END FUNC
 ```
 
 Little-endian is the default, and a negative sign on zero is dropped:
@@ -49,11 +49,11 @@ Little-endian is the default, and a negative sign on zero is dropped:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET zeros AS List OF Byte = [0, 0]
   LET z AS big::Int = big::fromBytes(zeros, TRUE)
   io::print(toString(z.negative))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

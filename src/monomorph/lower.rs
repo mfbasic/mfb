@@ -2567,13 +2567,13 @@ mod tests {
         // concrete symbols (mangled by argument type); the template is dropped.
         let src = "\
 IMPORT io
-SUB show OF T(value AS T)
+FUNC show OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
-SUB main()
+END FUNC
+FUNC main() AS Nothing
   show(42)
   show(\"hi\")
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
@@ -2588,13 +2588,13 @@ END SUB
         // Two calls with the same type argument produce a single concrete symbol.
         let src = "\
 IMPORT io
-SUB show OF T(value AS T)
+FUNC show OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
-SUB main()
+END FUNC
+FUNC main() AS Nothing
   show(1)
   show(2)
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let count = function_names(&project)
@@ -2745,11 +2745,11 @@ IMPORT collections
 FUNC first OF T(items AS List OF T) AS T
   RETURN collections::get(items, 0)
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   LET xs AS List OF Integer = [1, 2, 3]
   LET a AS Integer = first(xs)
   io::print(toString(a))
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
@@ -2794,10 +2794,10 @@ END FUNC
 FUNC label(s AS String) AS String
   RETURN \"str\"
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   io::print(label(1))
   io::print(label(\"x\"))
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
@@ -2817,11 +2817,11 @@ END FUNC
 FUNC make() AS String
   RETURN \"one\"
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   LET a AS Integer = make()
   LET b AS String = make()
   io::print(b)
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
@@ -2836,9 +2836,9 @@ END SUB
         // statement lowering, and a generic call inside is still instantiated.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   FOR i = 1 TO 3
     emit(i)
@@ -2874,9 +2874,9 @@ END FUNC
         // the counter instantiates on Float, exercising promote_loop_numeric_type.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   FOR i = 1.0 TO 3.0
     emit(i)
@@ -2908,9 +2908,9 @@ UNION Shape
   Circle
   Square
 END UNION
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET shape AS Shape = Circle[2]
   MATCH shape
@@ -2931,12 +2931,12 @@ END FUNC
         // More arguments than the template has parameters -> error flag set.
         let src = "\
 IMPORT io
-SUB one OF T(value AS T)
+FUNC one OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
-SUB main()
+END FUNC
+FUNC main() AS Nothing
   one(1, 2)
-END SUB
+END FUNC
 ";
         assert!(monomorphize(src).is_err());
     }
@@ -2951,9 +2951,9 @@ FUNC idOf OF T(value AS T) AS T
   RETURN value
 END FUNC
 LET g AS Integer = idOf(7)
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(g))
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         assert!(
@@ -2971,9 +2971,9 @@ END SUB
         // inside the handler is instantiated.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC risky() AS Integer
   RETURN 1
   TRAP(err)
@@ -2998,9 +2998,9 @@ IMPORT io
 FUNC add(a AS Integer, b AS Integer) AS Integer
   RETURN a + b
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(add(1, 2)))
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
@@ -3112,9 +3112,9 @@ TYPE Point
   x AS Integer
   y AS Integer
 END TYPE
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET p AS Point = Point[1, 2]
   emit(p.x)
@@ -3133,9 +3133,9 @@ END FUNC
         // NOT all drive distinct expression_type branches through generic calls.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET xs AS List OF String = [\"a\", \"b\"]
   emit(xs)
@@ -3226,9 +3226,9 @@ END FUNC
 FUNC make() AS String
   RETURN \"one\"
 END FUNC
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   emit(make())
   RETURN 0
@@ -3261,9 +3261,9 @@ END FUNC
         // expression_type, inferring `FUNC(Integer) AS Integer`.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   emit(LAMBDA(n AS Integer) -> n + 1)
   RETURN 0
@@ -3600,9 +3600,9 @@ END FUNC
         // still instantiates.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET n AS Integer = 2
   MATCH n
@@ -3624,9 +3624,9 @@ END FUNC
         // entry drives the map branch of ForEach lowering.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
   FOR EACH entry IN m
@@ -3691,9 +3691,9 @@ END FUNC
         let src = "\
 IMPORT io
 IMPORT encoding
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   emit(encoding::utf8Encode(\"hi\"))
   RETURN 0
@@ -3725,9 +3725,9 @@ END FUNC
         // of expression_type (element type from the first element).
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   emit([1, 2, 3])
   RETURN 0
@@ -3783,9 +3783,9 @@ END FUNC
         // Result/Error expression_type arms run.
         let src = "\
 IMPORT io
-SUB emit OF T(value AS T)
+FUNC emit OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 FUNC main() AS Integer
   LET r AS Result OF Integer = Ok[1]
   emit(r)
@@ -3827,9 +3827,9 @@ END FUNC
 FUNC make OF T() AS T
   RETURN NOTHING
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   LET x AS Integer = make()
-END SUB
+END FUNC
 ";
         // Errors during lowering surface as the error flag.
         assert!(monomorphize(src).is_err());
@@ -3844,9 +3844,9 @@ END SUB
 FUNC wrap OF T(value AS T) AS Set OF T
   RETURN Set OF T { value }
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   LET s AS Set OF Integer = wrap(42)
-END SUB
+END FUNC
 ";
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);

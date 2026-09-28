@@ -38,11 +38,11 @@ const EX: &str = r#"Combine a 90-second span with a 500-millisecond span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Duration = datetime::duration(90)
   LET b AS datetime::Duration = datetime::duration(0, 500_000_000)
   LET total AS datetime::Duration = datetime::plus(a, b)
-END SUB
+END FUNC
 ```
 
 Adding a negative `datetime::Duration` shortens the total:
@@ -50,10 +50,10 @@ Adding a negative `datetime::Duration` shortens the total:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Duration = datetime::duration(3600)
   LET total AS datetime::Duration = datetime::plus(a, datetime::duration(-600))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

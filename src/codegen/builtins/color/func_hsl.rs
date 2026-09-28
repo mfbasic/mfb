@@ -34,11 +34,11 @@ const EX: &str = r#"The three primaries are 120 degrees apart:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::hsl(0.0, 1.0, 0.5)))
   io::print(color::toHex(color::hsl(120.0, 1.0, 0.5)))
   io::print(color::toHex(color::hsl(240.0, 1.0, 0.5)))
-END SUB
+END FUNC
 ```
 
 Hue wraps, so going past a full turn is the same colour:
@@ -47,10 +47,10 @@ Hue wraps, so going past a full turn is the same colour:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::hsl(400.0, 1.0, 0.5)))
   io::print(color::toHex(color::hsl(40.0, 1.0, 0.5)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -159,9 +159,9 @@ const EX: &str = r#"Add a marker to the current title:
 ```
 IMPORT app
 
-SUB main
+FUNC main AS Nothing
   app::setTitle(app::getTitle() & " (unsaved)")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

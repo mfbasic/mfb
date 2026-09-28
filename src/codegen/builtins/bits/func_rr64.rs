@@ -29,10 +29,10 @@ const EX: &str = r#"Rotate all 64 bits right by four positions:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::rr64(1, 4)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Move the low byte of a 64-bit value into the top byte with a right rotate:
@@ -41,10 +41,10 @@ Move the low byte of a 64-bit value into the top byte with a right rotate:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET rotated AS Integer = bits::rr64(0xFF, 8)
   io::print(toString(rotated))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

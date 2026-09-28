@@ -14,7 +14,7 @@ the call returns while the function is still running.
 `f` must be an `ISOLATED FUNC`. That is the whole requirement: it can be one your
 own project declares — at any visibility, named by its plain name — or an
 `EXPORT ISOLATED FUNC` of a package you imported, named through that import. A
-`SUB`, a lambda and a closure are rejected.
+lambda and a closure are rejected.
 
 The entry point's own signature decides the handle's type. A function declared
 `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` gives back a
@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         ],
                         out(),
                     ),
-                    "The function to run. It must be an `ISOLATED FUNC` — one your own project declares, or an `EXPORT ISOLATED FUNC` of a package you imported — and a `FUNC` rather than a `SUB`, a lambda, or a closure.",
+                    "The function to run. It must be an `ISOLATED FUNC` — one your own project declares, or an `EXPORT ISOLATED FUNC` of a package you imported — and not a lambda or a closure.",
                 ),
                 req(
                     "data",

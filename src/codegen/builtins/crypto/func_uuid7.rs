@@ -46,9 +46,9 @@ const EX: &str = r#"Generate a time-ordered identifier:
 IMPORT crypto
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(crypto::uuid7())
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

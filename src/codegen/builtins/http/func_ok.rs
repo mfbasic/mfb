@@ -42,10 +42,10 @@ const EX: &str = r#"A plain-text handler:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp AS http::Response = http::ok("welcome")
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -60,10 +60,10 @@ Adding a header to a text response:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp = http::withHeader(http::ok("pong"), "cache-control", "no-store")
   io::print(toString(resp.status) & " " & toString(len(resp.body)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

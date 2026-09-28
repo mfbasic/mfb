@@ -16,9 +16,9 @@ exceed `max`, else `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::rand(1, 6)))
-END SUB
+END FUNC
 ```"#;
 
 const MIN_A: &[&str] = &["minimum"];

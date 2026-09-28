@@ -27,11 +27,11 @@ const EX: &str = r#"Test each kind of container:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isEmpty("")))
   io::print(toString(isEmpty([])))
   io::print(toString(isEmpty(" ")))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -48,14 +48,14 @@ Treat whitespace-only input as blank by trimming first:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET field AS String = "   "
   IF isEmpty(strings::trim(field)) THEN
     io::print("please enter a value")
   ELSE
     io::print("got " & field)
   END IF
-END SUB
+END FUNC
 ```
 
 prints:

@@ -89,39 +89,39 @@ FUNC certOf(label AS String) AS crypto::Certificate
   RETURN crypto::Certificate.P521
 END FUNC
 
-SUB doGen(label AS String)
+FUNC doGen(label AS String) AS Nothing
   LET k AS crypto::KeyPair = crypto::generate(certOf(label)) TRAP(e)
     io::print("genfail " & label & " " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("gen " & label & " " & hexField(k.privateKey) & " " & hexField(k.publicKey))
-END SUB
+END FUNC
 
-SUB doSign(label AS String, privHex AS String, msgHex AS String)
+FUNC doSign(label AS String, privHex AS String, msgHex AS String) AS Nothing
   LET sig AS List OF Byte = crypto::sign(certOf(label), decodeField(privHex), decodeField(msgHex)) TRAP(e)
     io::print("signfail " & label & " " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("sign " & label & " " & hexField(sig))
-END SUB
+END FUNC
 
-SUB doVerify(label AS String, pubHex AS String, msgHex AS String, sigHex AS String)
+FUNC doVerify(label AS String, pubHex AS String, msgHex AS String, sigHex AS String) AS Nothing
   LET ok AS Boolean = crypto::verify(certOf(label), decodeField(pubHex), decodeField(msgHex), decodeField(sigHex)) TRAP(e)
     io::print("verifyfail " & label & " " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("verify " & label & " " & toString(ok))
-END SUB
+END FUNC
 
-SUB doExchange(label AS String, privHex AS String, peerHex AS String)
+FUNC doExchange(label AS String, privHex AS String, peerHex AS String) AS Nothing
   LET secret AS List OF Byte = crypto::exchange(certOf(label), decodeField(privHex), decodeField(peerHex)) TRAP(e)
     io::print("exchangefail " & label & " " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("exchange " & label & " " & hexField(secret))
-END SUB
+END FUNC
 
-SUB doConvert(label AS String, privHex AS String, pubHex AS String)
+FUNC doConvert(label AS String, privHex AS String, pubHex AS String) AS Nothing
   MUT conv AS crypto::KeyConvert = crypto::KeyConvert.Ed25519ToX25519
   IF label = "ed448-x448" THEN
     conv = crypto::KeyConvert.Ed448ToX448
@@ -129,12 +129,12 @@ SUB doConvert(label AS String, privHex AS String, pubHex AS String)
   LET pair AS crypto::KeyPair = crypto::KeyPair[decodeField(privHex), decodeField(pubHex)]
   LET k AS crypto::KeyPair = crypto::convert(conv, pair) TRAP(e)
     io::print("convertfail " & label & " " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("convert " & label & " " & hexField(k.privateKey) & " " & hexField(k.publicKey))
-END SUB
+END FUNC
 
-SUB dispatch(spec AS String)
+FUNC dispatch(spec AS String) AS Nothing
   LET f AS List OF String = strings::split(spec, ",")
   LET op AS String = collections::get(f, 0)
   IF op = "gen" THEN
@@ -152,12 +152,12 @@ SUB dispatch(spec AS String)
   IF op = "convert" THEN
     doConvert(collections::get(f, 1), collections::get(f, 2), collections::get(f, 3))
   END IF
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET job AS String = os::getEnvOr("MFB_KEY_JOB", "")
   IF job = "" THEN
-    EXIT SUB
+    RETURN
   END IF
   LET records AS List OF String = strings::split(job, ";")
   FOR EACH one IN records
@@ -165,7 +165,7 @@ SUB main()
       dispatch(one)
     END IF
   NEXT
-END SUB
+END FUNC
 "#;
 
 fn unhex(s: &str) -> Vec<u8> {

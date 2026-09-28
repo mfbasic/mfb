@@ -47,9 +47,9 @@ const EX: &str = r#"Report a failure on the error stream:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::printError("cannot open the input file")
-END SUB
+END FUNC
 ```
 
 Colour the message only when standard error is a terminal:
@@ -57,13 +57,13 @@ Colour the message only when standard error is a terminal:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF io::isErrorTerminal() THEN
     io::printError("\u{1b}[31mError\u{1b}[0m: something went wrong")
   ELSE
     io::printError("Error: something went wrong")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

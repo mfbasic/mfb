@@ -23,10 +23,10 @@ const EX: &str = r#"Count the leading zeros of a small value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::clz(255)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 The all-zero pattern has 64 leading zeros:
@@ -35,9 +35,9 @@ The all-zero pattern has 64 leading zeros:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(bits::clz(0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

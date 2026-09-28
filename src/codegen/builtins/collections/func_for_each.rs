@@ -21,15 +21,15 @@ in their stored order. `value` is not modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.
 
 `action` must accept exactly one argument of the element type `T` and its
-success type must be `Nothing`. A `SUB` is therefore accepted directly, since a
-`SUB` has success type `Nothing`; a `FUNC` that produces a value is rejected at
-compile time. To collect results instead of discarding them, use
+success type must be `Nothing`, so a `FUNC … AS Nothing` is accepted directly; a
+`FUNC` that produces a value is rejected at compile time. To collect results instead of discarding them, use
 `collections::transform`.
 
-`action` must be a callable *value* — a reference to a declared `SUB` or `FUNC`,
-or a `LAMBDA` taking one `T` and returning nothing.
+`action` must be a callable *value* — a reference to a declared `FUNC`, or a
+`LAMBDA` taking one `T` and returning nothing.
 A package member such as `io::print` is not a callable value and cannot be
-passed here; wrap it in a `SUB` of your own, as the first example below does.
+passed here; wrap it in a `FUNC … AS Nothing` of your own, as the first example
+below does.
 
 Unlike the other higher-order helpers, a `LAMBDA` passed here may use an outer
 `MUT` binding and update it during the call.
@@ -44,15 +44,15 @@ the call site rather than letting it auto-propagate.
 
 An empty `value` calls `action` zero times."#;
 
-const EX: &str = r#"Print every element with a `SUB`:
+const EX: &str = r#"Print every element with a `FUNC … AS Nothing`:
 
 ```
 IMPORT collections
 IMPORT io
 
-SUB show(item AS String)
+FUNC show(item AS String) AS Nothing
   io::print(item)
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET names AS List OF String = ["Ada", "Grace"]
@@ -67,9 +67,9 @@ The list is left untouched by the walk:
 IMPORT collections
 IMPORT io
 
-SUB report(value AS Integer)
+FUNC report(value AS Integer) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]

@@ -31,7 +31,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET yellow AS color::Color = color::rgb(255, 255, 0)
@@ -50,7 +50,7 @@ SUB main()
 
   canvas::present(scene)
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 fn golden_path(name: &str) -> PathBuf {
@@ -276,7 +276,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
@@ -309,7 +309,7 @@ SUB main()
 
   canvas::present([ground, boxNormal, dotNormal, boxMultiply, dotMultiply, boxScreen, dotScreen, boxAdd, dotAdd, arcNormal, arcMultiply, arcScreen, arcAdd, clipped])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The blend-mode reference renders exactly.
@@ -374,10 +374,10 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(96, 96, 96))]
@@ -406,7 +406,7 @@ SUB main()
 
   canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The transform reference renders exactly.
@@ -516,7 +516,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(64, 68, 78))]
@@ -550,7 +550,7 @@ SUB main()
 
   canvas::present([ground, buttLine, roundLine, markA, markB, buttArc, roundArc, buttDiag, roundDiag, buttDot, roundDot])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The endcap reference renders exactly.
@@ -653,7 +653,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(58, 62, 72))]
@@ -684,7 +684,7 @@ SUB main()
 
   canvas::present([ground, wide, round, thin, thinTurned, tilted, hollow, asCircle, realCircle])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The ellipse reference renders exactly.
@@ -783,7 +783,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(48, 50, 58))]
@@ -827,7 +827,7 @@ SUB main()
 
   canvas::present([ground, linBar, diagBar, orb, blob, triBar, manyBar, monoBar])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The gradient reference renders exactly.
@@ -951,7 +951,7 @@ IMPORT color
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   MUT stops AS List OF canvas::GradientStop = []
@@ -967,7 +967,7 @@ SUB main()
 
   canvas::present([bar])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// A gradient on a **stroked** `canvas::Text` is ignored, like every other kind with no
@@ -997,10 +997,10 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
 
     fn program(paint: &str) -> String {
         format!(
-            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
              app::setMode(app::Mode.Canvas)\n  \
              RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    \
-             io::print(\"nofont\")\n    EXIT SUB\n  END TRAP\n  \
+             io::print(\"nofont\")\n    RETURN\n  END TRAP\n  \
              LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
              color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
              color := color::rgb(0, 0, 255)]]\n  \
@@ -1012,7 +1012,7 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              paint := {paint}]\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
              w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
-             canvas::present([label, box])\n  io::print(\"rendered\")\nEND SUB\n"
+             canvas::present([label, box])\n  io::print(\"rendered\")\nEND FUNC\n"
         )
     }
 
@@ -1090,13 +1090,13 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::setGroup("panel", [red])
   canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 const FLAT_SCENE: &str = r#"IMPORT app
@@ -1104,12 +1104,12 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::present([red])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The group reference scene (plan-116-H Phase 4).
@@ -1134,10 +1134,10 @@ const GROUPS: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 160.0, y := 70.0], stops := stops]
@@ -1153,7 +1153,7 @@ SUB main()
   ' A leaf referenced twice from the scene -- the diamond.
   canvas::setGroup("leaf", [canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]])
   canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Group[name := "panel", dx := 340.0, dy := 210.0], canvas::Group[name := "outer", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 120.0, dy := 420.0], canvas::Group[name := "leaf", dx := 260.0, dy := 520.0]])
-END SUB
+END FUNC
 "#;
 
 /// The software rasteriser reproduces the group reference exactly.
@@ -1262,7 +1262,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(52, 56, 66))]
@@ -1297,7 +1297,7 @@ SUB main()
 
   canvas::present([ground, zigRound, zigButt, markA, markB, switchBack, repeated, markC, markD, trail, rainbow, partial, twoPoint, dotRound, dotButt, single])
   io::print("rendered")
-END SUB
+END FUNC
 "#;
 
 /// The polyline reference renders exactly.
@@ -1369,9 +1369,9 @@ fn a_two_point_polyline_draws_the_line_between_its_points() {
             .map(|(i, item)| format!("  LET i{i} AS canvas::DrawItem = {item}\n"))
             .collect();
         format!(
-            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
              app::setMode(app::Mode.Canvas)\n{lets}  canvas::present([i0, i1, i2, i3, i4])\n  \
-             io::print(\"rendered\")\nEND SUB\n"
+             io::print(\"rendered\")\nEND FUNC\n"
         )
     }
     let lines = render("canvas_polyline_as_line_a", &scene("line"));

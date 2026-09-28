@@ -44,11 +44,11 @@ const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::present([dot])
-END SUB
+END FUNC
 "#;
 
 /// A `--app --ncode` build for an explicit target. `common::build_ncode` has no

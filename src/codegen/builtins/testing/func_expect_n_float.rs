@@ -30,9 +30,9 @@ FUNC perturb(x AS Float) AS Float
   RETURN x + 1.0
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(perturb(1.0)))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "arithmetic"

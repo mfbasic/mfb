@@ -44,7 +44,7 @@ const RECTANGLES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET red AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET grey AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 10.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(128, 128, 128))]
@@ -53,7 +53,7 @@ SUB main()
   LET wide AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 100.0, w := 500.0, h := 300.0, paint := canvas::fill(color::rgb(17, 200, 90))]
   LET over AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 150.0, w := 200.0, h := 100.0, paint := canvas::fill(color::rgba(255, 200, 0, 200))]
   canvas::present([red, grey, half, faint, wide, over])
-END SUB
+END FUNC
 "#;
 
 /// Every primitive the SDF shader draws, in one scene.
@@ -76,7 +76,7 @@ const PRIMITIVES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   LET yellow AS color::Color = color::rgb(255, 255, 0)
@@ -147,7 +147,7 @@ SUB main()
   LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
 
   canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
-END SUB
+END FUNC
 "#;
 
 /// A polygon with more edges than the shader's edge buffer holds.
@@ -160,7 +160,7 @@ END SUB
 const GROUPS: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   ' 1. a group drawn at (0,0) -- the offset is present but zero
@@ -197,7 +197,7 @@ SUB main()
 
   LET scene AS List OF canvas::DrawItem = [canvas::Group[name := "atOrigin", dx := 0.0, dy := 0.0], canvas::Group[name := "moved", dx := 37.0, dy := 53.0], canvas::Group[name := "outer", dx := 380.0, dy := 40.0], canvas::Group[name := "leaf", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 700.0, dy := 140.0], canvas::Group[name := "clipped", dx := 60.0, dy := 200.0], canvas::Group[name := "grad", dx := 420.0, dy := 200.0]]
   canvas::present(scene)
-END SUB
+END FUNC
 "#;
 
 /// A diamond: one group installed once and named twice, at two offsets.
@@ -207,13 +207,13 @@ END SUB
 const DIAMOND_GROUPED: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   LET b AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 22.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
   canvas::setGroup("pair", [a, b])
   canvas::present([canvas::Group[name := "pair", dx := 120.0, dy := 90.0], canvas::Group[name := "pair", dx := 430.0, dy := 300.0]])
-END SUB
+END FUNC
 "#;
 
 /// The same picture with no group in it — the two shapes written out twice, at the
@@ -221,32 +221,32 @@ END SUB
 const DIAMOND_FLAT: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a1 AS canvas::DrawItem = canvas::Rectangle[x := 120.0, y := 90.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   LET b1 AS canvas::DrawItem = canvas::Circle[x := 220.0, y := 112.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
   LET a2 AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 300.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   LET b2 AS canvas::DrawItem = canvas::Circle[x := 530.0, y := 322.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
   canvas::present([a1, b1, a2, b2])
-END SUB
+END FUNC
 "#;
 
 /// A scene whose only item names a group that was never installed.
 const ABSENT_GROUP: &str = r#"IMPORT app
 IMPORT canvas
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present([canvas::Group[name := "neverInstalled", dx := 40.0, dy := 60.0]])
-END SUB
+END FUNC
 "#;
 
 /// The same scene with nothing in it at all — the control for `ABSENT_GROUP`.
 const EMPTY_SCENE: &str = r#"IMPORT app
 IMPORT canvas
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present([])
-END SUB
+END FUNC
 "#;
 
 /// ONE polygon with more edges than Metal's whole frame edge region holds
@@ -263,7 +263,7 @@ IMPORT color
 IMPORT collections
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
@@ -275,7 +275,7 @@ SUB main()
   LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]
   canvas::present([box, ring])
-END SUB
+END FUNC
 "#;
 
 /// Many polygons that individually fit but together overflow the frame's edge region.
@@ -300,7 +300,7 @@ IMPORT color
 IMPORT collections
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
   MUT ring AS Integer = 0
@@ -319,7 +319,7 @@ SUB main()
     ring = ring + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC
 "#;
 
 /// A built program, kept so both renders run the same binary.
@@ -508,7 +508,7 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
@@ -525,7 +525,7 @@ SUB main()
   END WHILE
   LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 7.0)]
   canvas::present([tri, trail, plain, long])
-END SUB
+END FUNC
 "#;
 
 /// Metal draws `canvas::PolyLine` itself and matches the software oracle (plan-154-B).
@@ -774,14 +774,14 @@ const TEXT_LINE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
   LET bg AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(20, 24, 30))]
   LET a AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "LEVEL 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   LET b AS canvas::DrawItem = canvas::Text[x := 300.0, y := 40.0, text := "BUGS quick", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 214, 90))]
   canvas::present([bg, a, b])
-END SUB
+END FUNC
 "#;
 
 /// Each glyph of a text run samples its OWN bitmap on the GPU.
@@ -844,7 +844,7 @@ const PICTURES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET quad AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255)]
   LET strip AS List OF Byte = [toByte(255), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(128), toByte(0), toByte(255), toByte(255), toByte(255)]
@@ -867,7 +867,7 @@ SUB main()
   canvas::setGroup("pics", [inner])
   LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
   canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node])
-END SUB
+END FUNC
 "#;
 
 /// The Metal backend draws every picture path the same as the software oracle, and
@@ -924,7 +924,7 @@ const SPACE_THEN_SHAPES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
   LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 200.0, paint := canvas::fill(color::rgb(128, 128, 128))]
@@ -934,7 +934,7 @@ SUB main()
   LET dot AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 30.0, h := 30.0, paint := canvas::fill(color::rgb(20, 60, 230))]
   canvas::setGroup("g", [dot])
   canvas::present([ground, words, mul, plain, canvas::Group[name := "g", dx := 600.0, dy := 80.0]])
-END SUB
+END FUNC
 "#;
 
 #[test]

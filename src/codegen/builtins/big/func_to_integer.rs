@@ -35,9 +35,9 @@ const EX: &str = r#"Convert back to an `Integer`:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::toInteger(big::fromInteger(9000))))
-END SUB
+END FUNC
 ```
 
 A value past the `Integer` range raises `ErrOverflow`:
@@ -53,10 +53,10 @@ FUNC describe(value AS big::Int) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
   io::print(describe(big::fromBytes(twoTo64, FALSE)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

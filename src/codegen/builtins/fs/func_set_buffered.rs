@@ -66,7 +66,7 @@ const EX: &str = r#"Buffer a loop of small writes and let scope exit flush and c
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("events.log", "first line\nsecond line\n")
   LET events AS List OF String = ["started", "ready"]
   RES log = fs::openFile("events.log", "write")
@@ -75,7 +75,7 @@ SUB main()
     fs::writeAll(log, event & "\n")
   NEXT
   ' log is flushed and closed when this scope ends
-END SUB
+END FUNC
 ```
 
 Enable buffering for a bulk write, then flush and disable it before durable work:
@@ -83,7 +83,7 @@ Enable buffering for a bulk write, then flush and disable it before durable work
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("report.txt", "first line\nsecond line\n")
   LET header AS String = "id,name\n"
   LET body AS String = "1,alice\n"
@@ -92,7 +92,7 @@ SUB main()
   fs::writeAll(out, header)
   fs::writeAll(out, body)
   fs::setBuffered(out, FALSE)   ' drains the pending header and body, then disables
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

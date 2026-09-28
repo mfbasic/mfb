@@ -45,10 +45,10 @@ const EX: &str = r#"Advance a `datetime::DateTime` by one month:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET nextMonth AS datetime::DateTime = datetime::addMonths(dt, 1)
-END SUB
+END FUNC
 ```
 
 A negative count moves the date earlier, and an overlong day clamps to the end of
@@ -57,11 +57,11 @@ the shorter month:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET jan31 AS datetime::DateTime = datetime::civil(datetime::date(2025, 1, 31), datetime::time(9, 0, 0), datetime::utc())
   LET feb28 AS datetime::DateTime = datetime::addMonths(jan31, 1)
   LET lastYear AS datetime::DateTime = datetime::addMonths(jan31, -12)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

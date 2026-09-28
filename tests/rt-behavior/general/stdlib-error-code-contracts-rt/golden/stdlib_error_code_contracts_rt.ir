@@ -1808,7 +1808,7 @@
     "name": "#datetime_checkFields",
     "line": 659,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "year", "line": 659, "type": "Integer", "default": null },
     { "name": "month", "line": 659, "type": "Integer", "default": null },

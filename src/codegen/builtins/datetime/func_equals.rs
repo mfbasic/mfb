@@ -35,11 +35,11 @@ const EX: &str = r#"Equal instants compare as equal:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(1_000)
   LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::equals(a, b)))
-END SUB
+END FUNC
 ```
 
 Different instants are not equal:
@@ -48,11 +48,11 @@ Different instants are not equal:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(1_000)
   LET b AS datetime::Instant = datetime::instant(2_000)
   io::print(toString(datetime::equals(a, b)))
-END SUB
+END FUNC
 ```
 
 Branch on whether two instants coincide:
@@ -61,11 +61,11 @@ Branch on whether two instants coincide:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::now()
   LET b AS datetime::Instant = datetime::instant(0)
   IF datetime::equals(a, b) THEN io::print("same instant")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

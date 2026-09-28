@@ -46,11 +46,11 @@ const EX: &str = r#"Emit a progress marker on the error stream without breaking 
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::writeError("working")
   io::writeError(".")
   io::printError(" done")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

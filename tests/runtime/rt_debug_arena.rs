@@ -141,12 +141,12 @@ fn the_canvas_graphics_thread_registers_a_graphics_arena() {
         "IMPORT color\n",
         "IMPORT io\n",
         "\n",
-        "SUB main()\n",
+        "FUNC main() AS Nothing\n",
         "  app::setMode(app::Mode.Canvas)\n",
         "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n",
         "  canvas::present([box])\n",
         "  io::print(\"done\")\n",
-        "END SUB\n",
+        "END FUNC\n",
     );
     let project = common::temp_project(name, source);
     let output = Command::new(common::mfb_exe())

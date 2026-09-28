@@ -309,7 +309,7 @@ mod tests {
     /// so: aarch64 and x86-64 legitimately accept `NativeBuildMode::LinuxApp`.
     #[test]
     fn app_build_mode_is_rejected_before_lowering() {
-        let ir = crate::testutil::lower_src("SUB main()\nEND SUB\n");
+        let ir = crate::testutil::lower_src("FUNC main() AS Nothing\nEND FUNC\n");
         let target = BACKEND.target();
         let Err(err) = lower_validated_module(
             &ir,
@@ -417,7 +417,7 @@ mod tests {
     /// rejection.
     #[test]
     fn console_build_mode_passes_the_guard() {
-        let ir = crate::testutil::lower_src("SUB main()\nEND SUB\n");
+        let ir = crate::testutil::lower_src("FUNC main() AS Nothing\nEND FUNC\n");
         let target = BACKEND.target();
         let err = match lower_validated_module(
             &ir,

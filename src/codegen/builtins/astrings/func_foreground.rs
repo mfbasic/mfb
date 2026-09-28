@@ -39,10 +39,10 @@ const EX: &str = r#"```
 IMPORT astrings
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::foreground(color::rgb(255, 128, 0)))
-END SUB
+END FUNC
 ```
 
 The alpha survives in the attribute even though a terminal cannot draw it:
@@ -52,7 +52,7 @@ IMPORT astrings
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hi")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 1, astrings::foreground(color::rgba(255, 128, 0, 128)))
   FOR EACH at IN astrings::getAttributes(styled, 0)
@@ -62,7 +62,7 @@ SUB main()
       CASE ELSE
     END MATCH
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

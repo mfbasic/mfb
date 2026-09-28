@@ -25,11 +25,11 @@ const EX: &str = r##"The two are exact complements:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::fromHex("#3366cc")
   io::print(toString(color::isLight(c)))
   io::print(toString(color::isLight(c) = (NOT color::isDark(c))))
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

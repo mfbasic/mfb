@@ -44,7 +44,7 @@ IMPORT encoding
 IMPORT tls
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES server = tls::listen("", 8443, "cert.pem", "key.pem")
   WHILE TRUE
     RES client = tls::accept(server)
@@ -52,7 +52,7 @@ SUB main()
     tls::write(client, "HTTP/1.0 200 OK\r\n\r\nhi")
     tls::close(client)
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

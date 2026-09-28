@@ -23,13 +23,13 @@ const EX: &str = r#"Filter to the odd numbers:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR n = 1 TO 6
     IF isOdd(n) THEN
       io::print(toString(n))
     END IF
   NEXT
-END SUB
+END FUNC
 ```
 
 prints:
@@ -45,11 +45,11 @@ Including across zero and the negatives:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isOdd(4)))
   io::print(toString(isOdd(-3)))
   io::print(toString(isOdd(0)))
-END SUB
+END FUNC
 ```
 
 prints:

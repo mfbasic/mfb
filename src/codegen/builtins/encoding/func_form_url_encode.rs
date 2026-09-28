@@ -60,9 +60,9 @@ const EX: &str = r#"Encode a form field value containing a space and reserved ch
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::formUrlEncode("name = a b & c"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `formUrlDecode`:
@@ -71,11 +71,11 @@ Round-trip through `formUrlDecode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET enc AS String = encoding::formUrlEncode("café & tea")
   io::print(enc)
   io::print(encoding::formUrlDecode(enc))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

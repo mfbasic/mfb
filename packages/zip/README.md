@@ -12,13 +12,13 @@ IMPORT zip
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES f = fs::openFile("photos.zip")
   LET archive AS zip::Archive = zip::open(f)
   FOR EACH entry IN zip::entries(archive)
     io::print(entry.name & " (" & toString(entry.size) & " bytes)")
   NEXT
-END SUB
+END FUNC
 ```
 
 ## The two ways to open an archive
@@ -88,13 +88,13 @@ Build with `create` and the `add*` calls, then `finish`:
 IMPORT zip
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   MUT b AS zip::Builder = zip::create()
   b = zip::addText(b, "notes.txt", "hello")
   b = zip::addDirectory(b, "images")
   b = zip::addFile(b, "images/logo.png", fs::readBytes("logo.png"))
   fs::writeBytes("out.zip", zip::finish(b))
-END SUB
+END FUNC
 ```
 
 Each `add*` gives you back a new builder; the one you passed in is unchanged.

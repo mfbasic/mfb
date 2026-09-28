@@ -59,11 +59,11 @@ const EX: &str = r#"Read a nested member by key path:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"user\":{\"address\":{\"city\":\"Oslo\"}}}")
   LET city AS json::Json = json::get(doc, ["user", "address", "city"])
   io::print(json::stringify(city))
-END SUB
+END FUNC
 ```
 
 Step into an array by writing its index as a decimal string, mixing keys and
@@ -73,11 +73,11 @@ indexes freely along one path:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
   io::print(json::stringify(json::get(doc, ["items", "1", "name"])))
   io::print(json::stringify(json::get(doc, ["items", "0"])))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -94,11 +94,11 @@ because a bare `[]` literal has no element type of its own:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("[1,2,3]")
   LET here AS List OF String = []
   io::print(json::stringify(json::get(doc, here)))
-END SUB
+END FUNC
 ```
 
 Turn a missing key into a caught failure:
@@ -107,19 +107,19 @@ Turn a missing key into a caught failure:
 IMPORT json
 IMPORT io
 
-SUB show(doc AS json::Json)
+FUNC show(doc AS json::Json) AS Nothing
   io::print(json::stringify(json::get(doc, ["config", "enabled"])))
-  EXIT SUB
+  RETURN
   TRAP(e)
     io::print("absent: " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB main
+FUNC main AS Nothing
   show(json::parse("{\"config\": {\"enabled\": true}}"))
   show(json::parse("{}"))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

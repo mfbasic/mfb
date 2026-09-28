@@ -1191,9 +1191,9 @@ mod tests {
             "FUNC parse(s AS String) AS Integer\n",
             "  RETURN len(fs::readText(s))\n",
             "END FUNC\n",
-            "SUB main()\n",
+            "FUNC main() AS Nothing\n",
             "  LET x = parse(\"f.txt\")\n",
-            "END SUB\n",
+            "END FUNC\n",
         );
         let (flow, _, _, ..) = collect_source(&project(source));
         let at = |line: usize| {

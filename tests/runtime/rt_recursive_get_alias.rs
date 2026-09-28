@@ -73,7 +73,7 @@ FUNC describe(t AS Tree) AS String\n\
     CASE Node2(n)\n      RETURN \"Node2(\" & describe(n.left) & \",\" & describe(n.right) & \")\"\n\
   END MATCH\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT reps AS List OF Rep = []\n\
   reps = collections::append(reps, Rep[child := Node2[left := Leaf[v := 1], right := Leaf[v := 2]], lo := 3])\n\
   LET back AS Rep = collections::get(reps, 0)\n\
@@ -85,7 +85,7 @@ SUB main()\n\
   END WHILE\n\
   io::print(\"len=\" & toString(len(reps)))\n\
   io::print(\"after=\" & describe(back.child))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn a_recursive_element_read_out_survives_a_growing_append() {
@@ -142,7 +142,7 @@ FUNC render(root AS Node) AS String\n\
   LOOP\n\
   RETURN out\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET tree AS Node = ElementNode[\"ul\", [ElementNode[\"li\", [TextNode[\"a\"], TextNode[\"b\"]]], TextNode[\"c\"]]]\n\
   io::print(\"render=\" & render(tree))\n\
   ' A list of records holding recursive values: read one out, keep growing, and\n\
@@ -169,7 +169,7 @@ SUB main()\n\
   ' Removing in place must not disturb a value already read out.\n\
   slots = collections::removeAt(slots, 0)\n\
   io::print(\"len=\" & toString(len(slots)) & \" first-still=\" & render(first.node))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn ordinary_recursive_type_use_is_unchanged() {

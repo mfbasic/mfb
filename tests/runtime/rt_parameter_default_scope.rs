@@ -199,9 +199,9 @@ fn a_sub_default_ignores_a_callers_same_named_local() {
         \x20 RETURN 5\n\
          END FUNC\n\
          \n\
-         SUB show(x AS Integer = helper())\n\
+         FUNC show(x AS Integer = helper()) AS Nothing\n\
         \x20 io::print(toString(x))\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC main() AS Integer\n\
         \x20 LET helper = LAMBDA() -> 99\n\
@@ -335,9 +335,9 @@ fn a_literal_default_is_unchanged() {
         "",
         "IMPORT io\n\
          \n\
-         SUB greet(name AS String, greeting AS String = \"Hello\")\n\
+         FUNC greet(name AS String, greeting AS String = \"Hello\") AS Nothing\n\
         \x20 io::print(greeting & \" \" & name)\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC main() AS Integer\n\
         \x20 greet(\"Ada\")\n\

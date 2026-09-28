@@ -58,9 +58,9 @@ IMPORT vector
 IMPORT io
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::rotate_2d(vector::Float2[1.0, 0.0], math::pi2)))
-END SUB
+END FUNC
 ```
 
 Rotate clockwise by negating the angle:
@@ -70,10 +70,10 @@ IMPORT vector
 IMPORT io
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   LET cw AS vector::Float2 = vector::rotate_2d(vector::Float2[1.0, 0.0], 0.0 - math::pi2)
   io::print(toString(cw))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

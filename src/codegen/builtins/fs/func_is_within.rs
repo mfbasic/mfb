@@ -74,7 +74,7 @@ const EX: &str = r#"Guard against escaping a root directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("uploads")
   fs::writeText("uploads/report.txt", "hi")
   LET root AS String = fs::canonicalPath("uploads")
@@ -82,7 +82,7 @@ SUB main()
   IF fs::isWithin(root, candidate) THEN
     io::print("inside")
   END IF
-END SUB
+END FUNC
 ```
 
 A nested file is within its base directory:
@@ -90,11 +90,11 @@ A nested file is within its base directory:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("base/nested")
   fs::writeText("base/nested/file.txt", "hi")
   LET inside AS Boolean = fs::isWithin("base", "base/nested/file.txt")
-END SUB
+END FUNC
 ```
 
 A path is within itself, but a sibling is not:
@@ -102,12 +102,12 @@ A path is within itself, but a sibling is not:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("base")
   fs::createDirectories("base2")
   LET same AS Boolean = fs::isWithin("base", "base")
   LET sibling AS Boolean = fs::isWithin("base", "base2")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

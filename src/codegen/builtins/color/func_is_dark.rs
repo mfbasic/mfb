@@ -32,10 +32,10 @@ const EX: &str = r##"Channel sensitivity, not channel count, decides:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("blue   " & toString(color::isDark(color::rgb(0, 0, 255))))
   io::print("yellow " & toString(color::isDark(color::rgb(255, 255, 0))))
-END SUB
+END FUNC
 ```
 
 Pick a light or dark text colour for a background (check the result with
@@ -45,14 +45,14 @@ Pick a light or dark text colour for a background (check the result with
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bg AS color::Color = color::fromHex("#222222")
   MUT fg AS color::Color = color::rgb(0, 0, 0)
   IF color::isDark(bg) THEN
     fg = color::rgb(255, 255, 255)
   END IF
   io::print(color::toHex(fg))
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

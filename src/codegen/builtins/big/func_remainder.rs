@@ -31,10 +31,10 @@ const EX: &str = r#"The remainder follows the dividend's sign:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::toInteger(big::remainder(big::fromInteger(-7), big::fromInteger(2)))))
   io::print(toString(big::toInteger(big::remainder(big::fromInteger(7), big::fromInteger(-2)))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

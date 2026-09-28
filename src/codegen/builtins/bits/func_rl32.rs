@@ -32,10 +32,10 @@ const EX: &str = r#"Rotate the low 32 bits left by four positions:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::rl32(1, 4)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Rotate a 32-bit mask and recombine it with `bits::bor`:
@@ -44,11 +44,11 @@ Rotate a 32-bit mask and recombine it with `bits::bor`:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET rotated AS Integer = bits::rl32(0x0000FFFF, 8)
   LET merged AS Integer = bits::bor(rotated, 0xFF)
   io::print(toString(merged))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

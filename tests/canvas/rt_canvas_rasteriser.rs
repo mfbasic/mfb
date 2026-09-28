@@ -111,8 +111,8 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 /// silent early exit cannot pass as a successful render.
 fn scene(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+         app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND FUNC\n"
     )
 }
 
@@ -2703,7 +2703,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
              canvas::setGroup(\"self\", [red, canvas::Group[dx := 1.0, dy := 1.0, name := \"self\"]])\n  \
              canvas::present([canvas::Group[dx := 0.0, dy := 0.0, name := \"self\"]]) TRAP(e)\n  \
                io::print(\"raised \" & toString(e.code))\n  \
-               EXIT SUB\n  \
+               RETURN\n  \
              END TRAP\n  \
              io::print(\"NO RAISE\")\n",
         ),
@@ -2718,7 +2718,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
              END WHILE\n  \
              canvas::present([canvas::Group[dx := 0.0, dy := 0.0, name := \"g70\"]]) TRAP(e)\n  \
                io::print(\"raised \" & toString(e.code))\n  \
-               EXIT SUB\n  \
+               RETURN\n  \
              END TRAP\n  \
              io::print(\"NO RAISE\")\n",
         ),
@@ -3507,7 +3507,7 @@ fn an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise(
         &scene(
             "  LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255)]\n  \
              RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n  \
-             EXIT SUB\n  \
+             RETURN\n  \
              END TRAP\n  \
              LET tile AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 40.0, h := 40.0, \
              image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
@@ -3549,7 +3549,7 @@ fn destroying_a_font_mid_frame_is_clean() {
         "canvas_font_destroy_race",
         &scene(
             "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n  \
-             EXIT SUB\n  \
+             RETURN\n  \
              END TRAP\n  \
              LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := \"AA\", \
              font := face, size := 90.0, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \

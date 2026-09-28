@@ -39,12 +39,12 @@ const EX: &str = r##"Push a muted colour towards its vivid form:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET muted AS color::Color = color::fromHex("#6688aa")
   io::print(color::toHex(color::saturate(muted, 0.0)))
   io::print(color::toHex(color::saturate(muted, 0.5)))
   io::print(color::toHex(color::saturate(muted, 1.0)))
-END SUB
+END FUNC
 ```
 
 A grey does **not** stay grey — its reported hue is `0.0`, which is red:
@@ -53,11 +53,11 @@ A grey does **not** stay grey — its reported hue is `0.0`, which is red:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::saturate(color::gray(128), 1.0)))
   ' Test the saturation first if a grey must stay grey.
   io::print(toString(color::toHsl(color::gray(128)).saturation))
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

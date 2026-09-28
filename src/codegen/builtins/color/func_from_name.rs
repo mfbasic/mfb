@@ -36,9 +36,9 @@ const EX: &str = r##"Resolve a name, case-insensitively:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::fromName("RebeccaPurple")))
-END SUB
+END FUNC
 ```
 
 The `green` trap — the CSS keyword is dark, and `lime` is the vivid one:
@@ -47,10 +47,10 @@ The `green` trap — the CSS keyword is dark, and `lime` is the vivid one:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("green " & color::toHex(color::fromName("green")))
   io::print("lime  " & color::toHex(color::fromName("lime")))
-END SUB
+END FUNC
 ```
 
 An unknown name raises `ErrNotFound` rather than returning a fallback:
@@ -67,10 +67,10 @@ FUNC lookup(name AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(lookup("teal"))
   io::print(lookup("nosuchcolour"))
-END SUB
+END FUNC
 ```"##;
 
 /// `strings::trim` then `strings::lower` before the lookup, so the table's keys

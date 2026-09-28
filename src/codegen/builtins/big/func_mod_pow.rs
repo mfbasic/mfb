@@ -41,11 +41,11 @@ const EX: &str = r#"A power far too large to build, reduced:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET exponent AS big::Int = big::pow(big::fromInteger(10), 30)
   io::print(big::toString(big::modPow(big::fromInteger(3), exponent, big::fromInteger(1000000007))))
   io::print(big::toString(big::modPow(big::fromInteger(-2), big::fromInteger(3), big::fromInteger(5))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

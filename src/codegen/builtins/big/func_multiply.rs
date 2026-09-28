@@ -29,14 +29,14 @@ const EX: &str = r#"Square 2 raised to 32, which leaves the `Integer` range, and
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo32 AS big::Int = big::fromInteger(4294967296)
   LET square AS big::Int = big::multiply(twoTo32, twoTo32)
   LET top AS big::Int = big::fromInteger(9223372036854775807)
   LET twoTo64 AS big::Int = big::add(big::add(top, top), big::fromInteger(2))
   io::print(toString(big::equals(square, twoTo64)) & " " & toString(len(square.magnitude)))
   io::print(toString(big::sign(big::multiply(twoTo32, big::fromInteger(-3)))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

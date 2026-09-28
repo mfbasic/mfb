@@ -33,12 +33,12 @@ const EX: &str = r##"Fade a colour towards grey:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET vivid AS color::Color = color::fromHex("#3366cc")
   io::print(color::toHex(color::desaturate(vivid, 0.0)))
   io::print(color::toHex(color::desaturate(vivid, 0.5)))
   io::print(color::toHex(color::desaturate(vivid, 1.0)))
-END SUB
+END FUNC
 ```
 
 Fully desaturating is **not** the same as `grayscale` — HSL lightness against
@@ -48,11 +48,11 @@ perceived brightness:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET blue AS color::Color = color::rgb(0, 0, 255)
   io::print("desaturate " & color::toHex(color::desaturate(blue, 1.0)))
   io::print("grayscale  " & color::toHex(color::grayscale(blue)))
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

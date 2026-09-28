@@ -34,7 +34,7 @@ const EX: &str = r#"Count the rows of a large CSV without materializing the grid
 IMPORT csv
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT count AS Integer = 0
   MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("1,a\n2,b\n3,c"))
   WHILE row.done = FALSE
@@ -42,7 +42,7 @@ SUB main()
     row = csv::readRow(row.reader)
   END WHILE
   io::print("rows=" & toString(count))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

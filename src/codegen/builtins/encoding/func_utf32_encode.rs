@@ -40,10 +40,10 @@ const EX: &str = r#"Encode a string to its UTF-32 code points:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET points AS List OF Integer = encoding::utf32Encode("hello")
   io::print(toString(len(points)))
-END SUB
+END FUNC
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-32:
@@ -52,10 +52,10 @@ Round-trip an astral scalar (an emoji) through UTF-32:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET points AS List OF Integer = encoding::utf32Encode("😀")
   io::print(encoding::utf32Decode(points))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -38,10 +38,10 @@ const EX: &str = r#"```
 IMPORT astrings
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::background(color::rgb(0, 0, 128)))
-END SUB
+END FUNC
 ```
 
 A foreground and a background over the same range:
@@ -50,11 +50,11 @@ A foreground and a background over the same range:
 IMPORT astrings
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   MUT a AS AttributedString = astrings::fromString("warning")
   a = astrings::addAttribute(a, 0, 6, astrings::foreground(color::rgb(255, 255, 0)))
   a = astrings::addAttribute(a, 0, 6, astrings::background(color::rgb(128, 0, 0)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -51,13 +51,13 @@ const EX: &str = r#"Draw a double vertical rule down the left edge of the surfac
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::drawVLine(term::LineStyle.Double, 0, 0, size.rows - 1)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Draw a vertical divider between two panes:
@@ -65,12 +65,12 @@ Draw a vertical divider between two panes:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::drawVLine(term::LineStyle.Light, 0, 40, 23)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::draw_vline` — delegates to the shared family-generic

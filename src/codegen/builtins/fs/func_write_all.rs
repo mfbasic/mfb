@@ -67,12 +67,12 @@ const EX: &str = r#"Write text to an open file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   RES f = fs::openFile("output/report.txt", "write")
   fs::writeAll(f, "Hello")
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Write a header line, then the rest of the body:
@@ -80,12 +80,12 @@ Write a header line, then the rest of the body:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   RES f = fs::openFile("output/report.txt", "write")
   fs::writeAll(f, "title\n")
   fs::writeAll(f, "body")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

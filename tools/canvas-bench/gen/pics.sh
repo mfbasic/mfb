@@ -34,7 +34,7 @@ FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
   RETURN px
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES tile AS canvas::Image = canvas::createImage($T, $T, pattern($T, $T, 1))
   RES tile2 AS canvas::Image = canvas::createImage($T, $T, pattern($T, $T, 90))
@@ -69,7 +69,7 @@ SUB main()
     IF datetime::monotonicNanos() - start > $SECS * 1000000000 THEN again = FALSE
   LOOP
   io::print("presents=" & toString(frame))
-END SUB
+END FUNC
 
 FUNC math_max1(v AS Integer) AS Integer
   IF v < 1 THEN RETURN 1

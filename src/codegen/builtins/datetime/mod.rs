@@ -84,7 +84,7 @@ resolve it back:
 IMPORT io
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::instant(1772884800)
   LET tokyo AS datetime::Zone = datetime::fixedOffset(9, 0)
   LET local AS datetime::DateTime = datetime::inZone(at, tokyo)
@@ -92,7 +92,7 @@ SUB main()
   LET later AS datetime::DateTime = datetime::addDays(local, 30)
   io::print(datetime::toIso(later))
   io::print(toString(datetime::resolve(local).seconds = at.seconds))
-END SUB
+END FUNC
 ```
 
 prints:

@@ -11,13 +11,13 @@ IMPORT tar
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES f = fs::openFile("backup.tar")
   LET archive AS tar::Archive = tar::open(f)
   FOR EACH entry IN tar::entries(archive)
     io::print(entry.name & " (" & toString(entry.size) & " bytes)")
   NEXT
-END SUB
+END FUNC
 ```
 
 ## Listing is cheap, even for a huge archive
@@ -89,14 +89,14 @@ That is a property of the format worth knowing before trusting an archive.
 IMPORT tar
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   MUT b AS tar::Builder = tar::create()
   b = tar::addText(b, "notes.txt", "hello")
   b = tar::addDirectory(b, "data")
   b = tar::addFile(b, "data/blob.bin", fs::readBytes("blob.bin"))
   b = tar::addSymlink(b, "latest", "notes.txt")
   fs::writeBytes("out.tar", tar::finish(b))
-END SUB
+END FUNC
 ```
 
 Each `add*` gives you back a new builder; the one you passed in is unchanged.
@@ -153,7 +153,7 @@ IMPORT tar
 IMPORT compress
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   ' Read one.
   LET packed AS List OF Byte = fs::readBytes("backup.tar.gz")
   LET archive AS tar::Archive = tar::open(compress::gzipDecode(packed, 268435456))
@@ -162,7 +162,7 @@ SUB main()
   MUT b AS tar::Builder = tar::create()
   b = tar::addText(b, "notes.txt", "hello")
   fs::writeBytes("out.tar.gz", compress::gzipEncode(tar::finish(b)))
-END SUB
+END FUNC
 ```
 
 This works in memory. There is no file-backed `.tar.gz` reading, because that

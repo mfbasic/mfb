@@ -23,14 +23,14 @@ FUNC cell(x AS Integer, y AS Integer) AS Integer\n\
   RETURN x * ROWS + y\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   io::print(toString(cell(2, 3)))\n\
   LET n AS Integer = cell(9223372036854775807, 1) TRAP(e)\n\
     io::print(\"code=\" & toString(e.code) & \" line=\" & toString(e.source.line) & \" char=\" & toString(e.source.char))\n\
-    EXIT SUB\n\
+    RETURN\n\
   END TRAP\n\
   io::print(toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 fn build(project: &Path, level: u8, extra: &[&str]) -> String {
     let output = Command::new(mfb_exe())

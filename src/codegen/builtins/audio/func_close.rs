@@ -77,12 +77,12 @@ const EX: &str = r#"Close an output stream explicitly after playback:
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   audio::write(out, pcm)
   audio::close(out)
-END SUB
+END FUNC
 ```"#;
 
 const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Closed by this call; the handle cannot be used again — a second close raises `ErrResourceClosed`.";

@@ -190,7 +190,7 @@ run_flavor() {
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "entry": "main", "targets": ["native"] }
 JSON
-  printf 'IMPORT io\n\nSUB main()\n  io::print("appimage-marker-ok")\nEND SUB\n' \
+  printf 'IMPORT io\n\nFUNC main() AS Nothing\n  io::print("appimage-marker-ok")\nEND FUNC\n' \
     > "$proj/src/main.mfb"
   if ! "$MFB_EXE" build -q --app-debug -target "$target" "$proj" >/dev/null 2>&1; then
     fail "$libc: build --app-debug -target $target"
@@ -332,9 +332,9 @@ LINK "snd" AS snd
   END FUNC
 END LINK
 
-SUB main()
+FUNC main() AS Nothing
   io::print("vendored-marker-ok " & toString(snd::probe(0, 0, 0, 0)))
-END SUB
+END FUNC
 MFB
     if ! "$MFB_EXE" build -q --app -target "$target" "$vproj" >/dev/null 2>&1; then
       fail "$libc: build --app with a vendored library"
@@ -410,7 +410,7 @@ JSON
 IMPORT app
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("title0=" & app::getTitle())
   io::print("fs0=" & toString(app::getFullscreen()))
   app::setTitle("Hello GTK")
@@ -424,7 +424,7 @@ SUB main()
   io::print("fs1=" & toString(app::getFullscreen()) & " title3=" & app::getTitle())
   app::setFullscreen(FALSE)
   io::print("fs2=" & toString(app::getFullscreen()))
-END SUB
+END FUNC
 MFB
   if ! "$MFB_EXE" build -q --app -target "$target" "$wproj" >/dev/null 2>&1; then
     fail "$libc: build --app -target $target (window members)"

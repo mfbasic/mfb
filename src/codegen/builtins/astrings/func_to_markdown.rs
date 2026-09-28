@@ -32,11 +32,11 @@ const EX: &str = r#"```
 IMPORT astrings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT a AS AttributedString = astrings::fromString("hello world")
   a = astrings::addAttribute(a, 0, 4, astrings::bold())
   io::print(astrings::toMarkdown(a))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

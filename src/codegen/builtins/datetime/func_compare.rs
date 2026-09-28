@@ -35,11 +35,11 @@ const EX: &str = r#"Order two instants:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(1_000)
   LET b AS datetime::Instant = datetime::instant(2_000)
   io::print(toString(datetime::compare(a, b)))
-END SUB
+END FUNC
 ```
 
 Equal instants compare as zero:
@@ -48,11 +48,11 @@ Equal instants compare as zero:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(1_000)
   LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::compare(a, b)))
-END SUB
+END FUNC
 ```
 
 Branch on the three-way ordering:
@@ -61,12 +61,12 @@ Branch on the three-way ordering:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::now()
   LET b AS datetime::Instant = datetime::instant(0)
   LET order AS Integer = datetime::compare(a, b)
   IF order < 0 THEN io::print("a is earlier")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

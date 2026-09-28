@@ -128,12 +128,12 @@ const EX: &str = r#"Seal a message and open it back:
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
   LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, secret, nonce, box)
-END SUB
+END FUNC
 ```
 
 Seal raw bytes with additional authenticated data (a header):
@@ -142,13 +142,13 @@ Seal raw bytes with additional authenticated data (a header):
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
   LET header AS List OF Byte = strings::toBytes("v1;msg-42")
   LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, plaintext, header)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

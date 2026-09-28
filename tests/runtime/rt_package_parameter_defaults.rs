@@ -205,9 +205,9 @@ fn a_computed_package_default_reads_a_private_global_on_each_call() {
             name: "limits",
             source: "PRIVATE MUT Limit AS Integer = 5\n\
                      \n\
-                     EXPORT SUB setLimit(n AS Integer)\n\
+                     EXPORT FUNC setLimit(n AS Integer) AS Nothing\n\
                     \x20 Limit = n\n\
-                     END SUB\n\
+                     END FUNC\n\
                      \n\
                      EXPORT FUNC f(x AS Integer = Limit) AS Integer\n\
                     \x20 RETURN x\n\

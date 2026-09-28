@@ -24,14 +24,14 @@ const EX: &str = r#"Reject a negative quantity:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET quantity AS Integer = -3
   IF isNegative(quantity) THEN
     io::print("quantity cannot be negative")
   ELSE
     io::print("ordering " & toString(quantity))
   END IF
-END SUB
+END FUNC
 ```
 
 prints:
@@ -45,11 +45,11 @@ Zero belongs to neither side:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isNegative(-1)))
   io::print(toString(isNegative(0)))
   io::print(toString(isNegative(1)))
-END SUB
+END FUNC
 ```
 
 prints:

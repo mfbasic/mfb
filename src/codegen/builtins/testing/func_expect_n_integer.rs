@@ -28,9 +28,9 @@ FUNC nextId(current AS Integer) AS Integer
   RETURN current + 1
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(nextId(7)))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "identifiers"

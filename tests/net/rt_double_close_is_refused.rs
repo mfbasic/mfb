@@ -145,9 +145,9 @@ fn program(imports: &str, open: &str, type_: &str, close_call: &str) -> String {
          IMPORT errorCode\n\
          {imports}\n\
          \n\
-         SUB closeIt(RES h AS {type_})\n\
+         FUNC closeIt(RES h AS {type_}) AS Nothing\n\
         \x20 {close_call}\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC closeAgain(RES h AS {type_}) AS Integer\n\
         \x20 closeIt(h)\n\

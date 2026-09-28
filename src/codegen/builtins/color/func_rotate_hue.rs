@@ -33,12 +33,12 @@ const EX: &str = r##"A triad: three colours 120 degrees apart:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS color::Color = color::fromHex("#3366cc")
   io::print(color::toHex(base))
   io::print(color::toHex(color::rotateHue(base, 120.0)))
   io::print(color::toHex(color::rotateHue(base, 240.0)))
-END SUB
+END FUNC
 ```
 
 Degrees wrap, so past a full turn is the same colour:
@@ -47,12 +47,12 @@ Degrees wrap, so past a full turn is the same colour:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS color::Color = color::fromHex("#3366cc")
   io::print(color::toHex(color::rotateHue(base, 400.0)))
   io::print(color::toHex(color::rotateHue(base, 40.0)))
   io::print(color::toHex(color::rotateHue(base, 360.0)))
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

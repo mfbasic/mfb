@@ -866,7 +866,7 @@ mod lower_tests {
              LET s = \"hi\"\n\
              MUT flag AS Boolean = TRUE\n\
              LET f = 2.5\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let n = binding(&ir, "n");
         assert_eq!(n.type_.name(), "Integer");
@@ -893,7 +893,7 @@ mod lower_tests {
             "FUNC identity(values AS Set OF Integer) AS Set OF Integer\n  RETURN values\nEND FUNC\n\
              MUT s AS Set OF Integer\n\
              LET t = identity(s)\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let identity = function(&ir, "identity");
         assert_eq!(identity.returns.name(), "Set OF Integer");
@@ -911,7 +911,7 @@ mod lower_tests {
         let ir = lower_src(
             "FUNC seed() AS Integer\n  RETURN 7\nEND FUNC\n\
              LET x = seed()\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let x = binding(&ir, "x");
         assert_eq!(x.type_.name(), "Integer");
@@ -943,7 +943,7 @@ mod lower_tests {
             "ISOLATED FUNC scaled(x AS Integer, factor AS Integer = 2) AS Integer\n\
                RETURN x * factor\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let scaled = function(&ir, "scaled");
         assert!(scaled.isolated);
@@ -955,7 +955,7 @@ mod lower_tests {
     fn func_returning_nothing() {
         let ir = lower_src(
             "FUNC sideEffect(x AS Integer) AS Nothing\n  LET y AS Integer = x\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert_eq!(function(&ir, "sideEffect").returns.name(), "Nothing");
     }
@@ -969,7 +969,7 @@ mod lower_tests {
                  RETURN err.code\n\
                END TRAP\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "risky")
             .body
@@ -983,7 +983,7 @@ mod lower_tests {
     fn type_record_with_private_field() {
         let ir = lower_src(
             "EXPORT TYPE Point\n  x AS Integer\n  PRIVATE y AS Integer\nEND TYPE\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let point = ir_type(&ir, "Point");
         assert_eq!(point.kind, "type");
@@ -999,7 +999,7 @@ mod lower_tests {
              TYPE Square\n  s AS Integer\nEND TYPE\n\
              UNION Rounded\n  Circle\nEND UNION\n\
              UNION Shape INCLUDES Rounded\n  Square\nEND UNION\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let shape = ir_type(&ir, "Shape");
         assert_eq!(shape.kind, "union");
@@ -1011,7 +1011,7 @@ mod lower_tests {
     fn enum_members_lowered() {
         let ir = lower_src(
             "ENUM Color\n  Red\n  Green\n  Blue\nEND ENUM\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let color = ir_type(&ir, "Color");
         assert_eq!(color.kind, "enum");
@@ -1024,7 +1024,7 @@ mod lower_tests {
     #[test]
     fn let_mut_and_assignment_statements() {
         let ir = lower_src(
-            "SUB main\n  LET a AS Integer = 1\n  MUT b AS Integer = 2\n  b = a + b\nEND SUB\n",
+            "FUNC main AS Nothing\n  LET a AS Integer = 1\n  MUT b AS Integer = 2\n  b = a + b\nEND FUNC\n",
         );
         let body = main_body(&ir);
         assert!(matches!(&body[0], IrOp::Bind { mutable: false, name, .. } if name == "a"));
@@ -1034,7 +1034,7 @@ mod lower_tests {
 
     #[test]
     fn assignment_to_global_is_assign_global() {
-        let ir = lower_src("MUT counter AS Integer = 0\nSUB main\n  counter = 5\nEND SUB\n");
+        let ir = lower_src("MUT counter AS Integer = 0\nFUNC main AS Nothing\n  counter = 5\nEND FUNC\n");
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::AssignGlobal { name, .. } if name == "counter")));
@@ -1042,7 +1042,7 @@ mod lower_tests {
 
     #[test]
     fn return_without_value_from_sub() {
-        let ir = lower_src("SUB s()\n  RETURN\nEND SUB\nSUB main\nEND SUB\n");
+        let ir = lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(function(&ir, "s")
             .body
             .iter()
@@ -1052,12 +1052,12 @@ mod lower_tests {
     #[test]
     fn exit_targets_lower_to_expected_ops() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                FOR i = 1 TO 3\n  EXIT FOR\n  CONTINUE FOR\n  NEXT\n\
                DO\n  EXIT DO\nLOOP UNTIL TRUE\n\
                WHILE FALSE\n  EXIT WHILE\n  END WHILE\n\
                EXIT PROGRAM 2\n\
-             END SUB\n",
+             END FUNC\n",
         );
         fn contains_exit(ops: &[IrOp], want: LoopKind) -> bool {
             ops.iter().any(|op| match op {
@@ -1087,7 +1087,7 @@ mod lower_tests {
 
     #[test]
     fn exit_sub_lowers_to_valueless_return() {
-        let ir = lower_src("SUB s()\n  EXIT SUB\nEND SUB\nSUB main\nEND SUB\n");
+        let ir = lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(function(&ir, "s")
             .body
             .iter()
@@ -1097,7 +1097,7 @@ mod lower_tests {
     #[test]
     fn exit_func_contributes_no_op() {
         let ir = lower_src(
-            "FUNC f() AS Integer\n  EXIT FUNC\n  RETURN 1\nEND FUNC\nSUB main\nEND SUB\n",
+            "FUNC f() AS Integer\n  EXIT FUNC\n  RETURN 1\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n",
         );
         // EXIT FUNC emits nothing; only the trailing RETURN survives.
         assert!(function(&ir, "f")
@@ -1108,7 +1108,7 @@ mod lower_tests {
 
     #[test]
     fn fail_statement_lowers_to_fail_op() {
-        let ir = lower_src("SUB main\n  FAIL error(500, \"boom\")\nEND SUB\n");
+        let ir = lower_src("FUNC main AS Nothing\n  FAIL error(500, \"boom\")\nEND FUNC\n");
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::Fail { .. })));
@@ -1117,9 +1117,9 @@ mod lower_tests {
     #[test]
     fn if_else_lowers_to_if_op_with_both_branches() {
         let ir = lower_src(
-            "SUB main\n  LET x AS Integer = 1\n\
+            "FUNC main AS Nothing\n  LET x AS Integer = 1\n\
                IF x > 0 THEN\n    LET a AS Integer = 1\n  ELSE\n    LET b AS Integer = 2\n  END IF\n\
-             END SUB\n",
+             END FUNC\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
             IrOp::If {
@@ -1134,11 +1134,11 @@ mod lower_tests {
     #[test]
     fn while_and_do_until_loops() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                MUT i AS Integer = 0\n\
                WHILE i < 3\n    i = i + 1\n  END WHILE\n\
                DO\n    i = i - 1\n  LOOP UNTIL i <= 0\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let body = main_body(&ir);
         assert!(body.iter().any(|op| matches!(op, IrOp::While { .. })));
@@ -1148,7 +1148,7 @@ mod lower_tests {
     #[test]
     fn for_loop_with_step() {
         let ir = lower_src(
-            "SUB main\n  FOR i = 1 TO 10 STEP 2\n    LET x AS Integer = i\n  NEXT\nEND SUB\n",
+            "FUNC main AS Nothing\n  FOR i = 1 TO 10 STEP 2\n    LET x AS Integer = i\n  NEXT\nEND FUNC\n",
         );
         assert!(main_body(&ir)
             .iter()
@@ -1158,7 +1158,7 @@ mod lower_tests {
     #[test]
     fn for_loop_default_step() {
         let ir =
-            lower_src("SUB main\n  FOR i = 1 TO 3\n    LET x AS Integer = i\n  NEXT\nEND SUB\n");
+            lower_src("FUNC main AS Nothing\n  FOR i = 1 TO 3\n    LET x AS Integer = i\n  NEXT\nEND FUNC\n");
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::For { .. })));
@@ -1167,7 +1167,7 @@ mod lower_tests {
     #[test]
     fn for_loop_float_bounds_promote_loop_type() {
         let ir = lower_src(
-            "SUB main\n  FOR x = 1.0 TO 2.0 STEP 0.5\n    LET y AS Float = x\n  NEXT\nEND SUB\n",
+            "FUNC main AS Nothing\n  FOR x = 1.0 TO 2.0 STEP 0.5\n    LET y AS Float = x\n  NEXT\nEND FUNC\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
             IrOp::For { type_, .. } => type_.name() == "Float",
@@ -1179,10 +1179,10 @@ mod lower_tests {
     fn for_each_over_list() {
         let ir = lower_src(
             "IMPORT collections\n\
-             SUB main\n\
+             FUNC main AS Nothing\n\
                LET nums AS List OF Integer = [1, 2, 3]\n\
                FOR EACH n IN nums\n    LET x AS Integer = n\n  NEXT\n\
-             END SUB\n",
+             END FUNC\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
             IrOp::ForEach { type_, .. } => type_.name() == "Integer",
@@ -1194,10 +1194,10 @@ mod lower_tests {
     fn for_each_over_map_yields_map_entry() {
         let ir = lower_src(
             "IMPORT collections\n\
-             SUB main\n\
+             FUNC main AS Nothing\n\
                LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }\n\
                FOR EACH e IN m\n    LET k AS String = e.key\n  NEXT\n\
-             END SUB\n",
+             END FUNC\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
             IrOp::ForEach { type_, .. } => type_.name().starts_with("MapEntry OF "),
@@ -1207,7 +1207,7 @@ mod lower_tests {
 
     #[test]
     fn expression_statement_lowers_to_eval() {
-        let ir = lower_src("IMPORT io\nSUB main\n  io::print(\"hi\")\nEND SUB\n");
+        let ir = lower_src("IMPORT io\nFUNC main AS Nothing\n  io::print(\"hi\")\nEND FUNC\n");
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::Eval { .. })));
@@ -1218,14 +1218,14 @@ mod lower_tests {
     #[test]
     fn match_with_value_oneof_and_else() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                LET x AS Integer = 2\n\
                MATCH x\n\
                  CASE 1\n      LET a AS Integer = 1\n\
                  CASE 2, 3\n      LET b AS Integer = 2\n\
                  CASE ELSE\n      LET c AS Integer = 3\n\
                END MATCH\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let cases = main_body(&ir)
             .iter()
@@ -1248,13 +1248,13 @@ mod lower_tests {
     #[test]
     fn match_with_guard() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                LET x AS Integer = 5\n\
                MATCH x\n\
                  CASE 5 WHEN x > 0\n      LET a AS Integer = 1\n\
                  CASE ELSE\n      LET b AS Integer = 2\n\
                END MATCH\n\
-             END SUB\n",
+             END FUNC\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
             IrOp::Match { cases, .. } => cases.iter().any(|c| c.guard.is_some()),
@@ -1274,7 +1274,7 @@ mod lower_tests {
                  CASE Cat(c)\n      RETURN c.lives\n\
                END MATCH\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         fn has_union_extract(ops: &[IrOp]) -> bool {
             ops.iter().any(|op| match op {
@@ -1302,7 +1302,7 @@ mod lower_tests {
                  CASE Error(e)\n      RETURN 0\n\
                END MATCH\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let Some(ir) = try_lower_src(src) else {
             // If a call scrutinee auto-unwraps (front end forbids this Result
             // MATCH), the branch is unreachable from single-file source; skip.
@@ -1340,7 +1340,7 @@ mod lower_tests {
     #[test]
     fn literal_kinds_lower_to_typed_consts() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                LET s AS String = \"x\"\n\
                LET i AS Integer = 3\n\
                LET f AS Float = 1.5\n\
@@ -1348,7 +1348,7 @@ mod lower_tests {
                LET fx AS Fixed = 2.50\n\
                LET b AS Boolean = TRUE\n\
                LET nul AS Nothing = NOTHING\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let const_type = |body: &[IrOp], name: &str| -> String {
             match bind_value(body, name) {
@@ -1377,10 +1377,10 @@ mod lower_tests {
     #[test]
     fn most_negative_integer_literal_folds_into_the_const() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                LET min AS Integer = -9223372036854775808\n\
                LET near AS Integer = -9223372036854775807\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let body = main_body(&ir);
         assert!(
@@ -1402,12 +1402,12 @@ mod lower_tests {
     #[test]
     fn binary_and_unary_operators() {
         let ir = lower_src(
-            "SUB main\n\
+            "FUNC main AS Nothing\n\
                LET a AS Integer = 1 + 2\n\
                LET b AS Boolean = a > 0 AND NOT (a = 5)\n\
                LET c AS Integer = -a\n\
                LET s AS String = \"x\" & \"y\"\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let body = main_body(&ir);
         assert!(matches!(
@@ -1431,7 +1431,7 @@ mod lower_tests {
     fn user_function_call_lowers_to_call() {
         let ir = lower_src(
             "FUNC dbl(x AS Integer) AS Integer\n  RETURN x * 2\nEND FUNC\n\
-             SUB main\n  LET y AS Integer = dbl(4)\nEND SUB\n",
+             FUNC main AS Nothing\n  LET y AS Integer = dbl(4)\nEND FUNC\n",
         );
         assert!(matches!(
             bind_value(main_body(&ir), "y"),
@@ -1443,7 +1443,7 @@ mod lower_tests {
     fn call_with_named_and_default_arguments() {
         let ir = lower_src(
             "FUNC box(w AS Integer, h AS Integer = 10) AS Integer\n  RETURN w * h\nEND FUNC\n\
-             SUB main\n  LET a AS Integer = box(h := 3, w := 4)\n  LET b AS Integer = box(2)\nEND SUB\n",
+             FUNC main AS Nothing\n  LET a AS Integer = box(h := 3, w := 4)\n  LET b AS Integer = box(2)\nEND FUNC\n",
         );
         let calls: Vec<usize> = main_body(&ir)
             .iter()
@@ -1460,7 +1460,7 @@ mod lower_tests {
 
     #[test]
     fn error_builtin_lowers_to_error_record() {
-        let ir = lower_src("SUB main\n  LET e AS Error = error(42, \"bad\")\nEND SUB\n");
+        let ir = lower_src("FUNC main AS Nothing\n  LET e AS Error = error(42, \"bad\")\nEND FUNC\n");
         assert!(matches!(
             bind_value(main_body(&ir), "e"),
             Some(IrValue::Constructor { type_, .. }) if type_.name() == "Error"
@@ -1469,7 +1469,7 @@ mod lower_tests {
 
     #[test]
     fn builtin_call_return_type_resolves() {
-        let ir = lower_src("SUB main\n  LET s AS String = toString(5)\nEND SUB\n");
+        let ir = lower_src("FUNC main AS Nothing\n  LET s AS String = toString(5)\nEND FUNC\n");
         assert!(matches!(
             bind_value(main_body(&ir), "s"),
             Some(IrValue::Call { type_, .. }) if type_.name() == "String"
@@ -1486,7 +1486,7 @@ mod lower_tests {
                LET p AS Point = Point[1, 2]\n\
                RETURN p.x\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let f = function(&ir, "mk");
         assert!(f.body.iter().any(|op| matches!(
@@ -1512,7 +1512,7 @@ mod lower_tests {
         let ir = lower_src(
             "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n\
              FUNC mk() AS Point\n  RETURN Point[y := 2, x := 1]\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let ctor = function(&ir, "mk").body.iter().find_map(|op| match op {
             IrOp::Return {
@@ -1529,7 +1529,7 @@ mod lower_tests {
         let ir = lower_src(
             "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n\
              FUNC shift(p AS Point) AS Point\n  RETURN WITH p { x := 9 }\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "shift").body.iter().any(|op| matches!(
             op,
@@ -1546,10 +1546,10 @@ mod lower_tests {
     fn list_and_map_literals() {
         let ir = lower_src(
             "IMPORT collections\n\
-             SUB main\n\
+             FUNC main AS Nothing\n\
                LET xs AS List OF Integer = [1, 2, 3]\n\
                LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }\n\
-             END SUB\n",
+             END FUNC\n",
         );
         let body = main_body(&ir);
         assert!(matches!(
@@ -1565,7 +1565,7 @@ mod lower_tests {
     #[test]
     fn empty_list_literal_uses_expected_element_type() {
         let ir =
-            lower_src("IMPORT collections\nSUB main\n  LET xs AS List OF Integer = []\nEND SUB\n");
+            lower_src("IMPORT collections\nFUNC main AS Nothing\n  LET xs AS List OF Integer = []\nEND FUNC\n");
         assert!(matches!(
             bind_value(main_body(&ir), "xs"),
             Some(IrValue::ListLiteral { type_, .. }) if type_.name() == "List OF Integer"
@@ -1583,7 +1583,7 @@ mod lower_tests {
                LET xs AS List OF Integer = [1, 2]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + base)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(ir.functions.iter().any(|f| f.name.starts_with("$lambda")));
         fn value_has_closure(v: &IrValue) -> bool {
@@ -1607,7 +1607,7 @@ mod lower_tests {
                LET xs AS List OF Integer = [1, 2]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + 1)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(ir.functions.iter().any(|f| f.name.starts_with("$lambda")));
         fn value_has_fnref(v: &IrValue) -> bool {
@@ -1632,7 +1632,7 @@ mod lower_tests {
                LET xs AS List OF Integer = [1, 2]\n\
                RETURN collections::transform(xs, inc)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         fn value_has_fnref(v: &IrValue) -> bool {
             match v {
@@ -1657,7 +1657,7 @@ mod lower_tests {
                collections::forEach(xs, LAMBDA(v AS Integer) -> sum = sum + v)\n\
                RETURN sum\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // The lambda body is an assignment-bodied lambda: assign then valueless
         // return.
@@ -1699,7 +1699,7 @@ mod lower_tests {
                LET n AS Integer = toInt(s) TRAP(e)\n    RECOVER 0\n  END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let f = function(&ir, "parse");
         assert!(f.body.iter().any(|op| matches!(
@@ -1726,7 +1726,7 @@ mod lower_tests {
                n = toInt(s) TRAP(e)\n    RECOVER 0\n  END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -1740,11 +1740,11 @@ mod lower_tests {
     #[test]
     fn inline_trap_discard_bare_statement() {
         let ir = lower_src(
-            "SUB effect(x AS Integer)\n  IF x < 0 THEN FAIL error(1, \"neg\")\nEND SUB\n\
-             SUB run()\n\
+            "FUNC effect(x AS Integer) AS Nothing\n  IF x < 0 THEN FAIL error(1, \"neg\")\nEND FUNC\n\
+             FUNC run() AS Nothing\n\
                effect(-1) TRAP(e)\n    RECOVER\n  END TRAP\n\
-             END SUB\n\
-             SUB main\nEND SUB\n",
+             END FUNC\n\
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -1765,7 +1765,7 @@ mod lower_tests {
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -1788,7 +1788,7 @@ mod lower_tests {
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         fn has_match(ops: &[IrOp]) -> bool {
             ops.iter().any(|op| match op {
@@ -1811,7 +1811,7 @@ mod lower_tests {
                LET n AS Integer = toInt(s) TRAP(e)\n    RETURN 99\n  END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -1831,7 +1831,7 @@ mod lower_tests {
              TYPE Cat\n  lives AS Integer\nEND TYPE\n\
              UNION Animal\n  Dog\n  Cat\nEND UNION\n\
              FUNC makeDog() AS Animal\n  RETURN Dog[4]\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "makeDog").body.iter().any(|op| matches!(
             op,
@@ -1848,7 +1848,7 @@ mod lower_tests {
             "TYPE Dog\n  legs AS Integer\nEND TYPE\n\
              UNION Animal\n  Dog\nEND UNION\n\
              FUNC run() AS Integer\n  LET a AS Animal = Dog[4]\n  RETURN 0\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -1877,7 +1877,7 @@ mod lower_tests {
                END FUNC\n\
              END LINK\n\
              EXPORT FUNC close AS demoLink::close\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("LINK program should lower");
         let open = ir
             .link_functions
@@ -1919,7 +1919,7 @@ mod lower_tests {
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("link CONST/RETURN program should lower");
         let make = ir
             .link_functions
@@ -1951,7 +1951,7 @@ mod lower_tests {
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("SIZEOF CONST program should lower");
         let make = ir
             .link_functions
@@ -1992,7 +1992,7 @@ mod lower_tests {
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("BIND IN program should lower");
         let make = ir
             .link_functions
@@ -2033,7 +2033,7 @@ mod lower_tests {
                  RETURN status / 2\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("RETURN-expression program should lower");
         let make = ir
             .link_functions
@@ -2068,7 +2068,7 @@ mod lower_tests {
                END FUNC\n\
              END LINK\n\
              EXPORT FUNC shutdown AS lib::close\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("re-export close program should lower");
         let db = ir
             .native_resources
@@ -2090,7 +2090,7 @@ mod lower_tests {
              EXPORT TYPE Point\n  x AS Integer\nEND TYPE\n\
              DOC\n  ENUM Color\n  DESC Colors.\nEND DOC\n\
              EXPORT ENUM Color\n  Red\nEND ENUM\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("DOC program should lower");
         assert!(ir.docs.package.is_some());
         let add = ir
@@ -2137,7 +2137,7 @@ mod lower_tests {
     fn doc_for_nonexported_function_is_dropped() {
         let src = "DOC\n  FUNC helper()\n  DESC Private.\nEND DOC\n\
              FUNC helper() AS Integer\n  RETURN 1\nEND FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(!ir.docs.decls.iter().any(|d| d.name == "helper"));
         }
@@ -2156,7 +2156,7 @@ mod lower_tests {
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("DOC RESOURCE program should lower");
         assert!(ir
             .docs
@@ -2178,7 +2178,7 @@ mod lower_tests {
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(!ir
                 .docs
@@ -2195,7 +2195,7 @@ mod lower_tests {
         let ir = lower_src(
             "IMPORT strings\n\
              FUNC up(s AS String) AS String\n  RETURN strings::upper(s)\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "up").body.iter().any(|op| matches!(
             op,
@@ -2214,9 +2214,9 @@ mod lower_tests {
             "IMPORT fs\n\
              IMPORT io\n\
              TYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\n\
-             SUB advance(RES f AS fs::File STATE FileState, by AS Integer)\n\
+             FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing\n\
                f.state = WITH f.state { pos := f.state.pos + by }\n\
-             END SUB\n\
+             END FUNC\n\
              FUNC main AS Integer\n\
                RES f AS fs::File STATE FileState = fs::createTempFile()\n\
                io::print(toString(f.state.pos))\n\
@@ -2270,7 +2270,7 @@ mod lower_tests {
                LET t AS datetime::Instant = datetime::now()\n\
                RETURN b\n\
              END FUNC\n\
-             SUB main\n  io::print(\"x\")\nEND SUB\n",
+             FUNC main AS Nothing\n  io::print(\"x\")\nEND FUNC\n",
         );
         let f = function(&ir, "compute");
         // math::sqrt resolves to a Float-returning call.
@@ -2297,7 +2297,7 @@ mod lower_tests {
                LET total AS Integer = collections::sum(xs)\n\
                RETURN n + total\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let f = function(&ir, "run");
         assert!(f.body.iter().any(|op| matches!(
@@ -2321,7 +2321,7 @@ mod lower_tests {
                LET xs AS List OF Integer = [1, 2, 3]\n\
                RETURN collections::filter(xs, isEven)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         fn has_fn_ref(v: &IrValue) -> bool {
             match v {
@@ -2342,7 +2342,7 @@ mod lower_tests {
         let ir = lower_src(
             "IMPORT regex\n\
              FUNC run() AS Boolean\n  RETURN regex::match(\"abc\", \"a.*\")\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -2359,7 +2359,7 @@ mod lower_tests {
         // recursion and expected-type propagation.
         let ir = lower_src(
             "IMPORT io\n\
-             SUB main\n  io::print(toString(len(\"abc\")))\nEND SUB\n",
+             FUNC main AS Nothing\n  io::print(toString(len(\"abc\")))\nEND FUNC\n",
         );
         fn has_nested_call(ops: &[IrOp]) -> bool {
             fn value_has(v: &IrValue) -> bool {
@@ -2393,7 +2393,7 @@ mod lower_tests {
                LET xs AS List OF Integer = [10]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + base + p.x + len([base]))\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // Both `base` and `p` are captured by the lambda.
         let lambda = ir
@@ -2453,7 +2453,7 @@ mod lower_tests {
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("link SUCCESS_ON/RETURN program should lower");
         let make = ir
             .link_functions
@@ -2494,7 +2494,7 @@ mod lower_tests {
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("64-bit CONST pins should lower");
         let make = ir
             .link_functions
@@ -2524,7 +2524,7 @@ mod lower_tests {
 
         // Build the AST directly and lower with external function tables so the
         // external-function seam (params/returns injection) is exercised.
-        let src = "FUNC run() AS Integer\n  RETURN extAdd(1, 2)\nEND FUNC\nSUB main\nEND SUB\n";
+        let src = "FUNC run() AS Integer\n  RETURN extAdd(1, 2)\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n";
         let file =
             crate::ast::parse_source(std::path::Path::new("src/main.mfb"), "src/main.mfb", src)
                 .expect("parse");
@@ -2571,7 +2571,7 @@ mod lower_tests {
 
     #[test]
     fn write_ir_emits_ir_file() {
-        let ir = lower_src("SUB main\nEND SUB\n");
+        let ir = lower_src("FUNC main AS Nothing\nEND FUNC\n");
         let dir = std::env::temp_dir().join(format!(
             "mfb_write_ir_{}_{}",
             std::process::id(),
@@ -2591,7 +2591,7 @@ mod lower_tests {
 
     #[test]
     fn inferred_binding_from_list_literal_types() {
-        let ir = lower_src("IMPORT collections\nLET xs = [1, 2, 3]\nSUB main\nEND SUB\n");
+        let ir = lower_src("IMPORT collections\nLET xs = [1, 2, 3]\nFUNC main AS Nothing\nEND FUNC\n");
         assert_eq!(binding(&ir, "xs").type_.name(), "List OF Integer");
     }
 
@@ -2608,7 +2608,7 @@ mod lower_tests {
                LET g AS List OF List OF String = csv::parse(\"a,b\")\n\
                RETURN s\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(matches!(
             bind_value(&function(&ir, "run").body, "j"),
@@ -2784,7 +2784,7 @@ END FUNC
              FUNC run() AS List OF Byte\n\
                RETURN crypto::hash(crypto::Hash.SHA2_256, \"data\")\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -2806,7 +2806,7 @@ END FUNC
                LET r AS http::Response = http::read(u)\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("net/http program should lower");
         let f = function(&ir, "run");
         // http::read(u) pads BOTH headers (empty map literal) and method (a
@@ -2834,7 +2834,7 @@ END FUNC
                RES t AS thread::Thread OF Integer TO Integer = thread::start(worker, 5)\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         // thread APIs are complex; only assert lowering succeeds when the front
         // end accepts this program.
         if let Some(ir) = try_lower_src(src) {
@@ -2848,7 +2848,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT datetime\n\
              FUNC run() AS datetime::Time\n  RETURN datetime::time(10, 30)\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let padded = function(&ir, "run").body.iter().any(|op| match op {
             IrOp::Return {
@@ -2865,7 +2865,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT regex\n\
              FUNC run() AS Integer\n  RETURN regex::find(\"abc\", \"b\")\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let padded = function(&ir, "run").body.iter().any(|op| match op {
             IrOp::Return {
@@ -2885,7 +2885,7 @@ END FUNC
              FUNC run(key AS List OF Byte, nonce AS List OF Byte, pt AS List OF Byte) AS crypto::Sealed\n\
                RETURN crypto::seal(crypto::SymmetricCipher.AES256GCM, key, nonce, pt)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("crypto AEAD program should lower");
         let has_list_pad = function(&ir, "run").body.iter().any(|op| match op {
             IrOp::Return {
@@ -2907,7 +2907,7 @@ END FUNC
                tls::close(s)\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("tls connect program should lower");
         let padded = function(&ir, "run").body.iter().any(|op| match op {
             IrOp::Bind {
@@ -2929,7 +2929,7 @@ END FUNC
                tls::close(l)\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(function(&ir, "run")
                 .body
@@ -2951,7 +2951,7 @@ END FUNC
                LET up AS vector::Float3 = vector::upFloat3\n\
                RETURN vector::length(a)\n\
              END FUNC\n\
-             SUB main\n  io::print(\"x\")\nEND SUB\n",
+             FUNC main AS Nothing\n  io::print(\"x\")\nEND FUNC\n",
         );
         let f = function(&ir, "run");
         // The `up` constant inlined a Constructor.
@@ -2975,7 +2975,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT datetime\n\
              FUNC run() AS datetime::Instant\n  RETURN datetime::instant(0)\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -2999,7 +2999,7 @@ END FUNC
                counter = toInt(s) TRAP(e)\n    RECOVER 0\n  END TRAP\n\
                RETURN local + counter\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let f = function(&ir, "run");
         // The global assign target lowered to AssignGlobal.
@@ -3023,7 +3023,7 @@ END FUNC
                LET n AS Integer = toInt(s) TRAP(e)\n    FAIL e\n    RECOVER 0\n  END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3045,7 +3045,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3070,7 +3070,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3099,7 +3099,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3125,7 +3125,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3148,7 +3148,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3174,7 +3174,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3195,7 +3195,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT strings\n\
              FUNC run() AS String\n  RETURN strings::join([\"a\", \"b\"], delimiter := \"-\")\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3212,7 +3212,7 @@ END FUNC
         // normalize_local_call_arguments + lower_local_call_arguments.
         let ir = lower_src(
             "FUNC box(w AS Integer, h AS Integer) AS Integer\n  RETURN w * h\nEND FUNC\n\
-             SUB main\n  LET a AS Integer = box(h := 3, w := 4)\nEND SUB\n",
+             FUNC main AS Nothing\n  LET a AS Integer = box(h := 3, w := 4)\nEND FUNC\n",
         );
         assert!(matches!(
             bind_value(main_body(&ir), "a"),
@@ -3234,7 +3234,7 @@ END FUNC
                LET xs AS List OF Integer = [1]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + collections::getOr(Map OF String TO Integer { keyv := base }, keyv, 0) + (WITH p { x := base }).x)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let lambda = ir
             .functions
@@ -3275,7 +3275,7 @@ END FUNC
                LET xs AS List OF Integer = [1]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> f(v) + Box[base].n + len([base]))\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // The inner lambda captures both `f` (called) and `base` (in a
         // constructor + list literal).
@@ -3315,7 +3315,7 @@ END FUNC
                collections::forEach(xs, LAMBDA(v AS Integer) -> acc = v)\n\
                RETURN acc\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let lambda = ir
             .functions
@@ -3334,7 +3334,7 @@ END FUNC
         // slot (the skip-while loop of normalize_local_call_arguments).
         let ir = lower_src(
             "FUNC box(w AS Integer, h AS Integer, d AS Integer) AS Integer\n  RETURN w * h * d\nEND FUNC\n\
-             SUB main\n  LET a AS Integer = box(w := 4, 5, 6)\nEND SUB\n",
+             FUNC main AS Nothing\n  LET a AS Integer = box(w := 4, 5, 6)\nEND FUNC\n",
         );
         assert!(matches!(
             bind_value(main_body(&ir), "a"),
@@ -3350,7 +3350,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT strings\n\
              FUNC run() AS String\n  RETURN strings::join(delimiter := \"-\", [\"a\", \"b\"])\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3389,7 +3389,7 @@ END FUNC
                  ABI (c CPtr) AS status CInt32\n\
                END FUNC\n\
              END LINK\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             let db = ir.native_resources.iter().find(|r| r.name == "Db");
             let cache = ir.native_resources.iter().find(|r| r.name == "Cache");
@@ -3413,7 +3413,7 @@ END FUNC
                LET xs AS List OF Integer = [1]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + (-base))\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let lambda = ir
             .functions
@@ -3441,7 +3441,7 @@ END FUNC
                LET xs AS List OF Integer = [1, 2, 3]\n\
                RETURN collections::filter(xs, LAMBDA(v AS Integer) -> v > 1)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3460,7 +3460,7 @@ END FUNC
         // (overload_for returns None).
         let src = "DOC\n  FUNC add(String, String)\n  DESC No such overload.\nEND DOC\n\
              EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(!ir.docs.decls.iter().any(|d| d.name == "add"));
         }
@@ -3478,7 +3478,7 @@ END FUNC
              FUNC run() AS Integer\n\
                RETURN len([\"a\", \"b\"])\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // The inner list literal was typed from its first (String) element.
         fn find_list(v: &IrValue) -> Option<String> {
@@ -3504,7 +3504,7 @@ END FUNC
              FUNC run() AS Integer\n\
                RETURN len([len(\"a\"), 2])\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3526,7 +3526,7 @@ END FUNC
                LET a AS net::Address = collections::get(addrs, 0)\n\
                RETURN a.host\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         let ir = try_lower_src(src).expect("net::lookup program should lower");
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3548,7 +3548,7 @@ END FUNC
                LET xs AS List OF Integer = [1, 2, 3]\n\
                RETURN collections::filter(xs, keep)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3568,7 +3568,7 @@ END FUNC
              FUNC a() AS Integer\n  RETURN len([1.5, 2.5])\nEND FUNC\n\
              FUNC b() AS Integer\n  RETURN len([NOTHING])\nEND FUNC\n\
              FUNC c() AS Integer\n  RETURN len([TRUE, FALSE])\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         fn list_type(v: &IrValue) -> Option<String> {
             match v {
@@ -3595,7 +3595,7 @@ END FUNC
                LET xs AS List OF Integer = [1]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + collections::sum(collections::transform([k], LAMBDA(w AS Integer) -> w + 1)))\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(
                 ir.functions
@@ -3617,7 +3617,7 @@ END FUNC
                LET xs AS List OF Integer = [1]\n\
                RETURN collections::transform(xs, LAMBDA(v AS Integer) -> v + (parse(seed) TRAP(e) RECOVER 0 END TRAP))\n\
              END FUNC\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         // Inline TRAP inside a lambda expression may be rejected; only assert
         // when it lowers.
         if let Some(ir) = try_lower_src(src) {
@@ -3637,7 +3637,7 @@ END FUNC
                LET evens = collections::filter(xs, isEven)\n\
                RETURN len(evens)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // `evens` inferred as List OF Integer from the filter call.
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
@@ -3656,7 +3656,7 @@ END FUNC
                LET f AS FUNC() AS Integer = seed\n\
                RETURN f()\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
@@ -3673,7 +3673,7 @@ END FUNC
         // (the visibility check in collect_project_docs).
         let src = "DOC\n  TYPE Hidden\n  DESC Not exported.\nEND DOC\n\
              TYPE Hidden\n  n AS Integer\nEND TYPE\n\
-             SUB main\nEND SUB\n";
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(!ir.docs.decls.iter().any(|d| d.name == "Hidden"));
         }
@@ -3688,7 +3688,7 @@ END FUNC
                LET n = toInt(s) TRAP(e)\n    RECOVER 0\n  END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3900,7 +3900,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3921,7 +3921,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3947,7 +3947,7 @@ END FUNC
                NEXT\n\
                RETURN total\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse")
             .body
@@ -3970,7 +3970,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -3998,7 +3998,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -4022,7 +4022,7 @@ END FUNC
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
@@ -4116,7 +4116,7 @@ END FUNC
                LET xs AS List OF Integer = [1, 2, 3]\n\
                RETURN collections::filter(xs, isEven)\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(!function(&ir, "run").body.is_empty());
     }
@@ -4212,7 +4212,7 @@ mod lower_construct_tests {
                LET c AS Money = -92233720368547.75808\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         match bind_value(&ir, "f", "a") {
             IrValue::Const { type_, value } => {
@@ -4242,7 +4242,7 @@ mod lower_construct_tests {
                LET b AS Byte = 200\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         for (name, want) in [("m", "Money"), ("x", "Fixed"), ("b", "Byte")] {
             match bind_value(&ir, "f", name) {
@@ -4261,7 +4261,7 @@ mod lower_construct_tests {
                LET s AS Set OF Integer = Set OF Integer { 1, 2, 3 }\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         match bind_value(&ir, "f", "s") {
             IrValue::SetLiteral { type_, values } => {
@@ -4282,7 +4282,7 @@ mod lower_construct_tests {
                LET p AS FUNC(Integer) AS Boolean = isEven\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(
             matches!(bind_value(&ir, "f", "p"), IrValue::FunctionRef { .. }),
@@ -4301,7 +4301,7 @@ mod lower_construct_tests {
                LET g AS FUNC(Integer) AS Set OF Integer = LAMBDA(v AS Integer) -> Set OF Integer { base, v }\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(
             matches!(bind_value(&ir, "f", "g"), IrValue::Closure { captures, .. } if !captures.is_empty()),
@@ -4321,7 +4321,7 @@ mod lower_construct_tests {
                LET ys = collections::filter(xs, isEven)\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let bind = function(&ir, "f")
             .body
@@ -4343,7 +4343,7 @@ mod lower_construct_tests {
              FUNC f() AS String\n\
                RETURN strings::replace(\"aaa\", old := \"a\", new := \"b\")\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "f")
             .body
@@ -4360,7 +4360,7 @@ mod lower_construct_tests {
                LET raw = 3.14\n\
                RETURN 0\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         match bind_value(&ir, "f", "raw") {
             IrValue::Const { type_, .. } => assert_eq!(type_.name(), "Float"),
@@ -4377,7 +4377,7 @@ mod lower_construct_tests {
                LET e AS Error = error(404, \"missing\")\n\
                RETURN e\n\
              END FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         // The binding produced some value (a lowered Error record), not a raw call.
         assert!(function(&ir, "f")
@@ -4751,10 +4751,10 @@ END FUNC
         let ir = lower_src(
             "exits",
             r#"
-SUB early(v AS Integer)
-  IF v < 0 THEN EXIT SUB
+FUNC early(v AS Integer) AS Nothing
+  IF v < 0 THEN RETURN
   LET x AS Integer = v
-END SUB
+END FUNC
 FUNC main AS Integer
   early(5)
   IF FALSE THEN EXIT PROGRAM 2
@@ -4844,9 +4844,9 @@ FUNC parsePositive(v AS Integer) AS Integer
   IF v < 0 THEN FAIL error(404, "missing")
   RETURN v + 1
 END FUNC
-SUB doEffect(v AS Integer)
+FUNC doEffect(v AS Integer) AS Nothing
   IF v < 0 THEN FAIL error(500, "effect")
-END SUB
+END FUNC
 FUNC bindForm(v AS Integer) AS Integer
   LET a = parsePositive(v) TRAP(e)
     RECOVER 0
@@ -5468,14 +5468,14 @@ EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
 END FUNC
 
 DOC INTERNAL
-  SUB logIt
+  FUNC logIt
   DESC internal logger.
   ARG value the value
   DEPRECATED use the structured logger.
 END DOC
-EXPORT SUB logIt(value AS Integer)
+EXPORT FUNC logIt(value AS Integer) AS Nothing
   LET ignored AS Integer = value
-END SUB
+END FUNC
 
 DOC
   TYPE Widget
@@ -5757,9 +5757,9 @@ TYPE Cursor
   pos AS Integer
   len AS Integer
 END TYPE
-SUB seek(RES s AS fs::File STATE Cursor, dest AS Integer)
+FUNC seek(RES s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
   s.state.pos = dest
-END SUB
+END FUNC
 FUNC main AS Integer
   RES f AS fs::File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")
   LET p AS Integer = f.state.pos
@@ -7021,7 +7021,7 @@ END FUNC
                  RECOVER acc\n  \
                END TRAP\n  \
                RETURN n\nEND FUNC\n\
-             SUB main\nEND SUB\n",
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,

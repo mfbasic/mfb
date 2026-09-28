@@ -106,10 +106,10 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 IMPORT os
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
@@ -266,7 +266,7 @@ SUB main()
   ' the finish helper _exits the process, so the resize on the main thread loses the
   ' race every time. Measured before a sleep was added: the dump stayed 900x640 and
   ' only one stats line was written.
-END SUB
+END FUNC
 MFB
 
 echo "--- building for $TARGET ---"

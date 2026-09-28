@@ -101,7 +101,7 @@ fn build_and_run(name: &str, body: &str) -> String {
 }
 
 fn main_sub(lines: &str) -> String {
-    format!("SUB main()\n{lines}  io::print(\"done\")\nEND SUB\n")
+    format!("FUNC main() AS Nothing\n{lines}  io::print(\"done\")\nEND FUNC\n")
 }
 
 #[test]
@@ -144,8 +144,8 @@ fn a_nothing_value_round_trips_through_a_nothing_func() {
     let out = build_and_run(
         "roundtrip",
         "FUNC same(n AS Nothing) AS Nothing\n  RETURN n\nEND FUNC\n\n\
-         SUB main()\n  LET a = NOTHING\n  LET b = same(a)\n  LET c = same(same(b))\n  \
-         IF c = NOTHING THEN io::print(\"eq\")\n  io::print(\"done\")\nEND SUB\n",
+         FUNC main() AS Nothing\n  LET a = NOTHING\n  LET b = same(a)\n  LET c = same(same(b))\n  \
+         IF c = NOTHING THEN io::print(\"eq\")\n  io::print(\"done\")\nEND FUNC\n",
     );
     assert_eq!(out, "eq\ndone\n");
 }
@@ -164,8 +164,8 @@ fn a_nothing_func_returns_another_nothing_func_call() {
     let out = build_and_run(
         "return",
         "FUNC g() AS Nothing\n  RETURN f(1)\nEND FUNC\n\n\
-         SUB main()\n  g()\n  LET y = g()\n  IF y = NOTHING THEN io::print(\"eq\")\n  \
-         io::print(\"done\")\nEND SUB\n",
+         FUNC main() AS Nothing\n  g()\n  LET y = g()\n  IF y = NOTHING THEN io::print(\"eq\")\n  \
+         io::print(\"done\")\nEND FUNC\n",
     );
     assert_eq!(out, "f1\nf1\neq\ndone\n");
 }

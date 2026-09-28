@@ -35,9 +35,9 @@ const EX: &str = r#"Epoch milliseconds of the current instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET ms AS Integer = datetime::toMillis(datetime::now())
-END SUB
+END FUNC
 ```
 
 Round-trip an instant through its millisecond count:
@@ -45,11 +45,11 @@ Round-trip an instant through its millisecond count:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::now()
   LET ms AS Integer = datetime::toMillis(at)
   LET back AS datetime::Instant = datetime::fromMillis(ms)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -31,14 +31,14 @@ const EX: &str = r#"Parse an amount and add it up exactly:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT total AS Money = toMoney("0.00")
   LET tenth AS Money = toMoney("0.10")
   FOR i = 1 TO 10
     total = total + tenth
   NEXT
   io::print(toString(total))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -52,15 +52,15 @@ Bad text raises rather than converting to zero:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET m AS Money = toMoney("free")
   io::print(toString(m))
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("toMoney raised " & toString(err.code))
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:

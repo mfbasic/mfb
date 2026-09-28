@@ -63,9 +63,9 @@ out equal, unlike the straight-line midpoint:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::slerp(vector::Float2[1.0, 0.0], vector::Float2[0.0, 1.0], 0.5)))
-END SUB
+END FUNC
 ```
 
 Interpolating between two normalized directions keeps the result on the unit
@@ -75,11 +75,11 @@ circle:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS vector::Float3 = vector::normalize(vector::Float3[1.0, 0.0, 0.0])
   LET finish AS vector::Float3 = vector::normalize(vector::Float3[0.0, 0.0, 1.0])
   io::print(toString(vector::slerp(start, finish, 0.25)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -50,9 +50,9 @@ const EX: &str = r#"Project a diagonal vector onto the `+x` axis:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::project(vector::Float2[2.0, 2.0], vector::Float2[1.0, 0.0])))
-END SUB
+END FUNC
 ```
 
 Projection and rejection sum back to the original vector:
@@ -61,12 +61,12 @@ Projection and rejection sum back to the original vector:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS vector::Float3 = vector::Float3[2.0, 3.0, 4.0]
   LET b AS vector::Float3 = vector::Float3[0.0, 1.0, 0.0]
   io::print(toString(vector::project(a, b)))
   io::print(toString(vector::reject(a, b)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

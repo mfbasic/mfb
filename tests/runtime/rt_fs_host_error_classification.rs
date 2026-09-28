@@ -146,19 +146,19 @@ fn every_host_reports_a_refused_path_with_one_code() {
     let mut source = String::from("IMPORT fs\nIMPORT io\n\n");
     for (index, (label, kind, call, _)) in rows.iter().enumerate() {
         let (open, handler) = match *kind {
-            "let" => (format!("LET v = {call}"), "EXIT SUB"),
-            "res" => (format!("RES v = {call}"), "EXIT SUB"),
-            _ => (call.clone(), "EXIT SUB"),
+            "let" => (format!("LET v = {call}"), "RETURN"),
+            "res" => (format!("RES v = {call}"), "RETURN"),
+            _ => (call.clone(), "RETURN"),
         };
         source.push_str(&format!(
-            "SUB c{index}()\n  {open} TRAP(e)\n    io::print(\"{label}: \" & toString(e.code))\n    {handler}\n  END TRAP\n  io::print(\"{label}: ok\")\nEND SUB\n\n"
+            "FUNC c{index}() AS Nothing\n  {open} TRAP(e)\n    io::print(\"{label}: \" & toString(e.code))\n    {handler}\n  END TRAP\n  io::print(\"{label}: ok\")\nEND FUNC\n\n"
         ));
     }
-    source.push_str("SUB main()\n");
+    source.push_str("FUNC main() AS Nothing\n");
     for index in 0..rows.len() {
         source.push_str(&format!("  c{index}()\n"));
     }
-    source.push_str("END SUB\n");
+    source.push_str("END FUNC\n");
 
     let project = common::temp_project("bug701_host_errors", &source);
     let executable = common::build_project(&project);

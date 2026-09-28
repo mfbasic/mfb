@@ -38,7 +38,7 @@ Everything else follows from those two.
 ```basic
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET greeting AS String = "hello"
   MUT count AS Integer = 0
 
@@ -46,7 +46,7 @@ SUB main()
   count = count + 1
 
   io::print(greeting & " " & toString(count))
-END SUB
+END FUNC
 ```
 
 ```
@@ -66,10 +66,10 @@ IMPORT io
 
 LET limit AS Integer = 5
 
-SUB main()
+FUNC main() AS Nothing
   LET limit AS Integer = 10
   io::print(toString(limit))
-END SUB
+END FUNC
 ```
 
 Give the inner name its own spelling instead:
@@ -79,10 +79,10 @@ IMPORT io
 
 LET limit AS Integer = 5
 
-SUB main()
+FUNC main() AS Nothing
   LET localLimit AS Integer = limit * 2
   io::print(toString(localLimit))
-END SUB
+END FUNC
 ```
 
 ```
@@ -96,12 +96,12 @@ Assigning copies. The two names go their separate ways:
 ```basic
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT a AS Integer = 1
   MUT b AS Integer = a
   b = 42
   io::print("a = " & toString(a) & ", b = " & toString(b))
-END SUB
+END FUNC
 ```
 
 ```
@@ -114,17 +114,17 @@ variable:
 ```basic
 IMPORT io
 
-SUB bump(n AS Integer)
+FUNC bump(n AS Integer) AS Nothing
   MUT local AS Integer = n
   local = local + 100
   io::print("  inside bump, local = " & toString(local))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT n AS Integer = 7
   bump(n)
   io::print("after bump, n = " & toString(n))
-END SUB
+END FUNC
 ```
 
 ```
@@ -139,13 +139,13 @@ collections as well — a `List` you hand to a call is the callee's own copy:
 IMPORT io
 IMPORT collections
 
-SUB growList(items AS List OF Integer)
+FUNC growList(items AS List OF Integer) AS Nothing
   MUT local AS List OF Integer = items
   local = collections::append(local, 999)
   io::print("  inside growList, local len = " & toString(len(local)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT xs AS List OF Integer = [1, 2, 3]
   MUT ys AS List OF Integer = xs
   ys = collections::append(ys, 4)
@@ -153,7 +153,7 @@ SUB main()
 
   growList(xs)
   io::print("after growList, xs len = " & toString(len(xs)))
-END SUB
+END FUNC
 ```
 
 ```
@@ -181,12 +181,12 @@ TYPE Point
   y AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   MUT p AS Point = Point[x := 1, y := 2]
   MUT q AS Point = p
   q = WITH q { x := 50 }
   io::print("p.x = " & toString(p.x) & ", q.x = " & toString(q.x))
-END SUB
+END FUNC
 ```
 
 ```
@@ -212,12 +212,12 @@ afterwards works exactly as you would hope:
 IMPORT io
 IMPORT fs
 
-SUB writeLine(RES f AS fs::File, text AS String)
+FUNC writeLine(RES f AS fs::File, text AS String) AS Nothing
   fs::writeAll(f, text)
   io::print("  wrote through the handle inside writeLine")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   RES a AS fs::File = fs::open("/tmp/variable-demo.txt", "write")
   writeLine(a, "first\n")
   fs::writeAll(a, "second\n")
@@ -225,7 +225,7 @@ SUB main()
   fs::close(a)
 
   io::print("contents: " & fs::readText("/tmp/variable-demo.txt"))
-END SUB
+END FUNC
 ```
 
 ```
@@ -257,16 +257,16 @@ scope ends — on every way out, including a `RETURN` and a failure:
 IMPORT io
 IMPORT fs
 
-SUB useThenReturn()
+FUNC useThenReturn() AS Nothing
   RES f AS fs::File = fs::open("/tmp/variable-scope.txt", "write")
   fs::writeAll(f, "scope test\n")
   io::print("  handle open here; the scope is about to end")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   useThenReturn()
   io::print("after the scope ended: " & fs::readText("/tmp/variable-scope.txt"))
-END SUB
+END FUNC
 ```
 
 ```
@@ -303,13 +303,13 @@ TYPE LogFile
   handle AS RES fs::File
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   RES f AS fs::File = fs::open("/tmp/variable-holder.txt", "write")
   LET log AS LogFile = LogFile["app", f]
 
   fs::writeAll(log.handle, "written through a record field\n")
   io::print("wrote through " & log.name)
-END SUB
+END FUNC
 ```
 
 ```
@@ -327,7 +327,7 @@ IMPORT io
 IMPORT fs
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   RES a AS fs::File = fs::open("/tmp/variable-a.txt", "write")
   RES b AS fs::File = fs::open("/tmp/variable-b.txt", "write")
 
@@ -336,7 +336,7 @@ SUB main()
   files = collections::append(files, b)
 
   io::print("holding " & toString(len(files)) & " handles")
-END SUB
+END FUNC
 ```
 
 ```
@@ -364,12 +364,12 @@ TYPE Cursor
   pos AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("/tmp/variable-state.txt", "notes")
   RES f AS fs::File STATE Cursor = fs::open("/tmp/variable-state.txt", "read")
   f.state.pos = 7
   io::print("at " & toString(f.state.pos))
-END SUB
+END FUNC
 ```
 
 ```

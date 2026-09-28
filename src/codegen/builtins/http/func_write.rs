@@ -57,11 +57,11 @@ IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET ct = Map OF String TO String { "Content-Type" := "application/json" }
   LET r = http::write(net::toUrl("http://example.com/items"), "{\"name\":\"a\"}", ct)
   io::print(toString(r.status))
-END SUB
+END FUNC
 ```
 
 PUT a body with an explicit method, then check success:
@@ -71,13 +71,13 @@ IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET headers AS Map OF String TO String = Map OF String TO String {}
   LET r = http::write(net::toUrl("http://example.com/item/1"), "updated", headers, "PUT")
   IF r.ok THEN
     io::print("saved")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

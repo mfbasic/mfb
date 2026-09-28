@@ -2023,12 +2023,12 @@ const EX: &str = r#"Generate an ECDSA P-256 pair and use both halves:
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
   LET msg AS List OF Byte = strings::toBytes("attack at dawn")
   LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)
   LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)
-END SUB
+END FUNC
 ```
 
 Ed25519 keys are byte-identical on every platform:
@@ -2036,9 +2036,9 @@ Ed25519 keys are byte-identical on every platform:
 ```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
-END SUB
+END FUNC
 ```
 
 Split a NIST `privateKey` into the two pieces other ecosystems ask for — the
@@ -2050,7 +2050,7 @@ IMPORT collections
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
   LET point AS List OF Byte = collections::mid(kp.privateKey, 0, 65)
   LET scalar AS List OF Byte = collections::mid(kp.privateKey, 65, 32)
@@ -2058,7 +2058,7 @@ SUB main()
     io::print("privateKey is publicKey (65 bytes) followed by the scalar d")
   END IF
   io::print("d is " & toString(len(scalar)) & " bytes, ready for a SEC1 encoder")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

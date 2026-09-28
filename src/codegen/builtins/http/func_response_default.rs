@@ -41,14 +41,14 @@ consistent:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT resp AS http::Response = http::responseDefault()
   resp = WITH resp { status := 418 }
   resp = WITH resp { reason := "I'm a teapot" }
   resp = WITH resp { ok := FALSE }
   resp = WITH resp { body := http::bytes("no coffee here") }
   io::print(toString(resp.status) & " " & resp.reason)
-END SUB
+END FUNC
 ```
 
 prints:
@@ -63,10 +63,10 @@ Starting from the default and adding a header:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp = http::withHeader(http::responseDefault(), "cache-control", "no-store")
   io::print(toString(resp.status) & " " & resp.reason)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

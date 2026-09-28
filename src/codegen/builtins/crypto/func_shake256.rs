@@ -52,10 +52,10 @@ IMPORT crypto
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET out AS List OF Byte = crypto::shake256("abc", 64)
   io::print(encoding::hexEncode(out))
-END SUB
+END FUNC
 ```
 
 A shorter request is a prefix of a longer one:
@@ -66,11 +66,11 @@ IMPORT encoding
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET short AS List OF Byte = crypto::shake256("abc", 16)
   LET long AS List OF Byte = crypto::shake256("abc", 64)
   io::print(toString(encoding::hexEncode(short) = encoding::hexEncode(collections::mid(long, 0, 16))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

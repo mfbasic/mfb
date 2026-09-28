@@ -78,11 +78,11 @@ const EX: &str = r#"Enable buffering only when it is not already on:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF NOT io::isBuffered() THEN
     io::setBuffered(TRUE)
   END IF
-END SUB
+END FUNC
 ```
 
 Capture the mode so it can be restored later:
@@ -90,15 +90,15 @@ Capture the mode so it can be restored later:
 ```
 IMPORT io
 
-SUB emitReport()
-END SUB
+FUNC emitReport() AS Nothing
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET wasBuffered AS Boolean = io::isBuffered()
   io::setBuffered(TRUE)
   emitReport()
   io::setBuffered(wasBuffered)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

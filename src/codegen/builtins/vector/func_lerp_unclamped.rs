@@ -49,9 +49,9 @@ const EX: &str = r#"Extrapolate twice as far as the endpoint:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::lerp_unclamped(vector::Float2[0.0, 0.0], vector::Float2[10.0, 0.0], 2.0)))
-END SUB
+END FUNC
 ```
 
 Extrapolate backwards, before the start point:
@@ -60,10 +60,10 @@ Extrapolate backwards, before the start point:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET back AS vector::Float2 = vector::lerp_unclamped(vector::Float2[0.0, 0.0], vector::Float2[10.0, 0.0], 0.0 - 0.5)
   io::print(toString(back))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

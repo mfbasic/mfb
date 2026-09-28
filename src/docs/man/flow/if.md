@@ -37,10 +37,10 @@ Single-line form:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS Integer = 1
   IF x > 0 THEN io::print("pos") ELSE io::print("non-pos")
-END SUB
+END FUNC
 ```
 
 Block form with `ELSEIF` and `ELSE`:
@@ -48,7 +48,7 @@ Block form with `ELSEIF` and `ELSE`:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET score AS Integer = 85
   IF score > 90 THEN
     io::print("A")
@@ -57,7 +57,7 @@ SUB main()
   ELSE
     io::print("C")
   END IF
-END SUB
+END FUNC
 ```
 
 ## See also

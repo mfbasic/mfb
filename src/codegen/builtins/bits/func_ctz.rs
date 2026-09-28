@@ -57,10 +57,10 @@ const EX: &str = r#"Count the trailing zeros of `40` (`0b101000`) — its lowest
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::ctz(40)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 The all-zero pattern has 64 trailing zeros, while any odd value has none:
@@ -69,11 +69,11 @@ The all-zero pattern has 64 trailing zeros, while any odd value has none:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(bits::ctz(0)))
   io::print(toString(bits::ctz(255)))
   io::print(toString(bits::ctz(-1)))
-END SUB
+END FUNC
 ```
 
 Recover the exponent of a power of two, inverting `bits::sl`:
@@ -82,10 +82,10 @@ Recover the exponent of a power of two, inverting `bits::sl`:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET n AS Integer = bits::sl(1, 20)
   io::print(toString(bits::ctz(n)))
-END SUB
+END FUNC
 ```
 
 Test whether a value is aligned to a `2^k` boundary without a modulo:
@@ -101,10 +101,10 @@ FUNC isAligned(value AS Integer, k AS Integer) AS Boolean
   RETURN bits::ctz(value) >= k
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isAligned(4096, 12)))
   io::print(toString(isAligned(4100, 12)))
-END SUB
+END FUNC
 ```
 
 Walk the set bits of a mask in ascending index order, one iteration per set bit:
@@ -113,14 +113,14 @@ Walk the set bits of a mask in ascending index order, one iteration per set bit:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT mask AS Integer = 0b1001_0100
   WHILE mask <> 0
     LET lowest AS Integer = bits::band(mask, -mask)
     io::print(toString(bits::ctz(lowest)))
     mask = bits::bxor(mask, lowest)
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -30,12 +30,12 @@ cat > "$WORK/src/main.mfb" <<'MFB'
 IMPORT io
 IMPORT timezones
 
-SUB main()
+FUNC main() AS Nothing
   LET z = timezones::parseIso("2026-07-15T09:00:00.000-04:00[America/New_York]")
   io::print(timezones::toIso(z.dateTime, z.name))
   LET again = timezones::civil(z.dateTime.date, z.dateTime.time, z.name)
   io::print(timezones::toIso(again, 9, z.name))
-END SUB
+END FUNC
 MFB
 "$MFB" build -q "$WORK"
 (cd "$WORK" && "$WORK/build/timezones_runtime_smoke.out" > "$WORK/output.txt")

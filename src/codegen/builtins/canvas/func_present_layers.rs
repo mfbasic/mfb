@@ -38,7 +38,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET sky AS color::Color = color::rgb(20, 30, 60)
   LET dot AS color::Color = color::rgb(255, 200, 0)
@@ -49,7 +49,7 @@ SUB main()
   LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]
   LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]
   canvas::presentLayers([back, front])
-END SUB
+END FUNC
 ```"#;
 
 /// The layered twin of `canvas::present`: publish, render only on a real change.

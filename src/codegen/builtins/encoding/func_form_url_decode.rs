@@ -42,9 +42,9 @@ const EX: &str = r#"Decode a form field value, turning `+` into a space:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::formUrlDecode("name+%3D+a+b"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `formUrlEncode`:
@@ -53,11 +53,11 @@ Round-trip through `formUrlEncode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET enc AS String = encoding::formUrlEncode("café & tea")
   io::print(enc)
   io::print(encoding::formUrlDecode(enc))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

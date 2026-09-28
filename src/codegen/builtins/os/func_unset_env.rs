@@ -81,7 +81,7 @@ pub(crate) fn lower_unset_env(
 
 const INTRO: &str = r#"Remove an environment variable"#;
 const DESC: &str = r#"`os::unsetEnv` removes the environment variable named `name` from the live
-process environment. It is a SUB and returns nothing. Removing a variable that is
+process environment. It returns `Nothing`. Removing a variable that is
 not set is a no-op, not an error, so the call is idempotent. After it returns,
 `os::hasEnv(name)` reports `FALSE` and `os::getEnv(name)` raises `ErrNotFound`.
 It maps to the host `unsetenv(name)`.
@@ -95,11 +95,11 @@ const EX: &str = r#"Remove a variable and confirm it is gone:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   os::setEnv("TEMP_FLAG", "1")
   os::unsetEnv("TEMP_FLAG")
   io::print(toString(os::hasEnv("TEMP_FLAG")))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

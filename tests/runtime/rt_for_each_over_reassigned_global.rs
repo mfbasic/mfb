@@ -25,14 +25,14 @@ IMPORT io
 
 MUT g AS List OF String = [\"one\", \"two\", \"three\"]
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH v IN g
     g = collections::append(g, v & \"!\")
     MUT pad AS List OF String = [\"qqqqqqqqqqqqqqqqqqqqqqqq\", \"wwwwwwwwwwwwwwwwwwwwwwwww\", \"eeeeeeeeeeeeeeeeeeeeeeee\"]
     io::print(\"loop sees: \" & v & \" pad=\" & toString(len(pad)))
   NEXT
   io::print(\"final len=\" & toString(len(g)))
-END SUB
+END FUNC
 ";
 
 /// The write happens in a function the body calls.
@@ -42,18 +42,18 @@ IMPORT io
 
 MUT g AS List OF String = [\"one\", \"two\", \"three\"]
 
-SUB grow(v AS String)
+FUNC grow(v AS String) AS Nothing
   g = collections::append(g, v & \"!\")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH v IN g
     grow(v)
     MUT pad AS List OF String = [\"qqqqqqqqqqqqqqqqqqqqqqqq\", \"wwwwwwwwwwwwwwwwwwwwwwwww\", \"eeeeeeeeeeeeeeeeeeeeeeee\"]
     io::print(\"loop sees: \" & v & \" pad=\" & toString(len(pad)))
   NEXT
   io::print(\"final len=\" & toString(len(g)))
-END SUB
+END FUNC
 ";
 
 /// The iterable is a field of a global record the body reassigns.
@@ -68,14 +68,14 @@ END TYPE
 
 MUT r AS Bag = Bag[label := \"bag\", items := [\"one\", \"two\", \"three\"]]
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH v IN r.items
     r = WITH r { items := collections::append(r.items, v & \"!\") }
     MUT pad AS List OF String = [\"qqqqqqqqqqqqqqqqqqqqqqqq\", \"wwwwwwwwwwwwwwwwwwwwwwwww\", \"eeeeeeeeeeeeeeeeeeeeeeee\"]
     io::print(\"loop sees: \" & v & \" pad=\" & toString(len(pad)))
   NEXT
   io::print(\"final len=\" & toString(len(r.items)))
-END SUB
+END FUNC
 ";
 
 /// `Map` and `Set` globals take the entry-table arms of `lower_for_each`, not
@@ -87,7 +87,7 @@ IMPORT io
 MUT m AS Map OF String TO String = Map OF String TO String { \"a\" := \"apple\", \"b\" := \"banana\", \"c\" := \"cherry\" }
 MUT s AS Set OF String = collections::toSet([\"x\", \"y\", \"z\"])
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH e IN m
     m = collections::set(m, e.key & e.key, e.value & \"!\")
     MUT pad AS List OF String = [\"qqqqqqqqqqqqqqqqqqqqqqqq\", \"wwwwwwwwwwwwwwwwwwwwwwwww\", \"eeeeeeeeeeeeeeeeeeeeeeee\"]
@@ -100,7 +100,7 @@ SUB main()
     io::print(\"set sees: \" & v & \" pad=\" & toString(len(pad)))
   NEXT
   io::print(\"set len=\" & toString(len(s)))
-END SUB
+END FUNC
 ";
 
 /// A loop over a global whose body only reads it (and writes a different
@@ -112,16 +112,16 @@ IMPORT io
 MUT g AS List OF String = [\"one\", \"two\", \"three\"]
 MUT seen AS List OF String = []
 
-SUB note(v AS String)
+FUNC note(v AS String) AS Nothing
   seen = collections::append(seen, v)
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH v IN g
     note(v & toString(len(g)))
   NEXT
   io::print(toString(len(seen)) & \" \" & collections::get(seen, 2))
-END SUB
+END FUNC
 ";
 
 /// Every exit edge of the loop frees the copy: fall-through, `EXIT FOR`, and a
@@ -135,20 +135,20 @@ IMPORT io
 MUT g AS List OF String = [\"one\", \"two\", \"three\"]
 MUT total AS Integer = 0
 
-SUB whole()
+FUNC whole() AS Nothing
   FOR EACH v IN g
     g = collections::append(g, v)
     total = total + 1
   NEXT
-END SUB
+END FUNC
 
-SUB early()
+FUNC early() AS Nothing
   FOR EACH v IN g
     g = collections::append(g, v)
     total = total + 1
     IF v = \"two\" THEN EXIT FOR
   NEXT
-END SUB
+END FUNC
 
 FUNC ret AS Integer
   FOR EACH v IN g

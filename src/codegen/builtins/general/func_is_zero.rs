@@ -28,14 +28,14 @@ const EX: &str = r#"Guard a division by testing the divisor:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET divisor AS Integer = 0
   IF isZero(divisor) THEN
     io::print("cannot divide by zero")
   ELSE
     io::print(toString(100 DIV divisor))
   END IF
-END SUB
+END FUNC
 ```
 
 prints:
@@ -49,11 +49,11 @@ Zero is the case the other two predicates both decline:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isZero(0)))
   io::print(toString(isPositive(0)))
   io::print(toString(isNegative(0)))
-END SUB
+END FUNC
 ```
 
 prints:

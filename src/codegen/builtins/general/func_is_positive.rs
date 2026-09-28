@@ -24,12 +24,12 @@ const EX: &str = r#"The three predicates partition the numbers:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("isPositive(1) = " & toString(isPositive(1)))
   io::print("isPositive(0) = " & toString(isPositive(0)))
   io::print("isNegative(0) = " & toString(isNegative(0)))
   io::print("isZero(0)     = " & toString(isZero(0)))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -46,14 +46,14 @@ Guard a division:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET divisor AS Integer = 0
   IF isPositive(divisor) THEN
     io::print(toString(100 DIV divisor))
   ELSE
     io::print("need a positive divisor")
   END IF
-END SUB
+END FUNC
 ```
 
 prints:

@@ -260,7 +260,7 @@ A whole frame: enter TUI mode, draw, present once, and leave.
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()
   LET size AS term::TermSize = term::terminalSize()
@@ -269,7 +269,7 @@ SUB main()
   term::sync()
   term::off()
   io::print("drew on " & toString(size.columns) & "x" & toString(size.rows))
-END SUB
+END FUNC
 ```"#;
 
 /// Register the `term` package on the clean-room registry.

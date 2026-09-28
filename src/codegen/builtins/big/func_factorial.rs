@@ -32,10 +32,10 @@ const EX: &str = r#"A factorial past the `Integer` range:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(big::toString(big::factorial(25)))
   io::print(big::toString(big::factorial(0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

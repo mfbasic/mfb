@@ -55,7 +55,7 @@ const EX: &str = r#"Poll for an event and ignore the idle answer:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::enableMouse(TRUE)
   LET event = term::pollMouse()
@@ -65,7 +65,7 @@ SUB main()
   END IF
   term::enableMouse(FALSE)
   term::off()
-END SUB
+END FUNC
 ```
 
 Report where a click landed:
@@ -74,7 +74,7 @@ Report where a click landed:
 IMPORT io
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::enableMouse(TRUE)
   LET event = term::pollMouse()
@@ -85,7 +85,7 @@ SUB main()
   ELSE
     io::print("nothing pending")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::pollMouse` — delegates to the shared

@@ -62,12 +62,12 @@ const EX: &str = r#"Open a file and release its handle explicitly:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET line AS String = fs::readLine(f)
   fs::close(f)
-END SUB
+END FUNC
 ```
 
 Write a file, then close it before reopening the same path:
@@ -76,14 +76,14 @@ Write a file, then close it before reopening the same path:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES w = fs::open("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
   RES r = fs::open("out.txt", "read")
   io::print(fs::readAll(r))
   fs::close(r)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

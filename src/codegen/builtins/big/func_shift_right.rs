@@ -35,10 +35,10 @@ const EX: &str = r#"A negative value truncates toward zero:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::toInteger(big::shiftRight(big::fromInteger(-7), 1))))
   io::print(toString(big::toInteger(big::shiftRight(big::fromInteger(-7), 1000))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

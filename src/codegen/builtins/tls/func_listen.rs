@@ -59,14 +59,14 @@ IMPORT encoding
 IMPORT tls
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
   RES client = tls::accept(server)
   LET line = encoding::utf8Decode(tls::read(client, 4096))
   tls::write(client, "you said: " & line)
   tls::close(client)
   ' server closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

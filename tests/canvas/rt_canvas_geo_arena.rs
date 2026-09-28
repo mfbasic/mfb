@@ -101,7 +101,7 @@ fn field(line: &str, name: &str) -> i64 {
 fn animating() -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 1.0)\n  \
          MUT frame AS Integer = 0\n  \
@@ -118,7 +118,7 @@ fn animating() -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"rendered\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -183,7 +183,7 @@ fn a_changing_scene_holds_a_bounded_geometry_arena() {
 fn an_all_hit_scene_never_pays_for_reclamation() {
     let source = format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 1.0)\n  \
          MUT frame AS Integer = 0\n  \
@@ -201,7 +201,7 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"rendered\")\n\
-         END SUB\n"
+         END FUNC\n"
     );
     let lines = stats("canvas_geo_arena_static", &source);
     let last = lines.last().expect("at least one frame");
@@ -220,7 +220,7 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
 fn static_bulk(count: usize, frames: usize) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 200, 255))\n  \
          MUT bulk AS List OF canvas::DrawItem = []\n  \
@@ -239,7 +239,7 @@ fn static_bulk(count: usize, frames: usize) -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"rendered\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 

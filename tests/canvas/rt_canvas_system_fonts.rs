@@ -55,7 +55,7 @@ FUNC tryLoad(n AS String) AS Boolean
   RETURN TRUE
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET names AS List OF String = canvas::listSystemFonts()
   MUT loaded AS Integer = 0
@@ -66,7 +66,7 @@ SUB main()
     END IF
   NEXT
   io::print("system fonts: " & toString(len(names)) & " loaded: " & toString(loaded))
-END SUB
+END FUNC
 "#;
 
 /// Every name the list offers loads; the list is sorted and holds no name twice.
@@ -122,7 +122,7 @@ fn a_system_font_measures_text_and_an_unknown_name_is_not_found() {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES regular AS canvas::Font = canvas::loadSystemFont("Helvetica")
   RES bold AS canvas::Font = canvas::loadSystemFont("Helvetica Bold")
@@ -135,10 +135,10 @@ SUB main()
   END IF
   RES none AS canvas::Font = canvas::loadSystemFont("No Such Font") TRAP(e)
     io::print("unknown: " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("unknown: loaded")
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -159,10 +159,10 @@ fn cross_plan(name: &str, target: &str) -> String {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   io::print(toString(len(canvas::listSystemFonts())))
-END SUB
+END FUNC
 "#,
     );
     let out = Command::new(common::mfb_exe())

@@ -40,9 +40,9 @@ const EX: &str = r#"Project the current instant into UTC:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::utc())
-END SUB
+END FUNC
 ```
 
 Project an instant into a fixed +05:30 zone:
@@ -50,10 +50,10 @@ Project an instant into a fixed +05:30 zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), z)
-END SUB
+END FUNC
 ```
 
 Project into the host's local zone, with DST applied for that instant:
@@ -61,9 +61,9 @@ Project into the host's local zone, with DST applied for that instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::local())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

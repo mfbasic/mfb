@@ -291,10 +291,10 @@ IMPORT os
 IMPORT io
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET env AS Map OF String TO String = os::environ()
   io::print(collections::getOr(env, "PATH", ""))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

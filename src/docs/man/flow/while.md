@@ -27,10 +27,10 @@ No errors.
 Count to ten:
 
 ```
-SUB main()
+FUNC main() AS Nothing
   MUT x AS Integer = 0
   WHILE x < 10 : x = x + 1 : END WHILE
-END SUB
+END FUNC
 ```
 
 ## See also

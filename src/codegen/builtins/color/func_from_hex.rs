@@ -35,9 +35,9 @@ const EX: &str = r##"The short form doubles each digit:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(color::fromHex("#f0a")))
-END SUB
+END FUNC
 ```
 
 The `#` is optional and digit case does not matter:
@@ -46,10 +46,10 @@ The `#` is optional and digit case does not matter:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(color::fromHex("3366CC")))
   io::print(color::toHexAlpha(color::fromHex("#3366ccff")))
-END SUB
+END FUNC
 ```
 
 A malformed colour raises `ErrInvalidFormat` rather than returning a fallback,
@@ -68,10 +68,10 @@ FUNC parseOrBlack(text AS String) AS color::Color
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(parseOrBlack("#3366cc")))
   io::print(color::toHexAlpha(parseOrBlack("#12345")))
-END SUB
+END FUNC
 ```"##;
 
 /// The whole parse is one pass: strip at most one `#`, decode every byte through

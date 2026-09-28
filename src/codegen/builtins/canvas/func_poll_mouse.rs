@@ -57,14 +57,14 @@ const EX: &str = r#"Poll for an event and ignore the idle answer:
 IMPORT app
 IMPORT canvas
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::enableMouse(TRUE)
   LET event AS canvas::MouseEvent = canvas::pollMouse()
   IF event.kind <> canvas::MouseKind.None THEN
     canvas::enableMouse(FALSE)
   END IF
-END SUB
+END FUNC
 ```
 
 Report where a click landed, in surface pixels:
@@ -74,7 +74,7 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::enableMouse(TRUE)
   LET event AS canvas::MouseEvent = canvas::pollMouse()
@@ -84,7 +84,7 @@ SUB main()
   ELSE
     io::print("nothing pending")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 /// Byte size of the `canvas::MouseEvent` block.

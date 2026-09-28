@@ -54,10 +54,10 @@ const EX: &str = r#"Decode a hex string to bytes and back to text:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::hexDecode("68656c6c6f")
   io::print(encoding::utf8Decode(bytes))
-END SUB
+END FUNC
 ```
 
 Round-trip through `hexEncode`, mixing digit case on input:
@@ -66,12 +66,12 @@ Round-trip through `hexEncode`, mixing digit case on input:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hi")
   LET hex AS String = encoding::hexEncode(raw)
   io::print(hex)
   io::print(encoding::utf8Decode(encoding::hexDecode("6869")))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

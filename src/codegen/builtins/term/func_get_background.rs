@@ -41,12 +41,12 @@ const EX: &str = r#"```
 IMPORT term
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBackground(color::rgb(0, 128, 255))
   LET c AS color::Color = term::getBackground()
   term::off()
-END SUB
+END FUNC
 ```
 
 Save the current colour, draw a highlight, then restore it. The saved value goes
@@ -57,7 +57,7 @@ IMPORT term
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET saved AS color::Color = term::getBackground()
   term::setBackground(color::rgb(255, 0, 0))
@@ -65,7 +65,7 @@ SUB main()
   term::setBackground(saved)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::get_background` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

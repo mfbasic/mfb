@@ -44,7 +44,7 @@ IMPORT io
 IMPORT fs
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
     RES f AS fs::File = fs::openFile(\"/tmp/mfb_bug62/a.txt\", \"w\")
     fs::setBuffered(f, TRUE)
     fs::writeAll(f, \"x\")
@@ -64,7 +64,7 @@ SUB main()
     LET c AS Scalar = io::readScalar()
     LET n AS Byte = io::readRaw()
     io::print(a & l & z & strings::fromScalars([c]) & toString(len(b)) & toString(n))
-END SUB
+END FUNC
 ";
 
 /// Helpers whose underlying transfer is a `write` (raw `svc` on `linux-x86_64`,

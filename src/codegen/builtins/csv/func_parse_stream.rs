@@ -34,13 +34,13 @@ IMPORT csv
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
   WHILE row.done = FALSE
     io::print(collections::get(row.fields, 0))
     row = csv::readRow(row.reader)
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

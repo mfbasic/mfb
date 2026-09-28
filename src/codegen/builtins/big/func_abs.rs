@@ -26,10 +26,10 @@ const EX: &str = r#"Drop the sign of a negative value:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS big::Int = big::abs(big::fromInteger(-12))
   io::print(toString(big::toInteger(a)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

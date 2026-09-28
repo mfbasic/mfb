@@ -35,13 +35,13 @@ IMPORT canvas
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(10), toByte(20), toByte(30), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   LET current AS List OF Byte = canvas::getBytes(img)
   io::print(toString(collections::getOr(current, 0, toByte(0))))
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::getBytes(image) AS List OF Byte`.

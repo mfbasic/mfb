@@ -38,13 +38,13 @@ const EX: &str = r#"Colour diagnostics only when the error stream is a terminal:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF io::isErrorTerminal() THEN
     io::printError("\u{1b}[31mError\u{1b}[0m: build failed")
   ELSE
     io::printError("Error: build failed")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

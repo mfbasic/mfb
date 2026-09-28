@@ -320,10 +320,10 @@ const EX: &str = r#"Generate a 32-byte key and a 12-byte AEAD nonce:
 ```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET key AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
-END SUB
+END FUNC
 ```
 
 A count of zero returns an empty list:
@@ -331,9 +331,9 @@ A count of zero returns an empty list:
 ```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET none AS List OF Byte = crypto::randomBytes(0)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

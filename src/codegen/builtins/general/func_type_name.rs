@@ -29,13 +29,13 @@ const EX: &str = r#"Report the type of several values:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(typeName(1))
   io::print(typeName(1.0))
   io::print(typeName("a"))
   io::print(typeName(TRUE))
   io::print(typeName([1]))
-END SUB
+END FUNC
 ```
 
 prints:

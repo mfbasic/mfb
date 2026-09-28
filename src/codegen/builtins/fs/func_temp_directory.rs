@@ -61,10 +61,10 @@ const EX: &str = r#"Read and print the host temporary directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET dir AS String = fs::tempDirectory()
   io::print(dir)
-END SUB
+END FUNC
 ```
 
 Create a temporary file under the host temporary directory:
@@ -72,10 +72,10 @@ Create a temporary file under the host temporary directory:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   RES f = fs::createTempFile()
   ' f is created under fs::tempDirectory() and closes itself
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

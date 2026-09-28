@@ -51,10 +51,10 @@ const EX: &str = r#"Parse a decimal, and see what `toString` does to it:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toFloat("1.5")))
   io::print(toString(toFloat("-2.5e3")))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -69,14 +69,14 @@ Test before converting, rather than trapping:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS String = "abc"
   IF isNumeric(text) THEN
     io::print(toString(toFloat(text)))
   ELSE
     io::print("not a number: " & text)
   END IF
-END SUB
+END FUNC
 ```
 
 prints:

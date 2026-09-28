@@ -79,20 +79,20 @@ FUNC decodeField(value AS String) AS List OF Byte
   RETURN out
 END FUNC
 
-SUB sealOne(label AS String, c AS crypto::SymmetricCipher, key AS List OF Byte, nonce AS List OF Byte, data AS List OF Byte, aad AS List OF Byte)
+FUNC sealOne(label AS String, c AS crypto::SymmetricCipher, key AS List OF Byte, nonce AS List OF Byte, data AS List OF Byte, aad AS List OF Byte) AS Nothing
   LET box AS crypto::Sealed = crypto::seal(c, key, nonce, data, aad)
   MUT line AS String = "case seal " & label & " " & hexField(key) & " " & hexField(nonce)
   line = line & " " & hexField(data) & " " & hexField(aad)
   line = line & " " & hexField(box.ciphertext) & " " & hexField(box.tag)
   io::print(line)
-END SUB
+END FUNC
 
-SUB sealBoth(key AS List OF Byte, nonce AS List OF Byte, data AS List OF Byte, aad AS List OF Byte)
+FUNC sealBoth(key AS List OF Byte, nonce AS List OF Byte, data AS List OF Byte, aad AS List OF Byte) AS Nothing
   sealOne("aes256gcm", crypto::SymmetricCipher.AES256GCM, key, nonce, data, aad)
   sealOne("chacha20poly1305", crypto::SymmetricCipher.CHACHA20POLY1305, key, nonce, data, aad)
-END SUB
+END FUNC
 
-SUB openOne(spec AS String)
+FUNC openOne(spec AS String) AS Nothing
   LET f AS List OF String = strings::split(spec, ",")
   MUT c AS crypto::SymmetricCipher = crypto::SymmetricCipher.CHACHA20POLY1305
   IF collections::get(f, 0) = "aes256gcm" THEN
@@ -105,12 +105,12 @@ SUB openOne(spec AS String)
   LET aad AS List OF Byte = decodeField(collections::get(f, 5))
   LET plain AS List OF Byte = crypto::open(c, key, nonce, ct, tag, aad) TRAP(e)
     io::print("openfail " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("opened " & hexField(plain))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' Sealed lengths straddle the 16-byte AES block: an empty message (tag over the
   ' aad alone), one byte, and either side of one and four blocks. The aad
   ' alternates empty and not, because aad is authenticated but not encrypted and
@@ -134,7 +134,7 @@ SUB main()
       END IF
     NEXT
   END IF
-END SUB
+END FUNC
 "#;
 
 fn unhex(s: &str) -> Vec<u8> {

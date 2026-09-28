@@ -39,9 +39,9 @@ Count up by two:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR i = 1 TO 5 STEP 2 : io::print(toString(i)) : NEXT
-END SUB
+END FUNC
 ```
 
 Count down by two:
@@ -49,9 +49,9 @@ Count down by two:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR down = 5 TO 1 STEP -2 : io::print(toString(down)) : NEXT
-END SUB
+END FUNC
 ```
 
 ## See also

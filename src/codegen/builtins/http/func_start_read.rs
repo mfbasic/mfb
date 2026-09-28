@@ -40,7 +40,7 @@ IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
@@ -50,7 +50,7 @@ SUB main()
   END WHILE
   LET r AS http::Response = http::finish(s)
   io::print(toString(r.status) & " " & r.reason)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

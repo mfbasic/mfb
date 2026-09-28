@@ -51,9 +51,9 @@ const EX: &str = r#"Serialize a grid, quoting only the cell that needs it:
 ```
 IMPORT csv
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS String = csv::stringify([["name", "age"], ["Grace", "Hop,per"]])
-END SUB
+END FUNC
 ```
 
 Pass the argument by name:
@@ -61,9 +61,9 @@ Pass the argument by name:
 ```
 IMPORT csv
 
-SUB main()
+FUNC main() AS Nothing
   LET out AS String = csv::stringify(value := [["name", "age"], ["Grace", "Hop,per"]])
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

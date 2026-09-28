@@ -56,11 +56,11 @@ fn a_defaulted_int_is_canonical_zero() {
         r#"IMPORT io
 IMPORT big
 
-SUB main()
+FUNC main() AS Nothing
   MUT x AS big::Int
   io::print(toString(len(x.magnitude)))
   io::print(toString(x.negative))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(lines, vec!["0", "FALSE"]);
@@ -82,7 +82,7 @@ FUNC back(x AS big::Int) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo63 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 128]
   LET pastMinimum AS List OF Byte = [1, 0, 0, 0, 0, 0, 0, 128]
   LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
@@ -95,7 +95,7 @@ SUB main()
   io::print(back(big::fromBytes(twoTo63, TRUE)))
   io::print(back(big::fromBytes(pastMinimum, TRUE)))
   io::print(back(big::fromBytes(twoTo64, FALSE)))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -126,7 +126,7 @@ fn byte_round_trips_in_both_orders() {
 IMPORT big
 IMPORT collections
 {SHOW_BYTES}
-SUB main()
+FUNC main() AS Nothing
   LET ascending AS List OF Byte = [1, 2, 3]
   LET descending AS List OF Byte = [3, 2, 1]
   LET trailingZeros AS List OF Byte = [5, 0, 0]
@@ -151,7 +151,7 @@ SUB main()
   io::print(show(big::toBytes(big::fromBytes(b, FALSE, big::Endian.Big), big::Endian.Big)))
   io::print(show(big::toBytes(big::fromBytes(b, TRUE))))
   io::print(show(b))
-END SUB
+END FUNC
 "#
     );
     let lines = run("big_byte_round_trip", &source);
@@ -188,7 +188,7 @@ fn compare_is_a_total_order_and_the_predicates_agree() {
 IMPORT big
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
   LET values AS List OF big::Int = [big::fromBytes(twoTo64, TRUE), big::fromInteger(-70000), big::fromInteger(-256), big::fromInteger(-1), big::fromInteger(0), big::fromInteger(1), big::fromInteger(255), big::fromInteger(256), big::fromInteger(70000), big::fromBytes(twoTo64, FALSE)]
   MUT i AS Integer = 0
@@ -209,7 +209,7 @@ SUB main()
     io::print(row & "| " & toString(big::sign(v)) & " " & toString(big::isZero(v)))
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 "#,
     );
     let n = 10usize;
@@ -247,7 +247,7 @@ fn negate_abs_and_the_total_decoder() {
 IMPORT big
 IMPORT collections
 {SHOW_BYTES}
-SUB main()
+FUNC main() AS Nothing
   LET x AS big::Int = big::fromInteger(-70000)
   io::print(toString(big::equals(big::negate(big::negate(x)), x)))
   LET negatedZero AS big::Int = big::negate(big::fromInteger(0))
@@ -263,7 +263,7 @@ SUB main()
   io::print(toString(big::isZero(zeroBytes)) & " " & toString(big::compare(zeroBytes, big::fromInteger(-1))))
   LET cleaned AS big::Int = big::negate(big::negate(spelled))
   io::print(show(cleaned.magnitude) & " " & toString(cleaned.negative))
-END SUB
+END FUNC
 "#
     );
     let lines = run("big_negate_abs_decoder", &source);
@@ -307,7 +307,7 @@ FUNC show(bytes AS List OF Byte) AS String
   RETURN s & "]"
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET allOnes AS List OF Byte = [255, 255, 255, 255, 255, 255, 255, 255, 255]
   LET twoTo72 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
   LET one AS big::Int = big::fromInteger(1)
@@ -322,7 +322,7 @@ SUB main()
   io::print(toString(len(same.magnitude)) & " " & toString(same.negative))
   LET oneMinusOne AS big::Int = big::add(one, big::fromInteger(-1))
   io::print(toString(len(oneMinusOne.magnitude)) & " " & toString(oneMinusOne.negative))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -350,7 +350,7 @@ fn additive_identities_and_integer_oracle() {
 IMPORT big
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET small AS List OF Integer = [-70000, -65536, -300, -256, -255, -1, 0, 1, 255, 256, 300, 65535, 70000]
   MUT mismatches AS Integer = 0
   MUT checked AS Integer = 0
@@ -410,7 +410,7 @@ SUB main()
     p = p + 1
   END WHILE
   io::print("identities: " & toString(failures) & " failures of " & toString(cases))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -443,7 +443,7 @@ FUNC operand(n AS Integer, mul AS Integer, add AS Integer) AS List OF Byte
   RETURN b
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET a1 AS big::Int = big::fromBytes(operand(1, 131, 7), FALSE)
   LET b1 AS big::Int = big::fromBytes(operand(1, 197, 3), FALSE)
   LET e1Bytes AS List OF Byte = [21]
@@ -490,7 +490,7 @@ SUB main()
   LET withZero AS List OF big::Int = [na, big::fromInteger(0), b64]
   LET zeroProduct AS big::Int = big::product(withZero)
   io::print(toString(len(zeroProduct.magnitude)) & " " & toString(zeroProduct.negative))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -542,7 +542,7 @@ FUNC tryTestBit(a AS big::Int, index AS Integer) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::bitLength(big::fromInteger(0))) & " " & toString(big::bitLength(big::fromInteger(1))) & " " & toString(big::bitLength(big::fromInteger(255))) & " " & toString(big::bitLength(big::fromInteger(256))) & " " & toString(big::bitLength(big::fromInteger(-256))))
 
   LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
@@ -604,7 +604,7 @@ SUB main()
   LET one AS big::Int = big::fromInteger(1)
   io::print(tryShiftLeft(one, -1) & " | " & tryShiftRight(one, -1) & " | " & tryTestBit(one, -1))
   io::print(tryShiftLeft(one, 0) & " | " & tryShiftRight(one, 0) & " | " & tryTestBit(one, 0))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -659,7 +659,7 @@ FUNC tryRadix(value AS big::Int, radix AS Integer) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo64 AS List OF Byte = [0, 0, 0, 0, 0, 0, 0, 0, 1]
   LET spread AS List OF big::Int = [big::fromInteger(0), big::fromInteger(1), big::fromInteger(-1), big::fromInteger(9), big::fromInteger(10), big::fromInteger(-255), big::fromInteger(9223372036854775807), big::fromInteger(-9223372036854775807 - 1), big::fromBytes(twoTo64, FALSE), big::fromBytes(operand(40, 131, 7), TRUE)]
   LET decimals AS List OF String = ["0", "1", "-1", "9", "10", "-255", "9223372036854775807", "-9223372036854775808", "18446744073709551616", "-2106587317222212391832297503250513450982309751508901136347145804653738540457117282751973428136455"]
@@ -707,7 +707,7 @@ SUB main()
   LET productText AS String = big::toString(big::multiply(a4096, b4096))
   io::print("4096-bit product decimal matches Python: " & toString(productText = "137260908971024161284171554128698218510424693699068168217209054903607064674892954272753896430108198557065944290285244839606924389661937473320268737691625558143403268237540196126858144944442780116840549191228479297432396251798933009654900977786981538456825059922839483418611485451145946118587790743283146030999966457480128324879132926068052768579695968171344601509218684373885799666259763728197255492399961843097336780809713755935027137563762141236497910319157305052696111977809523325194880485126510328071646415471244067467561847817419868517887359299767048269463175280986639878655556673683898011958816820822864898760917077381202716021714817856723214899969940851153211172661837843242545426336746781874367991959385773838100907291051181680546053601254186248208862736933984952140244654621368450157431401551940894057739902902343662351456216032333961624184915440024267532728091427056600621341662726859211299687224077640493511256435459455897878857422581043724177110035631281128548715863115329372136114919831422336456713853905692220378436428135012622834440474860547806331456784795278021762472857546727686799316885665615194252569528369723504454306670226819832122520928407050631280902149353681216937829533905733322576673538109597974532017975432400965358481758146834147630740467580018160704022333240874040779216662257925342865971950993656953157649465534066829588644079804727174268312775414036584140597622908519122272990414638664698699546328334718294654407218875037577430204548427227995568382335009197353062223468390277664522395911491772227328130947394853178326641174649132820585650622377100285698685821524822211520991868644732644231352034109693732174798793167759515065209508278713223998837930661972631416461806688055723626089399902123291001055124161453170999049179945030126012733836810048458289279947447089161163343843376989324993382827791066080991322730149534006414162483512066638751628048510004732379854699185197325256318626930600275494760236144198303521846953357029179303261607289919506570516343101408318247273694906522076182061872584687906592424787739775518640581626316755535567731160287841756018147793584644300999775422227526739247142051938385670886147271317037320334753902387828870852645001526879095772921519957271245259921498357776968642494480331637022795608239511316855893825742444325514800278640994935075020976732566174306248447234490944158803516919812520006536454685057332258968449275439963331050256845387997786873662530149567027497591447972886923212398716491738453525"))
   io::print("4096-bit product parses back: " & toString(big::equals(big::parse(productText), big::multiply(a4096, b4096))))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -748,7 +748,7 @@ FUNC operand(n AS Integer, mul AS Integer, add AS Integer) AS List OF Byte
   RETURN b
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT terms AS List OF big::Int = []
   MUT folded AS big::Int = big::fromInteger(0)
   MUT k AS Integer = 0
@@ -762,7 +762,7 @@ SUB main()
   io::print(toString(len(terms)) & " terms")
   io::print(big::toString(total))
   io::print(toString(big::equals(total, folded)))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -791,7 +791,7 @@ FUNC show(parts AS big::DivResult) AS String
   RETURN big::toString(parts.quotient) & " " & big::toString(parts.remainder)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET correctU AS List OF Byte = [15, 137, 103, 105]
   LET correctV AS List OF Byte = [50, 128]
   io::print(show(big::divMod(big::fromBytes(correctU, FALSE), big::fromBytes(correctV, FALSE))))
@@ -808,7 +808,7 @@ SUB main()
   io::print(show(big::divMod(wide, wide)))
   io::print(show(big::divMod(wide, big::negate(wide))))
   io::print(show(big::divMod(big::fromBytes(dividend, FALSE), big::fromInteger(7))))
-END SUB
+END FUNC
 "#,
     );
     // Expected values computed by Python `divmod` (non-negative operands) and by the
@@ -852,7 +852,7 @@ FUNC randomMagnitude(length AS Integer) AS List OF Byte
   RETURN bytes
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   math::seed(127)
   MUT identityFailures AS Integer = 0
   MUT boundFailures AS Integer = 0
@@ -898,7 +898,7 @@ SUB main()
   io::print("identity " & toString(identityFailures))
   io::print("bound " & toString(boundFailures))
   io::print("sign " & toString(signFailures))
-END SUB
+END FUNC
 "#,
     );
     let binary = common::build_project(&project);
@@ -979,7 +979,7 @@ FUNC tryDivMod(a AS big::Int, b AS big::Int) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   math::seed(128)
   MUT disagreements AS Integer = 0
   MUT pair AS Integer = 0
@@ -1004,7 +1004,7 @@ SUB main()
   io::print(tryDivMod(seven, two) & " | " & tryDivMod(big::negate(seven), two) & " | " & tryDivMod(seven, big::negate(two)) & " | " & tryDivMod(big::negate(seven), big::negate(two)))
   LET zero AS big::Int = big::fromInteger(0)
   io::print(tryDivide(seven, zero) & " | " & tryRemainder(seven, zero) & " | " & tryDivMod(seven, zero))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -1049,7 +1049,7 @@ FUNC tryModPow(e AS Integer, m AS Integer) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(big::toString(big::factorial(0)))
   io::print(big::toString(big::factorial(1)))
   io::print(big::toString(big::factorial(20)))
@@ -2257,7 +2257,7 @@ SUB main()
   END WHILE
   io::print("pow vs folded multiply: " & toString(powMismatches) & " of 41")
   io::print(tryPow(-1) & " | " & tryFactorial(-1) & " | " & tryModPow(-1, 7) & " | " & tryModPow(2, 0))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -2314,7 +2314,7 @@ FUNC tryDraw(low AS big::Int, high AS big::Int) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(tryDraw(big::fromInteger(5), big::fromInteger(4)))
   LET huge AS big::Int = big::parse("123456789012345678901234567890")
   io::print(tryDraw(huge, huge))
@@ -2368,7 +2368,7 @@ SUB main()
   io::print("every outcome: " & toString(everyOutcome))
   io::print("within 25% of 1429: " & toString(withinTolerance))
   io::print("counts:" & shown)
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(

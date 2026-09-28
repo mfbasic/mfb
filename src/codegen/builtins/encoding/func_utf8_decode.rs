@@ -33,10 +33,10 @@ const EX: &str = r#"Decode raw UTF-8 bytes back to text:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("héllo")
   io::print(encoding::utf8Decode(raw))
-END SUB
+END FUNC
 ```
 
 Decode from a `List OF Integer` code-unit list:
@@ -45,10 +45,10 @@ Decode from a `List OF Integer` code-unit list:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET units AS List OF Integer = [104, 105]
   io::print(encoding::utf8Decode(units))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

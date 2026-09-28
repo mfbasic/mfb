@@ -53,13 +53,13 @@ const EX: &str = r#"Drive a capture stream only when at least one frame is ready
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   IF audio::poll(mic, 50) THEN
     LET pcm = audio::read(mic, 480, 0)
   END IF
   audio::close(mic)
-END SUB
+END FUNC
 ```"#;
 
 const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. The handle stays open — you still close it. A closed handle polls as `FALSE`.";

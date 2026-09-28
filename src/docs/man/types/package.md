@@ -81,13 +81,13 @@ FUNC logLine(msg AS String) AS Nothing
   RETURN NOTHING
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET done = logLine("saved")
   LET marks = [done, logLine("again"), NOTHING]
   io::print(toString(len(marks)))
   io::print(toString(len(collections::toSet(marks))))
   IF done = NOTHING THEN io::print("done")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -203,7 +203,7 @@ ENUM Color
   Red, Green, Blue
 END ENUM
 
-SUB main()
+FUNC main() AS Nothing
   LET origin = Point[x := 0, y := 0]
   LET s AS Shape = Square[corner := origin, side := 3]
   LET c = Color.Green
@@ -214,7 +214,7 @@ SUB main()
       io::print("square " & toString(sq.side))
   END MATCH
   IF c = Color.Green THEN io::print("green")
-END SUB
+END FUNC
 ```
 
 Output:

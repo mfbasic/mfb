@@ -56,10 +56,10 @@ const EX: &str = r#"Render the current instant in UTC, yielding a `...Z` suffix:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET text AS String = datetime::toIso(dt)
-END SUB
+END FUNC
 ```
 
 Render a fixed-offset moment, yielding a signed offset suffix:
@@ -67,11 +67,11 @@ Render a fixed-offset moment, yielding a signed offset suffix:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET dt AS datetime::DateTime = datetime::parse("2026-06-25 14:30:00", "yyyy-MM-dd HH:mm:ss", z)
   LET text AS String = datetime::toIso(dt)
-END SUB
+END FUNC
 ```
 
 Round-trip a timestamp through `toIso` and `parseIso`. The default form is exact
@@ -81,14 +81,14 @@ only to the millisecond, so ask for nine digits when the `nanos` must survive:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Time = datetime::time(1, 2, 3, 123456789)
   LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
   io::print(datetime::toIso(dt))
   io::print(datetime::toIso(dt, 9))
   io::print(toString(datetime::parseIso(datetime::toIso(dt)).time.nanos))
   io::print(toString(datetime::parseIso(datetime::toIso(dt, 9)).time.nanos))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -106,11 +106,11 @@ Drop the fractional field entirely with `digits = 0`:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Time = datetime::time(1, 2, 3, 123456789)
   LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
   io::print(datetime::toIso(dt, 0))
-END SUB
+END FUNC
 ```
 
 prints:

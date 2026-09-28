@@ -236,10 +236,10 @@ const EX: &str = r#"The host's local offset for the current instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET nowSeconds AS Integer = datetime::toMillis(datetime::now()) / 1000
   LET off AS Integer = datetime::localOffset(nowSeconds)
-END SUB
+END FUNC
 ```
 
 Read the local offset at a fixed point on the timeline (the Unix epoch):
@@ -247,9 +247,9 @@ Read the local offset at a fixed point on the timeline (the Unix epoch):
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET off AS Integer = datetime::localOffset(0)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

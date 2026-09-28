@@ -48,12 +48,12 @@ const EX: &str = r#"Draw a light box near the top-left corner:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::drawBox(term::LineStyle.Light, 1, 2, 8, 20)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Frame the whole surface with a double-line border:
@@ -61,13 +61,13 @@ Frame the whole surface with a double-line border:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::drawBox(term::LineStyle.Double, 0, 0, size.rows - 1, size.columns - 1)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::draw_box` — delegates to the shared family-generic

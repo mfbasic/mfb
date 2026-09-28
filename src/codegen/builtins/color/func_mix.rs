@@ -36,11 +36,11 @@ const EX: &str = r#"The linear midpoint of black and white is not `#808080`:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET black AS color::Color = color::rgb(0, 0, 0)
   LET white AS color::Color = color::rgb(255, 255, 255)
   io::print(color::toHex(color::mix(black, white, 0.5)))
-END SUB
+END FUNC
 ```
 
 The endpoints return their operand exactly, alpha included:
@@ -49,12 +49,12 @@ The endpoints return their operand exactly, alpha included:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS color::Color = color::rgba(10, 20, 30, 40)
   LET b AS color::Color = color::rgba(200, 210, 220, 230)
   io::print(color::toHexAlpha(color::mix(a, b, 0.0)))
   io::print(color::toHexAlpha(color::mix(a, b, 1.0)))
-END SUB
+END FUNC
 ```"#;
 
 /// Colour channels lerp in linear light; alpha lerps on its raw value. Both

@@ -34,11 +34,11 @@ No errors.
 Post-test loop:
 
 ```
-SUB main()
+FUNC main() AS Nothing
   MUT work AS Integer = 0
   LET done AS Boolean = TRUE
   DO : work = work + 1 : LOOP UNTIL done
-END SUB
+END FUNC
 ```
 
 Pre-test loop:
@@ -46,10 +46,10 @@ Pre-test loop:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT ready AS Boolean = TRUE
   DO WHILE ready : io::print("tick") : ready = FALSE : LOOP
-END SUB
+END FUNC
 ```
 
 ## See also

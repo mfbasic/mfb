@@ -51,9 +51,9 @@ const EX: &str = r#"The perpendicular of the `+x` axis is the `+y` axis:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::perpendicular(vector::Float2[1.0, 0.0])))
-END SUB
+END FUNC
 ```
 
 Applying it twice negates the vector exactly:
@@ -62,10 +62,10 @@ Applying it twice negates the vector exactly:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET back AS vector::Integer2 = vector::perpendicular(vector::perpendicular(vector::Integer2[3, 4]))
   io::print(toString(back))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

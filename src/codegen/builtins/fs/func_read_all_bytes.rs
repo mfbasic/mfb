@@ -65,12 +65,12 @@ const EX: &str = r#"Read all remaining bytes from an open file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "first line\nsecond line\n")
   RES f = fs::openFile("data.bin")
   LET bytes AS List OF Byte = fs::readAllBytes(f)
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Skip the first line, then read the remaining bytes of the file:
@@ -78,12 +78,12 @@ Skip the first line, then read the remaining bytes of the file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "first line\nsecond line\n")
   RES f = fs::openFile("data.bin")
   LET header AS String = fs::readLine(f)
   LET body AS List OF Byte = fs::readAllBytes(f)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

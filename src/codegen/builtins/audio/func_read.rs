@@ -55,11 +55,11 @@ const EX: &str = r#"Poll for whatever whole frames are already buffered, without
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET now = audio::read(mic, 4800, 0)
   audio::close(mic)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

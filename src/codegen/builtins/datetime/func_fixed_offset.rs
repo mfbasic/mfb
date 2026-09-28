@@ -72,9 +72,9 @@ const EX: &str = r#"Build a zone five and a half hours behind UTC:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(-5, 30)
-END SUB
+END FUNC
 ```
 
 Build the same zone from a raw second count:
@@ -82,9 +82,9 @@ Build the same zone from a raw second count:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(-19800)
-END SUB
+END FUNC
 ```
 
 Project the current instant into a fixed `+09:00` zone:
@@ -92,10 +92,10 @@ Project the current instant into a fixed `+09:00` zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::now()
   LET local AS datetime::DateTime = datetime::inZone(t, datetime::fixedOffset(9, 0))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

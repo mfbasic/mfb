@@ -25,11 +25,11 @@ const EX: &str = r#"Make a colour half transparent without restating it:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET brand AS color::Color = color::rgb(0, 120, 200)
   LET wash AS color::Color = color::withAlpha(brand, 128)
   io::print(toString(brand.alpha) & " -> " & toString(wash.alpha))
-END SUB
+END FUNC
 ```
 
 The colour channels survive a round trip through full transparency:
@@ -38,12 +38,12 @@ The colour channels survive a round trip through full transparency:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET brand AS color::Color = color::rgb(0, 120, 200)
   LET hidden AS color::Color = color::withAlpha(brand, 0)
   LET back AS color::Color = color::withAlpha(hidden, 255)
   io::print(toString(back.red) & " " & toString(back.green) & " " & toString(back.blue))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

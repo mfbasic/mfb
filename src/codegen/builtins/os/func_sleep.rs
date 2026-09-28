@@ -57,10 +57,10 @@ const EX: &str = r#"Pause the main thread for a tenth of a second:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   os::sleep(100)
   io::print("awake")
-END SUB
+END FUNC
 ```
 
 Sleep inside a worker, treating cancellation as a normal shutdown. Cancelling a

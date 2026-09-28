@@ -37,11 +37,11 @@ const EX: &str = r#"Subtract a 500-millisecond span from a 90-second span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Duration = datetime::duration(90)
   LET b AS datetime::Duration = datetime::duration(0, 500_000_000)
   LET rest AS datetime::Duration = datetime::minus(a, b)
-END SUB
+END FUNC
 ```
 
 Measure the elapsed time between two monotonic readings:
@@ -49,11 +49,11 @@ Measure the elapsed time between two monotonic readings:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS datetime::Duration = datetime::monotonic()
   LET endTime AS datetime::Duration = datetime::monotonic()
   LET elapsed AS datetime::Duration = datetime::minus(endTime, start)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

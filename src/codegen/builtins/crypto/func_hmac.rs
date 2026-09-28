@@ -63,12 +63,12 @@ IMPORT strings
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET key AS List OF Byte = crypto::randomBytes(32)
   LET message AS List OF Byte = strings::toBytes("attack at dawn")
   LET mac AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, key, message)
   io::print(encoding::hexEncode(mac))
-END SUB
+END FUNC
 ```
 
 Verify a received MAC in constant time (the `String` overload hashes the UTF-8 bytes):
@@ -77,7 +77,7 @@ Verify a received MAC in constant time (the `String` overload hashes the UTF-8 b
 IMPORT crypto
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET key AS List OF Byte = crypto::randomBytes(64)
   LET received AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_512, key, "payload")
   IF crypto::constantTimeEqual(received, crypto::hmac(crypto::Hash.SHA2_512, key, "payload")) THEN
@@ -85,7 +85,7 @@ SUB main()
   ELSE
     io::print("tampered")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

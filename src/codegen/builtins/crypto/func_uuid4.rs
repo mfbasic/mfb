@@ -40,10 +40,10 @@ const EX: &str = r#"Generate a unique identifier:
 IMPORT crypto
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET id AS String = crypto::uuid4()
   io::print(id)
-END SUB
+END FUNC
 ```
 
 Each call yields a distinct value:
@@ -52,11 +52,11 @@ Each call yields a distinct value:
 IMPORT crypto
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS String = crypto::uuid4()
   LET b AS String = crypto::uuid4()
   io::print(toString(a <> b))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

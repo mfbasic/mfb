@@ -29,13 +29,13 @@ const DROPS_ITS_BINDING: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB install()
+FUNC install() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
   canvas::setGroup("held", [tag])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -181,10 +181,10 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB install(RES img AS canvas::Image)
+FUNC install(RES img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -229,10 +229,10 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB install(RES img AS canvas::Image)
+FUNC install(RES img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -389,10 +389,10 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-SUB install(RES img AS canvas::Image)
+FUNC install(RES img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -450,10 +450,10 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-SUB install(RES face AS canvas::Font)
+FUNC install(RES face AS canvas::Font) AS Nothing
   LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
   canvas::setGroup("panel", [tag])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -539,12 +539,12 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB cycle(n AS Integer)
+FUNC cycle(n AS Integer) AS Nothing
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("churn", [p])
-END SUB
+END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)

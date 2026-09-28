@@ -17,7 +17,7 @@ r#"' bug-507: a bounded lingering close after an EARLY rejection (408/413/431 â€
 ' delivered, while a client that keeps streaming cannot hold the loop. Never
 ' called after a complete request (there is nothing to drain and waiting for
 ' the client's EOF would add latency to every exchange).
-SUB __http_lingerTls(RES sock AS tls::Socket)
+FUNC __http_lingerTls(RES sock AS tls::Socket) AS Nothing
   tls::setReadTimeout(sock, 500)
   MUT remaining AS Integer = 4194304
   WHILE remaining > 0
@@ -31,7 +31,7 @@ SUB __http_lingerTls(RES sock AS tls::Socket)
       remaining = remaining - len(chunk)
     END IF
   END WHILE
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("http_lingerTls", BODY));

@@ -55,7 +55,7 @@ IMPORT crypto
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET key AS List OF Byte = crypto::randomBytes(32)
   LET message AS List OF Byte = strings::toBytes("payload")
   LET received AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, key, message)
@@ -65,7 +65,7 @@ SUB main()
   ELSE
     io::print("tampered")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

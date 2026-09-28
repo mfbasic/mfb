@@ -44,10 +44,10 @@ const EX: &str = r#"Add a caching directive to a text response:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp AS http::Response = http::withHeader(http::ok("pong"), "cache-control", "no-store")
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -62,11 +62,11 @@ Override the content type set by a constructor — note the lowercase name:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS http::Response = http::ok("<h1>hi</h1>")
   LET resp AS http::Response = http::withHeader(base, "content-type", "text/html; charset=utf-8")
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -81,12 +81,12 @@ Chain several headers:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT resp AS http::Response = http::json("{\"ok\":true}")
   resp = http::withHeader(resp, "x-request-id", "abc123")
   resp = http::withHeader(resp, "cache-control", "no-store")
   io::print(toString(resp.status) & " " & toString(len(resp.headers)) & " headers")
-END SUB
+END FUNC
 ```
 
 prints:

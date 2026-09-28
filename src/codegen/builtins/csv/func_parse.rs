@@ -50,9 +50,9 @@ const EX: &str = r#"Parse a two-column document with a quoted cell:
 ```
 IMPORT csv
 
-SUB main()
+FUNC main() AS Nothing
   LET doc AS List OF List OF String = csv::parse("name,age\nAda,36")
-END SUB
+END FUNC
 ```
 
 Pass the argument by name:
@@ -60,9 +60,9 @@ Pass the argument by name:
 ```
 IMPORT csv
 
-SUB main()
+FUNC main() AS Nothing
   LET rows AS List OF List OF String = csv::parse(text := "a,b,c")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

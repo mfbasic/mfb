@@ -27,11 +27,11 @@ const EX: &str = r#"The three signs:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(big::sign(big::fromInteger(-9))))
   io::print(toString(big::sign(big::fromInteger(0))))
   io::print(toString(big::sign(big::fromInteger(9))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

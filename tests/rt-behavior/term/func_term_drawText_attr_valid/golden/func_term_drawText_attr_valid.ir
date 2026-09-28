@@ -2600,7 +2600,7 @@
     "name": "#term_applyFg",
     "line": 93,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "packed", "line": 93, "type": "Integer", "default": null },
     { "name": "saved", "line": 93, "type": "color.Color", "default": null }
@@ -2624,7 +2624,7 @@
     "name": "#term_applyBg",
     "line": 101,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "packed", "line": 101, "type": "Integer", "default": null },
     { "name": "saved", "line": 101, "type": "color.Color", "default": null }
@@ -2648,7 +2648,7 @@
     "name": "#term_drawTextAttr",
     "line": 109,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "row", "line": 109, "type": "Integer", "default": null },
     { "name": "column", "line": 109, "type": "Integer", "default": null },

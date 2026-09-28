@@ -33,9 +33,9 @@ const EX: &str = r#"Capture the current instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::now()
-END SUB
+END FUNC
 ```
 
 Project the current instant into the local zone to read civil fields:
@@ -43,10 +43,10 @@ Project the current instant into the local zone to read civil fields:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::now()
   LET here AS datetime::DateTime = datetime::toLocal(t)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

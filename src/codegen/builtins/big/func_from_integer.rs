@@ -30,10 +30,10 @@ const EX: &str = r#"Round-trip a value through `big::Int`:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS big::Int = big::fromInteger(-42)
   io::print(toString(big::toInteger(x)))
-END SUB
+END FUNC
 ```
 
 Zero has an empty magnitude:
@@ -42,10 +42,10 @@ Zero has an empty magnitude:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET zero AS big::Int = big::fromInteger(0)
   io::print(toString(len(zero.magnitude)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

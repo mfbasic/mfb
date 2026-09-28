@@ -46,12 +46,12 @@ const EX: &str = r#"Close a TLS connection explicitly once the exchange is compl
 IMPORT encoding
 IMPORT tls
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("example.com", 443)
   tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET response = encoding::utf8Decode(tls::read(conn, 4096))
   tls::close(conn)
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

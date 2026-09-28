@@ -46,7 +46,7 @@ IMPORT strings
 ' One Win32 marshalling seam per mode. Every call's result is consumed and
 ' dropped, so the arena's live bytes at exit must not depend on how many calls
 ' ran.
-SUB once(which AS String, dir AS String)
+FUNC once(which AS String, dir AS String) AS Nothing
   IF which = "getEnvOr" THEN
     IF os::getEnvOr("PATH", "") = "" THEN io::print("no PATH")
   ELSEIF which = "getEnv" THEN
@@ -101,20 +101,20 @@ SUB once(which AS String, dir AS String)
   ELSE
     io::print("unknown mode " & which)
   END IF
-END SUB
+END FUNC
 
 ' The buffers are sized to what they carry, so check what they carry: a value
 ' or a name with 2-, 3- and 4-byte UTF-8 sequences survives every marshalling
 ' direction byte for byte.
-SUB check(label AS String, ok AS Boolean)
+FUNC check(label AS String, ok AS Boolean) AS Nothing
   IF ok THEN
     io::print("check " & label & " ok")
   ELSE
     io::print("check " & label & " FAILED")
   END IF
-END SUB
+END FUNC
 
-SUB values(dir AS String)
+FUNC values(dir AS String) AS Nothing
   LET v AS String = "h\u{E9}llo \u{4E16}\u{754C} \u{1F600}=x"
   os::setEnv("MFB_LEAK_VALUE", v)
   check("getEnv", os::getEnv("MFB_LEAK_VALUE") = v)
@@ -147,7 +147,7 @@ SUB values(dir AS String)
   LET args AS List OF String = os::args()
   check("args", len(args) = 2 AND collections::get(args, 0) = "plain" AND collections::get(args, 1) = v)
   check("executablePath", strings::endsWith(os::executablePath(), "\\winleak.exe"))
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   LET which AS String = os::getEnvOr("W", "none")

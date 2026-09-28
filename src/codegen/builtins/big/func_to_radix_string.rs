@@ -29,10 +29,10 @@ const EX: &str = r#"Hexadecimal and binary:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(big::toRadixString(big::fromInteger(255), 16))
   io::print(big::toRadixString(big::fromInteger(-5), 2))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

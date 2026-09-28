@@ -29,10 +29,10 @@ might be empty."#;
 const EX: &str = r#"```
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello world")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::bold())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

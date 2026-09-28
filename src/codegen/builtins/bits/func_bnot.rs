@@ -25,10 +25,10 @@ const EX: &str = r#"Invert every bit of a value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::bnot(255)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Clear the low byte by ANDing with an inverted mask:
@@ -37,11 +37,11 @@ Clear the low byte by ANDing with an inverted mask:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET value AS Integer = 0x1234
   LET highOnly AS Integer = bits::band(value, bits::bnot(255))
   io::print(toString(highOnly))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

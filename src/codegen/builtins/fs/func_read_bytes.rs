@@ -61,10 +61,10 @@ const EX: &str = r#"Read a binary file into a byte list:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("data.bin")
-END SUB
+END FUNC
 ```
 
 Report the size of a file in bytes:
@@ -73,11 +73,11 @@ Report the size of a file in bytes:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("image.png", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("image.png")
   io::print("size: " & toString(len(bytes)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

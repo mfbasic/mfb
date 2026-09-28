@@ -1760,12 +1760,12 @@ const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
   LET msg AS List OF Byte = strings::toBytes("attack at dawn")
   LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)
   LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

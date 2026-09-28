@@ -72,10 +72,10 @@ const EX: &str = r#"Round-trip a signed value through `sleb128Encode` and back:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::sleb128Encode(-123456)
   io::print(toString(encoding::sleb128Decode(bytes)))
-END SUB
+END FUNC
 ```
 
 Decode a single terminating byte whose `0x40` sign bit is set (`-2` = `[0x7E]`):
@@ -85,11 +85,11 @@ IMPORT encoding
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT bytes AS List OF Byte = []
   bytes = collections::append(bytes, toByte(126))
   io::print(toString(encoding::sleb128Decode(bytes)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

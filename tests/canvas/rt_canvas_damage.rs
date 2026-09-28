@@ -99,7 +99,7 @@ IMPORT canvas
 IMPORT color
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
   LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
@@ -109,7 +109,7 @@ SUB main()
   os::sleep(150)
   canvas::present([box, dot])
   os::sleep(150)
-END SUB
+END FUNC
 "#;
 
 /// The same scene, except that the second present moves the circle a long way.
@@ -118,7 +118,7 @@ IMPORT canvas
 IMPORT color
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
   LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
@@ -127,7 +127,7 @@ SUB main()
   os::sleep(150)
   canvas::present([box, moved])
   os::sleep(150)
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -239,7 +239,7 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(200, 40, 40))]
   canvas::present([box])
@@ -258,7 +258,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("resizes:" & toString(seen))
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -316,7 +316,7 @@ const GROUP_REPLACED: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET far AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(200, 40, 40))]
   LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
@@ -326,7 +326,7 @@ SUB main()
   canvas::present([far, node])
   canvas::setGroup("panel", [b])
   canvas::present([far, node])
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -391,7 +391,7 @@ const GROUP_MOVED: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::setGroup("panel", [a])
@@ -399,7 +399,7 @@ SUB main()
   LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]
   canvas::present([here])
   canvas::present([there])
-END SUB
+END FUNC
 "#;
 
 #[test]

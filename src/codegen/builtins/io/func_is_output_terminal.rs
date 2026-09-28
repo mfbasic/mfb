@@ -39,13 +39,13 @@ const EX: &str = r#"Colour the output only when a terminal is attached:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF io::isOutputTerminal() THEN
     io::print("\u{1b}[32mStatus: OK\u{1b}[0m")
   ELSE
     io::print("Status: OK")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

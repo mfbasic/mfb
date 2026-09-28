@@ -307,10 +307,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// runs when the cache crosses its budget, not per glyph or per frame.
 #[rustfmt::skip]
 const GLYPH_EVICT: &str =
-r#"SUB __canvas_glyphEvict()
+r#"FUNC __canvas_glyphEvict() AS Nothing
   LET count AS Integer = len(__CANVAS_GLYPH_KEYS)
   IF count = 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   __CANVAS_GLYPH_EVICTIONS = __CANVAS_GLYPH_EVICTIONS + 1
 
@@ -468,4 +468,4 @@ r#"SUB __canvas_glyphEvict()
     q = q + 1
   END WHILE
   __CANVAS_GLYPH_PINS = pins
-END SUB"#;
+END FUNC"#;

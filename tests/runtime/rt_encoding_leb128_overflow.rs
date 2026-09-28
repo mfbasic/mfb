@@ -118,8 +118,8 @@ FUNC onevarintDecode(data AS List OF Byte) AS String
   END TRAP
 END FUNC
 
-SUB main()
-{body}END SUB
+FUNC main() AS Nothing
+{body}END FUNC
 "#
     );
     let project = common::temp_project(name, &source);

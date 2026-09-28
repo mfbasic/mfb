@@ -30,7 +30,7 @@ const EX: &str = r#"```
 IMPORT astrings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello world")
   MUT b AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::bold())
   FOR EACH attr IN astrings::getAttributes(b, 2)
@@ -40,7 +40,7 @@ SUB main()
       CASE ELSE
     END MATCH
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

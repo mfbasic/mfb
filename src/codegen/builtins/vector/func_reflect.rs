@@ -48,9 +48,9 @@ const EX: &str = r#"Bounce a downward-moving vector off a floor whose normal is 
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::reflect(vector::Float2[1.0, 0.0 - 1.0], vector::Float2[0.0, 1.0])))
-END SUB
+END FUNC
 ```
 
 Normalize the surface normal first when it is not already a unit vector:
@@ -59,10 +59,10 @@ Normalize the surface normal first when it is not already a unit vector:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET n AS vector::Float3 = vector::normalize(vector::Float3[0.0, 3.0, 4.0])
   io::print(toString(vector::reflect(vector::Float3[1.0, 0.0 - 1.0, 0.0], n)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

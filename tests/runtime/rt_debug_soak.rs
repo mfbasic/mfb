@@ -191,7 +191,7 @@ fn a_flat_split_loop_keeps_live_bytes_constant() {
             fs::write(
             project.join("src/main.mfb"),
             format!(
-                "IMPORT fs\nIMPORT io\nIMPORT strings\n\nSUB main()\n  LET text AS String = fs::readText(\"{}\")\n  MUT parts AS Integer = 0\n  FOR i = 1 TO {n}\n    LET l AS List OF String = strings::split(text, \",\")\n    parts = len(l)\n  NEXT\n  io::print(toString(parts))\nEND SUB\n",
+                "IMPORT fs\nIMPORT io\nIMPORT strings\n\nFUNC main() AS Nothing\n  LET text AS String = fs::readText(\"{}\")\n  MUT parts AS Integer = 0\n  FOR i = 1 TO {n}\n    LET l AS List OF String = strings::split(text, \",\")\n    parts = len(l)\n  NEXT\n  io::print(toString(parts))\nEND FUNC\n",
                 common::mfb_path_literal(&input)
             ),
         )
@@ -216,7 +216,7 @@ fn a_json_parse_loop_keeps_live_bytes_constant() {
             fs::write(
             project.join("src/main.mfb"),
             format!(
-                "IMPORT fs\nIMPORT io\nIMPORT json\n\nSUB main()\n  LET text AS String = fs::readText(\"{}\")\n  FOR i = 1 TO {n}\n    LET doc AS json::Json = json::parse(text)\n  NEXT\n  io::print(\"done\")\nEND SUB\n",
+                "IMPORT fs\nIMPORT io\nIMPORT json\n\nFUNC main() AS Nothing\n  LET text AS String = fs::readText(\"{}\")\n  FOR i = 1 TO {n}\n    LET doc AS json::Json = json::parse(text)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n",
                 common::mfb_path_literal(&input)
             ),
         )
@@ -240,7 +240,7 @@ fn a_dom_parse_loop_keeps_live_bytes_constant() {
             browser_project(
             "soak_dom_parse",
             &format!(
-                "IMPORT dom\nIMPORT fs\nIMPORT io\n\nSUB main()\n  LET html AS String = fs::readText(\"{}\")\n  FOR i = 1 TO {n}\n    LET d AS dom::Node = dom::parse(html)\n  NEXT\n  io::print(\"done\")\nEND SUB\n",
+                "IMPORT dom\nIMPORT fs\nIMPORT io\n\nFUNC main() AS Nothing\n  LET html AS String = fs::readText(\"{}\")\n  FOR i = 1 TO {n}\n    LET d AS dom::Node = dom::parse(html)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n",
                 common::mfb_path_literal(&html)
             ),
             &["dom"],
@@ -280,7 +280,7 @@ fn a_resolve_styles_loop_keeps_live_bytes_constant() {
             fs::write(
             project.join("src/main.mfb"),
             format!(
-                "IMPORT dom\nIMPORT fs\nIMPORT io\n\nSUB main()\n  LET d AS dom::Node = dom::parse(fs::readText(\"{}\"))\n  FOR i = 1 TO {n}\n    LET r AS dom::Node = dom::resolveStyles(d)\n  NEXT\n  io::print(\"done\")\nEND SUB\n",
+                "IMPORT dom\nIMPORT fs\nIMPORT io\n\nFUNC main() AS Nothing\n  LET d AS dom::Node = dom::parse(fs::readText(\"{}\"))\n  FOR i = 1 TO {n}\n    LET r AS dom::Node = dom::resolveStyles(d)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n",
                 common::mfb_path_literal(&input)
             ),
         )
@@ -303,7 +303,7 @@ fn a_paint_loop_keeps_live_bytes_constant() {
             browser_project(
             "soak_paint",
             &format!(
-                "IMPORT display\nIMPORT dom\nIMPORT io\n\nSUB main()\n  LET d AS dom::Node = dom::indexFields(dom::resolveStyles(dom::parse(\"<div><p>hello <b>world</b> and <a href='/x'>a link</a></p><ul><li>one</li><li>two</li></ul></div>\")))\n  MUT rows AS Integer = 0\n  FOR i = 1 TO {n}\n    LET pr AS display::PaintResult = display::paint(d, 120, 8, 16)\n    rows = len(pr.rows)\n  NEXT\n  io::print(toString(rows))\nEND SUB\n"
+                "IMPORT display\nIMPORT dom\nIMPORT io\n\nFUNC main() AS Nothing\n  LET d AS dom::Node = dom::indexFields(dom::resolveStyles(dom::parse(\"<div><p>hello <b>world</b> and <a href='/x'>a link</a></p><ul><li>one</li><li>two</li></ul></div>\")))\n  MUT rows AS Integer = 0\n  FOR i = 1 TO {n}\n    LET pr AS display::PaintResult = display::paint(d, 120, 8, 16)\n    rows = len(pr.rows)\n  NEXT\n  io::print(toString(rows))\nEND FUNC\n"
             ),
             &["dom", "display"],
         )
@@ -317,7 +317,7 @@ fn a_paint_loop_keeps_live_bytes_constant() {
 fn a_thread_copy_back_loop_keeps_live_bytes_constant() {
     let source = |n: u64| {
         format!(
-            "IMPORT io\nIMPORT thread\n\nTYPE SoakEl\n  tag AS String\n  kids AS List OF SoakNode\nEND TYPE\n\nTYPE SoakText\n  text AS String\nEND TYPE\n\nUNION SoakNode\n  SoakEl\n  SoakText\nEND UNION\n\nTYPE SoakResult\n  ok AS Boolean\n  document AS SoakNode\n  title AS String\nEND TYPE\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO SoakResult, seed AS String) AS SoakResult\n  LET leaf AS SoakNode = SoakText[seed & \"!\"]\n  LET root AS SoakNode = SoakEl[\"div\", [leaf, leaf]]\n  RETURN SoakResult[TRUE, root, seed & \"?\"]\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES t AS Thread OF String TO SoakResult = thread::start(work, \"abc\")\n    LET r AS SoakResult = thread::waitFor(t)\n    total = total + len(r.title)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+            "IMPORT io\nIMPORT thread\n\nTYPE SoakEl\n  tag AS String\n  kids AS List OF SoakNode\nEND TYPE\n\nTYPE SoakText\n  text AS String\nEND TYPE\n\nUNION SoakNode\n  SoakEl\n  SoakText\nEND UNION\n\nTYPE SoakResult\n  ok AS Boolean\n  document AS SoakNode\n  title AS String\nEND TYPE\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO SoakResult, seed AS String) AS SoakResult\n  LET leaf AS SoakNode = SoakText[seed & \"!\"]\n  LET root AS SoakNode = SoakEl[\"div\", [leaf, leaf]]\n  RETURN SoakResult[TRUE, root, seed & \"?\"]\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES t AS Thread OF String TO SoakResult = thread::start(work, \"abc\")\n    LET r AS SoakResult = thread::waitFor(t)\n    total = total + len(r.title)\n  NEXT\n  io::print(toString(total))\nEND FUNC\n"
         )
     };
     // 7,424 B per thread measured, so 400 extra threads grow ~3 MB, past FLAT_BOUND.
@@ -360,7 +360,7 @@ fn an_http_read_loop_keeps_live_bytes_constant() {
         let project = common::temp_project(
             "soak_http",
             &format!(
-                "IMPORT http\nIMPORT io\nIMPORT net\n\nSUB main()\n  MUT bytes AS Integer = 0\n  FOR i = 1 TO {n}\n    LET resp AS http::Response = http::read(net::toUrl(\"http://127.0.0.1:{port}/sheet.css\"))\n    bytes = len(resp.body)\n  NEXT\n  io::print(toString(bytes))\nEND SUB\n"
+                "IMPORT http\nIMPORT io\nIMPORT net\n\nFUNC main() AS Nothing\n  MUT bytes AS Integer = 0\n  FOR i = 1 TO {n}\n    LET resp AS http::Response = http::read(net::toUrl(\"http://127.0.0.1:{port}/sheet.css\"))\n    bytes = len(resp.body)\n  NEXT\n  io::print(toString(bytes))\nEND FUNC\n"
             ),
         );
         main_live_bytes(&format!("soak_http_{n}"), &project)
@@ -406,7 +406,7 @@ fn a_tcp_read_loop_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_tcp_read",
                 &format!(
-                    "IMPORT io\nIMPORT tcp\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    LET got AS List OF Byte = tcp::read(c, 65536)\n    total = total + len(got)\n    tcp::close(c)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+                    "IMPORT io\nIMPORT tcp\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    LET got AS List OF Byte = tcp::read(c, 65536)\n    total = total + len(got)\n    tcp::close(c)\n  NEXT\n  io::print(toString(total))\nEND FUNC\n"
                 ),
             )
         },
@@ -428,7 +428,7 @@ fn a_tcp_connect_close_loop_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_tcp_close",
                 &format!(
-                    "IMPORT io\nIMPORT tcp\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    tcp::close(c)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                    "IMPORT io\nIMPORT tcp\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES c AS tcp::Socket = tcp::connect(\"127.0.0.1\", {port})\n    tcp::close(c)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n"
                 ),
             )
         },
@@ -449,7 +449,7 @@ fn a_udp_bind_close_loop_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_udp_close",
                 &format!(
-                    "IMPORT io\nIMPORT udp\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    udp::close(s)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                    "IMPORT io\nIMPORT udp\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    udp::close(s)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n"
                 ),
             )
         },
@@ -552,7 +552,7 @@ fn a_tls_connect_close_loop_keeps_live_bytes_constant() {
         let project = common::temp_project(
             "soak_tls_close",
             &format!(
-                "IMPORT io\nIMPORT tls\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    tls::close(conn)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                "IMPORT io\nIMPORT tls\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    tls::close(conn)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n"
             ),
         );
         main_live_bytes(&format!("soak_tls_close_{n}"), &project)
@@ -576,7 +576,7 @@ fn astrings_project(case: &str, n: u64, decls: &str, body: &str) -> PathBuf {
     common::temp_project(
         case,
         &format!(
-            "IMPORT io\nIMPORT astrings\nIMPORT collections\n\n{decls}\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{body}\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+            "IMPORT io\nIMPORT astrings\nIMPORT collections\n\n{decls}\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{body}\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n"
         ),
     )
 }
@@ -677,7 +677,7 @@ fn a_defaulted_record_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_default_record",
                 &format!(
-                    "IMPORT io\n\nTYPE Rec\n  name AS String\n  items AS List OF Integer\nEND TYPE\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT r AS Rec\n    total = total + len(r.items) + len(r.name) + 1\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+                    "IMPORT io\n\nTYPE Rec\n  name AS String\n  items AS List OF Integer\nEND TYPE\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT r AS Rec\n    total = total + len(r.items) + len(r.name) + 1\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n"
                 ),
             )
         },
@@ -697,7 +697,7 @@ fn crypto_generate_project(case: &str, n: u64, variants: &[&str]) -> PathBuf {
     common::temp_project(
         case,
         &format!(
-            "IMPORT io\nIMPORT crypto\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{calls}  NEXT\n  io::print(toString(total))\nEND SUB\n"
+            "IMPORT io\nIMPORT crypto\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n{calls}  NEXT\n  io::print(toString(total))\nEND FUNC\n"
         ),
     )
 }
@@ -747,7 +747,7 @@ fn an_http_read_loop_leaves_no_block_behind() {
         let project = common::temp_project(
             "soak_http_exact",
             &format!(
-                "IMPORT http\nIMPORT io\nIMPORT net\n\nSUB main()\n  MUT bytes AS Integer = 0\n  FOR i = 1 TO {n}\n    LET resp AS http::Response = http::read(net::toUrl(\"http://127.0.0.1:{port}/sheet.css\"))\n    bytes = len(resp.body)\n  NEXT\n  io::print(toString(bytes))\nEND SUB\n"
+                "IMPORT http\nIMPORT io\nIMPORT net\n\nFUNC main() AS Nothing\n  MUT bytes AS Integer = 0\n  FOR i = 1 TO {n}\n    LET resp AS http::Response = http::read(net::toUrl(\"http://127.0.0.1:{port}/sheet.css\"))\n    bytes = len(resp.body)\n  NEXT\n  io::print(toString(bytes))\nEND FUNC\n"
             ),
         );
         main_live_bytes(&format!("soak_http_exact_{n}"), &project)
@@ -776,7 +776,7 @@ fn a_resource_union_bound_from_a_producer_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_union_direct",
                 &format!(
-                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n"
                 ),
             )
         },
@@ -797,7 +797,7 @@ fn a_resource_union_aliasing_a_binding_keeps_live_bytes_constant() {
             common::temp_project(
                 "soak_union_alias",
                 &format!(
-                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES c AS Chan = u\n  NEXT\n  io::print(\"done\")\nEND SUB\n"
+                    "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES c AS Chan = u\n  NEXT\n  io::print(\"done\")\nEND FUNC\n"
                 ),
             )
         },
@@ -833,7 +833,7 @@ fn debug_run(case: &str, source: &str, n: u64) -> (String, (u64, u64, u64, u64))
 /// pass: `free_calls` 752 against `alloc_calls` 600 and `double_free_skips` 152 at N=300.
 #[test]
 fn a_resource_passed_through_a_function_is_freed_once() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC passthru(RES u AS udp::Socket) AS RES udp::Socket\n  RETURN u\nEND FUNC\n\nSUB main()\n  FOR i = 1 TO {n}\n    RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES b AS udp::Socket = passthru(a)\n  NEXT\n  io::print(\"done\")\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC passthru(RES u AS udp::Socket) AS RES udp::Socket\n  RETURN u\nEND FUNC\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES b AS udp::Socket = passthru(a)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n";
     for n in [300u64, 600] {
         let (_, (allocs, frees, _, skips)) = debug_run("res_passthru", SOURCE, n);
         assert!(
@@ -856,7 +856,7 @@ fn a_resource_passed_through_a_function_is_freed_once() {
 /// callee's scope drop closed (and now freed) the record the union still pointed at.
 #[test]
 fn a_returned_union_wrapping_an_owned_local_stays_open_in_the_caller() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC open() AS RES Chan\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES c AS Chan = u\n  RETURN c\nEND FUNC\n\nFUNC portOf(RES c AS Chan) AS Integer\n  MUT port AS Integer = -1\n  MATCH c\n    CASE udp::Socket(s)\n      LET a AS net::Address = udp::localAddress(s)\n      port = a.port\n    CASE fs::File(f)\n      port = -2\n  END MATCH\n  RETURN port\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan = open()\n    IF portOf(c) > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC open() AS RES Chan\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES c AS Chan = u\n  RETURN c\nEND FUNC\n\nFUNC portOf(RES c AS Chan) AS Integer\n  MUT port AS Integer = -1\n  MATCH c\n    CASE udp::Socket(s)\n      LET a AS net::Address = udp::localAddress(s)\n      port = a.port\n    CASE fs::File(f)\n      port = -2\n  END MATCH\n  RETURN port\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan = open()\n    IF portOf(c) > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     let (stdout_small, (_, _, at_small, skips_small)) = debug_run("ret_union_owned", SOURCE, 50);
     let (stdout_large, (_, _, at_large, skips_large)) = debug_run("ret_union_owned", SOURCE, 100);
     assert!(
@@ -878,7 +878,7 @@ fn a_returned_union_wrapping_an_owned_local_stays_open_in_the_caller() {
 /// registered its own close. `udp::localAddress(u)` afterwards raised `7-703-0004`.
 #[test]
 fn a_union_alias_in_an_inner_scope_leaves_the_outer_handle_open() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    MUT flag AS Boolean = 1 > 0\n    IF flag THEN\n      RES c AS Chan = u\n    END IF\n    LET a AS net::Address = udp::localAddress(u)\n    IF a.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    MUT flag AS Boolean = 1 > 0\n    IF flag THEN\n      RES c AS Chan = u\n    END IF\n    LET a AS net::Address = udp::localAddress(u)\n    IF a.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     let (stdout_small, (_, _, at_small, skips_small)) = debug_run("union_scope_alias", SOURCE, 50);
     let (stdout_large, (_, _, at_large, skips_large)) = debug_run("union_scope_alias", SOURCE, 100);
     assert!(
@@ -915,7 +915,7 @@ fn a_tls_socket_closed_on_another_thread_keeps_live_bytes_constant() {
         let project = common::temp_project(
             "soak_tls_xfer_close",
             &format!(
-                "IMPORT io\nIMPORT tls\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  tls::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    RES a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(toString(total))\nEND SUB\n"
+                "IMPORT io\nIMPORT tls\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES tls::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS tls::Socket = thread::accept(t, 20000)\n  tls::close(s)\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c = tls::connect(\"127.0.0.1\", {port}, 5000, \"localhost\", allowSelfSigned := TRUE)\n    RES a AS Thread OF RES tls::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(toString(total))\nEND FUNC\n"
             ),
         );
         main_live_bytes(&format!("soak_tls_xfer_close_{n}"), &project)
@@ -968,7 +968,7 @@ fn run_with_fd_limit(exe: &Path, limit: u64) -> (bool, String) {
 /// and `live_bytes` grew 96 B per two calls.
 #[test]
 fn a_resource_not_returned_on_a_sibling_path_is_still_closed() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC pick(give AS Boolean) AS RES udp::Socket\n  RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES b AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  IF give THEN\n    RETURN a\n  END IF\n  RETURN b\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = pick((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC pick(give AS Boolean) AS RES udp::Socket\n  RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES b AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  IF give THEN\n    RETURN a\n  END IF\n  RETURN b\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = pick((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     let project = common::temp_project("ret_sibling", &SOURCE.replace("{n}", "600"));
     let exe = build_debug_project("ret_sibling_600", &project);
     let (ok, output) = run_with_fd_limit(&exe, 128);
@@ -1034,7 +1034,7 @@ fn assert_block_flat(case: &str, source: &str, small: u64, large: u64, expect: &
 /// default, and the loop is flat. `tcp::listen` works around bug-642.
 #[test]
 fn a_trap_bound_resource_union_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT tcp\n\nUNION Chan\n  udp::Socket\n  tcp::Socket\nEND UNION\n\nFUNC openOr(bad AS Boolean) AS Integer\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES c AS Chan = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  RES keep AS tcp::Listener = tcp::listen(\"127.0.0.1\", 0)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + openOr(i MOD 2 = 0)\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT tcp\n\nUNION Chan\n  udp::Socket\n  tcp::Socket\nEND UNION\n\nFUNC openOr(bad AS Boolean) AS Integer\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES c AS Chan = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  RES keep AS tcp::Listener = tcp::listen(\"127.0.0.1\", 0)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + openOr(i MOD 2 = 0)\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b643_union_trap",
         SOURCE,
@@ -1051,7 +1051,7 @@ fn a_trap_bound_resource_union_keeps_live_bytes_constant() {
 /// `live_bytes 19200`.
 #[test]
 fn a_trap_bound_concrete_resource_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC risky(bad AS Boolean) AS RES udp::Socket\n  RES keep AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES spare AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES tried AS udp::Socket = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN spare\n  END TRAP\n  IF port = 0 THEN\n    RETURN keep\n  END IF\n  RETURN tried\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = risky((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\n\nFUNC risky(bad AS Boolean) AS RES udp::Socket\n  RES keep AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES spare AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT port AS Integer = 0\n  IF bad THEN\n    port = -1\n  END IF\n  RES tried AS udp::Socket = udp::bind(\"127.0.0.1\", port) TRAP(e)\n    RETURN spare\n  END TRAP\n  IF port = 0 THEN\n    RETURN keep\n  END IF\n  RETURN tried\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES s AS udp::Socket = risky((i MOD 2) = 0)\n    LET addr AS net::Address = udp::localAddress(s)\n    IF addr.port > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b643_concrete_trap",
         SOURCE,
@@ -1076,7 +1076,7 @@ fn a_trap_bound_concrete_resource_keeps_live_bytes_constant() {
 /// reclaims the default record twice, or reclaims one the binding still holds.
 #[test]
 fn a_trap_bind_whose_producer_fails_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC f(host AS String) AS Integer\n  RES c AS udp::Socket = udp::bind(host, 0) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + f(\"300.0.0.1\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC f(host AS String) AS Integer\n  RES c AS udp::Socket = udp::bind(host, 0) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + f(\"300.0.0.1\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b643_trap_fires",
         SOURCE,
@@ -1098,7 +1098,7 @@ fn a_trap_bind_whose_producer_fails_keeps_live_bytes_constant() {
 /// pins that the element stays open; this pins the bytes.
 #[test]
 fn a_trapped_borrowed_get_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, u)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES g AS udp::Socket = collections::get(socks, 0) TRAP(e)\n      EXIT SUB\n    END TRAP\n    ok = ok + 1\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nFUNC main() AS Nothing\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, u)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES g AS udp::Socket = collections::get(socks, 0) TRAP(e)\n      RETURN\n    END TRAP\n    ok = ok + 1\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b648_get_trap",
         SOURCE,
@@ -1115,7 +1115,7 @@ fn a_trapped_borrowed_get_keeps_live_bytes_constant() {
 /// the drop). The first cut measured 192 B per iteration on the recovering path alone.
 #[test]
 fn a_trapped_borrowed_poll_with_an_owned_recover_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  RES r AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  LET at AS net::Address = udp::localAddress(r)\n  RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, r)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT wait AS Integer = 0\n    IF i MOD 2 = 1 THEN\n      udp::send(s, at, \"p\")\n      wait = 5000\n    END IF\n    MUT recovered AS Boolean = FALSE\n    RES p AS udp::Socket = udp::poll(socks, wait) TRAP(e)\n      recovered = TRUE\n      RECOVER udp::bind(\"127.0.0.1\", 0)\n    END TRAP\n    IF recovered = FALSE THEN\n      LET got = udp::receive(p, 16)\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT collections\n\nFUNC main() AS Nothing\n  RES r AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  LET at AS net::Address = udp::localAddress(r)\n  RES s AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  MUT socks AS List OF RES udp::Socket = []\n  socks = collections::append(socks, r)\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT wait AS Integer = 0\n    IF i MOD 2 = 1 THEN\n      udp::send(s, at, \"p\")\n      wait = 5000\n    END IF\n    MUT recovered AS Boolean = FALSE\n    RES p AS udp::Socket = udp::poll(socks, wait) TRAP(e)\n      recovered = TRUE\n      RECOVER udp::bind(\"127.0.0.1\", 0)\n    END TRAP\n    IF recovered = FALSE THEN\n      LET got = udp::receive(p, 16)\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b648_poll_recover_trap",
         SOURCE,
@@ -1141,7 +1141,7 @@ fn a_trapped_borrowed_poll_with_an_owned_recover_keeps_live_bytes_constant() {
 /// republishes it through `RESOURCE_OFFSET_STATE` without reclaiming the block it replaced.
 #[test]
 fn a_stateful_resource_union_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b644_union_state",
         SOURCE,
@@ -1160,7 +1160,7 @@ fn a_stateful_resource_union_keeps_live_bytes_constant() {
 /// fix that only reaches the union path leaves this red.
 #[test]
 fn a_stateful_concrete_resource_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    c.state.note = \"seen\"\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b644_concrete_state",
         SOURCE,
@@ -1178,7 +1178,7 @@ fn a_stateful_concrete_resource_keeps_live_bytes_constant() {
 /// `RESOURCE_OFFSET_STATE`, which would be a use-after-free, not a leak.
 #[test]
 fn an_in_place_state_scalar_update_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nTYPE Cur\n  hits AS Integer\n  note AS String\nEND TYPE\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan STATE Cur = udp::bind(\"127.0.0.1\", 0)\n    c.state.hits = c.state.hits + 1\n    ok = ok + c.state.hits\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b644_state_inplace",
         SOURCE,
@@ -1196,7 +1196,7 @@ fn an_in_place_state_scalar_update_keeps_live_bytes_constant() {
 /// 10 blocks per outer iteration over 3 elements, `double_free_skips 0`.
 #[test]
 fn an_owned_list_of_resource_unions_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\nIMPORT collections\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES Chan = []\n    FOR j = 1 TO 3\n      RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT fs\nIMPORT collections\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES Chan = []\n    FOR j = 1 TO 3\n      RES c AS Chan = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b645_union_list",
         SOURCE,
@@ -1215,7 +1215,7 @@ fn an_owned_list_of_resource_unions_keeps_live_bytes_constant() {
 /// kind — the union only adds its box and variant record on top.
 #[test]
 fn an_owned_list_of_concrete_resources_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES udp::Socket = []\n    FOR j = 1 TO 3\n      RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT chans AS List OF RES udp::Socket = []\n    FOR j = 1 TO 3\n      RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n      chans = collections::append(chans, c)\n    NEXT\n    total = total + len(chans)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b645_concrete_list",
         SOURCE,
@@ -1237,7 +1237,7 @@ fn an_owned_list_of_concrete_resources_keeps_live_bytes_constant() {
 /// test written to the doc's counts cannot fail. 100/200 grows 9600 B (measured).
 #[test]
 fn a_thread_resource_transfer_loop_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES a AS Thread OF RES udp::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES a AS Thread OF RES udp::Socket TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b646_transfer",
         SOURCE,
@@ -1255,7 +1255,7 @@ fn a_thread_resource_transfer_loop_keeps_live_bytes_constant() {
 /// queued copy — the bug doc's 64 B was an unverified estimate.
 #[test]
 fn a_thread_string_send_loop_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"hello-world\")\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"hello-world\")\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b646_send",
         SOURCE,
@@ -1276,7 +1276,7 @@ fn a_thread_string_send_loop_keeps_live_bytes_constant() {
 /// isolates this from bug-646's queued copy.
 #[test]
 fn a_thread_send_of_a_computed_message_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"message-\" & toString(i MOD 10))\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  LET m AS String = thread::receive(t, 20000)\n  RETURN len(m)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES a AS Thread OF String TO Integer = thread::start(worker, 0)\n    thread::send(a, \"message-\" & toString(i MOD 10))\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b629_send_computed",
         SOURCE,
@@ -1294,7 +1294,7 @@ fn a_thread_send_of_a_computed_message_keeps_live_bytes_constant() {
 /// 400/800 so the 6400 B growth clears [`BLOCK_BOUND`].
 #[test]
 fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  RES t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC worker(w AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer\n  MUT k AS Integer = 0\n  WHILE k < {n}\n    thread::send(w, \"reply-\" & toString(k MOD 10))\n    k = k + 1\n  END WHILE\n  RETURN k\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  RES t AS Thread OF String TO Integer = thread::start(worker, 0)\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET m AS String = thread::receive(t, 20000)\n    total = total + len(m)\n    i = i + 1\n  END WHILE\n  total = total + thread::waitFor(t)\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     let at = |n: u64| -> (String, u64, u64) {
         let name = format!("b629_emit_computed_{n}");
         let project =
@@ -1340,7 +1340,7 @@ fn a_worker_send_of_a_computed_message_keeps_live_bytes_constant() {
 /// source string.
 #[test]
 fn an_fs_file_binding_frees_its_resource_record() {
-    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path)\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b647_plain",
         SOURCE,
@@ -1359,7 +1359,7 @@ fn an_fs_file_binding_frees_its_resource_record() {
 /// which is what identifies the second block as another whole record.
 #[test]
 fn an_fs_file_bound_through_an_inline_trap_frees_both_records() {
-    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT fs\n\nFUNC readOne(path AS String) AS Integer\n  RES f AS fs::File = fs::openFile(path) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    ok = ok + readOne(\"/etc/hosts\")\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     assert_block_flat(
         "b647_trap",
         SOURCE,
@@ -1379,7 +1379,7 @@ fn an_fs_file_bound_through_an_inline_trap_frees_both_records() {
 /// `free_calls 2` against `alloc_calls 102`/`202` — one block per iteration, never freed.
 #[test]
 fn an_unfloated_list_of_res_frees_its_collection_block() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT xs AS List OF RES udp::Socket = []\n    total = total + len(xs)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT collections\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    MUT xs AS List OF RES udp::Socket = []\n    total = total + len(xs)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b651_unfloated",
         SOURCE,
@@ -1406,7 +1406,7 @@ fn an_unfloated_list_of_res_frees_its_collection_block() {
 /// uses.
 #[test]
 fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  MUT n AS Integer = 0\n  WHILE n < 100\n    thread::send(w, \"ack\")\n    n = n + 1\n  END WHILE\n  RETURN n\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC drain(t AS Thread OF String TO Integer) AS Integer\n  LET v AS Integer = thread::waitFor(t)\n  RETURN v\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 1)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    thread::cancel(t)\n    total = total + drain(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  MUT n AS Integer = 0\n  WHILE n < 100\n    thread::send(w, \"ack\")\n    n = n + 1\n  END WHILE\n  RETURN n\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC drain(t AS Thread OF String TO Integer) AS Integer\n  LET v AS Integer = thread::waitFor(t)\n  RETURN v\n  TRAP(e)\n    RETURN 0\nEND TRAP\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 8, 1)\n    thread::send(t, \"message-one\")\n    thread::send(t, \"message-two\")\n    thread::send(t, \"message-three\")\n    thread::send(t, \"message-four\")\n    thread::cancel(t)\n    total = total + drain(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b650_unread",
         SOURCE,
@@ -1426,7 +1426,7 @@ fn an_undelivered_queued_message_is_freed_when_the_thread_is_released() {
 /// `Cursor`).
 #[test]
 fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nTYPE Cursor\n  pos AS Integer\nEND TYPE\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket STATE Cursor TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket STATE Cursor = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cursor = udp::bind(\"127.0.0.1\", 0)\n    c.state.pos = i\n    RES a AS Thread OF RES udp::Socket STATE Cursor TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\nIMPORT thread\n\nTYPE Cursor\n  pos AS Integer\nEND TYPE\n\nISOLATED FUNC worker(t AS ThreadWorker OF RES udp::Socket STATE Cursor TO Integer, n AS Integer) AS Integer\n  RES s AS udp::Socket STATE Cursor = thread::accept(t, 20000)\n  udp::close(s)\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS udp::Socket STATE Cursor = udp::bind(\"127.0.0.1\", 0)\n    c.state.pos = i\n    RES a AS Thread OF RES udp::Socket STATE Cursor TO Integer = thread::start(worker, 0)\n    thread::transfer(a, c)\n    total = total + thread::waitFor(a)\n  NEXT\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b650_state_transfer",
         SOURCE,
@@ -1447,7 +1447,7 @@ fn a_stateful_resource_transfer_frees_its_record_and_its_state() {
 /// `alloc_calls` at N=100. Runs at 400/800 so the growth clears [`BLOCK_BOUND`].
 #[test]
 fn a_thread_start_seed_is_freed_when_the_thread_is_released() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b655_seed",
         SOURCE,
@@ -1464,7 +1464,7 @@ fn a_thread_start_seed_is_freed_when_the_thread_is_released() {
 /// asserts the program RUNS as much as that it stays flat.
 #[test]
 fn a_thread_start_with_a_literal_seed_frees_nothing() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    RES t AS Thread OF String TO Integer = thread::start(work, \"abc\", 4, 4)\n    total = total + thread::waitFor(t)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b655_literal_seed",
         SOURCE,
@@ -1482,7 +1482,7 @@ fn a_thread_start_with_a_literal_seed_frees_nothing() {
 /// case is the half where the caller keeps it.
 #[test]
 fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET s AS String = \"seed-\" & toString(i MOD 10)\n    RES t AS Thread OF String TO Integer = thread::start(work, s, 4, 4)\n    total = total + thread::waitFor(t)\n    total = total + len(s)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    LET s AS String = \"seed-\" & toString(i MOD 10)\n    RES t AS Thread OF String TO Integer = thread::start(work, s, 4, 4)\n    total = total + thread::waitFor(t)\n    total = total + len(s)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b655_local_seed",
         SOURCE,
@@ -1508,7 +1508,7 @@ fn a_thread_start_with_a_local_seed_leaves_it_to_its_binding() {
 /// measured as SIGSEGV.
 #[test]
 fn a_failed_thread_start_frees_its_seed() {
-    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC once(i AS Integer) AS Integer\n  RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 0, 4) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN thread::waitFor(t)\nEND FUNC\n\nSUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    total = total + once(i)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT thread\n\nISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\nFUNC once(i AS Integer) AS Integer\n  RES t AS Thread OF String TO Integer = thread::start(work, \"seed-\" & toString(i MOD 10), 0, 4) TRAP(e)\n    RETURN 0\n  END TRAP\n  RETURN thread::waitFor(t)\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {n}\n    total = total + once(i)\n    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n";
     assert_block_flat(
         "b658_failed_start",
         SOURCE,

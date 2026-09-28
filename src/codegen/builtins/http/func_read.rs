@@ -56,10 +56,10 @@ IMPORT net
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET r = http::read(net::toUrl("http://example.com/"))
   io::print(toString(r.status) & " " & r.reason)
-END SUB
+END FUNC
 ```
 
 A GET with an Authorization header and an explicit method, then a header lookup:
@@ -70,12 +70,12 @@ IMPORT http
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET h = Map OF String TO String { "Authorization" := "Bearer xyz" }
   LET r = http::read(net::toUrl("http://example.com/item/1"), h, "DELETE")
   LET ct = collections::getOr(r.headers, "content-type", "")
   io::print(ct)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

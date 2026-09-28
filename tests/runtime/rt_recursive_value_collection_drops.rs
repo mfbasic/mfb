@@ -141,7 +141,7 @@ fn an_in_place_list_set_frees_the_overwritten_element() {
     assert_discards_free_the_element(
         "h_list_set",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT xs AS List OF Node = [mk(0), mk(1)]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -149,7 +149,7 @@ fn an_in_place_list_set_frees_the_overwritten_element() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(xs)) & " first=" & toString(total(collections::get(xs, 0))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -159,7 +159,7 @@ fn a_list_remove_at_frees_the_removed_element() {
     assert_discards_free_the_element(
         "h_list_remove_at",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT xs AS List OF Node = [mk(0), mk(1)]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -168,7 +168,7 @@ fn a_list_remove_at_frees_the_removed_element() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(xs)) & " last=" & toString(total(collections::get(xs, 1))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -178,7 +178,7 @@ fn a_map_set_over_an_existing_key_frees_the_old_value() {
     assert_discards_free_the_element(
         "h_map_set",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT m AS Map OF String TO Node = Map OF String TO Node { "k" := mk(0) }
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -186,7 +186,7 @@ fn a_map_set_over_an_existing_key_frees_the_old_value() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(m)) & " k=" & toString(total(collections::get(m, "k"))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -196,7 +196,7 @@ fn a_map_remove_key_frees_the_removed_value() {
     assert_discards_free_the_element(
         "h_map_remove_key",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT m AS Map OF String TO Node = Map OF String TO Node { "k" := mk(0), "j" := mk(1) }
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -205,7 +205,7 @@ fn a_map_remove_key_frees_the_removed_value() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(m)) & " k=" & toString(total(collections::get(m, "k"))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -215,7 +215,7 @@ fn a_record_field_list_set_frees_the_overwritten_element() {
     assert_discards_free_the_element(
         "h_field_set",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT h AS Holder = Holder[items := [mk(0), mk(1)], n := 2]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -223,7 +223,7 @@ fn a_record_field_list_set_frees_the_overwritten_element() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(h.items)) & " first=" & toString(total(collections::get(h.items, 0))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -233,7 +233,7 @@ fn a_record_field_list_remove_at_frees_the_removed_element() {
     assert_discards_free_the_element(
         "h_field_remove_at",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT h AS Holder = Holder[items := [mk(0), mk(1)], n := 2]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -242,7 +242,7 @@ fn a_record_field_list_remove_at_frees_the_removed_element() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(h.items)) & " last=" & toString(total(collections::get(h.items, 1))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -252,7 +252,7 @@ fn a_record_field_map_remove_key_frees_the_removed_value() {
     assert_discards_free_the_element(
         "h_field_remove_key",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT h AS Keyed = Keyed[byName := Map OF String TO Node { "k" := mk(0), "j" := mk(1) }, n := 2]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -261,7 +261,7 @@ fn a_record_field_map_remove_key_frees_the_removed_value() {
     i = i + 1
   END WHILE
   io::print("len=" & toString(len(h.byName)) & " k=" & toString(total(collections::get(h.byName, "k"))))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }
@@ -276,7 +276,7 @@ fn a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append(
     let (stdout, _, skips) = run_debug(
         "h_g24_fetch_remove_grow",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT xs AS List OF Node = [mk(1), mk(2), mk(3)]
   LET fetched AS Node = collections::get(xs, 0)
   xs = collections::removeAt(xs, 0)
@@ -286,7 +286,7 @@ fn a_fetched_recursive_element_survives_an_in_place_remove_and_a_growing_append(
     i = i + 1
   END WHILE
   io::print("fetched=" & toString(total(fetched)) & " len=" & toString(len(xs)) & " first=" & toString(total(collections::get(xs, 0))))
-END SUB"#,
+END FUNC"#,
         ),
         1,
     );
@@ -302,7 +302,7 @@ fn a_collection_of_a_type_that_only_reaches_a_cycle_is_freed() {
     assert_discards_free_the_element(
         "h_reaching_list",
         &program(
-            r#"SUB main()
+            r#"FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -311,7 +311,7 @@ fn a_collection_of_a_type_that_only_reaches_a_cycle_is_freed() {
     i = i + 1
   END WHILE
   io::print("done " & toString(acc > 0))
-END SUB"#,
+END FUNC"#,
         ),
     );
 }

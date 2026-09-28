@@ -29,10 +29,10 @@ const EX: &str = r#"Negate a forward span to get the matching backward span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET forward AS datetime::Duration = datetime::duration(90)
   LET backward AS datetime::Duration = datetime::negate(forward)
-END SUB
+END FUNC
 ```
 
 Negation re-normalizes a sub-second span:
@@ -40,10 +40,10 @@ Negation re-normalizes a sub-second span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET quarter AS datetime::Duration = datetime::duration(0, 250_000_000)
   LET back AS datetime::Duration = datetime::negate(quarter)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

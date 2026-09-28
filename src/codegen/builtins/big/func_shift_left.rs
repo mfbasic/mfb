@@ -30,10 +30,10 @@ const EX: &str = r#"Shift one past the `Integer` range:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wide AS big::Int = big::shiftLeft(big::fromInteger(-3), 100)
   io::print(toString(big::bitLength(wide)) & " " & toString(big::sign(wide)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

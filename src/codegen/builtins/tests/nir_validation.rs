@@ -65,14 +65,14 @@ FUNC describe(s AS Shape) AS String
   END MATCH
 END FUNC
 
-SUB stopEarly(n AS Integer)
+FUNC stopEarly(n AS Integer) AS Nothing
   ' `EXIT PROGRAM` is the only thing that lowers to a `NirOp::ExitProgram`, and
   ' nothing in the tree had one, so the validator's arm for it was unreached
   ' along with the `?` that carries a bad exit code back out.
   IF n < 0 THEN
     EXIT PROGRAM n
   END IF
-END SUB
+END FUNC
 
 FUNC riskyOf(n AS Integer) AS Integer
   ' A `FAIL`, and a function-level TRAP around it: two more op kinds, each with

@@ -274,7 +274,7 @@ fn a_pointer_and_a_scalar_update_in_place_without_a_leak() {
         format!(
             "IMPORT io\nIMPORT json\n\nTYPE Doc\n  j AS json::Json\n  n AS Integer\nEND TYPE\n\n\
              FUNC fresh(v AS Integer) AS json::Json\n  RETURN json::JsonNum[toFloat(v)]\nEND FUNC\n\n\
-             SUB sink(v AS json::Json)\nEND SUB\n\n\
+             FUNC sink(v AS json::Json) AS Nothing\nEND FUNC\n\n\
              FUNC main() AS Integer\n  MUT d AS Doc = Doc[j := json::parse(\"[1,2]\"), n := 0]\n  \
              FOR i = 1 TO {n}\n    {stmt}\n  NEXT\n  \
              io::print(json::stringify(d.j) & \" \" & toString(d.n))\n  RETURN 0\nEND FUNC\n"

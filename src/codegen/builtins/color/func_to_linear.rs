@@ -39,11 +39,11 @@ const EX: &str = r#"The encoding is not proportional — the midpoint is far bel
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(color::toLinear(toByte(0))))
   io::print(toString(color::toLinear(toByte(128))))
   io::print(toString(color::toLinear(toByte(255))))
-END SUB
+END FUNC
 ```
 
 Every channel survives a round trip through linear light:
@@ -52,9 +52,9 @@ Every channel survives a round trip through linear light:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(color::fromLinear(color::toLinear(toByte(200)))))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

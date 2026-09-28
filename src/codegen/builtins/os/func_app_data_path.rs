@@ -75,12 +75,12 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories(os::appDataPath("saves"))
   LET slot AS String = os::appDataPath("saves/slot1.txt")
   fs::writeText(slot, "level 3")
   io::print(fs::readText(slot))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

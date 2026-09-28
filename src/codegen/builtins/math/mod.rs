@@ -117,14 +117,14 @@ A power, a square root, and a random sequence replayed from the same seed:
 IMPORT io
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::pow(2.0, 10.0)))
   io::print(toString(math::sqrt(math::pi)))
   math::seed(42)
   LET first AS Integer = math::rand(1, 6)
   math::seed(42)
   io::print(toString(first = math::rand(1, 6)))
-END SUB
+END FUNC
 ```
 
 prints:

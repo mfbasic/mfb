@@ -35,11 +35,11 @@ const SOURCE: &str = "\
 IMPORT io\n\
 IMPORT math\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET n AS Integer = math::rand(1, 6)\n\
   LET line AS String = io::input(\"? \")\n\
   io::print(toString(n) & \":\" & line)\n\
-END SUB\n";
+END FUNC\n";
 
 fn imm(inst: &Value, key: &str) -> Option<usize> {
     inst[key].as_str().and_then(|s| s.parse::<usize>().ok())

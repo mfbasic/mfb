@@ -770,7 +770,7 @@ mod tests {
             .get_mfb();
         assert!(source.contains("EXPORT TYPE AudioNote"));
         assert!(source.contains("FUNC __audio_render"));
-        assert!(source.contains("SUB __audio_playTracks"));
+        assert!(source.contains("FUNC __audio_playTracks("));
         crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-audio>"),
             "builtins/audio.mfb",

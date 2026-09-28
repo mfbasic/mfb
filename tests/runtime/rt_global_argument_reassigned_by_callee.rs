@@ -26,18 +26,18 @@ IMPORT io
 
 MUT g AS List OF String = [\"alpha\", \"beta\", \"gamma\"]
 
-SUB clobber(xs AS List OF String)
+FUNC clobber(xs AS List OF String) AS Nothing
   g = collections::append(g, \"delta\")
   g = collections::append(g, \"epsilon\")
   MUT pad AS List OF String = [\"zzzzzzzzzzzzzzzzzzzzzzzzz\", \"yyyyyyyyyyyyyyyyyyyyyyyy\", \"xxxxxxxxxxxxxxxxxxxxxxx\"]
   io::print(\"param: \" & collections::get(xs, 0) & \" \" & collections::get(xs, 2) & \" len=\" & toString(len(xs)))
   io::print(toString(len(pad)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   clobber(g)
   io::print(\"g len=\" & toString(len(g)))
-END SUB
+END FUNC
 ";
 
 /// The same callee reached through a `FUNC` value: the walk cannot name the
@@ -48,19 +48,19 @@ IMPORT io
 
 MUT g AS List OF String = [\"alpha\", \"beta\", \"gamma\"]
 
-SUB clobber(xs AS List OF String)
+FUNC clobber(xs AS List OF String) AS Nothing
   g = collections::append(g, \"delta\")
   g = collections::append(g, \"epsilon\")
   MUT pad AS List OF String = [\"zzzzzzzzzzzzzzzzzzzzzzzzz\", \"yyyyyyyyyyyyyyyyyyyyyyyy\", \"xxxxxxxxxxxxxxxxxxxxxxx\"]
   io::print(\"param: \" & collections::get(xs, 0) & \" \" & collections::get(xs, 2) & \" len=\" & toString(len(xs)))
   io::print(toString(len(pad)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET f AS FUNC(List OF String) AS Nothing = clobber
   f(g)
   io::print(\"g len=\" & toString(len(g)))
-END SUB
+END FUNC
 ";
 
 /// A `String` global: the freed block's length word is the arena's free-node
@@ -70,16 +70,16 @@ IMPORT io
 
 MUT s AS String = \"the original global string value\"
 
-SUB clobber(x AS String)
+FUNC clobber(x AS String) AS Nothing
   s = \"a replacement that is also quite long\"
   LET pad AS String = \"0123456789012345678901234567890123456789\" & toString(len(s))
   io::print(\"param: \" & x & \" pad=\" & toString(len(pad)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   clobber(s)
   io::print(\"s=\" & s)
-END SUB
+END FUNC
 ";
 
 /// Higher-order builtins walking `g` while their callback reassigns it: a named
@@ -91,11 +91,11 @@ IMPORT io
 
 MUT g AS List OF String = [\"alpha\", \"beta\", \"gamma\"]
 
-SUB grow(v AS String)
+FUNC grow(v AS String) AS Nothing
   g = collections::append(g, v & \"!\")
   MUT pad AS List OF String = [\"zzzzzzzzzzzzzzzzzzzzzzzzz\", \"yyyyyyyyyyyyyyyyyyyyyyyy\", \"xxxxxxxxxxxxxxxxxxxxxxx\"]
   io::print(\"visit \" & v & \" pad=\" & toString(len(pad)))
-END SUB
+END FUNC
 
 FUNC keep(v AS String) AS Boolean
   g = collections::append(g, v & \"?\")
@@ -103,12 +103,12 @@ FUNC keep(v AS String) AS Boolean
   RETURN len(pad) = 3 AND v <> \"beta\"
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   collections::forEach(g, grow)
   io::print(\"g len=\" & toString(len(g)))
   LET kept AS List OF String = collections::filter(g, LAMBDA(v AS String) -> keep(v))
   io::print(\"kept len=\" & toString(len(kept)) & \" g len=\" & toString(len(g)))
-END SUB
+END FUNC
 ";
 
 /// A field of a global record: `r.items` is a pointer into `r`'s block, which
@@ -124,16 +124,16 @@ END TYPE
 
 MUT r AS Bag = Bag[label := \"bag\", items := [\"one\", \"two\", \"three\"]]
 
-SUB clobber(xs AS List OF String)
+FUNC clobber(xs AS List OF String) AS Nothing
   r = Bag[label := \"new\", items := [\"n\"]]
   MUT pad AS List OF String = [\"zzzzzzzzzzzzzzzzzzzzzzzzz\", \"yyyyyyyyyyyyyyyyyyyyyyyy\", \"xxxxxxxxxxxxxxxxxxxxxxx\"]
   io::print(\"param: \" & collections::get(xs, 0) & \" \" & collections::get(xs, 2) & \" len=\" & toString(len(xs)) & \" pad=\" & toString(len(pad)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   clobber(r.items)
   io::print(\"r.label=\" & r.label)
-END SUB
+END FUNC
 ";
 
 /// Calls that cannot reach a write of `g` keep borrowing: a read-only callee
@@ -150,25 +150,25 @@ FUNC first(xs AS List OF String) AS String
   RETURN collections::get(xs, 0)
 END FUNC
 
-SUB show(xs AS List OF String)
+FUNC show(xs AS List OF String) AS Nothing
   io::print(first(xs) & \" \" & toString(len(xs)))
-END SUB
+END FUNC
 
-SUB note(v AS String)
+FUNC note(v AS String) AS Nothing
   io::print(\"note \" & v)
-END SUB
+END FUNC
 
-SUB touchOther(xs AS List OF String)
+FUNC touchOther(xs AS List OF String) AS Nothing
   other = collections::append(other, collections::get(xs, 1))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   show(g)
   io::print(toString(len(g)))
   collections::forEach(g, note)
   touchOther(g)
   io::print(\"other=\" & collections::get(other, 0))
-END SUB
+END FUNC
 ";
 
 /// A loop that reassigns `g` inside the callee every iteration: with the copy
@@ -183,10 +183,10 @@ IMPORT io
 MUT g AS List OF String = [\"alpha\", \"beta\", \"gamma\"]
 MUT total AS Integer = 0
 
-SUB clobber(xs AS List OF String)
+FUNC clobber(xs AS List OF String) AS Nothing
   g = collections::append(g, \"delta\")
   total = total + len(xs)
-END SUB
+END FUNC
 
 FUNC main AS Integer
   FOR i = 1 TO {n}

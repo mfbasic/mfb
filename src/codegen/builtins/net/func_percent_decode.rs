@@ -51,10 +51,10 @@ FUNC decodeOrCode(s AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(decodeOrCode("/a%20b"))
   io::print(decodeOrCode("%2"))
-END SUB
+END FUNC
 ```
 
 prints the decoded text, then the error code for the truncated escape:

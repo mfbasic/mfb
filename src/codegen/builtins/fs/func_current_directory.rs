@@ -54,10 +54,10 @@ const EX: &str = r#"Read and print the current working directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET cwd AS String = fs::currentDirectory()
   io::print(cwd)
-END SUB
+END FUNC
 ```
 
 Resolve a relative path against the working directory:
@@ -66,11 +66,11 @@ Resolve a relative path against the working directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET cwd AS String = fs::currentDirectory()
   LET full AS String = fs::pathJoin([cwd, "output.txt"])
   io::print(full)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

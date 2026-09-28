@@ -29,10 +29,10 @@ const EX: &str = r##"A vivid green and a deep blue do not become the same grey:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHex(color::grayscale(color::rgb(0, 255, 0))))
   io::print(color::toHex(color::grayscale(color::rgb(0, 0, 255))))
-END SUB
+END FUNC
 ```
 
 Greys are already neutral, so the operation is idempotent on them:
@@ -41,11 +41,11 @@ Greys are already neutral, so the operation is idempotent on them:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET g AS color::Color = color::grayscale(color::fromHex("#3366cc"))
   io::print(color::toHex(g))
   io::print(color::toHex(color::grayscale(g)))
-END SUB
+END FUNC
 ```"##;
 
 /// The luminance is computed in the linear domain as an `Integer` `0..65535` rather

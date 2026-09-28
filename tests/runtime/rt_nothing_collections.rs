@@ -86,7 +86,7 @@ END FUNC
 ";
 
 fn program(body: &str) -> String {
-    format!("{HELPERS}SUB main()\n{body}END SUB\n")
+    format!("{HELPERS}FUNC main() AS Nothing\n{body}END FUNC\n")
 }
 
 #[test]

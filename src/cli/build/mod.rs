@@ -2044,7 +2044,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
         std::fs::write(
             dir.join("src").join("main.mfb"),
-            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .expect("source");
     }
@@ -2325,7 +2325,7 @@ mod tests {
         // References an unknown package -> resolver/verify error.
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "SUB main()\n  nope::bogus()\nEND SUB\n",
+            "FUNC main() AS Nothing\n  nope::bogus()\nEND FUNC\n",
         )
         .expect("source");
         let options =
@@ -3528,7 +3528,7 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
-        std::fs::write(dir.join("src").join("main.mfb"), "SUB main()\nEND SUB\n").expect("source");
+        std::fs::write(dir.join("src").join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").expect("source");
     }
 
     /// A missing `icon` is a hard error in app mode, on each app-capable target's
@@ -3575,7 +3575,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT app\n\nSUB main()\nEND SUB\n",
+            "IMPORT app\n\nFUNC main() AS Nothing\nEND FUNC\n",
         )
         .unwrap();
         let options =
@@ -3590,7 +3590,7 @@ mod tests {
         write_executable_project(dir.path());
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "SUB main()\n  expectInteger(1, 1)\nEND SUB\n",
+            "FUNC main() AS Nothing\n  expectInteger(1, 1)\nEND FUNC\n",
         )
         .unwrap();
         let options =
@@ -3664,7 +3664,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )
         .unwrap();
         let options =
@@ -3759,9 +3759,9 @@ mod tests {
                 "    SUCCESS_ON status = 0\n",
                 "  END FUNC\n",
                 "END LINK\n\n",
-                "SUB main()\n",
+                "FUNC main() AS Nothing\n",
                 "  fooLib::ping()\n",
-                "END SUB\n"
+                "END FUNC\n"
             ),
         )
         .unwrap();
@@ -3838,9 +3838,9 @@ mod tests {
                 "    SUCCESS_ON status = 0\n",
                 "  END FUNC\n",
                 "END LINK\n\n",
-                "SUB main()\n",
+                "FUNC main() AS Nothing\n",
                 "  fooLib::ping()\n",
-                "END SUB\n"
+                "END FUNC\n"
             ),
         )
         .unwrap();
@@ -3904,7 +3904,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .unwrap();
         // An in-tree name that textually looks contained but resolves outside.
@@ -4001,7 +4001,7 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
-        std::fs::write(dir.join("src").join("main.mfb"), "SUB main()\nEND SUB\n").expect("source");
+        std::fs::write(dir.join("src").join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").expect("source");
         std::fs::create_dir_all(dir.join("assets")).expect("assets dir");
         // A file that exists (so the existence check passes) but is not a valid
         // 1024×1024 image (so the backend's deep icon validation fails).
@@ -4054,7 +4054,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "SUB main()\nEND SUB\n",
+            "FUNC main() AS Nothing\nEND FUNC\n",
         )
         .unwrap();
         let options = parse_build_options(s(&[
@@ -4092,7 +4092,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .unwrap();
         // `zed` does not own `ada#app`, so signing_ident rejects it.
@@ -4110,7 +4110,7 @@ mod tests {
         write_executable_project(dir.path());
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "EXPORT FUNC leak() AS Integer\n  RETURN 1\nEND FUNC\n\nSUB main()\nEND SUB\n",
+            "EXPORT FUNC leak() AS Integer\n  RETURN 1\nEND FUNC\n\nFUNC main() AS Nothing\nEND FUNC\n",
         )
         .unwrap();
         let options =
@@ -4158,7 +4158,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .unwrap();
         let options =
@@ -4222,7 +4222,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+            "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .unwrap();
         let packages = dir.path().join("packages");
@@ -4291,7 +4291,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\nIMPORT tiny\n\nSUB main()\n  io::print(toString(tiny::answer()))\nEND SUB\n",
+            "IMPORT io\nIMPORT tiny\n\nFUNC main() AS Nothing\n  io::print(toString(tiny::answer()))\nEND FUNC\n",
         )
         .unwrap();
         write_source_package(&dir.path().join("packages").join("tiny"), "tiny");
@@ -4373,7 +4373,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src").join("main.mfb"),
-            "IMPORT io\nIMPORT tiny\n\nSUB main()\n  io::print(toString(tiny::answer()))\nEND SUB\n",
+            "IMPORT io\nIMPORT tiny\n\nFUNC main() AS Nothing\n  io::print(toString(tiny::answer()))\nEND FUNC\n",
         )
         .unwrap();
 

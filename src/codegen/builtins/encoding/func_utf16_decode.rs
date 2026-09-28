@@ -73,9 +73,9 @@ const EX: &str = r#"Decode UTF-16 code units back to text:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::utf16Decode([104, 105]))
-END SUB
+END FUNC
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-16:
@@ -84,10 +84,10 @@ Round-trip an astral scalar (an emoji) through UTF-16:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET units AS List OF Integer = encoding::utf16Encode("😀")
   io::print(encoding::utf16Decode(units))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

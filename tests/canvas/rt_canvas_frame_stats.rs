@@ -46,7 +46,7 @@ fn run_with_stats(name: &str, source: &str, env: &[(&str, &str)]) -> (String, St
 fn program(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\nIMPORT os\n\n\
-         SUB stats(tag AS String)\n  \
+         FUNC stats(tag AS String) AS Nothing\n  \
          LET s AS canvas::FrameStats = canvas::getFrameStats()\n  \
          MUT r AS String = \"software\"\n  \
          IF s.renderer = canvas::Renderer.Metal THEN\n    r = \"metal\"\n  END IF\n  \
@@ -54,11 +54,11 @@ fn program(body: &str) -> String {
          io::print(tag & \" dt=\" & toString(s.dt) & \" pps=\" & toString(s.pps) & \" fps=\" & \
          toString(s.fps) & \" displayHz=\" & toString(s.displayHz) & \" frameSeconds=\" & \
          toString(s.frameSeconds) & \" presents=\" & toString(s.presents) & \" frames=\" & \
-         toString(s.frames) & \" renderer=\" & r)\nEND SUB\n\n\
+         toString(s.frames) & \" renderer=\" & r)\nEND FUNC\n\n\
          FUNC box(x AS Float) AS canvas::DrawItem\n  \
          RETURN canvas::Rectangle[x := x, y := 10.0, w := 20.0, h := 20.0, \
          paint := canvas::fill(color::rgb(255, 0, 0))]\nEND FUNC\n\n\
-         SUB main()\n  app::setMode(app::Mode.Canvas)\n{body}END SUB\n"
+         FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n{body}END FUNC\n"
     )
 }
 

@@ -27,11 +27,11 @@ const EX: &str = r#"Unpack an opaque colour:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   ' 0xFF3366CC -> red 0x33, green 0x66, blue 0xCC, alpha 0xFF
   LET c AS color::Color = color::fromPacked(4281558732)
   io::print(toString(c.red) & " " & toString(c.green) & " " & toString(c.blue) & " " & toString(c.alpha))
-END SUB
+END FUNC
 ```
 
 A 24-bit value has no alpha byte, so it unpacks fully transparent — add one
@@ -42,12 +42,12 @@ IMPORT bits
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET rgb24 AS Integer = 3368652        ' 0x3366CC
   LET bare AS color::Color = color::fromPacked(rgb24)
   LET opaque AS color::Color = color::fromPacked(bits::bor(rgb24, 4278190080))
   io::print(toString(bare.alpha) & " vs " & toString(opaque.alpha))
-END SUB
+END FUNC
 ```"#;
 
 /// `bits::band` after every shift, including the alpha one: `bits::sr` is

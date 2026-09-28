@@ -39,12 +39,12 @@ const EX: &str = r##"The endpoints, and a step between them:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::fromHex("#3366cc")
   io::print(color::toHex(color::brighten(c, 0.0)))
   io::print(color::toHex(color::brighten(c, 0.5)))
   io::print(color::toHex(color::brighten(c, 1.0)))
-END SUB
+END FUNC
 ```
 
 Alpha survives untouched, so a translucent colour stays translucent:
@@ -53,10 +53,10 @@ Alpha survives untouched, so a translucent colour stays translucent:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wash AS color::Color = color::rgba(20, 40, 60, 128)
   io::print(color::toHexAlpha(color::brighten(wash, 0.75)))
-END SUB
+END FUNC
 ```"##;
 
 /// `lin + (65535 - lin) * amount`, per channel. The endpoints are exact without a

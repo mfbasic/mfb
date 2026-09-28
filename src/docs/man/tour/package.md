@@ -30,9 +30,9 @@ there are no classes or methods. A few core functions (`len`, `toString`,
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("Hello, world")
-END SUB
+END FUNC
 ```
 
 To run it, create a project with `mfb init hello` — its `src/main.mfb` is a

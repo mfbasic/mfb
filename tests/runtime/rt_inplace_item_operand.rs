@@ -72,14 +72,14 @@ FUNC mkBox(k AS Integer) AS Box
   RETURN Box[n := k * 3, items := [k, k]]
 END FUNC
 
-SUB sinkInteger(v AS Integer)
-END SUB
+FUNC sinkInteger(v AS Integer) AS Nothing
+END FUNC
 
-SUB sinkFloat(v AS Float)
-END SUB
+FUNC sinkFloat(v AS Float) AS Nothing
+END FUNC
 
-SUB sinkListOFInteger(v AS List OF Integer)
-END SUB
+FUNC sinkListOFInteger(v AS List OF Integer) AS Nothing
+END FUNC
 ";
 
 /// One row: `x`'s declaration, the self-update it runs, and the item operand —

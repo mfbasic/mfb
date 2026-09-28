@@ -47,7 +47,7 @@ const EX: &str = r#"Underline one label, then continue normally:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setUnderline(TRUE)
   io::print("Name")
@@ -55,7 +55,7 @@ SUB main()
   io::print("Ada Lovelace")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::set_underline` — delegates to the shared family-generic

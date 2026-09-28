@@ -32,12 +32,12 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS List OF Byte = encoding::utf8Encode("hello, hello, hello, hello, hello, hello, hello")
   LET packed AS List OF Byte = compress::deflate(text)
   io::print(toString(len(text)) & " bytes compressed to " & toString(len(packed)))
   io::print(encoding::utf8Decode(compress::inflate(packed)))
-END SUB
+END FUNC
 ```
 
 Level `0` stores the bytes; level `9` searches hardest:
@@ -47,11 +47,11 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS List OF Byte = encoding::utf8Encode("abcabcabcabcabcabcabcabcabcabcabcabc")
   io::print("level 0: " & toString(len(compress::deflate(text, 0))) & " bytes")
   io::print("level 9: " & toString(len(compress::deflate(text, 9))) & " bytes")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

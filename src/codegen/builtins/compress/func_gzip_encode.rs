@@ -38,12 +38,12 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS List OF Byte = encoding::utf8Encode("hello, hello, hello, hello, hello, hello, hello")
   LET packed AS List OF Byte = compress::gzipEncode(text, 9)
   io::print(toString(len(text)) & " bytes compressed to " & toString(len(packed)))
   io::print(encoding::utf8Decode(compress::gzipDecode(packed)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

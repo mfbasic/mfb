@@ -172,23 +172,6 @@ pub(crate) fn func(
     }
 }
 
-pub(crate) fn sub(name: &str, params: Vec<Param>, body: Vec<Statement>) -> Function {
-    Function {
-        kind: FunctionKind::Sub,
-        visibility: Visibility::Public,
-        isolated: false,
-        name: name.to_string(),
-        template_params: Vec::new(),
-        params,
-        return_type: None,
-        return_resource: false,
-        return_state_type: None,
-        body,
-        trap: None,
-        line: 0,
-    }
-}
-
 pub(crate) fn global_mut(name: &str, type_name: &str, value: Expression) -> TopLevelBinding {
     TopLevelBinding {
         visibility: Visibility::Public,

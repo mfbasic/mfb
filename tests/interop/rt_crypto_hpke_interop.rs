@@ -728,7 +728,7 @@ fn hpke_boxes_interoperate_with_independent_implementation_both_ways() {
         boxes_in.push(hpke_seal(p, &pk_r, &sk_e, &[], &aad_in, &pt_in));
     }
 
-    let mut source = String::from("IMPORT crypto\nIMPORT encoding\nIMPORT io\n\nSUB main()\n");
+    let mut source = String::from("IMPORT crypto\nIMPORT encoding\nIMPORT io\n\nFUNC main() AS Nothing\n");
     source.push_str(&format!(
         "  LET seed25519 AS List OF Byte = encoding::hexDecode(\"{ED25519_SEED}\")\n"
     ));
@@ -764,7 +764,7 @@ fn hpke_boxes_interoperate_with_independent_implementation_both_ways() {
             "  io::print(\"seal-{name}=\" & encoding::hexEncode(crypto::encrypt(crypto::AsymmetricCipher.{name}, pub{curve}, ptOut, aadOut)))\n"
         ));
     }
-    source.push_str("END SUB\n");
+    source.push_str("END FUNC\n");
 
     let project = temp_project("hpke_interop", &source);
     let exe = build_project(&project);

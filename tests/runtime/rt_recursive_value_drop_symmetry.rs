@@ -154,7 +154,7 @@ FUNC chainTotal(top AS Node) AS Integer
   RETURN total + walk.tag
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT cur AS Node = Node[kids := [], tag := 0, name := "leaf"]
   MUT i AS Integer = 1
   WHILE i <= 40
@@ -165,7 +165,7 @@ SUB main()
   LET probe AS Node = cur
   io::print(probe.name & " " & toString(len(probe.kids)) & " " & toString(chainTotal(cur)))
   io::print(toString(chainTotal(probe)))
-END SUB
+END FUNC
 "#;
 
 /// A user `TYPE` that holds a `List OF` itself, with an inlined `String` field in every block.
@@ -214,7 +214,7 @@ FUNC weigh(t AS Tree) AS Integer
   RETURN result
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT t AS Tree = Leaf[v := 1, label := "a"]
   MUT i AS Integer = 0
   WHILE i < 30
@@ -225,7 +225,7 @@ SUB main()
   END WHILE
   LET probeTree AS Tree = t
   io::print(toString(weigh(probeTree)) & " " & toString(weigh(t)))
-END SUB
+END FUNC
 "#;
 
 /// A user recursive `UNION`: a variant holding a `List OF` the union, and a variant whose
@@ -242,7 +242,7 @@ fn a_user_recursive_union_drops_exactly_its_copy() {
 const JSON_SOURCE: &str = r#"IMPORT io
 IMPORT json
 
-SUB main()
+FUNC main() AS Nothing
   MUT text AS String = "["
   MUT j AS Integer = 0
   WHILE j < 30
@@ -252,7 +252,7 @@ SUB main()
   text = text & "0]"
   LET probeJson AS json::Json = json::parse(text)
   io::print(json::stringify(probeJson))
-END SUB
+END FUNC
 "#;
 
 /// `json::Json`: arrays and objects of itself.
@@ -264,7 +264,7 @@ fn a_json_value_drops_exactly_its_copy() {
 const REGEX_SOURCE: &str = r#"IMPORT io
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   MUT subject AS String = ""
   MUT j AS Integer = 0
   WHILE j < 20
@@ -273,7 +273,7 @@ SUB main()
   END WHILE
   io::print(toString(len(regex::findAll(subject, "([a-c]+|b)[0-9]{2,3}"))))
   io::print(toString(regex::match(subject, "(ab|a)*c")))
-END SUB
+END FUNC
 "#;
 
 /// The regex engine's private recursive values, through the locals that hold them: the
@@ -296,7 +296,7 @@ TYPE Node
   tag AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   MUT cur AS Node = Node[kids := [], tag := 0]
   MUT i AS Integer = 1
   WHILE i <= 1000000
@@ -305,7 +305,7 @@ SUB main()
   END WHILE
   LET probe AS Node = cur
   io::print("top=" & toString(probe.tag) & " " & toString(cur.tag))
-END SUB
+END FUNC
 "#;
 
 /// A 1 000 000-deep chain: the drop keeps its pending edges in the arena, not on the
@@ -324,7 +324,7 @@ TYPE Node
   name AS String
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   MUT src AS Node = Node[kids := [], tag := 1, name := "leaf"]
   MUT d AS Integer = 0
   WHILE d < 6
@@ -341,7 +341,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("total=" & toString(total))
-END SUB
+END FUNC
 "#;
 
 /// 20 000 copy-then-drops, reading the source after each: every copy is freed as it goes,

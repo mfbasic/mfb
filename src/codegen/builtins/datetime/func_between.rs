@@ -36,12 +36,12 @@ const EX: &str = r#"Measure the span between two instants and render it:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS datetime::Instant = datetime::instant(1_000)
   LET endTime AS datetime::Instant = datetime::instant(1_090)
   LET span AS datetime::Duration = datetime::between(start, endTime)
   io::print(datetime::formatDuration(span))
-END SUB
+END FUNC
 ```
 
 An `endTime` earlier than `start` yields a negative span:
@@ -49,11 +49,11 @@ An `endTime` earlier than `start` yields a negative span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS datetime::Instant = datetime::instant(1_090)
   LET endTime AS datetime::Instant = datetime::instant(1_000)
   LET span AS datetime::Duration = datetime::between(start, endTime)
-END SUB
+END FUNC
 ```
 
 Re-apply the measured span to recover `endTime` from `start`:
@@ -61,12 +61,12 @@ Re-apply the measured span to recover `endTime` from `start`:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS datetime::Instant = datetime::instant(1_000)
   LET endTime AS datetime::Instant = datetime::instant(1_090)
   LET span AS datetime::Duration = datetime::between(start, endTime)
   LET again AS datetime::Instant = datetime::add(start, span)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

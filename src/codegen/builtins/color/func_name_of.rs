@@ -38,9 +38,9 @@ const EX: &str = r##"Name a colour that has one:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::nameOf(color::fromHex("#663399")))
-END SUB
+END FUNC
 ```
 
 An unnamed colour, or a translucent one, raises `ErrNotFound`:
@@ -57,11 +57,11 @@ FUNC name(c AS color::Color) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(name(color::fromHex("#ff0000")))
   io::print(name(color::fromHex("#ff0001")))
   io::print(name(color::rgba(255, 0, 0, 128)))
-END SUB
+END FUNC
 ```"##;
 
 /// A walk of the one shared table rather than a second reverse map: the reverse

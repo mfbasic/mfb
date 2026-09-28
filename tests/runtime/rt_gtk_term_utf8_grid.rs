@@ -27,12 +27,12 @@ use std::process::Command;
 
 /// Writes box-drawing and accented glyphs while TUI mode is on.
 const TERM_SOURCE: &str = "IMPORT term\nIMPORT io\n\n\
-     SUB main()\n\
+     FUNC main() AS Nothing\n\
     \x20 term::on()\n\
     \x20 io::print(\"\\u{2500}\\u{253C} h\\u{E9}llo\")\n\
     \x20 term::sync()\n\
     \x20 term::off()\n\
-     END SUB\n";
+     END FUNC\n";
 
 fn build_ncode(name: &str) -> serde_json::Value {
     let nonce = common::unique_nonce();

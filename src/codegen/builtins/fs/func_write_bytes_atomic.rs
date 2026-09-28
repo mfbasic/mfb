@@ -85,11 +85,11 @@ const EX: &str = r#"Atomically write raw bytes to a file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeBytesAtomic("output/report.bin", bytes)
-END SUB
+END FUNC
 ```
 
 Atomically replace a file's contents with bytes read from another file:
@@ -97,11 +97,11 @@ Atomically replace a file's contents with bytes read from another file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytesAtomic("copy.bin", bytes)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

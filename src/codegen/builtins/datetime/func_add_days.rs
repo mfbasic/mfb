@@ -41,10 +41,10 @@ const EX: &str = r#"Advance a `datetime::DateTime` by one week:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET nextWeek AS datetime::DateTime = datetime::addDays(dt, 7)
-END SUB
+END FUNC
 ```
 
 A negative count moves the date earlier:
@@ -52,10 +52,10 @@ A negative count moves the date earlier:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET yesterday AS datetime::DateTime = datetime::addDays(dt, -1)
-END SUB
+END FUNC
 ```
 
 Cross a daylight-saving transition. Both examples above use `datetime::utc()`
@@ -68,7 +68,7 @@ zone in the language yet. The values shown are measured:
 IMPORT io
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET before AS datetime::DateTime = datetime::civil(datetime::date(2026, 3, 7), datetime::time(12, 0), datetime::local())
   LET after AS datetime::DateTime = datetime::addDays(before, 1)
 
@@ -83,7 +83,7 @@ SUB main()
   LET moved AS Integer = datetime::resolve(after).seconds - datetime::resolve(before).seconds
   io::print(toString(moved))
   ' 82800
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

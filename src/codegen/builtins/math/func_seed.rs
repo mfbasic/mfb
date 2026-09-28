@@ -16,10 +16,10 @@ on the two proceed independently."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   math::seed(42)
   io::print(toString(math::rand(1, 6)))
-END SUB
+END FUNC
 ```"#;
 
 const SEED_A: &[&str] = &["seed"];

@@ -28,12 +28,12 @@ const EX: &str = r#"Go below the `Integer` minimum and come back:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bottom AS big::Int = big::fromInteger(-9223372036854775807 - 1)
   LET below AS big::Int = big::subtract(bottom, big::fromInteger(1))
   LET back AS big::Int = big::subtract(below, big::fromInteger(-1))
   io::print(toString(big::toInteger(back)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

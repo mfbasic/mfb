@@ -32,9 +32,9 @@ FUNC add(a AS Integer, b AS Integer) AS Integer
   RETURN a + b
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(add(2, 3)))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "arithmetic"

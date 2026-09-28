@@ -48,13 +48,13 @@ const EX: &str = r#"Enable buffering only when it is not already on:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("events.log", "first line\nsecond line\n")
   RES log = fs::openFile("events.log", "write")
   IF NOT fs::isBuffered(log) THEN
     fs::setBuffered(log, TRUE)
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

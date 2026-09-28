@@ -829,7 +829,7 @@ mod tests {
     /// `SUB main()` plus `opens` nested `IF TRUE THEN` lines (unterminated on
     /// purpose: the cap must trip on the way IN, before any output is built).
     fn nested_ifs(opens: usize) -> String {
-        let mut source = String::from("SUB main()\n");
+        let mut source = String::from("FUNC main() AS Nothing\n");
         for _ in 0..opens {
             source.push_str("IF TRUE THEN\n");
         }
@@ -1080,8 +1080,8 @@ mod tests {
     /// it indents one level too deep.
     #[test]
     fn end_while_closes_the_block_without_reopening() {
-        let input = "SUB s()\nWHILE go\nwork()\nEND WHILE\nlet after = 1\nEND SUB\n";
-        let expected = "SUB s()\n  WHILE go\n    work()\n  END WHILE\n  LET after = 1\nEND SUB\n";
+        let input = "FUNC s() AS Nothing\nWHILE go\nwork()\nEND WHILE\nlet after = 1\nEND FUNC\n";
+        let expected = "FUNC s() AS Nothing\n  WHILE go\n    work()\n  END WHILE\n  LET after = 1\nEND FUNC\n";
         assert_eq!(fmt(input), expected);
         assert_eq!(fmt(expected), expected);
         // The single-line form round-trips on one line, netting to zero.
@@ -1311,8 +1311,8 @@ mod tests {
 
     #[test]
     fn sub_declaration_opens_a_block() {
-        let input = "SUB greet()\nio::print(\"hi\")\nEND SUB\n";
-        let expected = "SUB greet()\n  io::print(\"hi\")\nEND SUB\n";
+        let input = "FUNC greet() AS Nothing\nio::print(\"hi\")\nEND FUNC\n";
+        let expected = "FUNC greet() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n";
         assert_eq!(fmt(input), expected);
     }
 

@@ -68,13 +68,13 @@ const EX: &str = r#"Write raw bytes to an open file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   RES f = fs::openFile("output/report.bin", "write")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeAllBytes(f, bytes)
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Copy the bytes of one open file into another:
@@ -82,14 +82,14 @@ Copy the bytes of one open file into another:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "first line\nsecond line\n")
   fs::writeText("copy.bin", "first line\nsecond line\n")
   RES src = fs::openFile("data.bin")
   RES dst = fs::openFile("copy.bin", "write")
   LET bytes AS List OF Byte = fs::readAllBytes(src)
   fs::writeAllBytes(dst, bytes)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

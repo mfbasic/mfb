@@ -40,13 +40,13 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(2, 1, px)
   LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([tile])
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::createImage(width, height, pixels)`.

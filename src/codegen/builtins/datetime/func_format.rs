@@ -63,10 +63,10 @@ const EX: &str = r#"Render a `datetime::DateTime` with a full date, time, and of
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET text AS String = datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z")
-END SUB
+END FUNC
 ```
 
 Use single quotes to include literal letters in the output:
@@ -74,10 +74,10 @@ Use single quotes to include literal letters in the output:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET text AS String = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ss")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

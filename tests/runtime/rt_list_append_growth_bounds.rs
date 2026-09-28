@@ -199,7 +199,7 @@ fn list_program(arm: Arm, element: &str, n: u64) -> String {
             "TYPE Box\n  tag AS Integer\n  items AS List OF {element}\nEND TYPE\n"
         ));
     }
-    src.push_str(&format!("SUB main()\n  LET n AS Integer = {n}\n"));
+    src.push_str(&format!("FUNC main() AS Nothing\n  LET n AS Integer = {n}\n"));
     if arm.inline() {
         src.push_str("  MUT rec AS Box = Box[1, []]\n");
     } else {
@@ -213,7 +213,7 @@ fn list_program(arm: Arm, element: &str, n: u64) -> String {
         arm.statement()
     ));
     let list = if arm.inline() { "rec.items" } else { "data" };
-    src.push_str(&format!("  io::print(toString(len({list})))\nEND SUB\n"));
+    src.push_str(&format!("  io::print(toString(len({list})))\nEND FUNC\n"));
     src
 }
 
@@ -298,10 +298,10 @@ fn map_set_reserves_data_by_entry_width() {
     // value, both 8-aligned, so exactly 16 bytes per slot.
     let program = |n: u64| {
         format!(
-            "IMPORT io\nIMPORT collections\nSUB main()\n  LET n AS Integer = {n}\n  \
+            "IMPORT io\nIMPORT collections\nFUNC main() AS Nothing\n  LET n AS Integer = {n}\n  \
              MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {{}}\n  \
              MUT i AS Integer = 0\n  WHILE i < n\n    m = collections::set(m, i, i * 7 + 3)\n    \
-             i = i + 1\n  END WHILE\n  io::print(toString(len(m)))\nEND SUB\n"
+             i = i + 1\n  END WHILE\n  io::print(toString(len(m)))\nEND FUNC\n"
         )
     };
     let n = 1u64 << 20;

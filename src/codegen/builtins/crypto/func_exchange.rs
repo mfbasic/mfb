@@ -54,14 +54,14 @@ IMPORT crypto
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET alice AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
   LET bob AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
   LET s1 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, alice.privateKey, bob.publicKey)
   LET s2 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, bob.privateKey, alice.publicKey)
   io::print(toString(crypto::constantTimeEqual(s1, s2)))
   LET key AS List OF Byte = crypto::hkdf(crypto::Hash.SHA2_256, s1, [], strings::toBytes("demo v1"), 32)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

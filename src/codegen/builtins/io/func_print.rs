@@ -54,9 +54,9 @@ const EX: &str = r#"Print a line of text:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("Hello")
-END SUB
+END FUNC
 ```
 
 Convert a non-string value before printing:
@@ -64,10 +64,10 @@ Convert a non-string value before printing:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(42))
   io::print("total: " & toString(42))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

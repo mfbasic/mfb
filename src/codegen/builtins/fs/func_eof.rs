@@ -57,14 +57,14 @@ const EX: &str = r#"Read every line until end of input:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
   END WHILE
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

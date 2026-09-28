@@ -30,11 +30,11 @@ const EX: &str = r#"Round-trip an instant through a civil `datetime::DateTime` a
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::now()
   LET dt AS datetime::DateTime = datetime::inZone(at, datetime::utc())
   LET back AS datetime::Instant = datetime::resolve(dt)
-END SUB
+END FUNC
 ```
 
 Resolve a civil `datetime::DateTime` built in a fixed +05:30 zone:
@@ -42,11 +42,11 @@ Resolve a civil `datetime::DateTime` built in a fixed +05:30 zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), z)
   LET at AS datetime::Instant = datetime::resolve(dt)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

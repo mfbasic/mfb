@@ -135,12 +135,12 @@ FUNC readMonotonic AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("nowNanos " & readNowNanos())
   io::print("now " & readNow())
   io::print("monotonicNanos " & readMonotonicNanos())
   io::print("monotonic " & readMonotonic())
-END SUB
+END FUNC
 "#;
 
 /// Run the clock program with the clock pinned to `(sec, nsec)`.
@@ -256,10 +256,10 @@ FUNC readUlid AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("uuid7 " & readUuid7())
   io::print("ulid " & readUlid())
-END SUB
+END FUNC
 "#;
     let project = common::temp_project("datetime_clock_overflow_ids", IDS);
     let executable = common::build_project(&project);

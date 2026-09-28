@@ -81,10 +81,10 @@ TYPE Frame\n\
 \x20 kids AS List OF String\n\
 END TYPE\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 LET f AS Frame = Frame[\"mine\", [\"a\"]]\n\
 \x20 io::print(f.tag & \" \" & toString(pk::depth(3)))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The program's own recursive `Frame`.
 const RECURSIVE_PROGRAM: &str = "IMPORT io\n\
@@ -104,10 +104,10 @@ UNION Node\n\
 \x20 Leaf\n\
 END UNION\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 LET f AS Frame = Frame[\"mine\", [Leaf[\"a\"]]]\n\
 \x20 io::print(f.tag & \" \" & toString(pk::depth(3)))\n\
-END SUB\n";
+END FUNC\n";
 
 /// How the importer names its dependency.
 #[derive(Clone, Copy)]
@@ -335,7 +335,7 @@ fn an_exported_signature_naming_a_non_exported_type_is_rejected_at_the_package_b
 #[test]
 fn an_exported_type_naming_an_exported_type_still_builds_and_imports() {
     const PACKAGE: &str = "EXPORT TYPE Inner\n  n AS Integer\nEND TYPE\n\nEXPORT TYPE Pub\n  h AS Inner\nEND TYPE\n\nEXPORT FUNC mk(n AS Integer) AS Pub\n  RETURN Pub[Inner[n]]\nEND FUNC\n";
-    const PROGRAM: &str = "IMPORT io\nIMPORT pk\n\nSUB main()\n  LET p AS pk::Pub = pk::mk(4)\n  io::print(\"mine \" & toString(p.h.n))\nEND SUB\n";
+    const PROGRAM: &str = "IMPORT io\nIMPORT pk\n\nFUNC main() AS Nothing\n  LET p AS pk::Pub = pk::mk(4)\n  io::print(\"mine \" & toString(p.h.n))\nEND FUNC\n";
     assert_eq!(
         run("export_names_export_src", PACKAGE, PROGRAM, Form::Source),
         "mine 4"

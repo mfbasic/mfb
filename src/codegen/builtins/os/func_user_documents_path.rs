@@ -84,13 +84,13 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF fs::directoryExists(os::userDocumentsPath()) THEN
     io::print(os::userDocumentsPath("report.txt"))
   ELSE
     io::print("no Documents folder")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

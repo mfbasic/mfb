@@ -55,14 +55,14 @@ const EX: &str = r#"Draw at the top-left corner:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()
   term::moveTo(0, 0)
   io::print("top-left")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Draw near the middle of the surface:
@@ -71,14 +71,14 @@ Draw near the middle of the surface:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::moveTo(size.rows / 2, size.columns / 2)
   io::write("middle")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::move_to` — delegates to the shared family-generic

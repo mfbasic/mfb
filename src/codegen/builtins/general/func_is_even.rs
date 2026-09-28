@@ -24,7 +24,7 @@ const EX: &str = r#"Alternate row styling:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR row = 0 TO 3
     IF isEven(row) THEN
       io::print(toString(row) & ": shaded")
@@ -32,7 +32,7 @@ SUB main()
       io::print(toString(row) & ": plain")
     END IF
   NEXT
-END SUB
+END FUNC
 ```
 
 prints:
@@ -49,12 +49,12 @@ Negatives follow the sign-independent meaning:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isEven(4)))
   io::print(toString(isEven(-3)))
   io::print(toString(isEven(-4)))
   io::print(toString(isEven(0)))
-END SUB
+END FUNC
 ```
 
 prints:

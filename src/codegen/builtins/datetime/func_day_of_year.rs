@@ -28,12 +28,12 @@ const EX: &str = r#"Find the day-of-year of a civil date in the local zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
   LET n AS Integer = datetime::dayOfYear(dt)
-END SUB
+END FUNC
 ```
 
 Compute how many days remain in the year:
@@ -41,14 +41,14 @@ Compute how many days remain in the year:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
   MUT total AS Integer = 365
   IF datetime::isLeapYear(dt.date.year) THEN
     total = 366
   END IF
   LET remaining AS Integer = total - datetime::dayOfYear(dt)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

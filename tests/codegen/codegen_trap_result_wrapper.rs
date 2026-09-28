@@ -76,12 +76,12 @@ fn trapping(body: &str, type_: &str, recover: &str) -> String {
         \x20 END IF\n\
         \x20 {body}\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET n AS {type_} = risky(3) TRAP(e)\n\
         \x20   RECOVER {recover}\n\
         \x20 END TRAP\n\
         \x20 io::print(toString(n))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -125,13 +125,13 @@ fn a_trapped_string_call_never_copies_the_result_wrapper() {
         \x20 END IF\n\
         \x20 RETURN s\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET base AS String = \"abcdefghij\"\n\
         \x20 LET n AS String = pick(base, 3) TRAP(e)\n\
         \x20   RECOVER \"x\"\n\
         \x20 END TRAP\n\
         \x20 io::print(n)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let computes = ncode(
         "b568_computes_str",
@@ -142,13 +142,13 @@ fn a_trapped_string_call_never_copies_the_result_wrapper() {
         \x20 END IF\n\
         \x20 RETURN toString(len(s))\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET base AS String = \"abcdefghij\"\n\
         \x20 LET n AS String = pick(base, 3) TRAP(e)\n\
         \x20   RECOVER \"x\"\n\
         \x20 END TRAP\n\
         \x20 io::print(n)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         flat_copies(&borrows, "_mfb_fn_main"),
@@ -172,11 +172,11 @@ fn a_param_borrow_without_a_trap_still_copies() {
          FUNC pick(s AS String) AS String\n\
         \x20 RETURN s\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET base AS String = \"abcdefghij\"\n\
         \x20 LET n AS String = pick(base)\n\
         \x20 io::print(n & base)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let computes = ncode(
         "b568_plain_computes",
@@ -184,11 +184,11 @@ fn a_param_borrow_without_a_trap_still_copies() {
          FUNC pick(s AS String) AS String\n\
         \x20 RETURN toString(len(s))\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET base AS String = \"abcdefghij\"\n\
         \x20 LET n AS String = pick(base)\n\
         \x20 io::print(n & base)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert!(
         flat_copies(&borrows, "_mfb_fn_main") > flat_copies(&computes, "_mfb_fn_main"),

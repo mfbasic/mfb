@@ -14,9 +14,9 @@ or `List OF Float` (`math::exp(710.0)`) and `ErrOverflow` for a `Fixed`
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::exp(1.0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

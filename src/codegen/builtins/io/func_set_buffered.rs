@@ -94,7 +94,7 @@ const EX: &str = r#"Buffer a write-heavy loop and flush once at the end:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::setBuffered(TRUE)
   MUT i AS Integer = 0
   WHILE i < 100000
@@ -102,7 +102,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::flush()
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

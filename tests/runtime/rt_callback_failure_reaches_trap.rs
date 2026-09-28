@@ -50,11 +50,11 @@ FUNC noneUntilThree(n AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-SUB visitFailOnThree(n AS Integer)
+FUNC visitFailOnThree(n AS Integer) AS Nothing
   IF n = 3 THEN
     FAIL error(77050002, \"three\")
   END IF
-END SUB
+END FUNC
 ";
 
 /// Each member's failing call, as the initializer of a `LET` (or a bare statement

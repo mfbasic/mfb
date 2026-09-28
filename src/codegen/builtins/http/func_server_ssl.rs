@@ -71,14 +71,14 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```
 
 Bind loopback only, with an explicit backlog:
@@ -88,10 +88,10 @@ IMPORT http
 IMPORT tls
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)
   io::print("listening on 127.0.0.1:8443")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

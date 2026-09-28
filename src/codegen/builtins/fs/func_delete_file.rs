@@ -57,11 +57,11 @@ const EX: &str = r#"Remove a generated output file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::writeText("output/report.txt", "generated")
   fs::deleteFile("output/report.txt")
-END SUB
+END FUNC
 ```
 
 Write a file and then remove it:
@@ -69,10 +69,10 @@ Write a file and then remove it:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("scratch.txt", "temporary")
   fs::deleteFile("scratch.txt")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

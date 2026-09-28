@@ -128,9 +128,9 @@ fn a_global_record_field_update_runs_in_place() {
 fn a_global_record_keeps_value_semantics() {
     let source = format!(
         "{TYPES}
-SUB bump()
+FUNC bump() AS Nothing
   gR = WITH gR {{ xs := collections::append(gR.xs, 99), n := 7 }}
-END SUB
+END FUNC
 
 FUNC seen(r AS G) AS String
   bump()

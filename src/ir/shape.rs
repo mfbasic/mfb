@@ -5012,7 +5012,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
-                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nSUB g()\n  EXIT SUB\nEND SUB\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
+                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC g() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
             ),
             &[],
             &[],

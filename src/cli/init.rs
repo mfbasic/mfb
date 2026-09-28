@@ -156,7 +156,7 @@ fn sanitize_project_name(name: &str) -> String {
 }
 
 fn hello_world_source() -> String {
-    "IMPORT io\n\nSUB main()\n  io::print(\"Hello World\")\nEND SUB\n".to_string()
+    "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"Hello World\")\nEND FUNC\n".to_string()
 }
 
 fn package_source() -> String {
@@ -182,6 +182,29 @@ mod tests {
         assert_eq!(sanitize_project_name("1"), "mfb_project");
         // Empty input falls back to the default.
         assert_eq!(sanitize_project_name(""), "mfb_project");
+    }
+
+    #[test]
+    fn hello_world_source_is_a_valid_nothing_entry() {
+        // plan-159: the template's entry is `FUNC main() AS Nothing`, which the
+        // manifest entry check accepts exactly as it accepts an Integer entry.
+        let path = Path::new("main.mfb");
+        let file = crate::ast::parse_source(path, "main.mfb", &hello_world_source())
+            .expect("the template parses");
+        let hir = crate::hir::elaborate(&crate::ast::AstProject {
+            name: "demo".to_string(),
+            files: vec![file],
+        });
+        let manifest: std::collections::HashMap<String, JsonValue> =
+            [("kind".to_string(), JsonValue::String("executable".to_string()))]
+                .into_iter()
+                .collect();
+        let entry = crate::manifest::entry::validate_entry_point(Path::new("."), &manifest, &hir)
+            .expect("the template's entry is valid")
+            .expect("an executable has an entry");
+        assert_eq!(entry.name, "main");
+        assert_eq!(entry.returns, crate::types::ParameterType::Nothing);
+        assert!(!entry.accepts_args);
     }
 
     #[test]

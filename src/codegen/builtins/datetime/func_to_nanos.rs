@@ -36,9 +36,9 @@ const EX: &str = r#"Epoch nanoseconds of the current instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET ns AS Integer = datetime::toNanos(datetime::now())
-END SUB
+END FUNC
 ```
 
 Compare two instants at nanosecond resolution:
@@ -46,11 +46,11 @@ Compare two instants at nanosecond resolution:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Integer = datetime::toNanos(datetime::now())
   LET b AS Integer = datetime::toNanos(datetime::now())
   LET elapsed AS Integer = b - a
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

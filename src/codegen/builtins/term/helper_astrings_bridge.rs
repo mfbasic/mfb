@@ -108,23 +108,23 @@ END FUNC
 ' cells an opaque one draws. Synthesizing a blend against the cell's current
 ' background would disagree with what a canvas surface draws for the same colour, so
 ' the attribute keeps the alpha and the terminal simply does not use it.
-SUB __term_applyFg(packed AS Integer, saved AS color::Color)
+FUNC __term_applyFg(packed AS Integer, saved AS color::Color) AS Nothing
   IF packed = -1 THEN
     term::setForeground(saved)
   ELSE
     term::setForeground(color::fromPacked(packed))
   END IF
-END SUB
+END FUNC
 
-SUB __term_applyBg(packed AS Integer, saved AS color::Color)
+FUNC __term_applyBg(packed AS Integer, saved AS color::Color) AS Nothing
   IF packed = -1 THEN
     term::setBackground(saved)
   ELSE
     term::setBackground(color::fromPacked(packed))
   END IF
-END SUB
+END FUNC
 
-SUB __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedString)
+FUNC __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedString) AS Nothing
   IF term::isOn() THEN
     LET text AS String = toString(value)
     LET n AS Integer = len(strings::toScalars(value))
@@ -154,7 +154,7 @@ SUB __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedSt
     term::setForeground(saveFg)
     term::setBackground(saveBg)
   END IF
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {

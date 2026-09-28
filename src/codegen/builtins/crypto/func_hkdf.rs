@@ -56,13 +56,13 @@ IMPORT strings
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET ikm AS List OF Byte = strings::toBytes("shared secret")
   LET salt AS List OF Byte = crypto::randomBytes(16)
   LET info AS List OF Byte = strings::toBytes("app v1 encryption")
   LET key AS List OF Byte = crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, 32)
   io::print(encoding::hexEncode(key))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

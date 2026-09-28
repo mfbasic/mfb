@@ -33,10 +33,10 @@ const EX: &str = r#"Parse a decimal into a `Fixed`:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS Fixed = toFixed("1.5")
   io::print(toString(x))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -50,15 +50,15 @@ Text that is not a number raises rather than converting to a value:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS Fixed = toFixed("nope")
   io::print(toString(x))
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("toFixed raised " & toString(err.code))
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:

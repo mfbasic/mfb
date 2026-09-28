@@ -30,13 +30,13 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS color::Color = color::rgb(255, 220, 0)
   LET edge AS color::Color = color::rgb(80, 60, 0)
   LET dot AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
   canvas::present([dot])
-END SUB
+END FUNC
 ```
 
 The same paint turned 45°. Give the item coordinates around `(0, 0)` and put its
@@ -50,7 +50,7 @@ IMPORT canvas
 IMPORT color
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS color::Color = color::rgb(120, 190, 255)
   LET edge AS color::Color = color::rgb(20, 40, 90)
@@ -63,7 +63,7 @@ SUB main()
   LET diamond AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 40.0, y := 0.0 - 40.0, w := 80.0, h := 80.0, paint := WITH look { transform := spin }]
 
   canvas::present([upright, diamond])
-END SUB
+END FUNC
 ```
 
 A rotation keeps lengths, so both outlines come out 4 pixels wide. Under a **scale**

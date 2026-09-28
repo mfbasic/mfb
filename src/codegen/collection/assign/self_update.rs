@@ -2895,8 +2895,8 @@ impl Probe {
                 call = self.call,
             )),
             Site::Global => src.push_str(&format!(
-                "MUT x AS {ty} = {init}\n\nSUB run1()\n  FOR i = 1 TO 3\n    x = {call}\n  \
-                 NEXT\nEND SUB\n\nFUNC main() AS Integer\n  run1()\n  \
+                "MUT x AS {ty} = {init}\n\nFUNC run1() AS Nothing\n  FOR i = 1 TO 3\n    x = {call}\n  \
+                 NEXT\nEND FUNC\n\nFUNC main() AS Integer\n  run1()\n  \
                  io::print(toString(len(x)))\n  RETURN 0\nEND FUNC\n",
                 ty = self.ty,
                 init = self.init,
@@ -3011,11 +3011,11 @@ impl Probe {
         let open = "fs::openFile(\"/dev/null\")";
         let program = match site {
             Site::S5 => format!(
-                "MUT gR AS Rec\n\nSUB run1()\n{body}END SUB\n\n\
+                "MUT gR AS Rec\n\nFUNC run1() AS Nothing\n{body}END FUNC\n\n\
                  FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
             ),
             Site::T3 | Site::T4 => format!(
-                "SUB run1(RES h AS fs::File STATE P)\n{body}END SUB\n\n\
+                "FUNC run1(RES h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
                  FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
                  RETURN 0\nEND FUNC\n"
             ),

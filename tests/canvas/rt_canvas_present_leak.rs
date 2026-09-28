@@ -179,7 +179,7 @@ fn assert_flat(name: &str, source: &str, sync: bool, per_present: u64, why: &str
 fn unchanged() -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
          MUT items AS List OF canvas::DrawItem = []\n  \
@@ -195,7 +195,7 @@ fn unchanged() -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"presented\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -213,7 +213,7 @@ fn unchanged() -> String {
 fn changing() -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
          MUT frame AS Integer = 0\n  \
@@ -231,7 +231,7 @@ fn changing() -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"presented\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -240,7 +240,7 @@ fn changing() -> String {
 fn changing_layers() -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
          MUT frame AS Integer = 0\n  \
@@ -259,7 +259,7 @@ fn changing_layers() -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"presented\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -346,7 +346,7 @@ const SCENE_ITEMS: usize = 150;
 fn group_animated(vary: usize) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
-         SUB main()\n  \
+         FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
          MUT frame AS Integer = 0\n  \
@@ -373,7 +373,7 @@ fn group_animated(vary: usize) -> String {
          frame = frame + 1\n  \
          END WHILE\n  \
          io::print(\"presented\")\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 

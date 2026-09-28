@@ -53,7 +53,7 @@ TRAP(e)\n\
 END TRAP\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET a AS Integer = 2\n\
   LET b AS Integer = 3\n\
   io::print(toString(cell(a, b)))\n\
@@ -71,10 +71,10 @@ SUB main()\n\
   LET dir AS Integer = 7\n\
   LET s AS Integer = delta(dir) TRAP(e)\n\
     io::print(\"delta trapped \" & report(e))\n\
-    EXIT SUB\n\
+    RETURN\n\
   END TRAP\n\
   io::print(toString(s + one))\n\
-END SUB\n";
+END FUNC\n";
 
 fn project() -> PathBuf {
     let project = temp_project("leaf_inlining", MAIN);

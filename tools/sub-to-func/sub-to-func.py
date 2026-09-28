@@ -372,10 +372,12 @@ def rewrite_rust(src, rw, skip_fn_re=None):
     line_of = lambda off: src.count("\n", 0, off) + 1
     for start, end, raw in lits:
         content = src[start:end]
-        if not WORD_SUB_RE.search(content):
-            continue
         dec = None if raw else _decode_mapped(content)
         text = content if raw else (dec[0] if dec else content)
+        # Test the DECODED text: in the raw form a `SUB` right after a `\n` escape
+        # follows the letter `n`, which hides it from a word-boundary match.
+        if not WORD_SUB_RE.search(text):
+            continue
         if not any(SRC_LINE_RE.match(l) for l in text.split("\n")):
             rw.report(line_of(start), "rust-other", content[:160].replace("\n", "⏎"))
             continue

@@ -38,8 +38,8 @@ TESTING
     END TCASE
   END TGROUP
 END TESTING
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert!(
         rules(good).is_empty(),
@@ -59,8 +59,8 @@ TESTING
     END TCASE
   END TGROUP
 END TESTING
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     let reported = rules(bad);
     assert!(
@@ -94,8 +94,8 @@ TESTING
     END
   END TGROUP
 END TESTING
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ",
         ),
         (
@@ -108,8 +108,8 @@ TESTING
     END TCASE
   END
 END TESTING
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ",
         ),
     ] {

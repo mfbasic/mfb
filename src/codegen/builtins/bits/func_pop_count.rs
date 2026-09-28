@@ -26,10 +26,10 @@ const EX: &str = r#"Count the set bits of a small value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::popCount(255)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 The all-ones pattern has 64 set bits:
@@ -38,9 +38,9 @@ The all-ones pattern has 64 set bits:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(bits::popCount(-1)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

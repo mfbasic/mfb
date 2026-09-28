@@ -33,62 +33,62 @@ FUNC conv(text AS String) AS Integer
   RETURN toInt(text)
 END FUNC
 
-SUB failingCall(text AS String, v AS Integer)
+FUNC failingCall(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = conv(text)
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
-SUB failingFail(text AS String, v AS Integer)
+FUNC failingFail(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   IF text = "x" THEN FAIL error(77050002, "neg")
   io::print(toString(q.age))
-END SUB
+END FUNC
 
-SUB conversionRecord(text AS String, v AS Integer)
+FUNC conversionRecord(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = toInt(text)
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
-SUB divisionRecord(text AS String, v AS Integer)
+FUNC divisionRecord(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = 10 / v
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
-SUB overflowRecord(text AS String, v AS Integer)
+FUNC overflowRecord(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = 9223372036854775807 - v + q.age
   io::print(toString(n))
-END SUB
+END FUNC
 
-SUB conversionList(text AS String, v AS Integer)
+FUNC conversionList(text AS String, v AS Integer) AS Nothing
   LET xs AS List OF Integer = [1, 2, 3]
   LET n AS Integer = toInt(text)
   io::print(toString(n + len(xs)))
-END SUB
+END FUNC
 
-SUB conversionString(text AS String, v AS Integer)
+FUNC conversionString(text AS String, v AS Integer) AS Nothing
   LET s AS String = "owned-" & toString(v) & "-string"
   LET n AS Integer = toInt(text)
   io::print(s & toString(n))
-END SUB
+END FUNC
 
-SUB resourceLocal(text AS String, v AS Integer)
+FUNC resourceLocal(text AS String, v AS Integer) AS Nothing
   RES f AS fs::File = fs::createTempFile(".")
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = toInt(text)
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
-SUB failingWith(text AS String, v AS Integer)
+FUNC failingWith(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET r AS D = WITH q { age := toInt(text) }
   io::print(toString(r.age))
-END SUB
+END FUNC
 
-SUB inForEach(text AS String, v AS Integer)
+FUNC inForEach(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET names AS List OF String = ["a", "b", "c"]
   FOR EACH name IN names
@@ -97,9 +97,9 @@ SUB inForEach(text AS String, v AS Integer)
       io::print(tag & toString(toInt(text)))
     END IF
   NEXT
-END SUB
+END FUNC
 
-SUB nestedBlock(text AS String, v AS Integer)
+FUNC nestedBlock(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   MUT i AS Integer = 0
   WHILE i < 3
@@ -111,43 +111,43 @@ SUB nestedBlock(text AS String, v AS Integer)
     i = i + 1
   END WHILE
   io::print(toString(q.age))
-END SUB
+END FUNC
 
-SUB statementTemps(text AS String, v AS Integer)
+FUNC statementTemps(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET s AS String = "a" & toString(q.age) & toString(10 / v)
   io::print(s)
-END SUB
+END FUNC
 
-SUB indexOutOfRange(text AS String, v AS Integer)
+FUNC indexOutOfRange(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET xs AS List OF Integer = [1, 2, 3]
   io::print(toString(collections::get(xs, 9 + v) + q.age))
-END SUB
+END FUNC
 
-SUB trappedTemps(text AS String, v AS Integer)
+FUNC trappedTemps(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET s AS String = "a" & toString(q.age) & toString(10 / v)
   io::print(s)
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("handler " & toString(q.age))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trappedTempsCall(text AS String, v AS Integer)
+FUNC trappedTempsCall(text AS String, v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET s AS String = "a" & toString(q.age) & toString(conv(text))
   io::print(s)
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("handler " & toString(q.age))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB run(which AS String)
+FUNC run(which AS String) AS Nothing
   IF which = "failingCall" THEN failingCall("x", 0)
   IF which = "failingFail" THEN failingFail("x", 0)
   IF which = "conversionRecord" THEN conversionRecord("x", 0)
@@ -163,7 +163,7 @@ SUB run(which AS String)
   IF which = "indexOutOfRange" THEN indexOutOfRange("x", 0)
   IF which = "trappedTemps" THEN trappedTemps("x", 0)
   IF which = "trappedTempsCall" THEN trappedTempsCall("x", 0)
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   LET which AS String = os::getEnvOr("CASE", "")

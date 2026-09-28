@@ -169,11 +169,11 @@ FUNC risky(n AS Integer) AS Integer
   RETURN n
 END FUNC
 
-SUB halt(n AS Integer)
+FUNC halt(n AS Integer) AS Nothing
   IF n < 0 THEN
     EXIT PROGRAM LIMIT
   END IF
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   halt(1)

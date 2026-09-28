@@ -71,12 +71,12 @@ FUNC serveStatic(req AS http::Request) AS http::Response
   RETURN http::ok("static " & collections::getOr(req.params, "*", ""))
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/foo/new", newFoo))
   routes = collections::append(routes, http::route("/foo/:bar?", showFoo))
   routes = collections::append(routes, http::route("/static/*", serveStatic))
-END SUB
+END FUNC
 ```
 
 Catching a rejected pattern — the wildcard is not the final segment. This prints
@@ -90,19 +90,19 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("hi")
 END FUNC
 
-SUB register(p AS String)
+FUNC register(p AS String) AS Nothing
   LET r AS http::Route = http::route(p, home)
   io::print("ok: " & r.pattern)
-  EXIT SUB
+  RETURN
 TRAP (e)
   io::print("rejected: " & e.message)
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   register("/a/*/b")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

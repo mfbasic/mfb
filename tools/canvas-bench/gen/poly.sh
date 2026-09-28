@@ -14,7 +14,7 @@ IMPORT color
 IMPORT collections
 IMPORT math
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
@@ -27,5 +27,5 @@ SUB main()
   LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]
   canvas::present([box, ring])
-END SUB
+END FUNC
 M

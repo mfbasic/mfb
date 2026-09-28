@@ -71,9 +71,9 @@ const EX: &str = r#"List the start of every digit (note the doubled backslash in
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET starts AS List OF Integer = regex::findAll("a1b2c3", "\\d")
-END SUB
+END FUNC
 ```
 
 Scan only the tail of the string by passing an explicit start:
@@ -81,9 +81,9 @@ Scan only the tail of the string by passing an explicit start:
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET tail AS List OF Integer = regex::findAll("a1b2c3", "\\d", 3)
-END SUB
+END FUNC
 ```
 
 Iterate the matches, handling the empty-list "no match" case naturally:
@@ -92,12 +92,12 @@ Iterate the matches, handling the empty-list "no match" case naturally:
 IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET starts AS List OF Integer = regex::findAll("the cat sat", "\\w+")
   FOR EACH i IN starts
     io::print("word at " & toString(i))
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

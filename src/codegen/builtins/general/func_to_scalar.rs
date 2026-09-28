@@ -34,10 +34,10 @@ const EX: &str = r#"Build a character from its codepoint:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toScalar(65)))
   io::print(toString(toScalar("A")))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -52,14 +52,14 @@ An invalid codepoint raises:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toScalar(1114112)))
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("toScalar raised " & toString(err.code) & " — " & err.message)
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:

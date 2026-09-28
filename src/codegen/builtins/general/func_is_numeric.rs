@@ -33,12 +33,12 @@ const EX: &str = r#"Branch on whether input is a number, rather than trapping:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isNumeric("12")))
   io::print(toString(isNumeric("1.5")))
   io::print(toString(isNumeric("abc")))
   io::print(toString(isNumeric("")))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -55,14 +55,14 @@ Use it to guard a decimal conversion:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET field AS String = ""
   IF isNumeric(field) THEN
     io::print("got " & toString(toFloat(field)))
   ELSE
     io::print("please enter a number")
   END IF
-END SUB
+END FUNC
 ```
 
 prints:

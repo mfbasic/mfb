@@ -29,10 +29,10 @@ const EX: &str = r#"Shift a value left by four bits (multiply by 16):
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::sl(1, 4)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Build a byte-packed field by shifting a value into place and combining it with
@@ -42,11 +42,11 @@ Build a byte-packed field by shifting a value into place and combining it with
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET high AS Integer = bits::sl(0xAB, 8)
   LET packed AS Integer = bits::bor(high, 0xCD)
   io::print(toString(packed))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

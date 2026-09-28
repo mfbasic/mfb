@@ -54,7 +54,7 @@ FUNC run(pat AS String, s AS String) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT s AS String = ""
   MUT i AS Integer = 0
   WHILE i < {count}
@@ -63,7 +63,7 @@ SUB main()
   END WHILE
   s = s & "{tail}"
   LET rc AS Integer = run("{pattern}", s)
-END SUB
+END FUNC
 "#
     )
 }
@@ -139,7 +139,7 @@ FUNC run(pat AS String, s AS String) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT s AS String = ""
   MUT i AS Integer = 0
   WHILE i < 100
@@ -147,7 +147,7 @@ SUB main()
     i = i + 1
   END WHILE
   LET rc AS Integer = run("(a|aa){1,16}b|a", s)
-END SUB
+END FUNC
 "#;
     let lines = run(
         "regex_bounds_findall_budget",
@@ -178,7 +178,7 @@ TRAP(err)
 END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT s AS String = ""
   MUT i AS Integer = 0
   WHILE i < 1200000
@@ -187,7 +187,7 @@ SUB main()
   END WHILE
   LET at AS Integer = findOrMinusOne(s, "zzz")
   io::print("find=" & toString(at))
-END SUB
+END FUNC
 "#;
 
 #[cfg(unix)]
@@ -270,7 +270,7 @@ FUNC one(idx AS Integer, pat AS String, subj AS String, repl AS String) AS Strin
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(one(0, "abc", "xxabcxxabc", "<$0>"))
   io::print(one(1, "a.c", "abc a\nc a-c", "[$0]"))
   io::print(one(2, "(?s)a.c", "abc a\nc", "[$0]"))
@@ -356,7 +356,7 @@ SUB main()
   io::print(one(82, "(", "a", "X"))
   io::print(one(83, "a{3,2}", "a", "X"))
   io::print(one(84, "*a", "a", "X"))
-END SUB
+END FUNC
 "####;
 
 const MATCHER_CORPUS_EXPECTED: &str = r####"0: m=TRUE f=2 f1=2 all=[2,7,] r=xx<abc>xx<abc>

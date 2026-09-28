@@ -122,11 +122,11 @@ const EX: &str = r#"Branch on the presence of a variable:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF os::hasEnv("CI") THEN
     io::print("running in CI")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

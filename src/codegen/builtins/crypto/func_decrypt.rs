@@ -74,11 +74,11 @@ x86-64)."#;
 const EX: &str = r#"```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET recip AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
   LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.publicKey, "attack at dawn")
   LET clear AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, box)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

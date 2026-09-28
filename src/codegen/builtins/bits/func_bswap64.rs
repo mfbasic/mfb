@@ -28,10 +28,10 @@ const EX: &str = r#"Swap the eight bytes of a 64-bit value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::bswap64(255)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Byte order flips between little-endian and big-endian:
@@ -40,9 +40,9 @@ Byte order flips between little-endian and big-endian:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(bits::bswap64(0x1122334455667788)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

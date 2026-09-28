@@ -53,9 +53,9 @@ const EX: &str = r#"Generate a compact, time-sortable identifier:
 IMPORT crypto
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(crypto::ulid())
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

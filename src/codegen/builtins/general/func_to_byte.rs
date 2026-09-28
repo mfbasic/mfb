@@ -28,15 +28,15 @@ const EX: &str = r#"Convert in range, and see the out-of-range failure:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toByte(255)))
   io::print(toString(toByte(256)))
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("toByte raised " & toString(err.code) & " — " & err.message)
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:
@@ -52,10 +52,10 @@ Wrap deliberately, when that is what you want:
 IMPORT io
 IMPORT bits
 
-SUB main()
+FUNC main() AS Nothing
   LET wide AS Integer = 300
   io::print(toString(toByte(bits::band(wide, 255))))
-END SUB
+END FUNC
 ```
 
 prints:

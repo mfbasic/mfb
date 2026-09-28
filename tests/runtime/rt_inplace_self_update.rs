@@ -384,7 +384,7 @@ impl Site {
 fn frame(site: Site, decl: &str, body: &str) -> String {
     let rest = match site {
         Site::Global => format!(
-            "\nMUT x AS {decl}\n\nSUB run1()\n{body}END SUB\n\n\
+            "\nMUT x AS {decl}\n\nFUNC run1() AS Nothing\n{body}END FUNC\n\n\
              FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
         ),
         _ => format!("\nFUNC main() AS Integer\n  MUT x AS {decl}\n{body}  RETURN 0\nEND FUNC\n"),
@@ -1568,7 +1568,7 @@ fn kind_helpers(ty: &str, text: &str) -> String {
         );
     }
     if text.contains("kindSink(") {
-        out.push_str(&format!("SUB kindSink(v AS {ty})\nEND SUB\n\n"));
+        out.push_str(&format!("FUNC kindSink(v AS {ty}) AS Nothing\nEND FUNC\n\n"));
     }
     if text.contains("kindRoute") {
         out.push_str(
@@ -1608,12 +1608,12 @@ fn field_frame(fc: &FieldCase, site: FieldSite, body: &str) -> String {
                 None => String::new(),
             };
             format!(
-                "MUT gR AS Rec{init}\n\nSUB run1()\n{body}END SUB\n\n\
+                "MUT gR AS Rec{init}\n\nFUNC run1() AS Nothing\n{body}END FUNC\n\n\
                  FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
             )
         }
         T3 | T4 => format!(
-            "SUB run1(RES h AS fs::File STATE P)\n{body}END SUB\n\n\
+            "FUNC run1(RES h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
              FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
              RETURN 0\nEND FUNC\n"
         ),

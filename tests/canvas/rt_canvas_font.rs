@@ -93,7 +93,7 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
   RETURN label & ": accepted"
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   io::print(attempt("truetype", 0, 1, 0, 0))
   io::print(attempt("appletrue", 116, 114, 117, 101))
@@ -102,14 +102,14 @@ SUB main()
   io::print(attempt("woff", 119, 79, 70, 70))
   MUT short AS List OF Byte = [toByte(0), toByte(1), toByte(0), toByte(0)]
   fs::writeBytes("short.bin", short) TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   RES g AS canvas::Font = canvas::loadFont("short.bin") TRAP(e)
     io::print("short: refused " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("short: accepted a four-byte file")
-END SUB
+END FUNC
 "#;
 
 /// `ErrBadFontFile`, from `errorCode`. Spelled here so a renumbering of the table
@@ -163,14 +163,14 @@ fn a_missing_path_is_not_reported_as_a_bad_font() {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES f AS canvas::Font = canvas::loadFont("no-such-font.ttf") TRAP(e)
     io::print("missing: " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("missing: loaded a font that does not exist")
-END SUB
+END FUNC
 "#,
     );
     // The distinction is the whole reason `ErrBadFontFile` was added: a path typo and
@@ -199,11 +199,11 @@ fn a_second_destroy_font_raises_resource_closed() {
 IMPORT canvas
 IMPORT io
 
-SUB closeIt(RES f AS canvas::Font)
+FUNC closeIt(RES f AS canvas::Font) AS Nothing
   canvas::destroyFont(f)
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
   closeIt(f)
@@ -212,7 +212,7 @@ SUB main()
     RECOVER
   END TRAP
   io::print("done")
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -440,17 +440,17 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("font failed")
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(color::rgb(255, 255, 0))]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
   io::print("done")
-END SUB
+END FUNC
 "#;
     let frame = run_with_font_frame("canvas_group_text", SOURCE);
     const W: usize = 900;
@@ -487,11 +487,11 @@ const MEASURE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load failed " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   FOR EACH s IN ["A", "B", "AB", "X", "AXB", ""]
     LET m AS canvas::TextMetrics = canvas::measureText(face, 100.0, s)
@@ -499,7 +499,7 @@ SUB main()
   NEXT
   LET half AS canvas::TextMetrics = canvas::measureText(face, 50.0, "AB")
   io::print("[half] w=" & toString(half.width))
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -540,11 +540,11 @@ fn descent_is_reported_positive_though_the_file_stores_it_negative() {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load failed")
-    EXIT SUB
+    RETURN
   END TRAP
   LET m AS canvas::TextMetrics = canvas::measureText(face, 100.0, "A")
   IF m.descent > 0.0 THEN
@@ -553,7 +553,7 @@ SUB main()
     io::print("descent is not positive: " & toString(m.descent))
   END IF
   io::print("height " & toString(m.height))
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(
@@ -668,14 +668,14 @@ fn a_glyph_outline_renders_where_its_own_coordinates_put_it() {
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
-END SUB
+END FUNC
 "#,
     );
 
@@ -720,14 +720,14 @@ fn a_string_advances_the_pen_between_glyphs() {
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
-END SUB
+END FUNC
 "#,
     );
     let lit: Vec<usize> = (0..frame.len() / 4)
@@ -761,17 +761,17 @@ fn text_whose_font_was_destroyed_draws_nothing() {
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
   canvas::present([label])
-END SUB
+END FUNC
 "#,
     );
     assert!(
@@ -793,14 +793,14 @@ const GPU_TEXT: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgb(220, 40, 160))]
   canvas::present([label])
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -865,16 +865,16 @@ const GPU_TEXT_THEN_SHAPE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(color::rgb(40, 60, 90))]
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150))]
   LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   canvas::present([under, label, tail])
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -945,10 +945,10 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
   RETURN items
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET a AS List OF canvas::DrawItem = scene(face, 20.0)
   LET b AS List OF canvas::DrawItem = scene(face, 80.0)
@@ -957,7 +957,7 @@ SUB main()
   ' The frame that gets dumped, and the one that is compared: scene A again, after
   ' scene B has had the chance to push its glyphs out of the cache.
   canvas::present(a)
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -1036,16 +1036,16 @@ const ROTATED_TEXT: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
   LET p AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) { transform := t }
   LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p]
   canvas::present([label])
-END SUB
+END FUNC
 "#;
 
 /// The same run with no transform, so the two can be compared as pictures.
@@ -1053,14 +1053,14 @@ const UPRIGHT_TEXT: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
-END SUB
+END FUNC
 "#;
 
 #[test]
@@ -1207,11 +1207,11 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load-failed")
-    EXIT SUB
+    RETURN
   END TRAP
   MUT i AS Integer = 0
   WHILE i < 200
@@ -1221,7 +1221,7 @@ SUB main()
     canvas::present([label])
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 "#,
         &[],
     );
@@ -1335,16 +1335,16 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load failed " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
   io::print("presented")
-END SUB
+END FUNC
 "#
     )
 }
@@ -1448,7 +1448,7 @@ fn a_units_per_em_outside_the_formats_range_is_refused_at_load() {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   FOR EACH name IN ["upem1", "upem0", "upem15", "upem16385", "upem16", "upem16384", "upem1000"]
     RES f AS canvas::Font = canvas::loadFont(name & ".ttf") TRAP(e)
@@ -1458,7 +1458,7 @@ SUB main()
     canvas::destroyFont(f)
     io::print(name & ": accepted")
   NEXT
-END SUB
+END FUNC
 "#;
     let square = [100, 0, 400, 300];
     let fonts: Vec<(&str, Vec<u8>)> = [
@@ -1600,12 +1600,12 @@ const DRAW_A: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("FONTFILE")
   LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
-END SUB
+END FUNC
 "#;
 
 /// A collection's first face draws exactly what the same font drawn from its own file
@@ -1661,19 +1661,19 @@ fn a_collection_that_runs_past_its_end_is_refused() {
 IMPORT canvas
 IMPORT io
 
-SUB attempt(label AS String, path AS String)
+FUNC attempt(label AS String, path AS String) AS Nothing
   RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
     io::print(label & ": refused " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print(label & ": accepted")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   attempt("face", "past.ttc")
   attempt("table", "table.ttc")
-END SUB
+END FUNC
 "#,
         &[("past.ttc", past), ("table.ttc", table)],
     );
@@ -1789,22 +1789,22 @@ fn load_font_chooses_a_collection_face_by_name() {
 IMPORT canvas
 IMPORT io
 
-SUB attempt(label AS String, path AS String, face AS String)
+FUNC attempt(label AS String, path AS String, face AS String) AS Nothing
   RES f AS canvas::Font = canvas::loadFont(path, face) TRAP(e)
     io::print(label & ": refused " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print(label & ": " & toString(canvas::measureText(f, 100.0, "A").width))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   attempt("ps-b", "faces.ttc", "FaceB")
   attempt("ps-a", "faces.ttc", "FaceA")
   attempt("full-b", "faces.ttc", "Face B Full")
   attempt("absent", "faces.ttc", "Nope")
   attempt("roman", "roman.ttf", "Café")
-END SUB
+END FUNC
 "#,
         &[("faces.ttc", ttc), ("roman.ttf", roman)],
     );
@@ -1832,7 +1832,7 @@ fn a_system_collection_face_loads_by_post_script_name() {
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES regular AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc")
   RES bold AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Helvetica.ttc", "Helvetica-Bold")
@@ -1843,7 +1843,7 @@ SUB main()
   ELSE
     io::print("regular " & toString(r) & " bold " & toString(b))
   END IF
-END SUB
+END FUNC
 "#,
     );
     assert_eq!(lines, vec!["bold is wider".to_string()]);

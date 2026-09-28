@@ -17,9 +17,9 @@ gives an empty list. `low` must not exceed `high`, else `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::clamp(12, 0, 10)))
-END SUB
+END FUNC
 ```"#;
 
 const LOW: &[&str] = &["minimum"];

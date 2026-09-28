@@ -30,11 +30,11 @@ const EX: &str = r#"Count a string and a list:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(len("abc")))
   io::print(toString(len("")))
   io::print(toString(len([1, 2, 3])))
-END SUB
+END FUNC
 ```
 
 prints:

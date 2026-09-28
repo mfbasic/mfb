@@ -14,7 +14,7 @@ r#"' plan-120-A: was `__json_isInvalidNumberText`, a Boolean predicate whose two
 ' and "this number is a NaN" are different diagnoses, and only the second tells
 ' the caller to look at their arithmetic. The formatter renders a non-finite
 ' Float as one of these four texts, so the text is the detector.
-SUB __json_requireFiniteNumberText(value AS String)
+FUNC __json_requireFiniteNumberText(value AS String) AS Nothing
   IF value = "nan" THEN
     FAIL error(77050013, "cannot serialize a NaN as JSON: JSON has no non-finite numbers")
   END IF
@@ -27,7 +27,7 @@ SUB __json_requireFiniteNumberText(value AS String)
   IF value = "-inf" THEN
     FAIL error(77050014, "cannot serialize an infinity as JSON: JSON has no non-finite numbers")
   END IF
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_requireFiniteNumberText", BODY));

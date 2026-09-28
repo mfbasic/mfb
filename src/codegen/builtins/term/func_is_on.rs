@@ -37,11 +37,11 @@ const EX: &str = r#"Enter TUI mode only once:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   IF NOT term::isOn() THEN
     term::on()
   END IF
-END SUB
+END FUNC
 ```
 
 Draw only when the surface is live — the first call does nothing, the second
@@ -51,21 +51,21 @@ draws `status`:
 IMPORT term
 IMPORT io
 
-SUB drawStatus()
+FUNC drawStatus() AS Nothing
   IF term::isOn() THEN
     term::clear()
     term::moveTo(0, 0)
     io::print("status")
     term::sync()
   END IF
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   drawStatus()
   term::on()
   drawStatus()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::is_on` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

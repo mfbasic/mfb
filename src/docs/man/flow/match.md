@@ -81,14 +81,14 @@ Match literal values with a fallback:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET grade AS String = "A"
   MATCH grade
     CASE "A"      : io::print("Great")
     CASE "B", "C" : io::print("OK")
     CASE ELSE     : io::print("?")
   END MATCH
-END SUB
+END FUNC
 ```
 
 ## See also

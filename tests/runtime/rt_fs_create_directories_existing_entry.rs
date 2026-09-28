@@ -25,7 +25,7 @@ fn create_directories_refuses_an_existing_file_and_accepts_an_existing_directory
         r#"IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("{file}") TRAP(e)
     io::print("file " & toString(e.code))
     RECOVER
@@ -35,7 +35,7 @@ SUB main()
     RECOVER
   END TRAP
   io::print("done")
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("bug694_create_directories", &source);

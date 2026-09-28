@@ -88,13 +88,13 @@ FUNC showPts(xs AS List OF Pt) AS String
   RETURN out
 END FUNC
 
-SUB check(label AS String, got AS String, want AS String)
+FUNC check(label AS String, got AS String, want AS String) AS Nothing
   IF got = want THEN
     io::print(\"ok   \" & label & \" \" & got)
   ELSE
     io::print(\"FAIL \" & label & \" got=\" & got & \" want=\" & want)
   END IF
-END SUB
+END FUNC
 
 FUNC ints() AS List OF Integer
   RETURN [5, -1, 3, 3, -7, 8, 5, 0, 2, 9, -1]

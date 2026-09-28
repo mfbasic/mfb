@@ -133,7 +133,7 @@ pass a built-in predicate to a higher-order helper:
 IMPORT io
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET original AS List OF Integer = [10, 20]
   LET changed = collections::set(original, 1, 99)
   io::print(toString(collections::get(original, 1)) & "," & toString(collections::get(changed, 1)))
@@ -144,7 +144,7 @@ SUB main()
 
   LET positive = collections::filter([-2, 5, 0, 7], isPositive)
   io::print(toString(len(positive)))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -397,10 +397,10 @@ mod tests {
     #[test]
     fn import_detection_via_registry() {
         let pkg = registry().resolve_package("collections").unwrap();
-        let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
+        let ast = project("IMPORT collections\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(pkg.is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&ast)));
 
-        let bare = project("SUB main\nEND SUB\n");
+        let bare = project("FUNC main AS Nothing\nEND FUNC\n");
         assert!(!pkg.is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&bare)));
     }
 
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn augmented_project_injects_when_imported() {
-        let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
+        let ast = project("IMPORT collections\nFUNC main AS Nothing\nEND FUNC\n");
         let before = ast.files.len();
         let augmented = augmented_project(ast).expect("augment");
         assert_eq!(augmented.files.len(), before + 1);
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn augmented_project_noop_without_import() {
-        let ast = project("SUB main\nEND SUB\n");
+        let ast = project("FUNC main AS Nothing\nEND FUNC\n");
         let before = ast.files.len();
         assert_eq!(augmented_project(ast).expect("a").files.len(), before);
     }

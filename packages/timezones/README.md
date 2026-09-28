@@ -47,14 +47,14 @@ IMPORT timezones
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET winter AS datetime::Instant = datetime::instant(1768485600, 0)   ' 2026-01-15T14:00:00Z
   LET summer AS datetime::Instant = datetime::instant(1784120400, 0)   ' 2026-07-15T13:00:00Z
   io::print(toString(timezones::offsetAt("America/New_York", winter)))   ' -18000
   LET zone AS datetime::Zone = timezones::toZone("America/New_York", summer)
   io::print(zone.label & " " & toString(zone.offsetSeconds))            ' EDT -14400
   io::print(datetime::toIso(datetime::inZone(summer, zone)))            ' 2026-07-15T09:00:00.000-04:00
-END SUB
+END FUNC
 ```
 
 **A zone from `toZone` is a snapshot for that instant.** It is a fixed-offset
@@ -77,12 +77,12 @@ IMPORT timezones
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), "America/New_York")
   io::print(datetime::toIso(meeting))   ' 2026-01-15T09:00:00.000-05:00
   LET summer AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
   io::print(datetime::toIso(summer))    ' 2026-07-15T09:00:00.000-04:00
-END SUB
+END FUNC
 ```
 
 Twice a year a reading is skipped or happens twice. `civil` resolves both cases with
@@ -124,13 +124,13 @@ IMPORT timezones
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
   LET text AS String = timezones::toIso(meeting, "America/New_York")
   io::print(text)                                    ' 2026-07-15T09:00:00.000-04:00[America/New_York]
   LET back AS timezones::ZonedDateTime = timezones::parseIso(text)
   io::print(back.name & " " & back.dateTime.zone.label)   ' America/New_York EDT
-END SUB
+END FUNC
 ```
 
 - **Names ignore case.** `[america/new_york]` reads as `America/New_York`, and

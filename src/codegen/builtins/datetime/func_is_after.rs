@@ -34,11 +34,11 @@ const EX: &str = r#"A later instant is after an earlier one:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(2_000)
   LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::isAfter(a, b)))
-END SUB
+END FUNC
 ```
 
 Equal instants are not after each other:
@@ -47,11 +47,11 @@ Equal instants are not after each other:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS datetime::Instant = datetime::instant(1_000)
   LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::isAfter(a, b)))
-END SUB
+END FUNC
 ```
 
 Branch on chronological order:
@@ -60,11 +60,11 @@ Branch on chronological order:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET past AS datetime::Instant = datetime::instant(0)
   LET nowInstant AS datetime::Instant = datetime::now()
   IF datetime::isAfter(nowInstant, past) THEN io::print("now is later")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -104,9 +104,9 @@ FUNC classify(n AS Integer, limit AS Integer) AS String
   END MATCH
 END FUNC
 
-SUB bump(by AS Integer)
+FUNC bump(by AS Integer) AS Nothing
   counter = counter + by
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   MUT dot AS Dot = Dot[1, 2, "origin"]
