@@ -1,14 +1,71 @@
 # bug-688: The Vulkan canvas backend is still at pre-bug-686 Metal: ordinary scenes fall to software, large polygons are O(edges × pixels), pictures copy per occurrence, every frame is read back
 
-Last updated: 2026-09-24
+Last updated: 2026-09-27
 Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
-Status: V1-V4 FIXED; V5/V6 BLOCKED on hardware (no reachable Vulkan GPU)
+Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 and the 10k-quad shader cost OPEN
 Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes
 
-## STATUS: V1-V4 FIXED, V5/V6 BLOCKED
+## STATUS (2026-09-27): V1-V4 FIXED; V5 measured on a real GPU, two fixes landed; V6 open
+
+**Hardware now reachable.** Box 206 (`ssh test@192.168.1.206`, `.ai/remote_systems.md`):
+Windows 11 on a real Intel UHD Graphics 630 with Intel's Vulkan 1.3 driver. The Phase 0
+blocker is resolved for Windows; there is still no real-GPU Linux box.
+
+**Instrument.** `tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host
+test@192.168.1.206 <subcommand>` (Windows mode, `42c207a2e`): builds the `.exe`, runs it
+headless (`MFB_WINAPP_HEADLESS=1`) through a CRLF `.bat`, copies stats/dumps back. Stats
+need a `--debug` build (plan-130-E); a headless run needs `MFB_CANVAS_GPU=1` to use the GPU.
+
+**V5 finding 1 — fixed (`42c207a2e`).** Every frame's render phase carried a fixed ~200 ms
+(debug sweep: 95 items 204 ms, 10k quads 296 ms). The readback buffer took the first
+`HOST_VISIBLE|HOST_COHERENT` memory type, which on this driver is type 1, write-combined
+and uncached for the CPU's per-pixel reads (`vulkaninfo`: type 2 adds `HOST_CACHED`). It
+now asks for `HOST_VISIBLE|HOST_COHERENT|HOST_CACHED` first and falls back to plain
+coherent (`READBACK_MEMORY_CANDIDATES`; unit test
+`the_readback_buffer_prefers_cached_memory`). Debug sweep after: 95 items 204 -> 13.4 ms
+render (5 -> 71 fps), 1k 222 -> 26 ms (4.4 -> 24.6 fps), 10 x 300-pt 209 -> 17 ms.
+
+**V5 finding 2 — fixed (`cc5e0ea53`).** The shared edge/band/gradient/picture buffer and
+the item buffer took the same write-combined type, and the band-index builder reads back
+edges it just wrote. Same candidates now: 100 x 300-pt 62.6 -> 27.5 ms, 10 x 4000-pt
+81.3 -> 35.1 ms, 10 x 300-pt 17.2 -> 13.6 ms; quad rows unchanged.
+
+Correctness on the real GPU after both: `poly 1000` and `poly 4000` maxdelta 1 (unchanged
+from before the fixes); `pics 2000 32 0 0` oracle pixels=0.
+
+**V5 numbers now (debug build, box 206, 900x640, `MFB_CANVAS_GPU=1`):**
+
+| row | fps | render ms/frame |
+|---|---|---|
+| 95 x 8-pt moving | 71.4 | 13.4 |
+| 1,000 x 8-pt moving | 24.8 | 26.3 |
+| 1,000 x 8-pt static bulk | 34.8 | 26.3 |
+| 2,000 x 8-pt moving | 12.0 | 40.5 |
+| 2,500 x 8-pt moving | 9.0 | 47.6 |
+| 5,000 triangles moving | 6.6 | 51.5 |
+| 10,000 quads moving | 3.6 | 115.5 |
+| 10 x 300-pt moving | 67.0 | 13.6 |
+| 100 x 300-pt moving | 6.4 | 27.5 |
+| 10 x 4,000-pt moving | 9.8 | 35.1 |
+
+**OPEN — 10k quads is renderer-limited (V5 acceptance not met).** Same 10,000 quads at
+radius 8 vs 0.6: 128 ms vs 46.8 ms render, so ~80 ms is GPU fragment work (~20 ns per
+covered pixel — heavy for 4-edge coverage; bug-735's double-float coverage on this weak
+iGPU is the first suspect) and ~47 ms is per-item upload plus the fixed frame cost.
+`draws=0:10001:0:0:0` — one draw, so not draw-call overhead.
+
+**OPEN — V6, full-screen present.** The 95-item scene's render phase scales with pixels:
+900x640 13.2 ms, 1920x1080 38.1 ms, 2560x1440 64.6 ms (~17 ns/pixel), over the 16.6 ms
+60 Hz budget at 1080p. Not yet split between the readback path (copy + CPU swizzle +
+blit, which a swapchain removes) and GPU shading (which it does not). Next step: time the
+readback section, then decide the swapchain per the Fix Design.
+
+**Noted, not reproduced:** one `pics 2000` run took 2.6 s/frame; two reruns gave 55 ms.
+
+### Earlier status: V1-V4 FIXED, V5/V6 BLOCKED
 
 Landed on `worktree-B-688` and merged to `main`. What holds, with the commands behind it:
 
@@ -393,8 +450,9 @@ Commit: `05c5ffa81`
       budget, add the swapchain present, with the readback kept for headless runs, damage
       and dumps, and a stats counter.
 
-**BLOCKED: no reachable Vulkan GPU** (Phase 0). Nothing here was measured; the renderer
-still reads back in a window, as before.
+**Partly done (2026-09-27, box 206):** the fps rows are measured (table in STATUS) and two
+memory-type fixes landed (`42c207a2e`, `cc5e0ea53`). Still open: 10k quads is
+renderer-limited (GPU fragment cost), and the readback-vs-swapchain split at full screen.
 
 Acceptance: at 10k moving items the renderer path is not the limit, and the numbers are
 recorded here with commands. A full-screen window holds the rate.
