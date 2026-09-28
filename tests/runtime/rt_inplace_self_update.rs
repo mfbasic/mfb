@@ -65,6 +65,16 @@
 //! At a field site the program also prints a sibling field before and after the
 //! loop, so a write that lands on the wrong part of the owner fails.
 //!
+//! **Through a `LET` (plan-149-C2).** A sample of five lines also runs at every
+//! field site with the operand read into a local first —
+//! `LET cur0 AS T = r.b` then `r = WITH r { b := f(cur0, …) }` — the shape real
+//! code (and the benchmark) writes. The Level-1 "Place copy forwarding" row turns
+//! it back into the direct form, so each cell expects exactly what the direct form
+//! expects in `field_expect.tsv`, except at `S9`: a `LAMBDA` body is one
+//! expression, so the `LET` sits outside it and the lambda captures `cur0`, which
+//! the row must decline. Run it with
+//! `cargo test --release --test rt_inplace_self_update via_let -- --ignored`.
+//!
 //! `MFB_SELF_UPDATE_SITES=<code>[,<code>…]` runs only those sites (`Local`,
 //! `ForEach`, `Lambda`, `Global`, `Return`, `S3`…`S10`, `T1`…`T8`);
 //! `MFB_SELF_UPDATE_FILTER` narrows the lines, by signature or kind.
@@ -1315,11 +1325,17 @@ impl FieldSite {
 
     /// `x = <rhs>` rewritten to update [`field`](Self::field).
     fn statement(self, statement: &str, label: &str) -> String {
+        self.statement_with(statement, label, self.field())
+    }
+
+    /// [`statement`](Self::statement) with `operand` read in place of `x` on the
+    /// right-hand side: the field itself, or a local holding a copy of it.
+    fn statement_with(self, statement: &str, label: &str, operand: &str) -> String {
         use FieldSite::*;
         let rhs = statement
             .strip_prefix("x = ")
             .unwrap_or_else(|| panic!("{label}: statement `{statement}` is not `x = …`"));
-        let v = replace_ident(rhs, "x", self.field());
+        let v = replace_ident(rhs, "x", operand);
         match self {
             S3 => format!("r = WITH r {{ a := {v} }}"),
             S4 | S7 | S9 => format!("r = WITH r {{ b := {v} }}"),
@@ -1432,6 +1448,9 @@ struct FieldCase {
     value_bound: bool,
     /// Whether the field has a `len` (the program prints it last).
     has_len: bool,
+    /// Read the field into `LET cur<k>` before each statement and update through
+    /// it (plan-149-C2), instead of naming the field in the statement.
+    via_let: bool,
     n: u64,
     /// The expectation at each field site.
     expect: Vec<(FieldSite, FieldExpect)>,
@@ -1468,6 +1487,7 @@ impl FieldCase {
             value_bound: false,
             // `len` has no `AttributedString` overload (plan-146-A).
             has_len: case.ty() != "AttributedString",
+            via_let: false,
             n: case.n,
             expect,
         }
@@ -1525,6 +1545,7 @@ fn field_kinds() -> Vec<FieldCase> {
                 check: cols[4].to_string(),
                 value_bound,
                 has_len: false,
+                via_let: false,
                 n: DEFAULT_N,
                 expect,
             }
@@ -1680,6 +1701,27 @@ fn at_field_site(site: FieldSite, body: &str, statements: &[String], live: bool)
     }
 }
 
+/// The lines a field program runs for `fc`'s statements at `site`, and the
+/// subset that are the updates themselves (what `S9` wraps in its lambda). Via a
+/// `LET`, each update is preceded by `LET cur<k> AS <T> = <field>`, which stays
+/// outside the lambda.
+fn field_statement_lines(fc: &FieldCase, site: FieldSite) -> (Vec<String>, Vec<String>) {
+    let mut lines = Vec::new();
+    let mut updates = Vec::new();
+    for (k, statement) in fc.statements.iter().enumerate() {
+        let update = if fc.via_let {
+            let local = format!("cur{k}");
+            lines.push(format!("LET {local} AS {} = {}", fc.ty, site.field()));
+            site.statement_with(statement, &fc.label, &local)
+        } else {
+            site.statement(statement, &fc.label)
+        };
+        lines.push(update.clone());
+        updates.push(update);
+    }
+    (lines, updates)
+}
+
 /// `x`'s declaration, the setup, and the owner built from `x`.
 fn field_prologue(fc: &FieldCase, site: FieldSite) -> String {
     let mut src = format!("  MUT x AS {}\n", sized(&fc.decl, VALUE_M));
@@ -1699,17 +1741,16 @@ fn field_prologue(fc: &FieldCase, site: FieldSite) -> String {
 /// copy of the field and over the sibling, before and after, then the field's
 /// length.
 fn field_program(fc: &FieldCase, site: FieldSite, n: u64, live: bool, control: bool) -> String {
-    let statements: Vec<String> = fc
-        .statements
-        .iter()
-        .map(|s| {
-            if control {
-                site.control(s, &fc.label)
-            } else {
-                site.statement(s, &fc.label)
-            }
-        })
-        .collect();
+    let (statements, updates) = if control {
+        let controls: Vec<String> = fc
+            .statements
+            .iter()
+            .map(|s| site.control(s, &fc.label))
+            .collect();
+        (controls, Vec::new())
+    } else {
+        field_statement_lines(fc, site)
+    };
     let mut src = field_prologue(fc, site);
     let sibling = replace_ident(&fc.check, "before", site.sibling());
     src.push_str(&format!("  LET before AS {} = {}\n", fc.ty, site.field()));
@@ -1721,8 +1762,7 @@ fn field_program(fc: &FieldCase, site: FieldSite, n: u64, live: bool, control: b
     }
     body.push_str("  NEXT\n");
     // The control computes values only; it needs no lambda around them.
-    let wrapped: &[String] = if control { &[] } else { &statements };
-    src.push_str(&at_field_site(site, &body, wrapped, live));
+    src.push_str(&at_field_site(site, &body, &updates, live));
     src.push_str(&format!("  io::print({})\n", fc.check));
     src.push_str(&format!("  io::print({sibling})\n"));
     if fc.has_len {
@@ -1744,16 +1784,12 @@ fn field_result_program(fc: &FieldCase, site: FieldSite) -> String {
         let rhs = replace_ident(rhs, "x", &format!("e{k}"));
         src.push_str(&format!("  LET e{} AS {ty} = {rhs}\n", k + 1));
     }
-    let statements: Vec<String> = fc
-        .statements
-        .iter()
-        .map(|s| site.statement(s, &fc.label))
-        .collect();
+    let (statements, updates) = field_statement_lines(fc, site);
     let mut body = String::new();
     for statement in &statements {
         body.push_str(&format!("  {statement}\n"));
     }
-    src.push_str(&at_field_site(site, &body, &statements, true));
+    src.push_str(&at_field_site(site, &body, &updates, true));
     let last = format!("e{}", fc.statements.len());
     src.push_str(&format!(
         "  io::print({})\n",
@@ -1987,6 +2023,56 @@ fn every_self_update_case_meets_its_allocation_bound() {
                 work.push(Work::Field(i, fc.clone(), *site, expect.clone()));
             }
         }
+    }
+    run_work(work);
+}
+
+/// The plan-149-C2 sample: one line per operation class the benchmark's `LET cur`
+/// rows use, plus the growing `append` (which rebuilds at a not-last site).
+const VIA_LET_SAMPLE: &[&str] = &[
+    "collections::set(value AS List OF T, index AS Integer, item AS T) AS List OF T",
+    "collections::removeAt(value AS List OF T, index AS Integer) AS List OF T",
+    "collections::removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V",
+    "collections::remove(value AS Set OF T, item AS T) AS Set OF T",
+    "collections::append(value AS List OF T, item AS T) AS List OF T",
+];
+
+#[test]
+#[ignore = "slow: run by coverage.yml; locally `-- --ignored`"]
+fn every_via_let_field_cell_meets_its_expectation() {
+    let cases = cases();
+    let expectations = field_expectations(&cases);
+    let sites = site_filter();
+    let mut work = Vec::new();
+    for (i, signature) in VIA_LET_SAMPLE.iter().enumerate() {
+        let case = cases
+            .iter()
+            .find(|c| c.signature == *signature)
+            .unwrap_or_else(|| panic!("VIA_LET_SAMPLE names no cases.tsv line: {signature}"));
+        let mut fc = FieldCase::from_case(case, &expectations);
+        fc.via_let = true;
+        fc.label = format!("{} via_let", fc.label);
+        for (site, direct) in &fc.expect {
+            if sites.as_ref().is_some_and(|l| !l.contains(&site.code())) {
+                continue;
+            }
+            // After the forward the NIR is the direct form, so the cell expects
+            // what the direct form does — except in the `S9` lambda, which must
+            // capture `cur<k>`, and a captured binding is never forwarded.
+            let expect = if *site == FieldSite::S9 {
+                FieldExpect::Rebuild("via-let-captured-by-the-lambda".to_string())
+            } else {
+                direct.clone()
+            };
+            work.push(Work::Field(2000 + i, fc.clone(), *site, expect));
+        }
+    }
+    if sites.is_none() {
+        assert_eq!(
+            work.len(),
+            VIA_LET_SAMPLE.len() * FIELD_SITES.len(),
+            "every sampled line runs at every field site"
+        );
     }
     run_work(work);
 }
