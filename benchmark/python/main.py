@@ -886,7 +886,7 @@ def main():
     # elem group (P1 coverage — Record/Float element collection ops)
     elembench.run_all(RUN, now_ns, record)
 
-    # closure group (P1 coverage — user HOF param / returned closure)
+    # closure group (P1 coverage — user HOF param / returned closure / forEach MUT capture)
     closurebench.run_all(RUN, now_ns, record)
     # tree group (P1 recursive union — binarytrees/treewalk)
     treebench.run_all(RUN, now_ns, record)

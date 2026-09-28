@@ -2,9 +2,11 @@
 
 Mirrors benchmark/mfb/src/closure.mfb (P1 coverage): a user function taking a
 function parameter (called with a named def and with a lambda), and a function
-returning a closure over a local, invoked many times.
+returning a closure over a local, invoked many times, and a loop-body
+accumulator updated through a for-each callback (a nested def with nonlocal).
 
-Expected checksums: hof_param=2499997500000, closure_ret=34546050000.
+Expected checksums: hof_param=2499997500000, closure_ret=34546050000,
+capture_mut=1996501500.
 """
 import sys
 
@@ -56,8 +58,37 @@ def test_closure_closure_ret():
     record("closure", "closure_ret", times)
 
 
+def clo_for_each(xs, f):
+    for x in xs:
+        f(x)
+
+
+def test_closure_capture_mut():
+    xs = [(i * 7919) % 1000 for i in range(1000)]
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        for rep in range(1000):
+            scale = rep % 7 + 1
+            total = 0
+
+            def add(x):
+                nonlocal total
+                total += x * scale
+
+            clo_for_each(xs, add)
+            acc += total
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("test_closure_capture_mut = %d" % checksum, file=sys.stderr)
+    record("closure", "capture_mut", times)
+
+
 def run_all(run, now_ns_fn, record_fn):
     global RUN, now_ns, record
     RUN, now_ns, record = run, now_ns_fn, record_fn
     test_closure_hof_param()
     test_closure_closure_ret()
+    test_closure_capture_mut()

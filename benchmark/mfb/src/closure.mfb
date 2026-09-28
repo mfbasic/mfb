@@ -1,7 +1,9 @@
 ' First-class function benchmarks (P1 coverage). The collection rows pass
 ' FUNC values only into built-in HOFs; none benches a USER function taking a
 ' FUNC parameter or a function RETURNING a capturing lambda (`mfb man lambda`,
-' "Capture rules"). Group `closure`.
+' "Capture rules"), nor the one MUT capture the language allows: a LAMBDA
+' passed straight to collections::forEach updating an outer MUT (`mfb man
+' lambda`, "The non-escaping callback exception"). Group `closure`.
 IMPORT io
 IMPORT collections
 IMPORT datetime
@@ -62,4 +64,34 @@ FUNC test_closure_closure_ret(run AS Integer, tests AS List OF BenchResult) AS L
   NEXT
   io::printError("test_closure_closure_ret = " & toString(checksum))
   RETURN collections::append(tests, makeResult("closure", "closure_ret", times))
+END FUNC
+
+' ---- capture_mut: a loop-body MUT accumulated through forEach's LAMBDA -------
+'
+' 1000 passes over a 1000-element list; each pass declares a fresh MUT total
+' and a LET scale in the loop body and adds x * scale into total from a
+' forEach LAMBDA, then folds total into the checksum. A total that carried
+' over from the previous pass (not re-initialized) changes the checksum.
+FUNC test_closure_capture_mut(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO 999
+    xs = collections::append(xs, (i * 7919) MOD 1000)
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO 999
+      LET scale AS Integer = rep MOD 7 + 1
+      MUT total AS Integer = 0
+      collections::forEach(xs, LAMBDA(x AS Integer) -> total = total + x * scale)
+      acc = acc + total
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_closure_capture_mut = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("closure", "capture_mut", times))
 END FUNC

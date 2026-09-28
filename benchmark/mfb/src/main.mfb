@@ -1610,9 +1610,10 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_elem_map_rec_set(run, tests)
   tests = test_elem_map_rec_get(run, tests)
 
-  ' closure group (closure.mfb) — P1 coverage: user HOF param / returned closure
+  ' closure group (closure.mfb) — P1 coverage: user HOF param / returned closure / forEach MUT capture
   tests = test_closure_hof_param(run, tests)
   tests = test_closure_closure_ret(run, tests)
+  tests = test_closure_capture_mut(run, tests)
   ' tree group (tree.mfb) — P1 coverage: recursive UNION build + MATCH walk
   tests = test_tree_binarytrees(run, tests)
   tests = test_tree_treewalk(run, tests)
