@@ -30,6 +30,7 @@
 #include "compressbench.h"
 #include "convertbench.h"
 #include "elembench.h"
+#include "closurebench.h"
 #include "cryptobench.h"
 #include "datetimebench.h"
 #include "dispatchbench.h"
@@ -771,6 +772,8 @@ int main(int argc, char **argv) {
 
   run_compress_group();
   run_elem_group();
+
+  run_closure_group();
 
   test_primes();
 

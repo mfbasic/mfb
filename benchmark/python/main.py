@@ -31,6 +31,7 @@ import mapmatrix
 import math
 import convertbench
 import elembench
+import closurebench
 import mathbench
 import mathpipe
 import os
@@ -882,6 +883,9 @@ def main():
     compressbench.run_all(RUN, now_ns, record)
     # elem group (P1 coverage — Record/Float element collection ops)
     elembench.run_all(RUN, now_ns, record)
+
+    # closure group (P1 coverage — user HOF param / returned closure)
+    closurebench.run_all(RUN, now_ns, record)
 
     test_primes()
 

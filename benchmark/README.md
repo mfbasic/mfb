@@ -51,6 +51,7 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `bigint`            | the `big::Int` arbitrary-precision integer (P1): `pidigits` (Benchmarks Game spigot, 400 digits — add/multiply/divide/compare on growing state), `factorial` (`big::factorial(2000)` + `big::toString`), `modpow` (RSA-2048 public-key shape: 16 bases ^ 65537 mod a 2048-bit modulus), and `gcd` (200 Fibonacci pairs — Euclid's worst case — `big::parse`d, `big::gcd`'d and rendered back). Python peer is native `int`; no C peer (`--`) |
 | `compress`          | `compress::crc32` (P1) — 64× CRC-32 of a deterministic ~128 KB text; C peer is system zlib `crc32()` (`-lz`), Python `zlib.crc32` |
 | `elem`              | the **Record** and **Float** element types the Integer/String list/map matrix never varies (P1 coverage), all in plain `MUT`/`LET` locals: over a `List OF Item` (`Item = {id AS Integer, name AS String, score AS Float}`) — `rec_get`, `rec_set` (`collections::set` of a `WITH`-updated record), `rec_sortby` (stable `sortBy` on the `score` field, 101 distinct keys over 1000 items so the order-sensitive id hash proves tie stability), `rec_find` (structural record equality), `rec_filter`, `rec_transform`; over a `List OF Float` — `flt_sort`, `flt_sum` (`reduce`), `flt_transform`; and over a `Map OF Integer TO Item` — `map_rec_set` (insert then overwrite from empty) / `map_rec_get` |
+| `closure`           | first-class functions outside the built-in HOFs (P1 coverage): `hof_param` (a user `FUNC` taking a `FUNC(Integer) AS Integer` parameter, called in a hot loop with a named `FUNC` and with an inline `LAMBDA`) and `closure_ret` (a `FUNC` returning a `LAMBDA` that captures a `LET` value, each closure invoked 10000×) |
 
 The `io` group also gains `readnum` (read+parse), `buf_on`/`buf_off` (buffered vs
 unbuffered write, quantifying the buffering win), `format` (mixed Int/Float/String
@@ -58,7 +59,7 @@ formatting), and `binary` (`strings::toBytes` + `fs` byte round-trip); the `stri
 group gains `unibig` (realistic-size Unicode churn). These new rows live in
 per-theme files (`mapchurn.*`, `listchurn.*`, `mathpipe.*`, `strbuild.*`,
 `regexbench.*`, `arena.*`, `scalarbench.*`, `width.*`, `pipeline.*`, `convert.*`,
-`elem.*`/`elembench.*`)
+`elem.*`/`elembench.*`, `closure.*`/`closurebench.*`)
 mirrored across all three languages.
 
 Three more per-member groups extend the existing surface (plan-45): the `map`
@@ -312,6 +313,11 @@ Python `record(group, name, None)` does.
   record rows run at a modest 1000 elements (the record carries a `String`
   field — arena-churn caveat below); none degrades across the run loop at that
   size.
+- **`closure` (P1)** — C has no closures, so a function value is a
+  `{function pointer, env pointer}` pair (`bench_opaque` hides the target so -O2
+  keeps the indirect call); Python uses a `def`/`lambda` and a returned closure.
+  Checksums match (`hof_param=2499997500000`, `closure_ret=34546050000`).
+
 ### Arena-churn caveat + regression gate (plan-39-A)
 
 Several rows use **deliberately tiny** iteration counts because MFBASIC's runtime

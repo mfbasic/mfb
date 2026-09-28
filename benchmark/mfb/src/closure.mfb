@@ -1,0 +1,65 @@
+' First-class function benchmarks (P1 coverage). The collection rows pass
+' FUNC values only into built-in HOFs; none benches a USER function taking a
+' FUNC parameter or a function RETURNING a capturing lambda (`mfb man lambda`,
+' "Capture rules"). Group `closure`.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' A user HOF: one indirect call through a FUNC(Integer) AS Integer parameter.
+FUNC cloApply(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
+  RETURN f(x)
+END FUNC
+
+FUNC cloStep(x AS Integer) AS Integer
+  RETURN x * 2 + 1
+END FUNC
+
+' Returns a closure over the LET `scale` and the parameter `offset` — each
+' closure keeps its own copy of both after makeAffine returns.
+FUNC cloMakeAffine(k AS Integer, offset AS Integer) AS FUNC(Integer) AS Integer
+  LET scale AS Integer = k * 2 + 1
+  RETURN LAMBDA(x AS Integer) -> x * scale + offset
+END FUNC
+
+' ---- hof_param: user FUNC taking a FUNC parameter, named FUNC + LAMBDA -------
+FUNC test_closure_hof_param(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 999999
+      acc = acc + cloApply(cloStep, i) + cloApply(LAMBDA(x AS Integer) -> x * 3 - 1, i)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_closure_hof_param = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("closure", "hof_param", times))
+END FUNC
+
+' ---- closure_ret: a FUNC returning a LET-capturing LAMBDA, invoked many times
+'
+' 100 closures (each a fresh capture of a different scale/offset), each called
+' 10000 times.
+FUNC test_closure_closure_ret(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO 99
+      LET f AS FUNC(Integer) AS Integer = cloMakeAffine(rep MOD 7, rep)
+      FOR i = 0 TO 9999
+        acc = acc + f(i)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_closure_closure_ret = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("closure", "closure_ret", times))
+END FUNC

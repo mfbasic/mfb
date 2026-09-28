@@ -1607,6 +1607,10 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_elem_map_rec_set(run, tests)
   tests = test_elem_map_rec_get(run, tests)
 
+  ' closure group (closure.mfb) — P1 coverage: user HOF param / returned closure
+  tests = test_closure_hof_param(run, tests)
+  tests = test_closure_closure_ret(run, tests)
+
   tests = test_primes(run, tests)
 
   tests = test_thread_sum(run, tests)
