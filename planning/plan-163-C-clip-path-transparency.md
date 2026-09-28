@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-28
 Effort: large (3h–1d)
-Depends on: plan-163-B (the stroke-styling letter — caps and joins; see Prerequisites)
+Depends on: plan-163-B (stroke styling; see Prerequisites)
 
 The canvas `Paint` has three gaps compared with SVG content.
 
@@ -69,14 +69,14 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-B (caps and joins) complete and archived | `ls planning/completed/plan-163-B-*` → match | NOT MET (2026-09-28: B not started) |
+| plan-163-B (stroke styling) complete and archived | `ls planning/completed/plan-163-B-*` → match | NOT MET (2026-09-28: B not started) |
 
 plan-163-A is complete by transitivity, because B requires it. Everything below is
 written against the world where A and B have landed:
 
 - `Polygon.contours` and `Polygon.rule` exist, and the software and GPU crossing tests
   support NonZero;
-- `Paint` has B's `cap`/`join`/`miterLimit` fields and B's header and item-block
+- `Paint` has B's `cap`/`join`/`miterLimit`/`dashes`/`dashOffset` fields and B's header and item-block
   growth.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -316,8 +316,7 @@ transparency  AS Float
   - Slots 22–25 hold the rectangle (mode 1), or the **surface bounds of the
     transformed clip path** (mode 2), which is used to narrow the pixel range as today.
   - Both builders change together. Both pin tests pin the new slots.
-- **Tail order**: edges | joins | **clip edges** | stops. plan-163-D (dashes, after
-  this letter) inserts its dash tail before the clip edges. Stops stay last. A
+- **Tail order**: edges | joins | dashes | **clip edges** | stops. Stops stay last. A
   new `__canvas_clipEdgeBase` computed from the header counts is the only way readers
   find the clip edges (the `__canvas_gradientStopBase` rule).
 - **The clip edges** are in the item's own coordinates, before the transform: the same
@@ -525,7 +524,7 @@ Commit: —
       - the Picture rule (:431–434 rewritten with the tint formula);
       - the header and item-block growth where the layout is cited.
 - [ ] `.ai/canvas-threading.md`: the `clipBand`/`clipPath` block words, the clip edges
-      sharing the edge region, and the tail order edges | joins | clip edges | stops.
+      sharing the edge region, and the tail order edges | joins | dashes | clip edges | stops.
 - [ ] Man prose on `Paint` (`clip`, `clipRule`, `transparency`), `Picture` and
       `FillRule` (`.ai/man-content.md` bans apply).
 
