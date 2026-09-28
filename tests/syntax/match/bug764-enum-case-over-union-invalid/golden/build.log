@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/match/bug764-enum-case-over-union-invalid
+  21 | FUNC eval(e AS Expr) AS Integer
+  22 |   MATCH e
+  23 |     CASE Op.Add
+     | ^
+tests/syntax/match/bug764-enum-case-over-union-invalid/src/main.mfb:23 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE pattern has type Op, expected Expr.
+[exit 1]

@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision
+Wrote AST to tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision/bug764_enum_case_type_name_collision.ast
+Wrote IR to tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision/bug764_enum_case_type_name_collision.ir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision
+Wrote executable to tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision/build/bug764_enum_case_type_name_collision.out
+[exit 0]
+$ tests/rt-behavior/control-flow/bug764_enum_case_type_name_collision/build/bug764_enum_case_type_name_collision.out
+push
+add
+verb-add
+verb-remove
+7
+9
+little
+big
+[exit 0]

@@ -1,0 +1,34 @@
+' bug-764: `CASE Op.Add` names the enum member `Op.Add`, never the UNION variant
+' `Add` that shares its member name. Over an `Expr` scrutinee it is a pattern of
+' the wrong type, not a covered variant.
+TYPE Add
+  left AS Integer
+END TYPE
+
+TYPE Num
+  value AS Integer
+END TYPE
+
+UNION Expr
+  Add
+  Num
+END UNION
+
+ENUM Op
+  Push, Add
+END ENUM
+
+FUNC eval(e AS Expr) AS Integer
+  MATCH e
+    CASE Op.Add
+      RETURN 1
+    CASE Num(n)
+      RETURN n.value
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  RETURN eval(Num[9])
+END FUNC

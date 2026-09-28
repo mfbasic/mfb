@@ -5350,6 +5350,75 @@ fn func_missing_return_when_match_not_exhaustive() {
     );
 }
 
+// --- bug-764: a qualified enum arm is never a union-variant arm --------------
+
+/// `CASE <enum>.<member>` as an IR pattern.
+fn enum_member_case(enum_name: &str, member: &str, body: Vec<IrOp>) -> IrMatchCase {
+    IrMatchCase {
+        pattern: IrMatchPattern::Value(IrValue::MemberAccess {
+            target: Box::new(IrValue::Local(enum_name.to_string())),
+            member: member.to_string(),
+            type_: crate::types::ParameterType::parse(enum_name),
+        }),
+        guard: None,
+        body,
+        loc: IrSourceLoc::default(),
+    }
+}
+
+/// bug-764: `CASE Op.Add` over an `Op` scrutinee is an enum arm even when the
+/// project also declares `TYPE Add` — the `Op.` qualifier decides, not the bare
+/// member name. It was rejected as "CASE `Add` requires a UNION value, got Op".
+#[test]
+fn accepts_enum_arm_whose_member_names_a_declared_type() {
+    let m = IrOp::Match {
+        value: IrValue::Local("o".to_string()),
+        cases: vec![
+            enum_member_case("Op", "Push", vec![ret(int_const("1"))]),
+            enum_member_case("Op", "Add", vec![ret(int_const("2"))]),
+        ],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![param("o", "Op", None)], vec![m]);
+    accept(&project(
+        vec![f],
+        vec![record("Add", &["left"]), enum_type("Op", &["Push", "Add"])],
+    ));
+}
+
+/// bug-764, the reverse collision: `CASE Op.Add` over a UNION that carries a
+/// variant `Add` is an `Op` value, not that variant. It was silently accepted
+/// (the bare member `Add` is in the union), and native dispatch then compared
+/// the union value against `Op.Add`'s ordinal.
+#[test]
+fn rejects_enum_arm_over_union_with_same_named_variant() {
+    let m = IrOp::Match {
+        value: IrValue::Local("e".to_string()),
+        cases: vec![
+            enum_member_case("Op", "Add", vec![ret(int_const("1"))]),
+            IrMatchCase {
+                pattern: IrMatchPattern::Else,
+                guard: None,
+                body: vec![ret(int_const("0"))],
+                loc: IrSourceLoc::default(),
+            },
+        ],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![param("e", "Expr", None)], vec![m]);
+    expect_rule(
+        &project(
+            vec![f],
+            vec![
+                record("Add", &["left"]),
+                union("Expr", &["Add"]),
+                enum_type("Op", &["Push", "Add"]),
+            ],
+        ),
+        "TYPE_MATCH_PATTERN_MISMATCH",
+    );
+}
+
 // --- link: more than one result marker -------------------------------------
 
 #[test]

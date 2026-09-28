@@ -1,0 +1,237 @@
+{
+  "project": "bug764_enum_case_type_name_collision",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 4 },
+    { "module": "big", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Add",
+      "line": 7,
+      "fields": [
+      { "visibility": null, "name": "left", "type": "Integer", "line": 8 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Num",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer", "line": 12 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Little",
+      "line": 15,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 16 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Expr",
+      "line": 19,
+      "includes": [],
+      "variants": [
+      { "name": "Add", "line": 20 },
+      { "name": "Num", "line": 21 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Op",
+      "line": 24,
+      "members": [
+      { "name": "Push", "line": 25 },
+      { "name": "Add", "line": 25 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Verb",
+      "line": 28,
+      "members": [
+      { "name": "Add", "line": 29 },
+      { "name": "Remove", "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "opName",
+      "line": 32,
+      "params": [
+      { "name": "o", "type": "Op", "default": null, "line": 32 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "o" },
+        "line": 33,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Op" }, "member": "Push" } },
+          "guard": null,
+          "line": 34,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "push" }, "line": 35 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Op" }, "member": "Add" } },
+          "guard": null,
+          "line": 36,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "add" }, "line": 37 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "verbName",
+      "line": 41,
+      "params": [
+      { "name": "v", "type": "Verb", "default": null, "line": 41 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "v" },
+        "line": 42,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Verb" }, "member": "Add" } },
+          "guard": null,
+          "line": 43,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "verb-add" }, "line": 44 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Verb" }, "member": "Remove" } },
+          "guard": null,
+          "line": 45,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "verb-remove" }, "line": 46 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "eval",
+      "line": 50,
+      "params": [
+      { "name": "e", "type": "Expr", "default": null, "line": 50 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "e" },
+        "line": 51,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Add", "binding": "a" },
+          "guard": null,
+          "line": 52,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "left" }, "line": 53 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Num", "binding": "n" },
+          "guard": null,
+          "line": 54,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "n" }, "member": "value" }, "line": 55 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "endianName",
+      "line": 59,
+      "params": [
+      { "name": "e", "type": "big.Endian", "default": null, "line": 59 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "e" },
+        "line": 60,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "big.Endian" }, "member": "Little" } },
+          "guard": null,
+          "line": 61,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "little" }, "line": 62 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "big.Endian" }, "member": "Big" } },
+          "guard": null,
+          "line": 63,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "big" }, "line": 64 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 68,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "opName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Op" }, "member": "Push" }] }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "opName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Op" }, "member": "Add" }] }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "verbName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Verb" }, "member": "Add" }] }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "verbName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Verb" }, "member": "Remove" }] }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "eval", "arguments": [{ "kind": "constructor", "type": "Add", "arguments": [{ "kind": "number", "value": "7" }] }] }] }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "eval", "arguments": [{ "kind": "constructor", "type": "Num", "arguments": [{ "kind": "number", "value": "9" }] }] }] }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "endianName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "big.Endian" }, "member": "Little" }] }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "endianName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "big.Endian" }, "member": "Big" }] }] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 77 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,78 @@
+' bug-764: a qualified enum arm (`CASE Op.Add`) is an enum arm even when its
+' member shares its name with a declared TYPE, a UNION variant, another enum's
+' member, or an imported enum's member. Each arm must dispatch to its own body.
+IMPORT io
+IMPORT big
+
+TYPE Add
+  left AS Integer
+END TYPE
+
+TYPE Num
+  value AS Integer
+END TYPE
+
+TYPE Little
+  n AS Integer
+END TYPE
+
+UNION Expr
+  Add
+  Num
+END UNION
+
+ENUM Op
+  Push, Add
+END ENUM
+
+ENUM Verb
+  Add, Remove
+END ENUM
+
+FUNC opName(o AS Op) AS String
+  MATCH o
+    CASE Op.Push
+      RETURN "push"
+    CASE Op.Add
+      RETURN "add"
+  END MATCH
+END FUNC
+
+FUNC verbName(v AS Verb) AS String
+  MATCH v
+    CASE Verb.Add
+      RETURN "verb-add"
+    CASE Verb.Remove
+      RETURN "verb-remove"
+  END MATCH
+END FUNC
+
+FUNC eval(e AS Expr) AS Integer
+  MATCH e
+    CASE Add(a)
+      RETURN a.left
+    CASE Num(n)
+      RETURN n.value
+  END MATCH
+END FUNC
+
+FUNC endianName(e AS big::Endian) AS String
+  MATCH e
+    CASE big::Endian.Little
+      RETURN "little"
+    CASE big::Endian.Big
+      RETURN "big"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  io::print(opName(Op.Push))
+  io::print(opName(Op.Add))
+  io::print(verbName(Verb.Add))
+  io::print(verbName(Verb.Remove))
+  io::print(toString(eval(Add[7])))
+  io::print(toString(eval(Num[9])))
+  io::print(endianName(big::Endian.Little))
+  io::print(endianName(big::Endian.Big))
+  RETURN 0
+END FUNC

@@ -1,0 +1,342 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug764_enum_case_type_name_collision",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "public",
+    "name": "Add",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "left", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 11,
+    "visibility": "public",
+    "name": "Num",
+    "fields": [
+    { "visibility": null, "line": 12, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 15,
+    "visibility": "public",
+    "name": "Little",
+    "fields": [
+    { "visibility": null, "line": 16, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 19,
+    "visibility": "public",
+    "name": "Expr",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Add",
+      "line": 20,
+      "fields": [
+      { "visibility": null, "line": 8, "name": "left", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Num",
+      "line": 21,
+      "fields": [
+      { "visibility": null, "line": 12, "name": "value", "type": "Integer" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 24,
+    "visibility": "public",
+    "name": "Op",
+    "members": [
+    { "name": "Push" },
+    { "name": "Add" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 28,
+    "visibility": "public",
+    "name": "Verb",
+    "members": [
+    { "name": "Add" },
+    { "name": "Remove" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "export",
+    "name": "big.Int",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "magnitude", "type": "List OF Byte" },
+    { "visibility": null, "line": 9, "name": "negative", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 18,
+    "visibility": "export",
+    "name": "big.DivResult",
+    "fields": [
+    { "visibility": null, "line": 19, "name": "quotient", "type": "big.Int" },
+    { "visibility": null, "line": 20, "name": "remainder", "type": "big.Int" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 23,
+    "visibility": "export",
+    "name": "big.Endian",
+    "members": [
+    { "name": "Little" },
+    { "name": "Big" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "opName",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "o", "line": 32, "type": "Op", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 33, "mutable": false, "name": "$match0", "type": "Op", "value": { "kind": "local", "name": "o" } },
+    {
+      "op": "match",
+      "line": 33,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 34,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Op", "target": { "kind": "local", "name": "Op" }, "member": "Push" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 35, "value": { "kind": "const", "type": "String", "value": "push" } }
+        ]
+      },
+      {
+        "line": 36,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Op", "target": { "kind": "local", "name": "Op" }, "member": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 37, "value": { "kind": "const", "type": "String", "value": "add" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "verbName",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 41, "type": "Verb", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 42, "mutable": false, "name": "$match1", "type": "Verb", "value": { "kind": "local", "name": "v" } },
+    {
+      "op": "match",
+      "line": 42,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 43,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Verb", "target": { "kind": "local", "name": "Verb" }, "member": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 44, "value": { "kind": "const", "type": "String", "value": "verb-add" } }
+        ]
+      },
+      {
+        "line": 45,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Verb", "target": { "kind": "local", "name": "Verb" }, "member": "Remove" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 46, "value": { "kind": "const", "type": "String", "value": "verb-remove" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "eval",
+    "line": 50,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "e", "line": 50, "type": "Expr", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 51, "mutable": false, "name": "$match2", "type": "Expr", "value": { "kind": "local", "name": "e" } },
+    {
+      "op": "match",
+      "line": 51,
+      "value": { "kind": "local", "name": "$match2" },
+      "cases": [
+      {
+        "line": 52,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Add" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 52, "mutable": false, "name": "a", "type": "Add", "value": { "kind": "unionExtract", "type": "Add", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "return", "line": 53, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "left" } }
+        ]
+      },
+      {
+        "line": 54,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Num" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 54, "mutable": false, "name": "n", "type": "Num", "value": { "kind": "unionExtract", "type": "Num", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "return", "line": 55, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "n" }, "member": "value" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "endianName",
+    "line": 59,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "e", "line": 59, "type": "big.Endian", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 60, "mutable": false, "name": "$match3", "type": "big.Endian", "value": { "kind": "local", "name": "e" } },
+    {
+      "op": "match",
+      "line": 60,
+      "value": { "kind": "local", "name": "$match3" },
+      "cases": [
+      {
+        "line": 61,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "big.Endian", "target": { "kind": "local", "name": "big.Endian" }, "member": "Little" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 62, "value": { "kind": "const", "type": "String", "value": "little" } }
+        ]
+      },
+      {
+        "line": 63,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "big.Endian", "target": { "kind": "local", "name": "big.Endian" }, "member": "Big" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 64, "value": { "kind": "const", "type": "String", "value": "big" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 68,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "opName", "args": [{ "kind": "memberAccess", "type": "Op", "target": { "kind": "local", "name": "Op" }, "member": "Push" }] }] } },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "opName", "args": [{ "kind": "memberAccess", "type": "Op", "target": { "kind": "local", "name": "Op" }, "member": "Add" }] }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "verbName", "args": [{ "kind": "memberAccess", "type": "Verb", "target": { "kind": "local", "name": "Verb" }, "member": "Add" }] }] } },
+    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "verbName", "args": [{ "kind": "memberAccess", "type": "Verb", "target": { "kind": "local", "name": "Verb" }, "member": "Remove" }] }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "eval", "args": [{ "kind": "unionWrap", "union": "Expr", "member": "Add", "value": { "kind": "constructor", "type": "Add", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } }] }] }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "eval", "args": [{ "kind": "unionWrap", "union": "Expr", "member": "Num", "value": { "kind": "constructor", "type": "Num", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } }] }] }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "endianName", "args": [{ "kind": "memberAccess", "type": "big.Endian", "target": { "kind": "local", "name": "big.Endian" }, "member": "Little" }] }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "endianName", "args": [{ "kind": "memberAccess", "type": "big.Endian", "target": { "kind": "local", "name": "big.Endian" }, "member": "Big" }] }] } },
+    { "op": "return", "line": 77, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
