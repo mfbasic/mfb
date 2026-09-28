@@ -1066,6 +1066,14 @@ mod tests {
         .unwrap_or_else(|error| panic!("the probe lowers to NIR: {error}"))
     }
 
+    /// [`lower`] at `-O0`: the probe's hand-written shapes exactly as written. The
+    /// Opt1 rows are free to rewrite them at the default level — plan-149's place copy
+    /// forwarding turns `LET b = a; RETURN b.tag` into `RETURN a.tag` — and the table
+    /// below is about this analysis on each shape, not about what reaches it.
+    fn lower_unoptimized(source: &str) -> NirModule {
+        crate::optimizer::with_opt_level(crate::optimizer::OptLevel(0), || lower(source))
+    }
+
     fn function<'m>(module: &'m NirModule, name: &str) -> &'m NirFunction {
         module
             .functions
@@ -1332,7 +1340,7 @@ END FUNC
     /// that read is the last.
     #[test]
     fn collect_last_use_moves_follows_the_hand_derived_table() {
-        let module = lower(SHAPES);
+        let module = lower_unoptimized(SHAPES);
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
         let rows: Vec<(&str, &str, Box<dyn Fn(&NirOp) -> bool>, Place, bool)> = vec![
             (
@@ -1615,15 +1623,14 @@ END FUNC
             }
         };
         // A registry helper's `__pkg_name` is spelled `#pkg_name` once lowered.
+        // The shipped body at the default level: plan-149's place copy forwarding
+        // drops `LET item = parsed.value` (read once, before any write of `parsed`),
+        // so the append reads the field itself — and it is still that field's last
+        // read, so the element moves with no copy at all (before the forward: one
+        // copy into `item`, then a move of `item`).
         expect(
             "#json_parseArrayItems",
             &appends_to("acc"),
-            local("item"),
-            1,
-        );
-        expect(
-            "#json_parseArrayItems",
-            &binds("item"),
             member("parsed", "value"),
             1,
         );
