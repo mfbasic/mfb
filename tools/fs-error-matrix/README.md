@@ -1,6 +1,6 @@
 # tools/fs-error-matrix
 
-The cross-host `fs` error probe (bug-694, bug-701). One `SUB` per case, each
+The cross-host `fs` error probe (bug-694, bug-701). One `FUNC … AS Nothing` per case, each
 `TRAP`ping a single `fs` call against a fixed set of fixtures and printing
 `e.code`, so the same program's output can be diffed across macOS, Linux and
 Windows. No gate runs it: the rows that must agree are pinned by

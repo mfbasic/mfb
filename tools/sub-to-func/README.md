@@ -1,8 +1,10 @@
 # sub-to-func
 
 Mechanically rewrites MFBASIC source from `SUB` to `FUNC … AS Nothing` (plan-159).
-A `SUB` and the equivalent `FUNC … AS Nothing` compile to the same native code, so
-the rewrite changes no behaviour.
+plan-159-D removed `SUB` from the language: the compiler now reports an old `SUB`
+declaration as an ordinary top-level parse error. Run this over source written before
+that to migrate it. A `SUB` compiled to the same native code as the equivalent
+`FUNC … AS Nothing` (measured in plan-159-A), so the rewrite changes no behaviour.
 
 ## Usage
 

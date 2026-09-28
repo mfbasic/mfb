@@ -603,11 +603,11 @@ one — so an image or font named in its items becomes the group's to close, and
 program does not close it:
 
 ```
-SUB installPanel()
+FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
   LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230))]
   canvas::setGroup("panel", [label])
-END SUB
+END FUNC
 ```
 
 `installPanel` returns and its bindings go out of scope, and the group keeps

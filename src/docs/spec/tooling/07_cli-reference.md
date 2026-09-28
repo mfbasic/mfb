@@ -682,7 +682,7 @@ Imports:
 
 `signature type` is mapped by `signature_type_name`: `0`→`unsigned`,
 `1`→`Ed25519`, other→`unknown (n)`.[[src/cli/pkg.rs:signature_type_name]] Export
-kinds are mapped by `package_export_kind_name`: `FUNC`, `SUB`, `TYPE`, `UNION`,
+kinds are mapped by `package_export_kind_name`: `FUNC`, `TYPE`, `UNION`,
 `ENUM`.[[src/cli/pkg.rs:package_export_kind_name]] The `.mfp` header format
 (magic, container version, signature header, length-prefixed strings) is
 `./mfb spec package container-format`.

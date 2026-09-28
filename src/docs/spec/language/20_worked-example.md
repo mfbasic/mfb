@@ -37,23 +37,24 @@ FUNC loadPoints(path AS String) AS List OF Vec3
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET pts   = loadPoints("data.csv")
   io::print("Loaded " & toString(len(pts)) & " points")
   LET total = pts |> collections::transform(_, LAMBDA(p AS Vec3) -> p.x) |> collections::sum(_)
   io::print("Sum of x: " & toString(total))
-  EXIT SUB
+  RETURN
 
   TRAP(err)
     io::print("Fatal: " & err.message)   ' otherwise exits with err.code
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 ```
 
-Two details a compiler implementer should note from this example: a `SUB` ends
-with `EXIT SUB`, not `RETURN` (a `RETURN` inside a `SUB` is rejected as
-`SUB_RETURN_FORBIDDEN`); and a `LAMBDA` parameter must declare its type
+Two details a compiler implementer should note from this example: the
+`AS Nothing` entry ends its normal path with a bare `RETURN` before the
+function-level `TRAP`, because falling through into the `TRAP` is
+`TYPE_TRAP_FALLTHROUGH`; and a `LAMBDA` parameter must declare its type
 (`LAMBDA(p AS Vec3) -> ...`), since lambda parameter types are not inferred from
 the pipeline.
 
@@ -104,12 +105,12 @@ FUNC name(s AS ExtraShape) AS String
   END MATCH
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS ExtraShape = Circle[radius := 10.0]
   LET b AS ExtraShape = Triangle[base := 3.0, height := 4.0]
   io::print(name(a))
   io::print(name(b))
-END SUB
+END FUNC
 ```
 
 The resulting model is `ExtraShape = Shape + ExtraShape additions`, but the type

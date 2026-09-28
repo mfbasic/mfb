@@ -133,9 +133,9 @@ More: `mfb man flow`.
 
 ## Functions
 
-Only `FUNC` (returns a value) and `SUB` (effect-only) — no methods. Every
-`FUNC` path ends in `RETURN` or `FAIL`; a `SUB` exits with `EXIT SUB` or by
-reaching `END SUB`.
+`FUNC` is the only kind of function — no methods. Every path of a `FUNC` ends in
+`RETURN` or `FAIL`; a function declared `AS Nothing` can also end with a bare
+`RETURN` or by reaching `END FUNC`.
 
 ```
 IMPORT math
@@ -196,7 +196,7 @@ call evaluates directly to its value; failure auto-propagates to the nearest
 Option/Maybe — absence is an `Error` with a semantic code. Fail explicitly
 with `FAIL error(code, message)`.
 
-A function-level `TRAP` at the bottom of a `FUNC`/`SUB` handles every error
+A function-level `TRAP` at the bottom of a `FUNC` handles every error
 from the body:
 
 ```

@@ -27,7 +27,7 @@ IF n < 0 THEN FAIL error(77050002, "negative")
 
 ## 8.3 The `TRAP` block — one keyword, two scopes
 
-`TRAP(e)` traps errors in two scopes. A **function-level** `TRAP(e)` at the bottom of a `FUNC`/`SUB` traps every error from the body; an **inline** `TRAP(e)` attached postfix to a single expression traps just that expression (§8.4). Both bind an `Error` named by the parenthesized identifier, so no type annotation is needed.
+`TRAP(e)` traps errors in two scopes. A **function-level** `TRAP(e)` at the bottom of a `FUNC` traps every error from the body; an **inline** `TRAP(e)` attached postfix to a single expression traps just that expression (§8.4). Both bind an `Error` named by the parenthesized identifier, so no type annotation is needed.
 
 ```basic
 FUNC readAge(input AS String) AS Integer
@@ -42,7 +42,7 @@ FUNC readAge(input AS String) AS Integer
 END FUNC
 ```
 
-Each `FUNC`/`SUB` may declare **at most one** function-level `TRAP`, at the bottom, after normal flow.
+Each `FUNC` may declare **at most one** function-level `TRAP`, at the bottom, after normal flow.
 
 The `(err)` binding is **optional**. When the handler does not reference the caught error, write a bare `TRAP` (no parentheses); it behaves identically to a `TRAP(err)` whose `err` is unused. The error is still caught and remains internally bound, so `PROPAGATE` in a bare handler re-propagates the same `Error` — with its `code`, `message`, and `source` unchanged — exactly as a named handler does; the code below is equivalent to the `TRAP(err) / PROPAGATE` form:
 
@@ -61,12 +61,11 @@ Trap outcomes:
 | Statement | Meaning | Produces | Scope |
 |-----------|---------|----------|-------|
 | `RECOVER v` | bind `v` and continue after the trap | binding gets `v` | inline only |
-| `RETURN v` | function succeeds | success value `v` | `FUNC` only |
-| `EXIT SUB` | sub succeeds | no value | `SUB` only |
+| `RETURN v` | function succeeds | success value `v` (a bare `RETURN` in an `AS Nothing` function: `NOTHING`) | both |
 | `PROPAGATE` | re-propagate the current `err` | failure carrying `err` | both |
 | `FAIL e2` | replace/wrap the error | failure carrying `e2` | both |
 
-The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (in a `FUNC`) or `EXIT SUB` (in a `SUB`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
+The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (a bare `RETURN` in a function declared `AS Nothing`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
 
 ```basic
 TRAP(err)
@@ -92,7 +91,7 @@ END TRAP
 LET line = fs::readLine(f)
 ```
 
-An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression, and covers **every** fallible call inside that expression, not only its outermost one: in `LET b = outer(inner(x)) TRAP(e)` a failure of `inner` runs the handler, and a `RECOVER` there skips the rest of the expression, so `outer` is never called. It equally covers **every raising operator** in that expression — a division by zero, an arithmetic overflow, a `Float` that overflows to infinity: in `LET d = two(1 / z, 2) TRAP(e)` the division's failure runs the handler and `two` is never called. Which node raised makes no difference. The one exception is a fallible call *or* a raising operator in a **short-circuited** operand — the right side of `AND`/`OR`, evaluated only when the left side does not already decide the result. It cannot be lifted ahead of the expression the way the desugar (§8.8) requires, so it is rejected (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`); bind it to its own `TRAP` first. To wrap several *statements*, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or a fallible effect-only built-in), `RECOVER` takes no operand.
+An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression, and covers **every** fallible call inside that expression, not only its outermost one: in `LET b = outer(inner(x)) TRAP(e)` a failure of `inner` runs the handler, and a `RECOVER` there skips the rest of the expression, so `outer` is never called. It equally covers **every raising operator** in that expression — a division by zero, an arithmetic overflow, a `Float` that overflows to infinity: in `LET d = two(1 / z, 2) TRAP(e)` the division's failure runs the handler and `two` is never called. Which node raised makes no difference. The one exception is a fallible call *or* a raising operator in a **short-circuited** operand — the right side of `AND`/`OR`, evaluated only when the left side does not already decide the result. It cannot be lifted ahead of the expression the way the desugar (§8.8) requires, so it is rejected (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`); bind it to its own `TRAP` first. To wrap several *statements*, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a function declared `AS Nothing`, user or built-in), `RECOVER` takes no operand.
 
 The inline `(e)` binding is likewise **optional**: when the handler ignores the error, write a bare `TRAP` (e.g. `LET n = toInt(s) TRAP / RECOVER -1 / END TRAP`). As with the function-level form, the error stays internally bound, so a bare inline handler may still `PROPAGATE` it unchanged.
 
@@ -111,7 +110,7 @@ END TRAP
 
 ## 8.5 `RETURN` semantics
 
-`RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. `RETURN` is forbidden in a `SUB`; use `EXIT SUB` for a value-less early success exit. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
+`RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. In a function declared `AS Nothing`, a bare `RETURN` is the value-less early success exit, and falling through to `END FUNC` also succeeds (rules 8–9). `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
 
 ## 8.5a `Error` and `ErrorLoc` record shapes
 
@@ -148,14 +147,21 @@ Because these names still appear in compiler-internal positions, two resolution 
 3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through. Every route into it first closes the function's own resources (a `RES` parameter or a `FOR EACH` element is not the function's to close), so the handler may not use one: a read of such a binding in the handler is `TYPE_USE_AFTER_MOVE`, exactly as a read after `fs::close(h)` is. The function's other locals stay live for the handler; a `Thread` is one of the function's resources, so it is dropped on the way like any other. [[src/ir/verify/resources.rs:check_resource_moves]] [[src/codegen/engine/control/builder_exits.rs:trap_route_cleanups]]
 4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`). [[src/rules/table.rs:312]] [[src/rules/table.rs:318]]
 5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
-6. Every function-level `TRAP` path must end in `RETURN` (for a `FUNC`), `EXIT SUB` (for a `SUB`), `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
-7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
-8. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds (value-less).
-9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `EXIT SUB` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
+6. Every function-level `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
+7. Every path of a `FUNC` that produces a value must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
+8. A function declared `AS Nothing` with no `TRAP` may fall through to `END FUNC`, which succeeds with `NOTHING`; a bare `RETURN` (or `RETURN NOTHING`) ends it early the same way. [[src/ir/verify/mod.rs:collect_diagnostics_with]]
+9. A function declared `AS Nothing` with a function-level `TRAP` must end every normal path before the `TRAP` with `RETURN` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error (`TYPE_TRAP_FALLTHROUGH`).
 10. An executable entry point's uncaught failure terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Error: <err.code>` on one line and `<err.message>` on the next. [[src/codegen/error/constants/error_constants.rs:ENTRY_ERROR_PREFIX]] Give the entry point a `TRAP` for graceful handling.
 11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression — every fallible call **and every raising operator** in it, however deeply nested. A `TRAP` is legal on **any call** — a built-in call is just a call. Two rejections: a scrutinee with no runtime call to trap anywhere in it — a call-free expression, or a **package constant** (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`); and a fallible call or raising operator in a short-circuited `AND`/`OR` operand, which cannot be evaluated ahead of the expression (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`). A raising operator widens what an inline `TRAP` *covers*, not what may *be* one: the scrutinee must still contain a runtime call, so `LET d = 1 / z TRAP(e)` is rejected while `LET d = f(1 / z) TRAP(e)` catches the division. An expression whose outermost node is not a call but which does contain a fallible call is accepted and traps it, operators included (`LET c = inner(x) + 1 TRAP(e)` catches both `inner`'s failure and the `+`'s overflow). Trapping a provably-**infallible** inline-lowered built-in — `len`, `typeName`, `toString` on every argument type **except** `List OF Byte`, every total `bits::*` op (all except the variable shifts `sl`/`sr`/`sra`, which trap `ErrInvalidArgument` on an out-of-range count), and the non-allocating pure-query / default-returning members `collections::contains`/`hasKey`/`getOr` — is **allowed** but the handler is dead code, flagged by the advisory warning `TYPE_INLINE_TRAP_DEAD_HANDLER` (the program still compiles and runs, returning the call's value; the handler never fires, exactly as a `TRAP` on an infallible user `FUNC` would behave). The infallibility verdict is per **overload**, not per name: `toString(<List OF Byte>)` decodes UTF-8 and raises `ErrEncoding` on an ill-formed sequence, so it is fallible and supports inline `TRAP` like any other conversion (rule 14) — it is never flagged `TYPE_INLINE_TRAP_DEAD_HANDLER`. The allocating `collections` members (`keys`, `values`, `append`, `prepend`, `removeKey`, `replace`, and the Set `add`/`remove`/`toList`) build a new collection and declare `ErrOutOfMemory`, so a handler on them is live, not dead. **A member is infallible here only if it declares no error AND raises none** — the verdict is read off the member's declared errors, so a member that raises an error it does not declare is wrongly proved infallible and its handler is deleted; `strings::left`/`right`/`padLeft`/`padRight` each raise `ErrInvalidArgument` and now declare it. `collections::sum` was the reverse error: it declares `ErrOverflow` and every overload fails, but it stayed on the hand-written infallible list after plan-96 gave it an overflow check, so a live handler was flagged dead until bug-644. [[src/codegen/builtins/mod.rs:inline_builtin_is_infallible]] A built-in whose `Float` result can leave binary64 raises at the call, with or without a `TRAP` and wherever the call sits in an expression: `collections::sum` checks its `Float` total and raises `ErrFloatOverflow`, so `LET t = collections::sum(xs)`, `LET c = 1.0 / collections::sum(xs)` and either one under an inline `TRAP` all fail the same way. [[src/codegen/builtins/collections/func_sum.rs:lower_sum]] Before bug-754 the total was left for a later observation boundary, so the untrapped operand form recovered to `0.0` and the trapped form handed its handler `Ok(+Inf)` (bug-644). The same holds for an inline built-in's `Float` argument, which is an observation boundary like any call argument: `math::abs(x * x)` raises when `x * x` overflows. [[src/codegen/engine/value/builder_values.rs:lower_abi_inline_args]]
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
-13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. Supplying the wrong type, omitting a value when one is required, or supplying a value for a value-less trapped expression is `TYPE_RECOVER_TYPE_MISMATCH`. The handler binding is scoped to the handler block only.
+13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. Supplying the wrong type, omitting a value when one is required, or supplying a value for a value-less trapped expression is `TYPE_RECOVER_TYPE_MISMATCH`. The handler binding is scoped to the handler block only. A call to a function declared `AS Nothing` — user or built-in, such as `fs::writeAll` — participates in auto-propagation and inline `TRAP` like any other call, and its handler ends in a bare `RECOVER`:
+
+    ```basic
+    fs::writeAll(f, "done") TRAP(e)
+      io::print(e.message)
+      RECOVER            ' the trapped call's success type is Nothing
+    END TRAP
+    ```
 14. An inline `TRAP` on a fallible inline-lowered member traps the real runtime
     error, with the happy value auto-unwrapping and the handler running on failure.
     This covers the index/range members `collections::get`/`set`/`insert`/`removeAt`
@@ -165,7 +171,7 @@ Because these names still appear in compiler-internal positions, two resolution 
     loop-scoped intermediates first, so a partially-built result leaks nothing).
     Conversion built-ins like `toInt` and `toString(<List OF Byte>)` (whose UTF-8
     decode raises `ErrEncoding`), helper-backed built-ins like `fs::*`, and user
-    `FUNC`/`SUB` calls all support inline `TRAP` the same way. (Infallible inline
+    `FUNC` calls all support inline `TRAP` the same way. (Infallible inline
     built-ins are also legal — see rule 11 — but their handler is dead code.)
 
 ## 8.7 Program entry point
@@ -173,12 +179,6 @@ Because these names still appear in compiler-internal positions, two resolution 
 An executable program starts at the root-package function named by `project.json` `entry`, defaulting to `main`. The entry point may be any one of these source shapes; empty parentheses are optional for zero-argument entries:
 
 ```basic
-SUB main
-END SUB
-
-SUB main(args AS List OF String)
-END SUB
-
 FUNC main AS Nothing
 END FUNC
 
@@ -192,7 +192,7 @@ FUNC main(args AS List OF String) AS Integer
 END FUNC
 ```
 
-The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: a `SUB` entry has success type `Nothing`, a `FUNC` entry must have success type `Integer` or `Nothing`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any `FUNC` entry return type other than `Integer` or `Nothing` are compile-time errors. [[src/manifest/entry.rs:validate_entry_point]]
+The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: the entry must have success type `Integer` or `Nothing`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any `FUNC` entry return type other than `Integer` or `Nothing` are compile-time errors. [[src/manifest/entry.rs:validate_entry_point]]
 
 When an entry declares `args AS List OF String`, the runtime passes the command-line argument vector as an owned immutable list. `collections::get(args, 0)` is the program name as invoked by the host. Subsequent elements are user arguments in order.
 
@@ -200,7 +200,7 @@ Process result mapping:
 
 | Entry outcome | Process behavior |
 |---------------|------------------|
-| `SUB` or `FUNC ... AS Nothing` entry succeeds | Exit code `0`. |
+| `FUNC ... AS Nothing` entry succeeds | Exit code `0`. |
 | `FUNC ... AS Integer` succeeds with `n` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
 | `EXIT PROGRAM n` executes | Run stack-wide lexical cleanup, then exit with code `n`. |
 | Entry fails with an uncaught error carrying `err` | Write `Error: <err.code>`, a newline, then `<err.message>` to stderr and exit with code `255`. |

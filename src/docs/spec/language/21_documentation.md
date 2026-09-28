@@ -8,16 +8,16 @@ hover and generated docs work for an imported package.
 
 ```basic
 DOC [INTERNAL]
-  <header>            ' FUNC|SUB|TYPE|UNION|ENUM|RESOURCE <name>, or PACKAGE
+  <header>            ' FUNC|TYPE|UNION|ENUM|RESOURCE <name>, or PACKAGE
   [DESC ...]          ' description paragraph; a blank DESC starts a new one
   [INFO ...]          ' an informational callout (works like DESC)
   [WARN ...]          ' a warning callout
   [SEC  ...]          ' a security callout (shield)
   [DEPRECATED ...]    ' marks the declaration deprecated (optional message)
-  [GROUP <name>]      ' FUNC/SUB only — group this callable in rendered docs
-  [ARG  name desc]    ' FUNC/SUB only — must name a parameter
-  [RET  desc]         ' FUNC/SUB only — at most one
-  [ERROR code desc]   ' FUNC/SUB only — documented error codes, source order
+  [GROUP <name>]      ' FUNC only — group this callable in rendered docs
+  [ARG  name desc]    ' FUNC only — must name a parameter
+  [RET  desc]         ' FUNC only — at most one
+  [ERROR code desc]   ' FUNC only — documented error codes, source order
   [PROP name desc]    ' TYPE/UNION/ENUM only — field/variant/member
                       ' (a RESOURCE is opaque, so it has no members)
   [EXAMPLE
@@ -36,7 +36,7 @@ END DOC
   a paragraph; `INFO`/`WARN`/`SEC` render as informational, warning, and security
   callouts. Backtick spans (`` `like this` ``) render as inline code; no other
   markup is recognized.
-- **`GROUP <name>`** (FUNC/SUB only, at most one) groups the callable under a
+- **`GROUP <name>`** (FUNC only, at most one) groups the callable under a
   named heading and sidebar section in rendered docs. Type-like declarations are
   grouped under a derived "Types" heading.
 - **`RESOURCE <name>`** documents a `RESOURCE` declaration. An exported resource

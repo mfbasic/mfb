@@ -75,7 +75,7 @@ nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
                 | "CString" | "CPtr" | "CVoid" ;
 
 declaration    = topLetDecl | topMutDecl
-               | funcDecl | subDecl | typeDecl | unionDecl | enumDecl
+               | funcDecl | typeDecl | unionDecl | enumDecl
                | resourceDecl | funcAlias | linkDecl
                | docBlock | testingBlock ;
 
@@ -99,13 +99,13 @@ funcIso        = [ "ISOLATED" ] ;
 topLetDecl     = declVis "LET" ident [ "AS" type ] "=" expr ;
 topMutDecl     = declVis "MUT" ident [ "AS" type ] [ "=" expr ] ;
 
-(* Both the parameter list and the return type are optional: `FUNC f AS Integer`
-   (no parens) and `FUNC f()` (no `AS`) each parse. A `FUNC` with no returnType
-   yields Nothing, exactly as a SUB does. *)
+(* Both the parameter list and the return type are optional to the parser:
+   `FUNC f AS Integer` (no parens) and `FUNC f()` (no `AS`) each parse. The
+   semantic verifier then requires the `AS` clause
+   (`TYPE_FUNC_REQUIRES_RETURN_TYPE`); an effect-only function is written
+   `AS Nothing`. *)
 funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] [ "(" [ params ] ")" ]
                    [ returnType ] block [ trap ] "END" "FUNC" ;
-subDecl        = declVis "SUB" ident [ templateParams ] [ "(" [ params ] ")" ]
-                   block [ trap ] "END" "SUB" ;
 trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;
 (* The `(ident)` error binding is OPTIONAL. A bare `TRAP` runs the handler
    without naming the caught error; `PROPAGATE` still re-raises it. The same
@@ -191,7 +191,7 @@ doStmt         = "DO" block "LOOP" "UNTIL" expr
 failStmt       = "FAIL" expr ;
 propagateStmt  = "PROPAGATE" ;
 returnStmt     = "RETURN" [ expr ] ;
-exitStmt       = "EXIT" loopKind | "EXIT" "SUB" | "EXIT" "FUNC"
+exitStmt       = "EXIT" loopKind | "EXIT" "FUNC"
                | "EXIT" "PROGRAM" expr ;
 continueStmt   = "CONTINUE" loopKind ;
 loopKind       = "FOR" | "DO" | "WHILE" ;

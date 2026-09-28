@@ -4,7 +4,7 @@ Editor support for the MFBASIC language (`.mfb`):
 
 - **Syntax highlighting** (a TextMate grammar): keywords, types, strings,
   numbers, comments, `DOC` blocks, `package::name` calls, and operators.
-- **Outline / breadcrumbs / Go to Symbol** (`Cmd+Shift+O`) for `FUNC`, `SUB`,
+- **Outline / breadcrumbs / Go to Symbol** (`Cmd+Shift+O`) for `FUNC`,
   `TYPE` (+ fields), `ENUM` (+ variants), `UNION`, `LINK` blocks (+ nested
   functions), and `PACKAGE`/`PROGRAM` headers.
 - **Folding** for every block (`FUNC…END FUNC`, `IF…END IF`, `MATCH`, `TRAP`,
@@ -94,7 +94,7 @@ The scopes worth knowing:
 | Tokens | Scope |
 |---|---|
 | `IF`/`FOR`/`RETURN`/`END IF`… (control flow) | `keyword.control.mfbasic` |
-| `FUNC`/`SUB`/`LET`/`MUT`/`AS`/`TYPE`/`END FUNC`… (declarations) | `keyword.declaration.mfbasic` |
+| `FUNC`/`LET`/`MUT`/`AS`/`TYPE`/`END FUNC`… (declarations) | `keyword.declaration.mfbasic` |
 | `AND`/`OR`/`NOT`/`DIV`/`MOD` | `keyword.operator.word.mfbasic` |
 | `TRUE`/`FALSE`/`NOTHING` | `constant.language.mfbasic` |
 | `Integer`/`String`/`List`… (builtin types) | `support.type.builtin.mfbasic` |

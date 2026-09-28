@@ -3,8 +3,8 @@
 `ISOLATED` means the worker is callable from a separate runtime thread without
 capturing current stack locals, closures, or current-package private state.
 
-An `ISOLATED` declaration must itself be a top-level `FUNC` — not a `SUB`, a
-lambda, a closure or a local function. It is **independent of visibility**:
+An `ISOLATED` declaration must itself be a top-level `FUNC` — not a lambda, a
+closure or a local function. It is **independent of visibility**:
 `PRIVATE`, `PUBLIC` (the default) and `EXPORT` are all valid. The compiler
 enforces the declaration form at declaration time, reporting
 `ISOLATED function `<name>` must be a top-level FUNC declaration.` for a

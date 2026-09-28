@@ -329,9 +329,9 @@ MEMORY
         OVERLAY Framebuffer WITH mem = VIEW AT addr FOR size
     END FUNC
 
-    SUB setPixel(RES r AS Framebuffer, x AS Integer, y AS Integer, val AS Byte)
+    FUNC setPixel(RES r AS Framebuffer, x AS Integer, y AS Integer, val AS Byte) AS Nothing
         POKE r.mem AT y * width + x FOR 1 = val   ' FOR required; 1-byte write, bounds-checked
-    END SUB
+    END FUNC
 END MEMORY
 ```
 
@@ -390,18 +390,18 @@ Both access modes then coexist in the wrappers — buffer writes *and* register 
 through the one resource:
 
 ```basic
-    SUB setPixel(RES r AS Display, x AS Integer, y AS Integer, argb AS Integer)
+    FUNC setPixel(RES r AS Display, x AS Integer, y AS Integer, argb AS Integer) AS Nothing
         POKE r.pixels AT (y * r.width + x) * 4 FOR 4 = argb   ' bounds-checked buffer write
-    END SUB
+    END FUNC
 
     FUNC getPixel(RES r AS Display, x AS Integer, y AS Integer) AS Integer
       RETURN PEEK r.pixels AT (y * r.width + x) * 4 FOR 4   ' bounds-checked ARGB read
     END FUNC
 
-    SUB present(RES r AS Display)
+    FUNC present(RES r AS Display) AS Nothing
         FENCE                                                ' order pixel writes first (#24)
         r.control = bits::bor(r.control, 1)                  ' now the poke sees a full buffer
-    END SUB
+    END FUNC
 
     FUNC blankDisplay(RES r AS Display) AS Nothing
         r.control = 0                                        ' register write on drop

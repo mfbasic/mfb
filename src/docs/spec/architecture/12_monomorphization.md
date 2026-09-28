@@ -47,7 +47,7 @@ The scheme has three producers:
 | Producer | Form | When |
 |----------|------|------|
 | Template instantiation | `name$Arg1$Arg2` | generic FUNC/TYPE expanded for inferred args |
-| Parameter overload | `name$ParamType1$ParamType2` | name shared by ≥2 FUNC/SUB (or built-in-named) |
+| Parameter overload | `name$ParamType1$ParamType2` | name shared by ≥2 FUNC (or built-in-named) |
 | Return-type overload | `name$ParamTypes$AS$ReturnType` | overload set differing only by return type |
 
 A return-type-disambiguated symbol appends an `AS` segment then the return type
@@ -257,7 +257,7 @@ its declarations share parameter types (`param_types_eq`), which forces the
 
 ### Built-in-named overrides
 
-`resolve_general_builtin_override` fires for a user FUNC/SUB whose name is an
+`resolve_general_builtin_override` fires for a user FUNC whose name is an
 overridable general built-in (even a sole declaration). The built-in is
 authoritative for the types it already supports: an override is selected **only
 when** `general::resolve_call` rejects the argument types (the gap-fill rule). A

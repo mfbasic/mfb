@@ -46,8 +46,8 @@ LET result AS Integer = applyTwice(addOne, 1)
 ```
 
 A function with no parameters or no result is written `FUNC() AS T` and
-`FUNC(T) AS Nothing` respectively. Because a `SUB` has success type `Nothing`, a
-`SUB` may be passed where a `FUNC(T) AS Nothing` value is expected.
+`FUNC(T) AS Nothing` respectively. A function you declare `AS Nothing` is a
+`FUNC(T) AS Nothing` value, so you can pass it wherever one is expected.
 
 ## Capture rules
 

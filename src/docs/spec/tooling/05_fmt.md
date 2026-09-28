@@ -203,9 +203,9 @@ and position: [[src/fmt.rs:classify]]
 - **`DO WHILE` / `LOOP WHILE`.** `WHILE` after `DO` or `LOOP` is a loop
   *condition*, not a `WHILE … END WHILE` opener, so `DO WHILE c` opens exactly one
   block.
-- **`FUNC`/`SUB` may be mid-line.** They are *not* required to be the first token
+- **`FUNC` may be mid-line.** It is *not* required to be the first token
   (visibility/`ISOLATED`/`EXPORT` modifiers may precede), so `EXPORT FUNC f()`
-  still opens a block. They are excluded as openers when after `EXIT`, when a
+  still opens a block. It is excluded as an opener when after `EXIT`, when a
   func-alias, or when a func-*type* (below).
 - **`MATCH`/`CASE`.** `MATCH` opens a `Match`; each `CASE` closes the previous
   `Case` arm (if on top) and opens a new one; `END MATCH` pops a trailing `Case`
@@ -226,7 +226,7 @@ its ops net to zero and mid-line position is harmless. Likewise a single-line
 
 ### Func-alias and `FUNC(`-type non-openers
 
-Two `FUNC`/`SUB` shapes declare no body and open no block: [[src/fmt.rs:classify]]
+Two `FUNC` shapes declare no body and open no block: [[src/fmt.rs:classify]]
 
 - **Re-export alias** `[vis] FUNC name AS pkg::member` — decided from the
   logical line's text by `is_func_alias`, which applies the parser's own test
@@ -239,7 +239,7 @@ Two `FUNC`/`SUB` shapes declare no body and open no block: [[src/fmt.rs:classify
   thing after `AS` (`AS List OF canvas::DrawItem`), or a parameter list, is
   never alias-shaped. [[src/fmt.rs:is_func_alias]]
   [[src/ast/items.rs:check_top_level_func_alias]]
-- **Function-type annotation** `FUNC(…) AS T` / `SUB(…)` — detected when the
+- **Function-type annotation** `FUNC(…) AS T` — detected when the
   keyword is immediately followed by `(` (`func_type`). This is a type, not a
   declaration, so `… AS FUNC(Integer) AS Integer` does not open a second block.
 
@@ -286,9 +286,9 @@ remainder, after whitespace, starts with `"` — the trailing string literal
 distinguishes the block from any ordinary use of the word. [[src/fmt.rs:is_link_start]]
 
 Indentation is tracked by a local `depth` starting at `base+1`: a line whose
-first word is `FUNC`, `SUB`, `FREE`, or `CSTRUCT`, or which begins `BIND IN`, is an
+first word is `FUNC`, `FREE`, or `CSTRUCT`, or which begins `BIND IN`, is an
 **opener** (printed at `depth`, then `depth` increases);
-`END FUNC`/`END SUB`/`END FREE`/`END CSTRUCT`/`END BIND` is a **closer** (`depth`
+`END FUNC`/`END FREE`/`END CSTRUCT`/`END BIND` is a **closer** (`depth`
 decreases first, then printed); `END LINK` returns to `base` and closes the
 block — and is the one token this pass **re-cases**, emitted as hardcoded
 uppercase regardless of how it was written, unlike every other block terminator;

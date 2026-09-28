@@ -13,7 +13,6 @@ The compiler rejects:
 
 - Lambdas and closures as thread entry points (only a function identifier is
   accepted).
-- `SUB` thread entry points (the entry must be `FunctionKind::Func`).
 - Non-isolated functions (the signature must be `isolated`).
 - Functions whose first parameter is not `ThreadWorker OF Msg TO Out`.
 - Functions whose return type does not match `Out`.

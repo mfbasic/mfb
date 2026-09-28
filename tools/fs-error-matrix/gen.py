@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the fs error-matrix probe (bug-694, bug-701): one SUB per case, each
+"""Generate the fs error-matrix probe (bug-694, bug-701): one `AS Nothing` FUNC per case, each
 TRAPping one `fs` call against the fixtures `fixtures.sh` / `fixtures.ps1` build,
 and printing `e.code`. Usage: gen.py <out main.mfb>. See README.md."""
 import sys
@@ -107,11 +107,11 @@ cases=[
  ("readLine closed","body",["RES h = fs::openFile(\"FX/lines.txt\", \"r\")", "closeIt(h)"], 'fs::readLine(h)'),
  ("close twice","bodysub",["RES h = fs::openFile(\"FX/lines.txt\", \"r\")", "closeIt(h)"], 'fs::close(h)'),
 ]
-out=["IMPORT fs","IMPORT io","","SUB closeIt(RES x AS fs::File)","  fs::close(x)","END SUB",""]
+out=["IMPORT fs","IMPORT io","","FUNC closeIt(RES x AS fs::File) AS Nothing","  fs::close(x)","END FUNC",""]
 names=[]
 for i,case in enumerate(cases):
     n=f"c{i}"; names.append(n)
-    out.append(f"SUB {n}()")
+    out.append(f"FUNC {n}() AS Nothing")
     if len(case) == 4:
         label, kind, pre, expr = case
         for line in pre: out.append("  " + line.replace("FX", F))
@@ -124,13 +124,13 @@ for i,case in enumerate(cases):
     elif kind=="res": out.append(f"  RES v = {expr} TRAP(e)")
     else: out.append(f"  {expr.replace('BYTES','bs')} TRAP(e)")
     out.append(f'    io::print("{label}: " & toString(e.code))')
-    out.append("    EXIT SUB")
+    out.append("    RETURN")
     out.append("  END TRAP")
     if kind == "show": out.append(f'  io::print("{label}: " & v)')
     else: out.append(f'  io::print("{label}: ok")')
-    out.append("END SUB")
+    out.append("END FUNC")
     out.append("")
-out.append("SUB main()")
+out.append("FUNC main() AS Nothing")
 for n in names: out.append(f"  {n}()")
-out.append("END SUB")
+out.append("END FUNC")
 open(sys.argv[1],"w").write("\n".join(out)+"\n")

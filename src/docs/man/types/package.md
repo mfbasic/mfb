@@ -59,8 +59,8 @@ The eight core primitives are scalar value types:
   reject it — so code-point math goes through `toInt` and `toScalar`. See
   `mfb man types string`.
 
-`Nothing` is the unit type; its only value is `NOTHING`. A `SUB` has success type
-`Nothing`.
+`Nothing` is the unit type; its only value is `NOTHING`. A function declared
+`AS Nothing` has success type `Nothing`.
 
 A `Nothing` value works like any other value. You can bind it, pass it, return it,
 compare it, store it in a record field, and collect it. Calling a
@@ -117,7 +117,7 @@ TYPE Error
 END TYPE
 ```
 
-Every `FUNC` and `SUB` implicitly either produces its value (auto-unwrapped) or
+Every `FUNC` implicitly either produces its value (auto-unwrapped) or
 fails with an `Error`. The private `Result`/`Ok`/`Err` representation of a
 fallible outcome is internal — it cannot be named, constructed, or matched in
 user code. See `mfb man errors`.

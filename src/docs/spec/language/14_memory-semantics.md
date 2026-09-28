@@ -72,7 +72,7 @@ No two live mutable bindings may refer to the same collection buffer. A collecti
 
 ## 14.7 Drop order
 
-At normal scope exit, `RETURN`, `EXIT FOR`/`EXIT DO`/`EXIT WHILE`, `EXIT SUB`,
+At normal scope exit, `RETURN`, `EXIT FOR`/`EXIT DO`/`EXIT WHILE`,
 `CONTINUE FOR`/`CONTINUE DO`/`CONTINUE WHILE`, `FAIL`, `PROPAGATE`, or
 auto-propagated errors, live bindings are dropped in reverse declaration order
 within each scope. `EXIT PROGRAM` is a stack-wide drop edge that unwinds every

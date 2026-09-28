@@ -37,9 +37,8 @@ inner loops of other kinds; it is a compile error when no matching loop encloses
 the statement (`EXIT_NO_MATCHING_LOOP` for `EXIT`, `CONTINUE_NO_MATCHING_LOOP`
 for `CONTINUE`).
 
-`EXIT SUB` leaves the enclosing `SUB` successfully with no value; it is a
-compile error inside a `FUNC` (`EXIT_SUB_IN_FUNC`). `EXIT FUNC` is always a
-compile error (`EXIT_FUNC_FORBIDDEN`) because a `FUNC` must `RETURN` a value.
+`EXIT FUNC` is always a compile error (`EXIT_FUNC_FORBIDDEN`): a function ends
+with `RETURN` (a bare `RETURN` in a function declared `AS Nothing`).
 
 `EXIT PROGRAM <integer>` terminates the process with the given exit code from
 any call depth. The integer code is required (other `EXIT` forms take no
@@ -60,5 +59,5 @@ jumps.
 
 * ./mfb spec language collections — the `List`/`Map` sources `FOR EACH` iterates
 * ./mfb spec language pattern-matching — `MATCH`, the replacement for `SELECT CASE`
-* ./mfb spec language subs — `EXIT SUB` and the sub/func exit rules
+* ./mfb spec language functions — effect-only (`AS Nothing`) functions and their bare `RETURN`
 * ./mfb spec language error-model — `EXIT PROGRAM` bypassing `TRAP` and running lexical cleanup

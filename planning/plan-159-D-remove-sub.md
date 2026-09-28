@@ -163,89 +163,178 @@ the owner wants it for external users.
 
 ### Phase 1 — Package format and `wire`
 
-- [ ] 1.0 Measure (UNMEASURED today): which packages published on the registry
+- [x] 1.0 Measure (UNMEASURED today): which packages published on the registry
       export a SUB. The command depends on the registry API
       (`.ai/resources-packages.md`); record the command and count here. **Stop and
-      ask the owner** before republishing anything. That is an outward action.
-- [ ] 1.1 `src/binary_repr`: delete `BinaryReprExportKind::Sub`. Make export kind
+      ask the owner** before republishing anything. That is an outward action. —
+      Measured 2026-09-27 against `https://mfb-repo.fly.dev`: `GET /search?q=<c>` for
+      every letter/digit → 2 packages (`jzaun#libsnd`, `jzaun#yaml`); `GET /index/<ident>`
+      → 9 published versions; each blob fetched (`GET /blob/<hash>`, 302 → storage) and
+      read with `mfb pkg info` (it decodes: `FUNC getFormats`, …) → **0 of 9 export a
+      SUB** (`/tmp/p159/registry-sub.sh`: `versions=9 with_sub_exports=0`). Nothing to
+      republish, so no owner action was needed.
+- [x] 1.1 `src/binary_repr`: delete `BinaryReprExportKind::Sub`. Make export kind
       `2` and the `FUNCTION_FLAG_SUB` bit reserved: the writer never emits them,
       and the reader handles them per Open Decision 1. Drop `SUB` from the ABI
       flag mask. Update `sections.rs`, `writer.rs`, `reader.rs`,
       `monomorph/helpers.rs:527`, `codegen/engine/validation/validation.rs:908`,
       `cli/pkg.rs` `package_export_kind_name` and its test, and the
-      `binary_repr/tests/**`.
-- [ ] 1.2 `wire/src/docs.rs`: `DOC_KIND_SUB` → a reserved id with a comment (the
+      `binary_repr/tests/**`. — Done: kind `2` and flag bit 3 are the reserved
+      `RETIRED_EXPORT_KIND_SUB` / `RETIRED_FUNCTION_FLAG_SUB`; the reader rejects both
+      with `retired_sub_error` ("…exports a callable of a retired kind (export kind 2);
+      rebuild the package with this compiler"), per Open Decision 1. Also
+      `ExternalSignature.sub` (2.3's field) went here, since it was fed only by this kind.
+      New tests: `the_retired_sub_export_kind_is_rejected_with_a_rebuild_message`, and
+      the fixture `syntax/packages/package-retired-sub-export-invalid` (a consumer of the
+      pre-B `package_simple.mfp`, which still exports two SUBs) → `IMPORT_PACKAGE_INVALID`
+      with the rebuild message.
+- [x] 1.2 `wire/src/docs.rs`: `DOC_KIND_SUB` → a reserved id with a comment (the
       frozen number `1` is never reused). Remove the `"sub"` parse arm (l.242)
       and the `"sub"` name arm. Update `wire/src/docpage.rs:74,85,304` and
       `src/binary_repr/tests/reader_tests.rs:173`. `src/ir/docs.rs`: delete
-      `IrDocKind::Sub`.
-- [ ] 1.3 Spec: `package/01_container-format.md:79`, `03_metadata-encoding.md`
+      `IrDocKind::Sub`. — `DOC_KIND_RESERVED_SUB = 1` (the frozen-codes test pins it and
+      that it reads as `"func"`); the `"sub"` arms in `docs.rs` and `docpage.rs`
+      (`Subroutine` label, badge) removed.
+- [x] 1.3 Spec: `package/01_container-format.md:79`, `03_metadata-encoding.md`
       (l.73, 131, 134, 175, 189), `07_functions.md:65,91`, `11_doc-section.md:26`,
-      `12_verifier-rules.md:101`, `08_ir-section.md:77`.
+      `12_verifier-rules.md:101`, `08_ir-section.md:77`. — Done, plus
+      `12_verifier-rules.md:68`. `01_container-format.md:79`'s `SUB` was the ASCII control
+      byte `0x1A` in the magic, not the keyword; spelled `^Z`. `11_doc-section.md` now
+      also lists kind `5=resource`, which it had omitted.
 
 Acceptance: the packages round-trip, and none of the 161 tracked `.mfp` changes.
   Check: `cargo test --bin mfb binary_repr` → pass (est. 3 min); `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc 'package-*'` → all PASS, including the `.info` goldens (est. 2 min); rebuilding one B-rebuilt package (`packages/logger`) → `cmp` equal to its tracked `.mfp` (est. 1 min; B already removed every SUB export, so a byte change here is a writer bug).
-Commit: —
+  Result (2026-09-27): `binary_repr` → `177 passed; 0 failed`; the whole-tree acceptance run
+  covers every `package-*` fixture (only the predicted D goldens mismatched, below).
+  `packages/logger` has no tracked `.mfp` (`git ls-files | grep logger` → sources only), so
+  the named `cmp` could not run; replaced by the stronger check over every package:
+  `sync-package-mfp.sh` with the D compiler → no tracked `.mfp` changes (its only updates
+  are untracked `build/` leftovers), and every `tools/` package source rebuilds `same` as
+  its tracked `.mfp` (`/tmp/p159/rebuild-tools-mfp.sh`) (Corrections).
+Commit: 211e73353 (with Phase 2 — Corrections)
 
 ### Phase 2 — Front end, IR, target, rules
 
-- [ ] 2.1 Lexer: delete `Keyword::Sub` (4 sites). `SUB` becomes an ordinary identifier.
-- [ ] 2.2 AST: delete `FunctionKind::Sub`, `ExitTarget::Sub` and
+- [x] 2.1 Lexer: delete `Keyword::Sub` (4 sites). `SUB` becomes an ordinary identifier.
+- [x] 2.2 AST: delete `FunctionKind::Sub`, `ExitTarget::Sub` and
       `DocHeaderKind::Sub`, and their parse, serialize and doc sites (list in §2).
       Reword the parser messages at `ast/items.rs:59`, `ast/parser.rs:291` and
       `ast/doc_items.rs:15,34` to stop listing SUB. Keep the `ISOLATED` check at
       `items.rs:66` for the non-FUNC forms that remain.
-- [ ] 2.3 IR: `function_return_type` / `lower_function` lose the Sub arm.
+- [x] 2.3 IR: `function_return_type` / `lower_function` lose the Sub arm.
       Delete `current_is_sub` and both SUB rules from `shape.rs`, and remove the
       `"sub"` arm from `verify/ops.rs:486`. `ExternalSignature.sub` is deleted, and
       `thread_start_entry_valid` keys on `kind == Func` + `ISOLATED` only.
-- [ ] 2.4 Target: `validate/names.rs:81,112` accept `"func"` only;
+- [x] 2.4 Target: `validate/names.rs:81,112` accept `"func"` only;
       `nir/lower.rs:219` uses `"func"`; the test builders use `"func"`. Then
       remove the IR `kind` string entirely if `"func"` is now its only value, or
-      record here why it stays.
-- [ ] 2.5 `manifest/entry.rs`, `manifest/package.rs`, `resolver/resolution.rs`,
+      record here why it stays. — It stays: the optimizer synthesizes functions with
+      kind `"function"` (`optimizer/opt1/*`), so `"func"` is not the only value, and the
+      inliner (`inline.rs` `leaf_of`) and the ISOLATED rule still branch on it. The NIR
+      validator now accepts only `"func"` for NIR functions and imports.
+- [x] 2.5 `manifest/entry.rs`, `manifest/package.rs`, `resolver/resolution.rs`,
       `doc/mod.rs` and `doc/html.rs` ("Subroutine" label): drop the Sub arms.
-- [ ] 2.6 `src/fmt.rs`: delete `Block::Sub` / `K::Sub` and fix the comments at
+- [x] 2.6 `src/fmt.rs`: delete `Block::Sub` / `K::Sub` and fix the comments at
       l.546/591. Spec `tooling/05_fmt.md`.
-- [ ] 2.7 `src/rules/table.rs`: 0042, 0073 and 0077 → `reserved: retired by
+- [x] 2.7 `src/rules/table.rs`: 0042, 0073 and 0077 → `reserved: retired by
       plan-159-D (SUB removed)`, following the 0100 precedent. Reword the
       messages of 1-103-0002 and 2-205-0019. Update
       `diagnostics/01_rule-codes.md` to match.
-- [ ] 2.8 Delete the SUB-rule Rust unit tests that C excluded
+- [x] 2.8 Delete the SUB-rule Rust unit tests that C excluded
       (`rg -l 'SUB_RETURN_FORBIDDEN|EXIT_SUB_IN_FUNC|FunctionKind::Sub|ExitTarget::Sub|Keyword::Sub' src tests --type rust`
       → 0 afterwards). Record the four answers for each deleted test in the
-      commit message.
-- [ ] 2.9 Retire or convert the exclusion-list fixtures per §3. Add
+      commit message. — Deleted: `ir::verify::tests::{rejects_sub_return_value,
+      rejects_sub_call_in_value_position,
+      rejects_a_sub_call_nested_under_a_statement_position_expression}`,
+      `resolver::…::doc_func_wrong_subkind_reports`,
+      `rt_nothing_func_value_position::{a_sub_call_in_value_position_is_still_rejected,
+      a_sub_called_through_its_func_value_yields_nothing}`. Converted (their purpose
+      survives): `ast::tests::serialize_covers_none_and_default_branches` (null return
+      type / null exit code via a bare FUNC and `EXIT FOR`),
+      `top_level_errors_are_reported` and `native_func_missing_symbol_or_abi` (a
+      mismatched `END TYPE`), `ir::tests::{func_kinds_and_returns,
+      doc_block_for_union_and_nothing_func}`, `shape::…::exit_func_is_forbidden_and_ends_the_path`,
+      `verify::…::{accepts_a_nothing_call_in_statement_position,
+      rejects_isolated_on_a_non_func_kind}`. The `rg` → 0.
+- [x] 2.9 Retire or convert the exclusion-list fixtures per §3. Add
       `tests/syntax/functions/sub-keyword-removed-invalid/`, where `SUB main()`
       yields the ordinary top-level parse error, as the regression test that
-      `SUB` is gone.
+      `SUB` is gone. — Deleted `sub-value-less-invalid`; `exit-sub-invalid` →
+      `exit-func-invalid` (its `EXIT FUNC` case, the only `EXIT_FUNC_FORBIDDEN` fixture);
+      `control-flow-sub-trap-invalid` → `control-flow-nothing-trap-invalid`
+      (`TYPE_TRAP_FALLTHROUGH` still fires); `isolated_sub_invalid` →
+      `isolated_non_func_invalid` (`ISOLATED TYPE` and `ISOLATED LAMBDA`, both parse
+      errors); `func_isolated_requires_func_invalid` keeps its case (message now "must
+      begin with FUNC."). Added `sub-keyword-removed-invalid` and
+      `package-retired-sub-export-invalid`.
+- [x] 2.10 (added) `FunctionKind` deleted outright, not just its `Sub` variant: with one
+      variant every read was trivially true (`matches!(kind, Func)`, `if let Func`), and a
+      one-variant enum field is dead weight. The AST serializer still writes the literal
+      `"kind": "func"`, so no golden moved.
+- [x] 2.11 (added) Every other `SUB` in `src`/`wire` Rust — comments, the retired
+      `ISOLATED`-on-non-FUNC parser check (unreachable once `parse_function` only sees
+      `FUNC`), the four "FUNC and SUB doc blocks" messages — reworded or removed, so the
+      §1 `rg` holds.
 
 Acceptance: `SUB` is rejected, and codegen is unchanged.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc sub-keyword-removed-invalid control-flow-sub-trap-invalid` → PASS; `cargo test --release --test rt_nothing_func_value_position` → pass (est. 1 min); `bash scripts/artifact-gate.sh target/release/mfb strings` → 0 diffs (est. 1 min).
-Commit: —
+  Result (2026-09-27): whole-tree acceptance → exactly 10 mismatches, all predicted and
+  reviewed (2 `.app.nir` initializer kind `sub`→`func`; 4 message rewordings; the 4
+  converted/new fixtures), adopted → the 10 re-run `passed (10 test(s) ran)`
+  (`control-flow-sub-trap-invalid` is now `control-flow-nothing-trap-invalid`).
+  `artifact-gate all` (a superset of `strings`) → `2182 golden(s) checked, 0 diff(s)`.
+Commit: 211e73353
 
 ### Phase 3 — Spec, man, editor grammar
 
-- [ ] 3.1 Spec: move the surviving content of `language/07_subs.md` into
+- [x] 3.1 Spec: move the surviving content of `language/07_subs.md` into
       `06_functions.md` (a `Nothing` call's value is `NOTHING`, `Nothing` callbacks) and
       `08_error-model.md` (value-less `RECOVER`, trap exits via bare `RETURN`),
       then delete `07_subs.md`. Chapter numbering follows Open Decision 3. Fix
       the cross-references (`06_functions.md:15`, `04_types.md:399`,
       `10_control-flow.md:63`) and every remaining hit in the 33 files from §2.
       `19_grammar.md`: remove the `SUB` productions and `EXIT SUB`.
-      `02_lexical-structure.md`: remove `SUB` from the keyword list.
-- [ ] 3.2 Man narrative topics (`src/docs/man/**`, 16 files): rewrite the prose
+      `02_lexical-structure.md`: remove `SUB` from the keyword list. — Done;
+      `07_subs.md` deleted (gap left, Open Decision 3). Moved: effect-only functions,
+      `NOTHING` in value position and `Nothing` callbacks → `06_functions.md`; value-less
+      `RECOVER` (with the `fs::writeAll` example) and the bare-`RETURN` trap exits →
+      `08_error-model.md` rules 8, 9, 13 (numbering kept: tests cite "§8 rule 13").
+      Claims re-measured on the D compiler: `RETURN NOTHING`, bare `RETURN`,
+      fall-through and `LET v = f()` in/of an `AS Nothing` function all build and run.
+      Fixed on the way: the grammar comment said a `FUNC` with no `AS` "yields Nothing" —
+      it is `TYPE_FUNC_REQUIRES_RETURN_TYPE` (measured); `stdlib/14_os.md` "SUBs".
+- [x] 3.2 Man narrative topics (`src/docs/man/**`, 16 files): rewrite the prose
       that mentions `SUB`, `variable/package.md` (32) first. Follow
-      `.ai/man-content.md` §9 bans.
-- [ ] 3.3 `tools/editors`: the 10 lines in 4 files (§2). Bump the extension version
-      if its README/manifest versions releases.
-- [ ] 3.4 `tools/sub-to-func/`: decide per Open Decision 2 (keep it for external
+      `.ai/man-content.md` §9 bans. — `variable`'s 32 were code, done in C 1.3; the 13
+      prose lines in types/errors/flow/tour/lambda reworded.
+- [x] 3.3 `tools/editors`: the 10 lines in 4 files (§2). Bump the extension version
+      if its README/manifest versions releases. — Done; `package.json` 0.2.0 → 0.3.0.
+      JSON files parse; `parseSymbols`/`parseFoldingRanges` on a `FUNC … AS Nothing`
+      sample → the expected symbol and fold ranges.
+- [x] 3.4 `tools/sub-to-func/`: decide per Open Decision 2 (keep it for external
       migration, or delete it). If deleting, grep its name and update every live
-      caller in the same commit.
+      caller in the same commit. — Kept, as the migration aid for source written before
+      this plan (Open Decision 2 adds no compiler diagnostic, so the tool is the path);
+      README says so.
+- [x] 3.5 (added) Live code outside the letter's §2 list that still spoke `SUB`:
+      `tools/fs-error-matrix/gen.py` (generates MFBASIC; its new output equals the tool's
+      rewrite of the old output byte-for-byte, and it builds), `tools/resource-usage-audit/
+      audit.py` and the five `packages/*/check-doc-examples.sh` (`FUNC|SUB main` → `FUNC
+      main`), the code blocks of the live bug-753/755 docs and `planning/mem.md`, test
+      comments, one fixture description. Archived docs (`*/completed/`, `planning/old_man`,
+      `old-moved-to-src-spec`, findings) and a quoted QBasic web page in test data are
+      history and stay.
+- [x] 3.6 (added) `scripts/sync-package-mfp.sh` overwrote the deliberately old
+      `package_simple.mfp` of `package-retired-sub-export-invalid` (it refreshes every
+      `tests/**/<name>.mfp`). A fixture now opts out with `mfp-frozen.txt` (copies
+      reported `frozen:`); `scripts/README.md` updated.
 
 Acceptance: no `SUB` left in the docs, the citations resolve, and the man pages render.
   Check: `rg -n '\bSUB\b' src/docs` → 0 (est. 5 s); `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling (est. 1 min); `cargo test --bin mfb spec` → pass (est. 3 min); `bash scripts/man-census.sh --memory-scope` → 0 unclassified (est. 1 min).
-Commit: —
+  Result (2026-09-27): `rg` → 0; citations `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`;
+  links `993 unresolved=0`; man `unclassified memory-vocabulary hits: 0`; `spec` tests: see
+  the final gate.
+Commit: — (recorded in the next commit)
 
 ## Validation Plan
 
@@ -266,7 +355,8 @@ Commit: —
 
 ## Open Decisions
 
-1. **An old `.mfp` carrying export kind 2 or `FUNCTION_FLAG_SUB`.** Two options:
+1. **An old `.mfp` carrying export kind 2 or `FUNCTION_FLAG_SUB`.** — Resolved:
+   the recommended option (task 1.0 measured 0 published SUB exports). Two options:
    - **Recommended:** the reader rejects it with a clear "rebuild this package"
      diagnostic. There is one package format and no compatibility path (AGENTS.md:
      no fallbacks), and every tracked `.mfp` is rebuilt in B.
@@ -274,25 +364,39 @@ Commit: —
      an older compiler forever.
    Measure task 1.0 first. If published registry packages export SUBs, the
    recommended option requires republishing them, which is the owner's call.
-2. **Old source that says `SUB`.** Two options:
+2. **Old source that says `SUB`.** — Resolved: the recommended plain parse error. Two options:
    - **Recommended:** a plain parse error, with no special case.
    - Alternative: a dedicated diagnostic pointing at `tools/sub-to-func/`, keeping
      the tool. This is kinder to external users, but it keeps the keyword in the
      lexer.
-3. **Spec chapter numbering after deleting `07_subs.md`.** Two options:
+3. **Spec chapter numbering after deleting `07_subs.md`.** — Resolved: gap left (the
+   topic list is discovered from files; `PACKAGE_ORDER` names packages, not chapters). Two options:
    - **Recommended:** leave the gap. Renumbering 08–22 churns every `§N`
      cross-reference for no reader benefit.
    - Alternative: renumber. First check whether `PACKAGE_ORDER` or a spec test
      requires contiguous numbering (`src/docs/spec/mod.rs:43`).
 4. **`EXIT FUNC`.** It is always an error (`EXIT_FUNC_FORBIDDEN`). With `EXIT SUB`
-   gone, the whole `EXIT <callable>` form serves no purpose.
+   gone, the whole `EXIT <callable>` form serves no purpose. — Resolved: out of scope
+   (recommended); `EXIT FUNC` and its fixture `exit-func-invalid` are unchanged.
    - **Recommended:** leave it out of scope for plan-159 and file it as a follow-up
      plan.
    - Alternative: fold its removal in here.
 
 ## Corrections
 
-(none yet)
+- **2026-09-27 — `packages/logger` has no tracked `.mfp` (Phase 1 check).** Replaced by the
+  all-package rebuild comparison, recorded at the Phase 1 acceptance.
+- **2026-09-27 — Phases 1 and 2 cannot land apart.** `IrDocKind::Sub` (1.2) is produced
+  from `DocHeaderKind::Sub` (2.2), and `ExternalSignature.sub` (2.3) is fed only by
+  `BinaryReprExportKind::Sub` (1.1), so the two phases compile only together; they share
+  one commit.
+- **2026-09-27 — §1 Goal's `rg` required rewording far more than §2 listed.** About 55
+  comment lines across `src` named `SUB` (initializer "SUB", "FUNC/SUB", test
+  comments), none in §2's census; all reworded (2.11). The reader's rebuild message
+  names the export kind number rather than the word.
+- **2026-09-27 — the grammar comment "a FUNC with no returnType yields Nothing" was false**
+  (measured `TYPE_FUNC_REQUIRES_RETURN_TYPE`), and `11_doc-section.md` omitted doc kind
+  `5=resource`. Both fixed in 3.1/1.3.
 
 ## Summary
 

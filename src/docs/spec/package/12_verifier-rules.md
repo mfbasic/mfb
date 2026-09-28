@@ -65,7 +65,7 @@ dependency contributes can relax the chain a compiled dependency is held to.
 * The required sections are present: `MANIFEST`, `STRING_POOL`, `TYPE_TABLE`, `CONST_POOL`, `IMPORT_TABLE`, `EXPORT_TABLE`, `FUNCTION_TABLE`, `IR`, `ABI_INDEX`. (`GLOBAL_TABLE`, `RESOURCE_TABLE`, `DOC` are optional on read.) [[src/binary_repr/reader.rs:read_binary_repr_package]]
 * Each metadata table parses exactly — every `read_*` table function rejects leftover trailing bytes within its section.
 * `STRING_POOL` entries are valid UTF-8.
-* `EXPORT_TABLE` kinds are only `1` (func) / `2` (sub); `IMPORT_TABLE`/`ABI_INDEX` pin bytes are `0`/`1`.
+* `EXPORT_TABLE` kinds are only `1` (func) — kind `2` is reserved and rejected; `IMPORT_TABLE`/`ABI_INDEX` pin bytes are `0`/`1`.
 * The `FUNCTION_TABLE` records zero-length code regions; a non-zero `codeLength` is rejected (`flat function code stream is no longer supported`).
 * `ABI_INDEX` format version is `1`, and `validate_abi_index` holds: every `EXPORT_TABLE` callable export has a matching `ABI_INDEX` entry (same name + kind) whose `sigHash` equals the hash recomputed from the function table; and the `ABI_INDEX` dependency edges match `IMPORT_TABLE` by `(name, ident)` set, per-edge `version`/`pin`, and per-edge used-symbol list.
 
@@ -98,7 +98,7 @@ The verifier remains **sound with respect to acceptance**: it rejects only what 
 Only the rules about **source syntax that lowering erases** are assumed rather than re-verified — and they are assumed *vacuously*, because the constructs they govern cannot appear in a `.mfp` at all (lowering normalized them away before serialization):
 
 * Named-argument call binding (`f(x := …)` duplicate/unknown names, post-normalization arity). Packages carry only positional argument lists.
-* `EXIT FUNC` / `EXIT SUB` flavor distinctions and `SUB` return-shape rules — `EXIT FUNC` lowers to nothing, `EXIT SUB`/bare `RETURN` to `Return{None}`; the flavor is gone.
+* The `EXIT FUNC` rule — `EXIT FUNC` lowers to nothing, so the statement is gone.
 * Inline-`TRAP` boundaries, fallibility, and `RECOVER`-outside-handler — the handler is treeified into ordinary ops with no boundary marker; `PROPAGATE` outside a `TRAP` *is* still caught (`TYPE_PROPAGATE_REQUIRES_TRAP`) because it serializes as an unbound-sentinel `Fail`.
 * Lambda capture-escape classification and thread channel *sendability* — front-end escape/registry properties whose conclusion (not derivation) the IR records.
 

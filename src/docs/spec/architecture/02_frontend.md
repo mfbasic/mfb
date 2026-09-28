@@ -191,15 +191,15 @@ Package projects have no executable entry point and return `None` for the IR
 entry.
 
 Executable projects use the manifest `entry` field, defaulting to `main`.
-The selected function must be a top-level `SUB` or `FUNC` with one of these
+The selected function must be a top-level `FUNC` with one of these
 effective signatures:
 
 ```basic
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 
-SUB main(args AS List OF String)
-END SUB
+FUNC main(args AS List OF String) AS Nothing
+END FUNC
 
 FUNC main AS Integer
 END FUNC
@@ -252,8 +252,8 @@ The pre-lowering **shape pass** (`ir::shape`) holds the only rules that cannot
 live in the IR verifier: the ones whose evidence total lowering *erases*, so
 that the fact never reaches the IR or a package — named-argument binding
 (`f(x := …)` duplicate/unknown names and the omission/count/argument-type
-shapes lowering normalizes away), `EXIT FUNC`/`EXIT SUB` flavors and the
-statements they leave unreachable, inline-`TRAP` boundaries (`RECOVER`
+shapes lowering normalizes away), `EXIT FUNC` and the statements it leaves
+unreachable, inline-`TRAP` boundaries (`RECOVER`
 placement and count, a handler's fall-through edge), the checker's "unknown
 value" cascade, the `TESTING` assertion builtins' argument rules (lowering
 expands the assertion into comparisons + `FAIL`), a `Money` scaled by a bare
