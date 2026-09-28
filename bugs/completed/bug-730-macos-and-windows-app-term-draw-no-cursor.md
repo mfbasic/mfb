@@ -5,8 +5,8 @@ Effort: medium
 Severity: LOW
 Class: Backend parity (a documented call has no visible effect on two backends)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (e0b1cd144) — macOS drawRect: and Windows WM_PAINT draw a 2px white caret bar at the cursor cell while term::showCursor is in effect. Codegen test RED on main, GREEN here; verified by screenshot on this Mac and on the real Windows box 206 (cursor at (5,10): main draws nothing, the fix a bar; hideCursor none).
+Regression Test: tests/codegen/codegen_term_app_cursor.rs
 
 `term::showCursor` and `term::hideCursor` set a cursor-visible flag. Two backends
 honour it: a terminal program (the present emits `ESC[?25h`/`ESC[?25l` from the

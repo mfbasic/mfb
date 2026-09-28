@@ -5,8 +5,8 @@ Effort: small
 Severity: HIGH
 Class: Correctness (wrong colour drawn; the argument is never read)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED BEFORE FILING — by 8030c1e3d (2026-09-21, "app mode: read term::setForeground/setBackground's color::Color record"), four days before this doc; the review ran an older binary. Verified at HEAD 2026-09-27: the repro as a headless macOS --app build prints fg=#0a141e bg=#28323c; regression test tests/codegen/codegen_term_color_record_offsets.rs:app_set_color_reads_the_color_record_fields covers macos-aarch64, linux-aarch64, linux-x86_64 and windows-x86_64. No code change.
+Regression Test: tests/codegen/codegen_term_color_record_offsets.rs:app_set_color_reads_the_color_record_fields
 
 `term::setForeground` and `term::setBackground` take one `color::Color`. The console
 backend reads the red, green and blue fields off that record. The app backends were

@@ -15,9 +15,9 @@ const DESC: &str = r#"`term::hideCursor` marks the cursor as hidden. It takes no
 
 The change is not shown straight away. In a terminal program the cursor's
 visibility changes when `term::sync` presents the next frame; until then the
-cursor stays as the last frame left it. A Linux `--app` build repaints from this
-call itself. A macOS or Windows `--app` build accepts the call and remembers the
-setting, but draws no cursor at all, so it has no visible effect there.
+cursor stays as the last frame left it. A macOS or Windows `--app` build also
+hides it at the next `term::sync`; a Linux `--app` build repaints from this call
+itself.
 
 Hiding the cursor is the usual choice for a full-screen program that repaints
 every frame: the terminal cursor would otherwise be parked at whatever cell the

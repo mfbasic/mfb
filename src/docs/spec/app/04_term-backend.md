@@ -74,6 +74,25 @@ so entering TUI mode always starts from the documented defaults. The Windows bod
 reset only the first three until bug-540, which made bold, underline and a hidden
 cursor survive a `term::off` + `term::on` there and nowhere else.
 
+**Every backend draws the cursor while `term::showCursor` is in effect.** The
+console emits `ESC[?25h`/`ESC[?25l` from the flag on present; Linux GTK
+(`emit_term_cell_rect`), macOS (`drawRect:`) and Windows (`WM_PAINT`) paint a
+2-pixel white bar along the bottom of the cursor cell, over the presented grid and
+never into it. Windows cannot read term-state from its WndProc (a C callback with
+no arena-state register), so `term::on` and the two setters mirror the flag into
+the `_mfb_winapp_tui_cursor_vis` global the paint reads. Before bug-730 the macOS
+and Windows backends stored the flag and drew nothing.
+[[src/target/macos_aarch64/app/term_view.rs:emit_fill_cursor_bar]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_cursor_visible]]
+
+**The console's saved cooked termios is NOT reset by a re-entered `term::on`.**
+The first `term::on` saves the tty's line discipline into the term-state region and
+sets the raw-active flag; a later `term::on` finds the flag set and skips the save
+and the raw configuration, so `term::off` always restores the discipline from
+before the *first* `term::on`. Before bug-728 the second call saved the raw
+discipline over the cooked one, and the program exited with the user's terminal in
+single-key, no-echo mode. [[src/codegen/term/core/term.rs:emit_on]]
+
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is
 unchanged**: it stays the packed `0xBBGGRR` the emitters have always written, which
@@ -479,7 +498,7 @@ never messages. Forty-three 8-byte fields = 344 bytes (`TV_STATE_SIZE`). [[src/t
 | `TV_CURSOR_COL` | 32 | i64 | cursor column (0-based) |
 | `TV_CELL_W` | 40 | f64 | cell width in points |
 | `TV_CELL_H` | 48 | f64 | cell height in points |
-| `TV_CURSOR_VISIBLE` | 56 | i64 | cursor-visible flag |
+| `TV_CURSOR_VISIBLE` | 56 | i64 | cursor-visible flag — `drawRect:` paints a 2-point white bar at the bottom of the cursor cell after both passes while it is set (bug-730) |
 | `TV_CUR_FG` | 64 | u32 | current packed fg applied to written cells (default white) |
 | `TV_CUR_BG` | 72 | u32 | current packed bg (default 0 = black) |
 | `TV_CUR_BOLD` | 80 | i64 | current bold flag |

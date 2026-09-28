@@ -1336,6 +1336,16 @@ fn emit_app_draw_glyph(
     // Skip control code points.
     asm.push(abi::compare_immediate(&v_cp, "32"));
     asm.push(abi::branch_lt(&done));
+    // bug-725: skip a non-scalar too (above U+10FFFF, or a surrogate), as the
+    // console `emit_draw_glyph` does.
+    let scalar_ok = format!("{symbol}_scalar_ok");
+    asm.push(abi::compare_immediate(&v_cp, "1114111"));
+    asm.push(abi::branch_gt(&done));
+    asm.push(abi::compare_immediate(&v_cp, "55296"));
+    asm.push(abi::branch_lt(&scalar_ok));
+    asm.push(abi::compare_immediate(&v_cp, "57343"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::label(&scalar_ok));
     asm.external_data(&v_tv, CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register(abi::mfb_arg(0), &v_tv));

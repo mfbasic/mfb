@@ -434,6 +434,10 @@ name = "codegen_term_color_record_offsets"
 path = "tests/codegen/codegen_term_color_record_offsets.rs"
 
 [[test]]
+name = "codegen_term_app_cursor"
+path = "tests/codegen/codegen_term_app_cursor.rs"
+
+[[test]]
 name = "codegen_thread_c_return_x86_64"
 path = "tests/codegen/codegen_thread_c_return_x86_64.rs"
 
@@ -909,6 +913,18 @@ path = "tests/runtime/rt_native_io_runtime.rs"
 [[test]]
 name = "rt_io_key_readers"
 path = "tests/runtime/rt_io_key_readers.rs"
+
+[[test]]
+name = "rt_term_on_reentry"
+path = "tests/runtime/rt_term_on_reentry.rs"
+
+[[test]]
+name = "rt_term_draw_glyph_scalar"
+path = "tests/runtime/rt_term_draw_glyph_scalar.rs"
+
+[[test]]
+name = "rt_term_draw_text_attr_grapheme"
+path = "tests/runtime/rt_term_draw_text_attr_grapheme.rs"
 
 [[test]]
 name = "rt_native_numeric_pow_div_runtime"

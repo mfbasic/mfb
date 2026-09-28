@@ -52,8 +52,9 @@ use crate::codegen::error::constants::error_constants::{
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
-    ITEM_BAND_START, ITEM_BAND_TOP, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    emit_item_arc_flags, emit_item_residual_field, emit_item_stroke_sign, BAND_LIST_PER_EDGE,
+    BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
+    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
@@ -69,21 +70,19 @@ use crate::codegen::runtime::canvas::{
     FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
     GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
     GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
-    HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1,
-    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R,
-    HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
-    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
-    HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
+    HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
+    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
+    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF,
     HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
     HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP,
     ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE,
-    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP,
-    ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS,
-    METAL_GRADIENT_BASE_WORDS, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
-    METAL_PICTURE_INDEX_OFFSET, METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS,
-    METAL_PICTURE_RECORDS_OFFSET, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_ELLIPSE,
+    ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND,
+    ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS,
+    METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_PICTURE_INDEX_OFFSET,
+    METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS, METAL_PICTURE_RECORDS_OFFSET,
+    PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
 };
 use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
@@ -165,7 +164,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), edgeBase, capStyle
+    "  int4 arc;\n",      // glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
     "  int gradientKind;\n", // 0 linear, 1 radial (plan-116-F); was the block's pad
@@ -175,6 +174,11 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
     "  int4 ellipse;\n", // ellipse cos, sin (16.16); gradient stop count and base
     "  int4 gradient;\n", // a gradient's axis startX,startY,endX,endY (16.16)
+    // bug-735: the residual words (units of 2^-47 px) of every field a distance reads.
+    "  int4 shapeLo;\n", // of shape.xyzw
+    "  int4 capsLo;\n",  // of arcCaps.xyzw
+    "  int4 clipLo;\n",  // of clip.xyzw
+    "  int4 miscLo;\n",  // of misc.y (radius), misc.z (strokeHalf), ellipse.x, ellipse.y
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -192,7 +196,7 @@ const METAL_SHADER_BODY: &str = concat!(
     //
     // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
     // sidesteps `MTLBuffer` offset alignment, which the item stride does not satisfy
-    // (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; 112 when this was written).
+    // (`ITEM_BLOCK_SIZE`, 272 since bug-735; 112 when this was written).
     // plan-116-H: the group offset moves the QUAD, and the fragment stage moves the
     // query point the other way. Same split the software renderer makes (plan-116-G
     // section 4.5) and the same one `mfb_canvas.vert` makes -- bounds by +offset,
@@ -208,7 +212,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
     "                      uint iid [[instance_id]],\n",
     "                      constant MfbItem *items [[buffer(0)]],\n",
-    "                      constant int2 &drawOffset [[buffer(1)]]) {\n",
+    "                      constant int4 &drawOffset [[buffer(1)]]) {\n",
     "  uint index = iid;\n",
     "  constant MfbItem &item = items[index];\n",
     "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
@@ -245,32 +249,6 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
     "  d = max(d, -t * len);\n",
     "  return max(d, (t - 1.0) * len);\n",
-    "}\n",
-    // plan-116-E: the ellipse SDF, the twin of `ellipseDistance` in
-    // `runtime/canvas/shaders/mfb_canvas.frag`. 24 bisection halvings on the folded
-    // first quadrant -- the same count and arithmetic the software oracle uses -- and
-    // no trigonometry, because `ca`/`sa` are the CPU's deterministic Taylor pair
-    // carried in the item block.
-    "static float ellipseDistance(float2 p, float2 c, float rx, float ry, float ca, float sa) {\n",
-    "  float2 d = p - c;\n",
-    "  float2 q = abs(float2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca));\n",
-    "  if (rx == ry) { return length(q) - rx; }\n",
-    "  float2 a = float2(1.0, 0.0);\n",
-    "  float2 b = float2(0.0, 1.0);\n",
-    "  float2 m = a;\n",
-    "  for (int i = 0; i < 24; ++i) {\n",
-    "    m = normalize(a + b);\n",
-    "    float g = (q.x - rx * m.x) * (-rx * m.y) + (q.y - ry * m.y) * (ry * m.x);\n",
-    "    if (g > 0.0) { a = m; } else { b = m; }\n",
-    "  }\n",
-    "  float dist = length(q - float2(rx * m.x, ry * m.y));\n",
-    "  float2 u = float2(q.x / rx, q.y / ry);\n",
-    "  return dot(u, u) < 1.0 ? -dist : dist;\n",
-    "}\n",
-    "static bool arcInSweep(float2 d, float2 s, float2 e, bool reflex) {\n",
-    "  bool afterStart = s.x * d.y - s.y * d.x >= 0.0;\n",
-    "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
-    "  return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
     "}\n",
     // bug-687: double-float arithmetic -- a value as an unevaluated sum `hi + lo` of two
     // floats, about 48 bits. A polygon's distance is evaluated in it because fp32 is not
@@ -340,10 +318,19 @@ const METAL_SHADER_BODY: &str = concat!(
     "static float2 dfWord(int v) { return dfTwoSum(float(v & ~255) / FIXED, float(v & 255) / FIXED); }\n",
     // A residual word (bug-687, `EDGE_RESIDUAL_SCALE`) in px: units of 2^-47.
     "static float residualPx(int r) { return float(r) * (1.0 / 140737488355328.0); }\n",
+    // bug-735: the residual encoding for every item-block field a distance reads -- the
+    // 16.16 word and its residual word in the block's `*Lo` `int4`s -- as a double-float,
+    // and the few double-float helpers every shape kind shares.
+    "static float2 dfFixed(int word, int residual) { return dfAdd(dfWord(word), float2(residualPx(residual), 0.0)); }\n",
+    "static float2 dfAbs(float2 a) { return a.x < 0.0 ? -a : a; }\n",
+    "static float2 dfMax(float2 a, float2 b) { return dfLess(a, b) ? b : a; }\n",
+    "static float2 dfMin(float2 a, float2 b) { return dfLess(b, a) ? b : a; }\n",
+    "static float2 dfLength(float2 x, float2 y) { return dfSqrt(dfAdd(dfMul(x, x), dfMul(y, y))); }\n",
+    // `a < b` for two (word, residual) pairs, exactly: the pair is order-preserving, since
+    // a residual is at most half a 16.16 step.
+    "static bool fixedLess(int wa, int ra, int wb, int rb) { return wa < wb || (wa == wb && ra < rb); }\n",
     // One vertex coordinate as the CPU had it: the 16.16 word plus its residual.
-    "static float2 edgeCoord(constant int *edges, int i, int r) {\n",
-    "  return dfAdd(dfWord(edges[i]), float2(residualPx(edges[r]), 0.0));\n",
-    "}\n",
+    "static float2 edgeCoord(constant int *edges, int i, int r) { return dfFixed(edges[i], edges[r]); }\n",
     // `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` -- the quantisation every shape uses -- for a
     // double-float `d`, rounded exactly.
     "static int dfCoverage(float2 d) {\n",
@@ -406,6 +393,33 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
     "  return b.y > a.y ? cross < 0.0 : cross > 0.0;\n",
     "}\n",
+    // bug-735: `__canvas_rectDistance` in double-float, from the point's offset to the centre
+    // and the half-extents: a shape's rectangle (less its corner radius) and the clip's.
+    "static float2 dfRectDistance(float2 dx, float2 dy, float2 hx, float2 hy) {\n",
+    "  float2 ox = dfSub(dfAbs(dx), hx);\n",
+    "  float2 oy = dfSub(dfAbs(dy), hy);\n",
+    "  float2 outside = dfLength(dfMax(ox, float2(0.0, 0.0)), dfMax(oy, float2(0.0, 0.0)));\n",
+    "  return dfAdd(outside, dfMin(dfMax(ox, oy), float2(0.0, 0.0)));\n",
+    "}\n",
+    // bug-735: a segment's distance, its UNCLAMPED parameter `t` and `len2`, from `w = p - a`
+    // and `v = b - a` -- `__canvas_segmentDistance`'s arithmetic (and the butt twin's `t`),
+    // so a polygon edge, a line and a polyline segment share it. `t` stays 0 for a
+    // zero-length segment, whose distance is to its point.
+    "struct DfSegment { float2 d; float2 t; float2 len2; };\n",
+    "static DfSegment dfSegment(float2 wx, float2 wy, float2 vx, float2 vy) {\n",
+    "  DfSegment s;\n",
+    "  s.len2 = dfAdd(dfMul(vx, vx), dfMul(vy, vy));\n",
+    "  s.t = float2(0.0, 0.0);\n",
+    "  float2 c = float2(0.0, 0.0);\n",
+    "  if (s.len2.x > 0.0) {\n",
+    "    s.t = dfDiv(dfAdd(dfMul(wx, vx), dfMul(wy, vy)), s.len2);\n",
+    "    c = s.t;\n",
+    "    if (dfLess(c, float2(0.0, 0.0))) { c = float2(0.0, 0.0); }\n",
+    "    if (dfLess(float2(1.0, 0.0), c)) { c = float2(1.0, 0.0); }\n",
+    "  }\n",
+    "  s.d = dfLength(dfSub(wx, dfMul(vx, c)), dfSub(wy, dfMul(vy, c)));\n",
+    "  return s;\n",
+    "}\n",
     "struct DfEdge { float2 ax; float2 ay; float2 vx; float2 vy; };\n",
     "static DfEdge dfEdge(constant int *edges, int base, int e) {\n",
     "  int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
@@ -420,18 +434,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return g;\n",
     "}\n",
     "static float2 dfSegmentDistance(DfEdge g, float2 x, float2 y) {\n",
-    "  float2 wx = dfSub(x, g.ax);\n",
-    "  float2 wy = dfSub(y, g.ay);\n",
-    "  float2 len2 = dfAdd(dfMul(g.vx, g.vx), dfMul(g.vy, g.vy));\n",
-    "  float2 t = float2(0.0, 0.0);\n",
-    "  if (len2.x > 0.0) {\n",
-    "    t = dfDiv(dfAdd(dfMul(wx, g.vx), dfMul(wy, g.vy)), len2);\n",
-    "    if (dfLess(t, float2(0.0, 0.0))) { t = float2(0.0, 0.0); }\n",
-    "    if (dfLess(float2(1.0, 0.0), t)) { t = float2(1.0, 0.0); }\n",
-    "  }\n",
-    "  float2 qx = dfSub(wx, dfMul(g.vx, t));\n",
-    "  float2 qy = dfSub(wy, dfMul(g.vy, t));\n",
-    "  return dfSqrt(dfAdd(dfMul(qx, qx), dfMul(qy, qy)));\n",
+    "  return dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy).d;\n",
     "}\n",
     "static bool dfToggles(DfEdge g, float2 x, float2 y) {\n",
     "  if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return false; }\n",
@@ -541,89 +544,228 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
     "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
     "}\n",
-    "static float geoDistance(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
-    "  float radius = fx(item.misc.y);\n",
-    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
-    // bug-484: a picture (9) is a rectangle to the distance field -- its header carries
-    // the destination's centre, half-extent and a zero radius -- so its coverage, edge,
-    // clip, transform and stroke are the rectangle's by construction, exactly as the
-    // oracle's `distKind` makes them. Only its fill colour differs (`pictureColour`).
-    "  if (item.misc.x == 0 || item.misc.x == 9) {\n",
-    "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    // bug-735: every shape kind but the polygon and the glyph, in double-float -- the twin of
+    // `__canvas_geoDistance` in the oracle, operation for operation, on inputs carried as
+    // their 16.16 words plus residuals (`ITEM_OFFSET_SHAPE_LO` and the rest), so each input
+    // is the oracle's to ~2^-41 px and the arithmetic to ~2^-44 of its magnitude. fp32 from
+    // 16.16 missed the oracle by up to ~1e-4 px and so rounded a pixel near a coverage step to
+    // the neighbouring step: 3-12 sRGB levels near black.
+    //
+    // * rectangle (0), picture (9): the rectangle distance minus the corner radius;
+    // * circle (1): the centre distance minus the radius and the stroke radius;
+    // * line (2): the segment distance, Round (1) minus the half-width, Butt (0) cut by the two
+    //   end planes -- the half-width off BEFORE the planes (`__canvas_segmentDistanceButt`);
+    // * arc (3): the ring band inside the sweep, else 1e6, and a Round cap's two discs. The
+    //   sweep test is the oracle's two cross products, against `arcCaps - centre`, a positive
+    //   multiple of the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved and
+    //   the sign agrees wherever it is decided by more than ~1e-13 px; `arc.y` is the
+    //   oracle's `reflex`, decided in f64 by the emitter;
+    // * ellipse (7): the oracle's 24-step bisection, every step in double-float. In fp32 a
+    //   step's sign test took the other branch wherever `g` was within fp32's error of zero
+    //   -- every late step, on every pixel -- which is what put the ellipse 8 pixels past
+    //   GPU_DEFAULT. The circle case (equal radii) is the oracle's too.
+    "static float2 dfShapeDistance(constant MfbItem &item, float2 x, float2 y) {\n",
+    "  int kind = item.misc.x;\n",
+    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
+    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
+    "  float2 ex = dfFixed(item.shape.z, item.shapeLo.z);\n",
+    "  float2 ey = dfFixed(item.shape.w, item.shapeLo.w);\n",
+    "  float2 radius = dfFixed(item.misc.y, item.miscLo.x);\n",
+    "  float2 dx = dfSub(x, cx);\n",
+    "  float2 dy = dfSub(y, cy);\n",
+    "  if (kind == 0 || kind == 9) {\n",
+    "    return dfSub(dfRectDistance(dx, dy, ex, ey), radius);\n",
     "  }\n",
-    "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
-    // Round is 1 and is what a Line did before plan-116-D, so it reads as the straight
-    // path; the butt arm returns the finished band distance and does not subtract
-    // `radius` again.
-    "  if (item.misc.x == 2) {\n",
-    "    if (item.arc.w == 1) {\n",
-    "      return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
-    "    }\n",
-    "    return segmentDistanceButt(p, c, float2(fx(item.shape.z), fx(item.shape.w)), radius);\n",
+    "  if (kind == 1) { return dfSub(dfSub(dfLength(dx, dy), ex), radius); }\n",
+    "  if (kind == 2) {\n",
+    "    DfSegment s = dfSegment(dx, dy, dfSub(ex, cx), dfSub(ey, cy));\n",
+    "    if (item.arc.w == 1) { return dfSub(s.d, radius); }\n",
+    "    if (!(s.len2.x > 0.0)) { return float2(1.0e6, 0.0); }\n",
+    "    float2 len = dfSqrt(s.len2);\n",
+    "    float2 d = dfMax(dfSub(s.d, radius), -dfMul(s.t, len));\n",
+    "    return dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len));\n",
     "  }\n",
-    "  if (item.misc.x == 7) {\n",
-    "    return ellipseDistance(p, c, fx(item.shape.z), fx(item.shape.w),\n",
-    "                           fx(item.ellipse.x), fx(item.ellipse.y)) - radius;\n",
-    "  }\n",
-    "  if (item.misc.x == 3) {\n",
-    "    float2 d = p - c;\n",
-    "    float a0 = fx(item.arc.x), a1 = fx(item.arc.y);\n",
-    "    float2 s = float2(cos(a0), sin(a0));\n",
-    "    float2 e = float2(cos(a1), sin(a1));\n",
-    "    float band = arcInSweep(d, s, e, (a1 - a0) > PI)\n",
-    "        ? abs(length(d) - fx(item.shape.z)) - radius : 1.0e6;\n",
-    // Butt is 0 and is what an Arc did before plan-116-D, so it returns untouched;
-    // Round unions a disc of the stroke's half-width at each sweep endpoint, and a
-    // union of SDFs is their min. The endpoints are per-shape constants the CPU wrote,
-    // so this costs two distances and no trigonometry. Twin of the block in
-    // `runtime/canvas/shaders/mfb_canvas.frag`.
+    "  if (kind == 3) {\n",
+    "    float2 sx = dfSub(dfFixed(item.arcCaps.x, item.capsLo.x), cx);\n",
+    "    float2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);\n",
+    "    float2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);\n",
+    "    float2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);\n",
+    "    bool afterStart = !dfLess(dfMul(sx, dy), dfMul(sy, dx));\n",
+    "    bool beforeEnd = !dfLess(dfMul(ty, dx), dfMul(tx, dy));\n",
+    "    bool inSweep = item.arc.y != 0 ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
+    "    float2 band = inSweep ? dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius) : float2(1.0e6, 0.0);\n",
     "    if (item.arc.w == 0) { return band; }\n",
+    "    for (int k = 0; k < 2; ++k) {\n",
+    "      float2 ox = dfSub(dx, k == 0 ? sx : tx);\n",
+    "      float2 oy = dfSub(dy, k == 0 ? sy : ty);\n",
+    "      band = dfMin(band, dfSub(dfLength(ox, oy), radius));\n",
+    "    }\n",
+    "    return band;\n",
+    "  }\n",
+    "  if (kind == 7) {\n",
+    "    float2 ca = dfFixed(item.ellipse.x, item.miscLo.z);\n",
+    "    float2 sa = dfFixed(item.ellipse.y, item.miscLo.w);\n",
+    "    float2 qx = dfAbs(dfAdd(dfMul(dx, ca), dfMul(dy, sa)));\n",
+    "    float2 qy = dfAbs(dfSub(dfMul(dy, ca), dfMul(dx, sa)));\n",
+    "    if (item.shape.z == item.shape.w && item.shapeLo.z == item.shapeLo.w) {\n",
+    "      return dfSub(dfSub(dfLength(qx, qy), ex), radius);\n",
+    "    }\n",
+    "    float2 c0 = float2(1.0, 0.0);\n",
+    "    float2 s0 = float2(0.0, 0.0);\n",
+    "    float2 c1 = float2(0.0, 0.0);\n",
+    "    float2 s1 = float2(1.0, 0.0);\n",
+    "    float2 cm = c0;\n",
+    "    float2 sm = s0;\n",
+    "    for (int k = 0; k < 24; ++k) {\n",
+    "      float2 cs = dfAdd(c0, c1);\n",
+    "      float2 ss = dfAdd(s0, s1);\n",
+    "      float2 nn = dfLength(cs, ss);\n",
+    "      cm = dfDiv(cs, nn);\n",
+    "      sm = dfDiv(ss, nn);\n",
+    "      float2 g = dfAdd(dfMul(dfSub(qx, dfMul(ex, cm)), -dfMul(ex, sm)),\n",
+    "                       dfMul(dfSub(qy, dfMul(ey, sm)), dfMul(ey, cm)));\n",
+    "      if (dfLess(float2(0.0, 0.0), g)) { c0 = cm; s0 = sm; } else { c1 = cm; s1 = sm; }\n",
+    "    }\n",
+    "    float2 d = dfLength(dfSub(qx, dfMul(ex, cm)), dfSub(qy, dfMul(ey, sm)));\n",
+    "    float2 ux = dfDiv(qx, ex);\n",
+    "    float2 uy = dfDiv(qy, ey);\n",
+    "    if (dfLess(dfAdd(dfMul(ux, ux), dfMul(uy, uy)), float2(1.0, 0.0))) { d = -d; }\n",
+    "    return dfSub(d, radius);\n",
+    "  }\n",
+    "  return float2(1.0e6, 0.0);\n",
+    "}\n",
+    // bug-735: the fp32 pre-pass for the same kinds -- a value `v` such that, whenever
+    // `|v| > reach`, the distance has `v`'s sign and at least its magnitude, so its fill and
+    // stroke coverage are `v`'s and double-float is not needed. Like `edgeSlack`, an ERROR
+    // BOUND, not a tolerance: the value returned for a far pixel is past the clamp either
+    // way, and every other pixel gets the double-float value.
+    //
+    // * rectangle, circle, line: the fp32 distance, moved toward zero by `slack` -- 2^-18 of
+    //   the coordinates' magnitudes plus 2^-12 px, the bound `edgeSlack` uses (each is
+    //   1-Lipschitz in its inputs, which the 16.16 words and the residual move by <= 2^-17);
+    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- out of
+    //   sweep the oracle answers 1e6, never less than the band;
+    // * ellipse: `rmin * |s - 1|` for `s = |(qx / rx, qy / ry)|`, a RIGOROUS bound on the
+    //   distance to the ellipse (the ellipse and its scale by `s` are `rmin * |s - 1|` apart:
+    //   map by `diag(1 / rx, 1 / ry)`, whose inverse stretches no vector by more than
+    //   `rmin`), with a slack of 2^-14 of the magnitudes for the 16.16 inputs; the oracle's
+    //   bisection lands on the ellipse, so its distance is never below the true one;
+    // * a butt line shorter than fp32 resolves, and any other kind: no shortcut or 1e6.
+    "static float farBound(constant MfbItem &item, float2 p) {\n",
+    "  int kind = item.misc.x;\n",
+    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
+    "  float2 e = float2(fx(item.shape.z), fx(item.shape.w));\n",
+    "  float r = fx(item.misc.y);\n",
+    "  float slack = (abs(p.x) + abs(p.y) + abs(c.x) + abs(c.y) + abs(e.x) + abs(e.y) + abs(r)) * (1.0 / 262144.0) + (1.0 / 4096.0);\n",
+    "  if (kind == 7) {\n",
+    "    float2 d = p - c;\n",
+    "    float ca = fx(item.ellipse.x);\n",
+    "    float sa = fx(item.ellipse.y);\n",
+    "    float s = length(abs(float2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca)) / e);\n",
+    "    float rmin = min(e.x, e.y);\n",
+    "    float sl = (abs(d.x) + abs(d.y) + e.x + e.y + 1.0) * (1.0 / 16384.0) + (1.0 / 4096.0);\n",
+    "    return s >= 1.0 ? rmin * (s - 1.0) - r - sl : rmin * (s - 1.0) - r + sl;\n",
+    "  }\n",
+    "  if (kind == 3) {\n",
     "    float2 cs = float2(fx(item.arcCaps.x), fx(item.arcCaps.y));\n",
     "    float2 ce = float2(fx(item.arcCaps.z), fx(item.arcCaps.w));\n",
-    "    band = min(band, length(p - cs) - radius);\n",
-    "    return min(band, length(p - ce) - radius);\n",
+    "    float m = abs(length(p - c) - e.x) - r;\n",
+    "    if (item.arc.w != 0) { m = min(m, min(length(p - cs), length(p - ce)) - r); }\n",
+    "    slack += (abs(cs.x) + abs(cs.y) + abs(ce.x) + abs(ce.y)) * (1.0 / 262144.0);\n",
+    "    return max(m - slack, 0.0);\n",
     "  }\n",
-    "  if (item.misc.x == 10) { return polylineScan(item, edges, band, p).x; }\n",
-    // A polygon (4) never reaches here: `polygonCoverage` evaluates it in double-float
-    // (bug-687). Nor does a glyph (6), which has coverage, not a distance.
-    "  return 1.0e6;\n",
-    "}\n",
-    // The shape-space distance and the local scale of the mapping, as (d, s).
-    //
-    // Untransformed this is the distance and 1.0 -- the single evaluation the shader
-    // always did. Transformed it is the distance at the inverse-mapped point and
-    // ||grad d|| by CENTRAL DIFFERENCES at epsilon 0.5, so the /2e divisor is exactly 1.
-    // The epsilon is part of the specified result, not a tuning knob: the oracle uses
-    // the same one and Phase 1's measurement is against this value. Central differences
-    // rather than fwidth for the reason 06_canvas.md gives -- a hardware derivative
-    // differs between platforms; this uses only + - * / and sqrt.
-    //
-    // bug-686: all five evaluations of a transformed polygon use the band of the CENTRE
-    // point `q`. The emitter widened that band's reach by the transform's scale for
-    // exactly this, so it holds every edge any of the four neighbours needs; a band
-    // looked up per neighbour could differ between them, and the difference quotient
-    // of two different edge sets is not the gradient of anything.
-    "static float2 shapeDistanceAndScale(constant MfbItem &item, constant int *edges, float2 p) {\n",
-    "  if (!hasTransform(item)) {\n",
-    "    return float2(geoDistance(item, edges, polygonBand(item, edges, p.y), p), 1.0);\n",
+    "  float d;\n",
+    "  if (kind == 0 || kind == 9) {\n",
+    "    d = rectDistance(p, c, e) - r;\n",
+    "  } else if (kind == 1) {\n",
+    "    d = length(p - c) - e.x - r;\n",
+    "  } else if (kind == 2) {\n",
+    "    if (item.arc.w != 1 && !(dot(e - c, e - c) > 0.0)) { return 0.0; }\n",
+    "    d = item.arc.w == 1 ? segmentDistance(p, c, e) - r : segmentDistanceButt(p, c, e, r);\n",
+    "  } else {\n",
+    "    return 1.0e6;\n",
     "  }\n",
-    "  float2 q = inverseMap(item, p);\n",
-    "  int2 band = polygonBand(item, edges, q.y);\n",
-    "  float d = geoDistance(item, edges, band, q);\n",
-    "  float gx = geoDistance(item, edges, band, inverseMap(item, p + float2(0.5, 0.0)))\n",
-    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.5, 0.0)));\n",
-    "  float gy = geoDistance(item, edges, band, inverseMap(item, p + float2(0.0, 0.5)))\n",
-    "           - geoDistance(item, edges, band, inverseMap(item, p - float2(0.0, 0.5)));\n",
-    "  float g = sqrt(gx * gx + gy * gy);\n",
-    "  return float2(d, g > 0.000001 ? g : 1.0);\n",
+    "  return d > 0.0 ? max(d - slack, 0.0) : min(d + slack, 0.0);\n",
     "}\n",
-    // bug-687: a polygon's fill and stroke coverage, 0..255 each, from its distance in
-    // double-float at the double-float shape-space point `pt` = (x.hi, x.lo, y.hi, y.lo).
-    // `shapeDistanceAndScale` and the fragment's two quantisations, operation for
-    // operation: the inverse map with the float32 terms, the central differences at 0.5
-    // (all five on the centre's band), `d / ||grad d||`, and the stroke's half-width
-    // taken off in shape space before the scale. The five samples are one loop so
-    // `edgeDistance` is inlined once.
+    // bug-735: a PolyLine's distance in double-float -- `__canvas_polylineScan`'s, with
+    // bug-687's two passes. Pass 1 is fp32 over the band: `bound` (the least `d32 + slack`)
+    // and `low` (the least `d32 - slack`). Past `reach` it returns `low`; otherwise pass 2
+    // evaluates in double-float only the segments that can be the nearest
+    // (`d32 - slack <= bound`), each endpoint its 16.16 word plus its residual. A segment is
+    // live when its endpoints' words or residuals differ -- the oracle's `len2 > 0`, exactly
+    // -- or it is the whole path (`first == last`); one shorter than fp32 resolves gets an
+    // unbounded slack, so it is always a candidate and never tightens `bound`.
+    "static float polylineSegment32(constant MfbItem &item, constant int *edges, int e, float2 p, float halfW, thread float &slack) {\n",
+    "  int first = item.gradient.x;\n",
+    "  int last = item.gradient.y;\n",
+    "  int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
+    "  int ri = (item.arc.z + e) * 4 + METAL_EDGE_RESIDUAL_BASE;\n",
+    "  bool live = first == last || edges[i] != edges[i + 2] || edges[i + 1] != edges[i + 3]\n",
+    "      || edges[ri] != edges[ri + 2] || edges[ri + 1] != edges[ri + 3];\n",
+    "  if (!live) { slack = -1.0; return 1.0e6; }\n",
+    "  float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "  float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
+    "  float2 v = b - a;\n",
+    "  float len2 = dot(v, v);\n",
+    "  float2 w = p - a;\n",
+    "  float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;\n",
+    "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
+    "  if (item.arc.w == 0 && len2 > 0.0) {\n",
+    "    float len = sqrt(len2);\n",
+    "    if (e == first) { d = max(d, -t * len); }\n",
+    "    if (e == last) { d = max(d, (t - 1.0) * len); }\n",
+    "  }\n",
+    "  slack = len2 > 0.0 ? edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0) : 1.0e30;\n",
+    "  return d;\n",
+    "}\n",
+    "static float2 polylineDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
+    "  int first = item.gradient.x;\n",
+    "  int last = item.gradient.y;\n",
+    "  float halfW = fx(item.misc.y);\n",
+    "  float2 p = float2(x.x, y.x);\n",
+    "  float bound = 1.0e6;\n",
+    "  float low = 1.0e6;\n",
+    "  for (int j = 0; j < band.y; ++j) {\n",
+    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
+    "    if (e < first || e > last) { continue; }\n",
+    "    float slack;\n",
+    "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
+    "    if (slack < 0.0) { continue; }\n",
+    "    bound = min(bound, d32 + slack);\n",
+    "    low = min(low, d32 - slack);\n",
+    "  }\n",
+    "  if (low > reach) { return float2(low, 0.0); }\n",
+    "  float2 half2 = dfFixed(item.misc.y, item.miscLo.x);\n",
+    "  float2 best = float2(1.0e6, 0.0);\n",
+    "  for (int j = 0; j < band.y; ++j) {\n",
+    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
+    "    if (e < first || e > last) { continue; }\n",
+    "    float slack;\n",
+    "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
+    "    if (slack < 0.0 || d32 - slack > bound) { continue; }\n",
+    "    DfEdge g = dfEdge(edges, item.arc.z, e);\n",
+    "    DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);\n",
+    "    float2 d = dfSub(s.d, half2);\n",
+    "    if (item.arc.w == 0 && s.len2.x > 0.0) {\n",
+    "      float2 len = dfSqrt(s.len2);\n",
+    "      if (e == first) { d = dfMax(d, -dfMul(s.t, len)); }\n",
+    "      if (e == last) { d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len)); }\n",
+    "    }\n",
+    "    if (dfLess(d, best)) { best = d; }\n",
+    "  }\n",
+    "  return best;\n",
+    "}\n",
+    // bug-735: one sample's distance at the double-float shape-space point, for every kind a
+    // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
+    // then `dfShapeDistance`. One call site each.
+    "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
+    "  int kind = item.misc.x;\n",
+    "  if (kind == 4) { return edgeDistance(edges, item.arc.z, band.y, band.x, x, y, reach); }\n",
+    "  if (kind == 10) { return polylineDistance(item, edges, band, x, y, reach); }\n",
+    "  float v = farBound(item, float2(x.x, y.x));\n",
+    "  if (abs(v) > reach) { return float2(v, 0.0); }\n",
+    "  return dfShapeDistance(item, x, y);\n",
+    "}\n",
     "static float2 dfMapX(constant MfbItem &item, float2 x, float2 y) {\n",
     "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.x)), dfMulF(y, as_type<float>(item.xform0.z))),\n",
     "               float2(as_type<float>(item.xform1.x), 0.0));\n",
@@ -632,39 +774,68 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.y)), dfMulF(y, as_type<float>(item.xform0.w))),\n",
     "               float2(as_type<float>(item.xform1.y), 0.0));\n",
     "}\n",
-    "static float4 dfShapePoint(float2 surface, int2 offset) {\n",
-    "  return float4(dfSub(float2(surface.x, 0.0), dfWord(offset.x)), dfSub(float2(surface.y, 0.0), dfWord(offset.y)));\n",
+    // The double-float shape-space point: the surface point with the group offset -- its
+    // 16.16 word plus, since bug-735, its residual -- taken off exactly.
+    "static float4 dfShapePoint(float2 surface, int4 offset) {\n",
+    "  return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));\n",
     "}\n",
-    "static int2 polygonCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
+    // bug-687, extended to every kind by bug-735: an item's fill and stroke coverage, 0..255
+    // each, and whether it strokes, from its distance in double-float at the double-float
+    // shape-space point `pt` = (x.hi, x.lo, y.hi, y.lo). The oracle's
+    // `__canvas_drawGeometry`, operation for operation: the inverse map with the float32
+    // terms, the central differences at 0.5 (all five on the centre's band), `d / ||grad
+    // d||`, and the stroke's half-width -- its word plus its residual, stroking exactly when
+    // the oracle's `half > 0` -- taken off in shape space before the scale. The five samples
+    // are one loop so each distance helper is inlined once.
+    //
+    // A sample past `reach` has its coverage decided by its sign (the pre-passes return a
+    // bound there, not the distance). Untransformed that is `0.5 + half`. Transformed,
+    // the CENTRE sample may take it too: the scale `g` the coverage divides by is a
+    // central difference of a 1-Lipschitz distance, so it is at most the inverse
+    // matrix's Frobenius norm `F` (or the fallback 1.0), and a centre past
+    // `half + 0.5 * max(F, 1)` is past the clamp whatever the four neighbours say --
+    // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
+    // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
+    // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
+    // any neighbour sample, whose exact value the gradient needs.
+    "static int3 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
     "  float2 x = pt.xy;\n",
     "  float2 y = pt.zw;\n",
     "  bool mapped = hasTransform(item);\n",
     "  int2 band = polygonBand(item, edges, mapped ? dfMapY(item, x, y).x : y.x);\n",
-    "  float reach = mapped ? 1.0e30 : 0.5 + max(fx(item.misc.z), 0.0);\n",
+    "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
+    "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
+    "  float reach = 0.5 + max(half2.x, 0.0);\n",
+    "  if (mapped) {\n",
+    "    float2 c0 = float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y));\n",
+    "    float2 c1 = float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w));\n",
+    "    float frob = sqrt(dot(c0, c0) + dot(c1, c1)) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
+    "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
+    "  }\n",
     "  float2 d[5];\n",
     "  for (int k = 0; k < (mapped ? 5 : 1); ++k) {\n",
     "    float2 sx = dfAdd(x, float2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));\n",
     "    float2 sy = dfAdd(y, float2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));\n",
     "    float2 qx = mapped ? dfMapX(item, sx, sy) : sx;\n",
     "    float2 qy = mapped ? dfMapY(item, sx, sy) : sy;\n",
-    "    d[k] = edgeDistance(edges, item.arc.z, band.y, band.x, qx, qy, reach);\n",
+    "    d[k] = sampleDistance(item, edges, band, qx, qy, k == 0 ? reach : 1.0e30);\n",
+    "    if (k == 0 && abs(d[0].x) > reach) { mapped = false; }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
     "  float2 g = float2(1.0, 0.0);\n",
     "  if (mapped) {\n",
     "    float2 gx = dfSub(d[1], d[2]);\n",
     "    float2 gy = dfSub(d[3], d[4]);\n",
-    "    g = dfSqrt(dfAdd(dfMul(gx, gx), dfMul(gy, gy)));\n",
+    "    g = dfLength(gx, gy);\n",
     "    if (!(g.x > 0.000001)) { g = float2(1.0, 0.0); }\n",
     "  }\n",
     "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
     "  int stroke = 0;\n",
-    "  float halfWidth = fx(item.misc.z);\n",
-    "  if (halfWidth > 0.0) {\n",
-    "    float2 s = dfSub(dRaw.x < 0.0 ? -dRaw : dRaw, float2(halfWidth, 0.0));\n",
+    "  if (stroked) {\n",
+    "    float2 s = dfSub(dfAbs(dRaw), half2);\n",
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
-    "  return int2(fill, stroke);\n",
+    "  return int3(fill, stroke, stroked ? 1 : 0);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -772,13 +943,6 @@ const METAL_SHADER_BODY: &str = concat!(
     "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
     "  return (tex * item.fill) / 255;\n",
     "}\n",
-    "static float4 covered(int4 rgba, int coverage) {\n",
-    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
-    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
-    "                srgbToLinear(float(rgba.y)) * a,\n",
-    "                srgbToLinear(float(rgba.z)) * a, a);\n",
-    "}\n",
-    "static float4 premultiplied(int4 rgba, float distance) {\n",
     // The oracle quantizes coverage to a whole 0..255 and then takes an integer
     // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
     // float is not pedantry: near full coverage the sRGB encode is so steep that ONE
@@ -786,22 +950,41 @@ const METAL_SHADER_BODY: &str = concat!(
     // coverage that merely rounds differently produces a visible disagreement on
     // every antialiased edge. Quantizing the same way leaves only the pixels within
     // a rounding boundary of each other.
-    "  return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));\n",
+    "static float4 covered(int4 rgba, int coverage) {\n",
+    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
+    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
+    "                srgbToLinear(float(rgba.y)) * a,\n",
+    "                srgbToLinear(float(rgba.z)) * a, a);\n",
     "}\n",
     // The clip's own antialiased coverage, 0..255 (plan-116-B). The same rectangle SDF
     // and the same quantization the shape edges use, so a fractional clip edge is
     // antialiased identically to a shape edge -- which is what lets the oracle and this
     // shader agree on it rather than merely come close. `__canvas_clipCoverage` in
     // `helper_items.rs` and `clipCoverage` in `mfb_canvas.frag` are the same three
-    // lines. A zero-area rectangle means unclipped and returns 255, matching
+    // lines. An empty rectangle means unclipped and returns 255, matching
     // `__canvas_hasClip`: testing both extents also rejects a negative one, which
     // `Bounds` cannot forbid.
+    //
+    // bug-735: in double-float, from the clip's words plus residuals, wherever the fp32
+    // rectangle distance (with `edgeSlack`'s bound) cannot say the pixel is wholly in or
+    // out. A clip edge beside a coverage step flipped the step from the 16.16 narrowing
+    // alone, by up to 12 sRGB levels near black.
     "static int clipCoverage(constant MfbItem &item, float2 p) {\n",
-    "  if (item.clip.x >= item.clip.z || item.clip.y >= item.clip.w) { return 255; }\n",
+    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
+    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 255; }\n",
     "  float2 lo = float2(fx(item.clip.x), fx(item.clip.y));\n",
     "  float2 hi = float2(fx(item.clip.z), fx(item.clip.w));\n",
     "  float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);\n",
-    "  return int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5);\n",
+    "  float slack = edgeSlack(p, lo, hi);\n",
+    "  if (d - slack > 0.5) { return 0; }\n",
+    "  if (d + slack < -0.5) { return 255; }\n",
+    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
+    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
+    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
+    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
+    "  float2 dx = dfSub(float2(p.x, 0.0), dfMulF(dfAdd(x0, x1), 0.5));\n",
+    "  float2 dy = dfSub(float2(p.y, 0.0), dfMulF(dfAdd(y0, y1), 0.5));\n",
+    "  return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));\n",
     "}\n",
     // `items` and `edges` are the SAME buffer bound twice, at offset zero both times:
     // one view typed as blocks, one as raw words. Two bindings rather than one pointer
@@ -814,7 +997,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant int2 &drawOffset [[buffer(3)]]) {\n",
+    "                            constant int4 &drawOffset [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
     // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
     // offset taken back off -- and every distance, gradient and glyph lookup below uses
@@ -851,27 +1034,12 @@ const METAL_SHADER_BODY: &str = concat!(
     "      ? 0 : edges[METAL_GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];\n",
     "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
-    // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
-    // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
-    // with the shape (section 4.3). Untransformed, `dScale` is 1.0 and both collapse to
-    // the expressions this shader had.
-    //
-    // bug-687: a polygon's two coverages come from `polygonCoverage` in double-float, at
-    // the double-float twin of `p` -- the surface point with the group offset taken off,
-    // exactly. Every other kind keeps its fp32 distance and the same quantisation.
-    "  int fillCov;\n",
-    "  int strokeCov;\n",
-    "  if (item.misc.x == 4) {\n",
-    "    int2 cov = polygonCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
-    "    fillCov = cov.x;\n",
-    "    strokeCov = cov.y;\n",
-    "  } else {\n",
-    "    float2 ds = shapeDistanceAndScale(item, edges, p);\n",
-    "    float dRaw = ds.x;\n",
-    "    float dScale = ds.y;\n",
-    "    fillCov = int(clamp(0.5 - dRaw / dScale, 0.0, 1.0) * 255.0 + 0.5);\n",
-    "    strokeCov = int(clamp(0.5 - (abs(dRaw) - fx(item.misc.z)) / dScale, 0.0, 1.0) * 255.0 + 0.5);\n",
-    "  }\n",
+    // Both coverages come from `shapeCoverage` in double-float at the double-float twin
+    // of `p` -- the surface point with the group offset (word and residual) taken off,
+    // exactly: a polygon since bug-687, every other kind since bug-735. The fill uses
+    // the surface distance and the stroke subtracts `half` BEFORE converting, so the
+    // outline scales with the shape (section 4.3).
+    "  int3 cov = shapeCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
     // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
@@ -886,14 +1054,13 @@ const METAL_SHADER_BODY: &str = concat!(
     "  if (item.misc.x == 9) {\n",
     "    fillRgba = pictureColour(item, edges, hasTransform(item) ? inverseMap(item, p) : p);\n",
     "  }\n",
-    "  float4 colour = covered(fillRgba, (fillCov * clipCov) / 255);\n",
-    "  float halfWidth = fx(item.misc.z);\n",
-    "  if (halfWidth > 0.0) {\n",
+    "  float4 colour = covered(fillRgba, (cov.x * clipCov) / 255);\n",
+    "  if (cov.z != 0) {\n",
     // plan-116-B: this stroke-over-fill composition equals the oracle's two sequential
     // blends only under `Normal`, which is why a non-`Normal` item that both fills and
     // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
     // time such an item reaches here it is fill-only or stroke-only.
-    "    float4 s = covered(item.stroke, (strokeCov * clipCov) / 255);\n",
+    "    float4 s = covered(item.stroke, (cov.y * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -1011,7 +1178,7 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
 ///
 /// The alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — would put an
 /// `MTLBuffer` offset-alignment requirement on a stride that does not meet it
-/// (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; it was 112 when this was written, and
+/// (`ITEM_BLOCK_SIZE`, 272 since bug-735; it was 112 when this was written, and
 /// neither value meets the alignment, so the conclusion is unchanged).
 pub(super) const SEL_DRAW_PRIMITIVES_INSTANCED: (&str, &str) = (
     "_mfb_macapp_sel_drawPrimitivesInstanced",
@@ -1057,8 +1224,9 @@ pub(super) const SEL_SET_FRAGMENT_BYTES: (&str, &str) = (
 /// would `objc_msgSend` a selector the runtime never registered. It has to be in
 /// `metal_data_objects` below as well as declared here.
 ///
-/// Inline bytes rather than an `MTLBuffer` because the payload is eight bytes that
-/// change per draw; `setVertexBytes:` is the API for exactly that size.
+/// Inline bytes rather than an `MTLBuffer` because the payload is sixteen bytes (the
+/// 16.16 offset and, since bug-735, its residual words) that change per draw;
+/// `setVertexBytes:` is the API for exactly that size.
 pub(super) const SEL_SET_VERTEX_BYTES: (&str, &str) = (
     "_mfb_macapp_sel_setVertexBytes",
     "setVertexBytes:length:atIndex:",
@@ -1567,7 +1735,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 720;
+const DRAW_FRAME: usize = OFF_DRAW_PAIR + 16;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1576,46 +1744,46 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 400;
+const OFF_TEXTURE: usize = OFF_ITEM + ITEM_BLOCK_SIZE;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 408;
-const OFF_GLYPH_COV: usize = 416;
-const OFF_GLYPH_INDEX: usize = 424;
-const OFF_GLYPH_COUNT: usize = 432;
-const OFF_GLYPH_HEADER: usize = 440;
-const OFF_GLYPH_W: usize = 448;
-const OFF_GLYPH_H: usize = 456;
-const OFF_GLYPH_X: usize = 464;
-const OFF_GLYPH_Y: usize = 472;
+const OFF_GLYPH_META: usize = OFF_TEXTURE + 8;
+const OFF_GLYPH_COV: usize = OFF_TEXTURE + 16;
+const OFF_GLYPH_INDEX: usize = OFF_TEXTURE + 24;
+const OFF_GLYPH_COUNT: usize = OFF_TEXTURE + 32;
+const OFF_GLYPH_HEADER: usize = OFF_TEXTURE + 40;
+const OFF_GLYPH_W: usize = OFF_TEXTURE + 48;
+const OFF_GLYPH_H: usize = OFF_TEXTURE + 56;
+const OFF_GLYPH_X: usize = OFF_TEXTURE + 64;
+const OFF_GLYPH_Y: usize = OFF_TEXTURE + 72;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 480;
+const OFF_GLYPH_SRC: usize = OFF_TEXTURE + 80;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 488;
+const OFF_CONTENTS: usize = OFF_TEXTURE + 88;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated.
 ///
 /// `OFF_RUN_COUNT` used to sit beside these, holding the `cursor - base` the flush
 /// computed. plan-116-H deleted it with `emit_run_flush`: the instance count now comes
-/// from the draw list, not from the cursor. 512 is free.
-const OFF_ITEM_CURSOR: usize = 496;
-const OFF_RUN_START: usize = 504;
+/// from the draw list, not from the cursor. `OFF_TEXTURE + 112` is free.
+const OFF_ITEM_CURSOR: usize = OFF_TEXTURE + 96;
+const OFF_RUN_START: usize = OFF_TEXTURE + 104;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 520;
+const OFF_EDGE_CURSOR: usize = OFF_TEXTURE + 120;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 528;
+const OFF_GLYPH_INSTANCE: usize = OFF_TEXTURE + 128;
 /// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
 /// two-instance split (plan-116-B).
 ///
@@ -1623,20 +1791,20 @@ const OFF_GLYPH_INSTANCE: usize = 528;
 /// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
 /// registers, so a value saved across it comes back as a mapped address — and as a
 /// stroke width that reads like an enormous band the oracle never drew.
-const OFF_BOUND_MODE: usize = 536;
-const OFF_ITEM_MODE: usize = 544;
-const OFF_SAVED_STROKE: usize = 552;
+const OFF_BOUND_MODE: usize = OFF_TEXTURE + 136;
+const OFF_ITEM_MODE: usize = OFF_TEXTURE + 144;
+const OFF_SAVED_STROKE: usize = OFF_TEXTURE + 152;
 /// The frame's gradient-stop cursor, in STOPS — the third region's twin of
 /// `OFF_EDGE_CURSOR` (plan-116-F).
-const OFF_GRAD_CURSOR: usize = 560;
+const OFF_GRAD_CURSOR: usize = OFF_TEXTURE + 160;
 /// The frame's glyph-sample cursor — the glyph region's twin of `OFF_EDGE_CURSOR`
 /// (bug-670).
-const OFF_GLYPH_CURSOR: usize = 616;
+const OFF_GLYPH_CURSOR: usize = OFF_TEXTURE + 216;
 /// How many records this frame's picture table holds (bug-686,
 /// `METAL_PICTURE_TABLE_BYTES`), reset with the cursors; and the index slot a picture
 /// lookup missed at, parked across the upload that decides whether to record it.
-const OFF_PIC_COUNT: usize = 624;
-const OFF_PIC_SLOT: usize = 632;
+const OFF_PIC_COUNT: usize = OFF_TEXTURE + 224;
+const OFF_PIC_SLOT: usize = OFF_TEXTURE + 232;
 /// The band region's cursor, in words (bug-686) — reset per frame like the others —
 /// and `emit_band_index`'s working state for one polygon: its first and past-the-last
 /// 16.16 edge in the frame buffer, its lowest edge y (16.16), the band reach `2r`
@@ -1644,20 +1812,20 @@ const OFF_PIC_SLOT: usize = 632;
 ///
 /// On the stack because the builder's loops need more values than the nine usable
 /// `SCRATCH` registers hold at once.
-const OFF_BAND_CURSOR: usize = 640;
-const OFF_BAND_EDGES: usize = 648;
-const OFF_BAND_END: usize = 656;
-const OFF_BAND_YMIN: usize = 664;
-const OFF_BAND_REACH: usize = 672;
-const OFF_BAND_HEIGHT: usize = 680;
-const OFF_BAND_COUNT: usize = 688;
-const OFF_BAND_TABLE: usize = 696;
+const OFF_BAND_CURSOR: usize = OFF_TEXTURE + 240;
+const OFF_BAND_EDGES: usize = OFF_TEXTURE + 248;
+const OFF_BAND_END: usize = OFF_TEXTURE + 256;
+const OFF_BAND_YMIN: usize = OFF_TEXTURE + 264;
+const OFF_BAND_REACH: usize = OFF_TEXTURE + 272;
+const OFF_BAND_HEIGHT: usize = OFF_TEXTURE + 280;
+const OFF_BAND_COUNT: usize = OFF_TEXTURE + 288;
+const OFF_BAND_TABLE: usize = OFF_TEXTURE + 296;
 /// bug-686 Phase 4: the drawable a direct present copies into — autoreleased, so it
 /// lives until the frame's pool pops — and the answer the frame returns in `x0`
 /// (1 = the frame is finished: presented, or read back into the surface; 0 = it was
 /// not drawn and the caller must take another path).
-const OFF_DRAWABLE: usize = 704;
-const OFF_PRESENTED: usize = 712;
+const OFF_DRAWABLE: usize = OFF_TEXTURE + 304;
+const OFF_PRESENTED: usize = OFF_TEXTURE + 312;
 
 /// plan-116-H Phase 3: the draw list, and the walk over it.
 ///
@@ -1666,9 +1834,10 @@ const OFF_PRESENTED: usize = 712;
 /// two arguments, because the argument bank is eight wide and the eighth is the draw
 /// list itself (`func_metal_draw.rs`).
 ///
-/// `OFF_DRAW_PAIR` is the two 16.16 offsets laid out contiguously, so `setVertexBytes:`
-/// and `setFragmentBytes:` can point at eight bytes of frame rather than at a
-/// collection another thread may be writing.
+/// `OFF_DRAW_PAIR` is the group offset laid out contiguously -- the two 16.16 words, then
+/// (bug-735) their two residual words -- so `setVertexBytes:` and `setFragmentBytes:`
+/// can point at sixteen bytes of frame rather than at a collection another thread may
+/// be writing.
 /// Where the group offset is bound in each stage, matching the `[[buffer(N)]]`
 /// attributes in `METAL_SHADER_SOURCE`.
 ///
@@ -1682,12 +1851,15 @@ const OFF_PRESENTED: usize = 712;
 const METAL_DRAW_OFFSET_VERTEX_INDEX: &str = "1";
 const METAL_DRAW_OFFSET_FRAGMENT_INDEX: &str = "3";
 
-const OFF_DRAWS: usize = 568;
-const OFF_DRAW_ENTRIES: usize = 576;
-const OFF_DRAW_INDEX: usize = 584;
-const OFF_DRAW_BASE: usize = 592;
-const OFF_DRAW_COUNT: usize = 600;
-const OFF_DRAW_PAIR: usize = 608;
+const OFF_DRAWS: usize = OFF_TEXTURE + 168;
+const OFF_DRAW_ENTRIES: usize = OFF_TEXTURE + 176;
+const OFF_DRAW_INDEX: usize = OFF_TEXTURE + 184;
+const OFF_DRAW_BASE: usize = OFF_TEXTURE + 192;
+const OFF_DRAW_COUNT: usize = OFF_TEXTURE + 200;
+/// Past `OFF_PRESENTED`: sixteen bytes since bug-735 (below), so it outgrew the eight-byte
+/// slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT` and `OFF_GLYPH_CURSOR`,
+/// which is free.
+const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -2356,7 +2528,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // The block first, then the edges: `emit_item_block` writes all four words of
     // `ITEM_OFFSET_ARC`, so an edge base stored before it would be overwritten. Same
     // ordering as the Vulkan emitter.
-    emit_item_block(&mut asm);
+    emit_item_block(&mut asm, "shape");
     emit_edge_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
     // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
@@ -3007,7 +3179,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_GLYPH_HEADER,
     ));
-    emit_item_block(asm);
+    emit_item_block(asm, "glyph");
 
     // The run's glyph count, and a zeroed index.
     asm.push(abi::load_u64(
@@ -3458,7 +3630,10 @@ fn emit_glyph_publish(asm: &mut Asm) {
     asm.push(abi::label(&done));
 }
 
-fn emit_item_block(asm: &mut Asm) {
+/// Build the item block at `OFF_ITEM` from the geometry header in `SCRATCH[0]`. `tag`
+/// names this call site's labels: the draw function builds a block for a shape and, in
+/// the glyph loop, one per glyph.
+fn emit_item_block(asm: &mut Asm, tag: &str) {
     let header = abi::SCRATCH[0];
     let scale = abi::FP_SCRATCH[0];
     asm.push(abi::move_immediate(
@@ -3468,7 +3643,7 @@ fn emit_item_block(asm: &mut Asm) {
     ));
     asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // The 16.16 fields: bounds, shape parameters, corner/stroke radii, arc angles.
+    // The 16.16 fields no distance reads: the bounds and the gradient axis.
     for (item_offset, slots) in [
         (
             ITEM_OFFSET_QUAD,
@@ -3477,44 +3652,6 @@ fn emit_item_block(asm: &mut Asm) {
                 HEADER_BOUNDS + 1,
                 HEADER_BOUNDS + 2,
                 HEADER_BOUNDS + 3,
-            ],
-        ),
-        (
-            ITEM_OFFSET_SHAPE,
-            [
-                HEADER_SHAPE,
-                HEADER_SHAPE + 1,
-                HEADER_SHAPE + 2,
-                HEADER_SHAPE + 3,
-            ],
-        ),
-        (
-            ITEM_OFFSET_ARC,
-            [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
-        ),
-        // plan-116-D: an arc's two sweep endpoints, four consecutive header slots
-        // narrowing to 16.16 exactly like the bounds — so the new `ivec4` rides this
-        // loop rather than adding a hand-written store per coordinate. Written for
-        // every kind; only a Round-capped arc reads them.
-        (
-            ITEM_OFFSET_ARC_CAPS,
-            [
-                HEADER_CAP_START_X,
-                HEADER_CAP_START_X + 1,
-                HEADER_CAP_END_X,
-                HEADER_CAP_END_X + 1,
-            ],
-        ),
-        // plan-116-E: an ellipse's rotation as cos, sin. The trailing pair repeats the
-        // sine rather than naming an unused slot, because this loop writes four words
-        // and the shader reads only x and y — the same shape the arc row above uses.
-        (
-            ITEM_OFFSET_ELLIPSE,
-            [
-                HEADER_ELLIPSE_COS,
-                HEADER_ELLIPSE_SIN,
-                HEADER_ELLIPSE_SIN,
-                HEADER_ELLIPSE_SIN,
             ],
         ),
         // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
@@ -3526,18 +3663,6 @@ fn emit_item_block(asm: &mut Asm) {
                 HEADER_GRADIENT_FROM_X + 1,
                 HEADER_GRADIENT_FROM_X + 2,
                 HEADER_GRADIENT_FROM_X + 3,
-            ],
-        ),
-        // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
-        // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
-        // the bounds above, and no arithmetic repeated per item.
-        (
-            ITEM_OFFSET_CLIP,
-            [
-                HEADER_CLIP_X0,
-                HEADER_CLIP_Y0,
-                HEADER_CLIP_X1,
-                HEADER_CLIP_Y1,
             ],
         ),
     ] {
@@ -3558,6 +3683,44 @@ fn emit_item_block(asm: &mut Asm) {
                 OFF_ITEM + item_offset + index * 4,
             ));
         }
+    }
+
+    // bug-735: every field a distance reads -- the shape parameters, the radius and
+    // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
+    // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
+    // the loop in `runtime/canvas/vulkan.rs`, from the same table.
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[1],
+    ));
+    for (slot, word, residual) in ITEM_RESIDUAL_FIELDS {
+        for instruction in
+            emit_item_residual_field(header, slot, OFF_ITEM + word, OFF_ITEM + residual)
+        {
+            asm.push(instruction);
+        }
+    }
+    for instruction in emit_item_stroke_sign(
+        header,
+        OFF_ITEM,
+        &format!("{METAL_DRAW_SYMBOL}_{tag}_stroke_positive"),
+        &format!("{METAL_DRAW_SYMBOL}_{tag}_stroke_done"),
+    ) {
+        asm.push(instruction);
+    }
+    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    for instruction in emit_item_arc_flags(
+        header,
+        OFF_ITEM,
+        &format!("{METAL_DRAW_SYMBOL}_{tag}_reflex_set"),
+        &format!("{METAL_DRAW_SYMBOL}_{tag}_reflex_done"),
+    ) {
+        asm.push(instruction);
     }
 
     // The whole-number fields: both colours, then kind and the edge count.
@@ -3583,30 +3746,14 @@ fn emit_item_block(asm: &mut Asm) {
         }
     }
 
-    // misc = { kind, radius (16.16), strokeHalf (16.16), edgeCount }
-    for (index, slot, fixed) in [
-        (0usize, HEADER_KIND, false),
-        (1, HEADER_RADIUS, true),
-        (2, HEADER_STROKE_HALF, true),
-        (3, HEADER_AUX0, false),
-    ] {
+    // misc = { kind, radius, strokeHalf, edgeCount }: the two whole numbers here, the
+    // two 16.16 ones with their residuals above.
+    for (index, slot) in [(0usize, HEADER_KIND), (3, HEADER_AUX0)] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        if fixed {
-            asm.push(abi::float_multiply_d(
-                abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                scale,
-            ));
-            asm.push(abi::float_round_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
-        } else {
-            asm.push(abi::float_convert_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
-        }
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -3789,6 +3936,7 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
 fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     let single = format!("{METAL_DRAW_SYMBOL}_publish_single");
     let done = format!("{METAL_DRAW_SYMBOL}_publish_done");
+    let strokes = format!("{METAL_DRAW_SYMBOL}_publish_strokes");
 
     // Split only when the mode is not `Normal`...
     asm.push(abi::load_u64(
@@ -3798,7 +3946,12 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(&single));
-    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16).
+    // ...and the item actually strokes: `strokeHalf` > 0, which since bug-735 is its
+    // 16.16 word > 0 or, for a word of 0, its residual > 0 -- `emit_item_stroke_sign`
+    // makes that exactly the header's f64 `half > 0.0`, the test
+    // `__canvas_blockInstances` counts two records on. Before it this read the word
+    // alone, so a blended filled item stroked thinner than 2^-16 px was counted as two
+    // records and published as one, and every later draw named the wrong blocks.
     //
     // SIGNED, for the reason the Vulkan twin records (plan-116-H **H15**):
     // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, which is
@@ -3818,7 +3971,17 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
     asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_gt(&strokes));
+    asm.push(abi::branch_lt(&single));
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC_LO + 4,
+    ));
+    asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_le(&single));
+    asm.push(abi::label(&strokes));
     // ...and actually fills. A `Line` or an `Arc` arrives with its stroke colour
     // already moved into the fill slots and `strokeHalf` negative
     // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
@@ -3832,7 +3995,10 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
 
     // Record one: the fill, with the stroke switched off. `strokeHalf` is parked on the
     // STACK — `emit_item_publish` owns the low scratch registers, so a register saved
-    // across it comes back holding a mapped address.
+    // across it comes back holding a mapped address. Off is -1.0 (`0xFFFF0000`), the
+    // value `__canvas_strokeHalf` reports for a paint that does not stroke: since
+    // bug-735 the shader strokes on the word PLUS its residual, and a zero word under a
+    // positive residual would still stroke.
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -3843,7 +4009,13 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::stack_pointer(),
         OFF_SAVED_STROKE,
     ));
-    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    // -1.0 in 16.16, spelled unsigned: the immediate is never negative, and the store
+    // keeps the low 32 bits.
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "4294901760",
+    ));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -3958,20 +4130,17 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_DRAW_COUNT,
     ));
-    // The two 16.16 offsets, written as 32-bit words side by side so the eight bytes at
-    // `OFF_DRAW_PAIR` are exactly the `int2` both shader stages declare.
-    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 16));
-    asm.push(abi::store_u32(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        OFF_DRAW_PAIR,
-    ));
-    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 24));
-    asm.push(abi::store_u32(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        OFF_DRAW_PAIR + 4,
-    ));
+    // The two 16.16 offsets and (bug-735) their residual words, written as 32-bit words
+    // side by side so the sixteen bytes at `OFF_DRAW_PAIR` are exactly the `int4` both
+    // shader stages declare. Entry words 2, 3, 5, 6 (`__canvas_pushOneDraw`).
+    for (word, at) in [(2usize, 0usize), (3, 4), (5, 8), (6, 12)] {
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], word * 8));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_DRAW_PAIR + at,
+        ));
+    }
 
     // This entry's pipeline, from the blend mode the run shares. The publish walk binds
     // as it goes, but every draw now happens after that walk has finished, so a binding
@@ -4024,7 +4193,7 @@ fn emit_draw_list_pass(asm: &mut Asm) {
             abi::stack_pointer(),
             OFF_DRAW_PAIR,
         ));
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "8"));
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "16"));
         asm.push(abi::move_immediate(abi::c_arg(4), "Integer", index));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -4850,7 +5019,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
 ///   `half = max(strokeHalf, 0)` (a non-stroking paint reports −1).
 /// * **Transformed**, the shader evaluates five shape-space points — the centre `q` and
 ///   `q ± M·(0.5, 0)`, `q ± M·(0, 0.5)`, M the inverse matrix — all against `q`'s band
-///   (`shapeDistanceAndScale`). With `F = ‖M‖_F`, each neighbour is within `F/2` of `q`,
+///   (`shapeCoverage`). With `F = ‖M‖_F`, each neighbour is within `F/2` of `q`,
 ///   and the scale `g` the shader divides by is at most `F` (the distance is 1-Lipschitz)
 ///   or the fallback 1.0. So: if `q` is within `r − F` of the nearest edge, every
 ///   neighbour's nearest edge is within `r` of `q` and all five values are exact; if not,
@@ -5615,7 +5784,7 @@ mod tests {
             (OFF_DRAW_INDEX, 8, "drawIndex"),
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
-            (OFF_DRAW_PAIR, 8, "drawPair"),
+            (OFF_DRAW_PAIR, 16, "drawPair"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
             (OFF_PIC_SLOT, 8, "picSlot"),
@@ -5668,7 +5837,8 @@ mod tests {
             (METAL_DRAW_OFFSET_VERTEX_INDEX, "vertex"),
             (METAL_DRAW_OFFSET_FRAGMENT_INDEX, "fragment"),
         ] {
-            let declaration = format!("constant int2 &drawOffset [[buffer({index})]]");
+            // `int4` since bug-735: the two 16.16 words, then their residual words.
+            let declaration = format!("constant int4 &drawOffset [[buffer({index})]]");
             assert!(
                 METAL_SHADER_SOURCE.contains(&declaration),
                 "the emitter sends the draw offset to buffer index {index} for the \
@@ -5705,10 +5875,6 @@ mod tests {
              drags the clip window along with the group",
         );
         for (call, what) in [
-            (
-                "shapeDistanceAndScale(item, edges, p)",
-                "the shape distance",
-            ),
             ("gradientColour(p, edges, item)", "the gradient ramp"),
             ("inverseMap(item, p) : p", "the glyph sample"),
         ] {
@@ -5718,19 +5884,20 @@ mod tests {
                  `in.pos.xy` draws a correctly placed shape with the wrong contents",
             );
         }
-        // bug-687: a polygon's distance is taken at the double-float twin of `p`, which
-        // has to be built from the surface point itself (`p` has already rounded to
-        // fp32). It is the third and last legitimate mention, and it is held to the same
-        // rule: the group offset comes off.
+        // bug-687 (polygons), bug-735 (every kind): the shape distance is taken at the
+        // double-float twin of `p`, which has to be built from the surface point itself
+        // (`p` has already rounded to fp32). It is the third and last legitimate mention,
+        // and it is held to the same rule: the group offset -- word and residual -- comes
+        // off.
         assert!(
             body.contains("dfShapePoint(in.pos.xy, drawOffset)"),
-            "the polygon's double-float point must be the surface point minus the draw \
+            "the shape's double-float point must be the surface point minus the draw \
              offset, like `p`",
         );
         assert!(
             METAL_SHADER_SOURCE.contains(
-                "return float4(dfSub(float2(surface.x, 0.0), dfWord(offset.x)), \
-                 dfSub(float2(surface.y, 0.0), dfWord(offset.y)));"
+                "return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), \
+                 dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));"
             ),
             "`dfShapePoint` must subtract the draw offset from the surface point",
         );

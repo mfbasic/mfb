@@ -5,8 +5,8 @@ Effort: small
 Severity: HIGH
 Class: Correctness (the user's shell is left unusable after the program exits)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (de85b8f86) — a re-entered term::on skips the save and raw configuration when raw mode is already live, so term::off restores the discipline from before the FIRST term::on. RED→GREEN on a real pty (on/on/off: icanon=0 echo=0 → icanon=1 echo=1).
+Regression Test: tests/runtime/rt_term_on_reentry.rs
 
 `term::on` saves the terminal's current line discipline so `term::off` can put it
 back. It saves it every time it runs. A second `term::on` while TUI mode is already

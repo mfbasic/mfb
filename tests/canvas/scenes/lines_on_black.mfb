@@ -1,0 +1,39 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
+  MUT points AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    LET rr AS Float = r + 3.0 * math::sin(a * 5.0)
+    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+' bug-735: 140 round-capped 2-px lines at every slope,
+' drawn over the default opaque-black surface, where one coverage step is several sRGB
+' levels. Before bug-735 carried every distance input at double-float precision and
+' evaluated the distance in double-float, the GPU's fp32 distance from 16.16 inputs put
+' pixels past GPU_DEFAULT here on Metal and on Vulkan.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 140
+    LET fx AS Float = toFloat(k) * 7.3719
+    LET x AS Float = 32.0 + toFloat((k MOD 14) * 60) + math::sin(fx) * 0.37
+    LET y AS Float = 32.0 + toFloat((k / 14) * 60) + math::cos(fx) * 0.41
+    LET r AS Float = 8.0 + toFloat(k MOD 13) * 1.513
+    LET c AS color::Color = color::rgb(250, 250, 120)
+    LET d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, cap := canvas::CapStyle.Round, paint := canvas::stroke(c, 2.0)]
+    scene = collections::append(scene, d)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC

@@ -158,34 +158,72 @@ words as whole numbers rather than 16.16, because 16.16 holds an index only up t
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
 
-**A polygon's coverage on either GPU is computed in double-float from its vertices at
-nearly the oracle's precision.** Every other shape's distance is fp32 from 16.16 inputs.
-That is not enough for a polygon: where the oracle's f64 distance lies within ~1e-5 px of
-a coverage quantisation boundary, fp32 rounds to the neighbouring step, and over a dark
-background one step is 3-4 sRGB levels. Rounding a vertex to 16.16 alone moves a
-distance by up to ~1e-5 px. So each edge endpoint coordinate uploads as its 16.16 word
-plus a residual word in a parallel region: `round((x·65536 − word)·2^31)`, in units of
-2^-47 px. The shader rebuilds each coordinate as a double-float, a pair of floats with
-about 48 bits. It computes the distance, the even-odd crossing test (multiplied out, no
-division), the inverse transform, the central-difference gradient and the coverage
-rounding in double-float. The quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 +
-0.5)`. The double-float helpers need their operations kept in written order: Metal's
-fast math reassociates them away, so each MSL helper disables reassociation for its
-body, and the GLSL marks them `precise`. The double-float work is confined to the edges
-fp32 cannot decide, without changing the result. For each edge, an error bound on its
-fp32 distance (2^-18 of the coordinates' magnitudes plus 2^-12 px) brackets the
-double-float distance. A first fp32 pass over the pixel's band finds the least upper
-bracket. Only edges whose lower bracket does not exceed it are evaluated in double-float,
-and only crossings too close to call against the same bound. A pixel whose every lower
-bracket is past `0.5 +` the stroke half-width (untransformed) is 0 or 255 whatever the
-exact distance, so it skips the second pass. A `PolyLine` shares the edge region but keeps
-its fp32 distance. A stroke's half-width and a group's offset are still 16.16.
+**Every shape's coverage on either GPU is computed in double-float from inputs at nearly
+the oracle's precision.** fp32 is not enough: where the oracle's f64 distance lies within
+~1e-5 px of a coverage quantisation boundary, fp32 rounds to the neighbouring step, and
+over a dark background one step is 3-12 sRGB levels. Rounding an input to 16.16 alone
+moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as its
+16.16 word plus a residual word, `round((x·65536 − word)·2^31)`, in units of 2^-47 px:
+
+* each polygon or polyline edge endpoint, in a region parallel to the edge words;
+* in the item block's four residual `ivec4`s: the shape parameters (centres,
+  half-extents, radii, line endpoints, ellipse axes), the radius and the stroke
+  half-width, an arc's two sweep endpoints, an ellipse's rotation cosine and sine, and
+  the clip rectangle;
+* the group offset of each draw, as words 5 and 6 of its draw-list entry and the last
+  two of the four 32-bit words bound to both shader stages.
+
+The shader rebuilds each value as a double-float, a pair of floats with about 48 bits,
+and evaluates the oracle's distance for every kind in it, operation for operation: the
+rectangle, circle, segment (round, or butt with its two end planes), arc, ellipse,
+polygon and polyline distances, the even-odd crossing test (multiplied out, no
+division), the inverse transform, the central-difference gradient, the stroke's
+half-width and the coverage rounding; the clip's rectangle distance too. The
+quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
+its direction vectors from its cap endpoints less its centre, a positive multiple of the
+oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
+reflex is decided by the emitter in f64 and carried as a flag. An ellipse runs the
+oracle's 24-step bisection with every step in double-float: in fp32 a step whose test
+value lies within fp32's error of zero takes the other branch. The double-float helpers
+need their operations kept in written order: Metal's fast math reassociates them away,
+so each MSL helper disables reassociation for its body, and the GLSL marks them
+`precise`.
+
+The double-float work is confined to pixels fp32 cannot decide, without changing the
+result. For polygon and polyline edges, an error bound on each edge's fp32 distance
+(2^-18 of the coordinates' magnitudes plus 2^-12 px) brackets its double-float distance.
+A first fp32 pass over the pixel's band finds the least upper bracket. Only edges whose
+lower bracket does not exceed it are evaluated in double-float, and only crossings too
+close to call against the same bound. Every other kind has an fp32 bound of the same
+kind: the rectangle, circle and line distance within the same bracket, the arc's ring
+and cap distances with the sweep ignored (out of sweep the oracle answers 1e6, never
+less), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
+ellipse and `rmin` the smaller radius, a true lower bound on the distance. A pixel whose
+bound is past `0.5 +` the stroke half-width is 0 or 255 by its sign whatever the exact
+distance, so it skips double-float. Under a transform only the centre sample may skip,
+against `half + 0.5·max(F, 1)`, `F` the inverse matrix's Frobenius norm, which bounds the
+gradient the coverage divides by; an arc, whose distance is not Lipschitz, never skips
+under a transform. On Metal, frames rendered with every one of these skips disabled were
+byte-identical to frames rendered with them, for every bug-735 and bug-687 oracle row
+(bug-735, "Phase 2 results").
+
+The emitters decide whether a blended item that fills and strokes becomes two records
+on the stroke half-width's word and residual, which is exactly the header's `half > 0`
+that `__canvas_blockInstances` counts on: a half-width under 2^-48 px, which would
+otherwise narrow to zero, is given a residual of 1.
 [[src/codegen/runtime/canvas/mod.rs:EDGE_RESIDUAL_SCALE]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_EDGE_RESIDUAL_BASE_WORDS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_EDGE_RESIDUAL_BASE_WORDS]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_SHAPE_LO]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_RESIDUAL_FIELDS]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_ARC_REFLEX]]
+[[src/codegen/runtime/canvas/mod.rs:emit_item_stroke_sign]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
-[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polygonCoverage]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:shapeCoverage]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dfShapeDistance]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:farBound]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeSlack]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The

@@ -1,0 +1,23 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+
+' bug-735: a blended (Multiply) filled rectangle stroked 1e-5 px wide -- a half-width
+' under the 16.16 step -- then two opaque items after it, over a grey ground.
+'
+' The software rasteriser strokes it (a hairline: `half > 0`) and the draw list counts
+' it as two records, fill then stroke, as it does every blended item that strokes and
+' fills (`__canvas_blockInstances`). Before bug-735 both emitters decided the split on the
+' half-width's 16.16 word, which is 0 here, so they published ONE record: every later
+' draw named the wrong blocks, and the circle drew under the Multiply pipeline.
+'
+' The blended rectangle is kept small (0.9% of the frame): lavapipe blends every Multiply
+' pixel one level off the oracle, which is blend precision, not this row's subject.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  LET blended AS canvas::DrawItem = canvas::Rectangle[x := 100.25, y := 100.5, w := 100.0, h := 50.0, paint := WITH canvas::fillStroke(color::rgb(250, 200, 100), color::rgb(20, 40, 200), 0.00001) { blend := canvas::BlendMode.Multiply }]
+  LET after1 AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 300.0, radius := 80.0, paint := canvas::fill(color::rgb(40, 200, 90))]
+  LET after2 AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 450.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(220, 60, 60))]
+  canvas::present([ground, blended, after1, after2])
+END FUNC

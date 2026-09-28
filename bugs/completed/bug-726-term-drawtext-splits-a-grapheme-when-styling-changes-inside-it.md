@@ -5,8 +5,8 @@ Effort: medium
 Severity: MEDIUM
 Class: Correctness (text renders differently depending on styling)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: FIXED (ce12da19c) — drawText(AttributedString) cuts style runs on grapheme-cluster boundaries only; a cluster takes its first scalar's style. RED→GREEN on a real pty (decomposed e+U+0301 with a bold mark now drawn as one cell).
+Regression Test: tests/runtime/rt_term_draw_text_attr_grapheme.rs
 
 `term::drawText(row, column, value AS AttributedString)` draws the value one styled
 run at a time. A run boundary can fall *inside* a grapheme cluster, and when it

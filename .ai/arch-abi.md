@@ -715,7 +715,7 @@ What it costs is not the entry function: the program body's alignment *is* its c
 call site, so an 8-byte skew there is inherited by **every Win32 call the program ever
 makes**. It presents as `0xC0000005` deep inside ntdll — bug-478 faulted in the
 activation-context machinery, ~20 frames from anything this repository wrote, on an
-empty `SUB main() END SUB`.
+empty value-less `main`.
 
 And the two entry paths disagree by exactly 8, because the console entry comes from the
 PE loader and `entry_stack_misaligned_on_entry` already shaves its skew. So a frame size

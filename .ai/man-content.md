@@ -417,7 +417,7 @@ Three harness traps:
 - `ARG` and `RET` are one line each. A second line is `DOC_ARG_DUPLICATE` /
   `DOC_DUPLICATE_RET`; only `DESC`/`INFO`/`WARN`/`SEC` continue across lines.
 - Consecutive `INFO` (or `WARN`/`SEC`) lines form ONE callout, not one per line.
-- The header must name a `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, `RESOURCE` or
+- The header must name a `FUNC`, `TYPE`, `UNION`, `ENUM`, `RESOURCE` or
   `PACKAGE`; a `LET` is `DOC_BAD_HEADER`.
 - `EXAMPLE` code is not compiled. Render with `mfb pkg doc <file>.mfp --out …` and
   build every example yourself.
