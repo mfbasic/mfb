@@ -1,0 +1,241 @@
+' Bytecode-interpreter benchmark. Group `interp`.
+'
+' The classic interpreter hot loop: fetch an instruction record from a
+' `List OF Instr`, dispatch on its ENUM opcode with MATCH, and push/pop an
+' operand stack held in a `MUT List OF Integer` via collections::get/set.
+' Nothing else in the suite measures ENUM MATCH dispatch or a get/set-heavy
+' mutable-list working set inside one tight loop. Two rows, one VM:
+'   vm       iterative Fibonacci mod 1000000007, n = 100, repeated 1500
+'            times (the rep index is folded in so every rep differs)
+'   vm_loop  a 400 x 400 nested counting loop accumulating (i*j + 1) mod 1000003
+' Each program is assembled once (untimed) and run once per timed iteration;
+' the checksum is the VM's result. The C peer dispatches with a switch over an
+' enum, the Python peer with an if/elif chain; all three agree bit-for-bit.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' The arithmetic opcodes are Plus/Minus/Times/Less rather than Add/Sub/Mul/Lt:
+' dispatch.mfb declares TYPE Add and TYPE Mul in this same project, and a
+' qualified enum arm `CASE Op.Plus` is currently mis-resolved to that record
+' type (TYPE_MATCH_PATTERN_MISMATCH) — a compiler bug, reported separately.
+ENUM Op
+  Push, Load, Store, Plus, Minus, Times, Modulo, Less, Jz, Jmp, Halt
+END ENUM
+
+TYPE Instr
+  op AS Op
+  arg AS Integer
+END TYPE
+
+' Run `prog` with `nvars` zeroed variable slots; returns the top of the stack
+' at Halt. Jz pops its condition and jumps to `arg` when it is 0; Lt pushes
+' 1/0; Load/Store address variable slot `arg`.
+FUNC runVm(prog AS List OF Instr, nvars AS Integer) AS Integer
+  MUT stack AS List OF Integer = collections::repeat([], 0, 64)
+  MUT vars AS List OF Integer = collections::repeat([], 0, nvars)
+  MUT sp AS Integer = 0
+  MUT pc AS Integer = 0
+  MUT running AS Boolean = TRUE
+  WHILE running
+    LET ins AS Instr = collections::get(prog, pc)
+    pc = pc + 1
+    MATCH ins.op
+      CASE Op.Push
+        stack = collections::set(stack, sp, ins.arg)
+        sp = sp + 1
+      CASE Op.Load
+        stack = collections::set(stack, sp, collections::get(vars, ins.arg))
+        sp = sp + 1
+      CASE Op.Store
+        sp = sp - 1
+        vars = collections::set(vars, ins.arg, collections::get(stack, sp))
+      CASE Op.Plus
+        sp = sp - 1
+        stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) + collections::get(stack, sp))
+      CASE Op.Minus
+        sp = sp - 1
+        stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) - collections::get(stack, sp))
+      CASE Op.Times
+        sp = sp - 1
+        stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) * collections::get(stack, sp))
+      CASE Op.Modulo
+        sp = sp - 1
+        stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) MOD collections::get(stack, sp))
+      CASE Op.Less
+        sp = sp - 1
+        IF collections::get(stack, sp - 1) < collections::get(stack, sp) THEN
+          stack = collections::set(stack, sp - 1, 1)
+        ELSE
+          stack = collections::set(stack, sp - 1, 0)
+        END IF
+      CASE Op.Jz
+        sp = sp - 1
+        IF collections::get(stack, sp) = 0 THEN pc = ins.arg
+      CASE Op.Jmp
+        pc = ins.arg
+      CASE Op.Halt
+        running = FALSE
+    END MATCH
+  END WHILE
+  RETURN collections::get(stack, sp - 1)
+END FUNC
+
+' --- program assembly (untimed) ---------------------------------------------
+
+FUNC emit(prog AS List OF Instr, op AS Op, arg AS Integer) AS List OF Instr
+  RETURN collections::append(prog, Instr[op := op, arg := arg])
+END FUNC
+
+' Point the jump at `at` (emitted with a placeholder target) to `target`.
+FUNC patch(prog AS List OF Instr, at AS Integer, target AS Integer) AS List OF Instr
+  LET ins AS Instr = collections::get(prog, at)
+  RETURN collections::set(prog, at, WITH ins { arg := target })
+END FUNC
+
+' Variables: 0 acc, 1 r, 2 a, 3 b, 4 k, 5 t.
+'   acc = 0
+'   FOR r = 0 TO reps-1: a = 0 : b = 1
+'     FOR k = 0 TO n-1: t = (a+b) MOD P : a = b : b = t
+'     acc = (acc + a + r) MOD P
+'   RETURN acc
+FUNC fibProgram(reps AS Integer, n AS Integer) AS List OF Instr
+  LET p AS Integer = 1000000007
+  MUT prog AS List OF Instr = []
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 0)
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 1)
+  LET outer AS Integer = len(prog)
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Push, reps)
+  prog = emit(prog, Op.Less, 0)
+  LET exitOuter AS Integer = len(prog)
+  prog = emit(prog, Op.Jz, 0)
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 2)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Store, 3)
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 4)
+  LET inner AS Integer = len(prog)
+  prog = emit(prog, Op.Load, 4)
+  prog = emit(prog, Op.Push, n)
+  prog = emit(prog, Op.Less, 0)
+  LET exitInner AS Integer = len(prog)
+  prog = emit(prog, Op.Jz, 0)
+  prog = emit(prog, Op.Load, 2)
+  prog = emit(prog, Op.Load, 3)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Push, p)
+  prog = emit(prog, Op.Modulo, 0)
+  prog = emit(prog, Op.Store, 5)
+  prog = emit(prog, Op.Load, 3)
+  prog = emit(prog, Op.Store, 2)
+  prog = emit(prog, Op.Load, 5)
+  prog = emit(prog, Op.Store, 3)
+  prog = emit(prog, Op.Load, 4)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Store, 4)
+  prog = emit(prog, Op.Jmp, inner)
+  prog = patch(prog, exitInner, len(prog))
+  prog = emit(prog, Op.Load, 0)
+  prog = emit(prog, Op.Load, 2)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Push, p)
+  prog = emit(prog, Op.Modulo, 0)
+  prog = emit(prog, Op.Store, 0)
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Store, 1)
+  prog = emit(prog, Op.Jmp, outer)
+  prog = patch(prog, exitOuter, len(prog))
+  prog = emit(prog, Op.Load, 0)
+  prog = emit(prog, Op.Halt, 0)
+  RETURN prog
+END FUNC
+
+' Variables: 0 acc, 1 i, 2 j.
+'   acc = 0
+'   FOR i = 0 TO rows-1: FOR j = 0 TO cols-1: acc = (acc + i*j + 1) MOD 1000003
+'   RETURN acc
+FUNC loopProgram(rows AS Integer, cols AS Integer) AS List OF Instr
+  MUT prog AS List OF Instr = []
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 0)
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 1)
+  LET outer AS Integer = len(prog)
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Push, rows)
+  prog = emit(prog, Op.Less, 0)
+  LET exitOuter AS Integer = len(prog)
+  prog = emit(prog, Op.Jz, 0)
+  prog = emit(prog, Op.Push, 0)
+  prog = emit(prog, Op.Store, 2)
+  LET inner AS Integer = len(prog)
+  prog = emit(prog, Op.Load, 2)
+  prog = emit(prog, Op.Push, cols)
+  prog = emit(prog, Op.Less, 0)
+  LET exitInner AS Integer = len(prog)
+  prog = emit(prog, Op.Jz, 0)
+  prog = emit(prog, Op.Load, 0)
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Load, 2)
+  prog = emit(prog, Op.Times, 0)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Push, 1000003)
+  prog = emit(prog, Op.Modulo, 0)
+  prog = emit(prog, Op.Store, 0)
+  prog = emit(prog, Op.Load, 2)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Store, 2)
+  prog = emit(prog, Op.Jmp, inner)
+  prog = patch(prog, exitInner, len(prog))
+  prog = emit(prog, Op.Load, 1)
+  prog = emit(prog, Op.Push, 1)
+  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Store, 1)
+  prog = emit(prog, Op.Jmp, outer)
+  prog = patch(prog, exitOuter, len(prog))
+  prog = emit(prog, Op.Load, 0)
+  prog = emit(prog, Op.Halt, 0)
+  RETURN prog
+END FUNC
+
+' --- rows ---------------------------------------------------------------------
+
+FUNC test_interp_vm(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET prog AS List OF Instr = fibProgram(1500, 100)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = runVm(prog, 6)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_interp_vm = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("interp", "vm", times))
+END FUNC
+
+FUNC test_interp_vm_loop(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET prog AS List OF Instr = loopProgram(400, 400)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = runVm(prog, 3)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_interp_vm_loop = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("interp", "vm_loop", times))
+END FUNC

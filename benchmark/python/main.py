@@ -32,6 +32,7 @@ import math
 import convertbench
 import elembench
 import closurebench
+import interpbench
 import mathbench
 import mathpipe
 import os
@@ -889,6 +890,9 @@ def main():
     closurebench.run_all(RUN, now_ns, record)
     # tree group (P1 recursive union — binarytrees/treewalk)
     treebench.run_all(RUN, now_ns, record)
+
+    # interp group (P1 enum-dispatch bytecode VM — vm/vm_loop)
+    interpbench.run_all(RUN, now_ns, record)
 
     test_primes()
 

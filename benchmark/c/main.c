@@ -35,6 +35,7 @@
 #include "datetimebench.h"
 #include "dispatchbench.h"
 #include "encodingbench.h"
+#include "interpbench.h"
 #include "listmatrix.h"
 #include "mapbench.h"
 #include "mapmatrix.h"
@@ -776,6 +777,8 @@ int main(int argc, char **argv) {
 
   run_closure_group();
   run_tree_group();
+
+  run_interp_group();
 
   test_primes();
 

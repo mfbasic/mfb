@@ -1614,6 +1614,10 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_tree_binarytrees(run, tests)
   tests = test_tree_treewalk(run, tests)
 
+  ' interp group (interp.mfb) — P1 coverage: ENUM-MATCH stack bytecode VM
+  tests = test_interp_vm(run, tests)
+  tests = test_interp_vm_loop(run, tests)
+
   tests = test_primes(run, tests)
 
   tests = test_thread_sum(run, tests)
