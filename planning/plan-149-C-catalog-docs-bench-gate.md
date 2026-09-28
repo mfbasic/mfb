@@ -115,7 +115,7 @@ Commit: d201225ce
 Acceptance: `cargo test --release --test rt_inplace_self_update via_let -- --ignored` → pass, 75 cells (est. 15 min
 because each cell builds and runs a program; a smaller filter would not prove the site coverage this task exists for).
 Verified 2026-09-27: 1 passed (the test asserts 75 work items when unfiltered), 127.2 s.
-Commit: —
+Commit: efa38f1d0
 
 ### Phase C3 — Benchmark re-measure
 
@@ -169,7 +169,7 @@ remove rows) is at least 5× faster, or has a recorded root cause. The probe rat
 5× is a floor that a working forward clears everywhere.
 Verified 2026-09-27: the table above. 6 in-scope list rows ≥ 20×; 8 map / set rows 2.8–3.7× with the recorded root cause
 (at direct-form timing, residual is the specified removal cost).
-Commit: —
+Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commit)
 
 ## Validation Plan
 
@@ -194,7 +194,12 @@ Commit: —
   Together they list 30 dirs (2026-09-22). Each diff must be a dropped copy (fewer `copy_*` labels, one less owned
   slot). Regenerate only the fixtures that show one. A diff anywhere else is a bug: objdump that one fixture and fix it.
 - **Final gate** (run ONCE, after C3, on the tree with main merged in if main has advanced):
-  - `cargo test --no-fail-fast`, which includes the unfiltered harness: 3,009 s alone in plan-145, plus the C2 sample;
+  - `cargo test --no-fail-fast -- --skip artifact_gate_all > log; echo EXIT=$?` (`.ai/testing-gates.md`: the skipped
+    test is the artifact gate, run separately below);
+  - `cargo test --release --test rt_inplace_self_update -- --ignored`: the unfiltered harness plus the C2 sample. It
+    is `#[ignore]`d, so the plain `cargo test` above does **not** include it (corrected; the earlier text said it did).
+    The row can change what the harness measures (every program's `LET before = <field>` snapshot is a place copy),
+    so it must run;
   - `scripts/artifact-gate.sh target/release/mfb all`;
   - `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
