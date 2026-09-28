@@ -56,6 +56,8 @@ References:
   this refactor preserves.
 - `.ai/testing-gates.md` § "Canvas reference images: exact for software, tolerance
   for GPU" — the PNG golden rule, and the `app-mouse-surface` change-sentinel note.
+- plan-162 (`planning/plan-162-A-font-face-index.md` … `-F-`) — the follow-on work this
+  bug is shaped for; this bug is its first prerequisite.
 - Found while discussing HTML/CSS-style layout on the canvas. This is step 0 of the
   text work: kerning, fallback fonts, `measureRun`/`caretStops`, and letter-spacing
   all build on this one helper.
