@@ -1,0 +1,124 @@
+' dualpivotsort - sorts `order` one comparison at a time.
+'
+' Yaroslavskiy's dual-pivot quicksort, the one Java uses for primitives. The
+' first and last elements of a range become two pivots p < q, and one pass
+' splits the range into three parts - below p, between them, above q - with
+' the pivots dropped into place between the parts. Each part is then sorted the
+' same way. The ranges still to sort are kept on a stack sized up front.
+
+IMPORT collections
+
+MUT dualStackLo AS List OF Integer = []
+MUT dualStackHi AS List OF Integer = []
+MUT dualTop AS Integer = 0
+MUT dualLo AS Integer = 0           ' the range being partitioned
+MUT dualHi AS Integer = 0
+MUT dualLow AS Integer = 0          ' everything in (dualLo, dualLow) is below p
+MUT dualHigh AS Integer = 0         ' everything in (dualHigh, dualHi) is above q
+MUT dualScan AS Integer = 0
+MUT dualP AS Integer = 0
+MUT dualQ AS Integer = 0
+' 0: no range; 1: order the pivots; 2: scanning; 3: pulling dualHigh down.
+MUT dualStage AS Integer = 0
+MUT dualFinished AS Boolean = FALSE
+MUT dualCompareCount AS Integer = 0
+
+SUB dualPush(lo AS Integer, hi AS Integer)
+  IF lo >= hi THEN EXIT SUB
+  dualStackLo = collections::set(dualStackLo, dualTop, lo)
+  dualStackHi = collections::set(dualStackHi, dualTop, hi)
+  dualTop = dualTop + 1
+END SUB
+
+SUB dualPivotStart
+  dualStackLo = collections::repeat(dualStackLo, 0, DOT_COUNT + 1)
+  dualStackHi = collections::repeat(dualStackHi, 0, DOT_COUNT + 1)
+  dualTop = 0
+  dualStage = 0
+  dualFinished = DOT_COUNT < 2
+  dualCompareCount = 0
+  dualPush(0, DOT_COUNT - 1)
+END SUB
+
+FUNC dualPivotDone AS Boolean
+  RETURN dualFinished
+END FUNC
+
+FUNC dualPivotCompares AS Integer
+  RETURN dualCompareCount
+END FUNC
+
+' Whether order[i] < v, counting the comparison.
+FUNC dualLess(i AS Integer, v AS Integer) AS Boolean
+  dualCompareCount = dualCompareCount + 1
+  RETURN orderAt(i) < v
+END FUNC
+
+' Whether order[i] > v, counting the comparison.
+FUNC dualGreater(i AS Integer, v AS Integer) AS Boolean
+  dualCompareCount = dualCompareCount + 1
+  RETURN orderAt(i) > v
+END FUNC
+
+' Run up to `budget` comparisons. A step can make one or two, so the budget is
+' read off the comparison count.
+SUB dualPivotSteps(budget AS Integer)
+  LET stop AS Integer = dualCompareCount + budget
+  DO WHILE dualCompareCount < stop AND NOT dualFinished
+    IF dualStage = 0 THEN
+      IF dualTop = 0 THEN
+        dualFinished = TRUE
+      ELSE
+        dualTop = dualTop - 1
+        dualLo = collections::get(dualStackLo, dualTop)
+        dualHi = collections::get(dualStackHi, dualTop)
+        dualStage = 1
+      END IF
+    ELSEIF dualStage = 1 THEN
+      IF dualGreater(dualLo, orderAt(dualHi)) THEN swapOrder(dualLo, dualHi)
+      dualP = orderAt(dualLo)
+      dualQ = orderAt(dualHi)
+      dualLow = dualLo + 1
+      dualHigh = dualHi - 1
+      dualScan = dualLow
+      dualStage = 2
+    ELSEIF dualStage = 2 THEN
+      IF dualScan > dualHigh THEN
+        ' Drop the pivots between the three parts and sort each part.
+        dualLow = dualLow - 1
+        dualHigh = dualHigh + 1
+        swapOrder(dualLo, dualLow)
+        swapOrder(dualHi, dualHigh)
+        dualPush(dualHigh + 1, dualHi)
+        dualPush(dualLow + 1, dualHigh - 1)
+        dualPush(dualLo, dualLow - 1)
+        dualStage = 0
+      ELSEIF dualLess(dualScan, dualP) THEN
+        swapOrder(dualScan, dualLow)
+        dualLow = dualLow + 1
+        dualScan = dualScan + 1
+      ELSEIF dualGreater(dualScan, dualQ) THEN
+        dualStage = 3
+      ELSE
+        dualScan = dualScan + 1
+      END IF
+    ELSE
+      ' Pull dualHigh down past elements that already belong above q, then
+      ' swap the scanned element up there.
+      MUT pull AS Boolean = FALSE
+      IF dualScan < dualHigh THEN pull = dualGreater(dualHigh, dualQ)
+      IF pull THEN
+        dualHigh = dualHigh - 1
+      ELSE
+        swapOrder(dualScan, dualHigh)
+        dualHigh = dualHigh - 1
+        IF dualLess(dualScan, dualP) THEN
+          swapOrder(dualScan, dualLow)
+          dualLow = dualLow + 1
+        END IF
+        dualScan = dualScan + 1
+        dualStage = 2
+      END IF
+    END IF
+  LOOP
+END SUB

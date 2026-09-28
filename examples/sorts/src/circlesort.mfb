@@ -1,0 +1,94 @@
+' circlesort - sorts `order` one comparison at a time.
+'
+' Compare the first element of a range with the last, the second with the one
+' before last, and so on inward, swapping any pair that is out of order; then do
+' the same to each half of the range, down to ranges of one. Repeat over the
+' whole list until a round swaps nothing. Nothing is in its final place until
+' then.
+'
+' The halves are kept on a stack of half-open ranges [lo, hi), sized up front.
+
+IMPORT collections
+
+MUT circleStackLo AS List OF Integer = []
+MUT circleStackHi AS List OF Integer = []
+MUT circleTop AS Integer = 0
+MUT circleLo AS Integer = 0         ' the range being swept
+MUT circleHi AS Integer = 0
+MUT circlePair AS Integer = 0       ' the next pair, counting inward from 0
+MUT circleSweeping AS Boolean = FALSE
+MUT circleSwapped AS Boolean = FALSE
+MUT circleFinished AS Boolean = FALSE
+MUT circleCompareCount AS Integer = 0
+
+SUB circlePush(lo AS Integer, hi AS Integer)
+  IF hi - lo < 2 THEN EXIT SUB
+  circleStackLo = collections::set(circleStackLo, circleTop, lo)
+  circleStackHi = collections::set(circleStackHi, circleTop, hi)
+  circleTop = circleTop + 1
+END SUB
+
+SUB circleStart
+  circleStackLo = collections::repeat(circleStackLo, 0, DOT_COUNT + 1)
+  circleStackHi = collections::repeat(circleStackHi, 0, DOT_COUNT + 1)
+  circleTop = 0
+  circleSweeping = FALSE
+  circleSwapped = FALSE
+  circleFinished = DOT_COUNT < 2
+  circleCompareCount = 0
+  circlePush(0, DOT_COUNT)
+END SUB
+
+FUNC circleDone AS Boolean
+  RETURN circleFinished
+END FUNC
+
+FUNC circleCompares AS Integer
+  RETURN circleCompareCount
+END FUNC
+
+' Compare the elements at `a` < `b`, swapping them if out of order.
+SUB circleCompare(a AS Integer, b AS Integer)
+  circleCompareCount = circleCompareCount + 1
+  IF orderAt(a) > orderAt(b) THEN
+    swapOrder(a, b)
+    circleSwapped = TRUE
+  END IF
+END SUB
+
+' Run up to `budget` comparisons.
+SUB circleSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT circleFinished
+    IF circleSweeping THEN
+      LET size AS Integer = circleHi - circleLo
+      LET half AS Integer = size / 2
+      IF circlePair < half THEN
+        circleCompare(circleLo + circlePair, circleHi - 1 - circlePair)
+        circlePair = circlePair + 1
+        left = left - 1
+      ELSE
+        ' An odd range has a middle element; compare it with the one before.
+        IF size MOD 2 = 1 THEN
+          circleCompare(circleLo + half - 1, circleLo + half)
+          left = left - 1
+        END IF
+        circleSweeping = FALSE
+        circlePush(circleLo + half, circleHi)
+        circlePush(circleLo, circleLo + half)
+      END IF
+    ELSEIF circleTop > 0 THEN
+      circleTop = circleTop - 1
+      circleLo = collections::get(circleStackLo, circleTop)
+      circleHi = collections::get(circleStackHi, circleTop)
+      circlePair = 0
+      circleSweeping = TRUE
+    ELSEIF circleSwapped THEN
+      ' The round swapped something; go round again.
+      circleSwapped = FALSE
+      circlePush(0, DOT_COUNT)
+    ELSE
+      circleFinished = TRUE
+    END IF
+  LOOP
+END SUB
