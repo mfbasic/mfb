@@ -1,0 +1,239 @@
+# plan-162-D: letter-spacing, decoration metrics, and caret stops
+
+Last updated: 2026-09-27
+Effort: large (3h–1d)
+Depends on: plan-162-C (prerequisites: see plan-162-A §Prerequisites)
+
+A layout engine built on the canvas needs three things the font list (plan-162-C)
+still lacks:
+- **letter-spacing**: extra space between user-perceived characters;
+- **decoration metrics**: where the font's designer put the underline and the
+  strikeout, and how thick they are, so an engine can draw them with `canvas::Line`;
+- **caret stops**: the x offset of every grapheme boundary, which is all that caret
+  drawing, click-to-index hit-testing and selection highlighting need.
+
+All three come from the same shaped run, so they agree with drawing by construction.
+
+**The single behavioral outcome:**
+- For any text, font list, size and spacing, `canvas::caretStops(...)` returns one
+  stop per grapheme boundary including both ends. Its last `x` equals
+  `measureText(...).width` for the same arguments.
+- Each stop's `x` is where the drawn glyph of the grapheme starting there begins
+  (its pen position).
+
+References:
+
+- plan-162-A (face index versioning), plan-162-B (kerning in `__canvas_shapeRun`), and
+  plan-162-C (the list overload, `Text.fonts`, list metrics).
+- `strings::graphemes` (`src/codegen/builtins/strings/gen_graphemes.rs`). Grapheme
+  segmentation already exists and follows utf8proc's properties
+  (`src/docs/spec/unicode/01_tables-and-algorithms.md`).
+- `mfb man strings`: positions are **zero-based Unicode scalar indices** for
+  `find`/`mid`/`left`/`right`. Caret stop indices use the same unit, so they feed
+  straight into `strings::mid`.
+- OpenType `post` (`underlinePosition`, `underlineThickness`) and `OS/2`
+  (`yStrikeoutSize`, `yStrikeoutPosition`).
+
+## 1. Goal
+
+- `canvas::Text` gains `letterSpacing AS Float` (pixels). Its zero value adds nothing, so
+  every existing item is unchanged.
+- `measureText` (both overloads) gains a trailing `letterSpacing AS Float` parameter with
+  default `0.0`.
+- `canvas::TextMetrics` gains `underlineOffset`, `underlineThickness`,
+  `strikeoutOffset` and `strikeoutThickness` (pixels, with offsets measured downward
+  from the baseline).
+- `canvas::caretStops(font | fonts, size, text, letterSpacing = 0.0) AS List OF canvas::CaretStop`
+  exists, where `CaretStop` is `{index AS Integer, x AS Float}`.
+
+### Non-goals
+
+- No word-spacing, no justification, and no tab stops. A layout engine does those by
+  splitting runs.
+- No drawn decorations. `canvas::Text` gains no underline field. The engine draws a
+  `canvas::Line` from the metrics.
+- No bidirectional caret logic. Stops are in logical order along a left-to-right pen,
+  and RTL is a non-goal of plan-162 (complex scripts, plan-162-C).
+- No change for `letterSpacing = 0.0`: pixels are byte-identical.
+
+## 2. Current State
+
+- `__canvas_shapeRun` returns `(fontIndex, glyphId, advanceUnits)` triples, one per
+  codepoint (bug-756, with kerning from plan-162-B). It has no grapheme information.
+- `canvas::TextMetrics` has 5 fields: width, height, ascent, descent, lineGap
+  (`mfb man canvas types`).
+- The four pen-walking callers (bug-756 blast radius) each add
+  `toFloat(adv) * scale` per glyph.
+- Neither `post` nor `OS/2` is read anywhere:
+  `grep -rn '"post"\|"OS/2"' src/codegen/builtins/canvas/` → no matches (2026-09-27).
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| System fonts missing `post` / `OS/2` strikeout fields | UNMEASURED | Phase 1 probe over `canvas::listSystemFonts()` |
+| `TextMetrics[` literal constructions that name every field | UNMEASURED | Phase 1: `grep -rn "TextMetrics\[" src tests examples` |
+
+## 3. Design Overview
+
+1. **Grapheme-aware shaping.**
+   - `__canvas_shapeRun` gains a **fourth column**, `scalarIndex`: the zero-based scalar
+     index of the codepoint the glyph came from.
+   - It also gains a **fifth column**, `gapAfter` (0 or 1): 1 on the last glyph of each
+     grapheme except the final one.
+   - Graphemes come from `strings::graphemes(text)`, walked alongside the codepoints.
+   - The stride becomes 5. Callers read columns by name-offset constants, so no caller
+     hard-codes positions.
+2. **Spacing in one place.** Each caller's pen step becomes
+   `toFloat(adv) * scale + toFloat(gapAfter) * letterSpacing`. The *decision* of where
+   gaps go stays in `__canvas_shapeRun`. `measureText` adds
+   `gaps × letterSpacing` to its per-font scaled sum.
+3. **Decoration metrics.** Face index v3 appends four words, read at load:
+   - `post.underlinePosition` and `post.underlineThickness`;
+   - `OS/2.yStrikeoutPosition` and `OS/2.yStrikeoutSize`.
+
+   A missing table, or a zero thickness, is stored as the flag value −32768, and the
+   reader substitutes a documented default (Open Decisions). For a list, the metrics come
+   from fonts[0], because a single decoration line needs one position.
+4. **Caret stops.**
+   - Built from the shaped run: one stop at index 0, x 0.0; then one per grapheme
+     start, at the pen position before its first glyph; then a final stop at
+     `(scalarCount, width)`.
+   - `x` is relative to the run start (the `Text`'s `x`), so the program adds its own
+     origin.
+   - Hit-testing is a binary search over `x`. The man page example shows it. No
+     separate `caretAt` member is added (Open Decisions).
+
+**Gate:** additive public API. Correctness comes from rt tests.
+- **Expected to change:** `app-mouse-surface` sentinels.
+- **Must not change:** PNG goldens, since `letterSpacing` defaults to 0.
+
+**Design uncertainty (first):** whether a codepoint walk and `strings::graphemes` agree
+on scalar counts for every input, including unpaired edge cases. The Phase 2 property
+test settles it.
+
+**Correctness risk (last):** the stride change to 5 across the four callers and the
+geometry verify reference.
+
+Rejected alternatives:
+- **Spacing folded into `advanceUnits`.** Rejected: spacing is in pixels, and converting
+  to font units per font loses exactness, which would break the byte-identity of
+  `letterSpacing = 0`.
+- **Spacing after every grapheme including the last.** Rejected as the default. It
+  inflates `width` and leaves a trailing gap in centred text (Open Decisions).
+- **`canvas::caretAt(stops, x)`.** Rejected for now: it is a four-line binary search
+  over a public list, better shown in the example than added as a member.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go** (rules as in plan-162-A).
+
+### Phase 1 — measure
+
+- [ ] `/tmp` probe: per system face, record whether `post` and `OS/2` exist, the
+      `OS/2` version, and whether the thickness fields are zero. Record the counts.
+- [ ] Census of `TextMetrics[` literals, since new fields are additive and named
+      construction keeps them compiling. Record the count with its command.
+
+Acceptance: §2 rows are measured.
+  Check: `grep -c UNMEASURED planning/plan-162-D-spacing-decoration-carets.md` → 0
+  outside this list (est. 1 min).
+Commit: —
+
+### Phase 2 — the five-column run
+
+- [ ] `helper_font.rs:__canvas_shapeRun`: add the `scalarIndex` and `gapAfter` columns
+      from `strings::graphemes`, and define the `__CANVAS_RUN_*` column constants and
+      the stride.
+- [ ] Migrate the four callers to the constants. There is no spacing yet, so
+      `gapAfter` is ignored.
+- [ ] Tests: a property test over strings mixing combining marks, ZWJ emoji sequences,
+      CRLF and flags. The number of glyphs with `gapAfter = 1` must be
+      `graphemesCount(s) − 1`, and `scalarIndex` must be non-decreasing and end at
+      `len(toScalars(s)) − 1`.
+
+Acceptance: identical pixels, and the property test passes.
+  Check: `cargo test --test rt_canvas_font shape_run --test rt_canvas_golden` → pass and
+  `git status --short tests/golden/canvas` → empty (est. 5 min).
+Commit: —
+
+### Phase 3 — letter-spacing
+
+- [ ] `mod.rs`: add a `Text.letterSpacing` field, described in pixels, applied between
+      characters, and not after the last one.
+- [ ] `func_measure_text.rs`: add a defaulted `letterSpacing` parameter to both
+      implementations.
+- [ ] The callers' pen steps and the `Text` hash arm fold in `letterSpacing`.
+      Forgetting the hash is the geometry-cache stale-glyph trap, so a test changes
+      only the spacing between two presents.
+- [ ] Tests: the width grows by `(graphemes − 1) × spacing`, the drawn second-grapheme
+      column moves by `spacing`, negative spacing works, and a spacing-only change
+      re-renders.
+
+Acceptance: measured and drawn spacing agree.
+  Check: `cargo test --test rt_canvas_font spacing` → pass (est. 3 min).
+Commit: —
+
+### Phase 4 — decoration metrics
+
+- [ ] Face index v3: four words (plan-162-A §4.1 versioning).
+- [ ] `TextMetrics`: four new fields in `mod.rs`, computed in the `measureText` body
+      from fonts[0], with defaults per Open Decisions when flagged.
+- [ ] Tests: a fixture with `post`/`OS/2` values gives exact pixels, and a fixture with
+      neither gives the documented defaults.
+
+Acceptance: metrics match the fixture tables.
+  Check: `cargo test --test rt_canvas_font decoration` → pass (est. 3 min).
+Commit: —
+
+### Phase 5 — caret stops, docs
+
+- [ ] New `func_caret_stops.rs`: `CaretStop` record, and two implementations (a single
+      font, and a list), sharing one MFBASIC body over `__canvas_shapeRun`.
+- [ ] Tests:
+  - the last stop's `x` equals `measureText(...).width` for 50 generated strings,
+    including kerned pairs and spacing;
+  - stop indices equal the grapheme start scalar indices;
+  - the empty string gives one stop `(0, 0.0)`;
+  - a closed font raises `ErrResourceClosed`.
+- [ ] Man pages: `caretStops` (with a hit-test example and a caret-drawing example),
+      `measureText` (`letterSpacing`), the `Text` page (`letterSpacing`), and the
+      `TextMetrics` fields (an underline example using `canvas::Line`). Check with
+      `scripts/man-run-examples.sh canvas --run` and
+      `scripts/man-census.sh --memory-scope` → 0 unclassified.
+- [ ] Spec `06_canvas.md`: the run columns, where gaps go, and the caret stop contract.
+
+Acceptance: caret stops agree with measuring and drawing.
+  Check: `cargo test --test rt_canvas_font caret --test cli_canvas_man_examples_compile`
+  → pass (est. 4 min).
+Commit: —
+
+## Validation Plan
+
+- Tests: as listed, including negative spacing, the empty string and closed fonts.
+- Runtime proof: a `/tmp` text-field demo that draws a caret at the clicked position
+  using `canvas::pollMouse` and `caretStops`, and underlines the text with
+  `canvas::Line` from the metrics. Take a screenshot.
+- Doc sync: man and spec, as above.
+- Final gate: `cargo test` (full) and `scripts/artifact-gate.sh` (est. 35 min).
+
+## Open Decisions
+
+- Where spacing goes: between graphemes only (recommended, so `width` and centring stay
+  honest) vs. after every grapheme, the CSS behavior (easy to add later as a sign
+  convention).
+- Default decoration metrics when a table is missing: underline at 0.1 em below the
+  baseline and 0.05 em thick; strikeout 0.3 em above the baseline with the underline's
+  thickness (recommended, measured against the probe's median real-font values before
+  locking) vs. reporting 0.0 (forces every engine to invent its own).
+- A `caretAt` convenience member: none (recommended) vs. add one.
+
+## Corrections
+
+(empty)
+
+## Summary
+
+Every feature here is a projection of the one shaped run. The risk is the stride
+change across the four callers and remembering to hash `letterSpacing`, not the
+features themselves.
