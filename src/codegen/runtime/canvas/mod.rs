@@ -378,8 +378,44 @@ pub(crate) const GRAPHICS_OFFSET_FRAME_COND: usize = GRAPHICS_OFFSET_LAST_RENDER
 /// When `canvas::waitFrame` last returned, in the `CLOCK_REALTIME` nanoseconds its timed
 /// wait is expressed in. Written and read only by `waitFrame`, under the mutex.
 pub(crate) const GRAPHICS_OFFSET_LAST_WAIT: usize = GRAPHICS_OFFSET_FRAME_COND + 48;
+/// bug-688 V6: the Vulkan swapchain present path (`vulkan_present.rs`), **graphics
+/// thread only** — the one thread that renders, so no lock.
+///
+/// * `WSI` — 0 no window-system integration; 1 the instance took `VK_KHR_surface` +
+///   `VK_KHR_win32_surface` and the device `VK_KHR_swapchain`. Set once, at build.
+/// * `SURFACE` / `SURFACE_HWND` — the surface and the window it was made on; a new
+///   window handle (canvas mode left and re-entered) rebuilds both.
+/// * `SWAPCHAIN`, `SC_W`/`SC_H`, `SC_COUNT`, `SC_STALE` (recreate before the next
+///   acquire: out of date, suboptimal, or a size change), `SC_FAILED` (the device or
+///   surface can never present — every frame takes the readback path).
+/// * `PRESENT_PASS` — the render pass whose final layout is `PRESENT_SRC_KHR`; the
+///   offscreen pass's pipelines are compatible with it (same single attachment format).
+/// * `SEM_ACQUIRE` / `SEM_RENDER` — acquire -> submit -> present ordering.
+/// * `SC_IMAGES` / `SC_VIEWS` / `SC_FRAMEBUFFERS` — [`VULKAN_MAX_SWAPCHAIN_IMAGES`] each.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_WSI: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SURFACE: usize = GRAPHICS_OFFSET_VULKAN_WSI + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SURFACE_HWND: usize = GRAPHICS_OFFSET_VULKAN_SURFACE + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SWAPCHAIN: usize = GRAPHICS_OFFSET_VULKAN_SURFACE_HWND + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_W: usize = GRAPHICS_OFFSET_VULKAN_SWAPCHAIN + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_H: usize = GRAPHICS_OFFSET_VULKAN_SC_W + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_COUNT: usize = GRAPHICS_OFFSET_VULKAN_SC_H + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_STALE: usize = GRAPHICS_OFFSET_VULKAN_SC_COUNT + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FAILED: usize = GRAPHICS_OFFSET_VULKAN_SC_STALE + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PRESENT_PASS: usize = GRAPHICS_OFFSET_VULKAN_SC_FAILED + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SEM_ACQUIRE: usize =
+    GRAPHICS_OFFSET_VULKAN_PRESENT_PASS + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SEM_RENDER: usize = GRAPHICS_OFFSET_VULKAN_SEM_ACQUIRE + 8;
+/// The most swapchain images the present path tracks; a surface asking for more is
+/// given this many (`minImageCount + 1`, capped).
+pub(crate) const VULKAN_MAX_SWAPCHAIN_IMAGES: usize = 4;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_IMAGES: usize = GRAPHICS_OFFSET_VULKAN_SEM_RENDER + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_VIEWS: usize =
+    GRAPHICS_OFFSET_VULKAN_SC_IMAGES + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
+    GRAPHICS_OFFSET_VULKAN_SC_VIEWS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_LAST_WAIT + 8;
+pub(crate) const GRAPHICS_STATE_SIZE: usize =
+    GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -3014,10 +3050,26 @@ pub(crate) fn emit_publish_surface_size(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    emit_publish_surface_size_tagged(symbol, "", base, width, height, instructions, relocations);
+}
+
+/// [`emit_publish_surface_size`] for a function that publishes from more than one
+/// site: `tag` keeps each site's labels distinct (bug-688 V6, the Windows window
+/// procedure publishes from `WM_SIZE` and from the canvas reconcile).
+pub(crate) fn emit_publish_surface_size_tagged(
+    symbol: &str,
+    tag: &str,
+    base: impl Into<abi::Reg>,
+    width: impl Into<abi::Reg>,
+    height: impl Into<abi::Reg>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
     let base: abi::Reg = base.into();
     let height: abi::Reg = height.into();
     let width: abi::Reg = width.into();
-    let unchanged = format!("{symbol}_resize_same");
+    let unchanged = format!("{symbol}{tag}_resize_same");
+    let changed = format!("{symbol}{tag}_resize_changed");
     state_base(symbol, base, instructions, relocations);
     // Count the resize only when the size actually changed. Every platform re-publishes
     // on events that are not resizes — AppKit sends `setFrameSize:` with the size it
@@ -3029,11 +3081,11 @@ pub(crate) fn emit_publish_surface_size(
     // platform resize callback, where the register budget is whatever the caller had.
     instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
-    instructions.push(abi::branch_ne(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::branch_ne(&changed));
     instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
     instructions.push(abi::branch_eq(&unchanged));
-    instructions.push(abi::label(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::label(&changed));
     instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_RESIZES));
     instructions.push(abi::add_immediate(SCRATCH_RESIZE, SCRATCH_RESIZE, 1));
     instructions.push(abi::store_u64(
