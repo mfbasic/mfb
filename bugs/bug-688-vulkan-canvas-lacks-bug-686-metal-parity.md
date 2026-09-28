@@ -63,6 +63,26 @@ iGPU is the first suspect) and ~47 ms is per-item upload plus the fixed frame co
 blit, which a swapchain removes) and GPU shading (which it does not). Next step: time the
 readback section, then decide the swapchain per the Fix Design.
 
+**V6 split (2026-09-27, box 206, 95-item scene, debug build, headless).** Throwaway compiler
+builds with pieces removed (not committed), render ms/frame:
+
+| build | 1920x1080 | 900x640 |
+|---|---|---|
+| normal (readback path) | 38.2 | 13.2 |
+| no CPU swizzle | 35.0 | |
+| no swizzle, no `vkCmdCopyImageToBuffer` | 32.7 | |
+| ... and no `canvas::blitSurface` | 25.7 | |
+| ... and no `vkQueueSubmit` (no GPU at all) | 23.3 | 7.9 |
+
+So at 1080p the GPU itself is ~2.4 ms. The rest is CPU work the readback path does
+per pixel: copy + swizzle ~5.5 ms, the Windows blit ~7 ms, and ~10 ns/pixel of surface
+work (`canvas::newSurface` allocating and zeroing the frame is the largest share); the
+fixed recording/upload cost is ~2 ms. A directly presented frame skips the surface, the
+copy, the swizzle and the blit — the bug-686 Phase 4 finding on Metal, repeated here —
+so by these numbers it lands near 5 ms at 1080p against the readback path's 38 ms, which
+is over the 16.6 ms budget on its own. **Decision (per the Fix Design): build the
+swapchain present.**
+
 **Noted, not reproduced:** one `pics 2000` run took 2.6 s/frame; two reruns gave 55 ms.
 
 ### Earlier status: V1-V4 FIXED, V5/V6 BLOCKED
