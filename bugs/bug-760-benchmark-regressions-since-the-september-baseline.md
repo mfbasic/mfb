@@ -26,7 +26,7 @@ Bisection splits the regressions into four independent causes:
 | **B1** | `map (Fixed/Dynamic/key-Fixed/key-Dynamic) removeKey` 7–11×; `set (Fixed/Dynamic) remove` 7–11×; `map intchurn` 1.6×; `mapchurn churn` 1.3× | `54db20195` bug-732 finding 2 |
 | **B2** | `map listagg` 0.979 → 1.878 (1.9×) | `8e260af26` bug-733 reclaim before grow |
 | **C** | `float nbody` 19.5 → 146.4 (7.5×; 5.6× at -O3); `math fixed` 29.3 → 55.7 (1.9×) and a whole-program eviction signature | `8b36c06e3` and `d34fdae20` (plan-161-B, committed as "plan-158-B") |
-| **D** | -O1-only: `list * sort*` 2–3.7×, `list (Dynamic) find` 3.3×, `width ascii` 3.4×, `width mixed` 2.7×; `string unicode/unibig` ~2× (-O1 and -O2) | `d34fdae20` (+ `8b36c06e3` for sort) — C's mechanism; unicode/unibig not yet bisected |
+| **D** | -O1-dominant: `list * sort*` 2–3.7×, `list (Dynamic) find` 3.3×, `width ascii` 3.4×, `width mixed` 2.7×; `string unicode/unibig` ~2× at -O1 and -O2 | `d34fdae20` (+ `8b36c06e3` for sort, unicode) — C's mechanism |
 
 **The single correct behavior a fix produces:** every row above returns to within
 1.25× of its 2026-09-03 `min` on comparable hardware (or better), with identical
@@ -288,7 +288,7 @@ long-lived values phase 1/2 place in caller-saved registers under high pressure.
 
 ---
 
-## Sub-issue D — -O1-only list `sort*` / `find` and `width` regressions
+## Sub-issue D — -O1-dominant list `sort*` / `find` and `width` regressions
 
 **Same mechanism as C** (the same two commits), surfacing in built-ins expanded inline
 into the caller. Tracked separately because its acceptance rows and the -O2 contrast
@@ -336,10 +336,19 @@ the promoted ranges (10 copies left for coalescing at -O2 vs 551 at -O1). -O1 ru
 neither. That this explains the -O2 recovery at `d34fdae20` but not the -O2 sort loss
 at `8b36c06e3` is inferred, not proven pass-by-pass — confirm in Phase 1.
 
-**Unresolved:** `string unicode` / `string unibig` regress ~2× at **both** -O1 and -O2
-(and improve at -O3), so at least part has a different cause. Not bisected. Phase 1
-bisects them (probe: the two rows of `benchmark/mfb/src/string.mfb` standalone); if a
-distinct cause, it becomes sub-issue E here.
+**`string unicode` / `string unibig` (~2× at -O1 and -O2): same cause.** Bisected at
+-O2 (probe: the two `benchmark/mfb/src/string.mfb` bodies standalone; unicode 17.3 →
+42.9 ms at -O2): first bad `8b36c06e3`, second step `d34fdae20`, nothing else. The
+"at -O1 only" in `8b36c06e3`'s subject is misleading — its gate
+`level_enabled(1)` (`src/optimizer/mod.rs`) is `row_level <= active_opt_level()`, so
+it is on at every level ≥ 1. The loss is in the inline straight-line table lookups of
+`src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out` and the grapheme/property
+lookups (`normalizeNfc` ×3.7, `graphemes*` ×1.5–1.8 per op; `toBytes`/`caseFold`
+unchanged): eviction pairs 0 → 669 → 721 across `49f619092` → `8b36c06e3` →
+`d34fdae20`. The benchmark's -O3 improvement on these rows is **not** reproduced by
+the standalone probe (it shows -O3 ×1.2–1.6 slower); unexplained — re-measure after
+the C fix. `_mfb_arena_alloc` itself carries 16 eviction pairs at -O2, so rows that
+allocate heavily likely pay a share too (unmeasured).
 
 ### Blast radius
 
@@ -393,7 +402,7 @@ lengthens a spilled interval. Fix or prove (with a hot-loop-in-many-locals test)
       the `49f619092` count. RED at HEAD.
 - [ ] D: codegen test that an inline `collections::sort` merge loop in a many-locals
       function at -O1 has no eviction brackets (RED at HEAD); bisect `string unicode`/
-      `unibig` and classify.
+      `unibig` — done: same cause (see D).
 - [ ] Complete every "unverified / audit in Phase 1" blast-radius item above with a
       verdict.
 
