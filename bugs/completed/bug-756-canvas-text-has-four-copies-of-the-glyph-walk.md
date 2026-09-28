@@ -452,7 +452,7 @@ Commit: a2e3c2bab
 
 Acceptance: full suite green, PNG goldens byte-identical, the sentinel diff confined to
 the canvas text helpers, and the real-font frames byte-identical.
-Commit: PHASE3
+Commit: e1c1fdaf1
 
 ## Validation Plan
 
@@ -495,7 +495,7 @@ Phase 1's guards are the real work. Left for later plans: the parse-once font ca
 the public font-list API (`measureText` overload and the `Text` font list), `cmap`
 subtable lookup cost, and the hash key. Every pixel is unchanged.
 
-## STATUS: FIXED (a2e3c2bab; font table 690cbfcab; sentinel PHASE3)
+## STATUS: FIXED (a2e3c2bab; font table 690cbfcab; sentinel e1c1fdaf1)
 
 Deviations from the plan above, each on purpose:
 
