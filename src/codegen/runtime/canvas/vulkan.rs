@@ -1444,7 +1444,7 @@ fn emit_vulkan_descriptors(
         off_type_index,
         off_type_bits,
         off_out,
-        MEMORY_HOST_VISIBLE_COHERENT,
+        &[MEMORY_HOST_VISIBLE_COHERENT],
         GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
         "vkBindBufferMemory",
         GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
@@ -1577,7 +1577,7 @@ fn emit_vulkan_descriptors(
         off_type_index,
         off_type_bits,
         off_out,
-        MEMORY_HOST_VISIBLE_COHERENT,
+        &[MEMORY_HOST_VISIBLE_COHERENT],
         GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
         "vkBindBufferMemory",
         GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
@@ -2466,6 +2466,16 @@ const BUFFER_USAGE_TRANSFER_DST: &str = "2";
 /// needs no explicit invalidate before the CPU reads it.
 const MEMORY_DEVICE_LOCAL: &str = "1";
 const MEMORY_HOST_VISIBLE_COHERENT: &str = "6";
+/// `HOST_VISIBLE | HOST_COHERENT | HOST_CACHED` — the readback buffer's first
+/// choice (bug-688 V5). The CPU reads every pixel back each frame; on an integrated
+/// GPU the first coherent type is write-combined, which makes those reads uncached:
+/// ~200 ms a frame for a 900x640 surface on an Intel UHD 630 (box 206), against a
+/// cached type the same driver also offers. Coherent, so no invalidate is needed.
+const MEMORY_HOST_READBACK_CACHED: &str = "14";
+/// The readback buffer's memory-type candidates, in preference order: cached if the
+/// device has it, else the plain coherent type every Vulkan device must offer.
+const READBACK_MEMORY_CANDIDATES: [&str; 2] =
+    [MEMORY_HOST_READBACK_CACHED, MEMORY_HOST_VISIBLE_COHERENT];
 /// `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` — the one buffer is re-recorded
 /// every frame.
 const POOL_RESET_COMMAND_BUFFER: &str = "2";
@@ -2706,7 +2716,7 @@ fn emit_vulkan_target(
         off_type_index,
         off_type_bits,
         off_out,
-        MEMORY_DEVICE_LOCAL,
+        &[MEMORY_DEVICE_LOCAL],
         GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
         "vkBindImageMemory",
         GRAPHICS_OFFSET_VULKAN_IMAGE,
@@ -2883,7 +2893,8 @@ fn emit_vulkan_target(
         off_type_index,
         off_type_bits,
         off_out,
-        MEMORY_HOST_VISIBLE_COHERENT,
+        // bug-688 V5: CPU-read every frame, so cached if the device offers it.
+        &READBACK_MEMORY_CANDIDATES,
         GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
         "vkBindBufferMemory",
         GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
@@ -3152,7 +3163,7 @@ fn emit_allocate_and_bind(
     off_type_index: usize,
     off_type_bits: usize,
     off_out: usize,
-    required: &str,
+    required: &[&str],
     memory_slot: usize,
     bind_name: &str,
     object_slot: usize,
@@ -3267,11 +3278,9 @@ fn emit_pick_memory_type(
     off_properties: usize,
     off_index: usize,
     off_type_bits: usize,
-    required: &str,
+    required: &[&str],
     unavailable: &str,
 ) -> Result<(), String> {
-    let head = builder.label("vk_memtype_head");
-    let next = builder.label("vk_memtype_next");
     let found = builder.label("vk_memtype_found");
 
     emit_dlsym(
@@ -3296,6 +3305,47 @@ fn emit_pick_memory_type(
     ));
     emit_call_fn(builder, off_fn);
 
+    // bug-688 V5: candidates are tried in order, each a full scan of the device's
+    // memory types; the first candidate any allowed type satisfies wins. A caller
+    // that wants a faster type when the device has one (the readback buffer asks
+    // for HOST_CACHED first) lists it ahead of its minimum.
+    for (i, flags) in required.iter().enumerate() {
+        let not_found = if i + 1 == required.len() {
+            unavailable.to_string()
+        } else {
+            builder.label("vk_memtype_fallback")
+        };
+        emit_memtype_scan(
+            builder,
+            off_properties,
+            off_index,
+            off_type_bits,
+            flags,
+            &found,
+            &not_found,
+        );
+        if i + 1 != required.len() {
+            builder.emit(abi::label(&not_found));
+        }
+    }
+    builder.emit(abi::label(&found));
+    Ok(())
+}
+
+/// One pass over the device's memory types for [`emit_pick_memory_type`]: branch to
+/// `found` with the matching index in `off_index`, or to `not_found` when no type
+/// allowed by `off_type_bits` has every property in `required`.
+fn emit_memtype_scan(
+    builder: &mut CodeBuilder,
+    off_properties: usize,
+    off_index: usize,
+    off_type_bits: usize,
+    required: &str,
+    found: &str,
+    not_found: &str,
+) {
+    let head = builder.label("vk_memtype_head");
+    let next = builder.label("vk_memtype_next");
     builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
     builder.emit(abi::store_u64(
         abi::SCRATCH[5],
@@ -3315,7 +3365,7 @@ fn emit_pick_memory_type(
         off_properties + MEMORY_PROPERTIES_TYPE_COUNT,
     ));
     builder.emit(abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[6]));
-    builder.emit(abi::branch_ge(unavailable));
+    builder.emit(abi::branch_ge(not_found));
 
     // Is this index in the requirements' mask?
     builder.emit(abi::load_u32(
@@ -3366,7 +3416,7 @@ fn emit_pick_memory_type(
         abi::SCRATCH[7],
     ));
     builder.emit(abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[7]));
-    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::branch_eq(found));
 
     builder.emit(abi::label(&next));
     builder.emit(abi::load_u64(
@@ -3381,9 +3431,6 @@ fn emit_pick_memory_type(
         off_index,
     ));
     builder.emit(abi::branch(&head));
-
-    builder.emit(abi::label(&found));
-    Ok(())
 }
 
 /// `VkCommandBufferBeginInfo`, 32 bytes.
@@ -7420,6 +7467,38 @@ mod tests {
         GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE,
     };
     use crate::codegen::runtime::canvas::{VULKAN_EDGE_BYTES, VULKAN_EDGE_RESIDUAL_BYTES};
+
+    /// bug-688 V5: the readback buffer is read by the CPU every frame, so it asks for
+    /// a `HOST_CACHED` type first and only then the plain coherent one. On box 206's
+    /// Intel UHD 630 the first coherent type is write-combined (uncached reads) and
+    /// took ~200 ms a frame to read back; the cached type the same driver offers cut
+    /// the 95-item frame's render phase to ~13 ms.
+    #[test]
+    fn the_readback_buffer_prefers_cached_memory() {
+        let flags: Vec<u32> = READBACK_MEMORY_CANDIDATES
+            .iter()
+            .map(|f| f.parse().expect("numeric flags"))
+            .collect();
+        const HOST_VISIBLE: u32 = 0x2;
+        const HOST_COHERENT: u32 = 0x4;
+        const HOST_CACHED: u32 = 0x8;
+        assert_eq!(
+            flags[0],
+            HOST_VISIBLE | HOST_COHERENT | HOST_CACHED,
+            "the first candidate must be the cached, coherent, host-visible type"
+        );
+        assert_eq!(
+            *flags.last().unwrap(),
+            HOST_VISIBLE | HOST_COHERENT,
+            "the last candidate must be the coherent type every device offers"
+        );
+        assert!(
+            flags
+                .iter()
+                .all(|f| f & (HOST_VISIBLE | HOST_COHERENT) == HOST_VISIBLE | HOST_COHERENT),
+            "every candidate must stay coherent: the copy is read with no invalidate"
+        );
+    }
 
     /// The embedded SPIR-V is well-formed.
     ///

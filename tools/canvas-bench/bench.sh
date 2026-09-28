@@ -4,6 +4,7 @@
 #
 # Usage: bench.sh <mfb> [--target linux-aarch64|linux-x86_64 --box <ssh-port>
 #                        [--libc glibc|musl]] <subcommand> [args...]
+#        bench.sh <mfb> --target windows-x86_64 --host <user@host> <subcommand> [args...]
 #
 # Subcommands:
 #   sweep [--release]
@@ -30,7 +31,14 @@
 # `bench.sh <mfb> --target linux-aarch64 --box 2226 poly 1000` and
 # `bench.sh <mfb> poly --target linux-aarch64 --box 2226 1000` work.
 #
-# WARNING: the Vulkan boxes reachable from here run Mesa's lavapipe (a CPU
+# With --target windows-x86_64 --host <user@host> (bug-688 V5), the scenes
+# build as a Windows .exe and run headless (MFB_WINAPP_HEADLESS=1) on that
+# host over key-auth ssh, through a CRLF .bat that sets the env vars (cmd's
+# `set X=1 && prog` is unreliable over ssh); stats/dump files are copied back
+# the same way. Box 206 (192.168.1.206) is a REAL GPU (Intel UHD 630), so its
+# fps numbers are GPU numbers.
+#
+# WARNING: the Linux Vulkan boxes reachable from here run Mesa's lavapipe (a CPU
 # rasteriser), not a GPU. The renderer/correctness columns (Vulkan vs.
 # software, pixel-compare) are meaningful; the fps numbers are not -- they
 # measure a CPU rasteriser's throughput, not a GPU's.
@@ -52,6 +60,7 @@ CMP="$HERE/cmp.py"
 # against (box 2226) under /usr/share/fonts/truetype/liberation2/ -- a
 # metric-compatible Arial substitute, no font needs shipping.
 LINUX_FONT="/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
+WIN_FONT='C:\Windows\Fonts\arial.ttf'
 
 usage() {
   sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -68,6 +77,7 @@ LINUX_BOX=""
 LINUX_LIBC="glibc"
 REMOTE_HOST="test@127.0.0.1"
 REMOTE_BASE=""
+WIN_HOST=""
 
 ARGV=()
 while [ $# -gt 0 ]; do
@@ -75,6 +85,7 @@ while [ $# -gt 0 ]; do
     --target) LINUX_TARGET=${2:?"--target needs linux-aarch64|linux-x86_64"}; shift 2 ;;
     --box) LINUX_BOX=${2:?"--box needs an ssh port"}; shift 2 ;;
     --libc) LINUX_LIBC=${2:?"--libc needs glibc|musl"}; shift 2 ;;
+    --host) WIN_HOST=${2:?"--host needs user@host"}; shift 2 ;;
     *) ARGV+=("$1"); shift ;;
   esac
 done
@@ -84,13 +95,27 @@ set -- "${ARGV[@]+"${ARGV[@]}"}"
 MFB=$1; shift
 CMD=$1; shift
 
-if [ -n "$LINUX_TARGET" ] || [ -n "$LINUX_BOX" ]; then
+# WIN=1: --target windows-x86_64 --host <user@host>. It rides the Linux-mode
+# code paths ($LINUX_TARGET set), with the remote helpers below branching on it.
+WIN=0
+if [ "$LINUX_TARGET" = "windows-x86_64" ]; then
+  WIN=1
+  [ -n "$WIN_HOST" ] || { echo "canvas-bench: --target windows-x86_64 requires --host <user@host>" >&2; exit 1; }
+  LINUX_FONT="$WIN_FONT"
+elif [ -n "$LINUX_TARGET" ] || [ -n "$LINUX_BOX" ]; then
   [ -n "$LINUX_TARGET" ] || { echo "canvas-bench: --box requires --target linux-aarch64|linux-x86_64" >&2; exit 1; }
   [ -n "$LINUX_BOX" ] || { echo "canvas-bench: --target requires --box <ssh-port>" >&2; exit 1; }
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/canvas-bench.XXXXXX")
-if [ -n "$LINUX_TARGET" ]; then
+if [ "$WIN" = 1 ]; then
+  # Relative to the Windows user's home (scp and a fresh ssh both start there).
+  REMOTE_BASE="canvas-bench-$(basename "$WORK" | tr -c 'A-Za-z0-9\n' '_')"
+  cleanup() {
+    rm -rf "$WORK"
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$WIN_HOST" "rmdir /s /q $REMOTE_BASE" </dev/null >/dev/null 2>&1 || true
+  }
+elif [ -n "$LINUX_TARGET" ]; then
   REMOTE_BASE="/tmp/canvas-bench-$(basename "$WORK")"
   cleanup() {
     rm -rf "$WORK"
@@ -110,11 +135,24 @@ die() { echo "canvas-bench: $*" >&2; exit 1; }
 # ssh_box CMD -- run CMD on the box; </dev/null so a caller inside a `while
 # read`/`until` loop never has its stdin swallowed by ssh.
 ssh_box() {
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$LINUX_BOX" "$REMOTE_HOST" "$1" </dev/null
+  if [ "$WIN" = 1 ]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$WIN_HOST" "$1" </dev/null
+  else
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$LINUX_BOX" "$REMOTE_HOST" "$1" </dev/null
+  fi
 }
 
-scp_to_box() { scp -P "$LINUX_BOX" -o BatchMode=yes -o ConnectTimeout=10 -q "$1" "$REMOTE_HOST:$2"; }
-scp_from_box() { scp -P "$LINUX_BOX" -o BatchMode=yes -o ConnectTimeout=10 -q "$REMOTE_HOST:$1" "$2"; }
+scp_to_box() {
+  if [ "$WIN" = 1 ]; then scp -o BatchMode=yes -o ConnectTimeout=10 -q "$1" "$WIN_HOST:$2"
+  else scp -P "$LINUX_BOX" -o BatchMode=yes -o ConnectTimeout=10 -q "$1" "$REMOTE_HOST:$2"; fi
+}
+scp_from_box() {
+  if [ "$WIN" = 1 ]; then scp -o BatchMode=yes -o ConnectTimeout=10 -q "$WIN_HOST:$1" "$2"
+  else scp -P "$LINUX_BOX" -o BatchMode=yes -o ConnectTimeout=10 -q "$REMOTE_HOST:$1" "$2"; fi
+}
+
+# win_path REL -- a home-relative forward-slash path as a cmd.exe path.
+win_path() { echo "%USERPROFILE%\\$(echo "$1" | tr '/' '\\')"; }
 
 # project_name DIR -- the "name" field out of a gen/*.sh project.json (the
 # AppImage and its extracted binary are named after it).
@@ -132,6 +170,14 @@ ship_app() {
   [ -f "$marker" ] && return 0
   local rname; rname=$(basename "$dir")
   local rdir="$REMOTE_BASE/$rname"
+  if [ "$WIN" = 1 ]; then
+    local exe="$dir/build/${name}.exe"
+    [ -f "$exe" ] || die "windows build missing artifact: $exe"
+    ssh_box "mkdir $(win_path "$rdir")" >/dev/null 2>&1 || true
+    scp_to_box "$exe" "$rdir/$name.exe"
+    echo "$rdir" > "$marker"
+    return 0
+  fi
   local appimg="$dir/build/${name}-${LINUX_LIBC}.AppImage"
   [ -f "$appimg" ] || die "linux build missing artifact: $appimg"
   ssh_box "mkdir -p '$rdir'"
@@ -175,6 +221,33 @@ linux_run() {
       *) remote_envs+=("$a") ;;
     esac
   done
+  if [ "$WIN" = 1 ]; then
+    # A CRLF .bat sets the env vars (paths remapped to the remote dir, in cmd
+    # form) and runs the exe; the program ends itself (every gen/ scene is
+    # time-boxed), so no external timeout is needed.
+    local bat="$dir/run.bat" e i
+    {
+      printf 'cd /d %s\r\n' "$(win_path "$rdir")"
+      printf 'set MFB_WINAPP_HEADLESS=1\r\n'
+      for e in ${remote_envs[@]+"${remote_envs[@]}"}; do
+        local ek=${e%%=*} ev=${e#*=}
+        case "$ev" in "$rdir"/*) ev=$(win_path "$ev") ;; esac
+        printf 'set %s=%s\r\n' "$ek" "$ev"
+      done
+      printf '%s.exe\r\n' "$name"
+    } > "$bat"
+    scp_to_box "$bat" "$rdir/run.bat"
+    local wcmd; wcmd="$(win_path "$rdir")\\run.bat"
+    if [ -n "$outfile" ]; then
+      ssh_box "$wcmd" >"$outfile" 2>&1 || true
+    else
+      ssh_box "$wcmd" >/dev/null 2>&1 || true
+    fi
+    for ((i = 0; i < ${#fetch_remote[@]}; i++)); do
+      scp_from_box "${fetch_remote[$i]}" "${fetch_local[$i]}" 2>/dev/null || true
+    done
+    return 0
+  fi
   local remote_cmd="cd '$rdir' && timeout 120 env MFB_GTKAPP_HEADLESS=1 ${remote_envs[*]+"${remote_envs[*]}"} ./squashfs-root/usr/bin/$name"
   if [ -n "$outfile" ]; then
     ssh_box "$remote_cmd" >"$outfile" 2>&1
