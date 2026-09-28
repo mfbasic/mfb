@@ -5,10 +5,71 @@ Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
-Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 and the 10k-quad shader cost OPEN
-Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes
+Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 FIXED on Windows (swapchain present), Linux present BLOCKED (no real-GPU Linux box); the 10k-quad shader cost OPEN
+Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes; V6: `present_layout_tables_are_self_consistent`, `the_present_path_is_windows_only_and_fully_named`, `the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others`, and the real-window run on box 206 with `tools/win-screen-capture` (manual: needs the interactive session)
 
-## STATUS (2026-09-27): V1-V4 FIXED; V5 measured on a real GPU, two fixes landed; V6 open
+## STATUS (2026-09-27): V1-V4 FIXED; V5 measured, two fixes landed; V6 FIXED on Windows
+
+**V6 — FIXED on Windows: a windowed Vulkan frame presents through a swapchain.**
+`canvas::vulkanPresentScene` (`src/codegen/runtime/canvas/vulkan_present.rs`) records the
+frame into an acquired swapchain image and presents it (FIFO); `__canvas_renderVulkan`
+takes it under Metal's conditions (no damage mode, no dump) and falls back to the readback
+path whenever it answers FALSE — headless, no WSI extensions, a surface that is not the
+canvas size, no image within 100 ms, every non-Windows target. `directFrames=` counts it.
+Spec: `mfb spec` app/06_canvas "On Windows a Vulkan frame in a real window goes to a
+swapchain".
+
+Measured on box 206 (debug build, 95 × 8-pt moving, fullscreen 1360×768 — the console
+session's resolution, so 1080p is not reachable there; `MFB_CANVAS_STATS` over 10 s):
+
+| path | GPU frames / 10 s | fps |
+|---|---|---|
+| readback (every frame declined to readback) | 441 | 44.1 |
+| swapchain present | 590 (all direct) | 59.0 — the display's 59 Hz, FIFO-capped |
+
+Pixels: a Desktop Duplication capture of the direct frame and of the readback frame have
+identical colour histograms (`(0,0,0)` 1,025,080 / `(0,162,207)` 14,820 / `(0,105,135)`
+760 …).
+
+Three things the implementation had to get right, each found on the real box:
+- **The swapchain presents to a child window, not the canvas window.** With it on the
+  top-level window, `app::setMode(Console)` left the last canvas frame over the transcript
+  (Desktop Duplication capture). The graphics thread owns the Vulkan objects and nothing
+  wakes it on a mode change, so the fix is a hidden `STATIC` child the UI thread shows on
+  `WM_APP_CANVAS_SHOW` (posted after each direct present, honoured only in canvas mode)
+  and hides on a readback frame's `WM_APP_BLIT` and on every reconcile out of canvas mode.
+- **Entering canvas mode now publishes the client size** (pre-existing Windows bug). The
+  canvas stayed at its 900×640 default in the default 400×300 window (client 384×261)
+  until something resized the window: those frames were clipped, and could never present
+  directly because the surface was not the canvas size.
+- **The surface-format search built its array address with `add_registers(sp, …)`**, which
+  reads register 31 as zero, and so declined every frame (`exit=40` from a throwaway probe
+  build). The base goes through `add_immediate` as everywhere else in `vulkan.rs`.
+
+Input with the child shown: keys verified on box 206 (`SendKeys` "q"/"z" arrive as press
+and release through `io::readKey` while every frame presents directly). The mouse rests on
+Win32's documented `STATIC` behaviour (`HTTRANSPARENT`, so the canvas window receives the
+messages) and is **not yet runtime-verified**: injected moves and clicks produced no
+`canvas::pollMouse` event on box 206 on either path — readback included, where the child
+is hidden — while the same injection reaches a WinForms window. So Windows canvas mouse
+delivery fails independently of V6; it is being chased as its own bug, after which this
+is re-checked.
+
+Transition run (windowed → fullscreen → windowed → Console → canvas, 8 s each): 1,899 of
+1,900 GPU frames direct; every phase's Desktop Duplication capture shows the scene, and
+the Console phase shows the transcript. **GDI screen grabs are not evidence here** — during
+the fullscreen phase they returned frozen or background-only images while every frame
+presented; `tools/win-screen-capture` is the instrument (`.ai/remote_systems.md`).
+
+**Linux present — BLOCKED on hardware.** The Fix Design's Linux half (`VK_KHR_xlib_surface`
+/ `VK_KHR_wayland_surface` under GTK) needs a real Linux GPU to measure against the
+readback path, as V6 requires; every reachable Linux Vulkan driver is lavapipe, where the
+"GPU" is the CPU. It also needs a design decision GTK4 forces: GTK composites its own
+window, so a swapchain needs an X11 child window, a Wayland subsurface, or a dmabuf
+handed to GTK as a texture. Linux keeps the readback path (`has_present_path` is
+Windows-only).
+
+### Earlier status (2026-09-27): V5 measured on a real GPU, two fixes landed; V6 open
 
 **Hardware now reachable.** Box 206 (`ssh test@192.168.1.206`, `.ai/remote_systems.md`):
 Windows 11 on a real Intel UHD Graphics 630 with Intel's Vulkan 1.3 driver. The Phase 0
@@ -57,7 +118,7 @@ covered pixel — heavy for 4-edge coverage; bug-735's double-float coverage on 
 iGPU is the first suspect) and ~47 ms is per-item upload plus the fixed frame cost.
 `draws=0:10001:0:0:0` — one draw, so not draw-call overhead.
 
-**OPEN — V6, full-screen present.** The 95-item scene's render phase scales with pixels:
+**V6, full-screen present (resolved above).** The 95-item scene's render phase scales with pixels:
 900x640 13.2 ms, 1920x1080 38.1 ms, 2560x1440 64.6 ms (~17 ns/pixel), over the 16.6 ms
 60 Hz budget at 1080p. Not yet split between the readback path (copy + CPU swizzle +
 blit, which a swapchain removes) and GPU shading (which it does not). Next step: time the
