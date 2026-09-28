@@ -344,7 +344,7 @@ Commit: a082faf5a
 Acceptance: at `-O1` each shape takes the in-place path, with output identical to `-O0`. Check:
 `cargo test --test codegen_place_forward --test rt_place_forward` → all pass (est. 5 min).
 Verified 2026-09-27: 3 passed / 9 passed.
-Commit: —
+Commit: 8f9bf640a
 
 ## Appendix A — direct-form sibling-read probe
 

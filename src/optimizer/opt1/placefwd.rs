@@ -59,7 +59,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
-use crate::target::shared::nir::{NirFunction, NirMatchPattern, NirModule, NirOp, NirValue};
+use crate::target::shared::nir::{
+    NirFunction, NirMatchPattern, NirModule, NirOp, NirType, NirValue,
+};
 use crate::types::ParameterType;
 
 use super::aggcopy::is_aggregate;
@@ -71,6 +73,7 @@ pub(crate) fn forward(module: &mut NirModule) {
         return;
     }
     let mut fired = 0u64;
+    let module_facts = ModuleFacts::of(module);
     for function in &mut module.functions {
         loop {
             let facts = Facts::census(function);
@@ -78,6 +81,7 @@ pub(crate) fn forward(module: &mut NirModule) {
                 function_params: function.params.iter().map(|p| p.name.clone()).collect(),
                 resource_owners: function.resource_owners.keys().cloned().collect(),
                 facts,
+                module: &module_facts,
             };
             if !forward_one(&mut function.body, &context) {
                 break;
@@ -89,10 +93,101 @@ pub(crate) fn forward(module: &mut NirModule) {
 }
 
 /// What the gates need about one function, computed once per forward.
-struct Context {
+struct Context<'m> {
     function_params: HashSet<String>,
     resource_owners: HashSet<String>,
     facts: Facts,
+    module: &'m ModuleFacts,
+}
+
+/// Module-wide facts the call gate (W4) needs.
+struct ModuleFacts {
+    /// Every user function, lambda included: a call to one can write a global
+    /// or reach a by-ref slot through another closure.
+    user_functions: HashSet<String>,
+    globals: HashMap<String, ParameterType>,
+    /// Each user type's member types (record fields, union variant fields).
+    type_members: HashMap<String, Vec<ParameterType>>,
+}
+
+impl ModuleFacts {
+    fn of(module: &NirModule) -> ModuleFacts {
+        let member_types = |t: &NirType| {
+            t.fields
+                .iter()
+                .chain(t.variants.iter().flat_map(|variant| variant.fields.iter()))
+                .map(|field| field.type_.clone())
+                .collect()
+        };
+        ModuleFacts {
+            user_functions: module.functions.iter().map(|f| f.name.clone()).collect(),
+            globals: module
+                .globals
+                .iter()
+                .map(|g| (g.name.clone(), g.type_.clone()))
+                .collect(),
+            type_members: module
+                .types
+                .iter()
+                .map(|t| (t.name.clone(), member_types(t)))
+                .collect(),
+        }
+    }
+
+    /// Whether a value of `type_` can be, or can carry, a function value — the
+    /// only way a builtin call can run user code. Conservative: an unresolved
+    /// user nominal, a type variable and a thread handle all answer yes.
+    fn may_hold_function(&self, type_: &ParameterType) -> bool {
+        self.may_hold_function_in(type_, &mut HashSet::new())
+    }
+
+    fn may_hold_function_in(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            ParameterType::Func(..)
+            | ParameterType::ThreadHandle { .. }
+            | ParameterType::Var(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown => true,
+            ParameterType::ListOf(inner)
+            | ParameterType::SetOf(inner)
+            | ParameterType::ResultOf(inner)
+            | ParameterType::Res(inner) => self.may_hold_function_in(inner, seen),
+            ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                self.may_hold_function_in(key, seen) || self.may_hold_function_in(value, seen)
+            }
+            ParameterType::Stateful { base, state } => {
+                self.may_hold_function_in(base, seen) || self.may_hold_function_in(state, seen)
+            }
+            ParameterType::Named(_) | ParameterType::UserOf(..) => {
+                let name = type_.name().into_owned();
+                if !seen.insert(name.clone()) {
+                    return false; // already being answered further up
+                }
+                match self.type_members.get(&name) {
+                    Some(members) => members
+                        .iter()
+                        .any(|member| self.may_hold_function_in(member, seen)),
+                    // A package's opaque type (`fs.File`) is the runtime's; it
+                    // holds no user function. An unknown bare nominal might.
+                    None => {
+                        !name.contains('.')
+                            && !type_.is_named("Error")
+                            && !type_.is_named("ErrorLoc")
+                    }
+                }
+            }
+            ParameterType::AttributeString
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::C(_) => false,
+        }
+    }
 }
 
 /// Per-name occurrence facts across the whole function, scope-blind.
@@ -146,8 +241,14 @@ impl NirVisitor for Facts {
             NirOp::StateAssign { resource, .. } => {
                 self.writes.insert(resource.clone());
             }
-            NirOp::For { name, .. } | NirOp::ForEach { name, .. } | NirOp::Trap { name, .. } => {
+            NirOp::For { name, type_, .. } | NirOp::ForEach { name, type_, .. } => {
                 *self.binds.entry(name.clone()).or_insert(0) += 2;
+                self.bind_types.insert(name.clone(), type_.clone());
+            }
+            NirOp::Trap { name, .. } => {
+                *self.binds.entry(name.clone()).or_insert(0) += 2;
+                self.bind_types
+                    .insert(name.clone(), ParameterType::named("Error"));
             }
             _ => {}
         }
@@ -179,18 +280,37 @@ impl NirVisitor for Facts {
 #[derive(Clone)]
 enum Owner {
     /// A local (or parameter) this function owns outright: only `Assign{o}`
-    /// writes it.
+    /// writes it, so no call can break its window.
     Local(String),
+    /// A local bound from a by-ref capture (`Capture{by_ref: true}`, a
+    /// `collections::forEach` lambda writing an outer `MUT`): its reads and
+    /// writes go through the parent's slot.
+    ByRef(String),
+    /// A module global.
+    Global(String),
 }
 
 impl Owner {
     /// Whether `op` itself (not its children) is a write of this owner.
     fn is_write(&self, op: &NirOp) -> bool {
         match self {
-            Owner::Local(name) => {
+            Owner::Local(name) | Owner::ByRef(name) => {
                 matches!(op, NirOp::Assign { name: written, .. } if written == name)
             }
+            // `Assign` of the same name is a local that shadows the global, not
+            // the global; declining on it costs nothing and needs no proof.
+            Owner::Global(name) => matches!(
+                op,
+                NirOp::StoreGlobal { name: written, .. } | NirOp::Assign { name: written, .. }
+                    if written == name
+            ),
         }
+    }
+
+    /// Whether something other than a visible write could change the owner, so
+    /// the window must also be call-safe (W4).
+    fn needs_call_gate(&self) -> bool {
+        !matches!(self, Owner::Local(_))
     }
 }
 
@@ -202,7 +322,7 @@ fn place_root(value: &NirValue) -> Option<(&NirValue, usize)> {
         depth += 1;
         cursor = target;
     }
-    matches!(cursor, NirValue::Local(_)).then_some((cursor, depth))
+    matches!(cursor, NirValue::Local(_) | NirValue::Global { .. }).then_some((cursor, depth))
 }
 
 /// Find and apply the first forwardable binding in `ops` (or any nested body).
@@ -281,14 +401,33 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
     if !owner.is_write(last_op) && writes_owner(last_op, &owner) {
         return None;
     }
+    // W4: for an owner a call can reach, nothing in the window — op L's value
+    // included — may run user code. Including op L keeps the proof free of
+    // argument order: `g = WITH g { xs := set(cur, j, helper()) }` read `cur`
+    // before `helper()` ran, but its forwarded `g.xs` is read when the argument
+    // is evaluated.
+    if owner.needs_call_gate() {
+        let mut gate = CallGate {
+            context,
+            runs_user_code: false,
+        };
+        gate.visit_ops(&ops[index + 1..=last]);
+        if gate.runs_user_code {
+            return None;
+        }
+    }
     Some((binding.clone(), place.clone(), last))
 }
 
 /// The owner of `place` when it is one this row can prove a window for.
 fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner> {
     let (root, depth) = place_root(place)?;
-    let NirValue::Local(owner) = root else {
-        return None;
+    let owner = match root {
+        // A global cannot be address-taken, captured or rebound, so it needs
+        // no census gate beyond W4.
+        NirValue::Global { name, .. } => return Some(Owner::Global(name.clone())),
+        NirValue::Local(owner) => owner,
+        _ => return None,
     };
     if owner == binding {
         return None;
@@ -300,7 +439,6 @@ fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner>
     let owner_stable = facts.binds.get(owner).copied() == Some(1)
         && !facts.address_taken.contains(owner)
         && !facts.captured.contains(owner)
-        && !facts.by_ref_bound.contains(owner)
         && !context.resource_owners.contains(owner)
         && !matches!(
             facts.bind_types.get(owner),
@@ -313,7 +451,58 @@ fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner>
     if depth == 0 && is_param {
         return None;
     }
+    if facts.by_ref_bound.contains(owner) {
+        return Some(Owner::ByRef(owner.clone()));
+    }
     Some(Owner::Local(owner.clone()))
+}
+
+/// W4's scan: does anything in the window run user code? A call to a user
+/// function, a call through a function value (its target is a local, a
+/// parameter or a global, not a function), and any function value at all —
+/// a `FunctionRef`, a `Closure`, or a binding whose type can hold one — since
+/// that is the only way a builtin call can call back into user code. Builtin
+/// package calls are otherwise allowed: the runtime writes no user global, slot
+/// or `STATE` payload.
+struct CallGate<'c, 'm> {
+    context: &'c Context<'m>,
+    runs_user_code: bool,
+}
+
+impl CallGate<'_, '_> {
+    fn calls_user_code(&self, target: &str) -> bool {
+        let module = self.context.module;
+        module.user_functions.contains(target)
+            || module.globals.contains_key(target)
+            || self.context.facts.bind_types.contains_key(target)
+    }
+}
+
+impl NirVisitor for CallGate<'_, '_> {
+    fn visit_value(&mut self, value: &NirValue) {
+        let module = self.context.module;
+        let found = match value {
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => self.calls_user_code(target),
+            NirValue::FunctionRef { .. } | NirValue::Closure { .. } => true,
+            NirValue::Local(name) => self
+                .context
+                .facts
+                .bind_types
+                .get(name)
+                .is_none_or(|type_| module.may_hold_function(type_)),
+            NirValue::Capture { type_, .. } | NirValue::Global { type_, .. } => {
+                module.may_hold_function(type_)
+            }
+            _ => false,
+        };
+        if found {
+            self.runs_user_code = true;
+            return;
+        }
+        walk_value(self, value);
+    }
 }
 
 /// Whether `op` or anything nested in it writes the owner.

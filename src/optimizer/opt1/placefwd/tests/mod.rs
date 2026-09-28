@@ -16,6 +16,44 @@ fn rec_type() -> ParameterType {
     ParameterType::named("R")
 }
 
+fn record(name: &str, fields: Vec<(&str, ParameterType)>) -> NirType {
+    NirType {
+        kind: "type".to_string(),
+        visibility: "public".to_string(),
+        name: name.to_string(),
+        fields: fields
+            .into_iter()
+            .map(|(field, type_)| crate::target::shared::nir::NirField {
+                visibility: None,
+                name: field.to_string(),
+                type_,
+            })
+            .collect(),
+        includes: vec![],
+        variants: vec![],
+        members: vec![],
+    }
+}
+
+/// A test module declaring the record types the cases use, as a real module
+/// declares every user type (the call gate resolves members through them).
+fn module_of(functions: Vec<NirFunction>) -> NirModule {
+    let mut module = test_module(functions);
+    module.types = vec![
+        record(
+            "R",
+            vec![
+                ("before", ParameterType::Integer),
+                ("xs", list_int()),
+                ("a", ParameterType::named("Inner")),
+                ("count", ParameterType::Integer),
+            ],
+        ),
+        record("Inner", vec![("xs", list_int())]),
+    ];
+    module
+}
+
 fn function(body: Vec<NirOp>) -> NirFunction {
     NirFunction {
         name: "f".to_string(),
@@ -161,7 +199,7 @@ fn render_ops(ops: &[NirOp]) -> Vec<String> {
 }
 
 fn body_after(body: Vec<NirOp>, level: u8) -> Vec<String> {
-    let mut module = test_module(vec![function(body)]);
+    let mut module = module_of(vec![function(body)]);
     run(&mut module, level);
     render_ops(&module.functions[0].body)
 }
@@ -332,7 +370,7 @@ fn a_read_inside_a_nested_for_in_the_window_is_forwarded() {
 fn a_forward_is_counted() {
     let before =
         crate::optimizer::stats::PLACE_COPIES_FORWARDED.load(std::sync::atomic::Ordering::Relaxed);
-    let mut module = test_module(vec![function(set_shape())]);
+    let mut module = module_of(vec![function(set_shape())]);
     run(&mut module, 1);
     let after =
         crate::optimizer::stats::PLACE_COPIES_FORWARDED.load(std::sync::atomic::Ordering::Relaxed);
@@ -483,7 +521,7 @@ fn a_bare_parameter_source_keeps_the_copy() {
     let expected = render_ops(&body);
     let mut f = function(body);
     f.params = vec![param("s", list_int())];
-    let mut module = test_module(vec![f]);
+    let mut module = module_of(vec![f]);
     run(&mut module, 1);
     assert_eq!(render_ops(&module.functions[0].body), expected);
 }
@@ -500,7 +538,7 @@ fn a_member_path_of_a_parameter_is_forwarded() {
     ];
     let mut f = function(body);
     f.params = vec![param("p", rec_type())];
-    let mut module = test_module(vec![f]);
+    let mut module = module_of(vec![f]);
     run(&mut module, 1);
     assert_eq!(render_ops(&module.functions[0].body), vec!["RETURN p.xs"]);
 }
@@ -534,4 +572,233 @@ fn level_zero_keeps_the_copy() {
     let body = set_shape();
     let expected = render_ops(&body);
     assert_eq!(body_after(body, 0), expected);
+}
+
+// ---- plan-149-B1: global and by-ref-capture owners, and the call gate W4 ----
+
+fn global(name: &str) -> NirValue {
+    NirValue::Global {
+        name: name.to_string(),
+        type_: rec_type(),
+    }
+}
+
+fn store_global(name: &str, value: NirValue) -> NirOp {
+    NirOp::StoreGlobal {
+        name: name.to_string(),
+        type_: rec_type(),
+        value: Some(value),
+    }
+}
+
+/// A user function the gate must treat as able to write any global.
+fn helper() -> NirFunction {
+    let mut f = function(vec![NirOp::Return {
+        value: Some(int_const("0")),
+    }]);
+    f.name = "helper".to_string();
+    f
+}
+
+/// Run the row over `body` in a module that also holds a user `helper`.
+fn body_after_with_helper(body: Vec<NirOp>) -> Vec<String> {
+    let mut module = module_of(vec![function(body), helper()]);
+    run(&mut module, 1);
+    render_ops(&module.functions[0].body)
+}
+
+fn assert_kept_with_helper(body: Vec<NirOp>) {
+    let expected = render_ops(&body);
+    assert_eq!(
+        body_after_with_helper(body),
+        expected,
+        "the copy must be kept"
+    );
+}
+
+fn global_set_shape(value: NirValue) -> Vec<NirOp> {
+    vec![
+        bind("cur", list_int(), member(global("g"), "xs")),
+        bind(
+            "v",
+            ParameterType::Integer,
+            call("collections.get", vec![local("cur"), int_const("0")]),
+        ),
+        store_global(
+            "g",
+            with_field(
+                global("g"),
+                "xs",
+                call("collections.set", vec![local("cur"), int_const("0"), value]),
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn the_global_set_shape_is_forwarded() {
+    assert_eq!(
+        body_after_with_helper(global_set_shape(local("v"))),
+        vec![
+            "LET v = collections.get(global g.xs, 0)",
+            "global g = WITH global g { xs := collections.set(global g.xs, 0, v) }",
+        ]
+    );
+}
+
+#[test]
+fn the_global_remove_at_shape_is_forwarded() {
+    let body = vec![
+        bind("cur", list_int(), member(global("g"), "xs")),
+        store_global(
+            "g",
+            with_field(
+                global("g"),
+                "xs",
+                call("collections.removeAt", vec![local("cur"), int_const("0")]),
+            ),
+        ),
+    ];
+    assert_eq!(
+        body_after_with_helper(body),
+        vec!["global g = WITH global g { xs := collections.removeAt(global g.xs, 0) }"]
+    );
+}
+
+fn by_ref_rec() -> NirOp {
+    bind_mut(
+        "rec",
+        rec_type(),
+        NirValue::Capture {
+            index: 0,
+            type_: rec_type(),
+            by_ref: true,
+        },
+    )
+}
+
+/// The lambda half of `collections::forEach(ys, LAMBDA(x) -> rec = WITH rec { … })`:
+/// `rec` is bound from the by-ref capture and written by `Assign`.
+#[test]
+fn a_by_ref_capture_field_set_is_forwarded() {
+    let body = vec![
+        by_ref_rec(),
+        bind("cur", list_int(), member(local("rec"), "xs")),
+        assign(
+            "rec",
+            with_field(
+                local("rec"),
+                "xs",
+                call(
+                    "collections.set",
+                    vec![local("cur"), int_const("0"), local("x")],
+                ),
+            ),
+        ),
+    ];
+    let mut f = function(body);
+    f.params = vec![param("x", ParameterType::Integer)];
+    let mut module = module_of(vec![f]);
+    run(&mut module, 1);
+    assert_eq!(
+        render_ops(&module.functions[0].body)[1..],
+        ["rec = WITH rec { xs := collections.set(rec.xs, 0, x) }"]
+    );
+}
+
+/// The same by-ref shape with a user call in the window declines: another
+/// closure the callee runs could hold the same slot.
+#[test]
+fn a_by_ref_capture_with_a_user_call_keeps_the_copy() {
+    assert_kept_with_helper(vec![
+        by_ref_rec(),
+        bind("cur", list_int(), member(local("rec"), "xs")),
+        eval(call("helper", vec![])),
+        assign(
+            "rec",
+            with_field(
+                local("rec"),
+                "xs",
+                call("collections.removeAt", vec![local("cur"), int_const("0")]),
+            ),
+        ),
+    ]);
+}
+
+#[test]
+fn a_user_call_in_the_window_keeps_the_copy() {
+    let mut body = global_set_shape(local("v"));
+    body.insert(1, eval(call("helper", vec![])));
+    assert_kept_with_helper(body);
+}
+
+/// `g = WITH g { xs := set(cur, 0, helper()) }`: `cur` was taken before
+/// `helper()` ran; a forwarded `g.xs` would be read after it.
+#[test]
+fn a_user_call_inside_the_owner_write_keeps_the_copy() {
+    assert_kept_with_helper(global_set_shape(call("helper", vec![])));
+}
+
+#[test]
+fn a_collections_call_with_a_lambda_in_the_window_keeps_the_copy() {
+    let mut body = global_set_shape(local("v"));
+    body.insert(
+        1,
+        eval(call(
+            "collections.forEach",
+            vec![
+                local("cur"),
+                NirValue::FunctionRef {
+                    name: "$lambda0".to_string(),
+                    type_: ParameterType::Func(
+                        vec![ParameterType::Integer],
+                        Box::new(ParameterType::Nothing),
+                        false,
+                    ),
+                },
+            ],
+        )),
+    );
+    assert_kept_with_helper(body);
+}
+
+/// A call through a function value names the binding, not a function.
+#[test]
+fn an_indirect_call_in_the_window_keeps_the_copy() {
+    let fn_type = ParameterType::Func(vec![], Box::new(ParameterType::Nothing), false);
+    let mut body = vec![bind(
+        "fv",
+        fn_type.clone(),
+        NirValue::FunctionRef {
+            name: "helper".to_string(),
+            type_: fn_type,
+        },
+    )];
+    let mut shape = global_set_shape(local("v"));
+    shape.insert(1, eval(call("fv", vec![])));
+    body.extend(shape);
+    assert_kept_with_helper(body);
+}
+
+#[test]
+fn a_store_global_between_the_bind_and_a_read_keeps_the_copy() {
+    let mut body = global_set_shape(local("v"));
+    body.insert(1, store_global("g", call("mk", vec![])));
+    assert_kept_with_helper(body);
+}
+
+/// The call gate is for owners a call can reach; an owned local keeps
+/// forwarding across a user call (A's class).
+#[test]
+fn an_owned_local_forwards_across_a_user_call() {
+    let mut body = set_shape();
+    body.insert(2, eval(call("helper", vec![])));
+    assert_eq!(
+        body_after_with_helper(body)[..3],
+        [
+            "LET rec = mk()",
+            "eval helper()",
+            "LET v = collections.get(rec.xs, 0)"
+        ]
+    );
 }

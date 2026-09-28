@@ -84,9 +84,12 @@ The benchmark rows contain only builtin calls (`collections::get` / `set` / `rem
 
 ### Phase B1 — Global and by-ref-capture owners
 
-- [ ] In `placefwd.rs`, accept a `MemberAccess` chain rooted at `Global{g}`, or at a local bound from
+- [x] In `placefwd.rs`, accept a `MemberAccess` chain rooted at `Global{g}`, or at a local bound from
       `Capture{by_ref: true}`. Add W4, with the owner writes from the §3 table.
-- [ ] Unit tests. These **forward**:
+      Done: `Owner::Global` / `Owner::ByRef`, `CallGate` (W4), `ModuleFacts::may_hold_function`. A bare `Global{g}`
+      source is accepted too (plan-149-A §3 lists `Global{o}` as a place). The function-valued-argument rule is
+      implemented as "no function value anywhere in the window" (Corrections).
+- [x] Unit tests. These **forward**:
       - the global `set` shape;
       - the global `removeAt` shape;
       - a by-ref capture's field `set` shape.
@@ -98,7 +101,11 @@ The benchmark rows contain only builtin calls (`collections::get` / `set` / `rem
       - an indirect call in the window;
       - a `StoreGlobal{g}` between the bind and a read.
 
+      Done, plus two not listed: a by-ref capture with a user call in the window declines, and an owned local still
+      forwards across a user call (W4 is only for owners a call can reach).
+
 Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass, including the new cases (est. 5 min).
+Verified 2026-09-27: 29 passed.
 Commit: —
 
 ### Phase B2 — `STATE` owners
@@ -133,6 +140,21 @@ Acceptance: `cargo test --test codegen_place_forward --test rt_place_forward` �
 Commit: —
 
 ## Corrections
+
+- **W4's "function-valued argument" rule is widened to "any function value in the window" (B1).** An argument's type
+  is not in NIR: a `MemberAccess` or a builtin's result (`collections::get(fs, 0)` on a `List OF FUNC …`) can be a
+  function with no `Func`-typed binding in sight. The gate therefore declines when the window holds a `FunctionRef`,
+  a `Closure`, or any `Local` / `Capture` / `Global` whose type can hold a function (`ModuleFacts::may_hold_function`,
+  which walks record and union members through `module.types`; an unresolvable user nominal answers yes). A function
+  value can only enter the window through one of those, so this is sound where a per-argument test is not. The
+  benchmark rows hold none, so the coverage the plan counts on is unchanged.
+- **The indirect-call test (B1).** Per plan-149-A §2, an indirect call is `Call{target: <binding name>}` and an
+  unqualified target can also be a builtin (`toString`). The gate declines a call whose target is a user function,
+  a global, or any name bound in the function (a `Bind`, a parameter, or a `FOR` / `FOR EACH` / `TRAP` binder — the
+  census now records the binder types too, so a `FOR EACH fn IN fs … fn(x)` call is caught).
+- **Unit-test modules declare their record types (B1).** The gate resolves members through `module.types`, which a
+  real module always fills; the tests' `module_of` declares `R` and `Inner` so a case declines for its own hazard,
+  not because `R` is unresolvable.
 
 ## Summary
 
