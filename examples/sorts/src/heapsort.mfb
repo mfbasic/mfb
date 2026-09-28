@@ -15,14 +15,14 @@ MUT heapSiftLimit AS Integer = 0    ' the sift stays below this place
 MUT heapFinished AS Boolean = FALSE
 MUT heapCompareCount AS Integer = 0
 
-SUB heapStart
+FUNC heapStart AS Nothing
   heapBuilding = TRUE
   heapBuildNext = DOT_COUNT / 2 - 1
   heapEnd = DOT_COUNT - 1
   heapSifting = FALSE
   heapFinished = DOT_COUNT < 2
   heapCompareCount = 0
-END SUB
+END FUNC
 
 FUNC heapDone AS Boolean
   RETURN heapFinished
@@ -33,7 +33,7 @@ FUNC heapCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB heapSteps(budget AS Integer)
+FUNC heapSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT heapFinished
     IF heapSifting THEN
@@ -76,4 +76,4 @@ SUB heapSteps(budget AS Integer)
       heapSifting = TRUE
     END IF
   LOOP
-END SUB
+END FUNC

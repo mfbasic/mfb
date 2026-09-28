@@ -10,13 +10,13 @@ MUT bubbleSwapped AS Boolean = FALSE
 MUT bubbleFinished AS Boolean = FALSE
 MUT bubbleCompareCount AS Integer = 0
 
-SUB bubbleStart
+FUNC bubbleStart AS Nothing
   bubbleEnd = DOT_COUNT
   bubbleScan = 0
   bubbleSwapped = FALSE
   bubbleFinished = DOT_COUNT < 2
   bubbleCompareCount = 0
-END SUB
+END FUNC
 
 FUNC bubbleDone AS Boolean
   RETURN bubbleFinished
@@ -27,7 +27,7 @@ FUNC bubbleCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB bubbleSteps(budget AS Integer)
+FUNC bubbleSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT bubbleFinished
     IF bubbleScan < bubbleEnd - 1 THEN
@@ -46,4 +46,4 @@ SUB bubbleSteps(budget AS Integer)
       bubbleSwapped = FALSE
     END IF
   LOOP
-END SUB
+END FUNC

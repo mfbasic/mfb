@@ -20,7 +20,7 @@ FUNC shellGap AS Integer
   RETURN collections::get(shellGaps, shellGapIndex)
 END FUNC
 
-SUB shellStart
+FUNC shellStart AS Nothing
   shellGaps = [1, 4, 10, 23, 57, 132, 301, 701, 1750]
   MUT gap AS Float = 1750.0
   DO WHILE gap * 2.25 < toFloat(DOT_COUNT)
@@ -36,7 +36,7 @@ SUB shellStart
   shellInserting = FALSE
   shellFinished = DOT_COUNT < 2
   shellCompareCount = 0
-END SUB
+END FUNC
 
 FUNC shellDone AS Boolean
   RETURN shellFinished
@@ -47,7 +47,7 @@ FUNC shellCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB shellSteps(budget AS Integer)
+FUNC shellSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT shellFinished
     IF NOT shellInserting THEN
@@ -78,4 +78,4 @@ SUB shellSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

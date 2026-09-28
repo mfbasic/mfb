@@ -21,14 +21,14 @@ MUT circleSwapped AS Boolean = FALSE
 MUT circleFinished AS Boolean = FALSE
 MUT circleCompareCount AS Integer = 0
 
-SUB circlePush(lo AS Integer, hi AS Integer)
-  IF hi - lo < 2 THEN EXIT SUB
+FUNC circlePush(lo AS Integer, hi AS Integer) AS Nothing
+  IF hi - lo < 2 THEN RETURN
   circleStackLo = collections::set(circleStackLo, circleTop, lo)
   circleStackHi = collections::set(circleStackHi, circleTop, hi)
   circleTop = circleTop + 1
-END SUB
+END FUNC
 
-SUB circleStart
+FUNC circleStart AS Nothing
   circleStackLo = collections::repeat(circleStackLo, 0, DOT_COUNT + 1)
   circleStackHi = collections::repeat(circleStackHi, 0, DOT_COUNT + 1)
   circleTop = 0
@@ -37,7 +37,7 @@ SUB circleStart
   circleFinished = DOT_COUNT < 2
   circleCompareCount = 0
   circlePush(0, DOT_COUNT)
-END SUB
+END FUNC
 
 FUNC circleDone AS Boolean
   RETURN circleFinished
@@ -48,16 +48,16 @@ FUNC circleCompares AS Integer
 END FUNC
 
 ' Compare the elements at `a` < `b`, swapping them if out of order.
-SUB circleCompare(a AS Integer, b AS Integer)
+FUNC circleCompare(a AS Integer, b AS Integer) AS Nothing
   circleCompareCount = circleCompareCount + 1
   IF orderAt(a) > orderAt(b) THEN
     swapOrder(a, b)
     circleSwapped = TRUE
   END IF
-END SUB
+END FUNC
 
 ' Run up to `budget` comparisons.
-SUB circleSteps(budget AS Integer)
+FUNC circleSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT circleFinished
     IF circleSweeping THEN
@@ -91,4 +91,4 @@ SUB circleSteps(budget AS Integer)
       circleFinished = TRUE
     END IF
   LOOP
-END SUB
+END FUNC

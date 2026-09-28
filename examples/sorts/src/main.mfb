@@ -203,22 +203,22 @@ FUNC orderAt(i AS Integer) AS Integer
   RETURN collections::get(order, i)
 END FUNC
 
-SUB setOrder(i AS Integer, dot AS Integer)
+FUNC setOrder(i AS Integer, dot AS Integer) AS Nothing
   IF collections::get(order, i) = i THEN inPlace = inPlace - 1
   order = collections::set(order, i, dot)
   placeOf = collections::set(placeOf, dot, i)
   IF dot = i THEN inPlace = inPlace + 1
-END SUB
+END FUNC
 
-SUB swapOrder(a AS Integer, b AS Integer)
-  IF a = b THEN EXIT SUB
+FUNC swapOrder(a AS Integer, b AS Integer) AS Nothing
+  IF a = b THEN RETURN
   LET t AS Integer = collections::get(order, a)
   setOrder(a, collections::get(order, b))
   setOrder(b, t)
-END SUB
+END FUNC
 
 ' A random point inside a ball SCATTER times the sphere's size, for every dot.
-SUB pickScatterTargets
+FUNC pickScatterTargets AS Nothing
   FOR i = 0 TO DOT_COUNT - 1
     MUT x AS Float = randomUnit()
     MUT y AS Float = randomUnit()
@@ -232,17 +232,17 @@ SUB pickScatterTargets
     toY = collections::set(toY, i, y * SCATTER)
     toZ = collections::set(toZ, i, z * SCATTER)
   NEXT
-END SUB
+END FUNC
 
 ' Fisher-Yates.
-SUB shuffle
+FUNC shuffle AS Nothing
   FOR i = DOT_COUNT - 1 TO 1 STEP -1
     swapOrder(i, math::rand(0, i))
   NEXT
-END SUB
+END FUNC
 
 ' Size every list, with every dot at the centre and the list in order.
-SUB setUp
+FUNC setUp AS Nothing
   ' -1 is no dot, so no place starts out counted as in place.
   order = collections::repeat(order, -1, DOT_COUNT)
   inPlace = 0
@@ -259,17 +259,17 @@ SUB setUp
   FOR i = 0 TO DOT_COUNT - 1
     setOrder(i, i)
   NEXT
-END SUB
+END FUNC
 
 ' Start the dots flying from where they are to new random points, and shuffle
 ' the list for the sort that follows.
-SUB startScatter
+FUNC startScatter AS Nothing
   fromX = posX
   fromY = posY
   fromZ = posZ
   pickScatterTargets()
   shuffle()
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' The sorts, in the order they run
@@ -375,7 +375,7 @@ FUNC nextAlgorithm(a AS Algorithm) AS Algorithm
   END MATCH
 END FUNC
 
-SUB sortStart(a AS Algorithm)
+FUNC sortStart(a AS Algorithm) AS Nothing
   MATCH a
     CASE Algorithm.Bubble : bubbleStart()
     CASE Algorithm.Selection : selectionStart()
@@ -396,9 +396,9 @@ SUB sortStart(a AS Algorithm)
     CASE Algorithm.Bucket : bucketStart()
     CASE Algorithm.Radix : radixStart()
   END MATCH
-END SUB
+END FUNC
 
-SUB sortSteps(a AS Algorithm, budget AS Integer)
+FUNC sortSteps(a AS Algorithm, budget AS Integer) AS Nothing
   MATCH a
     CASE Algorithm.Bubble : bubbleSteps(budget)
     CASE Algorithm.Selection : selectionSteps(budget)
@@ -419,7 +419,7 @@ SUB sortSteps(a AS Algorithm, budget AS Integer)
     CASE Algorithm.Bucket : bucketSteps(budget)
     CASE Algorithm.Radix : radixSteps(budget)
   END MATCH
-END SUB
+END FUNC
 
 FUNC sortDone(a AS Algorithm) AS Boolean
   MATCH a

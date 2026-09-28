@@ -13,7 +13,7 @@ MUT shakeSwapped AS Boolean = FALSE
 MUT shakeFinished AS Boolean = FALSE
 MUT shakeCompareCount AS Integer = 0
 
-SUB cocktailStart
+FUNC cocktailStart AS Nothing
   shakeLo = 0
   shakeHi = DOT_COUNT - 1
   shakeScan = 0
@@ -21,7 +21,7 @@ SUB cocktailStart
   shakeSwapped = FALSE
   shakeFinished = DOT_COUNT < 2
   shakeCompareCount = 0
-END SUB
+END FUNC
 
 FUNC cocktailDone AS Boolean
   RETURN shakeFinished
@@ -32,22 +32,22 @@ FUNC cocktailCompares AS Integer
 END FUNC
 
 ' Compare the neighbours at `a` and `a + 1`, swapping them if out of order.
-SUB shakeCompare(a AS Integer)
+FUNC shakeCompare(a AS Integer) AS Nothing
   shakeCompareCount = shakeCompareCount + 1
   IF orderAt(a) > orderAt(a + 1) THEN
     swapOrder(a, a + 1)
     shakeSwapped = TRUE
   END IF
-END SUB
+END FUNC
 
 ' A sweep has ended; stop if it swapped nothing.
-SUB shakeSweepEnded
+FUNC shakeSweepEnded AS Nothing
   IF NOT shakeSwapped OR shakeLo >= shakeHi THEN shakeFinished = TRUE
   shakeSwapped = FALSE
-END SUB
+END FUNC
 
 ' Run up to `budget` comparisons.
-SUB cocktailSteps(budget AS Integer)
+FUNC cocktailSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT shakeFinished
     IF shakeForward THEN
@@ -74,4 +74,4 @@ SUB cocktailSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

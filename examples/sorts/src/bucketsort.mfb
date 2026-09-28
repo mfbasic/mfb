@@ -24,7 +24,7 @@ FUNC bucketOf(v AS Integer) AS Integer
   RETURN v * BUCKET_COUNT / DOT_COUNT
 END FUNC
 
-SUB bucketStart
+FUNC bucketStart AS Nothing
   bucketBuffer = collections::repeat(bucketBuffer, 0, DOT_COUNT)
   bucketNextFree = collections::repeat(bucketNextFree, 0, BUCKET_COUNT)
   FOR i = 0 TO DOT_COUNT - 1
@@ -44,7 +44,7 @@ SUB bucketStart
   bucketAt = 1
   bucketFinished = DOT_COUNT < 2
   bucketCompareCount = 0
-END SUB
+END FUNC
 
 FUNC bucketDone AS Boolean
   RETURN bucketFinished
@@ -55,7 +55,7 @@ FUNC bucketCompares AS Integer
 END FUNC
 
 ' Run up to `budget` steps: writes while dealing, then comparisons.
-SUB bucketSteps(budget AS Integer)
+FUNC bucketSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT bucketFinished
     IF bucketDealing THEN
@@ -87,4 +87,4 @@ SUB bucketSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

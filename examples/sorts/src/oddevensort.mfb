@@ -13,14 +13,14 @@ MUT oddEvenQuietPhases AS Integer = 0
 MUT oddEvenFinished AS Boolean = FALSE
 MUT oddEvenCompareCount AS Integer = 0
 
-SUB oddEvenStart
+FUNC oddEvenStart AS Nothing
   oddEvenParity = 0
   oddEvenScan = 0
   oddEvenSwapped = FALSE
   oddEvenQuietPhases = 0
   oddEvenFinished = DOT_COUNT < 2
   oddEvenCompareCount = 0
-END SUB
+END FUNC
 
 FUNC oddEvenDone AS Boolean
   RETURN oddEvenFinished
@@ -31,7 +31,7 @@ FUNC oddEvenCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB oddEvenSteps(budget AS Integer)
+FUNC oddEvenSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT oddEvenFinished
     IF oddEvenScan + 1 < DOT_COUNT THEN
@@ -54,4 +54,4 @@ SUB oddEvenSteps(budget AS Integer)
       oddEvenSwapped = FALSE
     END IF
   LOOP
-END SUB
+END FUNC

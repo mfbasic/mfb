@@ -18,13 +18,13 @@ FUNC combShrink(gap AS Integer) AS Integer
   RETURN math::max(1, math::floor(toFloat(gap) / 1.3))
 END FUNC
 
-SUB combStart
+FUNC combStart AS Nothing
   combGap = combShrink(DOT_COUNT)
   combScan = 0
   combSwapped = FALSE
   combFinished = DOT_COUNT < 2
   combCompareCount = 0
-END SUB
+END FUNC
 
 FUNC combDone AS Boolean
   RETURN combFinished
@@ -35,7 +35,7 @@ FUNC combCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB combSteps(budget AS Integer)
+FUNC combSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT combFinished
     IF combScan + combGap < DOT_COUNT THEN
@@ -53,4 +53,4 @@ SUB combSteps(budget AS Integer)
       combSwapped = FALSE
     END IF
   LOOP
-END SUB
+END FUNC

@@ -9,11 +9,11 @@ MUT gnomeAt AS Integer = 1
 MUT gnomeFinished AS Boolean = FALSE
 MUT gnomeCompareCount AS Integer = 0
 
-SUB gnomeStart
+FUNC gnomeStart AS Nothing
   gnomeAt = 1
   gnomeFinished = DOT_COUNT < 2
   gnomeCompareCount = 0
-END SUB
+END FUNC
 
 FUNC gnomeDone AS Boolean
   RETURN gnomeFinished
@@ -24,7 +24,7 @@ FUNC gnomeCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB gnomeSteps(budget AS Integer)
+FUNC gnomeSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT gnomeFinished
     IF gnomeAt >= DOT_COUNT THEN
@@ -42,4 +42,4 @@ SUB gnomeSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

@@ -9,12 +9,12 @@ MUT insertAt AS Integer = 1         ' where it is now
 MUT insertFinished AS Boolean = FALSE
 MUT insertCompareCount AS Integer = 0
 
-SUB insertionStart
+FUNC insertionStart AS Nothing
   insertNext = 1
   insertAt = 1
   insertFinished = DOT_COUNT < 2
   insertCompareCount = 0
-END SUB
+END FUNC
 
 FUNC insertionDone AS Boolean
   RETURN insertFinished
@@ -25,14 +25,14 @@ FUNC insertionCompares AS Integer
 END FUNC
 
 ' The element is in place; start on the next one.
-SUB insertionAdvance
+FUNC insertionAdvance AS Nothing
   insertNext = insertNext + 1
   insertAt = insertNext
   IF insertNext >= DOT_COUNT THEN insertFinished = TRUE
-END SUB
+END FUNC
 
 ' Run up to `budget` comparisons.
-SUB insertionSteps(budget AS Integer)
+FUNC insertionSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT insertFinished
     IF insertAt = 0 THEN
@@ -48,4 +48,4 @@ SUB insertionSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

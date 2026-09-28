@@ -20,14 +20,14 @@ MUT merging AS Boolean = FALSE
 MUT mergeFinished AS Boolean = FALSE
 MUT mergeCompareCount AS Integer = 0
 
-SUB mergeStart
+FUNC mergeStart AS Nothing
   mergeBuffer = collections::repeat(mergeBuffer, 0, DOT_COUNT)
   mergeWidth = 1
   mergeLo = 0
   merging = FALSE
   mergeFinished = DOT_COUNT < 2
   mergeCompareCount = 0
-END SUB
+END FUNC
 
 FUNC mergeDone AS Boolean
   RETURN mergeFinished
@@ -38,19 +38,19 @@ FUNC mergeCompares AS Integer
 END FUNC
 
 ' Take the next element from the buffer's `from` into order[mergeOut].
-SUB mergeTake(from AS Integer)
+FUNC mergeTake(from AS Integer) AS Nothing
   setOrder(mergeOut, collections::get(mergeBuffer, from))
   mergeOut = mergeOut + 1
-END SUB
+END FUNC
 
 ' Begin the pair at mergeLo, or move on to the next width once a pass is done.
-SUB mergeNextPair
+FUNC mergeNextPair AS Nothing
   IF mergeLo >= DOT_COUNT THEN
     mergeWidth = mergeWidth * 2
     mergeLo = 0
     IF mergeWidth >= DOT_COUNT THEN
       mergeFinished = TRUE
-      EXIT SUB
+      RETURN
     END IF
   END IF
   mergeMid = math::min(mergeLo + mergeWidth, DOT_COUNT)
@@ -58,7 +58,7 @@ SUB mergeNextPair
   IF mergeMid >= mergeHi THEN
     ' A lone run at the end has nothing to merge with.
     mergeLo = mergeHi
-    EXIT SUB
+    RETURN
   END IF
   FOR i = mergeLo TO mergeHi - 1
     mergeBuffer = collections::set(mergeBuffer, i, orderAt(i))
@@ -67,10 +67,10 @@ SUB mergeNextPair
   mergeRight = mergeMid
   mergeOut = mergeLo
   merging = TRUE
-END SUB
+END FUNC
 
 ' Run up to `budget` comparisons.
-SUB mergeSteps(budget AS Integer)
+FUNC mergeSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT mergeFinished
     IF NOT merging THEN
@@ -96,4 +96,4 @@ SUB mergeSteps(budget AS Integer)
       mergeLo = mergeHi
     END IF
   LOOP
-END SUB
+END FUNC

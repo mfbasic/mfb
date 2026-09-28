@@ -9,13 +9,13 @@ MUT selectMin AS Integer = 0        ' the place of the smallest seen this scan
 MUT selectFinished AS Boolean = FALSE
 MUT selectCompareCount AS Integer = 0
 
-SUB selectionStart
+FUNC selectionStart AS Nothing
   selectFront = 0
   selectScan = 1
   selectMin = 0
   selectFinished = DOT_COUNT < 2
   selectCompareCount = 0
-END SUB
+END FUNC
 
 FUNC selectionDone AS Boolean
   RETURN selectFinished
@@ -26,7 +26,7 @@ FUNC selectionCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB selectionSteps(budget AS Integer)
+FUNC selectionSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT selectFinished
     IF selectScan < DOT_COUNT THEN
@@ -45,4 +45,4 @@ SUB selectionSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

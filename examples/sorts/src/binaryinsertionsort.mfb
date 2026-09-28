@@ -11,13 +11,13 @@ MUT binaryHi AS Integer = 1
 MUT binaryFinished AS Boolean = FALSE
 MUT binaryCompareCount AS Integer = 0
 
-SUB binaryInsertionStart
+FUNC binaryInsertionStart AS Nothing
   binaryNext = 1
   binaryLo = 0
   binaryHi = 1
   binaryFinished = DOT_COUNT < 2
   binaryCompareCount = 0
-END SUB
+END FUNC
 
 FUNC binaryInsertionDone AS Boolean
   RETURN binaryFinished
@@ -28,7 +28,7 @@ FUNC binaryInsertionCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB binaryInsertionSteps(budget AS Integer)
+FUNC binaryInsertionSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT binaryFinished
     IF binaryLo < binaryHi THEN
@@ -56,4 +56,4 @@ SUB binaryInsertionSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

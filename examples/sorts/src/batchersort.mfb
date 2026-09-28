@@ -16,14 +16,14 @@ MUT batcherFinished AS Boolean = FALSE
 MUT batcherCompareCount AS Integer = 0
 
 ' Start the sweeps for the current p.
-SUB batcherBeginP
+FUNC batcherBeginP AS Nothing
   batcherQ = batcherTop
   batcherR = 0
   batcherD = batcherP
   batcherI = 0
-END SUB
+END FUNC
 
-SUB batcherStart
+FUNC batcherStart AS Nothing
   batcherTop = 1
   DO WHILE batcherTop * 2 < DOT_COUNT
     batcherTop = batcherTop * 2
@@ -32,7 +32,7 @@ SUB batcherStart
   batcherFinished = DOT_COUNT < 2
   batcherCompareCount = 0
   batcherBeginP()
-END SUB
+END FUNC
 
 FUNC batcherDone AS Boolean
   RETURN batcherFinished
@@ -43,7 +43,7 @@ FUNC batcherCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB batcherSteps(budget AS Integer)
+FUNC batcherSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT batcherFinished
     IF batcherI < DOT_COUNT - batcherD THEN
@@ -68,4 +68,4 @@ SUB batcherSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC

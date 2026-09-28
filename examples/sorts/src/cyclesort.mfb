@@ -28,28 +28,28 @@ MUT cycleCompareCount AS Integer = 0
 
 ' Pick up the element at the first front at or after `front` that was never
 ' written, and start counting where it belongs; finish if there is none.
-SUB cycleBeginAt(front AS Integer)
+FUNC cycleBeginAt(front AS Integer) AS Nothing
   MUT f AS Integer = front
   DO WHILE f < DOT_COUNT - 1 AND collections::get(cycleWritten, f)
     f = f + 1
   LOOP
   IF f >= DOT_COUNT - 1 THEN
     cycleFinished = TRUE
-    EXIT SUB
+    RETURN
   END IF
   cycleFront = f
   cycleItem = orderAt(f)
   cycleTarget = f
   cycleScan = f + 1
   cycleInChain = FALSE
-END SUB
+END FUNC
 
-SUB cycleStart
+FUNC cycleStart AS Nothing
   cycleWritten = collections::repeat(cycleWritten, FALSE, DOT_COUNT)
   cycleFinished = DOT_COUNT < 2
   cycleCompareCount = 0
   IF NOT cycleFinished THEN cycleBeginAt(0)
-END SUB
+END FUNC
 
 FUNC cycleDone AS Boolean
   RETURN cycleFinished
@@ -60,7 +60,7 @@ FUNC cycleCompares AS Integer
 END FUNC
 
 ' Run up to `budget` comparisons.
-SUB cycleSteps(budget AS Integer)
+FUNC cycleSteps(budget AS Integer) AS Nothing
   MUT left AS Integer = budget
   DO WHILE left > 0 AND NOT cycleFinished
     IF cycleScan < DOT_COUNT THEN
@@ -86,4 +86,4 @@ SUB cycleSteps(budget AS Integer)
       END IF
     END IF
   LOOP
-END SUB
+END FUNC
