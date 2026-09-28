@@ -38,6 +38,7 @@
 #include "mathpipe.h"
 #include "parsebench.h"
 #include "pipelinebench.h"
+#include "recordbench.h"
 #include "regexbench.h"
 #include "scalarbench.h"
 #include "serializebench.h"
@@ -697,6 +698,7 @@ int main(int argc, char **argv) {
   test_leibniz();
   test_nbody();
   test_mandelbrot();
+  run_recordbench_float_rows(); /* float nbody_rec/nbody_vec (recordbench.c) — P1 coverage */
   test_matmul();
 
   run_mathpipe_group();
@@ -733,6 +735,7 @@ int main(int argc, char **argv) {
   run_serialize_group();
 
   test_record_update();
+  run_recordbench_record_rows(); /* record wide/nested (recordbench.c) — P1 coverage */
 
   test_bignum_modmul();
   test_bignum_modexp();

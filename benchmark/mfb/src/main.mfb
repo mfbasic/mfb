@@ -1015,6 +1015,9 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_leibniz(run, tests)
   tests = test_nbody(run, tests)
   tests = test_mandelbrot(run, tests)
+  ' float nbody_rec/nbody_vec (recordbench.mfb) — P1 coverage
+  tests = test_nbody_rec(run, tests)
+  tests = test_nbody_vec(run, tests)
   tests = test_matmul(run, tests)
 
   ' mathpipe group (mathpipe.mfb) — chained float/transcendental pipelines
@@ -1527,6 +1530,9 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_serialize_csv(run, tests)
 
   tests = test_record_update(run, tests)
+  ' record wide/nested (recordbench.mfb) — P1 coverage
+  tests = test_record_wide(run, tests)
+  tests = test_record_nested(run, tests)
 
   tests = test_bignum_modmul(run, tests)
   tests = test_bignum_modexp(run, tests)

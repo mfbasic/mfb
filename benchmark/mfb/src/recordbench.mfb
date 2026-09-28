@@ -1,0 +1,262 @@
+' Record-shaped workloads the way a user writes them (P1 coverage). Two groups:
+'
+'   record wide / nested — WITH-updates of a 10-field mixed Integer/Float/String
+'     record passed into and returned from a FUNC in a hot loop; `nested` is the
+'     same update on that record held inside another record inside a List
+'     (collections::get, nested WITH, collections::set write-back). The single
+'     `record update` row in main.mfb only bumps one Integer of a 2-field record.
+'
+'   float nbody_rec / nbody_vec — the SAME simulation as `float nbody` (same
+'     bodies, 100000 steps, dt 0.01, same pair order and float op order), but
+'     with the state held as a `List OF Body` of records updated with WITH +
+'     collections::set (`nbody_rec`), or with vector::Float3 position/velocity
+'     fields using vector::dot / vector::distance (`nbody_vec`). `float nbody`
+'     keeps all 35 values in scalar locals; these rows measure what the record
+'     and vector abstractions cost over that.
+'
+' Checksums are integers so run.sh cross-validates them. The n-body rows print
+' math::round(energy * 1e9): the same nine decimals `float nbody` prints.
+IMPORT io
+IMPORT math
+IMPORT vector
+IMPORT collections
+IMPORT datetime
+
+' ===========================================================================
+' GROUP: record (wide / nested)
+' ===========================================================================
+
+TYPE Wide
+  id AS Integer
+  count AS Integer
+  total AS Integer
+  flags AS Integer
+  pos AS Float
+  vel AS Float
+  energy AS Float
+  name AS String
+  tag AS String
+  weight AS Float
+END TYPE
+
+TYPE Holder
+  id AS Integer
+  label AS String
+  inner AS Wide
+  touches AS Integer
+END TYPE
+
+' One simulation step over the wide record: returns an updated copy. Every Float
+' op is either an add or a multiply by a power of two, so the result is exact
+' IEEE arithmetic with no contraction ambiguity and matches C/Python bit-for-bit.
+FUNC stepWide(w AS Wide, i AS Integer, tag AS String) AS Wide
+  RETURN WITH w { count := w.count + 1, total := w.total + i MOD 7, flags := (w.flags * 5 + i) MOD 1024, pos := w.pos + w.vel * 0.25, vel := w.vel * 0.5 + toFloat(i MOD 4), energy := w.energy + w.vel, tag := tag }
+END FUNC
+
+' Integer projection of a Wide's final state (Floats scaled by a power of two
+' before flooring, so the projection is exact).
+FUNC wideSum(w AS Wide) AS Integer
+  RETURN w.id + w.count + w.total + w.flags + math::floor(w.pos * 4.0) + math::floor(w.vel * 1024.0) + math::floor(w.energy) + len(w.name) + len(w.tag) + math::floor(w.weight * 8.0)
+END FUNC
+
+FUNC newWide(id AS Integer) AS Wide
+  RETURN Wide[id := id, count := 0, total := id, flags := id MOD 1024, pos := toFloat(id) * 0.5, vel := 1.0, energy := 0.0, name := "wide-" & toString(id), tag := "", weight := toFloat(id) * 0.125]
+END FUNC
+
+' ---- record wide: 1,000,000 WITH updates through a FUNC ----------------------
+FUNC test_record_wide(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET tagEven AS String = "even-step"
+  LET tagOdd AS String = "odd"
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT w AS Wide = newWide(7)
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR i = 0 TO 999999
+      IF i MOD 2 = 0 THEN
+        w = stepWide(w, i, tagEven)
+      ELSE
+        w = stepWide(w, i, tagOdd)
+      END IF
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = wideSum(w)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_record_wide = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("record", "wide", times))
+END FUNC
+
+' ---- record nested: 300,000 updates of a Wide inside a Holder inside a List ---
+FUNC test_record_nested(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET tagEven AS String = "even-step"
+  LET tagOdd AS String = "odd"
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT holders AS List OF Holder = []
+    FOR k = 0 TO 63
+      holders = collections::append(holders, Holder[id := k, label := "holder-" & toString(k), inner := newWide(k), touches := 0])
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR i = 0 TO 299999
+      LET k AS Integer = i MOD 64
+      LET h AS Holder = collections::get(holders, k)
+      IF i MOD 2 = 0 THEN
+        holders = collections::set(holders, k, WITH h { inner := stepWide(h.inner, i, tagEven), touches := h.touches + 1 })
+      ELSE
+        holders = collections::set(holders, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })
+      END IF
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    MUT sumv AS Integer = 0
+    FOR k = 0 TO 63
+      LET h AS Holder = collections::get(holders, k)
+      sumv = sumv + h.id + len(h.label) + h.touches + wideSum(h.inner)
+    NEXT
+    checksum = sumv
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_record_nested = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("record", "nested", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: float (nbody_rec / nbody_vec)
+' ===========================================================================
+
+TYPE Body
+  x AS Float
+  y AS Float
+  z AS Float
+  vx AS Float
+  vy AS Float
+  vz AS Float
+  mass AS Float
+END TYPE
+
+TYPE VBody
+  pos AS vector::Float3
+  vel AS vector::Float3
+  mass AS Float
+END TYPE
+
+' The five Jovian bodies of `float nbody`, with the sun's velocity offset so the
+' system's total momentum is zero (summed over bodies 0..4 in order).
+FUNC nbodyBodies() AS List OF Body
+  LET pi AS Float = 3.141592653589793
+  LET solarMass AS Float = 4.0 * pi * pi
+  LET dpy AS Float = 365.24
+  MUT bodies AS List OF Body = []
+  bodies = collections::append(bodies, Body[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, solarMass])
+  bodies = collections::append(bodies, Body[4.84143144246472090, -1.16032004402742839, -0.103622044471123109, 0.00166007664274403694 * dpy, 0.00769901118419740425 * dpy, -0.0000690460016972063023 * dpy, 0.000954791938424326609 * solarMass])
+  bodies = collections::append(bodies, Body[8.34336671824457987, 4.12479856412430479, -0.403523417114321381, -0.00276742510726862411 * dpy, 0.00499852801234917238 * dpy, 0.0000230417297573763929 * dpy, 0.000285885980666130812 * solarMass])
+  bodies = collections::append(bodies, Body[12.8943695621391310, -15.1111514016986312, -0.223307578892655734, 0.00296460137564761618 * dpy, 0.00237847173959480950 * dpy, -0.0000296589568540237556 * dpy, 0.0000436624404335156298 * solarMass])
+  bodies = collections::append(bodies, Body[15.3796971148509165, -25.9193146099879641, 0.179258772950371181, 0.00268067772490389322 * dpy, 0.00162824170038242295 * dpy, -0.0000951592254519715870 * dpy, 0.0000515138902046611451 * solarMass])
+  MUT px AS Float = 0.0
+  MUT py AS Float = 0.0
+  MUT pz AS Float = 0.0
+  FOR i = 0 TO 4
+    LET b AS Body = collections::get(bodies, i)
+    px = px + b.vx * b.mass
+    py = py + b.vy * b.mass
+    pz = pz + b.vz * b.mass
+  NEXT
+  LET sun AS Body = collections::get(bodies, 0)
+  bodies = collections::set(bodies, 0, WITH sun { vx := -px / solarMass, vy := -py / solarMass, vz := -pz / solarMass })
+  RETURN bodies
+END FUNC
+
+FUNC nbodyEnergy(bodies AS List OF Body) AS Float
+  MUT e AS Float = 0.0
+  FOR i = 0 TO 4
+    LET bi AS Body = collections::get(bodies, i)
+    e = e + 0.5 * bi.mass * (bi.vx * bi.vx + bi.vy * bi.vy + bi.vz * bi.vz)
+    FOR j = i + 1 TO 4
+      LET bj AS Body = collections::get(bodies, j)
+      LET dx AS Float = bi.x - bj.x
+      LET dy AS Float = bi.y - bj.y
+      LET dz AS Float = bi.z - bj.z
+      e = e - bi.mass * bj.mass / math::sqrt(dx * dx + dy * dy + dz * dz)
+    NEXT
+  NEXT
+  RETURN e
+END FUNC
+
+FUNC test_nbody_rec(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET dt AS Float = 0.01
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT bodies AS List OF Body = nbodyBodies()
+    FOR s = 0 TO 99999
+      FOR i = 0 TO 4
+        FOR j = i + 1 TO 4
+          LET bi AS Body = collections::get(bodies, i)
+          LET bj AS Body = collections::get(bodies, j)
+          LET dx AS Float = bi.x - bj.x
+          LET dy AS Float = bi.y - bj.y
+          LET dz AS Float = bi.z - bj.z
+          LET d2 AS Float = dx * dx + dy * dy + dz * dz
+          LET mag AS Float = dt / (d2 * math::sqrt(d2))
+          bodies = collections::set(bodies, i, WITH bi { vx := bi.vx - dx * bj.mass * mag, vy := bi.vy - dy * bj.mass * mag, vz := bi.vz - dz * bj.mass * mag })
+          bodies = collections::set(bodies, j, WITH bj { vx := bj.vx + dx * bi.mass * mag, vy := bj.vy + dy * bi.mass * mag, vz := bj.vz + dz * bi.mass * mag })
+        NEXT
+      NEXT
+      FOR i = 0 TO 4
+        LET b AS Body = collections::get(bodies, i)
+        bodies = collections::set(bodies, i, WITH b { x := b.x + dt * b.vx, y := b.y + dt * b.vy, z := b.z + dt * b.vz })
+      NEXT
+    NEXT
+    checksum = math::round(nbodyEnergy(bodies) * 1000000000.0)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_float_nbody_rec = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("float", "nbody_rec", times))
+END FUNC
+
+FUNC test_nbody_vec(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET dt AS Float = 0.01
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT bodies AS List OF VBody = []
+    FOR EACH b IN nbodyBodies()
+      bodies = collections::append(bodies, VBody[vector::Float3[b.x, b.y, b.z], vector::Float3[b.vx, b.vy, b.vz], b.mass])
+    NEXT
+    FOR s = 0 TO 99999
+      FOR i = 0 TO 4
+        FOR j = i + 1 TO 4
+          LET bi AS VBody = collections::get(bodies, i)
+          LET bj AS VBody = collections::get(bodies, j)
+          LET d AS vector::Float3 = vector::Float3[bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z]
+          LET d2 AS Float = vector::dot(d, d)
+          LET mag AS Float = dt / (d2 * math::sqrt(d2))
+          bodies = collections::set(bodies, i, WITH bi { vel := vector::Float3[bi.vel.x - d.x * bj.mass * mag, bi.vel.y - d.y * bj.mass * mag, bi.vel.z - d.z * bj.mass * mag] })
+          bodies = collections::set(bodies, j, WITH bj { vel := vector::Float3[bj.vel.x + d.x * bi.mass * mag, bj.vel.y + d.y * bi.mass * mag, bj.vel.z + d.z * bi.mass * mag] })
+        NEXT
+      NEXT
+      FOR i = 0 TO 4
+        LET b AS VBody = collections::get(bodies, i)
+        bodies = collections::set(bodies, i, WITH b { pos := vector::Float3[b.pos.x + dt * b.vel.x, b.pos.y + dt * b.vel.y, b.pos.z + dt * b.vel.z] })
+      NEXT
+    NEXT
+    MUT e AS Float = 0.0
+    FOR i = 0 TO 4
+      LET bi AS VBody = collections::get(bodies, i)
+      e = e + 0.5 * bi.mass * vector::dot(bi.vel, bi.vel)
+      FOR j = i + 1 TO 4
+        LET bj AS VBody = collections::get(bodies, j)
+        e = e - bi.mass * bj.mass / vector::distance(bi.pos, bj.pos)
+      NEXT
+    NEXT
+    checksum = math::round(e * 1000000000.0)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_float_nbody_vec = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("float", "nbody_vec", times))
+END FUNC

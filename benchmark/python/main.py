@@ -32,6 +32,7 @@ import mathbench
 import mathpipe
 import os
 import pipelinebench
+import recordbench
 import re
 import regexbench
 import scalarbench
@@ -777,6 +778,7 @@ def main():
     test_leibniz()
     test_nbody()
     test_mandelbrot()
+    recordbench.run_float(RUN, now_ns, record)  # float nbody_rec/nbody_vec — P1 coverage
 
     # float matmul + mathpipe group (dft, stats); finance is mfb-only
     mathpipe.run_all(RUN, now_ns, record)
@@ -832,6 +834,7 @@ def main():
     serializebench.run_all(RUN, now_ns, record)
 
     test_record_update()
+    recordbench.run_record(RUN, now_ns, record)  # record wide/nested — P1 coverage
 
     test_bignum_modmul()
     test_bignum_modexp()
