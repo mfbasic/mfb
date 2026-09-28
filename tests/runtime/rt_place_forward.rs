@@ -455,3 +455,43 @@ END FUNC
         "3,4,5, 12\n",
     );
 }
+
+/// The forward can manufacture a self-aliasing operand: `LET snap = nums;
+/// nums = append(nums, snap)` becomes `nums = append(nums, nums)`, where the
+/// in-place arm grows the very block it reads from. The result must still be the
+/// old value appended to itself — for a local, a field, a list that must
+/// reallocate, and variable-width elements.
+#[test]
+fn a_forward_that_makes_the_operand_read_itself() {
+    assert_same_output(
+        "pf_self_operand",
+        "TYPE RS
+  n AS Integer
+  ss AS List OF String
+END TYPE
+FUNC main AS Integer
+  MUT b AS List OF Integer = [1, 2, 3]
+  LET snap AS List OF Integer = b
+  b = collections::append(b, snap)
+  io::print(show(b))
+  MUT q AS R = mk()
+  LET cur AS List OF Integer = q.xs
+  q = WITH q { xs := collections::append(q.xs, cur) }
+  io::print(show(q.xs))
+  MUT big AS List OF Integer = []
+  FOR i = 1 TO 50
+    big = collections::append(big, i)
+  NEXT
+  LET snap2 AS List OF Integer = big
+  big = collections::append(big, snap2)
+  io::print(toString(len(big)) & \" \" & toString(collections::get(big, 50)) & \" \" & toString(collections::get(big, 99)))
+  MUT s AS RS = RS[0, [\"ab\", \"cd\"]]
+  LET cs AS List OF String = s.ss
+  s = WITH s { ss := collections::append(s.ss, cs) }
+  io::print(toString(len(s.ss)) & \" \" & collections::get(s.ss, 3))
+  RETURN 0
+END FUNC
+",
+        "1,2,3,1,2,3,\n1,2,3,1,2,3,\n100 1 50\n4 cd\n",
+    );
+}

@@ -3326,8 +3326,7 @@
         "else": [
         ]
       },
-      { "op": "bind", "mutable": false, "name": "roman", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
-      { "op": "return", "value": { "kind": "local", "name": "roman" } }
+      { "op": "return", "value": { "kind": "local", "name": "$trap_val3" } }
       ],
       "else": [
       ]
@@ -3355,8 +3354,7 @@
       { "op": "return", "value": { "kind": "const", "type": "String", "value": "" } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "wide", "type": "String", "value": { "kind": "local", "name": "$trap_val6" } },
-    { "op": "return", "value": { "kind": "local", "name": "wide" } }
+    { "op": "return", "value": { "kind": "local", "name": "$trap_val6" } }
     ]
   },
   {
@@ -5838,10 +5836,9 @@
       { "op": "return", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_val8" } },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "<", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "raw" }] }, "right": { "kind": "local", "name": "expected" } },
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "$trap_val8" }] }, "right": { "kind": "local", "name": "expected" } },
       "then": [
       { "op": "return", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
       ],
@@ -5866,14 +5863,14 @@
       "then": [
       {
         "op": "if",
-        "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "#canvas_pngPassBytes", "args": [{ "kind": "local", "name": "header" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "raw" }] } },
+        "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "#canvas_pngPassBytes", "args": [{ "kind": "local", "name": "header" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "$trap_val8" }] } },
         "then": [
         { "op": "return", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "name": "pixels", "value": { "kind": "call", "target": "#canvas_pngPass", "args": [{ "kind": "local", "name": "pixels" }, { "kind": "local", "name": "header" }, { "kind": "local", "name": "raw" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "palette" }, { "kind": "local", "name": "alphas" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }] } }
+      { "op": "assign", "name": "pixels", "value": { "kind": "call", "target": "#canvas_pngPass", "args": [{ "kind": "local", "name": "pixels" }, { "kind": "local", "name": "header" }, { "kind": "local", "name": "$trap_val8" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "palette" }, { "kind": "local", "name": "alphas" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }] } }
       ],
       "else": [
       { "op": "bind", "mutable": true, "name": "rawAt", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
@@ -5892,14 +5889,14 @@
           "then": [
           {
             "op": "if",
-            "condition": { "kind": "binary", "op": ">", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "rawAt" }, "right": { "kind": "local", "name": "passBytes" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "raw" }] } },
+            "condition": { "kind": "binary", "op": ">", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "rawAt" }, "right": { "kind": "local", "name": "passBytes" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "$trap_val8" }] } },
             "then": [
             { "op": "return", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
             ],
             "else": [
             ]
           },
-          { "op": "assign", "name": "pixels", "value": { "kind": "call", "target": "#canvas_pngPass", "args": [{ "kind": "local", "name": "pixels" }, { "kind": "local", "name": "header" }, { "kind": "local", "name": "raw" }, { "kind": "local", "name": "rawAt" }, { "kind": "local", "name": "palette" }, { "kind": "local", "name": "alphas" }, { "kind": "call", "target": "#canvas_adam7XOrigin", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7YOrigin", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7XStep", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7YStep", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "local", "name": "passWidth" }, { "kind": "local", "name": "passHeight" }] } },
+          { "op": "assign", "name": "pixels", "value": { "kind": "call", "target": "#canvas_pngPass", "args": [{ "kind": "local", "name": "pixels" }, { "kind": "local", "name": "header" }, { "kind": "local", "name": "$trap_val8" }, { "kind": "local", "name": "rawAt" }, { "kind": "local", "name": "palette" }, { "kind": "local", "name": "alphas" }, { "kind": "call", "target": "#canvas_adam7XOrigin", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7YOrigin", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7XStep", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "call", "target": "#canvas_adam7YStep", "args": [{ "kind": "local", "name": "pass" }] }, { "kind": "local", "name": "passWidth" }, { "kind": "local", "name": "passHeight" }] } },
           { "op": "assign", "name": "rawAt", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "rawAt" }, "right": { "kind": "local", "name": "passBytes" } } }
           ],
           "else": [
@@ -6271,10 +6268,9 @@
     { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "44" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "fillGradient" }, "member": "startPoint" }, "member": "y" }] } },
     { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "45" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "fillGradient" }, "member": "endPoint" }, "member": "x" }] } },
     { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "46" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "fillGradient" }, "member": "endPoint" }, "member": "y" }] } },
-    { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Transform", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" } },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "a" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "c" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "d" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "tx" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "ty" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } },
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "a" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "c" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "d" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "tx" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "ty" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } },
       "then": [
       { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "27" }, { "kind": "const", "type": "Float", "value": "1065353216.0" }] } },
       { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Float", "value": "1065353216.0" }] } },
@@ -6283,7 +6279,7 @@
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "inv", "type": "List OF Float", "value": { "kind": "call", "target": "#canvas_invertTransform", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "mutable": false, "name": "inv", "type": "List OF Float", "value": { "kind": "call", "target": "#canvas_invertTransform", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }] } },
     { "op": "bind", "mutable": true, "name": "ti", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
@@ -7657,10 +7653,8 @@
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "c", "type": "canvas.Bounds", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" } },
-    { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Transform", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" } },
-    { "op": "bind", "mutable": false, "name": "hasClip", "type": "Boolean", "value": { "kind": "unary", "op": "NOT", "operand": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "x" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "y" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "w" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "h" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } } } },
-    { "op": "bind", "mutable": false, "name": "hasTransform", "type": "Boolean", "value": { "kind": "unary", "op": "NOT", "operand": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "a" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "c" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "d" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "tx" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "ty" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } } } },
+    { "op": "bind", "mutable": false, "name": "hasClip", "type": "Boolean", "value": { "kind": "unary", "op": "NOT", "operand": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "x" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "y" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "w" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "h" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } } } },
+    { "op": "bind", "mutable": false, "name": "hasTransform", "type": "Boolean", "value": { "kind": "unary", "op": "NOT", "operand": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "a" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "b" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "c" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "d" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "tx" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "ty" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } } } } },
     { "op": "bind", "mutable": false, "name": "stopCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "fillGradient" }, "member": "stops" }] } },
     { "op": "bind", "mutable": true, "name": "flags", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
@@ -7695,7 +7689,7 @@
       "op": "if",
       "condition": { "kind": "local", "name": "hasClip" },
       "then": [
-      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "x" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "y" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "w" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "h" }] } }
+      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "x" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "y" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "w" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "clip" }, "member": "h" }] } }
       ],
       "else": [
       ]
@@ -7704,8 +7698,8 @@
       "op": "if",
       "condition": { "kind": "local", "name": "hasTransform" },
       "then": [
-      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "a" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "b" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "c" }] } },
-      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "d" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "tx" }] }, { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "ty" }] } }
+      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "a" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "b" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "c" }] } },
+      { "op": "assign", "name": "h", "value": { "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "call", "target": "#canvas_hashFloat", "args": [{ "kind": "local", "name": "h" }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "d" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "tx" }] }, { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "paint" }, "member": "transform" }, "member": "ty" }] } }
       ],
       "else": [
       ]
@@ -9254,16 +9248,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "local", "name": "items" },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match13", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match13" },
+        "value": { "kind": "local", "name": "item" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match13" } } },
+          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "item" } } },
           {
             "op": "if",
             "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "depth" }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
@@ -9596,16 +9589,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.groupItems", "args": [{ "kind": "local", "name": "slot" }] },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match14", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "child" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match14" },
+        "value": { "kind": "local", "name": "child" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match14" } } },
+          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "child" } } },
           { "op": "bind", "mutable": false, "name": "nested", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
           ]
         },
@@ -9660,16 +9652,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.groupItems", "args": [{ "kind": "local", "name": "slot" }] },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match15", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "child" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match15" },
+        "value": { "kind": "local", "name": "child" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match15" } } },
+          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "child" } } },
           { "op": "eval", "value": { "kind": "call", "target": "#canvas_drawGroup", "args": [{ "kind": "runtimeCall", "helper": "canvas", "target": "canvas.groupResolve", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "name" }] }, { "kind": "local", "name": "hashes" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "gdx" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "dx" } }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "gdy" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "dy" } }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "depth" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
           ]
         },
@@ -9924,16 +9915,15 @@
           { "op": "assign", "name": "spans", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "spans" }, { "kind": "local", "name": "i" }] } },
           { "op": "assign", "name": "spans", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "spans" }, { "kind": "local", "name": "before" }] } },
           { "op": "assign", "name": "spans", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "spans" }, { "kind": "binary", "op": "-", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "side" }] }, "right": { "kind": "local", "name": "before" } }] } },
-          { "op": "bind", "mutable": false, "name": "$match17", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
           {
             "op": "match",
-            "value": { "kind": "local", "name": "$match17" },
+            "value": { "kind": "local", "name": "item" },
             "cases": [
             {
               "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
               "guard": null,
               "body": [
-              { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match17" } } },
+              { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "item" } } },
               { "op": "storeGlobal", "name": "#CANVAS_TOP_OFFSETS", "type": "", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "global", "name": "#CANVAS_TOP_OFFSETS", "type": "" }, { "kind": "local", "name": "i" }, { "kind": "const", "type": "Integer", "value": "-1" }] } }
               ]
             },
@@ -10387,16 +10377,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "local", "name": "gone" },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match18", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match18" },
+        "value": { "kind": "local", "name": "item" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Picture" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match18" } } },
+          { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "item" } } },
           { "op": "bind", "mutable": false, "name": "ih", "type": "Integer", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.imageHandle", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "image" }] } },
           {
             "op": "if",
@@ -10413,7 +10402,7 @@
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Text" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match18" } } },
+          { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "item" } } },
           { "op": "bind", "mutable": false, "name": "fh", "type": "Integer", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.fontHandle", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "font" }] } },
           {
             "op": "if",
@@ -10542,16 +10531,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "local", "name": "live" },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match19", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match19" },
+        "value": { "kind": "local", "name": "item" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Picture" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match19" } } },
+          { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "item" } } },
           {
             "op": "if",
             "condition": { "kind": "binary", "op": "=", "left": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.imageHandle", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "image" }] }, "right": { "kind": "local", "name": "handle" } },
@@ -10594,16 +10582,15 @@
       "type": "canvas.DrawItem",
       "iterable": { "kind": "local", "name": "live" },
       "body": [
-      { "op": "bind", "mutable": false, "name": "$match20", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
       {
         "op": "match",
-        "value": { "kind": "local", "name": "$match20" },
+        "value": { "kind": "local", "name": "item" },
         "cases": [
         {
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Text" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match20" } } },
+          { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "item" } } },
           {
             "op": "if",
             "condition": { "kind": "binary", "op": "=", "left": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.fontHandle", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "font" }] }, "right": { "kind": "local", "name": "handle" } },

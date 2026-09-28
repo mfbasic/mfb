@@ -219,6 +219,21 @@ Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commi
 
 ## Corrections
 
+- **The golden-diff census looked in the wrong place (final gate).** The two `grep` commands in the Validation Plan
+  scan fixture *sources*; the diffs came instead from the MFBASIC helper code of builtin packages, which is merged into
+  every module that imports them and which the row also optimizes. The first full gate
+  (`scripts/artifact-gate.sh target/release/mfb all`) reported `1545 tests, 2182 golden(s) checked, 60 diff(s)`
+  across 12 fixtures, each on every one of its targets (a real codegen change, not a broken regen): `byte-identity/`
+  `udp tls tcp strings regex net json http csv crypto`, `rt-behavior/crypto/crypto-ec-valid` and
+  `syntax/app/app-mouse-surface`. Each was localized by NIR diff between the pre-A2 compiler and this one
+  (`/tmp/p149/classify.sh` → `/tmp/p149/nirdiff.py`, which drops each vanished `LET <name> = <place>` bind and
+  substitutes the place for its reads in the *before* body, then requires byte equality with the *after* body): 32
+  changed functions, **32 exactly explained** by forwarding. Every one is a package helper, for example
+  `#net_decodeQueryComponent` (`decoded`), `#json_get` (`currentValue`, then the chained `$match7`),
+  `#crypto_openSealed` (`ct`, `tg`) and `#canvas_hashPaint` (`c`, `t`). No fixture's own source contributed. The 60
+  goldens were regenerated with `scripts/regen-native-goldens.sh target/release/mfb <the 12 dirs>`
+  (`60 golden(s) rewritten, 0 failure(s)`; the rewritten set equals the diff set).
+
 - **C2's counts and command.** `FIELD_SITES` has 15 sites, not 19 (`grep -c 'FieldSite::[ST][0-9]*,' ` over the
   `FIELD_SITES` array → 15; `S8` and `T9`–`T12` do not exist), so the sample is 75 cells, not 95. The acceptance
   command `MFB_SELF_UPDATE_FILTER=via_let … -- --ignored` would have failed for the wrong reason: that variable
