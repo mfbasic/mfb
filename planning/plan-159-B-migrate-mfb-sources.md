@@ -175,15 +175,34 @@ Commit: —
       3 NOT caused by B — they fail identically on a detached plan-base build
       (`/tmp/p159-base`, `3 mismatch(es) (3 test(s) ran)`) and are left untouched here
       (Corrections). Covers `syntax/**` too.
-- [ ] 2.4 Confirm that no `.ncode`/`.ncodesum` golden changed:
-      `git diff --stat -- '*.ncode' '*.ncodesum'` → empty.
-- [ ] 2.5 Fixtures whose *comment* documents SUB semantics (for example
+- [x] 2.4 Confirm that no `.ncode`/`.ncodesum` golden changed:
+      `git diff --stat -- '*.ncode' '*.ncodesum'` → empty. — `git diff --stat 4fe38df41
+      -- '*.ncode' '*.ncodesum'` → empty. (No committed `.ncode` golden links a rebuilt
+      package, so the §2 identity-prefix exception had no instance.)
+- [x] 2.5 Fixtures whose *comment* documents SUB semantics (for example
       `functions/overload-sub-valid`, `functions/user-function-stack-args-valid`):
       reword the comment. Where a fixture's whole point is "SUB overloading", rename
       the fixture directory only if D would otherwise leave a misleading name. Record
-      each rename here, and update its goldens' project name in the same commit.
+      each rename here, and update its goldens' project name in the same commit. — Prose
+      reworded in 14 fixtures (the 22 rewriter reports minus the exclusion list, line
+      counts unchanged; landed with 2.1). Renamed `sub`→`nothing` (21, dir + package name
+      + golden file names/contents + the Rust fixture lists in `resolver/mod.rs`,
+      `codegen/builtins/tests/{corpus,fixture_projects}.rs`; `/tmp/p159/rename.py`):
+      `syntax/trap/control-flow-sub-trap-valid`→`control-flow-nothing-trap-valid`,
+      `rt-behavior/functions/overload-sub-valid`→`overload-nothing-valid`,
+      `syntax/functions/sub-template-valid`→`template-nothing-valid`, and
+      `project-entry-sub-{main,foobar,default,args-main,args-foobar,args-default}` →
+      `project-entry-nothing-*` under `syntax/project` (as-is), `rt-behavior/project`
+      (`-trap`) and `rt-error/project` (`-error`). Checks: `test-accept.sh …
+      'project-entry-nothing-*' overload-nothing-valid template-nothing-valid
+      control-flow-nothing-trap-valid` → `passed (21 test(s) ran)`; `cargo test --bin mfb
+      -- resolve_valid_fixtures_succeed builtins_codegen::fixture_projects
+      builtins_codegen::corpus` → `6 passed; 0 failed`.
 
 Acceptance: only the exclusion list still contains `SUB`; the native goldens are byte-identical.
+  Result (2026-09-27, after 2.5): §1 `rg` → exactly the 4 exclusion sources that contain SUB;
+  `artifact-gate.sh target/release/mfb all` → `1544 tests, 1723 build(s), 2182 golden(s)
+  checked, 0 diff(s)`.
   Check: `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (est. 20 min; this is the only instrument that checks every `.ncodesum` across 5 targets, and B touches ~200 fixtures, so no smaller check covers them). Do not run it concurrently with another gate (`pgrep -f artifact-gate` first).
 Commit: —
 
@@ -196,8 +215,9 @@ Commit: —
 
 ## Open Decisions
 
-- Fixtures named after `SUB` (`overload-sub-valid`, `sub-template-valid`): rename now
-  (recommended; D would otherwise delete-and-recreate them) or leave them for D.
+- ~~Fixtures named after `SUB` (`overload-sub-valid`, `sub-template-valid`): rename now
+  (recommended; D would otherwise delete-and-recreate them) or leave them for D.~~ —
+  resolved: renamed now (2.5), all 21 SUB-named fixtures.
 
 ## Corrections
 

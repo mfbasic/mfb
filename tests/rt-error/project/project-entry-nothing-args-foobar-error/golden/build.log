@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/project/project-entry-nothing-args-foobar-error
+Wrote AST to tests/rt-error/project/project-entry-nothing-args-foobar-error/project_entry_nothing_args_foobar_error.ast
+Wrote IR to tests/rt-error/project/project-entry-nothing-args-foobar-error/project_entry_nothing_args_foobar_error.ir
+[exit 0]
+$ mfb build tests/rt-error/project/project-entry-nothing-args-foobar-error
+Wrote executable to tests/rt-error/project/project-entry-nothing-args-foobar-error/build/project_entry_nothing_args_foobar_error.out
+[exit 0]
+$ tests/rt-error/project/project-entry-nothing-args-foobar-error/build/project_entry_nothing_args_foobar_error.out
+Error: 100
+This is a message
+[exit 255]

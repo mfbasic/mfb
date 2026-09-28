@@ -1055,7 +1055,7 @@ mod tests {
             "control-flow-match-when",
             "control-flow-if",
             "overload-func-valid",
-            "overload-sub-valid",
+            "overload-nothing-valid",
             "doc-block-valid",
             "native-resource-link-valid",
             "math_package_valid",

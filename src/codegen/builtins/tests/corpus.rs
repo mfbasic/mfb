@@ -280,7 +280,7 @@ pub(super) const CORPUS: &[&str] = &[
     "optimizer-loop-shapes-rt",
     "state-scalar-inplace-decline-rt",
     "default-values-rt",
-    "overload-sub-valid",
+    "overload-nothing-valid",
     "user-function-default-args-result-valid",
     "user-function-stack-args-valid",
     // rt-behavior/general
@@ -600,7 +600,7 @@ pub(super) const CORPUS: &[&str] = &[
     "func_override_reserved_invalid",
     "func_visibility_export_in_executable_invalid",
     "private_isolated_func_valid",
-    "sub-template-valid",
+    "template-nothing-valid",
     // syntax/http
     "http_async_stream_valid",
     // syntax/io
@@ -659,7 +659,7 @@ pub(super) const CORPUS: &[&str] = &[
     "connect_valid",
     "endpoints_valid",
     // syntax/trap
-    "control-flow-sub-trap-valid",
+    "control-flow-nothing-trap-valid",
     "control-flow-trap-valid",
     // syntax/types
     "mut-default-collection-of-nondefaultable-valid",
@@ -831,10 +831,10 @@ pub(super) const CORPUS: &[&str] = &[
     "project-entry-func-named-args-valid",
     "project-entry-func-trap",
     "project-entry-param-trap",
-    "project-entry-sub-args-default-trap",
-    "project-entry-sub-args-main-trap",
-    "project-entry-sub-default-trap",
-    "project-entry-sub-main-trap",
+    "project-entry-nothing-args-default-trap",
+    "project-entry-nothing-args-main-trap",
+    "project-entry-nothing-default-trap",
+    "project-entry-nothing-main-trap",
     "regex-find-absence-rt",
     "replace-empty-pattern-rt",
     "strings-empty-needle-rt",

@@ -1,0 +1,32 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "buildMode": "console",
+  "project": "project_entry_nothing_args_foobar",
+  "entry": {
+    "name": "foobar",
+    "returns": "Nothing",
+    "accepts_args": true
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": [],
+  "functions": [
+  {
+    "name": "foobar",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "args", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}
