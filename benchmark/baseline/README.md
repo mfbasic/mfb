@@ -24,9 +24,9 @@ README).
 
 Provenance:
 
-- date: 2026-09-03 (run timestamp `20260903-084033`)
-- commit: `3ccc68297`
-- host: Apple M2 Max, macOS 15.7.7 (arm64)
+- date: 2026-09-28 (run timestamp `20260928-055319`)
+- commit: `9c1ea5568`
+- host: Apple M2 Max, macOS 15.7.7 (arm64), load average ~2.7–3.5 at start
 - command: `./benchmark/run.sh 10`
 
 Rank these numbers with `./benchmark/rank.py` (see `benchmark/RANKING.md`).
@@ -37,14 +37,16 @@ between two columns `min` is measurably the more stable estimator
 Timings are host-specific — compare a new run against this baseline only on
 comparable hardware, and prefer the median column.
 
-**This run was taken on a loaded machine** (load average ~8–16 throughout; a
-second build was running on the same host). Absolute times are therefore inflated
-and should not be compared against an earlier baseline taken on a quiet one. The
-*ratios* between columns are what `rank.py` grades and they are unaffected, since
-all six targets ran under the same conditions within the one run — but do not
-read the raw millisecond figures as a machine-independent record.
+This run replaced the 2026-09-03 baseline (`3ccc68297`), which had been taken on
+a loaded machine (load average ~8–16) and so inflated every absolute time; the C
+and Python columns ran ~7% faster here under the same hardware. Two mfb-only
+checksums moved against that baseline, both from deliberate `Fixed` accuracy
+fixes rather than a work change: `math_fixed` (197572.096519 → 197572.096513;
+correctly-rounded trig, bug-615, and `exp`/`pow` reduction, bug-659) and
+`vector_fixed` (1959779.201230 → 1959779.331315; `angle`/`slerp`/`project`/
+`reject`/`clamp_length` rounded once, bug-654).
 
-plan-121-E additionally changed what three rows measure. `isSubset`/`isSuperset`/
+plan-121-E (landed in the previous baseline) changed what three rows measure. `isSubset`/`isSuperset`/
 `isDisjoint` now use a **TRUE** predicate (a full scan in every language) instead
 of a FALSE one that let each language early-exit at whatever point its own
 iteration order met the single counterexample, and the C peer gained a compact
@@ -52,3 +54,8 @@ element index so ITERATING a set is O(n) there as it already was in mfb and
 Python. Both changes make the row measure the operation; neither flatters any
 language. Their checksums changed from `0` to `k_pred` as a result — a checksum of
 0 on a predicate row was the signal that the predicate never held.
+
+This baseline **includes** the performance regressions filed as bug-760 (measured
+against the previous baseline: record-field `groupby`/`sortBy`, plain map
+`removeKey`/set `remove`, `float nbody`, and the `-O1`-only list `sort*`/`find`
+and `width` rows). A run after that fix should show those rows improve, not match.
