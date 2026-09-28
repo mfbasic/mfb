@@ -362,6 +362,14 @@ name = "codegen_place_forward"
 path = "tests/codegen/codegen_place_forward.rs"
 
 [[test]]
+name = "codegen_forwarded_field_fast_path"
+path = "tests/codegen/codegen_forwarded_field_fast_path.rs"
+
+[[test]]
+name = "codegen_regalloc_eviction"
+path = "tests/codegen/codegen_regalloc_eviction.rs"
+
+[[test]]
 name = "codegen_inplace_remove_at_insert"
 path = "tests/codegen/codegen_inplace_remove_at_insert.rs"
 
@@ -905,6 +913,14 @@ path = "tests/runtime/rt_list_append_growth_bounds.rs"
 [[test]]
 name = "rt_list_set_widening_linear"
 path = "tests/runtime/rt_list_set_widening_linear.rs"
+
+[[test]]
+name = "rt_map_fifo_removal_flat"
+path = "tests/runtime/rt_map_fifo_removal_flat.rs"
+
+[[test]]
+name = "rt_map_list_value_grow_cost"
+path = "tests/runtime/rt_map_list_value_grow_cost.rs"
 
 [[test]]
 name = "rt_list_take_drop_in_place"
