@@ -384,7 +384,11 @@ exceeds the 12-bit immediate in **`t0`** (`emit_store`). So in a frame over 2 Ki
 spill code overwrites `t0`, and only `t0`. Two rules follow:
 
 * **Never hold a value in `t0` across an instruction that names a vreg** (or into
-  a reader that names one). Use `t1`/`t2`, which spill code never touches. The
+  a reader that names one, or out of a writer that names one — an eviction
+  restore lands right after the writer, and an FP restore is an `fld` that builds
+  its address in `t0`). Use `t1`/`t2`, which spill code never touches.
+  `float_branch`'s `rv.fcmp t0, %f…` → `rv.br t0` broke this until bug-760: -O1
+  `nbody` on 2229 raised a spurious "overflowed to infinity". The
   fused immediate compare, the overflow add/sub and the rhs snapshot store all held
   `t0` there, and `tests/byte-identity/general`'s `toMoney("1.25")` trapped under
   qemu. It is invisible until a frame crosses 2 KiB: adding one unrelated block to a

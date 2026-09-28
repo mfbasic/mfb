@@ -46,7 +46,9 @@ use super::regmodel::ARENA_BASE_REGISTER;
 /// in `t0` (`encode::emitter::Encoder::emit_store`), so in a frame over 2 KiB spill
 /// code overwrites `t0` — and only `t0`. A value the selector writes in one emitted
 /// instruction and reads in a later one, with a virtual register named in between
-/// (or by the reader itself), must therefore live in `t1`/`t2`, never `t0`.
+/// (or by the reader itself, or by the writer — an eviction restore lands after
+/// it, and an FP restore is an `fld` that builds its address in `t0`), must
+/// therefore live in `t1`/`t2`, never `t0`.
 const T0: &str = "t0";
 const T1: &str = "t1";
 const T2: &str = "t2";
@@ -156,17 +158,21 @@ fn float_branch(cond: &str, lhs: &Operand, rhs: &Operand, target: &str) -> Vec<C
         )
     };
     match cond {
+        // The bool lives in `t1`, never `t0` (bug-749's spill-safe rule): the
+        // compare names the operands' FP registers, so the FP allocator may put an
+        // eviction restore — an `fld` whose out-of-range `sp` offset the encoder
+        // builds in `t0` — between the compare and the branch.
         // Ordered-only relations: the compare already excludes NaN, so branch when true.
-        "b.gt" => vec![cmp(T0, "lt", rhs, lhs), br(T0, "ne")], // rhs < lhs
-        "b.ge" => vec![cmp(T0, "le", rhs, lhs), br(T0, "ne")], // rhs <= lhs
-        "b.mi" | "b.lo" => vec![cmp(T0, "lt", lhs, rhs), br(T0, "ne")], // lhs < rhs (ordered)
-        "b.ls" => vec![cmp(T0, "le", lhs, rhs), br(T0, "ne")], // lhs <= rhs (ordered)
-        "b.eq" => vec![cmp(T0, "eq", lhs, rhs), br(T0, "ne")], // lhs == rhs (ordered)
+        "b.gt" => vec![cmp(T1, "lt", rhs, lhs), br(T1, "ne")], // rhs < lhs
+        "b.ge" => vec![cmp(T1, "le", rhs, lhs), br(T1, "ne")], // rhs <= lhs
+        "b.mi" | "b.lo" => vec![cmp(T1, "lt", lhs, rhs), br(T1, "ne")], // lhs < rhs (ordered)
+        "b.ls" => vec![cmp(T1, "le", lhs, rhs), br(T1, "ne")], // lhs <= rhs (ordered)
+        "b.eq" => vec![cmp(T1, "eq", lhs, rhs), br(T1, "ne")], // lhs == rhs (ordered)
         // Unordered-including relations: branch when the ordered complement is false.
-        "b.ne" => vec![cmp(T0, "eq", lhs, rhs), br(T0, "eq")], // NOT(ordered ==) = ≠ or NaN
-        "b.hi" => vec![cmp(T0, "le", lhs, rhs), br(T0, "eq")], // NOT(lhs<=rhs) = > or NaN
-        "b.lt" => vec![cmp(T0, "le", rhs, lhs), br(T0, "eq")], // NOT(rhs<=lhs) = < or NaN
-        "b.le" => vec![cmp(T0, "lt", rhs, lhs), br(T0, "eq")], // NOT(rhs<lhs) = <= or NaN
+        "b.ne" => vec![cmp(T1, "eq", lhs, rhs), br(T1, "eq")], // NOT(ordered ==) = ≠ or NaN
+        "b.hi" => vec![cmp(T1, "le", lhs, rhs), br(T1, "eq")], // NOT(lhs<=rhs) = > or NaN
+        "b.lt" => vec![cmp(T1, "le", rhs, lhs), br(T1, "eq")], // NOT(rhs<=lhs) = < or NaN
+        "b.le" => vec![cmp(T1, "lt", rhs, lhs), br(T1, "eq")], // NOT(rhs<lhs) = <= or NaN
         // Finiteness: unordered iff either operand is not self-equal (NaN).
         "b.vs" => vec![
             cmp(T1, "eq", lhs, lhs),
@@ -1387,6 +1393,44 @@ mod tests {
                 panic!(
                     "{name}: t0 written at {at} is held across a virtual register:\n{}",
                     dump.join("\n")
+                );
+            }
+        }
+    }
+
+    /// bug-760 (found on 2229): a float compare-and-branch whose compare names FP
+    /// virtual registers must not leave its bool in `t0`. The FP allocator may put
+    /// an eviction restore right after the compare — an `fld` whose out-of-range
+    /// `sp` offset the encoder builds in `t0` — so a `t0` bool was overwritten by
+    /// an address before the branch read it (`nbody` at -O1 raised a spurious
+    /// "overflowed to infinity" from its finiteness check).
+    #[test]
+    fn float_compare_branch_keeps_its_bool_out_of_t0() {
+        use crate::codegen::engine::regalloc::{fp_vreg_name, parse_fp_vreg};
+        let (a, b) = (fp_vreg_name(1), fp_vreg_name(2));
+        for cond in [
+            "b.gt", "b.ge", "b.mi", "b.lo", "b.ls", "b.eq", "b.ne", "b.hi", "b.lt", "b.le", "b.vs",
+            "b.vc",
+        ] {
+            let out = sel(&[
+                build("fcmp_d", &[("lhs", &a), ("rhs", &b)]),
+                build(cond, &[("target", "L")]),
+                build("label", &[("name", "L")]),
+                build("ret", &[]),
+            ]);
+            let compares: Vec<&CodeInstruction> =
+                out.iter().filter(|i| i.op == CodeOp::RvFcmp).collect();
+            assert!(!compares.is_empty(), "{cond}: no rv.fcmp");
+            for compare in compares {
+                let names_fp_vreg = compare
+                    .fields
+                    .iter()
+                    .any(|(_, v)| parse_fp_vreg(&v.render()).is_some());
+                assert!(names_fp_vreg, "{cond}: the compare reads the FP vregs");
+                assert_ne!(
+                    compare.get("dst").as_deref(),
+                    Some("t0"),
+                    "{cond}: the compare's bool must not live in t0"
                 );
             }
         }
