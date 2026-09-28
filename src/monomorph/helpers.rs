@@ -707,7 +707,7 @@ pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Visibility};
+    use crate::ast::Visibility;
     use crate::hir::{
         HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirParam, HirTypeField,
     };

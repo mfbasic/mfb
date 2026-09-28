@@ -9,9 +9,7 @@
 //! genuine runtime error, streams the pass/fail tree, and returns a non-zero exit
 //! code iff any case failed.
 
-use crate::ast::{
-    AstProject, CallArg, Expression, Function, Item, Statement, Visibility,
-};
+use crate::ast::{AstProject, CallArg, Expression, Function, Item, Statement, Visibility};
 
 // Names of the generated coverage runtime helpers (plan-18-C). Plain (non-sigil)
 // names so they lower as ordinary declarations; the `__mfb_cov` prefix makes a

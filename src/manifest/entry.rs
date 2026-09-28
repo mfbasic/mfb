@@ -191,7 +191,9 @@ mod tests {
 
     #[test]
     fn sub_entry_accepts_args_parameter() {
-        let hir = project("FUNC main(args AS List OF String) AS Nothing\n  LET n AS Integer = 0\nEND FUNC\n");
+        let hir = project(
+            "FUNC main(args AS List OF String) AS Nothing\n  LET n AS Integer = 0\nEND FUNC\n",
+        );
         let entry = validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),

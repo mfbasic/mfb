@@ -1034,7 +1034,9 @@ mod lower_tests {
 
     #[test]
     fn assignment_to_global_is_assign_global() {
-        let ir = lower_src("MUT counter AS Integer = 0\nFUNC main AS Nothing\n  counter = 5\nEND FUNC\n");
+        let ir = lower_src(
+            "MUT counter AS Integer = 0\nFUNC main AS Nothing\n  counter = 5\nEND FUNC\n",
+        );
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::AssignGlobal { name, .. } if name == "counter")));
@@ -1042,7 +1044,8 @@ mod lower_tests {
 
     #[test]
     fn return_without_value_from_sub() {
-        let ir = lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
+        let ir =
+            lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(function(&ir, "s")
             .body
             .iter()
@@ -1087,7 +1090,8 @@ mod lower_tests {
 
     #[test]
     fn exit_sub_lowers_to_valueless_return() {
-        let ir = lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
+        let ir =
+            lower_src("FUNC s() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n");
         assert!(function(&ir, "s")
             .body
             .iter()
@@ -1157,8 +1161,9 @@ mod lower_tests {
 
     #[test]
     fn for_loop_default_step() {
-        let ir =
-            lower_src("FUNC main AS Nothing\n  FOR i = 1 TO 3\n    LET x AS Integer = i\n  NEXT\nEND FUNC\n");
+        let ir = lower_src(
+            "FUNC main AS Nothing\n  FOR i = 1 TO 3\n    LET x AS Integer = i\n  NEXT\nEND FUNC\n",
+        );
         assert!(main_body(&ir)
             .iter()
             .any(|op| matches!(op, IrOp::For { .. })));
@@ -1460,7 +1465,8 @@ mod lower_tests {
 
     #[test]
     fn error_builtin_lowers_to_error_record() {
-        let ir = lower_src("FUNC main AS Nothing\n  LET e AS Error = error(42, \"bad\")\nEND FUNC\n");
+        let ir =
+            lower_src("FUNC main AS Nothing\n  LET e AS Error = error(42, \"bad\")\nEND FUNC\n");
         assert!(matches!(
             bind_value(main_body(&ir), "e"),
             Some(IrValue::Constructor { type_, .. }) if type_.name() == "Error"
@@ -2128,8 +2134,9 @@ mod lower_tests {
                 .iter()
                 .any(|d| d.name == "Shape" && d.kind == IrDocKind::Union));
             let log = ir.docs.decls.iter().find(|d| d.name == "logIt");
-            assert!(log
-                .is_some_and(|d| d.kind == IrDocKind::Func && d.internal && d.deprecated.is_some()));
+            assert!(log.is_some_and(|d| d.kind == IrDocKind::Func
+                && d.internal
+                && d.deprecated.is_some()));
         }
     }
 
@@ -2590,7 +2597,8 @@ mod lower_tests {
 
     #[test]
     fn inferred_binding_from_list_literal_types() {
-        let ir = lower_src("IMPORT collections\nLET xs = [1, 2, 3]\nFUNC main AS Nothing\nEND FUNC\n");
+        let ir =
+            lower_src("IMPORT collections\nLET xs = [1, 2, 3]\nFUNC main AS Nothing\nEND FUNC\n");
         assert_eq!(binding(&ir, "xs").type_.name(), "List OF Integer");
     }
 

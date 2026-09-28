@@ -13,8 +13,7 @@
 //!     pass/fail tree, and exits non-zero iff any case failed.
 
 use crate::ast::{
-    AstProject, Function, Import, Item, TestCase, TestGroup, TestGroupMember,
-    Visibility,
+    AstProject, Function, Import, Item, TestCase, TestGroup, TestGroupMember, Visibility,
 };
 use crate::testing::coverage::CovSlot;
 use std::path::Path;

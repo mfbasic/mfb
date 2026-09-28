@@ -3528,7 +3528,11 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
-        std::fs::write(dir.join("src").join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").expect("source");
+        std::fs::write(
+            dir.join("src").join("main.mfb"),
+            "FUNC main() AS Nothing\nEND FUNC\n",
+        )
+        .expect("source");
     }
 
     /// A missing `icon` is a hard error in app mode, on each app-capable target's
@@ -4001,7 +4005,11 @@ mod tests {
         )
         .expect("manifest");
         std::fs::create_dir_all(dir.join("src")).expect("src dir");
-        std::fs::write(dir.join("src").join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").expect("source");
+        std::fs::write(
+            dir.join("src").join("main.mfb"),
+            "FUNC main() AS Nothing\nEND FUNC\n",
+        )
+        .expect("source");
         std::fs::create_dir_all(dir.join("assets")).expect("assets dir");
         // A file that exists (so the existence check passes) but is not a valid
         // 1024×1024 image (so the backend's deep icon validation fails).

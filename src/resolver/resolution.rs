@@ -1954,7 +1954,9 @@ mod tests {
 
     #[test]
     fn unknown_import_qualified_use_reports() {
-        assert!(resolve_source_fails("FUNC main() AS Nothing\n  foo::bar()\nEND FUNC\n"));
+        assert!(resolve_source_fails(
+            "FUNC main() AS Nothing\n  foo::bar()\nEND FUNC\n"
+        ));
     }
 
     #[test]

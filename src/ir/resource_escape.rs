@@ -678,7 +678,7 @@ pub(super) fn call_arg_expr_mut(arg: &mut HirCallArg) -> &mut HirExpression {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Visibility};
+    use crate::ast::Visibility;
     use crate::types::ParameterType;
 
     fn func(body: Vec<HirStatement>) -> HirFunction {

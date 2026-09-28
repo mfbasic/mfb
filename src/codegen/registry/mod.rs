@@ -6605,7 +6605,9 @@ mod tests {
         assert!(csv.is_imported_by(&ProjectView::of_ast(&parse(
             "IMPORT csv\nFUNC main AS Nothing\nEND FUNC\n"
         ))));
-        assert!(!csv.is_imported_by(&ProjectView::of_ast(&parse("FUNC main AS Nothing\nEND FUNC\n"))));
+        assert!(!csv.is_imported_by(&ProjectView::of_ast(&parse(
+            "FUNC main AS Nothing\nEND FUNC\n"
+        ))));
     }
 
     /// plan-104-C: the typed entry and the string wrapper must agree on every

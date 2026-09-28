@@ -257,7 +257,11 @@ mod tests {
     fn replace_contents_leaves_no_temporary_and_keeps_permissions() {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("main.mfb");
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -359,7 +363,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("main.mfb");
         // Poorly indented source that the formatter will change.
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         // Check mode reports a change without rewriting (Ok(false)).
         assert_eq!(format_path(&file, 2, true), Ok(false));
         let before = std::fs::read_to_string(&file).unwrap();
@@ -376,7 +384,11 @@ mod tests {
     fn run_fmt_command_formats_a_file_end_to_end() {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("main.mfb");
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         // First pass changes the file; check mode would then exit 1 -> 0.
         assert_eq!(run_fmt_command(&s(&[file.to_str().unwrap()])), 0);
         // Now formatted: --check passes (exit 0).
@@ -387,13 +399,21 @@ mod tests {
     fn run_fmt_accepts_valid_indent_both_forms() {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("main.mfb");
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         // `--indent=4` form.
         assert_eq!(
             run_fmt_command(&s(&["--indent=4", file.to_str().unwrap()])),
             0
         );
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         // `--indent 4` split form.
         assert_eq!(
             run_fmt_command(&s(&["--indent", "4", file.to_str().unwrap()])),
@@ -435,7 +455,11 @@ mod tests {
     fn run_fmt_check_reports_unformatted_file() {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("main.mfb");
-        std::fs::write(&file, "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n").expect("write");
+        std::fs::write(
+            &file,
+            "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n",
+        )
+        .expect("write");
         // Unformatted file in --check mode exits 1.
         assert_eq!(run_fmt_command(&s(&["--check", file.to_str().unwrap()])), 1);
     }

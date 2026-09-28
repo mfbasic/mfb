@@ -1,6 +1,4 @@
-use crate::ast::{
-    AstProject, DocBlock, DocHeaderKind, ResourceDecl, TypeDeclKind, Visibility,
-};
+use crate::ast::{AstProject, DocBlock, DocHeaderKind, ResourceDecl, TypeDeclKind, Visibility};
 use crate::binary_repr;
 use crate::codegen::builtins;
 use crate::hir::{

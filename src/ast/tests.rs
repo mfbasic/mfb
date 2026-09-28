@@ -87,8 +87,16 @@ fn file_root_ignores_include_patterns() {
     let root = test_temp_dir("file_root_ignores_include_patterns");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("project src");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
-    fs::write(project_dir.join("src/other.mfb"), "FUNC other AS Nothing\nEND FUNC\n").expect("write other");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        project_dir.join("src/other.mfb"),
+        "FUNC other AS Nothing\nEND FUNC\n",
+    )
+    .expect("write other");
 
     let manifest = manifest_with_sources(vec![source_entry(
         "src/main.mfb",
@@ -115,8 +123,16 @@ fn directory_root_applies_include_and_exclude_patterns() {
     let root = test_temp_dir("directory_root_applies_include_and_exclude_patterns");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/pkg")).expect("project pkg");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
-    fs::write(project_dir.join("src/pkg/keep.mfb"), "FUNC keep AS Nothing\nEND FUNC\n").expect("write keep");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        project_dir.join("src/pkg/keep.mfb"),
+        "FUNC keep AS Nothing\nEND FUNC\n",
+    )
+    .expect("write keep");
     fs::write(
         project_dir.join("src/pkg/skip_test.mfb"),
         "FUNC skip_test AS Nothing\nEND FUNC\n",
@@ -148,7 +164,11 @@ fn overlapping_source_entries_are_rejected() {
     let root = test_temp_dir("overlapping_source_entries_are_rejected");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("project src");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![
         source_entry("src", Some(vec!["**/*.mfb"]), None),
@@ -171,7 +191,11 @@ fn symlinked_source_paths_must_stay_inside_project() {
     let outside_dir = root.join("outside");
     fs::create_dir_all(&project_dir).expect("project dir");
     fs::create_dir_all(&outside_dir).expect("outside dir");
-    fs::write(outside_dir.join("escape.mfb"), "FUNC escape AS Nothing\nEND FUNC\n").expect("write escape");
+    fs::write(
+        outside_dir.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("write escape");
     symlink(&outside_dir, project_dir.join("src")).expect("symlink src");
 
     let manifest = manifest_with_sources(vec![source_entry("src", Some(vec!["**/*.mfb"]), None)]);
@@ -796,7 +820,10 @@ fn type_names_cover_thread_map_list_and_function_forms() {
         "ISOLATED FUNC() AS Integer"
     );
     // Grouped type.
-    assert_eq!(param_type("FUNC s(f AS (Integer)) AS Nothing\nEND FUNC\n"), "(Integer)");
+    assert_eq!(
+        param_type("FUNC s(f AS (Integer)) AS Nothing\nEND FUNC\n"),
+        "(Integer)"
+    );
     // Nothing base type.
     assert_eq!(
         param_type("FUNC s(f AS FUNC() AS Nothing) AS Nothing\nEND FUNC\n"),
@@ -909,7 +936,11 @@ fn parse_project_reads_files_and_appends_prelude() {
     let root = test_temp_dir("parse_project_reads_files_and_appends_prelude");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
@@ -941,8 +972,16 @@ fn selected_source_paths_are_sorted_actual_paths() {
     let root = test_temp_dir("selected_source_paths_are_sorted_actual_paths");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/a.mfb"), "FUNC a AS Nothing\nEND FUNC\n").expect("write a");
-    fs::write(project_dir.join("src/b.mfb"), "FUNC b AS Nothing\nEND FUNC\n").expect("write b");
+    fs::write(
+        project_dir.join("src/a.mfb"),
+        "FUNC a AS Nothing\nEND FUNC\n",
+    )
+    .expect("write a");
+    fs::write(
+        project_dir.join("src/b.mfb"),
+        "FUNC b AS Nothing\nEND FUNC\n",
+    )
+    .expect("write b");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let paths = selected_source_paths(&project_dir, &manifest).expect("paths");
@@ -966,7 +1005,11 @@ fn write_ast_writes_ast_json_file() {
     let root = test_temp_dir("write_ast_writes_ast_json_file");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
@@ -994,8 +1037,12 @@ fn write_ast_reports_write_failure() {
 
 #[test]
 fn parse_source_internal_marks_file_internal() {
-    let file = parse_source_internal(Path::new("pkg.mfb"), "pkg.mfb", "FUNC main AS Nothing\nEND FUNC\n")
-        .expect("parse internal");
+    let file = parse_source_internal(
+        Path::new("pkg.mfb"),
+        "pkg.mfb",
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("parse internal");
     assert!(file.internal);
     assert_eq!(file.path, "pkg.mfb");
 }
@@ -1033,7 +1080,11 @@ fn source_entry_without_root_is_ignored() {
     let root = test_temp_dir("source_entry_without_root_is_ignored");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     // One entry has no `root` key (filtered out by source_entries), the other is valid.
     let bad = JsonValue::Object(HashMap::from([(
@@ -1054,7 +1105,11 @@ fn file_root_ignores_non_mfb_extension() {
     let root = test_temp_dir("file_root_ignores_non_mfb_extension");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     fs::write(project_dir.join("src/notes.txt"), "notes\n").expect("write notes");
 
     // A file root pointing at a non-.mfb file selects nothing, so the entry is
@@ -1072,7 +1127,11 @@ fn directory_cycle_via_symlink_is_tolerated() {
     let root = test_temp_dir("directory_cycle_via_symlink_is_tolerated");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/sub")).expect("src/sub");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     // A symlink pointing back to src forms a directory cycle; visited-dir
     // tracking must break it and still return the real file.
     symlink(project_dir.join("src"), project_dir.join("src/sub/loop")).expect("symlink loop");
@@ -1094,8 +1153,16 @@ fn nested_symlink_escape_is_rejected() {
     let outside_dir = root.join("outside");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
     fs::create_dir_all(&outside_dir).expect("outside dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
-    fs::write(outside_dir.join("escape.mfb"), "FUNC escape AS Nothing\nEND FUNC\n").expect("write escape");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        outside_dir.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("write escape");
     // A file symlink inside a scanned directory pointing outside the project.
     symlink(
         outside_dir.join("escape.mfb"),
@@ -1157,7 +1224,11 @@ fn broken_symlink_entry_reports_read_failure() {
     let root = test_temp_dir("broken_symlink_entry_reports_read_failure");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     symlink(
         project_dir.join("src/nonexistent_target.mfb"),
         project_dir.join("src/dangling.mfb"),
@@ -1220,8 +1291,16 @@ fn unreadable_directory_reports_read_failure() {
     let project_dir = root.join("project");
     let locked = project_dir.join("src/locked");
     fs::create_dir_all(&locked).expect("locked dir");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
-    fs::write(locked.join("inner.mfb"), "FUNC inner AS Nothing\nEND FUNC\n").expect("write inner");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        locked.join("inner.mfb"),
+        "FUNC inner AS Nothing\nEND FUNC\n",
+    )
+    .expect("write inner");
     // Remove read/exec permission so read_dir on the nested directory fails
     // with a non-PermissionDenied-mapped error path.
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
@@ -1323,7 +1402,11 @@ fn collect_handles_single_file_and_non_mfb_root() {
     let root = test_temp_dir("collect_handles_single_file_and_non_mfb_root");
     let project_dir = root.join("project");
     fs::create_dir_all(&project_dir).expect("dir");
-    fs::write(project_dir.join("main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("main");
+    fs::write(
+        project_dir.join("main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("main");
     fs::write(project_dir.join("notes.txt"), "hi\n").expect("notes");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
 
@@ -1359,9 +1442,21 @@ fn collect_walks_nested_directories() {
     let root = test_temp_dir("collect_walks_nested_directories");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/a/b")).expect("dirs");
-    fs::write(project_dir.join("src/top.mfb"), "FUNC top AS Nothing\nEND FUNC\n").expect("top");
-    fs::write(project_dir.join("src/a/mid.mfb"), "FUNC mid AS Nothing\nEND FUNC\n").expect("mid");
-    fs::write(project_dir.join("src/a/b/deep.mfb"), "FUNC deep AS Nothing\nEND FUNC\n").expect("deep");
+    fs::write(
+        project_dir.join("src/top.mfb"),
+        "FUNC top AS Nothing\nEND FUNC\n",
+    )
+    .expect("top");
+    fs::write(
+        project_dir.join("src/a/mid.mfb"),
+        "FUNC mid AS Nothing\nEND FUNC\n",
+    )
+    .expect("mid");
+    fs::write(
+        project_dir.join("src/a/b/deep.mfb"),
+        "FUNC deep AS Nothing\nEND FUNC\n",
+    )
+    .expect("deep");
     fs::write(project_dir.join("src/a/skip.txt"), "x\n").expect("txt");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
@@ -1386,7 +1481,11 @@ fn nested_symlink_escaping_project_is_rejected() {
     let outside = root.join("outside");
     fs::create_dir_all(project_dir.join("src")).expect("src");
     fs::create_dir_all(&outside).expect("outside");
-    fs::write(outside.join("escape.mfb"), "FUNC escape AS Nothing\nEND FUNC\n").expect("escape");
+    fs::write(
+        outside.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("escape");
     // A symlink *inside* a walked subdirectory pointing outside the project.
     symlink(&outside, project_dir.join("src/link")).expect("symlink");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
@@ -1451,7 +1550,11 @@ fn symlink_cycle_within_project_is_skipped() {
     let root = test_temp_dir("symlink_cycle_within_project_is_skipped");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "FUNC main AS Nothing\nEND FUNC\n").expect("main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("main");
     // A symlink pointing back at its own parent creates a cycle; the visited-dirs
     // guard must break it rather than recursing forever.
     symlink(project_dir.join("src"), project_dir.join("src/loop")).expect("symlink");
@@ -2197,7 +2300,9 @@ fn doc_block_header_variants_and_errors() {
     // Empty DOC (no header line) is rejected.
     assert!(try_parse("DOC\n\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // A TYPE header with a signature disambiguator is fine (non-callable path).
-    assert!(try_parse("DOC\nTYPE Widget\nDESC ok\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_ok());
+    assert!(
+        try_parse("DOC\nTYPE Widget\nDESC ok\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_ok()
+    );
 }
 
 #[test]
@@ -2209,9 +2314,14 @@ fn doc_block_named_line_errors_and_unknown() {
     // ERROR with no code.
     assert!(try_parse("DOC\nFUNC f\nERROR\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // Unknown line keyword.
-    assert!(try_parse("DOC\nFUNC f\nFLARB nope\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
+    assert!(
+        try_parse("DOC\nFUNC f\nFLARB nope\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err()
+    );
     // Unterminated EXAMPLE (no END EXAMPLE before END DOC).
-    assert!(try_parse("DOC\nFUNC f\nEXAMPLE\n  code here\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
+    assert!(try_parse(
+        "DOC\nFUNC f\nEXAMPLE\n  code here\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n"
+    )
+    .is_err());
 }
 
 #[test]
@@ -2761,8 +2871,9 @@ fn parse_keeps_the_state_member_assignment_forms() {
 fn parse_keeps_a_member_comparison_in_expression_position() {
     // `IF p.x = 77 THEN` is a genuine equality comparison — the guard fires only
     // in statement position, so this must still parse as a `=` binary.
-    let file = try_parse("FUNC main() AS Nothing\n  IF p.x = 77 THEN\n    q = 1\n  END IF\nEND FUNC\n")
-        .expect("member comparison in a condition still parses");
+    let file =
+        try_parse("FUNC main() AS Nothing\n  IF p.x = 77 THEN\n    q = 1\n  END IF\nEND FUNC\n")
+            .expect("member comparison in a condition still parses");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");
     };
@@ -2779,7 +2890,8 @@ fn parse_keeps_a_member_comparison_in_expression_position() {
 #[test]
 fn parse_keeps_a_plain_identifier_assignment() {
     // The single-identifier assignment shape is unaffected by the guard.
-    let file = try_parse("FUNC main() AS Nothing\n  p = 77\nEND FUNC\n").expect("plain assignment still parses");
+    let file = try_parse("FUNC main() AS Nothing\n  p = 77\nEND FUNC\n")
+        .expect("plain assignment still parses");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");
     };

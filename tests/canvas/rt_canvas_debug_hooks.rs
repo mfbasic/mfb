@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// One presented frame, then exit.
-const ONE_FRAME: &str = "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+const ONE_FRAME: &str =
+    "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
      app::setMode(app::Mode.Canvas)\n  \
      canvas::present([canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, \
      paint := canvas::fill(color::rgb(255, 0, 0))]])\n  \

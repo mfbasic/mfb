@@ -195,10 +195,12 @@ mod tests {
             name: "demo".to_string(),
             files: vec![file],
         });
-        let manifest: std::collections::HashMap<String, JsonValue> =
-            [("kind".to_string(), JsonValue::String("executable".to_string()))]
-                .into_iter()
-                .collect();
+        let manifest: std::collections::HashMap<String, JsonValue> = [(
+            "kind".to_string(),
+            JsonValue::String("executable".to_string()),
+        )]
+        .into_iter()
+        .collect();
         let entry = crate::manifest::entry::validate_entry_point(Path::new("."), &manifest, &hir)
             .expect("the template's entry is valid")
             .expect("an executable has an entry");

@@ -228,4 +228,3 @@ fn a_statement_position_nothing_func_call_still_runs() {
     let out = build_and_run("statement", &main_fn("  f(1)\n"));
     assert_eq!(out, "f1\ndone\n");
 }
-

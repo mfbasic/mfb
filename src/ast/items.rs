@@ -80,19 +80,18 @@ impl<'a> FileParser<'a> {
             Vec::new()
         };
 
-        let (return_type, return_resource, return_state_type) =
-            if self.match_keyword(Keyword::As) {
-                let return_resource = self.match_keyword(Keyword::Res);
-                let return_type = self.parse_type_name();
-                let return_state_type = if return_resource {
-                    self.parse_optional_state()
-                } else {
-                    None
-                };
-                (return_type, return_resource, return_state_type)
+        let (return_type, return_resource, return_state_type) = if self.match_keyword(Keyword::As) {
+            let return_resource = self.match_keyword(Keyword::Res);
+            let return_type = self.parse_type_name();
+            let return_state_type = if return_resource {
+                self.parse_optional_state()
             } else {
-                (None, false, None)
+                None
             };
+            (return_type, return_resource, return_state_type)
+        } else {
+            (None, false, None)
+        };
 
         self.consume_statement_end("Expected end of function header.");
         self.skip_separators();

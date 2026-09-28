@@ -1568,7 +1568,9 @@ fn kind_helpers(ty: &str, text: &str) -> String {
         );
     }
     if text.contains("kindSink(") {
-        out.push_str(&format!("FUNC kindSink(v AS {ty}) AS Nothing\nEND FUNC\n\n"));
+        out.push_str(&format!(
+            "FUNC kindSink(v AS {ty}) AS Nothing\nEND FUNC\n\n"
+        ));
     }
     if text.contains("kindRoute") {
         out.push_str(

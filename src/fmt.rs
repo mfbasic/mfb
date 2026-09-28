@@ -1075,7 +1075,8 @@ mod tests {
     #[test]
     fn end_while_closes_the_block_without_reopening() {
         let input = "FUNC s() AS Nothing\nWHILE go\nwork()\nEND WHILE\nlet after = 1\nEND FUNC\n";
-        let expected = "FUNC s() AS Nothing\n  WHILE go\n    work()\n  END WHILE\n  LET after = 1\nEND FUNC\n";
+        let expected =
+            "FUNC s() AS Nothing\n  WHILE go\n    work()\n  END WHILE\n  LET after = 1\nEND FUNC\n";
         assert_eq!(fmt(input), expected);
         assert_eq!(fmt(expected), expected);
         // The single-line form round-trips on one line, netting to zero.

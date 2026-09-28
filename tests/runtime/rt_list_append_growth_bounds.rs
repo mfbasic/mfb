@@ -199,7 +199,9 @@ fn list_program(arm: Arm, element: &str, n: u64) -> String {
             "TYPE Box\n  tag AS Integer\n  items AS List OF {element}\nEND TYPE\n"
         ));
     }
-    src.push_str(&format!("FUNC main() AS Nothing\n  LET n AS Integer = {n}\n"));
+    src.push_str(&format!(
+        "FUNC main() AS Nothing\n  LET n AS Integer = {n}\n"
+    ));
     if arm.inline() {
         src.push_str("  MUT rec AS Box = Box[1, []]\n");
     } else {
