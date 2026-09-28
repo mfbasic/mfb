@@ -178,8 +178,8 @@ const VK_API_VERSION_1_0: &str = "4194304";
 // and no compiler to disagree with, so a wrong one does not fail the build, it hands
 // garbage to a driver. Each is written beside the member it belongs to, and
 // `layout_tables_are_self_consistent` checks the property a transcription slip
-// almost always breaks: members inside their struct, no two overlapping, sizes a
-// multiple of 8.
+// almost always breaks: members inside their struct at their natural alignment, no
+// two overlapping, sizes a multiple of the struct's alignment.
 // ---------------------------------------------------------------------------------
 
 /// `VkStructureType` values, in the order they are first used.
@@ -7465,6 +7465,41 @@ fn emit_zero_range(builder: &mut CodeBuilder, base: usize, length: usize) {
     }
 }
 
+/// Check one hand-transcribed C layout: every `(member, offset, width)` lies inside
+/// the struct at its natural alignment, no two members overlap, and the size is a
+/// multiple of the struct's alignment. What it cannot check is that the offsets match
+/// the Vulkan headers — only a driver can — but a transcription slip (a member moved,
+/// a width misread, a pointer at a 4-byte offset) almost always breaks one of these.
+#[cfg(test)]
+fn assert_layout(name: &str, size: usize, align: usize, members: &[(&str, usize, usize)]) {
+    assert_eq!(
+        size % align,
+        0,
+        "{name}: size {size} is not a multiple of {align}"
+    );
+    let mut sorted = members.to_vec();
+    sorted.sort_by_key(|&(_, offset, _)| offset);
+    let mut end = 0;
+    for (member, offset, width) in sorted {
+        assert!(
+            offset + width <= size,
+            "{name}.{member}: [{offset}, {}) runs past the {size}-byte struct",
+            offset + width
+        );
+        assert_eq!(
+            offset % width.min(8),
+            0,
+            "{name}.{member}: offset {offset} is not {}-byte aligned",
+            width.min(8)
+        );
+        assert!(
+            offset >= end,
+            "{name}.{member}: offset {offset} overlaps the member ending at {end}"
+        );
+        end = offset + width;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7472,6 +7507,495 @@ mod tests {
         GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE,
     };
     use crate::codegen::runtime::canvas::{VULKAN_EDGE_BYTES, VULKAN_EDGE_RESIDUAL_BYTES};
+
+    /// Every struct table above, member by member with its C width — the check the
+    /// section header promises.
+    #[test]
+    fn layout_tables_are_self_consistent() {
+        assert_layout(
+            "VkApplicationInfo",
+            APP_INFO_SIZE,
+            8,
+            &[
+                ("sType", APP_INFO_STYPE, 4),
+                ("apiVersion", APP_INFO_API_VERSION, 4),
+            ],
+        );
+        assert_layout(
+            "VkInstanceCreateInfo",
+            INSTANCE_INFO_SIZE,
+            8,
+            &[
+                ("sType", INSTANCE_INFO_STYPE, 4),
+                ("pApplicationInfo", INSTANCE_INFO_APP_INFO, 8),
+            ],
+        );
+        assert_layout(
+            "VkDeviceQueueCreateInfo",
+            QUEUE_INFO_SIZE,
+            8,
+            &[
+                ("sType", QUEUE_INFO_STYPE, 4),
+                ("queueFamilyIndex", QUEUE_INFO_FAMILY, 4),
+                ("queueCount", QUEUE_INFO_COUNT, 4),
+                ("pQueuePriorities", QUEUE_INFO_PRIORITIES, 8),
+            ],
+        );
+        assert_layout(
+            "VkDeviceCreateInfo",
+            DEVICE_INFO_SIZE,
+            8,
+            &[
+                ("sType", DEVICE_INFO_STYPE, 4),
+                ("queueCreateInfoCount", DEVICE_INFO_QUEUE_COUNT, 4),
+                ("pQueueCreateInfos", DEVICE_INFO_QUEUE_INFOS, 8),
+            ],
+        );
+        assert_layout(
+            "VkQueueFamilyProperties",
+            QUEUE_FAMILY_PROPERTIES_SIZE,
+            4,
+            &[("queueFlags", QUEUE_FAMILY_FLAGS, 4)],
+        );
+        assert_layout(
+            "VkShaderModuleCreateInfo",
+            SHADER_MODULE_INFO_SIZE,
+            8,
+            &[
+                ("sType", SHADER_MODULE_STYPE, 4),
+                ("codeSize", SHADER_MODULE_CODE_SIZE, 8),
+                ("pCode", SHADER_MODULE_CODE, 8),
+            ],
+        );
+        assert_layout(
+            "VkPipelineLayoutCreateInfo",
+            LAYOUT_INFO_SIZE,
+            8,
+            &[
+                ("sType", LAYOUT_INFO_STYPE, 4),
+                ("setLayoutCount", LAYOUT_INFO_SET_COUNT, 4),
+                ("pSetLayouts", LAYOUT_INFO_SETS, 8),
+                ("pushConstantRangeCount", LAYOUT_INFO_RANGE_COUNT, 4),
+                ("pPushConstantRanges", LAYOUT_INFO_RANGES, 8),
+            ],
+        );
+        assert_layout(
+            "VkPushConstantRange",
+            PUSH_RANGE_SIZE,
+            4,
+            &[
+                ("stageFlags", PUSH_RANGE_STAGES, 4),
+                ("offset", PUSH_RANGE_OFFSET, 4),
+                ("size", PUSH_RANGE_BYTES, 4),
+            ],
+        );
+        assert_layout(
+            "VkAttachmentDescription",
+            ATTACHMENT_SIZE,
+            4,
+            &[
+                ("format", ATTACHMENT_FORMAT, 4),
+                ("samples", ATTACHMENT_SAMPLES, 4),
+                ("loadOp", ATTACHMENT_LOAD_OP, 4),
+                ("storeOp", ATTACHMENT_STORE_OP, 4),
+                ("initialLayout", ATTACHMENT_INITIAL_LAYOUT, 4),
+                ("finalLayout", ATTACHMENT_FINAL_LAYOUT, 4),
+            ],
+        );
+        assert_layout(
+            "VkAttachmentReference",
+            ATTACHMENT_REF_SIZE,
+            4,
+            &[
+                ("attachment", ATTACHMENT_REF_INDEX, 4),
+                ("layout", ATTACHMENT_REF_LAYOUT, 4),
+            ],
+        );
+        assert_layout(
+            "VkSubpassDescription",
+            SUBPASS_SIZE,
+            8,
+            &[
+                ("pipelineBindPoint", SUBPASS_BIND_POINT, 4),
+                ("colorAttachmentCount", SUBPASS_COLOR_COUNT, 4),
+                ("pColorAttachments", SUBPASS_COLOR_ATTACHMENTS, 8),
+            ],
+        );
+        assert_layout(
+            "VkRenderPassCreateInfo",
+            RENDER_PASS_INFO_SIZE,
+            8,
+            &[
+                ("sType", RENDER_PASS_STYPE, 4),
+                ("attachmentCount", RENDER_PASS_ATTACHMENT_COUNT, 4),
+                ("pAttachments", RENDER_PASS_ATTACHMENTS, 8),
+                ("subpassCount", RENDER_PASS_SUBPASS_COUNT, 4),
+                ("pSubpasses", RENDER_PASS_SUBPASSES, 8),
+            ],
+        );
+        assert_layout(
+            "VkPipelineShaderStageCreateInfo",
+            STAGE_INFO_SIZE,
+            8,
+            &[
+                ("sType", STAGE_INFO_STYPE, 4),
+                ("stage", STAGE_INFO_STAGE, 4),
+                ("module", STAGE_INFO_MODULE, 8),
+                ("pName", STAGE_INFO_NAME, 8),
+                ("pSpecializationInfo", STAGE_INFO_SPECIALIZATION, 8),
+            ],
+        );
+        assert_layout(
+            "VkSpecializationInfo",
+            SPEC_INFO_SIZE,
+            8,
+            &[
+                ("mapEntryCount", SPEC_INFO_COUNT, 4),
+                ("pMapEntries", SPEC_INFO_ENTRIES, 8),
+                ("dataSize", SPEC_INFO_DATA_SIZE, 8),
+                ("pData", SPEC_INFO_DATA, 8),
+            ],
+        );
+        assert_layout(
+            "VkSpecializationMapEntry",
+            SPEC_ENTRY_SIZE,
+            8,
+            &[
+                ("constantID", SPEC_ENTRY_ID, 4),
+                ("offset", SPEC_ENTRY_OFFSET, 4),
+                ("size", SPEC_ENTRY_BYTES, 8),
+            ],
+        );
+        assert_layout(
+            "VkPipelineVertexInputStateCreateInfo",
+            VERTEX_INPUT_INFO_SIZE,
+            8,
+            &[],
+        );
+        assert_layout(
+            "VkPipelineInputAssemblyStateCreateInfo",
+            INPUT_ASSEMBLY_INFO_SIZE,
+            8,
+            &[("topology", INPUT_ASSEMBLY_TOPOLOGY, 4)],
+        );
+        assert_layout(
+            "VkPipelineViewportStateCreateInfo",
+            VIEWPORT_INFO_SIZE,
+            8,
+            &[
+                ("viewportCount", VIEWPORT_INFO_VIEWPORT_COUNT, 4),
+                ("scissorCount", VIEWPORT_INFO_SCISSOR_COUNT, 4),
+            ],
+        );
+        assert_layout(
+            "VkPipelineRasterizationStateCreateInfo",
+            RASTER_INFO_SIZE,
+            8,
+            &[
+                ("polygonMode", RASTER_POLYGON_MODE, 4),
+                ("cullMode", RASTER_CULL_MODE, 4),
+                ("frontFace", RASTER_FRONT_FACE, 4),
+                ("lineWidth", RASTER_LINE_WIDTH, 4),
+            ],
+        );
+        assert_layout(
+            "VkPipelineMultisampleStateCreateInfo",
+            MULTISAMPLE_INFO_SIZE,
+            8,
+            &[("rasterizationSamples", MULTISAMPLE_SAMPLES, 4)],
+        );
+        assert_layout(
+            "VkPipelineColorBlendAttachmentState",
+            BLEND_ATTACHMENT_SIZE,
+            4,
+            &[
+                ("blendEnable", BLEND_ENABLE, 4),
+                ("srcColorBlendFactor", BLEND_SRC_COLOR, 4),
+                ("dstColorBlendFactor", BLEND_DST_COLOR, 4),
+                ("colorBlendOp", BLEND_COLOR_OP, 4),
+                ("srcAlphaBlendFactor", BLEND_SRC_ALPHA, 4),
+                ("dstAlphaBlendFactor", BLEND_DST_ALPHA, 4),
+                ("alphaBlendOp", BLEND_ALPHA_OP, 4),
+                ("colorWriteMask", BLEND_WRITE_MASK, 4),
+            ],
+        );
+        assert_layout(
+            "VkPipelineColorBlendStateCreateInfo",
+            BLEND_INFO_SIZE,
+            8,
+            &[
+                ("attachmentCount", BLEND_INFO_ATTACHMENT_COUNT, 4),
+                ("pAttachments", BLEND_INFO_ATTACHMENTS, 8),
+            ],
+        );
+        assert_layout(
+            "VkPipelineDynamicStateCreateInfo",
+            DYNAMIC_INFO_SIZE,
+            8,
+            &[
+                ("dynamicStateCount", DYNAMIC_INFO_COUNT, 4),
+                ("pDynamicStates", DYNAMIC_INFO_STATES, 8),
+            ],
+        );
+        assert_layout(
+            "VkGraphicsPipelineCreateInfo",
+            PIPELINE_INFO_SIZE,
+            8,
+            &[
+                ("stageCount", PIPELINE_STAGE_COUNT, 4),
+                ("pStages", PIPELINE_STAGES, 8),
+                ("pVertexInputState", PIPELINE_VERTEX_INPUT, 8),
+                ("pInputAssemblyState", PIPELINE_INPUT_ASSEMBLY, 8),
+                ("pViewportState", PIPELINE_VIEWPORT, 8),
+                ("pRasterizationState", PIPELINE_RASTER, 8),
+                ("pMultisampleState", PIPELINE_MULTISAMPLE, 8),
+                ("pColorBlendState", PIPELINE_COLOR_BLEND, 8),
+                ("pDynamicState", PIPELINE_DYNAMIC, 8),
+                ("layout", PIPELINE_LAYOUT, 8),
+                ("renderPass", PIPELINE_RENDER_PASS, 8),
+            ],
+        );
+        assert_layout(
+            "VkImageCreateInfo",
+            IMAGE_INFO_SIZE,
+            8,
+            &[
+                ("imageType", IMAGE_INFO_TYPE, 4),
+                ("format", IMAGE_INFO_FORMAT, 4),
+                ("extent.width", IMAGE_INFO_WIDTH, 4),
+                ("extent.height", IMAGE_INFO_HEIGHT, 4),
+                ("extent.depth", IMAGE_INFO_DEPTH, 4),
+                ("mipLevels", IMAGE_INFO_MIP_LEVELS, 4),
+                ("arrayLayers", IMAGE_INFO_ARRAY_LAYERS, 4),
+                ("samples", IMAGE_INFO_SAMPLES, 4),
+                ("tiling", IMAGE_INFO_TILING, 4),
+                ("usage", IMAGE_INFO_USAGE, 4),
+                ("initialLayout", IMAGE_INFO_INITIAL_LAYOUT, 4),
+            ],
+        );
+        assert_layout(
+            "VkMemoryRequirements",
+            MEMORY_REQS_SIZE,
+            8,
+            &[
+                ("size", MEMORY_REQS_BYTES, 8),
+                ("memoryTypeBits", MEMORY_REQS_TYPE_BITS, 4),
+            ],
+        );
+        assert_layout(
+            "VkMemoryAllocateInfo",
+            ALLOC_INFO_SIZE,
+            8,
+            &[
+                ("allocationSize", ALLOC_INFO_BYTES, 8),
+                ("memoryTypeIndex", ALLOC_INFO_TYPE_INDEX, 4),
+            ],
+        );
+        assert_layout(
+            "VkPhysicalDeviceMemoryProperties",
+            MEMORY_PROPERTIES_SIZE,
+            8,
+            &[
+                ("memoryTypeCount", MEMORY_PROPERTIES_TYPE_COUNT, 4),
+                // `VkMemoryType[32]`, two `u32`s each: its first and last members.
+                ("memoryTypes[0].propertyFlags", MEMORY_PROPERTIES_TYPES, 4),
+                (
+                    "memoryTypes[31].heapIndex",
+                    MEMORY_PROPERTIES_TYPES + 31 * MEMORY_TYPE_STRIDE + 4,
+                    4,
+                ),
+            ],
+        );
+        assert_layout(
+            "VkImageViewCreateInfo",
+            VIEW_INFO_SIZE,
+            8,
+            &[
+                ("image", VIEW_INFO_IMAGE, 8),
+                ("viewType", VIEW_INFO_TYPE, 4),
+                ("format", VIEW_INFO_FORMAT, 4),
+                ("subresourceRange.aspectMask", VIEW_INFO_ASPECT, 4),
+                ("subresourceRange.levelCount", VIEW_INFO_LEVEL_COUNT, 4),
+                ("subresourceRange.layerCount", VIEW_INFO_LAYER_COUNT, 4),
+            ],
+        );
+        assert_layout(
+            "VkFramebufferCreateInfo",
+            FRAMEBUFFER_INFO_SIZE,
+            8,
+            &[
+                ("renderPass", FRAMEBUFFER_RENDER_PASS, 8),
+                ("attachmentCount", FRAMEBUFFER_ATTACHMENT_COUNT, 4),
+                ("pAttachments", FRAMEBUFFER_ATTACHMENTS, 8),
+                ("width", FRAMEBUFFER_WIDTH, 4),
+                ("height", FRAMEBUFFER_HEIGHT, 4),
+                ("layers", FRAMEBUFFER_LAYERS, 4),
+            ],
+        );
+        assert_layout(
+            "VkBufferCreateInfo",
+            BUFFER_INFO_SIZE,
+            8,
+            &[
+                ("size", BUFFER_INFO_BYTES, 8),
+                ("usage", BUFFER_INFO_USAGE, 4),
+            ],
+        );
+        assert_layout(
+            "VkCommandPoolCreateInfo",
+            POOL_INFO_SIZE,
+            8,
+            &[
+                ("flags", POOL_INFO_FLAGS, 4),
+                ("queueFamilyIndex", POOL_INFO_FAMILY, 4),
+            ],
+        );
+        assert_layout(
+            "VkCommandBufferAllocateInfo",
+            CMD_ALLOC_INFO_SIZE,
+            8,
+            &[
+                ("commandPool", CMD_ALLOC_POOL, 8),
+                ("level", CMD_ALLOC_LEVEL, 4),
+                ("commandBufferCount", CMD_ALLOC_COUNT, 4),
+            ],
+        );
+        assert_layout(
+            "VkCommandBufferBeginInfo",
+            CMD_BEGIN_INFO_SIZE,
+            8,
+            &[("flags", CMD_BEGIN_FLAGS, 4)],
+        );
+        assert_layout(
+            "VkRenderPassBeginInfo",
+            PASS_BEGIN_INFO_SIZE,
+            8,
+            &[
+                ("renderPass", PASS_BEGIN_RENDER_PASS, 8),
+                ("framebuffer", PASS_BEGIN_FRAMEBUFFER, 8),
+                ("renderArea.extent.width", PASS_BEGIN_AREA_WIDTH, 4),
+                ("renderArea.extent.height", PASS_BEGIN_AREA_HEIGHT, 4),
+                ("clearValueCount", PASS_BEGIN_CLEAR_COUNT, 4),
+                ("pClearValues", PASS_BEGIN_CLEARS, 8),
+            ],
+        );
+        assert_layout(
+            "VkClearValue",
+            CLEAR_VALUE_SIZE,
+            4,
+            &[("color.float32[3]", CLEAR_ALPHA, 4)],
+        );
+        assert_layout(
+            "VkViewport",
+            VIEWPORT_SIZE,
+            4,
+            &[
+                ("width", VIEWPORT_WIDTH, 4),
+                ("height", VIEWPORT_HEIGHT, 4),
+                ("maxDepth", VIEWPORT_MAX_DEPTH, 4),
+            ],
+        );
+        assert_layout(
+            "VkRect2D",
+            RECT_SIZE,
+            4,
+            &[
+                ("extent.width", RECT_WIDTH, 4),
+                ("extent.height", RECT_HEIGHT, 4),
+            ],
+        );
+        assert_layout(
+            "VkBufferImageCopy",
+            COPY_SIZE,
+            8,
+            &[
+                ("imageSubresource.aspectMask", COPY_ASPECT, 4),
+                ("imageSubresource.layerCount", COPY_LAYER_COUNT, 4),
+                ("imageExtent.width", COPY_EXTENT_WIDTH, 4),
+                ("imageExtent.height", COPY_EXTENT_HEIGHT, 4),
+                ("imageExtent.depth", COPY_EXTENT_DEPTH, 4),
+            ],
+        );
+        assert_layout(
+            "VkSubmitInfo",
+            SUBMIT_INFO_SIZE,
+            8,
+            &[
+                ("commandBufferCount", SUBMIT_COMMAND_COUNT, 4),
+                ("pCommandBuffers", SUBMIT_COMMANDS, 8),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorSetLayoutBinding",
+            BINDING_SIZE,
+            8,
+            &[
+                ("binding", BINDING_INDEX, 4),
+                ("descriptorType", BINDING_TYPE, 4),
+                ("descriptorCount", BINDING_COUNT, 4),
+                ("stageFlags", BINDING_STAGES, 4),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorSetLayoutCreateInfo",
+            SET_LAYOUT_INFO_SIZE,
+            8,
+            &[
+                ("bindingCount", SET_LAYOUT_BINDING_COUNT, 4),
+                ("pBindings", SET_LAYOUT_BINDINGS, 8),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorPoolSize",
+            POOL_SIZE_SIZE,
+            4,
+            &[
+                ("type", POOL_SIZE_TYPE, 4),
+                ("descriptorCount", POOL_SIZE_COUNT, 4),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorPoolCreateInfo",
+            DESC_POOL_INFO_SIZE,
+            8,
+            &[
+                ("maxSets", DESC_POOL_MAX_SETS, 4),
+                ("poolSizeCount", DESC_POOL_SIZE_COUNT, 4),
+                ("pPoolSizes", DESC_POOL_SIZES, 8),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorSetAllocateInfo",
+            DESC_ALLOC_INFO_SIZE,
+            8,
+            &[
+                ("descriptorPool", DESC_ALLOC_POOL, 8),
+                ("descriptorSetCount", DESC_ALLOC_SET_COUNT, 4),
+                ("pSetLayouts", DESC_ALLOC_LAYOUTS, 8),
+            ],
+        );
+        assert_layout(
+            "VkDescriptorBufferInfo",
+            DESC_BUFFER_INFO_SIZE,
+            8,
+            &[
+                ("buffer", DESC_BUFFER_INFO_BUFFER, 8),
+                ("range", DESC_BUFFER_INFO_RANGE, 8),
+            ],
+        );
+        assert_layout(
+            "VkWriteDescriptorSet",
+            WRITE_SET_SIZE,
+            8,
+            &[
+                ("dstSet", WRITE_SET_DST, 8),
+                ("dstBinding", WRITE_SET_BINDING, 4),
+                ("descriptorCount", WRITE_SET_COUNT, 4),
+                ("descriptorType", WRITE_SET_TYPE, 4),
+                ("pBufferInfo", WRITE_SET_BUFFER_INFO, 8),
+            ],
+        );
+    }
 
     /// bug-688 V5: the readback buffer is read by the CPU every frame, so it asks for
     /// a `HOST_CACHED` type first and only then the plain coherent one. On box 206's
