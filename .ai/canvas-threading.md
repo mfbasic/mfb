@@ -791,6 +791,15 @@ header. Process-global for the reason the scene region and the font table are �
 graphics thread. **Fixed, not growable**: the graphics thread scans it without a lock,
 and a reallocating array would move under a reader.
 
+Growing is still possible without a lock, if nothing moves. The font table
+(`gen_font_table.rs`) is a **chain of fixed chunks** (bug-756): the worker appends an
+arena chunk only when every slot is taken, fills it, and links it in with one
+store-release of the previous chunk's `next` word, and a reader follows `next` with a
+load-acquire. A chunk is never freed, and arena memory stays mapped (§2), so a chunk
+address a reader holds never goes stale. It was sixteen fixed slots, and a seventeenth
+live font silently drew nothing — a cap that fails **silently** is the case to chain
+rather than to size.
+
 **A slot is published name-LAST and dropped name-FIRST.** `name` is the discriminator: a
 scanning graphics thread treats a non-zero name as "this slot is real, follow its
 pointers". So a slot must never be visible under a name before its `items` and `count`

@@ -849,7 +849,10 @@ END FUNC
     );
     assert_eq!(
         lines,
-        vec!["integer-sum TRUE".to_string(), "forms differ TRUE".to_string()],
+        vec![
+            "integer-sum TRUE".to_string(),
+            "forms differ TRUE".to_string()
+        ],
         "measureText must sum the run's advances in font units and scale once; the \
          second line proves this size can tell that apart from a per-glyph sum",
     );
@@ -906,6 +909,50 @@ fn a_font_past_the_renderers_table_still_measures() {
         lines,
         vec!["first 55.00".to_string(), "last 55.00".to_string()],
         "the seventeenth font has no renderer table slot, and must measure anyway",
+    );
+}
+
+/// Every live font **draws**, however many are loaded. The renderer finds a font's
+/// outlines through a process-global table keyed by handle, and that table held
+/// sixteen fonts: the seventeenth loaded and measured, and every glyph drawn in it
+/// silently came out empty (bug-756). The table is now a chain of sixteen-slot chunks,
+/// so forty fonts span three: an `A` in the seventeenth (second chunk) and the fortieth
+/// (third) must light exactly what the same two `A`s in the first font light.
+#[test]
+fn every_live_font_draws_however_many_are_loaded() {
+    let scene = |left: &str, right: &str| {
+        let mut source = String::from(
+            "IMPORT app\nIMPORT canvas\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+        );
+        for i in 1..=40 {
+            source.push_str(&format!(
+                "  RES f{i} AS canvas::Font = canvas::loadFont(\"fixture.ttf\")\n"
+            ));
+        }
+        let text = |x: &str, font: &str| {
+            format!(
+                "canvas::Text[x := {x}, y := 200.0, text := \"A\", font := {font}, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]"
+            )
+        };
+        source.push_str(&format!(
+            "  canvas::present([{}, {}])\nEND FUNC\n",
+            text("100.0", left),
+            text("300.0", right)
+        ));
+        source
+    };
+    let first = render("canvas_font_first_of_40", &scene("f1", "f1"));
+    let later = render("canvas_font_later_of_40", &scene("f17", "f40"));
+    assert_eq!(
+        lit_column_runs(&first),
+        vec![(110, 139), (310, 339)],
+        "the first font's `A` is the 30 px square at each pen"
+    );
+    assert!(
+        first == later,
+        "text in the 17th and 40th live fonts drew {:?}, not the first font's {:?}",
+        lit_column_runs(&later),
+        lit_column_runs(&first),
     );
 }
 

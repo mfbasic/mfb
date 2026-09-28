@@ -320,11 +320,14 @@ pub(crate) fn lower_font_from_bytes(
     builder.emit(abi::store_u64(&value, &record, FONT_BYTES));
     // Publish it where the graphics thread can find it. The record is the worker's;
     // the renderer only ever has the integer `canvas::fontHandle` reads out of the font.
+    // Registering can grow the table, so it can raise `ErrOutOfMemory` and leave by
+    // `done` with that error in place.
     super::gen_font_table::emit_register_font(
         builder,
         &Operand::from(record),
         &Operand::from(value),
-    );
+        &done,
+    )?;
 
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &record));
     builder.emit(abi::move_immediate(

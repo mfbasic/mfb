@@ -377,6 +377,38 @@ Acceptance: the four guards pass at HEAD, and the structural test fails, naming 
 `__canvas_geoRunReference`.
 Commit: —
 
+### Phase 1b — the renderer's font table must not cap (found during the fix)
+
+Found at step 2, before any refactor. Fix Design step 3 reads `measureText`'s bytes
+through `__canvas_fontBlob(handle)`, i.e. the renderer's process-global font table. That
+table was **sixteen fixed slots** (`CANVAS_FONT_SLOTS`), and `emit_register_font`
+silently skipped a font when all sixteen were taken. Its own doc comment said a
+seventeenth font "still measures, because `measureText` reads the resource record
+directly". So the design as written would have turned a seventeenth live font's metrics
+into all zeroes, a change the Non-goals forbid. Independently, every glyph drawn in such
+a font already came out empty at HEAD, silently.
+
+Decided 2026-09-27 (user): lift the limit first, then land the design unchanged.
+
+- [ ] RED test `every_live_font_draws_however_many_are_loaded` (`rt_canvas_font.rs`):
+      forty fonts; an `A` in the 17th and the 40th must light exactly what the first
+      font's does. At HEAD the 17th drew `[]`.
+- [ ] Guard `a_font_past_the_renderers_table_still_measures` (GREEN at HEAD): the
+      seventeenth font measures `55.00` for `"AB"`, as the first does. It is the test
+      that would have caught the design flaw.
+- [ ] `gen_font_table.rs`: the table is a chain of sixteen-slot chunks with a `next`
+      word. The worker appends a zeroed arena chunk only when every slot is taken, and
+      links it with one store; readers follow `next`. Chunks never move and are never
+      freed, so a lock-free reader is safe (`.ai/canvas-threading.md` §2, §13). An
+      allocation failure raises `ErrOutOfMemory` from `loadFont` instead of skipping.
+- [ ] **Latent ordering bug fixed alongside:** the slot publish was two plain stores
+      ("the block goes in first"), and a plain `str` may become visible out of order on
+      AArch64 (the bug-564 class). `handle` and `next` are now store-release /
+      load-acquire there, via `scene_base::orders_scene_accesses`. x86-64 stays plain
+      (TSO).
+
+Commit: —
+
 ### Phase 2 — the refactor
 
 - [ ] Add `__canvas_shapeRun(fonts, text)` to `helper_font.rs` with its "only place /
