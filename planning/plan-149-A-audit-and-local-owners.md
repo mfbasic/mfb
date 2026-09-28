@@ -317,23 +317,33 @@ Commit: 99b11f282
 Acceptance: the owned-local shapes are forwarded, and every negative case keeps its copy. Check:
 `cargo test --bin mfb optimizer::opt1::placefwd` → all pass; `cargo test --bin mfb optimizer::opt1::aggcopy` → 7 pass (est. 5 min).
 Verified 2026-09-27: 19 passed / 7 passed.
-Commit: —
+Commit: a082faf5a
 
 ### Phase A3 — Codegen and run-time proof for owned locals
 
-- [ ] Add `pub fn build_ncode_opt(project, target, name, level: &str)` to `tests/common/mod.rs`. It is the same as
-      `build_ncode`, plus `-O <level>`. Leave `build_ncode` unchanged.
-- [ ] Add `tests/codegen/codegen_place_forward.rs` and register it in `Cargo.toml`. For the benchmark
+- [x] Add `pub fn build_ncode_opt(project, target, name, level: &str)` to `tests/common/mod.rs`. It is the same as
+      `build_ncode`, plus `-O <level>`. Leave `build_ncode` unchanged. Done.
+- [x] Add `tests/codegen/codegen_place_forward.rs` and register it in `Cargo.toml`. For the benchmark
       `list (Record-Fixed) set` shape, the `removeAt` shape, and the bare-local `snap` shape, it asserts:
       - at `-O1`, the in-place slot (`inplace_recfield_set_index` / `inplace_inlined_subblock` / the local arm's slot)
         is present and `with_target` is 0;
       - at `-O0`, `with_target` is at least 1 (the row is the difference).
-- [ ] Add `tests/runtime/rt_place_forward.rs` and register it in `Cargo.toml`. Each program in it is built at `-O0` and
+
+      Done. The bare-local shape has no `WITH`, so its `with_target` is 0 at both levels; its `-O0` control is
+      instead "a `*copy_source` slot is present and `inplace_set_index` is absent" (Corrections). The record shapes
+      also assert no `*copy_source` at `-O1`.
+- [x] Add `tests/runtime/rt_place_forward.rs` and register it in `Cargo.toml`. Each program in it is built at `-O0` and
       at `-O1`, and the test asserts identical stdout: the six forwarding unit-test shapes, plus the W1 and W2 negatives
       as programs.
+      Done, 9 programs: the six, W1, W2, and a seventh forwarding shape not listed — sibling reads of the place inside
+      the owner write itself (`WITH rec { xs := set(cur, …), before := get(cur, 0) }` and
+      `nums = append(set(snap, 0, 9), get(snap, 0))`), where an in-place arm that mutated before the sibling read
+      would print a wrong answer. Each also asserts the literal expected output, so both levels cannot agree on a
+      wrong one.
 
 Acceptance: at `-O1` each shape takes the in-place path, with output identical to `-O0`. Check:
 `cargo test --test codegen_place_forward --test rt_place_forward` → all pass (est. 5 min).
+Verified 2026-09-27: 3 passed / 9 passed.
 Commit: —
 
 ## Appendix A — direct-form sibling-read probe
@@ -389,6 +399,12 @@ END FUNC
   every `RES` binding, parameters included (`/tmp/p149/st`, `--nir`: `resourceOwners: [{name: f, owner: local}]` in
   both `main` and `bump`). The local-owner gate therefore declines any owner in `resource_owners` or of a `Stateful`
   type; the `STATE` class is plan-149-B2's.
+
+- **The bare-local control in A3.** The plan asked every A3 shape to show `with_target ≥ 1` at `-O0`. The bare local
+  `LET snap = nums; nums = set(snap, …)` has no `WITH`, so it has no `with_target` at either level (`/tmp/p149/a3`,
+  `target/release/mfb build -ncode -O 0`, `count.py` → `localset … with_target=0`). Its control is strengthened to the
+  thing the row removes: at `-O0` a `tight_copy_source` slot is present (2) and `inplace_set_index` is absent; at `-O1`
+  the copies are 0 and `inplace_set_index` is present.
 
 ## Summary
 

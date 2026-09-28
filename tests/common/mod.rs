@@ -280,6 +280,30 @@ pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Valu
     serde_json::from_str(&text).expect("parse ncode json")
 }
 
+/// [`build_ncode`] at an explicit optimization level (`-O <level>`), for a test
+/// that compares what one row changes between two levels of the same source.
+pub fn build_ncode_opt(project: &Path, target: &str, name: &str, level: &str) -> serde_json::Value {
+    let output = Command::new(mfb_exe())
+        .arg("build")
+        .arg("-ncode")
+        .arg("-O")
+        .arg(level)
+        .arg("-target")
+        .arg(target)
+        .arg(project)
+        .output()
+        .expect("run mfb build -ncode -O");
+    assert!(
+        output.status.success(),
+        "mfb build -ncode -O {level} -target {target} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let path = project.join(format!("{name}.ncode"));
+    let text = fs::read_to_string(&path).expect("read ncode dump");
+    serde_json::from_str(&text).expect("parse ncode json")
+}
+
 /// [`build_ncode`] for an `--app` build: the dump then carries the target's app
 /// bootstrap (window procedures, key handlers), which a console build has none of.
 pub fn build_ncode_app(project: &Path, target: &str, name: &str) -> serde_json::Value {

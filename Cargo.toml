@@ -358,6 +358,10 @@ name = "codegen_inplace_record_field"
 path = "tests/codegen/codegen_inplace_record_field.rs"
 
 [[test]]
+name = "codegen_place_forward"
+path = "tests/codegen/codegen_place_forward.rs"
+
+[[test]]
 name = "codegen_inplace_remove_at_insert"
 path = "tests/codegen/codegen_inplace_remove_at_insert.rs"
 
@@ -1065,6 +1069,10 @@ path = "tests/runtime/rt_res_rebind_alias.rs"
 [[test]]
 name = "rt_res_state_inplace_mutation"
 path = "tests/runtime/rt_res_state_inplace_mutation.rs"
+
+[[test]]
+name = "rt_place_forward"
+path = "tests/runtime/rt_place_forward.rs"
 
 [[test]]
 name = "rt_inplace_field_mixed"
