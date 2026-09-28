@@ -175,10 +175,22 @@ impl TypeEnv {
                     return;
                 }
             }
-            // A pattern that names a declared type is a union-variant arm.
+            // A pattern that names a declared type is a union-variant arm. A
+            // union arm lowers to a bare `Local` spelled as the variant's type
+            // name (`ir::lower`'s `HirMatchPattern::Union` arm), so only a
+            // `Local` can be one.
+            //
+            // bug-764: a `MemberAccess` is never a type name. `CASE Op.Add` is
+            // an enum arm whatever its member is spelled — the `Op.` qualifier
+            // decides (spec §9), exactly as native dispatch resolves it by its
+            // target (`lower_match_compare`). Reading the bare `member` here
+            // misclassified an enum member that shares a declared type's name
+            // as a union-variant arm: rejected against its own enum scrutinee,
+            // and silently accepted against a union carrying a variant of that
+            // name. A member access falls through to the literal check below,
+            // which types it (an enum member as its enum).
             let type_name = match v {
                 IrValue::Local(name) => Some(name),
-                IrValue::MemberAccess { member, .. } => Some(member),
                 _ => None,
             }
             .filter(|n| {
