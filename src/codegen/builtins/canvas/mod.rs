@@ -789,8 +789,11 @@ pub(crate) fn register(r: &mut Registry) {
         description: "How an item is filled, stroked, blended, transformed and \
                       clipped. A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
-                      field's no-op, so a partially named `canvas::Paint` does the obvious \
-                      thing: `canvas::Paint[fill := c]` is a plain filled shape.",
+                      field's no-op, and `canvas::fill`, `canvas::stroke` and \
+                      `canvas::fillStroke` leave every field they do not name at that \
+                      zero — so `canvas::fill(c)` is a plain filled shape. Building a \
+                      `canvas::Paint` by name must list every field, so start from one \
+                      of those three and refine it with `WITH`.",
         props: vec![
             RecordProp {
                 name: "fill",
