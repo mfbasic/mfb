@@ -57,14 +57,14 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
     GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
     GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
-    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
-    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
-    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
-    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
-    HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
-    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND,
-    HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
+    GRAPHICS_OFFSET_VULKAN_PRESENT_PASS, GRAPHICS_OFFSET_VULKAN_QUEUE,
+    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
+    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
+    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_FILL_R,
+    HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
+    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
     HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
     HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
     HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
@@ -83,6 +83,10 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
+
+#[path = "vulkan_present.rs"]
+mod present;
+pub(crate) use present::{CANVAS_CHILD_SYMBOL, WM_APP_CANVAS_SHOW};
 
 /// The Vulkan loader's soname on Linux.
 pub(crate) const VULKAN_SONAME: &str = "libvulkan.so.1";
@@ -166,6 +170,20 @@ const VK_PROBE_ENTRY_POINTS: &[&str] = &[
     "vkEndCommandBuffer",
     "vkQueueSubmit",
     "vkQueueWaitIdle",
+    // bug-688 V6: the swapchain present (`vulkan_present.rs`). Resolved only when a
+    // frame presents, so a driver without them still renders through readback.
+    "vkCreateWin32SurfaceKHR",
+    "vkGetPhysicalDeviceSurfaceSupportKHR",
+    "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+    "vkGetPhysicalDeviceSurfaceFormatsKHR",
+    "vkCreateSwapchainKHR",
+    "vkGetSwapchainImagesKHR",
+    "vkAcquireNextImageKHR",
+    "vkQueuePresentKHR",
+    "vkDestroySwapchainKHR",
+    "vkDestroySurfaceKHR",
+    "vkCreateSemaphore",
+    "vkDestroySemaphore",
 ];
 
 /// `VK_API_VERSION_1_0` — `VK_MAKE_API_VERSION(0, 1, 0, 0)`, i.e. `1 << 22`.
@@ -352,6 +370,9 @@ pub(crate) fn data_objects(platform: &dyn CodegenPlatform) -> Vec<CodeDataObject
         value: hex_encode_cstring(SHADER_ENTRY_NAME),
     });
     objects.extend(spirv_data_objects());
+    if present::has_present_path(platform) {
+        objects.extend(present::wsi_data_objects());
+    }
     objects
 }
 
@@ -766,18 +787,23 @@ pub(crate) fn emit_vulkan_ready(
         off_fn,
         &unavailable,
     )?;
-    builder.emit(abi::add_immediate(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_instance_info,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(2),
-        abi::stack_pointer(),
-        off_out,
-    ));
-    emit_call_fn(builder, off_fn);
+    if present::has_present_path(platform) {
+        // bug-688 V6: with the window-system extensions when the loader has them.
+        present::emit_wsi_create_instance(builder, off_instance_info, off_out, off_fn, off_state);
+    } else {
+        builder.emit(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            off_instance_info,
+        ));
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        builder.emit(abi::add_immediate(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            off_out,
+        ));
+        emit_call_fn(builder, off_fn);
+    }
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(&unavailable));
     builder.emit(abi::load_u64(
@@ -1019,24 +1045,29 @@ pub(crate) fn emit_vulkan_ready(
         off_fn,
         &unavailable,
     )?;
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_PHYSICAL,
-        abi::c_arg(0),
-    );
-    builder.emit(abi::add_immediate(
-        abi::c_arg(1),
-        abi::stack_pointer(),
-        off_device_info,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(3),
-        abi::stack_pointer(),
-        off_out,
-    ));
-    emit_call_fn(builder, off_fn);
+    if present::has_present_path(platform) {
+        // bug-688 V6: with `VK_KHR_swapchain` when the instance took the WSI ones.
+        present::emit_wsi_create_device(builder, off_device_info, off_out, off_fn, off_state);
+    } else {
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_PHYSICAL,
+            abi::c_arg(0),
+        );
+        builder.emit(abi::add_immediate(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            off_device_info,
+        ));
+        builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+        builder.emit(abi::add_immediate(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            off_out,
+        ));
+        emit_call_fn(builder, off_fn);
+    }
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(&unavailable));
     builder.emit(abi::load_u64(
@@ -6092,7 +6123,10 @@ pub(crate) fn emit_vulkan_draw_scene(
     builder: &mut CodeBuilder,
     platform: &dyn CodegenPlatform,
     platform_imports: &std::collections::HashMap<String, String>,
-    surface: &Operand,
+    // `None` is `canvas::vulkanPresentScene` (bug-688 V6): no surface, the frame goes
+    // to the window's swapchain, and the answer (presented or not) is left in
+    // `RESULT_VALUE_REGISTER`.
+    surface: Option<&Operand>,
     width: &Operand,
     height: &Operand,
     geometry: &Operand,
@@ -6101,7 +6135,11 @@ pub(crate) fn emit_vulkan_draw_scene(
     glyph_coverage: &Operand,
     draws: &Operand,
 ) -> Result<(), String> {
-    if !has_vulkan_backend(platform) {
+    let present_mode = surface.is_none();
+    if !has_vulkan_backend(platform) || (present_mode && !present::has_present_path(platform)) {
+        if present_mode {
+            builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+        }
         return Ok(());
     }
     let done = builder.label("vk_draw_done");
@@ -6176,18 +6214,21 @@ pub(crate) fn emit_vulkan_draw_scene(
     // here beside it and is gone: the item block travels in a buffer now, so nothing
     // pushes a constant.
     let off_draw_fn = builder.allocate_stack_object("vk_draw_fn", 8);
+    let swapchain = present_mode.then(|| present::PresentSlots::allocate(builder));
 
     // Park the arguments before anything calls.
-    builder.emit(abi::add_immediate(
-        abi::SCRATCH[0],
-        surface.clone(),
-        COLLECTION_HEADER_SIZE,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_surface,
-    ));
+    if let Some(surface) = surface {
+        builder.emit(abi::add_immediate(
+            abi::SCRATCH[0],
+            surface.clone(),
+            COLLECTION_HEADER_SIZE,
+        ));
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_surface,
+        ));
+    }
     builder.emit(abi::add_immediate(
         abi::SCRATCH[0],
         geometry.clone(),
@@ -6286,6 +6327,10 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_height,
     ));
 
+    if let Some(at) = &swapchain {
+        present::emit_present_begin(builder, at);
+    }
+
     // The renderer must be ready. `canvas::vulkanReady` is the branch's own
     // condition, so this is a guard against being called out of order, not a
     // fallback: a frame that got here without a pipeline renders nothing and leaves
@@ -6323,6 +6368,21 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_height,
         &unavailable,
     )?;
+    if let Some(at) = &swapchain {
+        present::emit_ensure_swapchain(
+            builder,
+            platform,
+            platform_imports,
+            off_handle,
+            off_fn,
+            off_state,
+            off_out,
+            off_width,
+            off_height,
+            at,
+            &unavailable,
+        )?;
+    }
 
     // --- record ------------------------------------------------------------------
     emit_state_load(
@@ -6384,17 +6444,37 @@ pub(crate) fn emit_vulkan_draw_scene(
             (PASS_BEGIN_CLEARS, Field::Addr(off_clear)),
         ],
     );
-    for (field, slot) in [
-        (PASS_BEGIN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_RENDER_PASS),
-        (PASS_BEGIN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER),
-    ] {
-        emit_state_load(builder, off_state, slot, abi::SCRATCH[0]);
-        builder.emit(abi::store_u64(
+    // The swapchain image's pass differs only in its final layout, so it is
+    // compatible with the offscreen pass every pipeline was built against.
+    let pass_slot = if present_mode {
+        GRAPHICS_OFFSET_VULKAN_PRESENT_PASS
+    } else {
+        GRAPHICS_OFFSET_VULKAN_RENDER_PASS
+    };
+    emit_state_load(builder, off_state, pass_slot, abi::SCRATCH[0]);
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass_begin + PASS_BEGIN_RENDER_PASS,
+    ));
+    match &swapchain {
+        Some(at) => builder.emit(abi::load_u64(
             abi::SCRATCH[0],
             abi::stack_pointer(),
-            off_pass_begin + field,
-        ));
+            at.framebuffer,
+        )),
+        None => emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
+            abi::SCRATCH[0],
+        ),
     }
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass_begin + PASS_BEGIN_FRAMEBUFFER,
+    ));
     for (field, parked) in [
         (PASS_BEGIN_AREA_WIDTH, off_width),
         (PASS_BEGIN_AREA_HEIGHT, off_height),
@@ -6937,6 +7017,38 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_cmd_handle,
     ));
     emit_call_fn(builder, off_fn);
+
+    if let Some(at) = &swapchain {
+        present::emit_submit_and_present(
+            builder,
+            platform,
+            platform_imports,
+            off_handle,
+            off_fn,
+            off_state,
+            off_cmd_handle,
+            at,
+            &unavailable,
+        )?;
+        builder.emit(abi::branch(&done));
+        builder.emit(abi::label(&unavailable));
+        present::emit_present_abandon(
+            builder,
+            platform,
+            platform_imports,
+            off_handle,
+            off_fn,
+            off_state,
+            at,
+        )?;
+        builder.emit(abi::label(&done));
+        builder.emit(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            at.presented,
+        ));
+        return Ok(());
+    }
 
     // --- copy the image out -------------------------------------------------------
     emit_struct(

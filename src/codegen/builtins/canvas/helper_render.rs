@@ -974,6 +974,19 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   IF NOT __canvas_vulkanRenderable(offsets) THEN
     RETURN FALSE
   END IF
+  ' bug-688 V6: the twin of `__canvas_renderMetal`'s direct present -- the frame goes
+  ' to the window's swapchain with no CPU surface, copy, swizzle or blit, which at a
+  ' full-screen surface were most of the frame. Same conditions, same fallback:
+  ' `vulkanPresentScene` answers FALSE headless (no window), on a target or driver with
+  ' no swapchain, when the window is not the canvas size, or when no image was free,
+  ' and the frame then takes the readback path below.
+  IF NOT __canvas_damageEnabled() AND NOT __canvas_dumpRequested() THEN
+    IF canvas::vulkanPresentScene(width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS) THEN
+      __CANVAS_GPU_FRAMES = __CANVAS_GPU_FRAMES + 1
+      __canvas_presentedDirect()
+      RETURN TRUE
+    END IF
+  END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
   ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset.
@@ -1213,8 +1226,9 @@ macro_rules! render_loop_tail {
   ' texture and reads the result back, so there is no kept surface for it to preserve.
   ' That is the plan's "capability-absent path falls back to full-frame", and it is the
   ' honest reading here -- the capability the plan named (`VK_KHR_incremental_present`,
-  ' Metal dirty rects) belongs to presenting a swapchain drawable, which this renderer
-  ' does not do at all (Correction 24).
+  ' Metal dirty rects) belongs to presenting a swapchain drawable, and the direct
+  ' present paths (bug-686 Phase 4, bug-688 V6) redraw every drawable whole rather than
+  ' track which regions of it are stale (Correction 24).
   ' plan-155-B: the renderer ordinals are `canvas::Renderer`'s -- 0 Software, 1 Metal,
   ' 2 Vulkan. A GPU arm that declines leaves them for the next arm to set.
   IF canvas::useGpu() AND canvas::metalReady() THEN
