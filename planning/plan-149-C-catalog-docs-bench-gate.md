@@ -256,6 +256,14 @@ Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commi
     checked, 0 diff(s)`; `scripts/test-accept.sh target/debug/mfb target/accept-actual` → "acceptance tests passed
     (1571 test(s) ran)"; `cargo test --no-fail-fast -- --skip artifact_gate_all` → `EXIT=0`, 0 `failures:` blocks;
     `cargo test --release --test rt_inplace_self_update -- --ignored` → 3 passed, 4,561.7 s.
+  - **A second main merge (`72c676092`, bug-756: 7 commits, all canvas text/font code plus the
+    `app-mouse-surface` goldens)** landed during that gate. Conflicts again only in those goldens: regenerated (6
+    rewritten, 0 failures), and `.nir` vs main's is 11 functions, all exactly explained by forwarding. Re-verified
+    **scoped to bug-756's blast radius** instead of repeating the ~3 h suite (the skill's scoped-check rule: the
+    rest of the tree is byte-identical to the tree the full gate just passed on): `scripts/artifact-gate.sh
+    target/release/mfb all` → `2182 golden(s) checked, 0 diff(s)` (every golden, not only canvas); all 16
+    `tests/canvas/rt_canvas_*` binaries → 246 passed, 0 failed; `scripts/test-accept.sh … 'app*' 'canvas*'
+    '*canvas*' '*app*'` → "acceptance tests passed (33 test(s) ran)".
 
 - **The golden-diff census looked in the wrong place (final gate).** The two `grep` commands in the Validation Plan
   scan fixture *sources*; the diffs came instead from the MFBASIC helper code of builtin packages, which is merged into
