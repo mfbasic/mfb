@@ -159,6 +159,15 @@ schtasks /delete /f /tn <name>
 This needs `test` to stay logged in; after a reboot or logout, windowed runs fail until
 someone logs in at the console.
 
+**Seeing what the screen shows: Desktop Duplication, not a GDI grab.** Use
+`tools/win-screen-capture` (run through an `/it` task as above). A PowerShell
+`CopyFromScreen` grab cannot witness a swapchain-presented window: during a fullscreen
+Vulkan canvas it returned a frozen older image or the child window's grey background while
+every frame presented (bug-688 V6), and `PrintWindow(…, PW_RENDERFULLCONTENT)` showed only
+the background even windowed. GDI grabs are fine for GDI-only windows (the transcript, the
+readback blit). Also: `schtasks /end` leaves the task's PowerShell child running, and an ssh
+`taskkill` of it is access-denied — kill it from another `/it` task (`taskkill /pid N /f`).
+
 ## Box 2230 (Windows): ssh quirks and crash diagnosis without a debugger
 
 `cmd.exe` over ssh produces several things that look like a broken box but aren't:

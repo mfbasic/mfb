@@ -236,11 +236,36 @@ always take the CPU surface, and the Metal layer is hidden while they show. The
 offscreen target is created with `allowGPUOptimizedContents` off, so it is stored
 linearly and the readback is a copy: a GPU-compressed target is decompressed on the
 CPU inside `getBytes:`, which cost more than a millisecond per 900×640 frame.
-A Vulkan frame has no direct path: it is always read back and blitted through the same
-CPU surface, in a window as well as headless.
 [[src/codegen/builtins/canvas/func_metal_present.rs:lower_metal_present_scene]]
 [[src/target/macos_aarch64/app/metal.rs:MTL_GPU_OPTIMIZED_CONTENTS]]
+
+**On Windows a Vulkan frame in a real window goes to a swapchain.** The instance takes
+`VK_KHR_surface` and `VK_KHR_win32_surface` and the device `VK_KHR_swapchain` when the
+driver has them (and is built without them otherwise). The frame is recorded into the
+acquired swapchain image through a render pass that differs from the offscreen one
+only in its final layout, `PRESENT_SRC_KHR` — so every pipeline built against the
+offscreen pass is compatible with it — and presented with FIFO. It takes the readback
+path under the same conditions as Metal's, and also when the window's surface is not
+exactly the canvas size, when no image is acquired within 100 ms, when the driver lacks
+the extensions or the `B8G8R8A8_SRGB` surface format, and on every target but Windows.
+Surface, swapchain, views and framebuffers are built together and rebuilt together, on a
+size change, an out-of-date or suboptimal image, or a frame that acquired an image and
+then could not submit it (which also replaces the two semaphores).
+The swapchain presents to a hidden `STATIC` child window of the canvas window, not to the
+window itself: once a swapchain presents to a window, GDI painting of it no longer
+reaches the screen, so a readback frame's blit and the Console transcript would stay
+covered by the last presented image. After each presented frame the graphics thread posts
+`WM_APP_CANVAS_SHOW` and the window procedure shows the child, but only while still in
+canvas mode; a readback frame's `WM_APP_BLIT` and every reconcile out of canvas mode hide
+it. Both messages are posted in frame order, so the path the latest frame took is the
+one on screen. The child answers `WM_NCHITTEST` with `HTTRANSPARENT` and never takes
+focus, so input still reaches the canvas window. Entering canvas mode fits the child to
+the client area and publishes that size as the canvas size, and `WM_SIZE` keeps both
+current.
 [[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_ensure_swapchain]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_submit_and_present]]
+[[src/target/win_x86_64/app/mod.rs:emit_canvas_child_fit]]
 
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
 bytes, so they are decoded to linear before blending and re-encoded on store. The
@@ -524,7 +549,8 @@ A rate is over the trailing second, counted from one log's ring:
 Either way the rate is 0 one second after the last event. `dt` is the gap between
 the two newest present timestamps, and 0 before the second present. `renderer` is
 the backend that returned the drawn frame: `Software` (0), `Metal` (1, including a
-frame presented straight to the window's layer) or `Vulkan` (2). It reads
+frame presented straight to the window's layer) or `Vulkan` (2, including a frame
+presented to the window's swapchain). It reads
 `Software` before the first frame.
 [[src/codegen/builtins/canvas/func_get_frame_stats.rs:body]]
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_LOOP]]
