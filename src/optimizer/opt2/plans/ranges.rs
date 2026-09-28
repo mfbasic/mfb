@@ -349,8 +349,13 @@ fn global_ranges_within(
     }
 
     let mut work: Vec<usize> = (0..count).collect();
+    let mut exhausted = false;
     while let Some(vid) = work.pop() {
         if budget == 0 {
+            // Put the value back: it was due for re-evaluation, so its
+            // current interval is not final.
+            work.push(vid);
+            exhausted = true;
             break;
         }
         budget -= 1;
@@ -402,10 +407,39 @@ fn global_ranges_within(
             work.push(dependent);
         }
     }
+    if exhausted {
+        pessimize_unsettled(&mut range, &work, &dependents);
+    }
     range
         .into_iter()
         .map(|value| value.unwrap_or(Range::FULL))
         .collect()
+}
+
+/// Make a budget-stopped fixpoint sound (bug-761).
+///
+/// The iteration is *optimistic*: a phi hulls only the arguments that already
+/// have evidence, and an instruction with a bottom input is deferred until the
+/// input settles. Both are sound only once the worklist drains. Stopped early,
+/// an unevaluated value becomes the full range at the end — yet every value
+/// computed from it (a phi that skipped it, or anything derived from that phi)
+/// still holds the narrow interval it had *without* it. So every value still
+/// pending or still bottom goes to the full range, and so does everything that
+/// transitively depends on one: those are exactly the values whose last
+/// evaluation read an input that has not reached its final interval. A value
+/// outside that closure was last evaluated from inputs that are all final, so
+/// its interval stands.
+fn pessimize_unsettled(range: &mut [Option<Range>], pending: &[usize], dependents: &[Vec<usize>]) {
+    let mut unsettled = vec![false; range.len()];
+    let mut stack: Vec<usize> = pending.to_vec();
+    stack.extend((0..range.len()).filter(|&vid| range[vid].is_none()));
+    while let Some(vid) = stack.pop() {
+        if std::mem::replace(&mut unsettled[vid], true) {
+            continue;
+        }
+        range[vid] = Some(Range::FULL);
+        stack.extend(dependents[vid].iter().copied());
+    }
 }
 
 /// The interval an instruction's destination holds, from its inputs'.
