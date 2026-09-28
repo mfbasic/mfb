@@ -1592,8 +1592,11 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_bigint_modpow(run, tests)
   tests = test_bigint_gcd(run, tests)
 
-  ' compress group (compress.mfb) — P1 coverage: compress::crc32
+  ' compress group (compress.mfb) — P1 coverage: compress::crc32 / deflate / inflate / gzip
   tests = test_compress_crc32(run, tests)
+  tests = test_compress_deflate(run, tests)
+  tests = test_compress_inflate(run, tests)
+  tests = test_compress_gzip(run, tests)
   ' elem group (elem.mfb) — P1 coverage: Record/Float element collection ops
   tests = test_elem_rec_get(run, tests)
   tests = test_elem_rec_set(run, tests)

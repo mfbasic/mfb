@@ -49,7 +49,7 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `convert`           | in-memory number-conversion throughput (plan-87), isolating `toString`/`toInt`/`toFloat` from the file-IO-bound `io format`/`readnum` rows: `int` (`toString`/`toInt` round-trip) and `float` (`toString(_,6)`/`toFloat` round-trip over exact dyadic values) |
 | `record wide`/`nested` + `float nbody_rec`/`nbody_vec` (`recordbench.*`) | record-shaped code the way users write it (P1 coverage): `wide` (1M `WITH`-updates of a 10-field mixed Integer/Float/String record passed into and returned from a FUNC), `nested` (the same update on that record inside a record inside a `List` — `get`, nested `WITH`, `collections::set` write-back); `nbody_rec` / `nbody_vec` are the **same simulation as `float nbody`** (same bodies, 100000 steps, same pair and float op order) over a `List OF Body` of records updated with `WITH` + `collections::set`, and over `vector::Float3` position/velocity fields with `vector::dot`/`vector::distance`. C peers use structs by value (a 3-double struct for `vec`), Python `dataclasses.replace` (records) and `__slots__` objects / tuples (n-body). Record-row Float ops are adds or power-of-two multiplies (exact), and the n-body rows fold `round(energy × 1e9)` — the nine decimals `float nbody` prints — so all checksums match bit-for-bit (`wide=10005154`, `nested=3543353`, `nbody_rec`=`nbody_vec`=`-169079859`) |
 | `bigint`            | the `big::Int` arbitrary-precision integer (P1): `pidigits` (Benchmarks Game spigot, 400 digits — add/multiply/divide/compare on growing state), `factorial` (`big::factorial(2000)` + `big::toString`), `modpow` (RSA-2048 public-key shape: 16 bases ^ 65537 mod a 2048-bit modulus), and `gcd` (200 Fibonacci pairs — Euclid's worst case — `big::parse`d, `big::gcd`'d and rendered back). Python peer is native `int`; no C peer (`--`) |
-| `compress`          | `compress::crc32` (P1) — 64× CRC-32 of a deterministic ~128 KB text; C peer is system zlib `crc32()` (`-lz`), Python `zlib.crc32` |
+| `compress`          | the `compress::` package (P1) over a deterministic ~128 KB text: `crc32` (64× CRC-32), `deflate` (4× raw DEFLATE, level 6), `inflate` (16× raw inflate of the text deflated once untimed), `gzip` (4× `gzipEncode` + `gzipDecode` round trip, level 6); C peer is system zlib (`crc32()`, `deflate()`/`inflate()` with raw/gzip window bits, `-lz`), Python the `zlib` module |
 | `elem`              | the **Record** and **Float** element types the Integer/String list/map matrix never varies (P1 coverage), all in plain `MUT`/`LET` locals: over a `List OF Item` (`Item = {id AS Integer, name AS String, score AS Float}`) — `rec_get`, `rec_set` (`collections::set` of a `WITH`-updated record), `rec_sortby` (stable `sortBy` on the `score` field, 101 distinct keys over 1000 items so the order-sensitive id hash proves tie stability), `rec_find` (structural record equality), `rec_filter`, `rec_transform`; over a `List OF Float` — `flt_sort`, `flt_sum` (`reduce`), `flt_transform`; and over a `Map OF Integer TO Item` — `map_rec_set` (insert then overwrite from empty) / `map_rec_get` |
 | `closure`           | first-class functions outside the built-in HOFs (P1 coverage): `hof_param` (a user `FUNC` taking a `FUNC(Integer) AS Integer` parameter, called in a hot loop with a named `FUNC` and with an inline `LAMBDA`) and `closure_ret` (a `FUNC` returning a `LAMBDA` that captures a `LET` value, each closure invoked 10000×) |
 | `tree`              | recursive `UNION` trees (P1) — a member `TYPE` whose fields hold the union itself (owned child nodes, spec §4.3/§14.5), built recursively and taken apart with `MATCH`: `binarytrees` (the Benchmarks Game binary-trees shape — stretch tree, one long-lived tree, and `2^(12-d+4)` short-lived trees at each depth `d` = 4..12 step 2, built, node-counted, dropped; allocation + drop throughput of owned recursive nodes, checksum = total node checks `674478`) and `treewalk` (one depth-16 weighted tree, 131071 nodes, built untimed, then 50 depth-weighted `MATCH` walks, checksum `932241450`). C peer: malloc'd struct nodes (freed); Python: tuples. Checksums match bit-for-bit |
@@ -295,14 +295,14 @@ Python `record(group, name, None)` does.
   `modpow=37451214999`, `gcd=2652206916`). CPython >= 3.11 caps int↔str
   conversion at 4300 digits by default, so the Python `factorial` row lifts it
   (`sys.set_int_max_str_digits(0)`) to render 2000!'s 5736 digits.
-- **`compress` (P1)** times only `crc32` (`=226009536256`, matched in all three).
-  The deflate/inflate/gzip round-trip rows are held out: at `-O3`,
-  `compress::deflate` (and so `gzipEncode`) aborts with 7-705-0001 (index out of
-  bounds) on any input, which would abort the whole `-O3` run; `-O1`/`-O2` are
-  correct and their output decodes identically under Python `zlib`/`gzip`. When
-  added, those rows must checksum the round-tripped length + CRC-32 of the
-  decompressed data, never a compressed length — compressed bytes legitimately
-  differ from zlib's.
+- **`compress` (P1)** — `crc32` (`=226009536256`) is a fixed function of the
+  bytes. `deflate`/`inflate`/`gzip` never checksum a compressed length —
+  mfb's own encoder and zlib emit different (equally valid) bytes — but add,
+  per repetition, the round-tripped length + CRC-32 of the decompressed data
+  (`deflate` inflates its timed output untimed to get it), so they match
+  bit-for-bit (`deflate`=`gzip`=`14126120308`, `inflate=56504481232`).
+  `inflate` decodes each language's own level-6 raw stream of the same text:
+  identical decoded output, slightly different coded input.
 
 - **`elem` (P1)** scores are exact dyadics (multiples of 0.25), so every Float
   sum/product is exact and each checksum is an exact integer projection that

@@ -1,21 +1,27 @@
-' CRC-32 benchmark (compress:: package). Group `compress`.
+' Compression benchmark (compress:: package). Group `compress`.
 '
-' compress::crc32 is the CRC-32 (the checksum gzip, zip and PNG store) written in
-' MFBASIC with no system library. The C peer calls system zlib's crc32() and the
-' Python peer zlib.crc32 — each language's standard means of doing the job; the
-' CRC is a fixed function of the bytes, so the checksum matches bit-for-bit.
+' compress:: (CRC-32, raw DEFLATE, gzip) is written in MFBASIC with no system
+' library. The C peer calls system zlib (crc32, deflate/inflate with raw and
+' gzip window bits) and the Python peer the zlib module — each language's
+' standard means of doing the job.
 '
 ' Input: a deterministic ~128 KB word-salad text (16-word vocabulary, LCG-chosen,
 ' space/newline separated), built once, untimed, identically in every language.
 '
 ' Rows:
 '   crc32    64x crc32 of the input; checksum = sum of the 64 CRCs
+'   deflate  4x raw DEFLATE (level 6) of the input
+'   inflate  16x raw inflate of the input deflated once, untimed (level 6)
+'   gzip     4x gzip encode (level 6) + gzip decode round trip
 '
-' The deflate/inflate/gzip round-trip rows are not in the group: at -O3,
-' compress::deflate (and so gzipEncode) aborts with 7-705-0001 "List or string
-' index/range is outside valid bounds" on any input (-O1/-O2 are correct and
-' interoperate with zlib), which would abort the whole -O3 suite run. The
-' encoder rows need a compressor to build their input, so they wait on that fix.
+' Compressed bytes legitimately differ between compressors (mfb's own encoder
+' vs zlib: same format, different match choices), so no row checksums a
+' compressed length. Each row checksums the round-tripped data instead: per
+' repetition, len + crc32 of the decompressed bytes (for `deflate` the timed
+' output is inflated untimed to get them), summed. That is a fixed function of
+' the input and matches bit-for-bit. `inflate` decodes each language's own
+' level-6 DEFLATE stream of the same text, so its decoded work is identical
+' while the coded stream it walks differs slightly.
 IMPORT io
 IMPORT compress
 IMPORT collections
@@ -61,4 +67,71 @@ FUNC test_compress_crc32(run AS Integer, tests AS List OF BenchResult) AS List O
   NEXT
   io::printError("test_compress_crc32 = " & toString(checksum))
   RETURN collections::append(tests, makeResult("compress", "crc32", times))
+END FUNC
+
+' Round-trip checksum term shared by the encoder/decoder rows: the decompressed
+' length plus its CRC-32 — independent of which compressor built the stream.
+FUNC compressRoundTrip(y AS List OF Byte) AS Integer
+  RETURN len(y) + compress::crc32(y)
+END FUNC
+
+' ---- compress deflate: 4x raw DEFLATE of the input (level 6) ----------------
+FUNC test_compress_deflate(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET x AS List OF Byte = compressInput(131072)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT outs AS List OF List OF Byte = []
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR rep = 1 TO 4
+      outs = collections::append(outs, compress::deflate(x, 6))
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+    MUT acc AS Integer = 0
+    FOR EACH d IN outs
+      acc = acc + compressRoundTrip(compress::inflate(d))
+    NEXT
+    checksum = acc
+  NEXT
+  io::printError("test_compress_deflate = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("compress", "deflate", times))
+END FUNC
+
+' ---- compress inflate: 16x raw inflate of the deflated input ----------------
+FUNC test_compress_inflate(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET d AS List OF Byte = compress::deflate(compressInput(131072), 6)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 1 TO 16
+      acc = acc + compressRoundTrip(compress::inflate(d))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_compress_inflate = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("compress", "inflate", times))
+END FUNC
+
+' ---- compress gzip: 4x gzipEncode + gzipDecode round trip (level 6) ---------
+FUNC test_compress_gzip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET x AS List OF Byte = compressInput(131072)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 1 TO 4
+      acc = acc + compressRoundTrip(compress::gzipDecode(compress::gzipEncode(x, 6)))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_compress_gzip = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("compress", "gzip", times))
 END FUNC

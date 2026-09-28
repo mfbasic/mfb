@@ -881,7 +881,7 @@ def main():
     # bigint group (P1 big:: coverage — pidigits/factorial/modpow/gcd)
     bigintbench.run_all(RUN, now_ns, record)
 
-    # compress group (P1 compress:: coverage — crc32)
+    # compress group (P1 compress:: coverage — crc32 / deflate / inflate / gzip)
     compressbench.run_all(RUN, now_ns, record)
     # elem group (P1 coverage — Record/Float element collection ops)
     elembench.run_all(RUN, now_ns, record)
