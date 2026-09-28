@@ -112,7 +112,7 @@ Acceptance: every man example compiles and runs.
   The 6 packages whose files Phase 2 then changed were re-run with the final binary:
   audio 11/11, canvas 32/32, datetime 116/116, json 18/18 ran; http 30/38 and term 37/47
   ran, every non-run exactly a `scripts/man-examples-not-run.txt` entry (servers, tty).
-Commit: —
+Commit: 65850e3d0 (1.1), f25cfdb4f (1.2–1.4)
 
 ### Phase 2 — Injected built-in bodies
 
@@ -134,8 +134,12 @@ Commit: —
       → empty.
 
 Acceptance: native goldens are byte-identical, and the canvas helpers still render.
+  Result (2026-09-27): after the 2.2 regeneration, `artifact-gate.sh target/release/mfb all`
+  → `1544 tests, 1723 build(s), 2182 golden(s) checked, 0 diff(s)`; `test-canvas-vulkan.sh …
+  --box 2226 --target linux-aarch64` → `canvas Vulkan runtime tests passed` (groups and
+  polylines reached the GPU and match their goldens).
   Check: `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (est. 20 min; the injected bodies span 15 built-in packages, so no single-package gate covers them); `bash scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` → pass (est. 5 min; box 2226 because that is the script's native linux-aarch64 Vulkan box and the macOS host cannot run the Linux artifact; it covers the canvas helpers the gate cannot see).
-Commit: —
+Commit: f25cfdb4f
 
 ### Phase 3 — Generators and inline test sources
 
@@ -186,7 +190,7 @@ Acceptance: the unit and integration suites that embed the sources pass.
   Strengthened (the criterion names integration suites too): every `[[test]]` target whose
   file C changed (91) → 2 failing targets on the first run (the hpke header miss and the
   SUB-rule test), both `ok` after the fixes (`5 passed`, `15 passed`). `mfb test` 782/782.
-Commit: —
+Commit: f25cfdb4f
 
 ## Validation Plan
 

@@ -23,9 +23,9 @@ The plan-wide prerequisites are in plan-159-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-159-C complete | `ls planning/plan-159-C-*` → no match | NOT MET |
-| No `.mfb` outside the exclusion list uses `SUB` | plan-159-B §1 `rg` → only the exclusion list | NOT MET |
-| No Rust-embedded MFBASIC uses `SUB` outside the SUB-rule tests | plan-159-C §1 `rg` | NOT MET |
+| plan-159-C complete | `ls planning/plan-159-C-*` → no match | MET (2026-09-27: C archived) |
+| No `.mfb` outside the exclusion list uses `SUB` | plan-159-B §1 `rg` → only the exclusion list | MET (2026-09-27: the 4 exclusion sources that contain SUB) |
+| No Rust-embedded MFBASIC uses `SUB` outside the SUB-rule tests | plan-159-C §1 `rg` | MET (2026-09-27: `rg -n '\bSUB\b' src --type rust` non-comment hits are the SUB machinery plus the SUB-rule tests C 3.3 lists) |
 
 ## 1. Goal
 
