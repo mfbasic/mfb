@@ -919,6 +919,10 @@ name = "rt_term_draw_glyph_scalar"
 path = "tests/runtime/rt_term_draw_glyph_scalar.rs"
 
 [[test]]
+name = "rt_term_draw_text_attr_grapheme"
+path = "tests/runtime/rt_term_draw_text_attr_grapheme.rs"
+
+[[test]]
 name = "rt_native_numeric_pow_div_runtime"
 path = "tests/runtime/rt_native_numeric_pow_div_runtime.rs"
 

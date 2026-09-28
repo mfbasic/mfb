@@ -46,9 +46,9 @@ styling the value carries: the attributes the terminal surface can represent —
 **bold**, **underline**, **foreground colour** and **background colour** — are
 applied per run, and every other attribute (italic, strikethrough, overline, font,
 font size) is silently ignored. Grapheme-cluster and wide-glyph handling matches the
-`String` overload as long as every scalar in a cluster carries the same style; a
-style that changes **inside** a cluster splits it, and its parts land in separate
-cells. Your own current bold, underline, foreground
+`String` overload exactly: a cluster is always drawn whole in its own cells, and it
+takes the style of its **first** scalar — a style that changes inside a cluster (bold
+on a combining mark, say) is not shown. Your own current bold, underline, foreground
 and background settings are put back afterwards, so like the `String` overload the
 call leaves the pen it found. Using this overload requires `IMPORT astrings` (the
 only way to build an `AttributedString`). In an `mfb build --app` program, `term::drawText` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;

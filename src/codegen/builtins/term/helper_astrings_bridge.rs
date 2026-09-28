@@ -30,7 +30,8 @@ r#"' ===========================================================================
 ' the attributes the terminal surface can represent are applied — bold, underline,
 ' foreground color and background color; every other attribute (italic, strike,
 ' overline, font, font size) is silently ignored. The text is drawn in maximal
-' runs of a single (bold, underline, foreground, background) state, and each run is
+' runs of a single (bold, underline, foreground, background) state, cut only on
+' grapheme-cluster boundaries (a cluster takes its first scalar's style), and each run is
 ' handed to the native `String` drawText so the grapheme-cluster and wide-glyph
 ' handling is identical to the String overload; runs are placed left to right,
 ' advancing the start column by each run's display width. The current global
@@ -45,6 +46,7 @@ IMPORT astrings
 IMPORT strings
 IMPORT bits
 IMPORT color
+IMPORT collections
 
 ' The renderable subset of an AttributedString's per-scalar styling: the attributes
 ' the terminal surface can represent — bold, underline, and packed 0xAARRGGBB
@@ -127,27 +129,42 @@ END SUB
 SUB __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedString)
   IF term::isOn() THEN
     LET text AS String = toString(value)
-    LET n AS Integer = len(strings::toScalars(value))
+    ' bug-726: runs are cut on grapheme-cluster boundaries only. A cluster takes the
+    ' style of its FIRST scalar, so a style change inside a cluster (bold on a
+    ' combining mark, say) never splits it across two cells.
+    LET clusters AS List OF String = strings::graphemes(text)
+    LET nc AS Integer = len(clusters)
     LET saveBold AS Boolean = term::getBold()
     LET saveUnderline AS Boolean = term::getUnderline()
     LET saveFg AS color::Color = term::getForeground()
     LET saveBg AS color::Color = term::getBackground()
     MUT col AS Integer = column
-    MUT i AS Integer = 0
-    WHILE i < n
-      LET st AS __TermStyle = __term_styleAt(value, i)
-      MUT j AS Integer = i + 1
-      WHILE j < n AND __term_styleAt(value, j) = st
-        j = j + 1
+    MUT ci AS Integer = 0
+    MUT si AS Integer = 0
+    WHILE ci < nc
+      LET st AS __TermStyle = __term_styleAt(value, si)
+      MUT seg AS String = ""
+      MUT cj AS Integer = ci
+      MUT sj AS Integer = si
+      WHILE cj < nc
+        IF cj > ci THEN
+          IF NOT (__term_styleAt(value, sj) = st) THEN
+            EXIT WHILE
+          END IF
+        END IF
+        LET g AS String = collections::get(clusters, cj)
+        seg = seg & g
+        sj = sj + len(strings::toScalars(g))
+        cj = cj + 1
       END WHILE
-      LET seg AS String = strings::mid(text, i, j - i)
       term::setBold(st.bold)
       term::setUnderline(st.underline)
       __term_applyFg(st.fg, saveFg)
       __term_applyBg(st.bg, saveBg)
       term::drawText(row, col, seg)
       col = col + strings::displayWidth(seg)
-      i = j
+      ci = cj
+      si = sj
     END WHILE
     term::setBold(saveBold)
     term::setUnderline(saveUnderline)
