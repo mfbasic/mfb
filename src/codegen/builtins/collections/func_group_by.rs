@@ -2,6 +2,7 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::vector::builder_vector_inline::is_reevaluation_safe;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
@@ -24,13 +25,9 @@ pub(crate) fn group_by_fast_path(
         return Ok(None);
     }
     let parts: Vec<&str> = params.split('$').collect();
-    let reeval_safe = matches!(
-        &args[0],
-        NirValue::Local(_)
-            | NirValue::Const { .. }
-            | NirValue::Global { .. }
-            | NirValue::LocalRef { .. }
-    );
+    // bug-760 A: accept a `MemberAccess` place (a forwarded record/STATE field
+    // read), not only a bare `Local` — see `is_reevaluation_safe` doc comment.
+    let reeval_safe = is_reevaluation_safe(&args[0]);
     // The `$K$B$V` suffixes of a `#collections_groupBy$...` runtime target are
     // NAMES the NIR carries; parsed once here so the eligibility test is on
     // types (see the `kt`/`vt` bind below, which parses the same three).

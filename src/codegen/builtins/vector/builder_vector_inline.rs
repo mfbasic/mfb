@@ -187,11 +187,23 @@ pub(crate) fn vector_call_is_inlined(target: &str, args: &[NirValue]) -> bool {
 }
 
 /// Whether `value` is cheap and side-effect-free to evaluate more than once (a
-/// binding read or a field read of one). A call/arithmetic operand is not — it
-/// would be recomputed once per lane — so those fall back to the FUNC path.
-fn is_reevaluation_safe(value: &NirValue) -> bool {
+/// binding read, a local-slot address, or a field read of one — a `MemberAccess`
+/// chain rooted at any of those, recursing through nested fields). A
+/// call-rooted or arithmetic operand is not — it would be recomputed once per
+/// lane, or (for a fast-path builtin argument) re-evaluate a side effect on
+/// every native lowering site — so those fall back to the FUNC/`.mfb` path.
+///
+/// Shared by every native fast-path gate that needs "is this a re-evaluable
+/// place" rather than "is this exactly a bare local": plan-149's place
+/// forwarding (`optimizer/opt1/placefwd.rs`) rewrites `LET base = rec.xs` +
+/// `f(base, …)` into `f(rec.xs, …)`, turning a `Local` argument into a
+/// `MemberAccess` one; a gate that only accepted `Local` lost the forwarded
+/// case (bug-760 A) even though a place read is exactly as safe as the local it
+/// replaced.
+pub(crate) fn is_reevaluation_safe(value: &NirValue) -> bool {
     match value {
         NirValue::Local(_) | NirValue::Global { .. } | NirValue::Const { .. } => true,
+        NirValue::LocalRef { .. } => true,
         NirValue::MemberAccess { target, .. } => is_reevaluation_safe(target),
         _ => false,
     }

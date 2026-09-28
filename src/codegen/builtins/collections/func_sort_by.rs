@@ -2,6 +2,7 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::vector::builder_vector_inline::is_reevaluation_safe;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
@@ -29,13 +30,9 @@ pub(crate) fn sort_by_fast_path(
         .next()
         .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
         .unwrap_or(false);
-    let source_reeval_safe = matches!(
-        &args[0],
-        NirValue::Local(_)
-            | NirValue::Const { .. }
-            | NirValue::Global { .. }
-            | NirValue::LocalRef { .. }
-    );
+    // bug-760 A: accept a `MemberAccess` place (a forwarded record/STATE field
+    // read), not only a bare `Local` — see `is_reevaluation_safe` doc comment.
+    let source_reeval_safe = is_reevaluation_safe(&args[0]);
     // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
     // the NIR carries; parsed once here, at the symbol boundary.
     let item = ParameterType::declared(item);
