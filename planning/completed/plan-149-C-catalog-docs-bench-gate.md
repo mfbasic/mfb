@@ -211,7 +211,7 @@ Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commi
 - **The variable-width list `set` rows.** `test_lrd_set` and `test_lsd_set` are slow even in the direct form
   (`dynDirect` 9,294 ns per statement, probe `/tmp/getprobe/d`): `lower_field_set`
   (`src/codegen/collection/assign/builder_inplace_assign.rs:1093`) declines a variable-width element `set` because a
-  longer string grows the list block. Recommendation: file it as its own bug with that probe as the reproduction. The
+  longer string grows the list block. Filed as bug-759 (`bugs/bug-759-field-varwidth-list-set-rebuilds-the-owner.md`), which also finds the decline's stated reason stale since bug-627. Recommendation: file it as its own bug with that probe as the reproduction. The
   likely fix is codegen, routing the `set` through `InlineGrow` the way `Map` `set` does, when the field is the owner's
   last inline sub-block (it is in `RecDyn`). Not an optimizer row.
 - **Row name.** "Place copy forwarding" is recommended. "Field-read forwarding" is too narrow, because the row also
