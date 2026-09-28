@@ -18,27 +18,35 @@
 //! owner to be written, and proves instead that the write comes after the last
 //! read (the *window*).
 //!
-//! **A place** is `Local(o)`, or a `MemberAccess` chain rooted at `Local(o)`. No
-//! call, union extract or other node sits in the chain, so evaluating the place
-//! later than the binding did cannot trap or observe anything but `o`.
+//! **A place** is `Local(o)` or `Global{g}`, or a `MemberAccess` chain rooted at
+//! one. No call, union extract or other node sits in the chain, so evaluating
+//! the place later than the binding did cannot trap or observe anything but the
+//! owner.
 //!
-//! **Function-wide gates** (a scope-blind census, as in aggcopy — NIR keeps
-//! source names under shadowing, so counting every occurrence is the
-//! conservative choice):
+//! **Owners**, and what writes each: an owned local (`Assign{o}` only), a local
+//! bound from a by-ref capture (`Assign{o}`, plus anything that reaches the
+//! parent's slot), a global (`StoreGlobal{g}`, plus any user code), and a
+//! resource's `STATE` (`StateAssign{f}`, plus anything the handle is passed to).
 //!
-//! - `b` is bound once, never assigned, never address-taken (`LocalRef`), never
-//!   captured, not a parameter and not a resource owner.
-//! - The owner `o` has exactly one binding (a `Bind`, or else it is a parameter
-//!   with none), is never a loop or handler binder, never address-taken and
-//!   never captured, and is not a `RES` handle. Those are the ways a local can
-//!   change other than a visible `Assign{o}`.
-//! - A bare `Local(o)` source is not a parameter: `RETURN b` becomes `RETURN o`,
-//!   and the return-move elision must still see a local it may move (aggcopy's
-//!   reason).
+//! **Scope.** A binding's scope is the rest of its block: a name cannot shadow
+//! an enclosing one (`SYMBOL_DUPLICATE_LOCAL`), but it can be reused by a later,
+//! disjoint scope (the benchmark binds `cur` inside a loop and again after it),
+//! and a `DO … LOOP UNTIL` condition cannot see its body's bindings. So every
+//! `Local(b)` in `ops[i+1..]` of the binding's block is a read of *this* `b`,
+//! provided nothing there binds `b` again — the row declines if anything does.
+//! The owner is resolved the same way, through the bindings visible at `ops[i]`.
 //!
-//! **The window** — let the binding be `ops[i]` of its block; scope confines
-//! every read of `b` to `ops[i+1..]`, possibly nested. Let `L` be the last op
-//! holding a read.
+//! **Gates on `b`**, within `ops[i+1..]`: not bound again, not assigned, not
+//! address-taken (`LocalRef`), not captured by a closure; and `b` is not a
+//! parameter or a resource.
+//!
+//! **Gates on a local owner `o`**: never address-taken or captured anywhere in
+//! the function (by name, so conservatively), not bound again inside the window,
+//! and a bare `Local(o)` source is not a parameter — `RETURN b` becomes
+//! `RETURN o`, and the return-move elision must still see a local it may move
+//! (aggcopy's reason).
+//!
+//! **The window** — let `L` be the last op of `ops[i+1..]` holding a read of `b`.
 //!
 //! - **W1.** No op in `i+1..L` (exclusive) writes the owner, at any depth.
 //! - **W2.** Op `L` writes the owner nowhere, **or** is itself the top-level
@@ -47,10 +55,10 @@
 //!   record, so the forwarded reads still see the old value.
 //! - **W3.** No read of `b` sits inside a `TRAP` handler (it runs after the
 //!   failing statement, which may be past the window).
-//! - Every read of `b` in the function lies in the window. Scope guarantees this
-//!   for source programs; the check makes the rewrite total by construction
-//!   rather than by a scope argument (a `DO … LOOP UNTIL` condition, for one, is
-//!   evaluated by the loop op, not by its body).
+//! - **W4** (by-ref, global, `STATE` owners). Nothing in `i+1..=L`, op L's value
+//!   included, can run user code: no user or indirect call and no function value.
+//! - **W5** (`STATE` owners). The resource itself appears in the window only as
+//!   the root of a member chain; handing it anywhere declines.
 //!
 //! A binding inside a loop body is re-evaluated each iteration and its window
 //! ends inside that body, so loops need no extra rule. A write in a branch not
@@ -76,14 +84,25 @@ pub(crate) fn forward(module: &mut NirModule) {
     let module_facts = ModuleFacts::of(module);
     for function in &mut module.functions {
         loop {
-            let facts = Facts::census(function);
             let context = Context {
                 function_params: function.params.iter().map(|p| p.name.clone()).collect(),
                 resource_owners: function.resource_owners.keys().cloned().collect(),
-                facts,
+                facts: Facts::census(function),
                 module: &module_facts,
             };
-            if !forward_one(&mut function.body, &context) {
+            let mut scope = Scope::default();
+            scope.open();
+            for param in &function.params {
+                scope.declare(
+                    &param.name,
+                    Visible {
+                        type_: param.type_.clone(),
+                        param: true,
+                        by_ref: false,
+                    },
+                );
+            }
+            if !forward_one(&mut function.body, &context, &mut scope) {
                 break;
             }
             fired += 1;
@@ -190,76 +209,45 @@ impl ModuleFacts {
     }
 }
 
-/// Per-name occurrence facts across the whole function, scope-blind.
+/// Per-name facts across the whole function, scope-blind: used only where
+/// merging every binding of a name errs toward declining.
 #[derive(Default)]
 struct Facts {
-    /// Binding positions: `Bind`, loop and handler binders (counted twice, so a
-    /// binder never passes a "bound once" test), parameters.
-    binds: HashMap<String, usize>,
-    /// The type and initializer class of each `Bind` (the last one seen; only
-    /// consulted for a name bound exactly once).
-    bind_types: HashMap<String, ParameterType>,
-    by_ref_bound: HashSet<String>,
-    writes: HashSet<String>,
+    /// Every type any binding of the name has (a `Bind`, a loop or handler
+    /// binder, a parameter): a reused name must not hide a function-typed one.
+    name_types: HashMap<String, Vec<ParameterType>>,
     address_taken: HashSet<String>,
     captured: HashSet<String>,
-    /// Every `Local(name)` read, anywhere, including match patterns and guards.
-    reads: HashMap<String, usize>,
 }
 
 impl Facts {
     fn census(function: &NirFunction) -> Facts {
         let mut facts = Facts::default();
         for param in &function.params {
-            *facts.binds.entry(param.name.clone()).or_insert(0) += 1;
-            facts
-                .bind_types
-                .insert(param.name.clone(), param.type_.clone());
+            facts.note_type(&param.name, &param.type_);
         }
-        // `visit_ops`, not `walk_op` per statement: `walk_op` visits an op's
-        // children only, which would skip the top-level writes themselves.
         facts.visit_ops(&function.body);
         facts
+    }
+
+    fn note_type(&mut self, name: &str, type_: &ParameterType) {
+        self.name_types
+            .entry(name.to_string())
+            .or_default()
+            .push(type_.clone());
     }
 }
 
 impl NirVisitor for Facts {
     fn visit_op(&mut self, op: &NirOp) {
-        match op {
-            NirOp::Bind {
-                name, type_, value, ..
-            } => {
-                *self.binds.entry(name.clone()).or_insert(0) += 1;
-                self.bind_types.insert(name.clone(), type_.clone());
-                if matches!(value, Some(NirValue::Capture { by_ref: true, .. })) {
-                    self.by_ref_bound.insert(name.clone());
-                }
-            }
-            NirOp::Assign { name, .. } => {
-                self.writes.insert(name.clone());
-            }
-            NirOp::StateAssign { resource, .. } => {
-                self.writes.insert(resource.clone());
-            }
-            NirOp::For { name, type_, .. } | NirOp::ForEach { name, type_, .. } => {
-                *self.binds.entry(name.clone()).or_insert(0) += 2;
-                self.bind_types.insert(name.clone(), type_.clone());
-            }
-            NirOp::Trap { name, .. } => {
-                *self.binds.entry(name.clone()).or_insert(0) += 2;
-                self.bind_types
-                    .insert(name.clone(), ParameterType::named("Error"));
-            }
-            _ => {}
+        if let Some((name, type_)) = binder(op) {
+            self.note_type(name, &type_);
         }
         walk_op(self, op);
     }
 
     fn visit_value(&mut self, value: &NirValue) {
         match value {
-            NirValue::Local(name) => {
-                *self.reads.entry(name.clone()).or_insert(0) += 1;
-            }
             NirValue::LocalRef { name, .. } => {
                 self.address_taken.insert(name.clone());
             }
@@ -273,6 +261,54 @@ impl NirVisitor for Facts {
             _ => {}
         }
         walk_value(self, value);
+    }
+}
+
+/// The name an op binds, and its type: a `Bind`, a `FOR` / `FOR EACH` loop
+/// variable, or a `TRAP`'s error binding.
+fn binder(op: &NirOp) -> Option<(&str, ParameterType)> {
+    match op {
+        NirOp::Bind { name, type_, .. }
+        | NirOp::For { name, type_, .. }
+        | NirOp::ForEach { name, type_, .. } => Some((name, type_.clone())),
+        NirOp::Trap { name, .. } => Some((name, ParameterType::named("Error"))),
+        _ => None,
+    }
+}
+
+/// A binding visible at the op being examined.
+#[derive(Clone)]
+struct Visible {
+    type_: ParameterType,
+    param: bool,
+    /// Bound from `Capture{by_ref: true}`: reads and writes go through the
+    /// parent's slot.
+    by_ref: bool,
+}
+
+/// The bindings visible at a point in the body, innermost frame last.
+#[derive(Default)]
+struct Scope {
+    frames: Vec<HashMap<String, Visible>>,
+}
+
+impl Scope {
+    fn open(&mut self) {
+        self.frames.push(HashMap::new());
+    }
+
+    fn close(&mut self) {
+        self.frames.pop();
+    }
+
+    fn declare(&mut self, name: &str, visible: Visible) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.insert(name.to_string(), visible);
+        }
+    }
+
+    fn lookup(&self, name: &str) -> Option<&Visible> {
+        self.frames.iter().rev().find_map(|frame| frame.get(name))
     }
 }
 
@@ -315,6 +351,14 @@ impl Owner {
         }
     }
 
+    /// The local name the owner is reached through, if any.
+    fn local_name(&self) -> Option<&str> {
+        match self {
+            Owner::Local(name) | Owner::ByRef(name) | Owner::State(name) => Some(name),
+            Owner::Global(_) => None,
+        }
+    }
+
     /// Whether something other than a visible write could change the owner, so
     /// the window must also be call-safe (W4).
     fn needs_call_gate(&self) -> bool {
@@ -340,27 +384,74 @@ fn place_root(value: &NirValue) -> Option<(&NirValue, usize, Option<&str>)> {
     ))
 }
 
-/// Find and apply the first forwardable binding in `ops` (or any nested body).
-fn forward_one(ops: &mut Vec<NirOp>, context: &Context) -> bool {
+/// Find and apply the first forwardable binding in `ops` (or any nested body),
+/// tracking the bindings visible at each op in `scope`.
+fn forward_one(ops: &mut Vec<NirOp>, context: &Context, scope: &mut Scope) -> bool {
+    scope.open();
+    let fired = forward_in_block(ops, context, scope);
+    scope.close();
+    fired
+}
+
+fn forward_in_block(ops: &mut Vec<NirOp>, context: &Context, scope: &mut Scope) -> bool {
     for index in 0..ops.len() {
-        if let Some((binding, place, last)) = candidate(ops, index, context) {
+        if let Some((binding, place, last)) = candidate(ops, index, context, scope) {
             for op in &mut ops[index + 1..=last] {
                 rewrite_op(op, &binding, &place);
             }
             ops.remove(index);
             return true;
         }
+        // A loop variable or a handler's error binding is visible in the body
+        // only; a `Bind` is visible to the rest of this block.
+        let body_binder = match &ops[index] {
+            NirOp::For { .. } | NirOp::ForEach { .. } | NirOp::Trap { .. } => {
+                binder(&ops[index]).map(|(name, type_)| (name.to_string(), type_))
+            }
+            _ => None,
+        };
         for body in nested_bodies_mut(&mut ops[index]) {
-            if forward_one(body, context) {
+            scope.open();
+            if let Some((name, type_)) = &body_binder {
+                scope.declare(
+                    name,
+                    Visible {
+                        type_: type_.clone(),
+                        param: false,
+                        by_ref: false,
+                    },
+                );
+            }
+            let fired = forward_in_block(body, context, scope);
+            scope.close();
+            if fired {
                 return true;
             }
+        }
+        if let NirOp::Bind {
+            name, type_, value, ..
+        } = &ops[index]
+        {
+            scope.declare(
+                name,
+                Visible {
+                    type_: type_.clone(),
+                    param: false,
+                    by_ref: matches!(value, Some(NirValue::Capture { by_ref: true, .. })),
+                },
+            );
         }
     }
     false
 }
 
 /// `ops[index]` as `(b, place, L)` when every gate holds.
-fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, NirValue, usize)> {
+fn candidate(
+    ops: &[NirOp],
+    index: usize,
+    context: &Context,
+    scope: &Scope,
+) -> Option<(String, NirValue, usize)> {
     let NirOp::Bind {
         mutable: false,
         name: binding,
@@ -370,39 +461,34 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
     else {
         return None;
     };
-    if !is_aggregate(type_) {
+    if !is_aggregate(type_)
+        || context.function_params.contains(binding)
+        || context.resource_owners.contains(binding)
+    {
         return None;
     }
-    let facts = &context.facts;
-    let binding_stable = facts.binds.get(binding).copied() == Some(1)
-        && !facts.writes.contains(binding)
-        && !facts.address_taken.contains(binding)
-        && !facts.captured.contains(binding)
-        && !context.function_params.contains(binding)
-        && !context.resource_owners.contains(binding);
-    if !binding_stable {
-        return None;
-    }
-    let owner = owner_of(place, binding, context)?;
+    let owner = owner_of(place, binding, context, scope)?;
 
-    // Every read of `b` lies in `ops[index+1..]`; `L` is the last op with one.
-    let total_reads = facts.reads.get(binding).copied().unwrap_or(0);
-    let mut window_reads = 0;
+    // Every `Local(b)` in the rest of the block is a read of this `b` unless
+    // something there binds `b` again; `L` is the last op with a read.
     let mut last = None;
     for (offset, op) in ops[index + 1..].iter().enumerate() {
-        let mut probe = ReadProbe::new(binding);
+        let mut probe = BindingProbe::new(binding);
         probe.visit_op(op);
-        if probe.in_handler {
-            return None; // W3
+        if probe.disqualified() {
+            return None; // rebound, assigned, address-taken, captured, or W3
         }
         if probe.reads > 0 {
-            window_reads += probe.reads;
             last = Some(index + 1 + offset);
         }
     }
     let last = last?;
-    if window_reads != total_reads {
-        return None;
+    let window = &ops[index + 1..=last];
+    // The owner's name must mean the same binding throughout the window.
+    if let Some(name) = owner.local_name() {
+        if window.iter().any(|op| binds_name(op, name)) {
+            return None;
+        }
     }
     // W1: nothing strictly inside the window writes the owner.
     if ops[index + 1..last]
@@ -426,7 +512,7 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
             context,
             runs_user_code: false,
         };
-        gate.visit_ops(&ops[index + 1..=last]);
+        gate.visit_ops(window);
         if gate.runs_user_code {
             return None;
         }
@@ -438,7 +524,7 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
             name: resource,
             found: false,
         };
-        bare.visit_ops(&ops[index + 1..=last]);
+        bare.visit_ops(window);
         if bare.found {
             return None;
         }
@@ -447,7 +533,7 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
 }
 
 /// The owner of `place` when it is one this row can prove a window for.
-fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner> {
+fn owner_of(place: &NirValue, binding: &str, context: &Context, scope: &Scope) -> Option<Owner> {
     let (root, depth, first_member) = place_root(place)?;
     let owner = match root {
         // A global cannot be address-taken, captured or rebound, so it needs
@@ -459,33 +545,25 @@ fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner>
     if owner == binding {
         return None;
     }
+    let visible = scope.lookup(owner)?;
     let facts = &context.facts;
-    let is_param = context.function_params.contains(owner);
-    // One binding: its own `Bind`, or the parameter (which never has a `Bind`
-    // of the same name when the count is exactly one).
-    let bound_once = facts.binds.get(owner).copied() == Some(1)
-        && !facts.address_taken.contains(owner)
-        && !facts.captured.contains(owner);
-    if !bound_once {
+    if facts.address_taken.contains(owner) || facts.captured.contains(owner) {
         return None;
     }
     let is_resource = context.resource_owners.contains(owner)
         || matches!(
-            facts.bind_types.get(owner),
-            Some(ParameterType::Stateful { .. } | ParameterType::Res(_))
+            visible.type_,
+            ParameterType::Stateful { .. } | ParameterType::Res(_)
         );
     if is_resource {
         // A resource's only place is its `STATE` payload.
         return (first_member == Some("state")).then(|| Owner::State(owner.clone()));
     }
-    if !facts.bind_types.contains_key(owner) {
-        return None;
-    }
     // A bare local copied from a parameter keeps the copy (return-move).
-    if depth == 0 && is_param {
+    if depth == 0 && visible.param {
         return None;
     }
-    if facts.by_ref_bound.contains(owner) {
+    if visible.by_ref {
         return Some(Owner::ByRef(owner.clone()));
     }
     Some(Owner::Local(owner.clone()))
@@ -535,7 +613,7 @@ impl CallGate<'_, '_> {
         let module = self.context.module;
         module.user_functions.contains(target)
             || module.globals.contains_key(target)
-            || self.context.facts.bind_types.contains_key(target)
+            || self.context.facts.name_types.contains_key(target)
     }
 }
 
@@ -550,9 +628,9 @@ impl NirVisitor for CallGate<'_, '_> {
             NirValue::Local(name) => self
                 .context
                 .facts
-                .bind_types
+                .name_types
                 .get(name)
-                .is_none_or(|type_| module.may_hold_function(type_)),
+                .is_none_or(|types| types.iter().any(|type_| module.may_hold_function(type_))),
             NirValue::Capture { type_, .. } => module.may_hold_function(type_),
             // A `Global` read carries no type of its own (lowering leaves it
             // empty); the declaration in `module.globals` has it.
@@ -578,27 +656,49 @@ fn writes_owner(op: &NirOp, owner: &Owner) -> bool {
             .any(|body| body.iter().any(|inner| writes_owner(inner, owner)))
 }
 
-/// Counts reads of one name in an op, and whether any sits in a `TRAP` handler.
-struct ReadProbe<'a> {
+/// Whether `op` or anything nested in it binds `name`.
+fn binds_name(op: &NirOp, name: &str) -> bool {
+    binder(op).is_some_and(|(bound, _)| bound == name)
+        || nested_bodies(op)
+            .into_iter()
+            .any(|body| body.iter().any(|inner| binds_name(inner, name)))
+}
+
+/// What one op does with the binding `b`: how often it reads it, and whether
+/// it does anything that disqualifies the forward.
+struct BindingProbe<'a> {
     name: &'a str,
     reads: usize,
     handler_depth: usize,
+    /// A read inside a `TRAP` handler (W3).
     in_handler: bool,
+    /// `b` bound again, assigned, address-taken, or captured.
+    misused: bool,
 }
 
-impl<'a> ReadProbe<'a> {
+impl<'a> BindingProbe<'a> {
     fn new(name: &'a str) -> Self {
-        ReadProbe {
+        BindingProbe {
             name,
             reads: 0,
             handler_depth: 0,
             in_handler: false,
+            misused: false,
         }
+    }
+
+    fn disqualified(&self) -> bool {
+        self.in_handler || self.misused
     }
 }
 
-impl NirVisitor for ReadProbe<'_> {
+impl NirVisitor for BindingProbe<'_> {
     fn visit_op(&mut self, op: &NirOp) {
+        if binder(op).is_some_and(|(bound, _)| bound == self.name)
+            || matches!(op, NirOp::Assign { name, .. } if name == self.name)
+        {
+            self.misused = true;
+        }
         if let NirOp::Trap { .. } = op {
             self.handler_depth += 1;
             walk_op(self, op);
@@ -609,11 +709,22 @@ impl NirVisitor for ReadProbe<'_> {
     }
 
     fn visit_value(&mut self, value: &NirValue) {
-        if matches!(value, NirValue::Local(name) if name == self.name) {
-            self.reads += 1;
-            if self.handler_depth > 0 {
-                self.in_handler = true;
+        match value {
+            NirValue::Local(name) if name == self.name => {
+                self.reads += 1;
+                if self.handler_depth > 0 {
+                    self.in_handler = true;
+                }
             }
+            NirValue::LocalRef { name, .. } if name == self.name => self.misused = true,
+            NirValue::Closure { captures, .. }
+                if captures.iter().any(
+                    |capture| matches!(capture, NirValue::Local(name) if name == self.name),
+                ) =>
+            {
+                self.misused = true;
+            }
+            _ => {}
         }
         walk_value(self, value);
     }

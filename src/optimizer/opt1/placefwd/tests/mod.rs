@@ -955,3 +955,106 @@ fn a_non_state_member_of_a_resource_keeps_the_copy() {
         },
     ]);
 }
+
+// ---- scope: a name reused by a later, disjoint scope (plan-149-C3) ----
+
+/// The benchmark's own shape (`test_lrf_set`): `cur` is bound inside the loop
+/// body and bound again after the loop. Each is its own binding with its own
+/// window, and both forward.
+#[test]
+fn a_name_reused_by_a_later_scope_forwards_both_bindings() {
+    let body = vec![
+        rec_local(),
+        for_loop(
+            "j",
+            vec![
+                bind("cur", list_int(), member(local("rec"), "xs")),
+                bind(
+                    "v",
+                    ParameterType::Integer,
+                    call("collections.get", vec![local("cur"), local("j")]),
+                ),
+                assign(
+                    "rec",
+                    with_field(
+                        local("rec"),
+                        "xs",
+                        call(
+                            "collections.set",
+                            vec![local("cur"), local("j"), local("v")],
+                        ),
+                    ),
+                ),
+            ],
+        ),
+        bind("cur", list_int(), member(local("rec"), "xs")),
+        NirOp::Return {
+            value: Some(call("collections.get", vec![local("cur"), int_const("0")])),
+        },
+    ];
+    assert_eq!(
+        body_after(body, 1),
+        vec![
+            "LET rec = mk()",
+            "FOR j [LET v = collections.get(rec.xs, j); \
+             rec = WITH rec { xs := collections.set(rec.xs, j, v) }]",
+            "RETURN collections.get(rec.xs, 0)",
+        ]
+    );
+}
+
+/// NIR-level only (the language rejects it as `SYMBOL_DUPLICATE_LOCAL`): a
+/// second binding of `b` inside the first one's region makes later reads
+/// ambiguous by name, so the row declines rather than guess.
+#[test]
+fn a_binding_bound_again_in_its_own_region_keeps_the_copy() {
+    assert_kept(vec![
+        rec_local(),
+        bind("cur", list_int(), member(local("rec"), "xs")),
+        for_loop(
+            "k",
+            vec![
+                bind("cur", list_int(), call("mk", vec![])),
+                eval(call("io.print", vec![local("cur")])),
+            ],
+        ),
+        NirOp::Return {
+            value: Some(call("len", vec![local("cur")])),
+        },
+    ]);
+}
+
+/// An owner that is not visible at the binding (no `Bind`, not a parameter) is
+/// not one the row can reason about.
+#[test]
+fn an_owner_not_in_scope_keeps_the_copy() {
+    assert_kept(vec![
+        bind("cur", list_int(), member(local("nowhere"), "xs")),
+        NirOp::Return {
+            value: Some(call("len", vec![local("cur")])),
+        },
+    ]);
+}
+
+/// W4 reads a name's type across every binding of it: `h` is an Integer in the
+/// window, but a function elsewhere in the function, so the gate cannot tell
+/// which one a use names and declines.
+#[test]
+fn a_name_that_is_a_function_anywhere_trips_the_call_gate() {
+    let fn_type = ParameterType::Func(vec![], Box::new(ParameterType::Integer), false);
+    let mut body = vec![for_loop(
+        "k",
+        vec![bind(
+            "h",
+            fn_type.clone(),
+            NirValue::FunctionRef {
+                name: "helper".to_string(),
+                type_: fn_type,
+            },
+        )],
+    )];
+    let mut shape = global_set_shape(local("h"));
+    shape.insert(0, bind("h", ParameterType::Integer, int_const("1")));
+    body.extend(shape);
+    assert_kept_with_helper(body);
+}

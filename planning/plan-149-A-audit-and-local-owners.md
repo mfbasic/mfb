@@ -182,11 +182,16 @@ The row lives in one module, `src/optimizer/opt1/placefwd.rs`, called `placefwd:
 `Local(o)`, `Global{o}`, or a `MemberAccess` chain whose root is one of those. Nothing else qualifies: no
 `UnionExtract` and no call in the chain, so evaluating the place can never trap.
 
-**Function-wide gates** (a scope-blind census, as in aggcopy):
+**Gates** (corrected in C3 from a function-wide "bound once" census to scope-aware ones; see Corrections):
 
-- `b` is bound once, never assigned, not a `LocalRef`, never in closure captures, and not a resource owner.
-- A local owner `o` is not a `LocalRef` and not captured (a by-ref capture is B's owner class). It is not rebound by a
-  `For`, `ForEach` or `Trap` binder, and it has exactly one `Bind`.
+- **`b`**, within the rest of its block `ops[i+1..]`: not bound again (any `Bind`, `For`, `ForEach` or `Trap`
+  binder), not assigned, not a `LocalRef`, not in a closure's captures; and `b` is not a parameter or a resource.
+  Every `Local(b)` there is then a read of this binding: a name cannot shadow an enclosing one
+  (`SYMBOL_DUPLICATE_LOCAL`), and a `DO … LOOP UNTIL` condition cannot see its body's bindings
+  (`SYMBOL_UNKNOWN_IDENTIFIER`, probe `/tmp/p149/du`).
+- **A local owner `o`** is resolved through the bindings visible at `ops[i]` (parameters, enclosing `Bind`s, loop and
+  handler binders). It is never a `LocalRef` and never captured anywhere in the function (by name, conservatively),
+  and nothing in the window binds its name again. Bound from `Capture{by_ref: true}` makes it B's by-ref class.
 - A bare `Local(o)` source (no members) must not be a parameter. This is aggcopy's return-move reason.
 
 **The window rule.** This is where the correctness risk concentrates. Let the `Bind` be `ops[i]` in its block. Scope
@@ -405,6 +410,17 @@ END FUNC
   `target/release/mfb build -ncode -O 0`, `count.py` → `localset … with_target=0`). Its control is strengthened to the
   thing the row removes: at `-O0` a `tight_copy_source` slot is present (2) and `inplace_set_index` is absent; at `-O1`
   the copies are 0 and `inplace_set_index` is present.
+
+- **The function-wide "bound once" gate missed the benchmark (C3).** A2 required `b` and the owner to be bound exactly
+  once in the whole function, as aggcopy does. The benchmark rows bind `cur` twice: inside the timed loop and again
+  after it for the checksum (`benchmark/mfb/src/list.mfb`, `test_lrf_set`: two `LET cur AS List OF Integer = rec.xs`
+  lines), which the language allows because the scopes are disjoint. So every row this plan exists for declined.
+  Found while reading the rows for C3, before measuring. The gates are now scope-aware (§3): `b`'s reads are the
+  `Local(b)`s in the rest of its block unless something there binds `b` again, and the owner is resolved through the
+  visible bindings. W4's per-name type lookup keeps **every** type a name is bound with, so a reused name cannot hide a
+  function-typed binding (`a_name_that_is_a_function_anywhere_trips_the_call_gate`). Pinned by
+  `a_name_reused_by_a_later_scope_forwards_both_bindings` (unit) and `a_name_reused_after_the_loop` (run time,
+  `rt_place_forward`).
 
 ## Summary
 

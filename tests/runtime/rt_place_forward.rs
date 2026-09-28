@@ -427,3 +427,31 @@ END FUNC
         "1,2,3,7,\n",
     );
 }
+
+/// The benchmark row `test_lrf_set` verbatim in shape: `cur` is bound in the
+/// loop and bound again after it. Both bindings are forwarded (plan-149-C3).
+#[test]
+fn a_name_reused_after_the_loop() {
+    assert_same_output(
+        "pf_reused_name",
+        "FUNC main AS Integer
+  MUT rec AS R = mk()
+  FOR pass = 0 TO 1
+    FOR j = 0 TO 2
+      LET cur AS List OF Integer = rec.xs
+      LET v AS Integer = collections::get(cur, j)
+      rec = WITH rec { xs := collections::set(cur, j, v + 1) }
+    NEXT
+  NEXT
+  LET cur AS List OF Integer = rec.xs
+  MUT sumv AS Integer = 0
+  FOR j = 0 TO 2
+    sumv = sumv + collections::get(cur, j)
+  NEXT
+  io::print(show(cur) & \" \" & toString(sumv))
+  RETURN 0
+END FUNC
+",
+        "3,4,5, 12\n",
+    );
+}
