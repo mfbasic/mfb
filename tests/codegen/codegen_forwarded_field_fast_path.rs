@@ -199,12 +199,13 @@ fn a_forwarded_field_keeps_the_native_group_by_and_sort_by() {
 
 #[test]
 fn the_fast_path_over_a_forwarded_field_changes_no_result() {
-    let project = common::temp_project(
-        "bug760a_fast_path_run",
-        &format!("{PRELUDE}\n{PROBES}"),
-    );
+    let project = common::temp_project("bug760a_fast_path_run", &format!("{PRELUDE}\n{PROBES}"));
     let unoptimized = run(&project, "0");
-    assert_eq!(unoptimized.lines().count(), 5, "five probe lines:\n{unoptimized}");
+    assert_eq!(
+        unoptimized.lines().count(),
+        5,
+        "five probe lines:\n{unoptimized}"
+    );
     assert_eq!(run(&project, "1"), unoptimized);
     let _ = std::fs::remove_dir_all(&project);
 }

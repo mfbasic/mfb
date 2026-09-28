@@ -101,7 +101,11 @@ fn appending_into_a_map_list_value_costs_what_a_list_of_lists_costs() {
         String::from_utf8_lossy(&output.stderr)
     );
     let mut lines = stdout.lines();
-    let sums: Vec<&str> = lines.next().expect("checksum line").split_whitespace().collect();
+    let sums: Vec<&str> = lines
+        .next()
+        .expect("checksum line")
+        .split_whitespace()
+        .collect();
     assert_eq!(
         sums[0], sums[1],
         "bug-760 B2: the Map form and the List form disagree — a reclaim lost or corrupted a \

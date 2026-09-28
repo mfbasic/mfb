@@ -43,7 +43,9 @@ fn eviction_pairs(plan: &Value, function: &str) -> usize {
         .filter(|pair| {
             let (load, store) = (&pair[0], &pair[1]);
             load["op"].as_str().is_some_and(|op| op.starts_with("ldr_"))
-                && store["op"].as_str().is_some_and(|op| op.starts_with("str_"))
+                && store["op"]
+                    .as_str()
+                    .is_some_and(|op| op.starts_with("str_"))
                 && load["base"] == "sp"
                 && store["base"] == "sp"
                 && load["dst"] == store["src"]

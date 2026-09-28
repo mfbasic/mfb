@@ -3,9 +3,9 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::value::reeval::is_reevaluation_safe;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
+use crate::codegen::engine::value::reeval::is_reevaluation_safe;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
