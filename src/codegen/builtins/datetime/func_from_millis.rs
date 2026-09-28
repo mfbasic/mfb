@@ -38,9 +38,9 @@ const EX: &str = r#"Build a `datetime::Instant` from an epoch-millisecond timest
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::fromMillis(1_700_000_000_000)
-END SUB
+END FUNC
 ```
 
 Select the instant one millisecond before the epoch:
@@ -48,9 +48,9 @@ Select the instant one millisecond before the epoch:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET before AS datetime::Instant = datetime::fromMillis(-1)
-END SUB
+END FUNC
 ```
 
 Round-trip an instant through its millisecond count:
@@ -58,11 +58,11 @@ Round-trip an instant through its millisecond count:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::now()
   LET ms AS Integer = datetime::toMillis(at)
   LET back AS datetime::Instant = datetime::fromMillis(ms)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

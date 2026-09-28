@@ -19,7 +19,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "advance",
@@ -28,7 +28,7 @@
       { "name": "f", "type": "fs.File", "resource": true, "state": "FileState", "default": null, "line": 9 },
       { "name": "by", "type": "Integer", "default": null, "line": 9 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }, "right": { "kind": "identifier", "value": "by" } } }] }, "line": 10 }
       ]

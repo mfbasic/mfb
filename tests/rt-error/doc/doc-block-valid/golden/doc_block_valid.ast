@@ -39,9 +39,9 @@
       { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 36 }
       ]
     },
-    { "kind": "doc", "header": "SUB", "name": "logIt", "signature": null, "attrs": ["INTERNAL"], "desc": [{ "kind": "desc", "text": "Internal logging helper, exported for tests." }], "deprecated": ["Use the structured logger instead."], "group": [], "args": [{ "name": "value", "desc": "The value to log." }], "ret": [], "errors": [], "props": [], "example": [], "line": 39 },
+    { "kind": "doc", "header": "FUNC", "name": "logIt", "signature": null, "attrs": ["INTERNAL"], "desc": [{ "kind": "desc", "text": "Internal logging helper, exported for tests." }], "deprecated": ["Use the structured logger instead."], "group": [], "args": [{ "name": "value", "desc": "The value to log." }], "ret": [], "errors": [], "props": [], "example": [], "line": 39 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "logIt",
@@ -49,7 +49,7 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 45 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "ignored", "type": "Integer", "value": { "kind": "identifier", "value": "value" }, "line": 46 }
       ]

@@ -14,9 +14,9 @@ or in a list, raises `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::sqrt(2.0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -54,12 +54,12 @@ const EX: &str = r#"Report the surface dimensions:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::off()
   io::print(toString(size.columns) & "x" & toString(size.rows))
-END SUB
+END FUNC
 ```
 
 Draw near the centre of the surface:
@@ -68,14 +68,14 @@ Draw near the centre of the surface:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::moveTo(size.rows / 2, size.columns / 2)
   io::write("middle")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::terminal_size` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

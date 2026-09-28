@@ -32,11 +32,11 @@ const EX: &str = r#"Measure the elapsed time around a block of work:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t0 AS datetime::Duration = datetime::monotonic()
   ' ... work ...
   LET elapsed AS datetime::Duration = datetime::minus(datetime::monotonic(), t0)
-END SUB
+END FUNC
 ```
 
 Render the measured interval as text:
@@ -44,12 +44,12 @@ Render the measured interval as text:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t0 AS datetime::Duration = datetime::monotonic()
   ' ... work ...
   LET span AS datetime::Duration = datetime::minus(datetime::monotonic(), t0)
   LET text AS String = datetime::formatDuration(span)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

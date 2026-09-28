@@ -36,11 +36,11 @@ const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
   canvas::destroyFont(face)
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::destroyFont(font)` — set the closed bit.

@@ -22,11 +22,11 @@ FUNC fill(n AS Integer, v AS Integer) AS List OF Byte
   RETURN out
 END FUNC
 
-SUB show(label AS String, d AS List OF Byte)
+FUNC show(label AS String, d AS List OF Byte) AS Nothing
   io::print(label & "=" & encoding::hexEncode(d))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET a3 AS List OF Byte = fill(200, 163)
   show("sha3_224-empty", crypto::hash(crypto::Hash.SHA3_224, ""))
   show("sha3_224-abc", crypto::hash(crypto::Hash.SHA3_224, "abc"))
@@ -83,4 +83,4 @@ SUB main()
   show("pbkdf2-sha3_256", crypto::pbkdf2(crypto::Hash.SHA3_256, pw, sa, 2, 40))
   show("pbkdf2-sha3_384", crypto::pbkdf2(crypto::Hash.SHA3_384, pw, sa, 3, 20))
   show("pbkdf2-sha3_512", crypto::pbkdf2(crypto::Hash.SHA3_512, pw, sa, 1, 64))
-END SUB
+END FUNC

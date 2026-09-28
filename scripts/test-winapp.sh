@@ -58,7 +58,7 @@ IMPORT fs
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   io::print("worker reached main")
   fs::writeText("winapp.txt", "written by the worker")
   LET back AS String = fs::readText("winapp.txt")
@@ -71,7 +71,7 @@ SUB main()
   io::print("env:" & os::getEnvOr("MFB_WINAPP_PROBE", "MISSING"))
   io::print("has:" & toString(os::hasEnv("MFB_WINAPP_PROBE")))
   io::print("noenv:" & os::getEnvOr("MFB_WINAPP_ABSENT", "MISSING"))
-END SUB
+END FUNC
 MFB
 
 echo "--- building for windows-x86_64 ---"
@@ -144,7 +144,7 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   ' `canvas::fill` takes a `color::Color`; `canvas::rgb` no longer exists, and this
   ' program named it until 2026-09-05. `set -e` made that a hard stop at the BUILD,
@@ -160,7 +160,7 @@ SUB main()
   ' second frame was ever drawn — the resize assertions would then fail for a reason
   ' that has nothing to do with the resize.
   os::sleep(1500)
-END SUB
+END FUNC
 MFB
 
 echo "--- building the canvas program for windows-x86_64 ---"
@@ -397,7 +397,7 @@ FUNC probeColumns() AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT log AS String = ""
 
   LET before AS Integer = probeColumns()
@@ -435,7 +435,7 @@ SUB main()
 
   log = log & "afteroff=ok;isOn=" & toString(term::isOn()) & ";bold=" & toString(term::getBold())
   io::print(log)
-END SUB
+END FUNC
 MFB
 
 echo "--- building the term gate program for windows-x86_64 ---"
@@ -503,7 +503,7 @@ IMPORT term
 IMPORT io
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   MUT log AS String = ""
   term::on()
   ' Every LineStyle and every FillStyle, so each select chain runs at least once.
@@ -530,7 +530,7 @@ SUB main()
   log = log & " underline=" & toString(term::getUnderline())
   term::off()
   io::print(log)
-END SUB
+END FUNC
 MFB
 
 echo "--- building the term style program for windows-x86_64 ---"
@@ -586,7 +586,7 @@ IMPORT term
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   ' combining acute (U+0301) and a ZWJ family (man + ZWJ + woman + ZWJ + girl)
   term::drawText(1, 0, "cafe\u{301}|\u{65E5}\u{672C}|")
@@ -607,7 +607,7 @@ SUB main()
   term::sync()
   term::off()
   io::print("win04=ok")
-END SUB
+END FUNC
 MFB
 
 echo "--- building the term cluster program for windows-x86_64 ---"
@@ -664,7 +664,7 @@ IMPORT term
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   MUT log AS String = ""
   term::on()
   LET before AS term::TermSize = term::terminalSize()
@@ -710,7 +710,7 @@ SUB main()
   log = log & ";kept=" & toString(kept.columns) & "x" & toString(kept.rows)
   term::off()
   io::print(log)
-END SUB
+END FUNC
 MFB
 
 echo "--- building the term resize program for windows-x86_64 ---"
@@ -792,7 +792,7 @@ IMPORT term
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET before AS term::TermSize = term::terminalSize()
   MUT seen AS Boolean = FALSE
@@ -814,7 +814,7 @@ SUB main()
   term::off()
   io::print("live before=" & toString(before.columns) & "x" & toString(before.rows) & ";resized=" & toString(seen) & ";after=" & toString(after.columns) & "x" & toString(after.rows))
   io::print(toString(term::isOn()))
-END SUB
+END FUNC
 MFB
 
 echo "--- building the windowed term program for windows-x86_64 ---"
@@ -906,7 +906,7 @@ cat > "$wwproj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("title0=" & app::getTitle())
   io::print("fs0=" & toString(app::getFullscreen()))
   app::setTitle("Hello Windows")
@@ -920,7 +920,7 @@ SUB main()
   io::print("fs1=" & toString(app::getFullscreen()) & " title3=" & app::getTitle())
   app::setFullscreen(FALSE)
   io::print("fs2=" & toString(app::getFullscreen()))
-END SUB
+END FUNC
 MFB
 
 echo "--- building the window-members program for windows-x86_64 ---"

@@ -177,21 +177,16 @@ fn source_decl_meta(
     resource_meta: &HashMap<&str, (String, bool, &'static str)>,
 ) -> Option<(&'static str, String, bool)> {
     match doc.header_kind {
-        DocHeaderKind::Func | DocHeaderKind::Sub => {
-            let want_sub = doc.header_kind == DocHeaderKind::Sub;
+        DocHeaderKind::Func => {
             let list = funcs.get(doc.header_name.as_str())?;
-            let mut matching = list
-                .iter()
-                .copied()
-                .filter(|f| matches!(f.kind, crate::ast::FunctionKind::Sub) == want_sub);
+            let mut matching = list.iter().copied();
             let function = match &doc.header_params {
                 Some(wanted) => matching
                     .find(|f| crate::ast::param_types(f) == crate::ast::normalize_types(wanted))?,
                 None => matching.next()?,
             };
-            let kind = if want_sub { "sub" } else { "func" };
             Some((
-                kind,
+                "func",
                 function.signature_line(),
                 function.visibility == Visibility::Export,
             ))

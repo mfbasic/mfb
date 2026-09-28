@@ -95,10 +95,10 @@ const EX: &str = r#"Find the first occurrence, and the first at or after a start
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET firstL AS Integer = regex::find("hello", "l")
   LET nextL AS Integer = regex::find("hello", "l", 3)
-END SUB
+END FUNC
 ```
 
 Find the first digit (note the doubled backslash in the String literal):
@@ -106,9 +106,9 @@ Find the first digit (note the doubled backslash in the String literal):
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET firstDigit AS Integer = regex::find("a1b2c3", "\\d")
-END SUB
+END FUNC
 ```
 
 Absence raises, so guard with `regex::match` or catch it:
@@ -117,13 +117,13 @@ Absence raises, so guard with `regex::match` or catch it:
 IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF regex::match("abc", "\\d") THEN
     io::print("matched at " & toString(regex::find("abc", "\\d")))
   ELSE
     io::print("no match")
   END IF
-END SUB
+END FUNC
 ```
 
 The same thing written as a `TRAP`, when the search should not run twice:

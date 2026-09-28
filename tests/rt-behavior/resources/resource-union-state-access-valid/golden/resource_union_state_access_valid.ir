@@ -106,7 +106,7 @@
     "name": "advance",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "p", "line": 16, "type": "Stream STATE Cursor", "default": null }
     ],

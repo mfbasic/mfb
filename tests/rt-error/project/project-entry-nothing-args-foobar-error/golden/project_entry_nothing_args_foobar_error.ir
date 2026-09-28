@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_nothing_args_foobar_error",
+  "entry": {
+    "name": "foobar",
+    "returns": "Nothing",
+    "accepts_args": true
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "foobar",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "args", "line": 1, "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "fail", "line": 2, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "This is a message" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  }
+  ]
+}

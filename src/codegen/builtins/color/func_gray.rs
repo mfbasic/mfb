@@ -27,10 +27,10 @@ const EX: &str = r#"Every channel takes the same level:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET mid AS color::Color = color::gray(128)
   io::print(toString(mid.red) & " " & toString(mid.green) & " " & toString(mid.blue))
-END SUB
+END FUNC
 ```
 
 `gray(0)` is black and `gray(255)` is white, and both are fully opaque:
@@ -39,11 +39,11 @@ END SUB
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET black AS color::Color = color::gray(0)
   LET white AS color::Color = color::gray(255)
   io::print(toString(black.red) & " " & toString(white.red) & " alpha " & toString(black.alpha))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

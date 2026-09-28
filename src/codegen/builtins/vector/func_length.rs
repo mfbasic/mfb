@@ -51,9 +51,9 @@ const EX: &str = r#"The length of a 3-4-5 vector:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::length(vector::Float3[3.0, 0.0, 4.0])))
-END SUB
+END FUNC
 ```
 
 An `Integer` length rounds to the nearest whole unit:
@@ -62,9 +62,9 @@ An `Integer` length rounds to the nearest whole unit:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::length(vector::Integer2[3, 4])))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

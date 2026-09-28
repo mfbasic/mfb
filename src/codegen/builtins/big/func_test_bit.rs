@@ -29,11 +29,11 @@ const EX: &str = r#"The bits of 5 are `101`:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET five AS big::Int = big::fromInteger(5)
   io::print(toString(big::testBit(five, 0)) & " " & toString(big::testBit(five, 1)) & " " & toString(big::testBit(five, 2)))
   io::print(toString(big::testBit(big::negate(five), 0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

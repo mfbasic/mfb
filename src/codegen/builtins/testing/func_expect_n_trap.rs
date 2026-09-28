@@ -29,9 +29,9 @@ const EX: &str = r#"Assert that a boundary input is accepted:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print(strings::mid("abc", 0, 3))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "strings"

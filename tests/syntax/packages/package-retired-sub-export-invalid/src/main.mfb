@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT package_simple
+
+' plan-159-D: packages/package_simple.mfp was built before SUB left the language,
+' so it exports `mark` with the retired export kind 2. The reader refuses it and
+' says to rebuild the package, rather than reading the export as something else.
+' mfp-frozen.txt keeps scripts/sync-package-mfp.sh from rebuilding it.
+FUNC main() AS Nothing
+  io::print(toString(package_simple::score()))
+END FUNC

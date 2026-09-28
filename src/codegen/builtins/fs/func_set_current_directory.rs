@@ -70,11 +70,11 @@ const EX: &str = r#"Move into a subdirectory and back up to the parent:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch")
   fs::setCurrentDirectory("scratch")
   fs::setCurrentDirectory("..")
-END SUB
+END FUNC
 ```
 
 Confirm the move by reading the working directory back:
@@ -83,12 +83,12 @@ Confirm the move by reading the working directory back:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::setCurrentDirectory("output")
   LET here AS String = fs::currentDirectory()
   io::print(here)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

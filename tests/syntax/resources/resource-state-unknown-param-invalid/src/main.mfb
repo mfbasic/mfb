@@ -1,12 +1,12 @@
 ' bug-595: a parameter STATE clause was never resolved, so an unknown name on
-' an uncalled SUB was accepted with NO diagnostic at all (measured: exit 0).
+' an uncalled function was accepted with NO diagnostic at all (measured: exit 0).
 IMPORT fs
 IMPORT io
 
-SUB use(RES f AS fs::File STATE Nonexistent)
+FUNC use(RES f AS fs::File STATE Nonexistent) AS Nothing
   io::print("use")
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("main")
-END SUB
+END FUNC

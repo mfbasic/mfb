@@ -34,10 +34,10 @@ Iterate a list:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET lines AS List OF String = ["first", "second"]
   FOR EACH line IN lines : io::print(line) : NEXT
-END SUB
+END FUNC
 ```
 
 Iterate a map by entry:
@@ -45,10 +45,10 @@ Iterate a map by entry:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET scores AS Map OF String TO Integer = Map OF String TO Integer { "ada" := 36 }
   FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
-END SUB
+END FUNC
 ```
 
 ## See also

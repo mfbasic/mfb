@@ -76,7 +76,7 @@
     "name": "tryDecode",
     "line": 14,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "bytes", "line": 14, "type": "List OF Byte", "default": null }
     ],

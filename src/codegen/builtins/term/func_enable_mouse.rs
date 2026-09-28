@@ -58,13 +58,13 @@ const EX: &str = r#"Ask for mouse events, then read one:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::enableMouse(TRUE)
   LET event = term::pollMouse()
   term::enableMouse(FALSE)
   term::off()
-END SUB
+END FUNC
 ```
 
 Turn reporting off again so the user gets the mouse back:
@@ -73,13 +73,13 @@ Turn reporting off again so the user gets the mouse back:
 IMPORT io
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::enableMouse(TRUE)
   term::enableMouse(FALSE)
   term::off()
   io::print("the mouse is the terminal's again")
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::enableMouse` — delegates to the shared

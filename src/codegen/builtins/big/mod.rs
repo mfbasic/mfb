@@ -367,7 +367,7 @@ mod tests {
         let source = r#"IMPORT io
 IMPORT big
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS big::Int = big::fromInteger(-5)
   LET pair AS List OF Byte = [1, 2]
   LET b AS big::Int = big::fromBytes(pair, FALSE)
@@ -399,7 +399,7 @@ SUB main()
   LET parts AS big::DivResult = big::divMod(p, b)
   io::print(big::toString(big::divide(p, b)) & big::toString(big::remainder(p, b)) & big::toString(parts.quotient))
   io::print(big::toString(big::pow(a, 5)) & big::toString(big::gcd(p, b)) & big::toString(big::factorial(12)) & big::toString(big::modPow(p, b, c)))
-END SUB
+END FUNC
 "#;
         for target in crate::testutil::CodeTarget::ALL {
             let code = crate::testutil::code_for_src_on(source, target);

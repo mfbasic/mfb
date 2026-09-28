@@ -1,0 +1,71 @@
+' quicksort - sorts `order` one comparison at a time.
+'
+' Lomuto partitioning with the last element as the pivot, driven by an explicit
+' stack of (lo, hi) ranges still to sort, so it can stop after any comparison
+' and pick up there next frame. The stack is sized for the worst case up front.
+
+IMPORT collections
+
+MUT stackLo AS List OF Integer = []
+MUT stackHi AS List OF Integer = []
+MUT stackTop AS Integer = 0
+MUT partitioning AS Boolean = FALSE
+MUT partLo AS Integer = 0
+MUT partHi AS Integer = 0
+MUT partStore AS Integer = 0
+MUT partScan AS Integer = 0
+MUT partPivot AS Integer = 0
+MUT quickCompareCount AS Integer = 0
+
+FUNC pushRange(lo AS Integer, hi AS Integer) AS Nothing
+  IF lo >= hi THEN RETURN
+  stackLo = collections::set(stackLo, stackTop, lo)
+  stackHi = collections::set(stackHi, stackTop, hi)
+  stackTop = stackTop + 1
+END FUNC
+
+FUNC quickStart AS Nothing
+  stackLo = collections::repeat(stackLo, 0, DOT_COUNT + 1)
+  stackHi = collections::repeat(stackHi, 0, DOT_COUNT + 1)
+  stackTop = 0
+  partitioning = FALSE
+  quickCompareCount = 0
+  pushRange(0, DOT_COUNT - 1)
+END FUNC
+
+FUNC quickDone AS Boolean
+  RETURN stackTop = 0 AND NOT partitioning
+END FUNC
+
+FUNC quickCompares AS Integer
+  RETURN quickCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC quickSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT quickDone()
+    IF NOT partitioning THEN
+      stackTop = stackTop - 1
+      partLo = collections::get(stackLo, stackTop)
+      partHi = collections::get(stackHi, stackTop)
+      partPivot = orderAt(partHi)
+      partStore = partLo
+      partScan = partLo
+      partitioning = TRUE
+    ELSEIF partScan < partHi THEN
+      IF orderAt(partScan) < partPivot THEN
+        swapOrder(partStore, partScan)
+        partStore = partStore + 1
+      END IF
+      partScan = partScan + 1
+      quickCompareCount = quickCompareCount + 1
+      left = left - 1
+    ELSE
+      swapOrder(partStore, partHi)
+      partitioning = FALSE
+      pushRange(partLo, partStore - 1)
+      pushRange(partStore + 1, partHi)
+    END IF
+  LOOP
+END FUNC

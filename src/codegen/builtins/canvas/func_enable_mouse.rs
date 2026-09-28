@@ -48,12 +48,12 @@ const EX: &str = r#"Ask for mouse events before the draw loop:
 IMPORT app
 IMPORT canvas
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::enableMouse(TRUE)
   LET event AS canvas::MouseEvent = canvas::pollMouse()
   canvas::enableMouse(FALSE)
-END SUB
+END FUNC
 ```
 
 Stop reporting once the program is done listening:
@@ -63,12 +63,12 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::enableMouse(TRUE)
   canvas::enableMouse(FALSE)
   io::print("no longer listening")
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::enableMouse(enabled AS Boolean)`.

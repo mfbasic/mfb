@@ -398,9 +398,9 @@ END FUNC
 ' Append one draw entry: offsets in 16.16 so the whole list stays `List OF Integer`
 ' and reaches an emitter without a second parallel Float list -- each with its residual
 ' word (bug-735), so the shaders recover the offset the oracle subtracts to 2^-47 px.
-SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float) AS Nothing
   IF count <= 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   ' `base`/`count` arrive as block-list indices and leave as INSTANCES, which is what a
   ' `vkCmdDraw`'s `firstInstance`/`instanceCount` and Metal's `baseInstance` want. The
@@ -414,7 +414,7 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
     k = k + 1
   END WHILE
   IF instCount <= 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   ' EIGHT words per entry, not four. The emitter addresses an entry with a shift, so the
   ' stride has to be a power of two; the trailing words are their own rather than
@@ -424,7 +424,7 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   ' This width is agreed in THREE places and there is no gate that checks they agree:
   ' here, `__canvas_drawsText` in helper_surface.rs, and `emit_draw_list_pass` in
   ' src/codegen/runtime/canvas/vulkan.rs (`shift_left_immediate(.., 6)` = 8 x 8 bytes).
-  ' When they disagreed -- this SUB writing four words while the emitter strode by eight --
+  ' When they disagreed -- this function writing four words while the emitter strode by eight --
   ' the emitter read every other entry and took the following entry's `base` as a blend
   ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
   ' VkPipeline. That does not fail cleanly: it SIGSEGVs inside the driver's JIT-compiled
@@ -450,7 +450,7 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dx * 65536.0 - toFloat(wordX)) * 2147483648.0))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dy * 65536.0 - toFloat(wordY)) * 2147483648.0))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
-END SUB
+END FUNC
 
 ' Whether two blocks can share one draw call.
 '
@@ -482,9 +482,9 @@ END FUNC
 ' backend where its draw calls are, so a rule applied afterwards would live in two
 ' assemblers and could differ between them -- the failure family
 ' `.ai/canvas-threading.md` section 10 records.
-SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float) AS Nothing
   IF count <= 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   MUT runStart AS Integer = base
   MUT i AS Integer = base + 1
@@ -498,7 +498,7 @@ SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Floa
     i = i + 1
   END WHILE
   __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy)
-END SUB
+END FUNC
 
 ' Lay out one group's own (non-group) items once, returning its memo index.
 FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Integer) AS Integer
@@ -536,9 +536,9 @@ END FUNC
 
 ' Emit the draw entries for one group reference at an accumulated offset: its own run,
 ' then its nested groups recursively.
-SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, depth AS Integer)
+FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, depth AS Integer) AS Nothing
   IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
-    EXIT SUB
+    RETURN
   END IF
   LET row AS Integer = __canvas_memoGroup(slot, hashes, depth)
   __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy)
@@ -552,7 +552,7 @@ SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float,
         LET skipped AS Integer = 0
     END MATCH
   NEXT
-END SUB
+END FUNC
 
 FUNC __canvas_sceneDraws() AS List OF Integer
   ' bug-686: a frame with no group node is laid out natively, in one pass over the
@@ -637,12 +637,12 @@ FUNC __canvas_flatScene() AS List OF DrawItem
 END FUNC
 
 ' The frame's items, copied out of the snapshot at most once a frame.
-SUB __canvas_ensureFrameItems()
+FUNC __canvas_ensureFrameItems() AS Nothing
   IF NOT __CANVAS_FRAME_ITEMS_READY THEN
     __CANVAS_FRAME_ITEMS = __canvas_flatScene()
     __CANVAS_FRAME_ITEMS_READY = TRUE
   END IF
-END SUB
+END FUNC
 
 FUNC __canvas_frameItems() AS List OF DrawItem
   __canvas_ensureFrameItems()
@@ -1121,12 +1121,12 @@ END FUNC
 ' first: the first present, or (plan-155-B) a `canvas::getFrameStats` made before it.
 MUT __CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = FALSE
 
-SUB __canvas_readDisplayOverride()
+FUNC __canvas_readDisplayOverride() AS Nothing
   IF NOT __CANVAS_DISPLAY_OVERRIDE_READ THEN
     canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
     __CANVAS_DISPLAY_OVERRIDE_READ = TRUE
   END IF
-END SUB
+END FUNC
 
 FUNC __canvas_wantGpu() AS Boolean
   LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
@@ -1295,25 +1295,25 @@ const RENDER_LOOP: &str = concat!(render_loop_head!(), render_loop_tail!());
 ///
 /// `__canvas_renderFrame` marks five points: the frame's start, then the end of the scene
 /// walk, of the draw list, of the damage diff and of the render (the predicate, the
-/// backend's own work, readback and present). A normal build's mark is an empty `SUB`;
+/// backend's own work, readback and present). A normal build's mark is an empty `FUNC … AS Nothing`;
 /// a `--debug` build's accumulates the nanoseconds between consecutive marks per phase,
 /// and `__canvas_phaseText` reports each total in milliseconds. Cumulative, like
 /// `generations=`, because the interesting quantity is the delta between frames.
-const PHASE_TIMERS: &str = r#"SUB __canvas_phaseMark(phase AS Integer)
-END SUB"#;
+const PHASE_TIMERS: &str = r#"FUNC __canvas_phaseMark(phase AS Integer) AS Nothing
+END FUNC"#;
 
 #[rustfmt::skip]
 const PHASE_TIMERS_DEBUG: &str = r#"MUT __CANVAS_PHASE_AT AS Integer = 0
 MUT __CANVAS_PHASE_NS AS List OF Integer = [0, 0, 0, 0]
 
-SUB __canvas_phaseMark(phase AS Integer)
+FUNC __canvas_phaseMark(phase AS Integer) AS Nothing
   LET now AS Integer = canvas::frameNanos()
   IF phase > 0 AND __CANVAS_PHASE_AT > 0 THEN
     LET spent AS Integer = collections::getOr(__CANVAS_PHASE_NS, phase - 1, 0) + (now - __CANVAS_PHASE_AT)
     __CANVAS_PHASE_NS = collections::set(__CANVAS_PHASE_NS, phase - 1, spent)
   END IF
   __CANVAS_PHASE_AT = now
-END SUB
+END FUNC
 
 FUNC __canvas_phaseText() AS String
   RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000)
@@ -1339,8 +1339,8 @@ r#"FUNC __canvas_dumpRequested() AS Boolean
   RETURN FALSE
 END FUNC
 
-SUB __canvas_presentedDirect()
-END SUB"#;
+FUNC __canvas_presentedDirect() AS Nothing
+END FUNC"#;
 
 /// [`DIRECT_PRESENT`] for a `--debug` build.
 ///
@@ -1372,10 +1372,10 @@ FUNC __canvas_dumpRequested() AS Boolean
   RETURN __CANVAS_DUMP_MODE = 2
 END FUNC
 
-SUB __canvas_presentedDirect()
+FUNC __canvas_presentedDirect() AS Nothing
   __CANVAS_DIRECT_FRAMES = __CANVAS_DIRECT_FRAMES + 1
   __canvas_writeStats()
-END SUB"#;
+END FUNC"#;
 
 /// plan-116-J: close the resources a retired group buffer owned.
 ///
@@ -1394,9 +1394,9 @@ END SUB"#;
 ///
 /// `0` is skipped on both sides: an already-closed resource has nothing to close, and it
 /// must not match a live one either.
-const CLOSE_RETIRED: &str = r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem)
+const CLOSE_RETIRED: &str = r#"FUNC __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem) AS Nothing
   IF len(gone) = 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   FOR EACH item IN gone
     MATCH item
@@ -1413,7 +1413,7 @@ const CLOSE_RETIRED: &str = r#"SUB __canvas_closeRetired(gone AS List OF DrawIte
       CASE ELSE
     END MATCH
   NEXT
-END SUB
+END FUNC
 
 ' Everything still live: the scene about to be published, and EVERY group's live items.
 '

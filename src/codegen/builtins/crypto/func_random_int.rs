@@ -58,9 +58,9 @@ const EX: &str = r#"Roll a fair six-sided die:
 ```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET roll AS Integer = crypto::randomInt(1, 6)
-END SUB
+END FUNC
 ```
 
 A single-value range always returns that value:
@@ -68,9 +68,9 @@ A single-value range always returns that value:
 ```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS Integer = crypto::randomInt(42, 42)
-END SUB
+END FUNC
 ```
 
 A range wider than any `Integer`, through the `big::Int` form:
@@ -80,12 +80,12 @@ IMPORT crypto
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET low AS big::Int = big::parse("-100000000000000000000000000000")
   LET high AS big::Int = big::parse("100000000000000000000000000000")
   LET x AS big::Int = crypto::randomInt(low, high)
   io::print(toString(big::compare(x, low) >= 0 AND big::compare(x, high) <= 0))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

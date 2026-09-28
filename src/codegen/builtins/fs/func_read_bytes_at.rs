@@ -64,13 +64,13 @@ const EX: &str = r#"Read ten bytes from the middle of a file without reading the
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "abcdefghijklmnopqrstuvwxyz")
   RES f = fs::openFile("data.bin")
   LET chunk AS List OF Byte = fs::readBytesAt(f, 10, 5)
   io::print(toString(len(chunk)))
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Read the last part of a file, letting the end of the file decide how much comes
@@ -80,14 +80,14 @@ back:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "abcdefghijklmnopqrstuvwxyz")
   RES f = fs::openFile("data.bin")
   LET total AS Integer = fs::size(f)
   ' Asks for 100 bytes but only 6 remain, so 6 come back.
   LET tail AS List OF Byte = fs::readBytesAt(f, total - 6, 100)
   io::print(toString(len(tail)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

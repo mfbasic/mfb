@@ -34,7 +34,7 @@ FUNC label(h AS crypto::Hash) AS String
   END MATCH
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET legacy AS List OF Byte = crypto::hash(crypto::Hash.SHA1, "abc")
   LET modern AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
   io::print(label(crypto::Hash.SHA2_256) & "=" & encoding::hexEncode(modern))
@@ -53,4 +53,4 @@ SUB main()
   LET indirect AS crypto::Hash = crypto::Hash.SHA1
   LET viaLocal AS List OF Byte = crypto::hmac(indirect, key, msg)
   io::print("indirect=" & toString(len(viaLocal)))
-END SUB
+END FUNC

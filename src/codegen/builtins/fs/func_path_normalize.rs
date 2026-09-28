@@ -36,9 +36,9 @@ const EX: &str = r#"Redundant separators and `.` components are removed:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathNormalize("target//a/./file.txt"))
-END SUB
+END FUNC
 ```
 
 A `..` component cancels the preceding component:
@@ -47,9 +47,9 @@ A `..` component cancels the preceding component:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathNormalize("/usr/local/../bin"))
-END SUB
+END FUNC
 ```
 
 Normalizing to nothing yields `"."`:
@@ -58,9 +58,9 @@ Normalizing to nothing yields `"."`:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathNormalize("a/b/../.."))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

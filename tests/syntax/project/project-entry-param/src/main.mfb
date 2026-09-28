@@ -1,2 +1,2 @@
-SUB main(args AS List OF String)
-END SUB
+FUNC main(args AS List OF String) AS Nothing
+END FUNC

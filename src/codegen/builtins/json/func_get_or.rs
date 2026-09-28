@@ -49,11 +49,11 @@ const EX: &str = r#"Read a configuration flag with a fallback:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"config\":{}}")
   LET enabled AS json::Json = json::getOr(doc, ["config", "enabled"], json::JsonBool[FALSE])
   io::print(json::stringify(enabled))
-END SUB
+END FUNC
 ```
 
 The default is also used when the path runs into a non-object:
@@ -62,10 +62,10 @@ The default is also used when the path runs into a non-object:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"n\":3}")
   io::print(json::stringify(json::getOr(doc, ["n", "deeper"], json::JsonStr["absent"])))
-END SUB
+END FUNC
 ```
 
 An array index that is out of range, or a token that is not spelled as an index,
@@ -75,13 +75,13 @@ returns the default rather than failing:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"items\":[10,20]}")
   LET miss AS json::Json = json::JsonStr["none"]
   io::print(json::stringify(json::getOr(doc, ["items", "1"], miss)))
   io::print(json::stringify(json::getOr(doc, ["items", "9"], miss)))
   io::print(json::stringify(json::getOr(doc, ["items", "01"], miss)))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -98,10 +98,10 @@ Pass the arguments by name:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"a\":{\"b\":1}}")
   io::print(json::stringify(json::getOr(doc, key := ["a", "b"], default := json::JsonNum[0.0])))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

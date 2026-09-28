@@ -72,7 +72,7 @@ FUNC withResource(path AS String, input AS String) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(readAge("nope")))
   io::print(toString(divide(10, 0)))
   MUT xs AS List OF Integer = []
@@ -82,4 +82,4 @@ SUB main()
   LET p AS String = fs::tempDirectory() & "/mfb_trap_res.txt"
   io::print(toString(withResource(p, "bad")))
   fs::deleteFile(p)
-END SUB
+END FUNC

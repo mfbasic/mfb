@@ -36,11 +36,11 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET packed AS List OF Byte = encoding::hexDecode("cb48cdc9c9d751c840a21492f3730b8a528b8b01")
   LET unpacked AS List OF Byte = compress::inflate(packed)
   io::print(encoding::utf8Decode(unpacked))
-END SUB
+END FUNC
 ```
 
 Refuse data that would decompress to more than you are prepared to handle:
@@ -50,14 +50,14 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET packed AS List OF Byte = encoding::hexDecode("cb48cdc9c9d751c840a21492f3730b8a528b8b01")
   LET unpacked AS List OF Byte = compress::inflate(packed, 10) TRAP(e)
     io::print("refused: " & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   io::print(toString(len(unpacked)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

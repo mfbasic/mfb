@@ -60,23 +60,23 @@ ISOLATED FUNC takeThread(t AS ThreadWorker OF RES Thread OF String TO Integer TO
   RETURN thread::waitFor(g)
 END FUNC
 
-SUB giveFile(RES x AS fs::File, t AS Thread OF RES fs::File TO Integer)
+FUNC giveFile(RES x AS fs::File, t AS Thread OF RES fs::File TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
-END SUB
+END FUNC
 
-SUB giveListener(RES x AS tcp::Listener, t AS Thread OF RES tcp::Listener TO Integer)
+FUNC giveListener(RES x AS tcp::Listener, t AS Thread OF RES tcp::Listener TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
-END SUB
+END FUNC
 
-SUB giveUdp(RES x AS udp::Socket, t AS Thread OF RES udp::Socket TO Integer)
+FUNC giveUdp(RES x AS udp::Socket, t AS Thread OF RES udp::Socket TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
-END SUB
+END FUNC
 
-SUB giveThread(RES x AS Thread OF String TO Integer, t AS Thread OF RES Thread OF String TO Integer TO Integer)
+FUNC giveThread(RES x AS Thread OF String TO Integer, t AS Thread OF RES Thread OF String TO Integer TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
-END SUB
+END FUNC
 
-SUB probeFile()
+FUNC probeFile() AS Nothing
   RES tf AS Thread OF RES fs::File TO Integer = thread::start(takeFile, 0)
   RES f AS fs::File = fs::openFile("{path}", "r")
   giveFile(f, tf)
@@ -129,29 +129,29 @@ SUB probeFile()
     RECOVER
   END TRAP
   io::print("file worker " & toString(thread::waitFor(tf)))
-END SUB
+END FUNC
 
-SUB probeListenerAddress()
+FUNC probeListenerAddress() AS Nothing
   RES tl AS Thread OF RES tcp::Listener TO Integer = thread::start(takeListener, 0)
   RES l = tcp::listen("127.0.0.1", 0)
   giveListener(l, tl)
   LET addr = tcp::localAddress(l) TRAP(e)
     io::print("tcp localAddress " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB probeListenerAccept()
+FUNC probeListenerAccept() AS Nothing
   RES tl AS Thread OF RES tcp::Listener TO Integer = thread::start(takeListener, 0)
   RES l = tcp::listen("127.0.0.1", 0)
   giveListener(l, tl)
   RES s = tcp::accept(l, 10) TRAP(e)
     io::print("tcp accept " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB probeUdp()
+FUNC probeUdp() AS Nothing
   RES tu AS Thread OF RES udp::Socket TO Integer = thread::start(takeUdp, 0)
   RES u = udp::bind("127.0.0.1", 0)
   giveUdp(u, tu)
@@ -164,9 +164,9 @@ SUB probeUdp()
     RECOVER FALSE
   END TRAP
   io::print("udp worker " & toString(thread::waitFor(tu)))
-END SUB
+END FUNC
 
-SUB probeThread()
+FUNC probeThread() AS Nothing
   RES tt AS Thread OF RES Thread OF String TO Integer TO Integer = thread::start(takeThread, 0)
   RES inner AS Thread OF String TO Integer = thread::start(idle, 0)
   giveThread(inner, tt)
@@ -175,15 +175,15 @@ SUB probeThread()
     RECOVER FALSE
   END TRAP
   io::print("thread worker " & toString(thread::waitFor(tt)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   probeFile()
   probeListenerAddress()
   probeListenerAccept()
   probeUdp()
   probeThread()
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("bug702_moved_guards", &source);
@@ -272,31 +272,31 @@ ISOLATED FUNC takeListener(t AS ThreadWorker OF RES tls::Listener TO Integer, n 
   RETURN 5
 END FUNC
 
-SUB giveListener(RES x AS tls::Listener, t AS Thread OF RES tls::Listener TO Integer)
+FUNC giveListener(RES x AS tls::Listener, t AS Thread OF RES tls::Listener TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
-END SUB
+END FUNC
 
-SUB probeAddress()
+FUNC probeAddress() AS Nothing
   RES tl AS Thread OF RES tls::Listener TO Integer = thread::start(takeListener, 0)
   RES l = tls::listen("127.0.0.1", 0, "{cert}", "{key}")
   giveListener(l, tl)
   LET addr = tls::localAddress(l) TRAP(e)
     io::print("tls localAddress " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB probeAccept()
+FUNC probeAccept() AS Nothing
   RES tl AS Thread OF RES tls::Listener TO Integer = thread::start(takeListener, 0)
   RES l = tls::listen("127.0.0.1", 0, "{cert}", "{key}")
   giveListener(l, tl)
   RES s = tls::accept(l, 10) TRAP(e)
     io::print("tls accept " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB probeClose()
+FUNC probeClose() AS Nothing
   RES tl AS Thread OF RES tls::Listener TO Integer = thread::start(takeListener, 0)
   RES l = tls::listen("127.0.0.1", 0, "{cert}", "{key}")
   giveListener(l, tl)
@@ -305,13 +305,13 @@ SUB probeClose()
     RECOVER
   END TRAP
   io::print("tls worker " & toString(thread::waitFor(tl)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   probeAddress()
   probeAccept()
   probeClose()
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("bug702_moved_tls", &source);

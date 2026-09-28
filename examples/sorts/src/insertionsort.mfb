@@ -1,0 +1,51 @@
+' insertionsort - sorts `order` one comparison at a time.
+'
+' The front of the list is kept in order. Each next element is swapped back
+' past every larger neighbour until it meets a smaller one. Nothing is in its
+' final place until the last element has been inserted.
+
+MUT insertNext AS Integer = 1       ' the element being inserted started here
+MUT insertAt AS Integer = 1         ' where it is now
+MUT insertFinished AS Boolean = FALSE
+MUT insertCompareCount AS Integer = 0
+
+FUNC insertionStart AS Nothing
+  insertNext = 1
+  insertAt = 1
+  insertFinished = DOT_COUNT < 2
+  insertCompareCount = 0
+END FUNC
+
+FUNC insertionDone AS Boolean
+  RETURN insertFinished
+END FUNC
+
+FUNC insertionCompares AS Integer
+  RETURN insertCompareCount
+END FUNC
+
+' The element is in place; start on the next one.
+FUNC insertionAdvance AS Nothing
+  insertNext = insertNext + 1
+  insertAt = insertNext
+  IF insertNext >= DOT_COUNT THEN insertFinished = TRUE
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC insertionSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT insertFinished
+    IF insertAt = 0 THEN
+      insertionAdvance()
+    ELSE
+      insertCompareCount = insertCompareCount + 1
+      left = left - 1
+      IF orderAt(insertAt - 1) > orderAt(insertAt) THEN
+        swapOrder(insertAt - 1, insertAt)
+        insertAt = insertAt - 1
+      ELSE
+        insertionAdvance()
+      END IF
+    END IF
+  LOOP
+END FUNC

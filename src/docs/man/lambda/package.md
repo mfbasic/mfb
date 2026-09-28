@@ -46,8 +46,8 @@ LET result AS Integer = applyTwice(addOne, 1)
 ```
 
 A function with no parameters or no result is written `FUNC() AS T` and
-`FUNC(T) AS Nothing` respectively. Because a `SUB` has success type `Nothing`, a
-`SUB` may be passed where a `FUNC(T) AS Nothing` value is expected.
+`FUNC(T) AS Nothing` respectively. A function you declare `AS Nothing` is a
+`FUNC(T) AS Nothing` value, so you can pass it wherever one is expected.
 
 ## Capture rules
 
@@ -113,10 +113,10 @@ FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
   RETURN LAMBDA(x AS Integer) -> x + base
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET addTen = makeAdder(10)
   io::print(toString(addTen(2)))
-END SUB
+END FUNC
 ```
 
 Output:
@@ -130,11 +130,11 @@ Accumulate into an outer `MUT` through `forEach` (allowed):
 ```
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET items AS List OF Integer = [1, 2, 3]
   MUT total AS Integer = 0
   collections::forEach(items, LAMBDA(x AS Integer) -> total = total + x)
-END SUB
+END FUNC
 ```
 
 A `MUT`-capturing lambda that escapes its scope (rejected):

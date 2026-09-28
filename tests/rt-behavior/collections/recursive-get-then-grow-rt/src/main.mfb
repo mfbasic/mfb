@@ -44,7 +44,7 @@ FUNC describe(t AS Tree) AS String
   END MATCH
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT reps AS List OF Rep = []
   reps = collections::append(reps, Rep[child := Node2[left := Leaf[v := 1], right := Leaf[v := 2]], lo := 3])
   LET back AS Rep = collections::get(reps, 0)
@@ -71,4 +71,4 @@ SUB main()
   ' The fetched value is INDEPENDENT: mutating a copy of it must not disturb the
   ' container, and the container must not disturb it.
   io::print("still: " & describe(back.child))
-END SUB
+END FUNC

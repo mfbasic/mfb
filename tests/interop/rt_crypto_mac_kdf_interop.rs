@@ -66,38 +66,38 @@ FUNC hexField(value AS List OF Byte) AS String
   RETURN encoded
 END FUNC
 
-SUB emit(kind AS String, algo AS String, params AS String, out AS List OF Byte)
+FUNC emit(kind AS String, algo AS String, params AS String, out AS List OF Byte) AS Nothing
   io::print("case " & kind & " " & algo & " " & params & " " & encoding::hexEncode(out))
-END SUB
+END FUNC
 
-SUB hmacAll(key AS List OF Byte, data AS List OF Byte)
+FUNC hmacAll(key AS List OF Byte, data AS List OF Byte) AS Nothing
   LET p AS String = hexField(key) & " " & hexField(data)
   emit("hmac", "sha1", p, crypto::hmac(crypto::Hash.SHA1, key, data))
   emit("hmac", "sha2-224", p, crypto::hmac(crypto::Hash.SHA2_224, key, data))
   emit("hmac", "sha2-256", p, crypto::hmac(crypto::Hash.SHA2_256, key, data))
   emit("hmac", "sha2-384", p, crypto::hmac(crypto::Hash.SHA2_384, key, data))
   emit("hmac", "sha2-512", p, crypto::hmac(crypto::Hash.SHA2_512, key, data))
-END SUB
+END FUNC
 
-SUB hkdfAll(ikm AS List OF Byte, salt AS List OF Byte, info AS List OF Byte, length AS Integer)
+FUNC hkdfAll(ikm AS List OF Byte, salt AS List OF Byte, info AS List OF Byte, length AS Integer) AS Nothing
   MUT p AS String = hexField(ikm) & " " & hexField(salt)
   p = p & " " & hexField(info) & " " & toString(length)
   emit("hkdf", "sha1", p, crypto::hkdf(crypto::Hash.SHA1, ikm, salt, info, length))
   emit("hkdf", "sha2-256", p, crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, length))
   emit("hkdf", "sha2-384", p, crypto::hkdf(crypto::Hash.SHA2_384, ikm, salt, info, length))
   emit("hkdf", "sha2-512", p, crypto::hkdf(crypto::Hash.SHA2_512, ikm, salt, info, length))
-END SUB
+END FUNC
 
-SUB pbkdf2All(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer)
+FUNC pbkdf2All(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS Nothing
   MUT p AS String = hexField(password) & " " & hexField(salt)
   p = p & " " & toString(iterations) & " " & toString(length)
   emit("pbkdf2", "sha1", p, crypto::pbkdf2(crypto::Hash.SHA1, password, salt, iterations, length))
   emit("pbkdf2", "sha2-256", p, crypto::pbkdf2(crypto::Hash.SHA2_256, password, salt, iterations, length))
   emit("pbkdf2", "sha2-384", p, crypto::pbkdf2(crypto::Hash.SHA2_384, password, salt, iterations, length))
   emit("pbkdf2", "sha2-512", p, crypto::pbkdf2(crypto::Hash.SHA2_512, password, salt, iterations, length))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' HMAC key lengths straddle the block size (64 bytes for SHA-1/224/256, 128 for
   ' SHA-384/512). A key longer than the block is HASHED first, and that reduction
   ' is the step most likely to be wrong -- so probe each block boundary either
@@ -127,7 +127,7 @@ SUB main()
   pbkdf2All(strings::toBytes("password"), strings::toBytes("salt"), 2, 20)
   pbkdf2All(strings::toBytes("passwordPASSWORDpassword"), strings::toBytes("saltSALTsaltSALTsalt"), 10, 25)
   pbkdf2All(pattern(0), pattern(16), 1000, 64)
-END SUB
+END FUNC
 "#;
 
 struct Len(usize);

@@ -107,9 +107,9 @@ FUNC keyNeg(n AS Integer) AS Integer
   RETURN 0 - n
 END FUNC
 
-SUB bumpAcc(n AS Integer)
+FUNC bumpAcc(n AS Integer) AS Nothing
   forEachAcc = forEachAcc + n
-END SUB
+END FUNC
 
 FUNC sortMakeAsc(n AS Integer) AS List OF Integer
   MUT xs AS List OF Integer = []
@@ -196,9 +196,9 @@ FUNC strIdentity(s AS String) AS String
   RETURN s
 END FUNC
 
-SUB strBumpLen(s AS String)
+FUNC strBumpLen(s AS String) AS Nothing
   strForEachAcc = strForEachAcc + len(s)
-END SUB
+END FUNC
 
 ' Zero-padded numeric strings so lexicographic order == numeric order.
 FUNC pad6(n AS Integer) AS String

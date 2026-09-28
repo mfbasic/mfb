@@ -76,7 +76,7 @@ fn assert_flat(name: &str, source: &str, small: u64, large: u64) {
 const SHAPE_A_CONSTRUCTOR: &str = "IMPORT io\n\
 TYPE Plain\n  value AS Integer\n  index AS Integer\nEND TYPE\n\
 FUNC mkLit(i AS Integer) AS Plain\n  RETURN Plain[i, i]\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -85,7 +85,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same shape through a fresh **call** result rather than a constructor —
 /// the bug report measured this as leaking identically, so it is its own case.
@@ -93,7 +93,7 @@ const SHAPE_A_CALL: &str = "IMPORT io\n\
 TYPE Plain\n  value AS Integer\n  index AS Integer\nEND TYPE\n\
 FUNC mkLocal(i AS Integer) AS Plain\n  LET r AS Plain = Plain[i, i]\n  RETURN r\nEND FUNC\n\
 FUNC passThrough(i AS Integer) AS Plain\n  RETURN mkLocal(i)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -102,7 +102,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's contrast case: `RETURN <owned local>` moves the block
 /// (plan-25-C C1) and was always flat. A POSITIVE pin — the shape-A fix reaches
@@ -110,7 +110,7 @@ END SUB\n";
 const SHAPE_A_CONTRAST_LOCAL: &str = "IMPORT io\n\
 TYPE Plain\n  value AS Integer\n  index AS Integer\nEND TYPE\n\
 FUNC mkLocal(i AS Integer) AS Plain\n  LET r AS Plain = Plain[i, i]\n  RETURN r\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -119,7 +119,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -159,7 +159,7 @@ FUNC mkThrough(i AS Integer) AS Plain\n  RETURN mkLocal(i)\nEND FUNC\n\
 FUNC mkDuo(i AS Integer) AS Duo\n  LET q AS Plain = mkLocal(i)\n  RETURN Duo[q, i]\nEND FUNC\n\
 FUNC mkNamed(i AS Integer) AS Named\n  RETURN Named[\"t\" & toString(i), i]\nEND FUNC\n\
 FUNC mkList(i AS Integer) AS List OF Integer\n  RETURN [i, i + 1, i + 2]\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT out AS String = \"\"\n\
   MUT i AS Integer = 0\n\
   WHILE i < 4\n\
@@ -178,7 +178,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(out)\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_return_shape_still_produces_the_right_value() {
@@ -215,7 +215,7 @@ fn every_return_shape_still_produces_the_right_value() {
 /// producers fail-closed provenance (`mark_fresh_string`) so this one is freed at
 /// statement end.
 const SHAPE_B_CALL_RESULT: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -223,12 +223,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same shape through the concatenation operator: `"x" & toString(i) & "y"`
 /// allocates the fused chain's block and hands it straight to `len`.
 const SHAPE_B_CONCAT: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -236,7 +236,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The native `strings::` producers, unbound. `strings::padLeft(s, n)` also
 /// leaked an INTERIOR block — the one-byte default pad String it materializes and
@@ -245,7 +245,7 @@ END SUB\n";
 const SHAPE_B_NATIVE_PRODUCERS: &str = "IMPORT io\n\
 IMPORT collections\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT names AS List OF String = []\n\
   MUT k AS Integer = 0\n\
   WHILE k < 40\n\
@@ -267,7 +267,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's contrast line — binding the call result already freed it —
 /// wrapped around the two shapes that did NOT: the `toString(i)` operand inside
@@ -280,7 +280,7 @@ END SUB\n";
 /// matching, this program would abort on a double free rather than leak.
 const SHAPE_B_CONTRAST_BOUND: &str = "IMPORT io\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   MUT s AS String = \"\"\n\
@@ -292,7 +292,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -354,7 +354,7 @@ FUNC lit(i AS Integer) AS String\n\
   IF i MOD 2 = 0 THEN\n    RETURN \"even-literal\"\n  END IF\n  RETURN \"odd-literal\"\n\
 END FUNC\n\
 FUNC ident(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT names AS List OF String = []\n\
   MUT k AS Integer = 0\n\
   WHILE k < 8\n\
@@ -391,7 +391,7 @@ SUB main()\n\
   io::print(\"lit=\" & lit(2) & \",\" & lit(3))\n\
   io::print(\"pick=\" & pick(\"A\", \"B\", true) & pick(\"A\", \"B\", false))\n\
   io::print(\"pad=[\" & strings::padLeft(\"7\", 4) & \"]\")\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_string_producer_still_produces_the_right_value() {
@@ -470,7 +470,7 @@ FUNC mkEmpty(i AS Integer) AS String\n\
   MUT out AS String = \"\"\n\
   RETURN out\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -480,7 +480,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The TRANSITIVE form, which is what the decoders actually need: `top` returns
 /// `middle`'s result, `middle` returns `leaf`'s, and only `leaf` reaches a native
@@ -492,7 +492,7 @@ const SHAPE_B2_TRANSITIVE: &str = "IMPORT io\n\
 FUNC leaf(i AS Integer) AS String\n  RETURN toString(i)\nEND FUNC\n\
 FUNC middle(i AS Integer) AS String\n  RETURN leaf(i)\nEND FUNC\n\
 FUNC top(i AS Integer) AS String\n  RETURN middle(i)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -500,7 +500,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `RETURN "literal"`. The bug document listed this as the reason a caller could
 /// NOT free a user callee's `String` — "a rodata pointer (`arena_free` on it is
@@ -513,7 +513,7 @@ const SHAPE_B2_RETURNED_LITERAL: &str = "IMPORT io\n\
 FUNC lit(i AS Integer) AS String\n\
   IF i MOD 2 = 0 THEN\n    RETURN \"even\"\n  END IF\n  RETURN \"odd\"\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -521,7 +521,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `toString` of a fresh `String` — a pre-existing USE-AFTER-FREE this change
 /// also fixes, because shape B-2 would otherwise widen its reach from native
@@ -539,7 +539,7 @@ END SUB\n";
 /// (`[exit 139]`, measured at both counts). It is RED as a crash, not as a number.
 const SHAPE_B2_TOSTRING_IDENTITY: &str = "IMPORT io\n\
 FUNC mk(i AS Integer) AS String\n  RETURN toString(i)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -550,7 +550,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin for B-2, and the one that decides the design: a callee whose
 /// every value-return is a bare parameter is a plan-86 K1 BORROW of the caller's
@@ -564,7 +564,7 @@ IMPORT collections\n\
 FUNC pick(a AS String, b AS String, useA AS Boolean) AS String\n\
   IF useA THEN\n    RETURN a\n  END IF\n  RETURN b\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   MUT held AS String = \"held-value\"\n\
@@ -577,7 +577,7 @@ SUB main()\n\
   END WHILE\n\
   io::print(\"held=\" & held)\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -636,7 +636,7 @@ fn tostring_of_a_fresh_string_runs_at_constant_rss() {
 const SHAPE_562_CALLBACK_REFERENCED_DIRECT_CALL: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC deco(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET seed AS List OF String = [\"a\"]\n\
   LET once AS List OF String = collections::transform(seed, deco)\n\
   LET arg AS String = \"x\"\n\
@@ -647,7 +647,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" once=\" & collections::get(once, 0))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin for it: the identical program with the `transform` line
 /// removed, so `deco` is NOT callback-referenced. It was already flat before
@@ -656,7 +656,7 @@ END SUB\n";
 /// would be a double free rather than a leak fix.
 const SHAPE_562_PLAIN_DIRECT_CALL_CONTRAST: &str = "IMPORT io\n\
 FUNC deco(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET arg AS String = \"x\"\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -665,7 +665,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// bug-562 is not confined to the built-in HOFs: the `FunctionRef` ABI is reached
 /// by any user function that takes a callable and invokes it, and the callee's
@@ -699,7 +699,7 @@ const SHAPE_562_INDIRECT_CALLABLE: &str = "IMPORT io\n\
 FUNC g(s AS String) AS String\n  RETURN \"TOP\"\nEND FUNC\n\
 FUNC other(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
 FUNC apply(g AS FUNC(String) AS String, s AS String) AS String\n  RETURN g(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT rep AS Integer = 0\n\
   WHILE rep < 200\n\
     LET held AS String = \"held-\" & toString(rep)\n\
@@ -708,7 +708,7 @@ SUB main()\n\
     rep = rep + 1\n\
   END WHILE\n\
   io::print(\"shadow=\" & g(\"x\") & \",\" & apply(other, \"y\"))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The VALUES, not the RSS: a callback reached through a user function rather
 /// than a built-in HOF must return a block the caller owns, and must leave the
@@ -815,7 +815,7 @@ END FUNC\n\
 FUNC failable(i AS Integer) AS String\n\
   IF i < 0 THEN\n    FAIL error(77050003, \"neg\")\n  END IF\n  RETURN \"ok\" & toString(i)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT total AS Integer = 0\n\
   MUT names AS List OF String = []\n\
@@ -837,7 +837,7 @@ SUB main()\n\
     IF mk(i) = \"v3\" THEN\n      total = total + 1\n    END IF\n\
     sink = ident(mk(i))\n\
     total = total + len(sink)\n\
-    LET fv AS String = failable(i) TRAP\n      total = total - 1\n      EXIT SUB\n    END TRAP\n\
+    LET fv AS String = failable(i) TRAP\n      total = total - 1\n      RETURN\n    END TRAP\n\
     total = total + len(fv)\n\
     LET churn AS List OF Integer = [i, i + 1, i + 2]\n\
     total = total + collections::get(churn, 2)\n\
@@ -848,7 +848,7 @@ SUB main()\n\
   io::print(\"mk=\" & mk(7) & \",\" & toString(mk(7)) & \",\" & ident(mk(7)))\n\
   io::print(\"pick=\" & pick(mk(7), \"fb\", TRUE) & pick(mk(7), \"fb\", FALSE))\n\
   io::print(\"lit=\" & litOnly(2) & litOnly(3) & \",\" & viaGet(1) & \",\" & recurse(2))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_string_return_shape_still_produces_the_right_value() {
@@ -911,7 +911,7 @@ fn every_string_return_shape_still_produces_the_right_value() {
 /// on every iteration. Measured on the pre-fix compiler: 38 MB at 200k, 75 MB at
 /// 400k.
 const B560_REASSIGNED_SELF_APPEND: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT out AS String = \"\"\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -922,7 +922,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same defect through the RETURN seam, and the shape that owns the size of
 /// the bug: `plan_returned_move` moved the headroom-carrying block to the caller,
@@ -941,7 +941,7 @@ FUNC build(n AS Integer) AS String\n\
   END WHILE\n\
   RETURN out\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -950,7 +950,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same defect reached through the shipped `.mfb` decoder rather than a
 /// hand-written loop: `encoding::utf32Decode` is `out = out & fromCodepoint(cp)`
@@ -959,7 +959,7 @@ END SUB\n";
 const B560_DECODER: &str = "IMPORT io\n\
 IMPORT collections\n\
 IMPORT encoding\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT units AS List OF Integer = []\n\
   MUT k AS Integer = 0\n\
   WHILE k < 400\n\
@@ -973,7 +973,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's contrast line, kept as a POSITIVE pin: a self-append with no
 /// intervening reassignment and no return was ALREADY flat — bug-77 gave the
@@ -981,7 +981,7 @@ END SUB\n";
 /// would go RED if the fix's extra `spare` were ever double-counted (the regrow
 /// frees the old block itself; the capacity-aware drop must not also fire on it).
 const B560_CONTRAST_PLAIN: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT out AS String = \"\"\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -989,7 +989,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"len=\" & toString(len(out)))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -1067,7 +1067,7 @@ FUNC nested(n AS Integer) AS String\n\
   out = out & \">\"\n\
   RETURN out\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT reset AS String = \"\"\n\
   MUT dyn AS String = \"\"\n\
@@ -1111,7 +1111,7 @@ SUB main()\n\
   io::print(\"build=\" & build(4))\n\
   io::print(\"nested=\" & nested(2))\n\
   io::print(\"decode=\" & encoding::utf32Decode(units))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_string_self_append_shape_still_produces_the_right_value() {
@@ -1185,7 +1185,7 @@ FUNC fname(n AS Integer) AS String\n\
   IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
   RETURN toString(n MOD 10)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -1196,7 +1196,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same defect with a collection payload — 256 B per call, 50.6 MB at 200k
 /// and 100.2 MB at 400k. It is in its own case because the leak is the PAYLOAD,
@@ -1209,7 +1209,7 @@ FUNC trio(n AS Integer) AS List OF Integer\n\
   IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
   RETURN [n, n + 1, n + 2]\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -1220,7 +1220,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The second lowering path with the same defect: an inline builtin under a
 /// `TRAP` (`lower_inline_builtin_raw`) runs the member's ordinary lowering
@@ -1232,7 +1232,7 @@ END SUB\n";
 const B561_TRAP_INLINE_BUILTIN: &str = "IMPORT io\n\
 IMPORT collections\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghijklmnop\"\n\
   LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
   MUT acc AS Integer = 0\n\
@@ -1248,7 +1248,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The ERROR path, which is the one the fix could get catastrophically wrong:
 /// the payload temp's slot is written on the Ok branch ONLY, because on the
@@ -1268,7 +1268,7 @@ FUNC always(n AS Integer) AS String\n\
   IF n >= 0 THEN\n    FAIL error(7, \"always\")\n  END IF\n\
   RETURN toString(n)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -1279,7 +1279,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's own claim, kept as a POSITIVE pin: it recorded
 /// `Result OF Integer` as the WORST case at 128 B per call. It never leaked —
@@ -1290,7 +1290,7 @@ FUNC half(n AS Integer) AS Integer\n\
   IF n < 0 THEN\n    FAIL error(7, \"negative\")\n  END IF\n\
   RETURN n / 2\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -1301,7 +1301,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The other POSITIVE pin: the same producers with NO `TRAP` were already flat
 /// (their block is bound and freed by the binding's own scope drop). The fix
@@ -1311,7 +1311,7 @@ IMPORT collections\n\
 IMPORT strings\n\
 FUNC fname(n AS Integer) AS String\n  RETURN toString(n MOD 10)\nEND FUNC\n\
 FUNC trio(n AS Integer) AS List OF Integer\n  RETURN [n, n + 1, n + 2]\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghijklmnop\"\n\
   LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
   MUT acc AS Integer = 0\n\
@@ -1325,7 +1325,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -1434,7 +1434,7 @@ FUNC fnum(n AS Integer) AS Integer\n\
   IF n MOD 3 = 2 THEN\n    FAIL error(12, \"two\")\n  END IF\n\
   RETURN n MOD 100\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghijklmnop\"\n\
   LET names AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
   MUT total AS Integer = 0\n\
@@ -1471,7 +1471,7 @@ SUB main()\n\
   io::print(\"sink=\" & sink)\n\
   io::print(\"names=\" & collections::get(names, 0) & collections::get(names, 2))\n\
   io::print(\"base=\" & base)\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_trap_bound_result_still_produces_the_right_value() {
@@ -1569,7 +1569,7 @@ fn every_trap_bound_result_still_produces_the_right_value() {
 const SHAPE_569_TRANSFORM: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1579,14 +1579,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `sortBy`'s key projection. String items + a String key declines the native
 /// fast path, so this is the `.mfb` body's route to the callback.
 const SHAPE_569_SORT_BY: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC key(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n3\", \"n1\", \"n7\", \"n0\", \"n5\", \"n2\", \"n6\", \"n4\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1596,14 +1596,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `groupBy`'s value projection, on the native fast path (Integer key).
 const SHAPE_569_GROUP_BY: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
 FUNC vf(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1613,7 +1613,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `mapValues`, the one HOF that invokes its callback directly rather than
 /// through `transform`. The source map is `Map OF Integer TO Integer` on purpose:
@@ -1625,7 +1625,7 @@ END SUB\n";
 const SHAPE_569_MAP_VALUES: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC deco(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
   MUT j AS Integer = 0\n\
   WHILE j < 8\n\
@@ -1640,7 +1640,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin, and the one shape where the HOF must NOT free: a callback
 /// that returns its own bare parameter. The block it hands back is the very one
@@ -1656,7 +1656,7 @@ END SUB\n";
 const SHAPE_569_BARE_PARAM_CALLBACK: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1666,7 +1666,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" src=\" & collections::get(xs, 0))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A fixed-width callback over the same list. It never allocated and was always
 /// flat, and it must stay flat: a fix that freed something here would be freeing
@@ -1674,7 +1674,7 @@ END SUB\n";
 const SHAPE_569_FIXED_WIDTH_CONTRAST: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC pick(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1684,7 +1684,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// 56.8 MB -> 112.6 MB at 50k/100k passes over an 8-element list, before.
 #[cfg(unix)]
@@ -1771,7 +1771,7 @@ FUNC digest(xs AS List OF String) AS String\n\
   NEXT\n\
   RETURN d\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"ab\", \"cd\", \"ef\", \"gh\", \"ij\", \"kl\", \"mn\", \"op\"]\n\
   MUT ms AS Map OF Integer TO String = Map OF Integer TO String {}\n\
   MUT j AS Integer = 0\n\
@@ -1799,21 +1799,21 @@ SUB main()\n\
     END IF\n\
     IF cur <> sig THEN\n\
       io::print(\"DRIFT at rep=\" & toString(rep) & \" now=\" & cur)\n\
-      EXIT SUB\n\
+      RETURN\n\
     END IF\n\
     IF n <> \"held-\" & toString(rep) THEN\n\
       io::print(\"INDIRECT WRONG at rep=\" & toString(rep) & \" n=\" & n)\n\
-      EXIT SUB\n\
+      RETURN\n\
     END IF\n\
     IF collections::get(xs, 0) <> \"ab\" OR collections::get(xs, 7) <> \"op\" THEN\n\
       io::print(\"SOURCE CLOBBERED at rep=\" & toString(rep))\n\
-      EXIT SUB\n\
+      RETURN\n\
     END IF\n\
     rep = rep + 1\n\
   END WHILE\n\
   io::print(sig)\n\
   io::print(\"ok\")\n\
-END SUB\n";
+END FUNC\n";
 
     let expected_digest = {
         let xs = ["ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"];
@@ -1868,7 +1868,7 @@ END SUB\n";
 /// so the loop materialises a fresh arena block per element per pass; nothing
 /// freed it. 25 MB at 50 000 passes over an 8-element list, 50 MB at 100 000.
 const SHAPE_571_LIST_OF_STRING: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1879,14 +1879,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A `Map OF String TO String` materialises BOTH sides per entry — the key and
 /// the value are separate loads — so it leaked twice as fast: 50 MB at 50 000,
 /// 99 MB at 100 000.
 const SHAPE_571_MAP_OF_STRING: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT xs AS Map OF String TO String = Map OF String TO String {}\n\
   MUT j AS Integer = 0\n\
   WHILE j < 8\n\
@@ -1902,14 +1902,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A `Set OF String` reaches the same materialising arm on its own code path in
 /// `lower_for_each`; it leaked identically (25 -> 50 MB) and is the arm a
 /// `List`/`Map` enumeration silently omits.
 const SHAPE_571_SET_OF_STRING: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT xs AS Set OF String = Set OF String {}\n\
   MUT j AS Integer = 0\n\
   WHILE j < 8\n\
@@ -1925,7 +1925,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's contrast, and the case that says it is the `String` element
 /// and not the loop: `FOR EACH` over a `Map OF Integer TO Integer` reading
@@ -1934,7 +1934,7 @@ END SUB\n";
 /// anything here would be freeing a scalar.
 const SHAPE_571_CONTRAST_MAP_OF_INTEGER: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
   MUT j AS Integer = 0\n\
   WHILE j < 8\n\
@@ -1950,11 +1950,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The `List` half of the same contrast.
 const SHAPE_571_CONTRAST_LIST_OF_INTEGER: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF Integer = [0, 1, 2, 3, 4, 5, 6, 7]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1965,12 +1965,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `EXIT FOR` leaves the loop from the MIDDLE of an iteration, branching straight
 /// to the end label past the fall-through drop. 16 -> 31 MB before.
 const SHAPE_571_EXIT_FOR: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -1984,12 +1984,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `CONTINUE FOR` branches to the TOP of the loop, also past the fall-through
 /// drop. 25 -> 50 MB before.
 const SHAPE_571_CONTINUE_FOR: &str = "IMPORT io\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2003,7 +2003,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `RETURN e` from inside the loop — the escape direction, and the one shape
 /// where freeing the item would be a use-after-free in the CALLER. It stays
@@ -2020,7 +2020,7 @@ FUNC pick(xs AS List OF String) AS String\n\
   NEXT\n\
   RETURN \"none\"\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2030,7 +2030,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" src=\" & pick(xs))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A body that USES the element beyond `len` — appends it to a collection and
 /// concatenates it into a string. Both are owning consumers that COPY (§14.6:
@@ -2040,7 +2040,7 @@ END SUB\n";
 /// the printed `src=` proves the source list is intact afterward.
 const SHAPE_571_USES_THE_ITEM: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2055,7 +2055,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" src=\" & collections::get(xs, 0))\n\
-END SUB\n";
+END FUNC\n";
 
 /// 25 MB at 50 000 passes over an 8-element list, 50 MB at 100 000, before.
 #[cfg(unix)]
@@ -2211,7 +2211,7 @@ FUNC nested(xs AS List OF String, ys AS List OF String) AS Integer\n\
   NEXT\n\
   RETURN n\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"aa\", \"bbb\", \"cccc\", \"d\"]\n\
   io::print(firstLong(xs))\n\
   io::print(joined(xs))\n\
@@ -2262,7 +2262,7 @@ SUB main()\n\
     m2 = m2 + e.key + len(e.value)\n\
   NEXT\n\
   io::print(toString(m2) & collections::get(mis, 2))\n\
-END SUB\n";
+END FUNC\n";
 
     // Computed here, not read off the program: a value derived from the producer
     // is true by construction.
@@ -2318,7 +2318,7 @@ END SUB\n";
 /// 13 MB at 50 000 calls, 25 MB at 100 000.
 const SHAPE_572_CAPTURING_FILTER: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET cap AS String = \"CAPTURED\"\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
@@ -2329,7 +2329,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The contrast, one token wide: dropping the capture makes the lambda lower to
 /// a `FunctionRef` over a static BSS descriptor rather than a `Closure`, so it
@@ -2337,7 +2337,7 @@ END SUB\n";
 /// made the case above pass by suppressing an allocation would show up here.
 const SHAPE_572_CONTRAST_CAPTURELESS: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2347,14 +2347,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `collections::reduce`'s BINARY callback (`FUNC(U, T) AS U`, parameter index 2)
 /// — a different position on the allow-list, and the one `callback_member`'s
 /// unary rule deliberately excludes. 13 -> 25 MB before.
 const SHAPE_572_REDUCE: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET cap AS String = \"CAPTURED\"\n\
   LET xs AS List OF Integer = [1, 2, 3, 4, 5, 6, 7, 8]\n\
   MUT i AS Integer = 0\n\
@@ -2365,7 +2365,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `collections::forEach`, the one position that admits a BY-REF capture of a
 /// `MUT` binding (`is_nonescaping_callback_arg`). A by-ref env slot holds a
@@ -2375,7 +2375,7 @@ END SUB\n";
 /// the by-ref slot would corrupt the caller's frame instead.
 const SHAPE_572_FOREACH_BY_REF: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -2384,7 +2384,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `collections::mapValues`, whose callback is invoked from its own `.mfb` body
 /// rather than a native loop — so it takes the OTHER arm of the gate, the one
@@ -2392,7 +2392,7 @@ END SUB\n";
 /// parameter is invoke-only. 15 -> 29 MB before.
 const SHAPE_572_MAP_VALUES: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET cap AS String = \"CAPTURED\"\n\
   MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
   MUT j AS Integer = 0\n\
@@ -2408,7 +2408,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin, as an RSS EQUALITY rather than flatness: `http::route`'s
 /// handler is also a non-isolated `FUNC` parameter, but the returned
@@ -2422,7 +2422,7 @@ END SUB\n";
 /// `every_closure_argument_shape_still_produces_the_right_value` below.
 const SHAPE_572_RETAINED_ROUTE: &str = "IMPORT io\n\
 IMPORT http\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET cap AS String = \"CAPTURED\"\n\
   MUT last AS http::Route = http::route(\"/seed\", LAMBDA(req AS http::Request) -> http::ok(\"seed\"))\n\
   MUT i AS Integer = 0\n\
@@ -2434,7 +2434,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" pattern=\" & last.pattern)\n\
-END SUB\n";
+END FUNC\n";
 
 /// 13 MB at 50 000 calls, 25 MB at 100 000, before — with a `Boolean` predicate.
 #[cfg(unix)]
@@ -2543,7 +2543,7 @@ END FUNC\n\
 FUNC applyTwice(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer\n\
   RETURN f(f(v))\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET cap AS String = \"CAPTURED\"\n\
   LET xs AS List OF String = [\"a\", \"bb\", \"ccc\", \"dddd\"]\n\
   LET kept AS List OF String = collections::filter(xs, LAMBDA(s AS String) -> len(s) < len(cap))\n\
@@ -2569,7 +2569,7 @@ SUB main()\n\
   collections::forEach(xs, LAMBDA(s AS String) -> total = total + len(s))\n\
   io::print(toString(total))\n\
   io::print(toString(collections::reduce(xs, 0, LAMBDA(a AS Integer, s AS String) -> a + len(s) + len(cap))))\n\
-END SUB\n";
+END FUNC\n";
 
     // Computed here, not read off the program.
     let cap = "CAPTURED";
@@ -2650,7 +2650,7 @@ FUNC always(n AS Integer) AS String\n\
   IF n >= 0 THEN\n    FAIL error(7, \"always-\" & toString(n MOD 3))\n  END IF\n\
   RETURN toString(n)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT codes AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -2663,7 +2663,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc) & \" codes=\" & toString(codes))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The shape bug-571 measured and could not fix: a failing call inside a walk
 /// over a `List OF String`. bug-571 took it from 6 -> 11 MB down to the 2 -> 3 MB
@@ -2673,7 +2673,7 @@ END SUB\n";
 const B565_FAILING_CALL_IN_A_WALK: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC boom(s AS String) AS Integer\n  FAIL error(7, \"boom\")\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2690,7 +2690,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The AUTO-PROPAGATED edge, which is a different emitter: the error leaves the
 /// middle of a loop body, unwinds out of `pass`, and is only then trapped. §14.7
@@ -2711,7 +2711,7 @@ FUNC pass(xs AS List OF String) AS Integer\n\
   END WHILE\n\
   RETURN sum\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\"]\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -2723,7 +2723,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// bug-573, landed as the shape bug-565 pinned as still-leaking. The comment it
 /// replaces read "an error raised by an inline builtin's own domain check still
@@ -2740,7 +2740,7 @@ END SUB\n";
 /// propagation that reads it reads a live, byte-identical `ErrorLoc`.
 const B573_BUILTIN_RAISE: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"aa\", \"bb\", \"cc\"]\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -2752,7 +2752,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The control that makes every number above attributable: the SAME program with
 /// the producer's condition inverted, so the identical inline `TRAP` over the
@@ -2765,7 +2765,7 @@ FUNC never(n AS Integer) AS String\n\
   IF n < 0 THEN\n    FAIL error(7, \"never\")\n  END IF\n\
   RETURN toString(n MOD 10)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -2776,7 +2776,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -2870,7 +2870,7 @@ FUNC viaTrap(n AS Integer) AS Integer\n\
     RETURN 0 - err.code\n\
   END TRAP\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"aa\", \"bb\"]\n\
   MUT codes AS Integer = 0\n\
   MUT texts AS Integer = 0\n\
@@ -2901,7 +2901,7 @@ SUB main()\n\
   io::print(\"texts=\" & toString(texts))\n\
   io::print(\"viaTrap=\" & toString(viaTrapSum))\n\
   io::print(\"linesPositive=\" & toString(lines > 0))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_trapped_error_shape_still_produces_the_right_value() {
@@ -2975,7 +2975,7 @@ FUNC risky(i AS Integer) AS Integer\n\
   IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n\
   RETURN i\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -2986,7 +2986,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The report asked for every scalar payload type, so all four are in one loop:
 /// the wrapper is the same 24 bytes whatever the scalar is, and each of the four
@@ -3006,7 +3006,7 @@ END FUNC\n\
 FUNC ry(y AS Byte, i AS Integer) AS Byte\n\
   IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n  RETURN y\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET one AS Byte = toByte(1)\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -3022,7 +3022,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same defect with a `String` payload, where the abandoned wrapper inlines
 /// the whole string rather than an 8-byte scalar — 195 B per call: **38.2 MB at
@@ -3032,7 +3032,7 @@ FUNC pick(s AS String, i AS Integer) AS String\n\
   IF i < 0 THEN\n    FAIL error(1, \"neg\")\n  END IF\n\
   RETURN s\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghijklmnop\"\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -3044,7 +3044,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin: the identical param-borrow callee called WITHOUT a `TRAP`.
 ///
@@ -3055,7 +3055,7 @@ END SUB\n";
 /// only as a fault.
 const B568_CONTRAST_NO_TRAP: &str = "IMPORT io\n\
 FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghijklmnop\"\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -3065,7 +3065,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -3135,7 +3135,7 @@ END FUNC\n\
 FUNC same(xs AS List OF Integer, i AS Integer) AS List OF Integer\n\
   IF i < 0 THEN\n    FAIL error(3, \"neg\")\n  END IF\n  RETURN xs\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET base AS String = \"abcdefghij\"\n\
   LET p AS Duo = Duo[7, 9]\n\
   LET xs AS List OF Integer = [1, 2, 3, 4]\n\
@@ -3156,7 +3156,7 @@ SUB main()\n\
   io::print(\"base=\" & base)\n\
   io::print(\"pair=\" & toString(p.a) & \",\" & toString(p.b))\n\
   io::print(\"xs=\" & toString(collections::get(xs, 3)))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_param_borrow_shape_still_produces_the_right_value() {
@@ -3200,7 +3200,7 @@ fn every_param_borrow_shape_still_produces_the_right_value() {
 /// 13.3 MB at 200k and 25.6 MB at 400k on the pre-fix compiler.
 const SHAPE_567_NESTED_CONCAT: &str = "IMPORT io\n\
 FUNC wrap(s AS String) AS String\n  RETURN \"<\" & s & \">\"\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3208,14 +3208,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same defect where the interior temp is a CALL result rather than a nested
 /// concat — the bug report's own second row, and the commonest real body shape.
 /// 13.3 MB at 200k, 25.6 MB at 400k.
 const SHAPE_567_CONCAT_OF_A_CALL: &str = "IMPORT io\n\
 FUNC f(n AS Integer) AS String\n  RETURN \"v\" & toString(n MOD 10)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3223,7 +3223,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The bug report's CONTROL, and the row that makes the other two attributable:
 /// one operator fewer, so both operands are already-owned values and the concat
@@ -3232,7 +3232,7 @@ END SUB\n";
 /// interior must gain none.
 const SHAPE_567_CONTRAST_TWO_OPERANDS: &str = "IMPORT io\n\
 FUNC tail(s AS String) AS String\n  RETURN s & \">\"\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3240,7 +3240,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `RETURN <collection literal built from interior concats>` — the interior temps
 /// are the two element `String`s, and the value that leaves is the `List` block.
@@ -3250,7 +3250,7 @@ IMPORT strings\n\
 FUNC pair(n AS Integer) AS List OF String\n\
   RETURN [\"a\" & toString(n MOD 10), \"b\" & toString(n MOD 10)]\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3258,7 +3258,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The cleanup-bearing `RETURN` path: the function owns a local, so
 /// `active_cleanups` is NOT empty and the return goes through
@@ -3269,7 +3269,7 @@ FUNC decorate(n AS Integer) AS String\n\
   LET tag AS String = \"t\" & toString(n MOD 7)\n\
   RETURN tag & (\"-\" & toString(n MOD 10))\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3277,7 +3277,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `FAIL error(7, <concat with a 4 KB interior temp>)`, whose `TransferTemps`
 /// class is `AdoptedByTheCatcher` and which therefore keeps truncating. The block
@@ -3289,7 +3289,7 @@ IMPORT strings\n\
 FUNC boom(n AS Integer) AS String\n\
   FAIL error(7, strings::repeat(\"x\", 4000) & \"y\")\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3300,7 +3300,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same program with the `& "y"` removed — one operator fewer, so the 4 KB
 /// block IS the message and nothing is interior. The control that makes the
@@ -3310,7 +3310,7 @@ IMPORT strings\n\
 FUNC boom(n AS Integer) AS String\n\
   FAIL error(7, strings::repeat(\"x\", 4000))\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3321,7 +3321,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -3461,7 +3461,7 @@ FUNC guarded(n AS Integer) AS String\n\
   RETURN \"neg\"\n\
 END FUNC\n\
 FUNC boom(n AS Integer) AS String\n  FAIL error(7, \"x\" & toString(n))\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   io::print(wrap(\"ab\"))\n\
   io::print(tail(\"q\"))\n\
   io::print(v(37))\n\
@@ -3481,7 +3481,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(acc)\n\
-END SUB\n";
+END FUNC\n";
 
     // Computed here, not read off the program.
     let wrap = |s: &str| format!("<{s}>");
@@ -3585,7 +3585,7 @@ fn assert_no_extra_growth(name: &str, trapped: &str, plain: &str, small: u64, la
 /// 3.6 -> 6.2 MB for the same call bound plainly.
 const SHAPE_566_TRAPPED_READ_TEXT: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3598,13 +3598,13 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same call with the `TRAP` removed — the contrast that attributes the extra
 /// growth to the `Result` lowering and not to `fs::readText` itself.
 const SHAPE_566_PLAIN_READ_TEXT: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3615,13 +3615,13 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A COLLECTION payload on the same path — `List OF Byte`, whose block is freed
 /// by the collection drop rather than the `String` one.
 const SHAPE_566_TRAPPED_READ_BYTES: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe_b.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3634,11 +3634,11 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe_b.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 const SHAPE_566_PLAIN_READ_BYTES: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe_b.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3649,7 +3649,7 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe_b.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A SCALAR payload under the same `TRAP` machinery: `fs::exists` returns a
 /// `Boolean`, so `result_payload_is_block` is false and bug-566 emits nothing at
@@ -3657,7 +3657,7 @@ END SUB\n";
 /// after — the control that says the `TRAP` lowering itself is not what changed.
 const SHAPE_566_TRAPPED_SCALAR: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe_s.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3672,11 +3672,11 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe_s.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 const SHAPE_566_PLAIN_SCALAR: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_probe_s.txt\", \"hello world!\")\n\
   MUT i AS Integer = 0\n\
   MUT acc AS Integer = 0\n\
@@ -3689,7 +3689,7 @@ SUB main()\n\
   END WHILE\n\
   fs::deleteFile(\"b566_probe_s.txt\")\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -3745,7 +3745,7 @@ IMPORT thread\n\
 ISOLATED FUNC worker(w AS ThreadWorker OF String TO String, seed AS String) AS String\n\
   RETURN seed & \"-done\"\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   fs::writeText(\"b566_values.txt\", \"hello world!\")\n\
   LET s AS String = fs::readText(\"b566_values.txt\") TRAP(e)\n\
     RECOVER \"x\"\n\
@@ -3774,7 +3774,7 @@ SUB main()\n\
   io::print(out)\n\
   io::print(s & \"/\" & missing & \"/\" & env)\n\
   fs::deleteFile(\"b566_values.txt\")\n\
-END SUB\n";
+END FUNC\n";
 
     let expected = [
         "hello world!",
@@ -3831,7 +3831,7 @@ END SUB\n";
 /// anywhere in the shape: whatever grows here is the ARGUMENT.
 const SHAPE_574_SHORT_PATH: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3841,7 +3841,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same call with a 415-character path — 28x the leak per call, and the
 /// sensitive form. A fix that freed the wrong SIZE (bug-560's shape) or freed on
@@ -3849,7 +3849,7 @@ END SUB\n";
 const SHAPE_574_LONG_PATH: &str = concat!(
     "IMPORT io\n",
     "IMPORT fs\n",
-    "SUB main()\n",
+    "FUNC main() AS Nothing\n",
     "  MUT n AS Integer = 0\n",
     "  MUT i AS Integer = 0\n",
     "  WHILE i < {N}\n",
@@ -3866,7 +3866,7 @@ const SHAPE_574_LONG_PATH: &str = concat!(
     "    i = i + 1\n",
     "  END WHILE\n",
     "  io::print(\"n=\" & toString(n))\n",
-    "END SUB\n",
+    "END FUNC\n",
 );
 
 /// The same shape through a LOCAL rather than a literal. The report's own third
@@ -3875,7 +3875,7 @@ const SHAPE_574_LONG_PATH: &str = concat!(
 const SHAPE_574_LOCAL_PATH: &str = concat!(
     "IMPORT io\n",
     "IMPORT fs\n",
-    "SUB main()\n",
+    "FUNC main() AS Nothing\n",
     "  LET p AS String = \"/tmp/b574probe/",
     "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
     "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
@@ -3893,7 +3893,7 @@ const SHAPE_574_LOCAL_PATH: &str = concat!(
     "    i = i + 1\n",
     "  END WHILE\n",
     "  io::print(\"n=\" & toString(n))\n",
-    "END SUB\n",
+    "END FUNC\n",
 );
 
 /// `os::getEnvOr` with a 400-character variable name that is never set: the
@@ -3903,7 +3903,7 @@ const SHAPE_574_LOCAL_PATH: &str = concat!(
 const SHAPE_574_ENV_NAME: &str = concat!(
     "IMPORT io\n",
     "IMPORT os\n",
-    "SUB main()\n",
+    "FUNC main() AS Nothing\n",
     "  MUT n AS Integer = 0\n",
     "  MUT i AS Integer = 0\n",
     "  WHILE i < {N}\n",
@@ -3917,7 +3917,7 @@ const SHAPE_574_ENV_NAME: &str = concat!(
     "    i = i + 1\n",
     "  END WHILE\n",
     "  io::print(\"n=\" & toString(n))\n",
-    "END SUB\n",
+    "END FUNC\n",
 );
 
 /// `fs::isWithin` marshals TWO paths and two PATH_MAX `realpath` buffers, and
@@ -3925,7 +3925,7 @@ const SHAPE_574_ENV_NAME: &str = concat!(
 /// multi-scratch case: a release that covered only the first would still grow.
 const SHAPE_574_TWO_ARGUMENTS: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3938,7 +3938,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `fs::currentDirectory` takes NO argument and still allocated a 4 KiB `getcwd`
 /// buffer it never freed — 16 384 B per call, the largest row in the family. It
@@ -3954,7 +3954,7 @@ END SUB\n";
 /// case measuring the scratch buffer alone.
 const SHAPE_574_NO_ARGUMENT: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3963,7 +3963,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin: `os::arch()` allocates its result and nothing else, and was
 /// flat before this change. It must stay flat — a release that reached the
@@ -3971,7 +3971,7 @@ END SUB\n";
 /// not as growth, which is why the value assertions below matter as much.
 const SHAPE_574_CONTRAST_ARCH: &str = "IMPORT io\n\
 IMPORT os\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -3980,7 +3980,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -4087,7 +4087,7 @@ fn tls_connect_probe(host_chars: usize) -> String {
     format!(
         "IMPORT io\n\
          IMPORT tls\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 MUT n AS Integer = 0\n\
         \x20 MUT i AS Integer = 0\n\
         \x20 WHILE i < {{N}}\n\
@@ -4100,7 +4100,7 @@ fn tls_connect_probe(host_chars: usize) -> String {
         \x20   i = i + 1\n\
         \x20 END WHILE\n\
         \x20 io::print(\"n=\" & toString(n))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -4136,7 +4136,7 @@ IMPORT fs\n\
 IMPORT os\n\
 IMPORT net\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET d AS String = fs::tempDirectory() & \"/b574_values\"\n\
   fs::createDirectories(d) TRAP(e1)\n\
     RECOVER\n\
@@ -4203,7 +4203,7 @@ SUB main()\n\
     RECOVER\n\
   END TRAP\n\
   io::print(\"gone=\" & toString(fs::exists(d & \"/a.txt\")))\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_helper_whose_scratch_is_released_still_produces_the_right_value() {
@@ -4339,7 +4339,7 @@ const B573_USER_FAIL: &str = "IMPORT io\n\
 FUNC boom(n AS Integer) AS Integer\n\
   FAIL error(90000001, \"boom\")\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4350,7 +4350,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A PROPAGATED error: raised two frames down and re-raised through a
 /// `PROPAGATE`, so the middle frame hands the error on rather than raising it.
@@ -4367,7 +4367,7 @@ FUNC middle(n AS Integer) AS Integer\n\
   END TRAP\n\
   RETURN v\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4378,7 +4378,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A RUNTIME-HELPER error, whose origin is stamped by the call site
 /// (`emit_stamp_current_error_source`) rather than by `_mfb_make_error_result` —
@@ -4386,7 +4386,7 @@ END SUB\n";
 /// directly rather than through the shared assembly.
 const B573_HELPER_ERROR: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4397,7 +4397,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The POSITIVE pin: the SAME loop with a call that never fails. It was flat
 /// before and must stay flat — the change adds an `arena_free` on the error path,
@@ -4406,7 +4406,7 @@ const B573_CONTRAST_NO_ERROR: &str = "IMPORT io\n\
 FUNC fine(n AS Integer) AS Integer\n\
   RETURN n MOD 3\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT acc AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4417,7 +4417,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"acc=\" & toString(acc))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -4476,7 +4476,7 @@ FUNC viaTrap() AS String\n\
     RETURN err.source.filename & \":\" & toString(err.source.line)\n\
   END TRAP\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET xs AS List OF String = [\"aa\", \"bb\"]\n\
   MUT i AS Integer = 0\n\
   MUT churn AS Integer = 0\n\
@@ -4507,7 +4507,7 @@ SUB main()\n\
   END TRAP\n\
   io::print(\"propGot=\" & toString(d))\n\
   io::print(\"viaTrap=\" & viaTrap())\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_raised_error_still_reports_its_true_origin() {
@@ -4570,7 +4570,7 @@ fn every_raised_error_still_reports_its_true_origin() {
 /// a statement-scope owner.
 const SHAPE_576_UNBOUND_HOSTNAME: &str = "IMPORT io\n\
 IMPORT os\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4578,13 +4578,13 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The helper that allocates NOTHING but its result — the row that proves this is
 /// not bug-574's marshalling scratch, which this shape never allocates.
 const SHAPE_576_UNBOUND_ARCH: &str = "IMPORT io\n\
 IMPORT os\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4592,12 +4592,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The largest measured row (260 B/call): a longer result block.
 const SHAPE_576_UNBOUND_TEMPDIR: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4605,14 +4605,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The result consumed by `&` rather than by `len` — a different consumer, the
 /// same ownerless block. The concat's own result is bound, so only the helper's
 /// block is at stake here.
 const SHAPE_576_UNBOUND_IN_CONCAT: &str = "IMPORT io\n\
 IMPORT os\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4621,7 +4621,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The result consumed as ANOTHER call's argument — the third unbound position
 /// named in the report. The outer call copies what it needs; the helper's block is
@@ -4629,7 +4629,7 @@ END SUB\n";
 const SHAPE_576_UNBOUND_AS_ARGUMENT: &str = "IMPORT io\n\
 IMPORT os\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4638,7 +4638,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// POSITIVE PIN. `LET s AS String = os::arch()` was flat BEFORE this change and
 /// must stay flat: the bind claims the pending temp, so the block has exactly one
@@ -4646,7 +4646,7 @@ END SUB\n";
 /// nearly shipped twice.
 const SHAPE_576_CONTRAST_BOUND_ARCH: &str = "IMPORT io\n\
 IMPORT os\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4655,12 +4655,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// POSITIVE PIN, the report's second flat row.
 const SHAPE_576_CONTRAST_BOUND_CWD: &str = "IMPORT io\n\
 IMPORT fs\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4669,7 +4669,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `RETURN os::arch()` — measured RED at 12 MB / 200k too, and for the same
 /// reason with one more step. `lower_returned_value` found no pending temp to
@@ -4686,7 +4686,7 @@ END SUB\n";
 const SHAPE_576_CONTRAST_RETURNED: &str = "IMPORT io\n\
 IMPORT os\n\
 FUNC whichArch() AS String\n  RETURN os::arch()\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4695,7 +4695,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The result passed straight into a collection — measured RED at 24 MB / 200k.
 /// `append` COPIES the element's bytes into the container's data region, so the
@@ -4715,7 +4715,7 @@ END SUB\n";
 const SHAPE_576_CONTRAST_INTO_COLLECTION: &str = "IMPORT io\n\
 IMPORT os\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4726,7 +4726,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -4855,7 +4855,7 @@ ISOLATED FUNC worker(w AS ThreadWorker OF String TO String, seed AS String) AS S
   RETURN seed & \"-done\"\n\
 END FUNC\n\
 FUNC whichArch() AS String\n  RETURN os::arch()\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT churn AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < 2000\n\
@@ -4888,7 +4888,7 @@ SUB main()\n\
   END TRAP\n\
   io::print(\"thread=\" & out)\n\
   io::print(\"archAgain=\" & arch)\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_unbound_helper_result_position_still_produces_the_right_value() {
@@ -4979,7 +4979,7 @@ fn every_unbound_helper_result_position_still_produces_the_right_value() {
 /// are that half.
 const SHAPE_592_LIST_GETOR_HIT: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -4988,14 +4988,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The miss path: the result is `emit_copy_owned_string`'s copy of the caller's
 /// default. Freeing it must never free the DEFAULT itself — the value probe reads
 /// the default back after thousands of misses.
 const SHAPE_592_LIST_GETOR_MISS: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5004,12 +5004,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `lower_map_get_or`'s hash-probe arm (a `String` key is probe-eligible).
 const SHAPE_592_HASH_MAP_GETOR_HIT: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5018,11 +5018,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 const SHAPE_592_HASH_MAP_GETOR_MISS: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5031,13 +5031,13 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `lower_map_get_or`'s linear entry-scan arm (a `Scalar` key is not
 /// probe-eligible) — a separate emission path with its own join point.
 const SHAPE_592_SCAN_MAP_GETOR_HIT: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5047,11 +5047,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 const SHAPE_592_SCAN_MAP_GETOR_MISS: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5061,7 +5061,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// `RETURN collections::getOr(..)` — with no pending temp to claim, the callee's
 /// `function_returns_fresh_string` promise was delivered by a `copy_flat_block`
@@ -5072,7 +5072,7 @@ END SUB\n";
 const SHAPE_592_RETURNED: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC firstName(names AS List OF String) AS String\n  RETURN collections::getOr(names, 0, \"none\")\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5082,13 +5082,13 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// POSITIVE PIN. The report's flat row: the bind owns the block. With the mark
 /// the bind CLAIMS the pending temp instead; a missed claim is a double free.
 const SHAPE_592_CONTRAST_BOUND_GETOR: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5098,14 +5098,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// POSITIVE PIN. Unbound `get` on a list and on both map arms was already flat —
 /// the producer's own mark survived because the miss path raises. The join-point
 /// mark restates it; it must not add a second free.
 const SHAPE_592_CONTRAST_UNBOUND_GET: &str = "IMPORT io\n\
 IMPORT collections\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -5117,7 +5117,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 /// POSITIVE PIN — the ALIAS direction. plan-86 E: `LET e = get(L, i)` used only
 /// as a `MATCH` scrutinee over an immutable `L` makes `e` an ALIAS into `L`'s
@@ -5132,7 +5132,7 @@ IMPORT collections\n\
 TYPE Dot\n  x AS Integer\nEND TYPE\n\
 TYPE Tag\n  name AS String\nEND TYPE\n\
 UNION Shape\n  Dot\n  Tag\nEND UNION\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET shapes AS List OF Shape = [Dot[1], Tag[\"tag-name-long-enough-to-matter\"], Dot[3]]\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -5147,7 +5147,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -5276,7 +5276,7 @@ TYPE Dot\n  x AS Integer\nEND TYPE\n\
 TYPE Tag\n  name AS String\nEND TYPE\n\
 UNION Shape\n  Dot\n  Tag\nEND UNION\n\
 FUNC firstName(names AS List OF String) AS String\n  RETURN collections::getOr(names, 0, \"none\")\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET names AS List OF String = [\"alpha-element-000\", \"beta-element-1111\", \"gamma-element-22222\"]\n\
   LET byKey AS Map OF String TO String = Map OF String TO String {\"a\" := \"map-alpha-value\", \"b\" := \"map-beta-value-longer\"}\n\
   MUT byScalar AS Map OF Scalar TO String = Map OF Scalar TO String {}\n\
@@ -5324,7 +5324,7 @@ SUB main()\n\
   io::print(\"names=\" & collections::get(names, 0) & \",\" & collections::get(names, 1) & \",\" & collections::get(names, 2))\n\
   io::print(\"maps=\" & collections::get(byKey, \"a\") & \",\" & collections::get(byKey, \"b\") & \",\" & collections::get(byScalar, `a`))\n\
   io::print(\"bound=\" & bound & \" dflt=\" & dflt)\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn every_unbound_collection_element_position_still_produces_the_right_value() {
@@ -5409,7 +5409,7 @@ IMPORT collections\n\
 TYPE Dot\n  x AS Integer\nEND TYPE\n\
 TYPE Tag\n  name AS String\nEND TYPE\n\
 UNION Shape\n  Dot\n  Tag\nEND UNION\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET byShape AS Map OF String TO Shape = Map OF String TO Shape {\"alpha\" := Tag[\"via-map\"], \"none\" := Dot[9]}\n\
   MUT n AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -5425,7 +5425,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"n=\" & toString(n))\n\
-END SUB\n";
+END FUNC\n";
 
 #[cfg(unix)]
 #[test]
@@ -5508,7 +5508,7 @@ fn b593_trapped_error_probe(imports: &str, binding: &str, producer: &str, messag
         \x20 END IF\n\
         \x20 {producer}\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 MUT n AS Integer = 0\n\
         \x20 MUT i AS Integer = 0\n\
         \x20 WHILE i < {{N}}\n\
@@ -5521,7 +5521,7 @@ fn b593_trapped_error_probe(imports: &str, binding: &str, producer: &str, messag
         \x20   i = i + 1\n\
         \x20 END WHILE\n\
         \x20 io::print(\"n=\" & toString(n))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -5639,8 +5639,8 @@ FUNC lookupOk(i AS Integer) AS String\n  LET xs AS List OF net::Address = net::l
 END FUNC\n\
 FUNC lookupFails(i AS Integer) AS String\n  LET xs AS List OF net::Address = net::lookup(\"b593-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.invalid\", 80) TRAP(e)\n    RETURN \"lookup:\" & describe(e)\n  END TRAP\n  RETURN \"resolved:\" & toString(len(xs))\n\
 END FUNC\n\
-SUB main()\n  LET okPath AS String = fs::pathJoin([fs::tempDirectory(), \"b593_values_probe.txt\"])\n  fs::writeText(okPath, \"hello\")\n  MUT firsts AS List OF String = []\n  MUT mismatches AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < 500\n    LET r0 AS String = openMissing(i)\n    LET r1 AS String = toString(reraiseMissing(i)) TRAP(e1)\n      RECOVER \"reraised:\" & describe(e1)\n    END TRAP\n    LET r2 AS String = hoisted(i)\n    LET r3 AS String = refused(i)\n    LET r4 AS String = userRes(i)\n    LET r5 AS String = okOpen(okPath)\n    LET r6 AS String = lookupOk(i)\n    LET r7 AS String = lookupFails(i)\n    LET junk AS List OF String = [r0 & \"#\", r1 & \"#\", r2 & \"#\", r3 & \"#\", r4 & \"#\", r5 & \"#\", r6 & \"#\", r7 & \"#\"]\n    LET row AS List OF String = [r0, r1, r2, r3, r4, r5, r6, r7]\n    IF i = 0 THEN\n      firsts = row\n    ELSE\n      MUT k AS Integer = 0\n      WHILE k < len(row)\n        IF collections::get(row, k) <> collections::get(firsts, k) THEN\n          mismatches = mismatches + 1\n        END IF\n        k = k + 1\n      END WHILE\n    END IF\n    mismatches = mismatches + len(junk) - 8\n    i = i + 1\n  END WHILE\n  FOR EACH line IN firsts\n    io::print(line)\n  NEXT\n  io::print(\"mismatches=\" & toString(mismatches))\n\
-END SUB\n";
+FUNC main() AS Nothing\n  LET okPath AS String = fs::pathJoin([fs::tempDirectory(), \"b593_values_probe.txt\"])\n  fs::writeText(okPath, \"hello\")\n  MUT firsts AS List OF String = []\n  MUT mismatches AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < 500\n    LET r0 AS String = openMissing(i)\n    LET r1 AS String = toString(reraiseMissing(i)) TRAP(e1)\n      RECOVER \"reraised:\" & describe(e1)\n    END TRAP\n    LET r2 AS String = hoisted(i)\n    LET r3 AS String = refused(i)\n    LET r4 AS String = userRes(i)\n    LET r5 AS String = okOpen(okPath)\n    LET r6 AS String = lookupOk(i)\n    LET r7 AS String = lookupFails(i)\n    LET junk AS List OF String = [r0 & \"#\", r1 & \"#\", r2 & \"#\", r3 & \"#\", r4 & \"#\", r5 & \"#\", r6 & \"#\", r7 & \"#\"]\n    LET row AS List OF String = [r0, r1, r2, r3, r4, r5, r6, r7]\n    IF i = 0 THEN\n      firsts = row\n    ELSE\n      MUT k AS Integer = 0\n      WHILE k < len(row)\n        IF collections::get(row, k) <> collections::get(firsts, k) THEN\n          mismatches = mismatches + 1\n        END IF\n        k = k + 1\n      END WHILE\n    END IF\n    mismatches = mismatches + len(junk) - 8\n    i = i + 1\n  END WHILE\n  FOR EACH line IN firsts\n    io::print(line)\n  NEXT\n  io::print(\"mismatches=\" & toString(mismatches))\n\
+END FUNC\n";
 
 /// `B593_VALUES`' stdout on the base compiler (04c81a605), which released no
 /// wrapper at all and so could not have read one back freed.
@@ -5928,14 +5928,14 @@ fn a_looped_udp_receive_runs_at_constant_rss() {
 /// iterations, 104.3 MB at 800k (plan-134-A §2.2, `c_union_rss`).
 const SHAPE_C_UNION_BIND: &str = r#"IMPORT io
 IMPORT json
-SUB main()
+FUNC main() AS Nothing
   MUT i AS Integer = 0
   WHILE i < {N}
     LET v AS json::Json = json::JsonNull[NOTHING]
     i = i + 1
   END WHILE
   io::print("done")
-END SUB
+END FUNC
 "#;
 
 /// bug-536 shape C, record form (`c_record_rss`: 105.1 MB at 400k, 209.1 MB at 800k).
@@ -5944,7 +5944,7 @@ TYPE Node
   kids AS List OF Node
   tag AS Integer
 END TYPE
-SUB main()
+FUNC main() AS Nothing
   MUT i AS Integer = 0
   MUT acc AS Integer = 0
   WHILE i < {N}
@@ -5953,7 +5953,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// A recursive local overwritten each iteration: the old graph is the `Assign` free's.
@@ -5962,7 +5962,7 @@ TYPE Node
   kids AS List OF Node
   tag AS Integer
 END TYPE
-SUB main()
+FUNC main() AS Nothing
   MUT cur AS Node = Node[kids := [], tag := 0]
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -5970,7 +5970,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("tag=" & toString(cur.tag))
-END SUB
+END FUNC
 "#;
 
 /// A recursive global overwritten each iteration: the `StoreGlobal` old-value free.
@@ -5980,14 +5980,14 @@ TYPE Node
   tag AS Integer
 END TYPE
 MUT GN AS Node = Node[kids := [], tag := 0]
-SUB main()
+FUNC main() AS Nothing
   MUT i AS Integer = 0
   WHILE i < {N}
     GN = Node[kids := [], tag := i]
     i = i + 1
   END WHILE
   io::print("tag=" & toString(GN.tag))
-END SUB
+END FUNC
 "#;
 
 /// An unbound recursive temporary: a function's fresh result consumed as another call's
@@ -6010,7 +6010,7 @@ FUNC total(n AS Node) AS Integer
   NEXT
   RETURN sum
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -6018,7 +6018,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// A recursive value captured by a non-escaping closure: the closure drop frees the
@@ -6028,7 +6028,7 @@ TYPE Node
   kids AS List OF Node
   tag AS Integer
 END TYPE
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -6038,7 +6038,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// bug-538's owned copy out of a container: `collections::get` of a recursive element.
@@ -6048,7 +6048,7 @@ TYPE Node
   kids AS List OF Node
   tag AS Integer
 END TYPE
-SUB main()
+FUNC main() AS Nothing
   LET xs AS List OF Node = [Node[kids := [], tag := 7]]
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
@@ -6058,7 +6058,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -6125,7 +6125,7 @@ fn a_looped_recursive_get_result_runs_at_constant_rss() {
 /// K = 1 / 2 / 4 before plan-134 (plan-134-A §2.1).
 const SHAPE_C_JSON_REPEAT: &str = r#"IMPORT io
 IMPORT json
-SUB main()
+FUNC main() AS Nothing
   MUT text AS String = "["
   MUT j AS Integer = 0
   WHILE j < 20000
@@ -6139,7 +6139,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("bytes=" & toString(len(text)))
-END SUB
+END FUNC
 "#;
 
 /// plan-134-H: a 100 000-character `regex::findAll` repeated K times costs its matcher graphs
@@ -6147,7 +6147,7 @@ END SUB
 /// at K = 1 / 2 / 4 before plan-134.
 const SHAPE_C_REGEX_REPEAT: &str = r#"IMPORT io
 IMPORT regex
-SUB main()
+FUNC main() AS Nothing
   MUT subject AS String = ""
   MUT j AS Integer = 0
   WHILE j < 10000
@@ -6161,7 +6161,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("hits=" & toString(hits))
-END SUB
+END FUNC
 "#;
 
 /// plan-134-H (from plan-134-G): the json form of the unbound recursive temp. After G a
@@ -6169,7 +6169,7 @@ END SUB
 /// result is bound or not — blocks left inside json's list-building helpers.
 const SHAPE_C_JSON_UNBOUND_TEMP: &str = r#"IMPORT io
 IMPORT json
-SUB main()
+FUNC main() AS Nothing
   LET t AS String = "[1,{\u{22}a\u{22}:[2,3]}]"
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
@@ -6178,7 +6178,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// plan-134 (final gate): an inline-`TRAP`ped `json::parse` of a document with nested
@@ -6189,7 +6189,7 @@ END SUB
 /// graph for the life of the process.
 const SHAPE_C_JSON_TRAP_RECOVER: &str = r#"IMPORT io
 IMPORT json
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -6203,7 +6203,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// plan-134 (final gate): an inline-`TRAP` bind of a flat data union. The desugar's slot
@@ -6233,7 +6233,7 @@ FUNC score(s AS Shape) AS Integer
       RETURN r.w + r.h
   END MATCH
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -6247,7 +6247,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 /// plan-134 (final gate): a fresh temporary passed to a call that FAILs. The statement-end
@@ -6278,7 +6278,7 @@ FUNC tryHolderS(n AS Integer) AS Integer
     RETURN len(e.message)
   END TRAP
 END FUNC
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < {N}
@@ -6286,7 +6286,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -6357,7 +6357,7 @@ fn condition_temp_report(name: &str, function: &str, call: &str, count: u64) -> 
         "IMPORT io\nIMPORT strings\nIMPORT collections\n\
 TYPE Tag\n  tag AS String\n  depth AS Integer\nEND TYPE\n\
 {function}\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {count}\n\
@@ -6365,7 +6365,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n"
+END FUNC\n"
     );
     let case = format!("{name}_{count}");
     let exe = common::debug_report::build_debug(&case, &source);
@@ -6673,7 +6673,7 @@ fn a_resource_temporary_in_a_container_is_closed() {
         let body = body.replace("{P}", path);
         let source = format!(
             "IMPORT collections\nIMPORT fs\nIMPORT io\nTYPE H\n  f AS RES fs::File\nEND TYPE\n\
-SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+FUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n"
         );
         let grew = thread_loop_growth(name, &source, "total=50", "total=100");
         assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
@@ -6693,7 +6693,7 @@ SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}
             "IMPORT collections\nIMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\
 TYPE T\n  t AS RES Thread OF Integer TO Integer\nEND TYPE\n\
-SUB main()\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND SUB\n"
+FUNC main() AS Nothing\n  MUT total AS Integer = 0\n  MUT i AS Integer = 0\n  WHILE i < {{N}}\n{body}    i = i + 1\n  END WHILE\n  io::print(\"total=\" & toString(total))\nEND FUNC\n"
         );
         let grew = thread_loop_growth(name, &source, "total=50", "total=100");
         assert_eq!(grew, 0, "{name}: main-arena live_bytes grew {grew} B");
@@ -6738,7 +6738,7 @@ fn thread_loop_growth(name: &str, source: &str, small_out: &str, large_out: &str
 /// the parent arena.
 const B622_INTEGER_RESULT: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6747,12 +6747,12 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A handle whose worker has finished, dropped at scope exit with no `waitFor`.
 const B622_COMPLETED_DROP: &str = "IMPORT io\nIMPORT os\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
     RES t AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
@@ -6760,11 +6760,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"done=\" & toString(i))\n\
-END SUB\n";
+END FUNC\n";
 
 const B622_STRING_BOUND: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6774,11 +6774,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 const B622_STRING_UNBOUND: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6787,11 +6787,11 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 const B622_STRING_TRAPPED: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO String, seed AS String) AS String\n  RETURN seed & \"-\" & seed\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6801,7 +6801,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 const B622_UNION: &str = "IMPORT io\nIMPORT thread\n\
 TYPE TwEl\n  tag AS String\n  kids AS List OF TwNode\nEND TYPE\n\
@@ -6812,7 +6812,7 @@ ISOLATED FUNC work(w AS ThreadWorker OF String TO TwNode, seed AS String) AS TwN
   LET root AS TwNode = TwEl[\"div\", [leaf, leaf]]\n\
   RETURN root\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT count AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6822,7 +6822,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"count=\" & toString(count))\n\
-END SUB\n";
+END FUNC\n";
 
 const B622_RECORD: &str = "IMPORT io\nIMPORT thread\n\
 TYPE TwEl\n  tag AS String\n  kids AS List OF TwNode\nEND TYPE\n\
@@ -6834,7 +6834,7 @@ ISOLATED FUNC work(w AS ThreadWorker OF String TO TwResult, seed AS String) AS T
   LET root AS TwNode = TwEl[\"div\", [leaf, leaf]]\n\
   RETURN TwResult[TRUE, root, seed & \"?\"]\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6844,7 +6844,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same call-site copy on the message plane: the parent's `thread::receive` of a
 /// worker-sent `String`.
@@ -6853,7 +6853,7 @@ ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS In
   thread::send(w, seed & \"!\")\n\
   RETURN len(seed)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6863,14 +6863,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A trapped thread query that does not read a value across the boundary: the inline `TRAP`
 /// builds its `Result` in this frame, and that wrapper leaked 144 B per trapped
 /// `thread::isRunning` while every `thread.*` `CallResult` counted as runtime-managed.
 const B622_TRAPPED_QUERY: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -6882,7 +6882,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total) & \" done=\" & toString(done))\n\
-END SUB\n";
+END FUNC\n";
 
 /// bug-622 Part B: once a thread has been waited for and its handle dropped, the parent arena
 /// holds nothing for it — not the control block, the worker arena state or the queues.
@@ -6907,7 +6907,7 @@ fn a_waited_for_thread_leaves_nothing_in_the_parent_arena() {
 const B622_MOVED_TO_CALLEE: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -6916,14 +6916,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A `RES Thread` bound afresh every pass, plus one outside the loop: each pass's handle
 /// is dropped at the end of its pass. (plan-156-F: a `RES` binding is not reassigned, so
 /// this is what the former `MUT` reassignment is spelled as now.)
 const B622_REASSIGNED: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   RES first AS Thread OF String TO Integer = thread::start(work, \"abc\")\n\
@@ -6934,7 +6934,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// bug-622 Part B positive pins: the free happens exactly once whichever binding holds the
 /// handle last — a caller that lent it to a callee, or a binding per pass of a loop.
@@ -6965,7 +6965,7 @@ fn a_moved_or_reassigned_thread_handle_is_freed_exactly_once() {
 /// (`waitFor` is repeatable, plan-156-C). Freed once, by `t2`'s drop.
 const B622_ALIAS: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT repeated AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -6978,14 +6978,14 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total) & \" repeated=\" & toString(repeated))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A handle lent to a function that waits for it, then read again by the caller: the caller
 /// still holds an open handle, and the thread is done.
 const B622_MOVED_REUSE: &str = "IMPORT io\nIMPORT thread\n\
 ISOLATED FUNC work(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  RETURN len(seed)\nEND FUNC\n\
 FUNC finish(t AS Thread OF String TO Integer) AS Integer\n  RETURN thread::waitFor(t)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT done AS Integer = 0\n\
   MUT i AS Integer = 0\n\
@@ -6996,7 +6996,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total) & \" done=\" & toString(done))\n\
-END SUB\n";
+END FUNC\n";
 
 /// An inline `TRAP` on `thread::start`: the handle is bound once as the trap's value and
 /// again as `t`.
@@ -7006,7 +7006,7 @@ FUNC once() AS Integer\n\
   RES t AS Thread OF String TO Integer = thread::start(work, \"abc\") TRAP(e)\n    RETURN -100\n  END TRAP\n\
   RETURN thread::waitFor(t)\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -7014,7 +7014,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A completed worker's handle, dropped by the trap route of a `FAIL`. The handler cannot
 /// name it (`TYPE_USE_AFTER_MOVE`: a resource the route closed), so it answers -1 itself.
@@ -7029,7 +7029,7 @@ FUNC routed() AS Integer\n\
     RETURN -1\n\
   END TRAP\n\
 END FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   MUT total AS Integer = 0\n\
   MUT i AS Integer = 0\n\
   WHILE i < {N}\n\
@@ -7037,7 +7037,7 @@ SUB main()\n\
     i = i + 1\n\
   END WHILE\n\
   io::print(\"total=\" & toString(total))\n\
-END SUB\n";
+END FUNC\n";
 
 /// bug-622: a handle more than one binding can reach — an alias, a caller that lent it, the
 /// value binding of an inline `TRAP`, a function whose `TRAP` route dropped it — stays

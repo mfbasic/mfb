@@ -42,12 +42,12 @@ IMPORT fs
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("/tmp/page.html", "<h1>hi</h1>")
   RES f AS fs::File = fs::openFile("/tmp/page.html")
   LET resp AS http::Response = http::respondFile(f, "text/html; charset=utf-8")
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -63,12 +63,12 @@ IMPORT fs
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("/tmp/report.bin", "raw bytes")
   RES f AS fs::File = fs::openFile("/tmp/report.bin")
   LET resp AS http::Response = http::respondFile(f)
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -84,16 +84,16 @@ IMPORT fs
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF fs::fileExists("/tmp/does-not-exist.html") = FALSE THEN
     LET missing AS http::Response = http::status(404, "Not Found")
     io::print(toString(missing.status) & " ok=" & toString(missing.ok))
-    EXIT SUB
+    RETURN
   END IF
   RES f AS fs::File = fs::openFile("/tmp/does-not-exist.html")
   LET resp AS http::Response = http::respondFile(f, "text/html; charset=utf-8")
   io::print(toString(resp.status))
-END SUB
+END FUNC
 ```
 
 prints:

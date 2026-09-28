@@ -9,7 +9,7 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET check AS List OF Byte = strings::toBytes("123456789")
   io::print("check=" & toString(compress::crc32(check)))
   io::print("empty=" & toString(compress::crc32([])))
@@ -22,4 +22,4 @@ SUB main()
   LET q AS Integer = compress::crc32(strings::toBytes("fox jumps over the "), p)
   io::print("long=" & toString(compress::crc32(long)))
   io::print("long-split=" & toString(compress::crc32(strings::toBytes("lazy dog"), q)))
-END SUB
+END FUNC

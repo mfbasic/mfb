@@ -511,7 +511,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     // The private `__http_*` helpers (protocol string work, framing, routing),
-    // one `helper_*.rs` per FUNC/SUB (`add_helper` — private-only), registered
+    // one `helper_*.rs` per FUNC (`add_helper` — private-only), registered
     // in the old companion order; the `__HTTP_*` limit globals render at their
     // old positions around them.
     helper_limits::register_response_limits(&mut pkg);

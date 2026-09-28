@@ -11,7 +11,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "check",
@@ -20,7 +20,7 @@
       { "name": "label", "type": "String", "default": null, "line": 10 },
       { "name": "field", "type": "Integer", "default": null, "line": 10 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "point", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "1" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2" }, "right": { "kind": "identifier", "value": "field" } } }, "line": 11 },
       { "kind": "binding", "mutable": false, "name": "priv", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "point" }, "right": { "kind": "identifier", "value": "field" } }, "line": 12 },
@@ -72,14 +72,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 34,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "The quick brown fox" }] }, "line": 35 },
       { "kind": "binding", "mutable": false, "name": "tampered", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "The quick brown Fox" }] }, "line": 36 },

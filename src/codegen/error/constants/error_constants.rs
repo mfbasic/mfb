@@ -188,7 +188,7 @@ pub(crate) const ENTRY_ARGS_REGION_SIZE: usize = 48;
 pub(crate) const MACAPP_PROGRAM_SYMBOL: &str = "_mfb_macapp_program";
 
 /// Shared process-teardown routine: restores the terminal (when `term::` is used)
-/// and frees the main arena, then returns. Called both after the entry FUNC/SUB
+/// and frees the main arena, then returns. Called both after the entry FUNC
 /// finishes and from the SIGINT/SIGTERM handler, so the cleanup is identical on a
 /// normal exit and a signal kill. It locates the arena through
 /// `MAIN_ARENA_GLOBAL_SYMBOL` (not `x19`) so it works from a signal handler whose

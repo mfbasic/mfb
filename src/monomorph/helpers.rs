@@ -536,15 +536,11 @@ pub(super) fn collect_imported_overloads(
         let owners = crate::binary_repr::BinaryReprPackageDecode::read(&package_file)
             .map(|decode| crate::manifest::package::package_type_owners(&decode, package))
             .unwrap_or_default();
-        // Group exported functions/subs by base name (the part before `$`).
+        // Group exported functions by base name (the part before `$`).
         let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> =
             HashMap::new();
         for export in exports {
-            if !matches!(
-                export.kind,
-                crate::binary_repr::BinaryReprExportKind::Func
-                    | crate::binary_repr::BinaryReprExportKind::Sub
-            ) {
+            if !matches!(export.kind, crate::binary_repr::BinaryReprExportKind::Func) {
                 continue;
             }
             let base = export
@@ -682,7 +678,7 @@ pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpress
 /// `format!("{ISOLATED }FUNC({params}) AS {returns}")`; it is now a
 /// [`Func`](ParameterType::Func) built from the declared types, which renders to
 /// exactly that spelling. An un-annotated slot becomes
-/// [`Unknown`](ParameterType::Unknown) (rendering `"Unknown"`) and a `SUB`
+/// [`Unknown`](ParameterType::Unknown) (rendering `"Unknown"`) and a function with no `AS` clause
 /// returns [`Nothing`](ParameterType::Nothing), reproducing the two
 /// `unwrap_or_else` defaults the string form applied.
 ///
@@ -690,17 +686,14 @@ pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpress
 /// a query names. It used to seed a whole-program snapshot rebuilt for every
 /// lowered function, which made the seeding O(F^2) in the function count.
 pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType, ParameterType) {
-    let returns = match function.kind {
-        // bug-671: a `FUNC … AS RES T STATE S` return carries its payload, as
-        // the IR's `function_return_type` does, so `f().state.x` types.
-        crate::ast::FunctionKind::Func => match opt_type(&function.returns) {
-            Some(returns) => match (&function.return_state_type, function.return_resource) {
-                (Some(state), true) => returns.with_state(state),
-                _ => returns,
-            },
-            None => ParameterType::Unknown,
+    // bug-671: a `FUNC … AS RES T STATE S` return carries its payload, as the
+    // IR's `function_return_type` does, so `f().state.x` types.
+    let returns = match opt_type(&function.returns) {
+        Some(returns) => match (&function.return_state_type, function.return_resource) {
+            (Some(state), true) => returns.with_state(state),
+            _ => returns,
         },
-        crate::ast::FunctionKind::Sub => ParameterType::Nothing,
+        None => ParameterType::Unknown,
     };
     let params = function
         .params
@@ -714,7 +707,7 @@ pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{FunctionKind, Visibility};
+    use crate::ast::Visibility;
     use crate::hir::{
         HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirParam, HirTypeField,
     };
@@ -781,7 +774,6 @@ mod tests {
 
     fn func(name: &str, params: Vec<HirParam>, return_type: Option<&str>) -> HirFunction {
         HirFunction {
-            kind: FunctionKind::Func,
             visibility: Visibility::Private,
             isolated: false,
             name: name.to_string(),

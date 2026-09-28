@@ -34,7 +34,7 @@ IMPORT canvas
 IMPORT color
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 160.0, h := 90.0, cornerRadius := 12.0, paint := canvas::fill(color::rgb(40, 60, 90))]
   canvas::setGroup("panel", [body])
@@ -46,7 +46,7 @@ SUB main()
 
   canvas::removeGroup("panel")
   canvas::present([node, marker])
-END SUB
+END FUNC
 ```
 
 The scene still contains the node and it is still legal; it simply resolves to nothing,
@@ -57,10 +57,10 @@ no-op:
 IMPORT app
 IMPORT canvas
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::removeGroup("never-installed")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

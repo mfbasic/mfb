@@ -714,7 +714,7 @@
     "name": "#json_requireFiniteNumberText",
     "line": 299,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 299, "type": "String", "default": null }
     ],

@@ -75,9 +75,9 @@ const EX: &str = r#"Build a `datetime::Instant` from a whole-second epoch offset
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::instant(1_700_000_000)
-END SUB
+END FUNC
 ```
 
 Build a `datetime::Instant` with a sub-second adjustment that normalizes into the `seconds`
@@ -86,9 +86,9 @@ field:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::instant(10, 1_500_000_000)
-END SUB
+END FUNC
 ```
 
 Build a `datetime::Instant` from day, hour, minute, second, and nanosecond components:
@@ -96,9 +96,9 @@ Build a `datetime::Instant` from day, hour, minute, second, and nanosecond compo
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::instant(1, 2, 3, 4, 0)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

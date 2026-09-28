@@ -26,7 +26,7 @@
 //! is refused at compile time (`TYPE_USE_AFTER_MOVE`) and never reaches a
 //! backend. The reachable shape is the one §15 describes: a `RES` parameter is
 //! the same handle seen from a deeper scope, and any holder may close it — so a
-//! `SUB` taking `RES` and closing it, called twice, is a real double close and is
+//! function taking `RES` and closing it, called twice, is a real double close and is
 //! how a program meets this in practice.
 //!
 //! ## Coverage
@@ -145,9 +145,9 @@ fn program(imports: &str, open: &str, type_: &str, close_call: &str) -> String {
          IMPORT errorCode\n\
          {imports}\n\
          \n\
-         SUB closeIt(RES h AS {type_})\n\
+         FUNC closeIt(RES h AS {type_}) AS Nothing\n\
         \x20 {close_call}\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC closeAgain(RES h AS {type_}) AS Integer\n\
         \x20 closeIt(h)\n\

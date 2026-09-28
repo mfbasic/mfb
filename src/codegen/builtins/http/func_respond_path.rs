@@ -72,14 +72,14 @@ FUNC serveStatic(req AS http::Request) AS http::Response
   RETURN http::respondPath(req, "./public")
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/static/*", serveStatic))
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```
 
 Serve the site root, where an empty path resolves to `index.html`:
@@ -93,14 +93,14 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::respondPath(req, "./public")
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```
 
 Fall back to a custom page instead of the built-in `404` body:
@@ -118,14 +118,14 @@ FUNC serveStatic(req AS http::Request) AS http::Response
   RETURN resp
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/static/*", serveStatic))
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -85,10 +85,10 @@ give you because the length is not known in advance:
 IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET m AS regex::MatchInfo = regex::findMatch("a1b22c333", "\\d+")
   io::print(m.text)
-END SUB
+END FUNC
 ```
 
 Read the span, and handle absence with the `-1` sentinel:
@@ -97,14 +97,14 @@ Read the span, and handle absence with the `-1` sentinel:
 IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET m AS regex::MatchInfo = regex::findMatch("abc", "\\d+")
   IF m.start >= 0 THEN
     io::print("matched [" & toString(m.start) & ", " & toString(m.endIndex) & ")")
   ELSE
     io::print("no match")
   END IF
-END SUB
+END FUNC
 ```
 
 Read a named capture group by name rather than by counting parentheses:
@@ -114,13 +114,13 @@ IMPORT regex
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET m AS regex::MatchInfo = regex::findMatch("due 2024-06", "(?<year>\\d{4})-(?<month>\\d{2})")
   IF collections::hasKey(m.names, "year") THEN
     LET year AS regex::Group = collections::get(m.groups, collections::get(m.names, "year"))
     io::print(year.text)
   END IF
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -86,7 +86,7 @@
     "name": "cycle",
     "line": 29,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "readPath", "line": 29, "type": "String", "default": null },
     { "name": "writePath", "line": 29, "type": "String", "default": null }

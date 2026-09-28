@@ -39,9 +39,9 @@ const EX: &str = r#"A UTC zone always reports a zero offset:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET off AS Integer = datetime::offsetAt(datetime::utc(), datetime::now())
-END SUB
+END FUNC
 ```
 
 A fixed zone reports its constant offset regardless of the instant:
@@ -49,10 +49,10 @@ A fixed zone reports its constant offset regardless of the instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET off AS Integer = datetime::offsetAt(z, datetime::now())
-END SUB
+END FUNC
 ```
 
 A local zone's offset is resolved DST-correctly for the given instant:
@@ -60,9 +60,9 @@ A local zone's offset is resolved DST-correctly for the given instant:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET nowOff AS Integer = datetime::offsetAt(datetime::local(), datetime::now())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

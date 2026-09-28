@@ -76,11 +76,11 @@ const EX: &str = r#"Open a file for reading using the default mode:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f AS fs::File = fs::openFile("data.txt")
   fs::close(f)
-END SUB
+END FUNC
 ```
 
 Open a file for writing, truncating any previous contents:
@@ -88,12 +88,12 @@ Open a file for writing, truncating any previous contents:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("out.txt", "first line\nsecond line\n")
   RES w AS fs::File = fs::openFile("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
-END SUB
+END FUNC
 ```
 
 Open a file for appending so each write lands at the end:
@@ -101,12 +101,12 @@ Open a file for appending so each write lands at the end:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("app.log", "first line\nsecond line\n")
   RES log AS fs::File = fs::openFile("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

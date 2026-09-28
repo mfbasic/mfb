@@ -325,12 +325,10 @@ mod tests {
 
     #[test]
     fn kind_helpers_cover_every_kind() {
-        assert_eq!(kind_label("sub"), "Subroutine");
         assert_eq!(kind_label("type"), "Type");
         assert_eq!(kind_label("union"), "Union");
         assert_eq!(kind_label("enum"), "Enum");
         assert_eq!(kind_label("func"), "Function");
-        assert_eq!(badge_class("sub"), "function");
         assert_eq!(badge_class("type"), "type");
         assert_eq!(badge_class("union"), "union");
         assert_eq!(badge_class("enum"), "enum");
@@ -433,7 +431,7 @@ mod tests {
         let mut ty = decl("type", "Widget", "", false);
         ty.props = vec![("width".to_string(), "in px".to_string())];
 
-        let mut internal_fn = decl("sub", "helper", "Utilities", true);
+        let mut internal_fn = decl("func", "helper", "Utilities", true);
         internal_fn.deprecated = Some(String::new());
 
         let docs = PackageDocs {
@@ -522,12 +520,12 @@ EXPORT FUNC greet(who AS String) AS String
   RETURN who
 END FUNC
 DOC
-  SUB shout
+  FUNC shout
   DESC Shouts.
 END DOC
-SUB shout(msg AS String)
+FUNC shout(msg AS String) AS Nothing
   io::print(msg)
-END SUB
+END FUNC
 DOC
   TYPE Point
   DESC A point.

@@ -1,5 +1,5 @@
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("Hello World")
-END SUB
+END FUNC

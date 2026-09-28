@@ -50,7 +50,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "private",
       "isolated": false,
       "name": "#45a7d15ac6b4f562$privateTrace",
@@ -58,13 +58,13 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 15 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "private=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 16 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "packageTrace",
@@ -72,13 +72,13 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 19 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "#45a7d15ac6b4f562$privateTrace", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 20 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "exportTrace",
@@ -86,7 +86,7 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 23 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "export=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 24 }
       ]

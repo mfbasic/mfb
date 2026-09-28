@@ -147,14 +147,14 @@ END FUNC
 ' draws the newest run it can find, so an older run's files are never read
 ' again once a newer one has been fetched, and a file holding other fields is
 ' never read at all.
-SUB pruneCache(c AS Cycle)
+FUNC pruneCache(c AS Cycle) AS Nothing
   LET dir AS String = cacheDirectory()
   LET keep AS String = cachePrefix(c)
   FOR EACH name IN fs::listDirectory(dir)
     LET current AS Boolean = strings::startsWith(name, keep) AND strings::endsWith(name, cacheSuffix())
     IF strings::startsWith(name, "gfs-") AND NOT current THEN fs::deleteFile(fs::pathJoin([dir, name]))
   NEXT
-END SUB
+END FUNC
 
 ' "GRIB" as a big-endian 32-bit number, which is how decodeMessage recognises a
 ' message and how this recognises a real answer.

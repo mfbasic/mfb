@@ -101,7 +101,7 @@
     "name": "bumpGlobals",
     "line": 25,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -128,7 +128,7 @@
     "name": "bumpState",
     "line": 32,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "h", "line": 32, "type": "fs.File STATE P", "default": null }
     ],

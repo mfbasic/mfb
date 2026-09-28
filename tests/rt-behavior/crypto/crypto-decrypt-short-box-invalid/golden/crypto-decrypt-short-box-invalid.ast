@@ -34,14 +34,14 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 22,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "kp", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }] }, "line": 23 },
       { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 26 },

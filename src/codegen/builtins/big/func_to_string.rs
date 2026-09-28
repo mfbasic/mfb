@@ -30,11 +30,11 @@ const EX: &str = r#"Write a value past the `Integer` range:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET top AS big::Int = big::fromInteger(9223372036854775807)
   io::print(big::toString(big::multiply(top, top)))
   io::print(big::toString(big::fromInteger(-42)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

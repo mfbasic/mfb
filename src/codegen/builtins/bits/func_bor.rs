@@ -25,10 +25,10 @@ const EX: &str = r#"Combine two single-bit flag masks into one value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET flags AS Integer = bits::bor(1, 4)
   io::print(toString(flags))
-END SUB
+END FUNC
 ```
 
 Force the low two bits of a value on, leaving the rest unchanged:
@@ -37,11 +37,11 @@ Force the low two bits of a value on, leaving the rest unchanged:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET value AS Integer = 0x1234
   LET result AS Integer = bits::bor(value, 3)
   io::print(toString(result))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

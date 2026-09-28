@@ -47,11 +47,11 @@ const EX: &str = r#"List every device and mark its capabilities:
 IMPORT audio
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH d IN audio::devices()
     io::print(d.name & " in=" & toString(d.canInput) & " out=" & toString(d.canOutput))
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

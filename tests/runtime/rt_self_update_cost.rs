@@ -320,7 +320,7 @@ FUNC showMI(m AS Map OF Integer TO String) AS String
   RETURN "{" & strings::join(out, " ") & "}"
 END FUNC
 
-SUB removeAtStrings()
+FUNC removeAtStrings() AS Nothing
   MUT x AS List OF String = ["a", "bb", "ccc", "dddd", "eeeee", "f"]
   x = collections::removeAt(x, len(x) - 1)
   io::print("ra last " & showS(x))
@@ -358,9 +358,9 @@ SUB removeAtStrings()
   END WHILE
   x = collections::append(x, "reuse")
   io::print("ra empty " & showS(x))
-END SUB
+END FUNC
 
-SUB removeAtNodes()
+FUNC removeAtNodes() AS Nothing
   MUT x AS List OF Node = [el("a"), tx("b"), el("c"), tx("d"), el("e")]
   x = collections::removeAt(x, len(x) - 1)
   x = collections::removeAt(x, 1)
@@ -378,9 +378,9 @@ SUB removeAtNodes()
   LET keep = x
   x = collections::removeAt(x, 0)
   io::print("rn alias " & showN(keep) & " " & showN(x))
-END SUB
+END FUNC
 
-SUB truncations()
+FUNC truncations() AS Nothing
   MUT x AS List OF String = ["d", "bb", "a", "ccc", "eeeee", "ff"]
   x = collections::sort(x)
   x = collections::take(x, len(x) - 1)
@@ -417,9 +417,9 @@ SUB truncations()
     n = collections::take(n, len(n) - 1)
   NEXT
   io::print("tr nodes churn " & toString(len(n)) & " " & showN(collections::drop(n, len(n) - 2)))
-END SUB
+END FUNC
 
-SUB maps()
+FUNC maps() AS Nothing
   MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
   FOR EACH k IN ["a", "b", "c", "d", "e", "f", "g", "h"]
     m = collections::set(m, k, len(k) + len(showS([k])))
@@ -475,9 +475,9 @@ SUB maps()
   mn = collections::removeKey(mn, "z")
   mn = collections::set(mn, "w", el("w"))
   io::print("mn " & showMN(mn))
-END SUB
+END FUNC
 
-SUB sets()
+FUNC sets() AS Nothing
   MUT s AS Set OF Integer = Set OF Integer {}
   FOR i = 1 TO 10
     s = collections::add(s, i)
@@ -534,9 +534,9 @@ SUB sets()
     END IF
   NEXT
   io::print("big " & toString(len(big)) & " " & toString(c) & " " & showSet(collections::toSet(collections::take(collections::toList(big), 4))))
-END SUB
+END FUNC
 
-SUB stringsWin()
+FUNC stringsWin() AS Nothing
   MUT s AS String = "hello world"
   s = strings::stripSuffix(s, "world")
   io::print("st <" & s & ">")
@@ -575,9 +575,9 @@ SUB stringsWin()
     g = strings::stripSuffix(g, "q")
   NEXT
   io::print("grow " & toString(len(g)) & " <" & strings::right(g, 6) & ">")
-END SUB
+END FUNC
 
-SUB fields()
+FUNC fields() AS Nothing
   MUT h AS Holder = Holder[tag := 1, xs := ["s1", "s2", "s3", "s4"]]
   FOR i = 1 TO 200
     h = WITH h { xs := collections::insert(h.xs, len(h.xs) - 1, "i" & toString(i)) }
@@ -609,10 +609,10 @@ SUB fields()
   LET hz = collections::prepend(hx, "front")
   LET hw = collections::append(hx, ["x1", "x2"])
   io::print("f packed-copy " & showS(hx) & " " & showS(hy) & " " & showS(hz) & " " & showS(hw))
-END SUB
+END FUNC
 
 'GLOBAL-BEGIN
-SUB globals()
+FUNC globals() AS Nothing
   gList = ["g1", "g2", "g3"]
   FOR i = 1 TO 200
     gList = collections::insert(gList, len(gList) - 1, "j" & toString(i))
@@ -621,10 +621,10 @@ SUB globals()
     gList = collections::removeAt(gList, 1)
   NEXT
   io::print("g churn " & showS(gList))
-END SUB
+END FUNC
 'GLOBAL-END
 
-SUB mapReclaim()
+FUNC mapReclaim() AS Nothing
   MUT m AS Map OF String TO Node = Map OF String TO Node {}
   MUT s AS Set OF String = Set OF String {}
   MUT w AS Map OF Integer TO String = Map OF Integer TO String {}
@@ -648,9 +648,9 @@ SUB mapReclaim()
   io::print("mr map " & showMN(m))
   io::print("mr set " & strings::join(collections::toList(s), " ") & " " & toString(collections::contains(s, "e600")) & toString(collections::contains(s, "e592")))
   io::print("mr int " & strings::join(ws, " ") & " " & toString(collections::hasKey(w, 592)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   mapReclaim()
   fields()
   globals() 'GLOBAL-CALL
@@ -660,7 +660,7 @@ SUB main()
   maps()
   sets()
   stringsWin()
-END SUB
+END FUNC
 "#;
 
 const VALUE_OUTPUT: &str = "\

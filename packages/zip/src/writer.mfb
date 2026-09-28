@@ -367,7 +367,7 @@ END FUNC
 ' Rules 1-3 of plan-139-B §4.3. Checking at WRITE time as well as at extract
 ' time means this package cannot be used to build the hostile archive it
 ' refuses to extract.
-PRIVATE SUB requireSafeName(name AS String)
+PRIVATE FUNC requireSafeName(name AS String) AS Nothing
   IF len(name) = 0 THEN
     FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"\"")
   END IF
@@ -390,7 +390,7 @@ PRIVATE SUB requireSafeName(name AS String)
       FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
     END IF
   NEXT
-END SUB
+END FUNC
 
 ' `X:` at the start, which Windows reads as a drive-relative path.
 PRIVATE FUNC hasDriveLetter(name AS String) AS Boolean

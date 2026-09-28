@@ -28,12 +28,12 @@ const EX: &str = r#"Add past the `Integer` range and come back:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET top AS big::Int = big::fromInteger(9223372036854775807)
   LET past AS big::Int = big::add(top, big::fromInteger(1))
   LET back AS big::Int = big::add(past, big::fromInteger(-1))
   io::print(toString(big::toInteger(back)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

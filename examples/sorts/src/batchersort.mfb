@@ -1,0 +1,71 @@
+' batchersort - sorts `order` one comparison at a time.
+'
+' Batcher's merge-exchange (Knuth, TAOCP vol. 3, 5.2.2 Algorithm M): a fixed
+' network of compare-and-swaps, the same whatever the data, so every comparison
+' in one sweep could run at once. It works for any length of list, not just
+' powers of two. Each sweep compares the elements `d` apart whose index has bit
+' `p` equal to `r`.
+
+MUT batcherTop AS Integer = 1       ' 2^(t-1), the largest power of 2 below the length
+MUT batcherP AS Integer = 0
+MUT batcherQ AS Integer = 0
+MUT batcherR AS Integer = 0
+MUT batcherD AS Integer = 0
+MUT batcherI AS Integer = 0
+MUT batcherFinished AS Boolean = FALSE
+MUT batcherCompareCount AS Integer = 0
+
+' Start the sweeps for the current p.
+FUNC batcherBeginP AS Nothing
+  batcherQ = batcherTop
+  batcherR = 0
+  batcherD = batcherP
+  batcherI = 0
+END FUNC
+
+FUNC batcherStart AS Nothing
+  batcherTop = 1
+  DO WHILE batcherTop * 2 < DOT_COUNT
+    batcherTop = batcherTop * 2
+  LOOP
+  batcherP = batcherTop
+  batcherFinished = DOT_COUNT < 2
+  batcherCompareCount = 0
+  batcherBeginP()
+END FUNC
+
+FUNC batcherDone AS Boolean
+  RETURN batcherFinished
+END FUNC
+
+FUNC batcherCompares AS Integer
+  RETURN batcherCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC batcherSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT batcherFinished
+    IF batcherI < DOT_COUNT - batcherD THEN
+      ' Only indices whose bit p equals r take part in this sweep.
+      IF (batcherI / batcherP) MOD 2 * batcherP = batcherR THEN
+        IF orderAt(batcherI) > orderAt(batcherI + batcherD) THEN swapOrder(batcherI, batcherI + batcherD)
+        batcherCompareCount = batcherCompareCount + 1
+        left = left - 1
+      END IF
+      batcherI = batcherI + 1
+    ELSEIF batcherQ <> batcherP THEN
+      batcherD = batcherQ - batcherP
+      batcherQ = batcherQ / 2
+      batcherR = batcherP
+      batcherI = 0
+    ELSE
+      batcherP = batcherP / 2
+      IF batcherP = 0 THEN
+        batcherFinished = TRUE
+      ELSE
+        batcherBeginP()
+      END IF
+    END IF
+  LOOP
+END FUNC

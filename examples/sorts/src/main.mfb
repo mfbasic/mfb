@@ -1,0 +1,721 @@
+' sorts - 25,000 dots on a sphere, put in order by eighteen sorting algorithms
+' one after another, while the whole sphere spins on all three axes.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/sorts
+'   open examples/sorts/build/sorts.app          (macOS)
+'   ./examples/sorts/build/sorts.AppImage        (Linux)
+'
+' Esc quits.
+'
+' The run starts blank, with every dot at the centre. Then, for each sort in
+' turn and round again forever: the dots fly out to random points over three
+' seconds and the list is shuffled; they hold still for two seconds; the sort
+' runs; the finished sphere stays up for four seconds.
+'
+' Every dot owns one slot on the sphere, and its colour comes from that slot's
+' position. A dot always heads for the slot of its current place in the list.
+' The sort runs a few steps every frame, and each element it moves sends that
+' dot off toward a new slot, so the sphere assembles as the sort finishes.
+'
+' The program is in nineteen files, one per sort and main.mfb for the list
+' being sorted, the dots, and the frame loop. Each sort runs a few steps at a
+' time through <name>Start, <name>Steps(budget), <name>Done and, for every sort
+' but radix, which never compares, <name>Compares:
+'   bubblesort.mfb            bubble
+'   selectionsort.mfb         selection
+'   cocktailsort.mfb          cocktail shaker
+'   oddevensort.mfb           odd-even transposition
+'   gnomesort.mfb             gnome
+'   insertionsort.mfb         insertion
+'   binaryinsertionsort.mfb   binary insertion
+'   cyclesort.mfb             cycle
+'   combsort.mfb              comb
+'   shellsort.mfb             shell
+'   circlesort.mfb            circle
+'   batchersort.mfb           Batcher's merge-exchange network
+'   heapsort.mfb              heap
+'   mergesort.mfb             merge
+'   quicksort.mfb             quick
+'   dualpivotsort.mfb         dual-pivot quick
+'   bucketsort.mfb            bucket, finished by insertion
+'   radixsort.mfb             radix, least significant digit first
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT strings
+
+LET DOT_COUNT AS Integer = 25000
+LET CAMERA AS Float = 3.2
+LET BACKGROUND AS color::Color = color::rgb(6, 8, 14)
+
+' How far out the dots are scattered, as a multiple of the sphere's radius.
+LET SCATTER AS Float = 1.5
+' Steps per second - comparisons, or writes for radix and bucket's deal - each
+' set so its sort takes about half a minute at 25k dots. The quadratic sorts
+' need hundreds of millions of comparisons and the others a few million at most.
+' Compare the sorts by their comparison counts, not their times.
+LET BUBBLE_RATE AS Float = 10000000.0
+LET SELECTION_RATE AS Float = 10000000.0
+LET COCKTAIL_RATE AS Float = 10000000.0
+LET ODD_EVEN_RATE AS Float = 10000000.0
+LET GNOME_RATE AS Float = 10000000.0
+LET INSERTION_RATE AS Float = 5000000.0
+LET BINARY_INSERTION_RATE AS Float = 10000.0
+LET CYCLE_RATE AS Float = 20000000.0
+LET COMB_RATE AS Float = 30000.0
+LET SHELL_RATE AS Float = 30000.0
+LET CIRCLE_RATE AS Float = 100000.0
+LET BATCHER_RATE AS Float = 40000.0
+LET HEAP_RATE AS Float = 25000.0
+LET MERGE_RATE AS Float = 15000.0
+LET QUICK_RATE AS Float = 15000.0
+LET DUAL_PIVOT_RATE AS Float = 15000.0
+LET BUCKET_RATE AS Float = 12000.0
+LET RADIX_RATE AS Float = 4000.0
+' How long the dots take to fly out to their random points, how long they hold
+' still there before the sort starts, and how long the finished sort stays up.
+LET SCATTER_NANOS AS Integer = 3000000000
+LET HOLD_NANOS AS Integer = 2000000000
+LET REST_NANOS AS Integer = 4000000000
+' How quickly a dot closes on its slot: the fraction of the gap left after one
+' second is exp(-GLIDE).
+LET GLIDE AS Float = 3.0
+
+' A slot on the unit sphere, and the colour of the dot that belongs there.
+TYPE Dot
+  x AS Float
+  y AS Float
+  z AS Float
+  r AS Integer
+  g AS Integer
+  b AS Integer
+END TYPE
+
+' A dot after this frame's rotation.
+TYPE Placed
+  x AS Float
+  y AS Float
+  z AS Float
+  id AS Integer
+END TYPE
+
+FUNC channel(v AS Float) AS Integer
+  RETURN math::clamp(math::floor((v + 1.0) * 127.5), 0, 255)
+END FUNC
+
+' The Fibonacci lattice spreads the slots evenly over the sphere.
+FUNC makeDots AS List OF Dot
+  MUT dots AS List OF Dot = []
+  LET golden AS Float = math::pi * (3.0 - math::sqrt(5.0))
+  FOR i = 0 TO DOT_COUNT - 1
+    LET y AS Float = 1.0 - 2.0 * (toFloat(i) + 0.5) / toFloat(DOT_COUNT)
+    LET ring AS Float = math::sqrt(1.0 - y * y)
+    LET theta AS Float = golden * toFloat(i)
+    LET x AS Float = math::cos(theta) * ring
+    LET z AS Float = math::sin(theta) * ring
+    dots = collections::append(dots, Dot[x := x, y := y, z := z, r := channel(x), g := channel(y), b := channel(z)])
+  NEXT
+  RETURN dots
+END FUNC
+
+FUNC rotate(x AS Float, y AS Float, z AS Float, id AS Integer, ax AS Float, ay AS Float, az AS Float) AS Placed
+  ' about X
+  LET y1 AS Float = y * math::cos(ax) - z * math::sin(ax)
+  LET z1 AS Float = y * math::sin(ax) + z * math::cos(ax)
+  ' about Y
+  LET x2 AS Float = x * math::cos(ay) + z1 * math::sin(ay)
+  LET z2 AS Float = z1 * math::cos(ay) - x * math::sin(ay)
+  ' about Z
+  LET x3 AS Float = x2 * math::cos(az) - y1 * math::sin(az)
+  LET y3 AS Float = x2 * math::sin(az) + y1 * math::cos(az)
+  RETURN Placed[x := x3, y := y3, z := z2, id := id]
+END FUNC
+
+' Farthest first, so nearer dots are painted over farther ones.
+FUNC farthestFirst(p AS Placed) AS Float
+  RETURN 0.0 - p.z
+END FUNC
+
+FUNC shade(c AS Integer, k AS Float) AS Integer
+  RETURN math::clamp(math::floor(toFloat(c) * k), 0, 255)
+END FUNC
+
+FUNC randomUnit AS Float
+  RETURN toFloat(math::rand(-1000000, 1000000)) / 1000000.0
+END FUNC
+
+' Ease in and out: 0 at 0, 1 at 1, and still at both ends.
+FUNC smoothstep(t AS Float) AS Float
+  LET c AS Float = math::clamp(t, 0.0, 1.0)
+  RETURN c * c * (3.0 - 2.0 * c)
+END FUNC
+
+FUNC quitPressed AS Boolean
+  DO WHILE TRUE
+    LET k AS io::Key = io::readKey(0) TRAP(e)
+      IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+      IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+      PROPAGATE
+    END TRAP
+    IF k.event <> io::KeyEvent.Release AND k.key = io::KeyName.Escape THEN RETURN TRUE
+  LOOP
+  RETURN FALSE
+END FUNC
+
+' ---------------------------------------------------------------------------
+' State, sized once in main and then only overwritten
+' ---------------------------------------------------------------------------
+
+' order[i] is the dot at place i of the list, and placeOf[dot] is its place; the
+' dot heads for slot placeOf[dot]. The sorts go through orderAt, setOrder and
+' swapOrder. A merge overwrites places one at a time, so for a moment a dot can
+' be in the list twice; placeOf always holds the place it was written to last,
+' so every dot is drawn once and heads for one slot.
+MUT order AS List OF Integer = []
+MUT placeOf AS List OF Integer = []
+' How many places hold their own dot - the share of the sphere that looks
+' sorted. setOrder keeps it up to date, so it never needs a scan.
+MUT inPlace AS Integer = 0
+' Where each dot is now, by dot.
+MUT posX AS List OF Float = []
+MUT posY AS List OF Float = []
+MUT posZ AS List OF Float = []
+' Where each dot started a scatter from, and where it is flying to.
+MUT fromX AS List OF Float = []
+MUT fromY AS List OF Float = []
+MUT fromZ AS List OF Float = []
+MUT toX AS List OF Float = []
+MUT toY AS List OF Float = []
+MUT toZ AS List OF Float = []
+' The rotated dots, and the scene: the background, one circle per dot, then the
+' two stats on the right and the three sort lines on the left.
+MUT placed AS List OF Placed = []
+MUT scene AS List OF canvas::DrawItem = []
+
+FUNC orderAt(i AS Integer) AS Integer
+  RETURN collections::get(order, i)
+END FUNC
+
+FUNC setOrder(i AS Integer, dot AS Integer) AS Nothing
+  IF collections::get(order, i) = i THEN inPlace = inPlace - 1
+  order = collections::set(order, i, dot)
+  placeOf = collections::set(placeOf, dot, i)
+  IF dot = i THEN inPlace = inPlace + 1
+END FUNC
+
+FUNC swapOrder(a AS Integer, b AS Integer) AS Nothing
+  IF a = b THEN RETURN
+  LET t AS Integer = collections::get(order, a)
+  setOrder(a, collections::get(order, b))
+  setOrder(b, t)
+END FUNC
+
+' A random point inside a ball SCATTER times the sphere's size, for every dot.
+FUNC pickScatterTargets AS Nothing
+  FOR i = 0 TO DOT_COUNT - 1
+    MUT x AS Float = randomUnit()
+    MUT y AS Float = randomUnit()
+    MUT z AS Float = randomUnit()
+    DO WHILE x * x + y * y + z * z > 1.0
+      x = randomUnit()
+      y = randomUnit()
+      z = randomUnit()
+    LOOP
+    toX = collections::set(toX, i, x * SCATTER)
+    toY = collections::set(toY, i, y * SCATTER)
+    toZ = collections::set(toZ, i, z * SCATTER)
+  NEXT
+END FUNC
+
+' Fisher-Yates.
+FUNC shuffle AS Nothing
+  FOR i = DOT_COUNT - 1 TO 1 STEP -1
+    swapOrder(i, math::rand(0, i))
+  NEXT
+END FUNC
+
+' Size every list, with every dot at the centre and the list in order.
+FUNC setUp AS Nothing
+  ' -1 is no dot, so no place starts out counted as in place.
+  order = collections::repeat(order, -1, DOT_COUNT)
+  inPlace = 0
+  placeOf = collections::repeat(placeOf, 0, DOT_COUNT)
+  posX = collections::repeat(posX, 0.0, DOT_COUNT)
+  posY = collections::repeat(posY, 0.0, DOT_COUNT)
+  posZ = collections::repeat(posZ, 0.0, DOT_COUNT)
+  fromX = collections::repeat(fromX, 0.0, DOT_COUNT)
+  fromY = collections::repeat(fromY, 0.0, DOT_COUNT)
+  fromZ = collections::repeat(fromZ, 0.0, DOT_COUNT)
+  toX = collections::repeat(toX, 0.0, DOT_COUNT)
+  toY = collections::repeat(toY, 0.0, DOT_COUNT)
+  toZ = collections::repeat(toZ, 0.0, DOT_COUNT)
+  FOR i = 0 TO DOT_COUNT - 1
+    setOrder(i, i)
+  NEXT
+END FUNC
+
+' Start the dots flying from where they are to new random points, and shuffle
+' the list for the sort that follows.
+FUNC startScatter AS Nothing
+  fromX = posX
+  fromY = posY
+  fromZ = posZ
+  pickScatterTargets()
+  shuffle()
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The sorts, in the order they run
+' ---------------------------------------------------------------------------
+
+ENUM Algorithm
+  Bubble, Selection, Cocktail, OddEven, Gnome, Insertion, BinaryInsertion, Cycle, Comb, Shell, Circle, Batcher, Heap, Merge, Quick, DualPivot, Bucket, Radix
+END ENUM
+
+LET ALGORITHM_COUNT AS Integer = 18
+
+FUNC algorithmName(a AS Algorithm) AS String
+  MATCH a
+    CASE Algorithm.Bubble : RETURN "Bubble Sort"
+    CASE Algorithm.Selection : RETURN "Selection Sort"
+    CASE Algorithm.Cocktail : RETURN "Cocktail Shaker Sort"
+    CASE Algorithm.OddEven : RETURN "Odd-Even Sort"
+    CASE Algorithm.Gnome : RETURN "Gnome Sort"
+    CASE Algorithm.Insertion : RETURN "Insertion Sort"
+    CASE Algorithm.BinaryInsertion : RETURN "Binary Insertion Sort"
+    CASE Algorithm.Cycle : RETURN "Cycle Sort"
+    CASE Algorithm.Comb : RETURN "Comb Sort"
+    CASE Algorithm.Shell : RETURN "Shell Sort"
+    CASE Algorithm.Circle : RETURN "Circle Sort"
+    CASE Algorithm.Batcher : RETURN "Batcher Merge-Exchange"
+    CASE Algorithm.Heap : RETURN "Heap Sort"
+    CASE Algorithm.Merge : RETURN "Merge Sort"
+    CASE Algorithm.Quick : RETURN "Quick Sort"
+    CASE Algorithm.DualPivot : RETURN "Dual-Pivot Quick Sort"
+    CASE Algorithm.Bucket : RETURN "Bucket Sort"
+    CASE Algorithm.Radix : RETURN "Radix Sort (LSD)"
+  END MATCH
+END FUNC
+
+FUNC algorithmRate(a AS Algorithm) AS Float
+  MATCH a
+    CASE Algorithm.Bubble : RETURN BUBBLE_RATE
+    CASE Algorithm.Selection : RETURN SELECTION_RATE
+    CASE Algorithm.Cocktail : RETURN COCKTAIL_RATE
+    CASE Algorithm.OddEven : RETURN ODD_EVEN_RATE
+    CASE Algorithm.Gnome : RETURN GNOME_RATE
+    CASE Algorithm.Insertion : RETURN INSERTION_RATE
+    CASE Algorithm.BinaryInsertion : RETURN BINARY_INSERTION_RATE
+    CASE Algorithm.Cycle : RETURN CYCLE_RATE
+    CASE Algorithm.Comb : RETURN COMB_RATE
+    CASE Algorithm.Shell : RETURN SHELL_RATE
+    CASE Algorithm.Circle : RETURN CIRCLE_RATE
+    CASE Algorithm.Batcher : RETURN BATCHER_RATE
+    CASE Algorithm.Heap : RETURN HEAP_RATE
+    CASE Algorithm.Merge : RETURN MERGE_RATE
+    CASE Algorithm.Quick : RETURN QUICK_RATE
+    CASE Algorithm.DualPivot : RETURN DUAL_PIVOT_RATE
+    CASE Algorithm.Bucket : RETURN BUCKET_RATE
+    CASE Algorithm.Radix : RETURN RADIX_RATE
+  END MATCH
+END FUNC
+
+' Where the sort runs in the cycle, from 0; also its place in the table.
+FUNC algorithmIndex(a AS Algorithm) AS Integer
+  MATCH a
+    CASE Algorithm.Bubble : RETURN 0
+    CASE Algorithm.Selection : RETURN 1
+    CASE Algorithm.Cocktail : RETURN 2
+    CASE Algorithm.OddEven : RETURN 3
+    CASE Algorithm.Gnome : RETURN 4
+    CASE Algorithm.Insertion : RETURN 5
+    CASE Algorithm.BinaryInsertion : RETURN 6
+    CASE Algorithm.Cycle : RETURN 7
+    CASE Algorithm.Comb : RETURN 8
+    CASE Algorithm.Shell : RETURN 9
+    CASE Algorithm.Circle : RETURN 10
+    CASE Algorithm.Batcher : RETURN 11
+    CASE Algorithm.Heap : RETURN 12
+    CASE Algorithm.Merge : RETURN 13
+    CASE Algorithm.Quick : RETURN 14
+    CASE Algorithm.DualPivot : RETURN 15
+    CASE Algorithm.Bucket : RETURN 16
+    CASE Algorithm.Radix : RETURN 17
+  END MATCH
+END FUNC
+
+' The sort after this one, back to the first after the last.
+FUNC nextAlgorithm(a AS Algorithm) AS Algorithm
+  MATCH a
+    CASE Algorithm.Bubble : RETURN Algorithm.Selection
+    CASE Algorithm.Selection : RETURN Algorithm.Cocktail
+    CASE Algorithm.Cocktail : RETURN Algorithm.OddEven
+    CASE Algorithm.OddEven : RETURN Algorithm.Gnome
+    CASE Algorithm.Gnome : RETURN Algorithm.Insertion
+    CASE Algorithm.Insertion : RETURN Algorithm.BinaryInsertion
+    CASE Algorithm.BinaryInsertion : RETURN Algorithm.Cycle
+    CASE Algorithm.Cycle : RETURN Algorithm.Comb
+    CASE Algorithm.Comb : RETURN Algorithm.Shell
+    CASE Algorithm.Shell : RETURN Algorithm.Circle
+    CASE Algorithm.Circle : RETURN Algorithm.Batcher
+    CASE Algorithm.Batcher : RETURN Algorithm.Heap
+    CASE Algorithm.Heap : RETURN Algorithm.Merge
+    CASE Algorithm.Merge : RETURN Algorithm.Quick
+    CASE Algorithm.Quick : RETURN Algorithm.DualPivot
+    CASE Algorithm.DualPivot : RETURN Algorithm.Bucket
+    CASE Algorithm.Bucket : RETURN Algorithm.Radix
+    CASE Algorithm.Radix : RETURN Algorithm.Bubble
+  END MATCH
+END FUNC
+
+FUNC sortStart(a AS Algorithm) AS Nothing
+  MATCH a
+    CASE Algorithm.Bubble : bubbleStart()
+    CASE Algorithm.Selection : selectionStart()
+    CASE Algorithm.Cocktail : cocktailStart()
+    CASE Algorithm.OddEven : oddEvenStart()
+    CASE Algorithm.Gnome : gnomeStart()
+    CASE Algorithm.Insertion : insertionStart()
+    CASE Algorithm.BinaryInsertion : binaryInsertionStart()
+    CASE Algorithm.Cycle : cycleStart()
+    CASE Algorithm.Comb : combStart()
+    CASE Algorithm.Shell : shellStart()
+    CASE Algorithm.Circle : circleStart()
+    CASE Algorithm.Batcher : batcherStart()
+    CASE Algorithm.Heap : heapStart()
+    CASE Algorithm.Merge : mergeStart()
+    CASE Algorithm.Quick : quickStart()
+    CASE Algorithm.DualPivot : dualPivotStart()
+    CASE Algorithm.Bucket : bucketStart()
+    CASE Algorithm.Radix : radixStart()
+  END MATCH
+END FUNC
+
+FUNC sortSteps(a AS Algorithm, budget AS Integer) AS Nothing
+  MATCH a
+    CASE Algorithm.Bubble : bubbleSteps(budget)
+    CASE Algorithm.Selection : selectionSteps(budget)
+    CASE Algorithm.Cocktail : cocktailSteps(budget)
+    CASE Algorithm.OddEven : oddEvenSteps(budget)
+    CASE Algorithm.Gnome : gnomeSteps(budget)
+    CASE Algorithm.Insertion : insertionSteps(budget)
+    CASE Algorithm.BinaryInsertion : binaryInsertionSteps(budget)
+    CASE Algorithm.Cycle : cycleSteps(budget)
+    CASE Algorithm.Comb : combSteps(budget)
+    CASE Algorithm.Shell : shellSteps(budget)
+    CASE Algorithm.Circle : circleSteps(budget)
+    CASE Algorithm.Batcher : batcherSteps(budget)
+    CASE Algorithm.Heap : heapSteps(budget)
+    CASE Algorithm.Merge : mergeSteps(budget)
+    CASE Algorithm.Quick : quickSteps(budget)
+    CASE Algorithm.DualPivot : dualPivotSteps(budget)
+    CASE Algorithm.Bucket : bucketSteps(budget)
+    CASE Algorithm.Radix : radixSteps(budget)
+  END MATCH
+END FUNC
+
+FUNC sortDone(a AS Algorithm) AS Boolean
+  MATCH a
+    CASE Algorithm.Bubble : RETURN bubbleDone()
+    CASE Algorithm.Selection : RETURN selectionDone()
+    CASE Algorithm.Cocktail : RETURN cocktailDone()
+    CASE Algorithm.OddEven : RETURN oddEvenDone()
+    CASE Algorithm.Gnome : RETURN gnomeDone()
+    CASE Algorithm.Insertion : RETURN insertionDone()
+    CASE Algorithm.BinaryInsertion : RETURN binaryInsertionDone()
+    CASE Algorithm.Cycle : RETURN cycleDone()
+    CASE Algorithm.Comb : RETURN combDone()
+    CASE Algorithm.Shell : RETURN shellDone()
+    CASE Algorithm.Circle : RETURN circleDone()
+    CASE Algorithm.Batcher : RETURN batcherDone()
+    CASE Algorithm.Heap : RETURN heapDone()
+    CASE Algorithm.Merge : RETURN mergeDone()
+    CASE Algorithm.Quick : RETURN quickDone()
+    CASE Algorithm.DualPivot : RETURN dualPivotDone()
+    CASE Algorithm.Bucket : RETURN bucketDone()
+    CASE Algorithm.Radix : RETURN radixDone()
+  END MATCH
+END FUNC
+
+' The comparison count as shown: grouped in threes, or N/A for radix, which
+' never compares two elements.
+FUNC comparesText(a AS Algorithm) AS String
+  MATCH a
+    CASE Algorithm.Bubble : RETURN grouped(bubbleCompares())
+    CASE Algorithm.Selection : RETURN grouped(selectionCompares())
+    CASE Algorithm.Cocktail : RETURN grouped(cocktailCompares())
+    CASE Algorithm.OddEven : RETURN grouped(oddEvenCompares())
+    CASE Algorithm.Gnome : RETURN grouped(gnomeCompares())
+    CASE Algorithm.Insertion : RETURN grouped(insertionCompares())
+    CASE Algorithm.BinaryInsertion : RETURN grouped(binaryInsertionCompares())
+    CASE Algorithm.Cycle : RETURN grouped(cycleCompares())
+    CASE Algorithm.Comb : RETURN grouped(combCompares())
+    CASE Algorithm.Shell : RETURN grouped(shellCompares())
+    CASE Algorithm.Circle : RETURN grouped(circleCompares())
+    CASE Algorithm.Batcher : RETURN grouped(batcherCompares())
+    CASE Algorithm.Heap : RETURN grouped(heapCompares())
+    CASE Algorithm.Merge : RETURN grouped(mergeCompares())
+    CASE Algorithm.Quick : RETURN grouped(quickCompares())
+    CASE Algorithm.DualPivot : RETURN grouped(dualPivotCompares())
+    CASE Algorithm.Bucket : RETURN grouped(bucketCompares())
+    CASE Algorithm.Radix : RETURN "N/A"
+  END MATCH
+END FUNC
+
+' Where the cycle is: the dots flying out, holding still before the sort, the
+' sort running, and the finished sort resting on screen.
+ENUM Phase
+  Scatter, Hold, Sorting, Rest
+END ENUM
+
+' ---------------------------------------------------------------------------
+' Stats
+' ---------------------------------------------------------------------------
+
+LET STATS_SIZE AS Float = 18.0
+LET STATS_MARGIN AS Float = 16.0
+LET STATS_COLOR AS color::Color = color::rgb(200, 210, 220)
+
+' The results table along the bottom: two rows of cells, one per sort, its name
+' over its comparison count, small and dim so it stays out of the way of the dots.
+LET TABLE_SIZE AS Float = 13.0
+LET TABLE_COLOR AS color::Color = color::rgb(70, 78, 90)
+LET TABLE_ROWS AS Integer = 2
+
+' Each sort's comparison count as shown, from the last time it finished, by its
+' index; "" until it has finished once.
+MUT results AS List OF String = []
+
+' The column headings, by index - the sort's name without the word "Sort".
+LET TABLE_NAMES AS List OF String = ["Bubble", "Selection", "Cocktail Shaker", "Odd-Even", "Gnome", "Insertion", "Binary Insertion", "Cycle", "Comb", "Shell", "Circle", "Batcher", "Heap", "Merge", "Quick", "Dual-Pivot Quick", "Bucket", "Radix"]
+
+FUNC tableName(k AS Integer) AS String
+  RETURN collections::get(TABLE_NAMES, k)
+END FUNC
+
+FUNC statLine(label AS String, value AS Float) AS String
+  LET n AS String = toString(math::floor(value + 0.5))
+  MUT padded AS String = n
+  FOR i = len(n) TO 3
+    padded = " " & padded
+  NEXT
+  RETURN label & padded
+END FUNC
+
+FUNC percentLine(done AS Integer) AS String
+  ' Rounded down, so 100% means every element is in place.
+  LET n AS String = toString(done * 100 / DOT_COUNT)
+  MUT padded AS String = n
+  FOR i = len(n) TO 2
+    padded = " " & padded
+  NEXT
+  RETURN "Sorted: " & padded & "%"
+END FUNC
+
+' A count with a comma between each group of three digits.
+FUNC grouped(n AS Integer) AS String
+  LET digits AS String = toString(n)
+  MUT out AS String = ""
+  MUT count AS Integer = 0
+  FOR i = len(digits) - 1 TO 0 STEP -1
+    IF count > 0 AND count MOD 3 = 0 THEN out = "," & out
+    out = strings::mid(digits, i, 1) & out
+    count = count + 1
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC tableItem(face AS canvas::Font, x AS Float, y AS Float, text AS String) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR)]
+END FUNC
+
+FUNC textItem(face AS canvas::Font, x AS Float, line AS Integer, text AS String) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line)), text := text, font := face, size := STATS_SIZE, paint := canvas::fill(STATS_COLOR)]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The frame loop
+' ---------------------------------------------------------------------------
+
+FUNC main AS Integer
+  app::setFullscreen(TRUE)
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Sorts")
+
+  RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
+  ' Menlo is monospaced and the numbers are padded, so one width fits every frame.
+  LET statsWidth AS Float = canvas::measureText(face, STATS_SIZE, statLine("PPS ", 0.0)).width
+
+  LET dots AS List OF Dot = makeDots()
+  setUp()
+  LET background AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  placed = collections::repeat(placed, rotate(0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0), DOT_COUNT)
+  ' Two table cells per sort follow the dots and the five stats lines.
+  scene = collections::repeat(scene, background, DOT_COUNT + 6 + 2 * ALGORITHM_COUNT)
+  results = collections::repeat(results, "", ALGORITHM_COUNT)
+
+  MUT size AS canvas::Size = canvas::getSize()
+  MUT ax AS Float = 0.0
+  MUT ay AS Float = 0.0
+  MUT az AS Float = 0.0
+  MUT owed AS Float = 0.0
+  MUT algorithm AS Algorithm = Algorithm.Bubble
+  MUT phase AS Phase = Phase.Scatter
+  ' When the current phase began.
+  MUT phaseStart AS Integer = datetime::monotonicNanos()
+  startScatter()
+
+  DO WHILE NOT quitPressed()
+    IF canvas::didResize() THEN size = canvas::getSize()
+    LET width AS Float = toFloat(size.width)
+    LET height AS Float = toFloat(size.height)
+    LET cx AS Float = width / 2.0
+    LET cy AS Float = height / 2.0
+    ' The visible outline spans 90% of the shorter side. Perspective draws the
+    ' outline CAMERA / sqrt(CAMERA^2 - 1) times the radius, so take that back out.
+    LET radius AS Float = math::min(width, height) * 0.45 * math::sqrt(CAMERA * CAMERA - 1.0) / CAMERA
+    ' Dot size shrinks with the square root of the count, so the sphere stays as full.
+    LET dotSize AS Float = math::max(1.5, radius * 0.022 * math::sqrt(500.0 / toFloat(DOT_COUNT)))
+
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    LET dt AS Float = math::min(stats.dt, 0.05)
+    ax = ax + dt * 0.7
+    ay = ay + dt * 0.9
+    az = az + dt * 0.4
+
+    LET now AS Integer = datetime::monotonicNanos()
+    MATCH phase
+      CASE Phase.Scatter
+        IF now - phaseStart >= SCATTER_NANOS THEN
+          ' The dots are out; the sort's numbers go up at zero while they hold.
+          sortStart(algorithm)
+          phase = Phase.Hold
+          phaseStart = now
+        END IF
+      CASE Phase.Hold
+        IF now - phaseStart >= HOLD_NANOS THEN
+          owed = 0.0
+          phase = Phase.Sorting
+          phaseStart = now
+        END IF
+      CASE Phase.Sorting
+        ' The budget carries its fractional comparisons over to the next frame.
+        owed = owed + algorithmRate(algorithm) * dt
+        LET budget AS Integer = math::floor(owed)
+        owed = owed - toFloat(budget)
+        sortSteps(algorithm, budget)
+        IF sortDone(algorithm) THEN
+          results = collections::set(results, algorithmIndex(algorithm), comparesText(algorithm))
+          phase = Phase.Rest
+          phaseStart = now
+        END IF
+      CASE Phase.Rest
+        IF now - phaseStart >= REST_NANOS THEN
+          algorithm = nextAlgorithm(algorithm)
+          startScatter()
+          phase = Phase.Scatter
+          phaseStart = now
+        END IF
+    END MATCH
+
+    ' During a scatter every dot flies out along its path, and while holding it
+    ' stays where the scatter left it; otherwise it glides toward the slot of its
+    ' place in the list. Then it turns with the sphere.
+    LET flying AS Boolean = phase = Phase.Scatter
+    LET holding AS Boolean = phase = Phase.Hold
+    LET flight AS Float = smoothstep(toFloat(datetime::monotonicNanos() - phaseStart) / toFloat(SCATTER_NANOS))
+    LET pull AS Float = 1.0 - math::exp(0.0 - GLIDE * dt)
+    FOR id = 0 TO DOT_COUNT - 1
+      MUT nx AS Float = 0.0
+      MUT ny AS Float = 0.0
+      MUT nz AS Float = 0.0
+      IF flying THEN
+        LET sx AS Float = collections::get(fromX, id)
+        LET sy AS Float = collections::get(fromY, id)
+        LET sz AS Float = collections::get(fromZ, id)
+        nx = sx + (collections::get(toX, id) - sx) * flight
+        ny = sy + (collections::get(toY, id) - sy) * flight
+        nz = sz + (collections::get(toZ, id) - sz) * flight
+      ELSEIF holding THEN
+        nx = collections::get(posX, id)
+        ny = collections::get(posY, id)
+        nz = collections::get(posZ, id)
+      ELSE
+        LET slot AS Dot = collections::get(dots, collections::get(placeOf, id))
+        LET x AS Float = collections::get(posX, id)
+        LET y AS Float = collections::get(posY, id)
+        LET z AS Float = collections::get(posZ, id)
+        nx = x + (slot.x - x) * pull
+        ny = y + (slot.y - y) * pull
+        nz = z + (slot.z - z) * pull
+      END IF
+      posX = collections::set(posX, id, nx)
+      posY = collections::set(posY, id, ny)
+      posZ = collections::set(posZ, id, nz)
+      placed = collections::set(placed, id, rotate(nx, ny, nz, id, ax, ay, az))
+    NEXT
+    placed = collections::sortBy(placed, farthestFirst)
+
+    LET back AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]
+    scene = collections::set(scene, 0, back)
+    FOR i = 0 TO DOT_COUNT - 1
+      LET p AS Placed = collections::get(placed, i)
+      LET d AS Dot = collections::get(dots, p.id)
+      LET perspective AS Float = CAMERA / (CAMERA + p.z)
+      ' Scattered dots can sit beyond the sphere, so depth is held to the sphere's for shading.
+      LET depth AS Float = math::clamp(p.z, -1.0, 1.0)
+      LET light AS Float = 0.35 + 0.65 * (1.0 - (depth + 1.0) / 2.0)
+      LET c AS color::Color = color::rgb(shade(d.r, light), shade(d.g, light), shade(d.b, light))
+      LET dot AS canvas::DrawItem = canvas::Circle[x := cx + p.x * radius * perspective, y := cy + p.y * radius * perspective, radius := dotSize * perspective, paint := canvas::fill(c)]
+      scene = collections::set(scene, i + 1, dot)
+    NEXT
+
+    LET statsX AS Float = width - STATS_MARGIN - statsWidth
+    scene = collections::set(scene, DOT_COUNT + 1, textItem(face, statsX, 0, statLine("PPS ", stats.pps)))
+    scene = collections::set(scene, DOT_COUNT + 2, textItem(face, statsX, 1, statLine("FPS ", stats.fps)))
+
+    ' The sort's lines are hidden while the dots fly out; the empty background
+    ' rectangle stands in for them.
+    IF phase = Phase.Scatter THEN
+      scene = collections::set(scene, DOT_COUNT + 3, background)
+      scene = collections::set(scene, DOT_COUNT + 4, background)
+      scene = collections::set(scene, DOT_COUNT + 5, background)
+    ELSE
+      scene = collections::set(scene, DOT_COUNT + 3, textItem(face, STATS_MARGIN, 0, algorithmName(algorithm)))
+      scene = collections::set(scene, DOT_COUNT + 4, textItem(face, STATS_MARGIN, 1, percentLine(inPlace)))
+      scene = collections::set(scene, DOT_COUNT + 5, textItem(face, STATS_MARGIN, 2, "Compares: " & comparesText(algorithm)))
+    END IF
+
+    ' The table: cells spread evenly across the bottom in two rows, the first
+    ' half of the sorts above the second, filled in as sorts finish.
+    LET perRow AS Integer = (ALGORITHM_COUNT + TABLE_ROWS - 1) / TABLE_ROWS
+    LET columnWidth AS Float = (width - 2.0 * STATS_MARGIN) / toFloat(perRow)
+    LET rowHeight AS Float = TABLE_SIZE * 3.2
+    FOR k = 0 TO ALGORITHM_COUNT - 1
+      LET shown AS String = collections::get(results, k)
+      LET slotBase AS Integer = DOT_COUNT + 6 + 2 * k
+      IF shown = "" THEN
+        scene = collections::set(scene, slotBase, background)
+        scene = collections::set(scene, slotBase + 1, background)
+      ELSE
+        LET x AS Float = STATS_MARGIN + columnWidth * toFloat(k MOD perRow)
+        ' The count's baseline; the last row sits on the bottom margin.
+        LET y AS Float = height - STATS_MARGIN - rowHeight * toFloat(TABLE_ROWS - 1 - k / perRow)
+        scene = collections::set(scene, slotBase, tableItem(face, x, y - TABLE_SIZE * 1.3, tableName(k)))
+        scene = collections::set(scene, slotBase + 1, tableItem(face, x, y, shown))
+      END IF
+    NEXT
+
+    canvas::present(scene)
+    canvas::waitFrame()
+  LOOP
+
+  RETURN 0
+END FUNC

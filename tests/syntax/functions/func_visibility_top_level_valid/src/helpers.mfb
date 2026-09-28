@@ -12,14 +12,14 @@ FUNC exportValue(value AS Integer) AS Integer
   RETURN value + 3
 END FUNC
 
-PRIVATE SUB privateTrace(value AS Integer)
+PRIVATE FUNC privateTrace(value AS Integer) AS Nothing
   io::print("private=" & toString(value))
-END SUB
+END FUNC
 
-PUBLIC SUB packageTrace(value AS Integer)
+PUBLIC FUNC packageTrace(value AS Integer) AS Nothing
   privateTrace(value)
-END SUB
+END FUNC
 
-SUB exportTrace(value AS Integer)
+FUNC exportTrace(value AS Integer) AS Nothing
   io::print("export=" & toString(value))
-END SUB
+END FUNC

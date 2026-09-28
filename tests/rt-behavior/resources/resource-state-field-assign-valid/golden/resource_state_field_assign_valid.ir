@@ -86,7 +86,7 @@
     "name": "seek",
     "line": 10,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "s", "line": 10, "type": "fs.File STATE Cursor", "default": null },
     { "name": "dest", "line": 10, "type": "Integer", "default": null }

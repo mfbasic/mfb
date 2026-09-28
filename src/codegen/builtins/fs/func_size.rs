@@ -55,12 +55,12 @@ const EX: &str = r#"Measure an open file before reading it:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "Hello")
   RES f = fs::openFile("data.bin")
   io::print(toString(fs::size(f)))
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 The read position is unchanged, so a read after the measurement still starts at
@@ -70,12 +70,12 @@ the beginning:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.bin", "first line\nsecond line\n")
   RES f = fs::openFile("data.bin")
   LET total AS Integer = fs::size(f)
   io::print(fs::readLine(f))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

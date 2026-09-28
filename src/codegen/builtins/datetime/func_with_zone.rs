@@ -52,11 +52,11 @@ const EX: &str = r#"Re-project a UTC `datetime::DateTime` into a fixed +05:30 zo
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::utc())
   LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET shifted AS datetime::DateTime = datetime::withZone(dt, z)
-END SUB
+END FUNC
 ```
 
 Convert a `datetime::DateTime` to the host's local zone without changing the instant:
@@ -64,10 +64,10 @@ Convert a `datetime::DateTime` to the host's local zone without changing the ins
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::utc())
   LET local AS datetime::DateTime = datetime::withZone(dt, datetime::local())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -1,0 +1,48 @@
+' selectionsort - sorts `order` one comparison at a time.
+'
+' Scan the unsorted part for its smallest element and swap it to the front of
+' that part, where it is in its final place; repeat one place further along.
+
+MUT selectFront AS Integer = 0      ' everything before here is final
+MUT selectScan AS Integer = 0
+MUT selectMin AS Integer = 0        ' the place of the smallest seen this scan
+MUT selectFinished AS Boolean = FALSE
+MUT selectCompareCount AS Integer = 0
+
+FUNC selectionStart AS Nothing
+  selectFront = 0
+  selectScan = 1
+  selectMin = 0
+  selectFinished = DOT_COUNT < 2
+  selectCompareCount = 0
+END FUNC
+
+FUNC selectionDone AS Boolean
+  RETURN selectFinished
+END FUNC
+
+FUNC selectionCompares AS Integer
+  RETURN selectCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC selectionSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT selectFinished
+    IF selectScan < DOT_COUNT THEN
+      IF orderAt(selectScan) < orderAt(selectMin) THEN selectMin = selectScan
+      selectScan = selectScan + 1
+      selectCompareCount = selectCompareCount + 1
+      left = left - 1
+    ELSE
+      swapOrder(selectFront, selectMin)
+      selectFront = selectFront + 1
+      IF selectFront >= DOT_COUNT - 1 THEN
+        selectFinished = TRUE
+      ELSE
+        selectMin = selectFront
+        selectScan = selectFront + 1
+      END IF
+    END IF
+  LOOP
+END FUNC

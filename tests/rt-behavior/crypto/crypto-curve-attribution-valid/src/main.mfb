@@ -81,7 +81,7 @@ FUNC roundTrip(cipher AS crypto::AsymmetricCipher, kp AS crypto::KeyPair, msg AS
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' --- official vectors -----------------------------------------------------
   LET edSeed1 AS List OF Byte = encoding::hexDecode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
   LET edPub1 AS List OF Byte = encoding::hexDecode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -155,4 +155,4 @@ SUB main()
   LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, xkp.publicKey, "attack at dawn")
   io::print("encrypt-bare-key-is-unattributable=accepted " & toString(len(box)) & " bytes")
   io::print("decrypt-that-box=" & roundTrip(crypto::AsymmetricCipher.Ed25519_AES256GCM, xkp, "attack at dawn"))
-END SUB
+END FUNC

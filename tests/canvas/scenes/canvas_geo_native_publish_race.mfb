@@ -46,7 +46,7 @@ END FUNC
 ' third frame complete, so that frame was drawn while it was still publishing. The cap
 ' keeps a renderer that never draws from hanging the run; the row then fails on its
 ' frame count, as it should.
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a AS List OF canvas::DrawItem = scene(FALSE)
   LET b AS List OF canvas::DrawItem = scene(TRUE)
@@ -61,4 +61,4 @@ SUB main()
     n = n + 1
   END WHILE
   io::print("rendered")
-END SUB
+END FUNC

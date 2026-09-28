@@ -169,11 +169,11 @@ FUNC risky(n AS Integer) AS Integer
   RETURN n
 END FUNC
 
-SUB halt(n AS Integer)
+FUNC halt(n AS Integer) AS Nothing
   IF n < 0 THEN
     EXIT PROGRAM LIMIT
   END IF
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   halt(1)
@@ -200,7 +200,7 @@ END FUNC
 /// The module the program lowers to, with the global rows applied at `level`.
 ///
 /// The REAL module, initializer and all (bug-552). This suite used to drop the
-/// synthetic `__mfb_init_globals_*` SUB first, because `census` counted its
+/// synthetic `__mfb_init_globals_*` function first, because `census` counted its
 /// stores as writes — so `never_written()` and `untouched()` were false for
 /// every global that has an initializer, which in MFBASIC is every global, and
 /// `simplify` changed nothing at all on a real program. Now that the census
@@ -242,7 +242,7 @@ fn module_at(level: u8, source: &str) -> NirModule {
 /// initializer store that writes it.
 ///
 /// `module.globals.retain(...)` drops the storage; the synthetic
-/// `__mfb_init_globals_*` SUB still holds one `StoreGlobal` per declared
+/// `__mfb_init_globals_*` function still holds one `StoreGlobal` per declared
 /// binding. Leaving it produces a module whose initializer stores to a name that
 /// no longer exists, which `target/shared/validate/body.rs` refuses outright
 /// ("NIR global store targets unknown global"). The deadness of the row was

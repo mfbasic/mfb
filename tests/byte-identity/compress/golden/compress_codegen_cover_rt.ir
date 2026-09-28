@@ -126,7 +126,7 @@
     "name": "main",
     "line": 8,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

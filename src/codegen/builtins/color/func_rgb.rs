@@ -25,9 +25,9 @@ const EX: &str = r#"An opaque orange:
 ```
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   LET tangerine AS color::Color = color::rgb(255, 140, 0)
-END SUB
+END FUNC
 ```
 
 `rgb` fixes alpha at fully opaque, and `withAlpha` reopens it:
@@ -36,11 +36,11 @@ END SUB
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET solid AS color::Color = color::rgb(255, 140, 0)
   LET ghost AS color::Color = color::withAlpha(solid, 64)
   io::print(toString(solid.alpha) & " " & toString(ghost.alpha))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

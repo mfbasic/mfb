@@ -50,9 +50,9 @@ const EX: &str = r#"The distance across a 3-4-5 triangle:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::distance(vector::Float2[0.0, 0.0], vector::Float2[3.0, 4.0])))
-END SUB
+END FUNC
 ```
 
 The same measurement in exact integer coordinates:
@@ -61,9 +61,9 @@ The same measurement in exact integer coordinates:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::distance(vector::Integer2[0, 0], vector::Integer2[3, 4])))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

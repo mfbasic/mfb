@@ -13,17 +13,17 @@ IMPORT errorCode
 
 MUT g AS String = ""
 
-SUB show(tag AS String, got AS String, want AS String)
+FUNC show(tag AS String, got AS String, want AS String) AS Nothing
   IF got = want THEN
     io::print(tag & " ok [" & got & "]")
   ELSE
     io::print(tag & " MISMATCH [" & got & "] want [" & want & "]")
   END IF
-END SUB
+END FUNC
 
 ' --- shrink windows at a local (S1) ------------------------------------------
 
-SUB windowsLocal()
+FUNC windowsLocal() AS Nothing
   MUT s AS String = "héllo😀"
   LET w0 AS String = strings::left(s, 0)
   s = strings::left(s, 0)
@@ -108,11 +108,11 @@ SUB windowsLocal()
   LET c2 AS String = strings::trimChars(s, "")
   s = strings::trimChars(s, "")
   show("trimCharsNone", s, c2)
-END SUB
+END FUNC
 
 ' --- graphemeAt: the cluster walk, including a combining sequence ------------
 
-SUB graphemesLocal()
+FUNC graphemesLocal() AS Nothing
   MUT s AS String = "e" & "́" & "😀z"
   LET g0 AS String = strings::graphemeAt(s, 0)
   s = strings::graphemeAt(s, 0)
@@ -132,11 +132,11 @@ SUB graphemesLocal()
   LET g3 AS String = strings::graphemeAt(s, 0)
   s = strings::graphemeAt(s, 0)
   show("graphemeAtOnly", s, g3)
-END SUB
+END FUNC
 
 ' --- the three fs path windows, including pathDirName's constants ------------
 
-SUB pathsLocal()
+FUNC pathsLocal() AS Nothing
   MUT s AS String = "a/b/c.txt"
   LET b1 AS String = fs::pathBaseName(s)
   s = fs::pathBaseName(s)
@@ -176,11 +176,11 @@ SUB pathsLocal()
   LET e2 AS String = fs::pathExtension(s)
   s = fs::pathExtension(s)
   show("extensionNone", s, e2)
-END SUB
+END FUNC
 
 ' --- the same windows at a module-level global (S2) --------------------------
 
-SUB windowsGlobal()
+FUNC windowsGlobal() AS Nothing
   g = "héllo😀"
   LET w AS String = strings::left(g, 3)
   g = strings::left(g, 3)
@@ -215,11 +215,11 @@ SUB windowsGlobal()
   LET dd AS String = fs::pathDirName(g)
   g = fs::pathDirName(g)
   show("g.dirNameDot", g, dd)
-END SUB
+END FUNC
 
 ' --- a shrink then a grow: the freed bytes are spare capacity, not lost ------
 
-SUB shrinkThenGrow()
+FUNC shrinkThenGrow() AS Nothing
   MUT s AS String = "abcdefghij"
   s = strings::left(s, 3)
   s = s & "XYZ"
@@ -236,64 +236,64 @@ SUB shrinkThenGrow()
     t = t & "de"
   NEXT
   show("shrinkGrowLoop", t, "abcde")
-END SUB
+END FUNC
 
 ' --- failure atomicity: a raised error leaves `s` exactly as it was ----------
 
-SUB trapLeft()
+FUNC trapLeft() AS Nothing
   MUT s AS String = "abcdef"
   s = strings::left(s, -1)
   io::print("trap.left NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.left raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapRight()
+FUNC trapRight() AS Nothing
   MUT s AS String = "abcdef"
   s = strings::right(s, -1)
   io::print("trap.right NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.right raised=" & toString(err.code = errorCode::ErrInvalidArgument) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapMid()
+FUNC trapMid() AS Nothing
   MUT s AS String = "abcdef"
   s = strings::mid(s, 3, 99)
   io::print("trap.mid NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.mid raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapGraphemeAt()
+FUNC trapGraphemeAt() AS Nothing
   MUT s AS String = "abcdef"
   s = strings::graphemeAt(s, 99)
   io::print("trap.graphemeAt NOT RAISED [" & s & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.graphemeAt raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " s=[" & s & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB trapGlobalMid()
+FUNC trapGlobalMid() AS Nothing
   g = "abcdef"
   g = strings::mid(g, 3, 99)
   io::print("trap.g.mid NOT RAISED [" & g & "]")
-  EXIT SUB
+  RETURN
   TRAP(err)
     io::print("trap.g.mid raised=" & toString(err.code = errorCode::ErrIndexOutOfRange) & " g=[" & g & "]")
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   windowsLocal()

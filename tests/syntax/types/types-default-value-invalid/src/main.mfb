@@ -2,8 +2,8 @@ FUNC greet(name AS String = 42) AS String
   RETURN name
 END FUNC
 
-SUB log(count AS Integer = "many")
-END SUB
+FUNC log(count AS Integer = "many") AS Nothing
+END FUNC
 
 FUNC main AS Integer
   log()

@@ -48,7 +48,7 @@ fn a_negative_year_renders_its_sign_before_the_padded_digits() {
         expected.push(format!("{year} iso {y4}-03-04T05:06:07.890Z"));
         expected.push(format!("{year} full {y4}-03-04 05:06:07"));
     }
-    let source = format!("IMPORT io\nIMPORT datetime\n\nSUB main()\n{body}END SUB\n");
+    let source = format!("IMPORT io\nIMPORT datetime\n\nFUNC main() AS Nothing\n{body}END FUNC\n");
 
     let project = common::temp_project("datetime_negative_year_render", &source);
     let binary = common::build_project(&project);

@@ -1,0 +1,12 @@
+{
+  "name": "package_retired_sub_export_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "package_simple", "version": "=1.0.0", "source": "file:packages/package_simple.mfp", "direct": true, "requiredBy": [] }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

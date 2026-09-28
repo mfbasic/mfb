@@ -1490,7 +1490,7 @@
     "name": "#audio_playSamples",
     "line": 533,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "out", "line": 533, "type": "audio.AudioOutput", "default": null },
     { "name": "samples", "line": 533, "type": "List OF Integer", "default": null }
@@ -1596,7 +1596,7 @@
     "name": "#audio_playTracks",
     "line": 582,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "out", "line": 582, "type": "audio.AudioOutput", "default": null },
     { "name": "tracks", "line": 582, "type": "List OF String", "default": null }
@@ -1621,7 +1621,7 @@
     "name": "#audio_play",
     "line": 591,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "out", "line": 591, "type": "audio.AudioOutput", "default": null },
     { "name": "mml", "line": 591, "type": "String", "default": null }

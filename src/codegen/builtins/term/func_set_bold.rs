@@ -47,7 +47,7 @@ const EX: &str = r#"Draw a bold heading above plain body text:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBold(TRUE)
   io::print("Heading")
@@ -55,7 +55,7 @@ SUB main()
   io::print("body text")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::set_bold` — delegates to the shared family-generic

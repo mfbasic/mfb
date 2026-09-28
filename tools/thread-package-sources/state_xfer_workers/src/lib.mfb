@@ -1,7 +1,7 @@
 IMPORT thread
 IMPORT fs
 
-TYPE Cursor
+EXPORT TYPE Cursor
   pos AS Integer
 END TYPE
 

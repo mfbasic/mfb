@@ -219,7 +219,7 @@
     "name": "useS",
     "line": 8,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 8, "type": "String", "default": null }
     ],
@@ -232,7 +232,7 @@
     "name": "useI",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 12, "type": "Integer", "default": null }
     ],
@@ -245,7 +245,7 @@
     "name": "useB",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 16, "type": "Boolean", "default": null }
     ],
@@ -268,7 +268,7 @@
     "name": "useInstant",
     "line": 24,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 24, "type": "datetime.Instant", "default": null }
     ],
@@ -281,7 +281,7 @@
     "name": "useDuration",
     "line": 28,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 28, "type": "datetime.Duration", "default": null }
     ],
@@ -294,7 +294,7 @@
     "name": "useDate",
     "line": 32,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 32, "type": "datetime.Date", "default": null }
     ],
@@ -307,7 +307,7 @@
     "name": "useTime",
     "line": 36,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 36, "type": "datetime.Time", "default": null }
     ],
@@ -320,7 +320,7 @@
     "name": "useZone",
     "line": 40,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 40, "type": "datetime.Zone", "default": null }
     ],
@@ -334,7 +334,7 @@
     "name": "useDateTime",
     "line": 45,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 45, "type": "datetime.DateTime", "default": null }
     ],
@@ -349,7 +349,7 @@
     "name": "useWeekday",
     "line": 51,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 51, "type": "datetime.Weekday", "default": null }
     ],
@@ -1852,7 +1852,7 @@
     "name": "#datetime_checkFields",
     "line": 659,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "year", "line": 659, "type": "Integer", "default": null },
     { "name": "month", "line": 659, "type": "Integer", "default": null },

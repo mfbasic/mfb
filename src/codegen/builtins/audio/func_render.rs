@@ -65,7 +65,7 @@ const EX: &str = r#"Render one second of A4 (440 Hz) and play it on the default 
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   LET env = audio::AudioEnvelope[2400, 4800, 31200, 9600, 12000]
   LET note = audio::AudioNote[440.0, 48000, env, 0.8]
   LET tone = audio::render(note)
@@ -73,7 +73,7 @@ SUB main()
   RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::write(out, tone)
   audio::close(out)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

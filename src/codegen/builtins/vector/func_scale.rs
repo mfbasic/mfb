@@ -45,9 +45,9 @@ const EX: &str = r#"The component-wise product of two 2D vectors:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::scale(vector::Float2[2.0, 3.0], vector::Float2[4.0, 5.0])))
-END SUB
+END FUNC
 ```
 
 Uniform scaling, expressed by repeating the factor in every component:
@@ -56,10 +56,10 @@ Uniform scaling, expressed by repeating the factor in every component:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET tripled AS vector::Float3 = vector::scale(vector::Float3[1.0, 2.0, 3.0], vector::Float3[3.0, 3.0, 3.0])
   io::print(toString(tripled))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

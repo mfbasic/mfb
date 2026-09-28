@@ -65,10 +65,10 @@ const EX: &str = r#"Read a text file into a `String`:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   LET value AS String = fs::readText("data.txt")
-END SUB
+END FUNC
 ```
 
 Write a file and read it back:
@@ -77,11 +77,11 @@ Write a file and read it back:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("greeting.txt", "hello")
   LET text AS String = fs::readText("greeting.txt")
   io::print(text)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

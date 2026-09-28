@@ -28,7 +28,7 @@ TRAP(e)
 END TRAP
 END FUNC
 
-SUB check(text AS String, expected AS String)
+FUNC check(text AS String, expected AS String) AS Nothing
   checked = checked + 1
   LET got AS String = render(text)
   IF got = expected THEN
@@ -39,7 +39,7 @@ SUB check(text AS String, expected AS String)
     io::print("  want " & expected)
     io::print("  got  " & got)
   END IF
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' boundary: first exponential

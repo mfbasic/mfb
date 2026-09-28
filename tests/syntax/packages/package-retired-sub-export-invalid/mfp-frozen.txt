@@ -1,0 +1,3 @@
+packages/package_simple.mfp is the package_simple an older compiler built before
+plan-159-D removed SUB: it exports mark with the retired export kind 2. The
+fixture exists to prove the reader rejects it, so it must never be rebuilt.

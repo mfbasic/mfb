@@ -11,12 +11,12 @@ const BODY: &str =
 r#"' Encode the samples and write them to the open output stream. A no-op for empty
 ' PCM. Only a pointer to the stream is passed — the caller owns and closes it. The stream must be
 ' 48 kHz mono (what the sequencer renders).
-SUB __audio_playSamples(RES out AS audio::AudioOutput, samples AS List OF Integer)
+FUNC __audio_playSamples(RES out AS audio::AudioOutput, samples AS List OF Integer) AS Nothing
   IF len(samples) = 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   audio::write(out, __audio_mmlEncode(samples))
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("audio_playSamples", BODY));

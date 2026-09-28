@@ -304,7 +304,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, fieldMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
+FUNC drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, fieldMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer) AS Nothing
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -363,7 +363,7 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   ELSE
     term::hideCursor()
   END IF
-END SUB
+END FUNC
 
 ' ----- link and form-field navigation -----
 '
@@ -612,7 +612,7 @@ END FUNC
 ' rectangles; their cells get a selection background overlaid before the row is drawn.
 ' `patches` are the form-field boxes edited since the last full paint, stamped over
 ' the cached row afterwards (see FieldPatch).
-SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF display::Rect, patches AS List OF FieldPatch)
+FUNC drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF display::Rect, patches AS List OF FieldPatch) AS Nothing
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(color::rgb(0, 0, 0))
@@ -647,7 +647,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
       NEXT
     END IF
   NEXT
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' A full-screen TUI needs an interactive terminal on both ends.

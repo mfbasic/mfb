@@ -65,12 +65,12 @@ const EX: &str = r#"Resolve a relative path against the working directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::writeText("output/report.txt", "hello")
   LET full AS String = fs::canonicalPath("output/report.txt")
   io::print(full)
-END SUB
+END FUNC
 ```
 
 Canonicalize a path containing `.` and `..` components:
@@ -79,11 +79,11 @@ Canonicalize a path containing `.` and `..` components:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("a/b")
   LET real AS String = fs::canonicalPath("a/./b/../b")
   io::print(real)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -25,11 +25,11 @@ fn buffering_operations_refuse_a_closed_file() {
         r#"IMPORT fs
 IMPORT io
 
-SUB closeIt(RES x AS fs::File)
+FUNC closeIt(RES x AS fs::File) AS Nothing
   fs::close(x)
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   RES f = fs::openFile("{path}", "w")
   fs::setBuffered(f, TRUE)
   fs::writeAll(f, "kept")
@@ -48,7 +48,7 @@ SUB main()
     RECOVER
   END TRAP
   io::print("done")
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("bug694_closed_guards", &source);

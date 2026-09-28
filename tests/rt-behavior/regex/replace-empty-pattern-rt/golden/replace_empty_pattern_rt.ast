@@ -193,7 +193,7 @@
         "line": 135,
         "expression": { "kind": "call", "callee": "collections.replace", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "e" }, { "kind": "string", "value": "Z" }] },
         "handler": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "DEAD: collections::replace is infallible, code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 136 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "UNEXPECTED: collections::replace failed, code=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 136 },
         { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 137 }
         ]
       }, "line": 135 },

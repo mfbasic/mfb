@@ -56,9 +56,9 @@ const EX: &str = r#"Cap a length-5 vector at 2.5, halving it:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::clamp_length(vector::Float2[3.0, 4.0], 2.5)))
-END SUB
+END FUNC
 ```
 
 A vector already within the cap passes through untouched:
@@ -67,10 +67,10 @@ A vector already within the cap passes through untouched:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET small AS vector::Float2 = vector::clamp_length(vector::Float2[0.0, 1.0], 10.0)
   io::print(toString(small))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

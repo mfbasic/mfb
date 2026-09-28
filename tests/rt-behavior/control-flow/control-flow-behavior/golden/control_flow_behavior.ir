@@ -334,7 +334,7 @@
     "name": "guard",
     "line": 121,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "flag", "line": 121, "type": "Boolean", "default": null }
     ],
@@ -357,7 +357,7 @@
     "name": "swallow",
     "line": 128,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "flag", "line": 128, "type": "Boolean", "default": null }
     ],
@@ -388,7 +388,7 @@
     "name": "exit_sub_valid_run",
     "line": 138,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

@@ -34,11 +34,11 @@ const EX: &str = r#"Read a number past the `Integer` range and one in hexadecima
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET huge AS big::Int = big::parse("-123456789012345678901234567890")
   io::print(toString(big::sign(huge)) & " " & toString(big::bitLength(huge)))
   io::print(toString(big::toInteger(big::parse("ff", 16))))
-END SUB
+END FUNC
 ```
 
 Text with a leading `+` is rejected:
@@ -54,9 +54,9 @@ FUNC tryParse(text AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(tryParse("+5"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

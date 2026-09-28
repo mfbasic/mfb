@@ -39,9 +39,9 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(compress::crc32(strings::toBytes("123456789"))))
-END SUB
+END FUNC
 ```
 
 Check data that arrives in two pieces without joining them:
@@ -51,12 +51,12 @@ IMPORT compress
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET first AS List OF Byte = strings::toBytes("12345")
   LET second AS List OF Byte = strings::toBytes("6789")
   LET running AS Integer = compress::crc32(first)
   io::print(toString(compress::crc32(second, running)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

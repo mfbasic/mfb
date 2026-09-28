@@ -126,7 +126,7 @@ pub struct DeclDocEntry {
     pub kind: String,
     pub name: String,
     pub signature: String,
-    /// `GROUP` name (FUNC/SUB), or empty.
+    /// `GROUP` name (FUNC), or empty.
     pub group: String,
     /// Prose blocks as `(kind code, text)` — see [`DocProseKind::code`].
     pub desc: Vec<(u8, String)>,
@@ -141,16 +141,21 @@ pub struct DeclDocEntry {
 
 // Declaration-kind ids within section 17. **Wire format**, frozen.
 pub const DOC_KIND_FUNC: u16 = 0;
-pub const DOC_KIND_SUB: u16 = 1;
+/// Id 1 was the value-less callable's declaration kind until plan-159-D removed
+/// that kind from the language. It is reserved and never reused: nothing writes it, and a package
+/// built by an older compiler that carries it reads as `"func"` through the
+/// unknown-id rule of [`doc_kind_name`] — such a callable's documentation page
+/// is a function's page, so the old docs still render.
+pub const DOC_KIND_RESERVED_SUB: u16 = 1;
 pub const DOC_KIND_TYPE: u16 = 2;
 pub const DOC_KIND_UNION: u16 = 3;
 pub const DOC_KIND_ENUM: u16 = 4;
 pub const DOC_KIND_RESOURCE: u16 = 5;
 
-/// The string form of a `DOC_KIND_*` id. An unknown id reads as `"func"`.
+/// The string form of a `DOC_KIND_*` id. An unknown id — including the reserved
+/// [`DOC_KIND_RESERVED_SUB`] — reads as `"func"`.
 pub fn doc_kind_name(kind: u16) -> &'static str {
     match kind {
-        DOC_KIND_SUB => "sub",
         DOC_KIND_TYPE => "type",
         DOC_KIND_UNION => "union",
         DOC_KIND_ENUM => "enum",
@@ -239,7 +244,6 @@ pub fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
     put_u32(&mut bytes, docs.decls.len() as u32);
     for decl in &docs.decls {
         let kind = match decl.kind.as_str() {
-            "sub" => DOC_KIND_SUB,
             "type" => DOC_KIND_TYPE,
             "union" => DOC_KIND_UNION,
             "enum" => DOC_KIND_ENUM,
@@ -313,7 +317,7 @@ mod tests {
     #[test]
     fn the_doc_codes_and_labels_are_frozen() {
         assert_eq!(DOC_KIND_FUNC, 0);
-        assert_eq!(DOC_KIND_SUB, 1);
+        assert_eq!(DOC_KIND_RESERVED_SUB, 1);
         assert_eq!(DOC_KIND_TYPE, 2);
         assert_eq!(DOC_KIND_UNION, 3);
         assert_eq!(DOC_KIND_ENUM, 4);
@@ -341,7 +345,8 @@ mod tests {
 
         for (id, name) in [
             (DOC_KIND_FUNC, "func"),
-            (DOC_KIND_SUB, "sub"),
+            // Reserved: an old package's id-1 doc reads as a function's.
+            (DOC_KIND_RESERVED_SUB, "func"),
             (DOC_KIND_TYPE, "type"),
             (DOC_KIND_UNION, "union"),
             (DOC_KIND_ENUM, "enum"),

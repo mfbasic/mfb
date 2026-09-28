@@ -58,14 +58,14 @@ const EX: &str = r#"Draw a title and a status line at fixed positions:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::drawText(0, 2, "My Application")
   LET size AS term::TermSize = term::terminalSize()
   term::drawText(size.rows - 1, 0, "Press q to quit")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Draw styled text, applying its bold/underline attributes:
@@ -74,7 +74,7 @@ Draw styled text, applying its bold/underline attributes:
 IMPORT term
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   MUT label AS AttributedString = astrings::fromString("Save  Quit")
   label = astrings::addAttribute(label, 0, 3, astrings::bold())
@@ -82,7 +82,7 @@ SUB main()
   term::drawText(0, 2, label)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::draw_text` — delegates to the shared family-generic

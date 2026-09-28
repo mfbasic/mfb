@@ -34,9 +34,9 @@ const EX: &str = r#"Project the current instant into UTC:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
-END SUB
+END FUNC
 ```
 
 Round-trip an instant through UTC and back:
@@ -44,11 +44,11 @@ Round-trip an instant through UTC and back:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::now()
   LET dt AS datetime::DateTime = datetime::toUtc(at)
   LET back AS datetime::Instant = datetime::resolve(dt)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

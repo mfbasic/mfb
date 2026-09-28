@@ -34,11 +34,11 @@ const EX: &str = r#"Powers of two and a negative base:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(big::toString(big::pow(big::fromInteger(2), 100)))
   io::print(big::toString(big::pow(big::fromInteger(-3), 3)))
   io::print(big::toString(big::pow(big::fromInteger(0), 0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -36,12 +36,12 @@ const EX: &str = r#"Set bold and read it back:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBold(TRUE)
   LET b AS Boolean = term::getBold()
   term::off()
-END SUB
+END FUNC
 ```
 
 Toggle the attribute from its current value:
@@ -49,11 +49,11 @@ Toggle the attribute from its current value:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBold(NOT term::getBold())
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::get_bold` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

@@ -35,9 +35,9 @@ const EX: &str = r#"Assert that an out-of-range slice is rejected:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print(strings::mid("abc", 0, 2))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "strings"
@@ -54,9 +54,9 @@ Pin the exact failure, so a different error would not pass the test:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print(strings::mid("abc", 0, 2))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "strings"

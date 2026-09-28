@@ -44,13 +44,13 @@ IMPORT encoding
 IMPORT tls
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("example.com", 443)
   LET request = strings::toBytes("GET / HTTP/1.0\r\n\r\n")
   tls::write(conn, request)
   LET reply = encoding::utf8Decode(tls::read(conn, 4096))
   ' conn closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

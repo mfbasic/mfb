@@ -11,7 +11,7 @@ FUNC describe(packed AS List OF Byte, back AS List OF Byte, inputCrc AS Integer,
   RETURN toString(len(packed)) & " " & toString(compress::crc32(packed)) & " " & toString(same)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT input AS List OF Byte = []
   MUT i AS Integer = 0
   WHILE i < 40
@@ -44,4 +44,4 @@ SUB main()
   LET empty AS List OF Byte = []
   LET emptyCrc AS Integer = compress::crc32(empty)
   io::print("empty, default level: raw " & describe(compress::deflate(empty), compress::inflate(compress::deflate(empty)), emptyCrc, 0) & " | zlib " & describe(compress::zlibEncode(empty), compress::zlibDecode(compress::zlibEncode(empty)), emptyCrc, 0) & " | gzip " & describe(compress::gzipEncode(empty), compress::gzipDecode(compress::gzipEncode(empty)), emptyCrc, 0))
-END SUB
+END FUNC

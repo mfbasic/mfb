@@ -77,7 +77,7 @@ FUNC probeRunning(running AS Integer) AS String
   RETURN "ok " & toString(r)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   RES h AS fs::File = fs::openFile(os::getEnv("MFB_COMPRESS_JOB"), "r")
   LET job AS List OF Byte = fs::readAllBytes(h)
   fs::close(h)
@@ -98,7 +98,7 @@ SUB main()
   io::print("running-max " & probeRunning(4294967295))
   io::print("running-over " & probeRunning(4294967296))
   io::print("running-negative " & probeRunning(-1))
-END SUB
+END FUNC
 "#;
 
 /// PCG-style 64-bit LCG (Knuth's MMIX constants); the high bits are the output.
@@ -267,7 +267,7 @@ FUNC gzipCase(data AS List OF Byte, lenient AS Boolean) AS String
   RETURN described(out)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   RES h AS fs::File = fs::openFile(os::getEnv("MFB_COMPRESS_JOB"), "r")
   LET job AS List OF Byte = fs::readAllBytes(h)
   fs::close(h)
@@ -292,7 +292,7 @@ SUB main()
     offset = offset + n
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 "#;
 
 /// Build the decode program once per test and run it over `cases`, returning each case's
@@ -614,7 +614,7 @@ FUNC encodeOnce(data AS List OF Byte, fmt AS Integer, level AS Integer) AS List 
   RETURN compress::gzipEncode(data, level)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   RES h AS fs::File = fs::openFile(os::getEnv("MFB_COMPRESS_JOB"), "r")
   LET job AS List OF Byte = fs::readAllBytes(h)
   fs::close(h)
@@ -662,7 +662,7 @@ SUB main()
     f = f + 1
   END WHILE
   fs::writeBytes(os::getEnv("MFB_COMPRESS_OUT"), out)
-END SUB
+END FUNC
 "#;
 
 /// The de Bruijn sequence B(k, n): every length-n string over k symbols exactly once (cyclically).

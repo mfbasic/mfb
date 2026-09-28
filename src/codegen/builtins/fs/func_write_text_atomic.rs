@@ -85,10 +85,10 @@ const EX: &str = r#"Atomically write text to a file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::writeTextAtomic("output/report.txt", "done")
-END SUB
+END FUNC
 ```
 
 Atomically replace a file's contents and read them back:
@@ -97,11 +97,11 @@ Atomically replace a file's contents and read them back:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeTextAtomic("greeting.txt", "hello")
   LET text AS String = fs::readText("greeting.txt")
   io::print(text)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

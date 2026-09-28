@@ -1,0 +1,7 @@
+FUNC main AS Nothing
+  FAIL error(100, "This is a message")
+
+  TRAP(err)
+    RETURN
+  END TRAP
+END FUNC

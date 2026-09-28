@@ -53,10 +53,10 @@ const EX: &str = r#"A JSON handler:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp AS http::Response = http::json("{\"ok\":true}")
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -73,11 +73,11 @@ IMPORT json
 IMPORT io
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET fields = Map OF String TO json::Json { "name" := json::JsonStr["mfb"] }
   LET resp = http::json(json::stringify(json::JsonObj[fields]))
   io::print(toString(resp.status) & " " & collections::get(resp.headers, "content-type"))
-END SUB
+END FUNC
 ```
 
 Prints `200 application/json`.
@@ -88,10 +88,10 @@ Returning JSON with an error status, by overriding the content type:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET resp = http::withHeader(http::status(422, "{\"error\":\"invalid\"}"), "content-type", "application/json")
   io::print(toString(resp.ok))
-END SUB
+END FUNC
 ```
 
 Prints `FALSE`."#;

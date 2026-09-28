@@ -15,7 +15,7 @@ r#"' Internal: BLOCK until the active transport is readable, bounded by the read
 ' blocking path set `tcp::setReadTimeout`, so a black-holed peer failed cleanly
 ' with `ErrTimeout` instead of wedging the thread. A timeout marks the stream's
 ' STATE `err`, which `done` treats as terminal and `finish` reports.
-SUB __http_waitReadable(RES s AS Stream STATE PendingState)
+FUNC __http_waitReadable(RES s AS Stream STATE PendingState) AS Nothing
   MUT rdy AS Boolean = FALSE
   MATCH s
     CASE tcp::Socket(p)
@@ -26,7 +26,7 @@ SUB __http_waitReadable(RES s AS Stream STATE PendingState)
   IF rdy = FALSE THEN
     s.state.err = errorCode::ErrTimeout
   END IF
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("http_waitReadable", BODY));

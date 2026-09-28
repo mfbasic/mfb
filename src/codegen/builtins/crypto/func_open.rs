@@ -111,12 +111,12 @@ const EX: &str = r#"Seal, then open the `crypto::Sealed` record directly:
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
   LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, secret, nonce, box)
-END SUB
+END FUNC
 ```
 
 Open the ciphertext and tag explicitly, with additional authenticated data:
@@ -125,13 +125,13 @@ Open the ciphertext and tag explicitly, with additional authenticated data:
 IMPORT crypto
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET header AS List OF Byte = strings::toBytes("v1;msg-42")
   LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, "attack at dawn", header)
   LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, box.ciphertext, box.tag, header)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

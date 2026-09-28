@@ -34,9 +34,9 @@ const EX: &str = r#"Project the current instant into the host's local zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toLocal(datetime::now())
-END SUB
+END FUNC
 ```
 
 Round-trip an instant through the local zone and back:
@@ -44,11 +44,11 @@ Round-trip an instant through the local zone and back:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET at AS datetime::Instant = datetime::now()
   LET dt AS datetime::DateTime = datetime::toLocal(at)
   LET back AS datetime::Instant = datetime::resolve(dt)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -55,11 +55,11 @@ A simple two-stage pipeline:
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET nums AS List OF Integer = [1, 2, 3, 4, 5]
   LET total AS Integer = nums |> collections::filter(_, isEven) |> collections::sum(_)
   io::print(toString(total))
-END SUB
+END FUNC
 
 FUNC isEven(n AS Integer) AS Boolean
   RETURN n MOD 2 = 0
@@ -72,11 +72,11 @@ Placeholder in a non-first argument position:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET parts AS List OF String = ["a", "b", "c"]
   LET joined AS String = ", " |> strings::join(parts, _)
   io::print(joined)
-END SUB
+END FUNC
 ```
 
 ## See also

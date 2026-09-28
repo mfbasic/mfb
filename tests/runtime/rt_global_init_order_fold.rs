@@ -34,11 +34,11 @@ FUNC f() AS Integer\n\
   RETURN B * 2\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   io::print(toString(A))\n\
   io::print(toString(C))\n\
   io::print(toString(B))\n\
-END SUB\n"
+END FUNC\n"
     )
 }
 

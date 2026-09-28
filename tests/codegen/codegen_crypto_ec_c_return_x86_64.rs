@@ -26,12 +26,12 @@ use common::{build_ncode, temp_project};
 const SOURCE: &str = "\
 IMPORT crypto\n\
 IMPORT strings\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)\n\
   LET msg AS List OF Byte = strings::toBytes(\"x\")\n\
   LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)\n\
   LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)\n\
-END SUB\n";
+END FUNC\n";
 
 #[test]
 fn crypto_ec_reads_external_call_results_from_c_return_on_x86_64() {

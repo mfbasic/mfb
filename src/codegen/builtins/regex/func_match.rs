@@ -50,10 +50,10 @@ const EX: &str = r#"Test for a substring and an anchored pattern:
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET hasEll AS Boolean = regex::match("hello", "ell")
   LET startsH AS Boolean = regex::match("hello", "^h")
-END SUB
+END FUNC
 ```
 
 Case-insensitive match and a digit-class test (note the doubled backslash):
@@ -61,10 +61,10 @@ Case-insensitive match and a digit-class test (note the doubled backslash):
 ```
 IMPORT regex
 
-SUB main()
+FUNC main() AS Nothing
   LET greeting AS Boolean = regex::match("Hello", "(?i)hello")
   LET hasDigit AS Boolean = regex::match("abc123", "\\d+")
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

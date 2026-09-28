@@ -78,11 +78,11 @@ const EX: &str = r#"Append a single newline byte to a log file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   LET bytes AS List OF Byte = [10]
   fs::appendBytes("output/log.bin", bytes)
-END SUB
+END FUNC
 ```
 
 Append the contents of one file to the end of another:
@@ -90,11 +90,11 @@ Append the contents of one file to the end of another:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::appendBytes("combined.bin", bytes)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -41,7 +41,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT items AS List OF canvas::DrawItem = []
   MUT frame AS Integer = 0
@@ -54,7 +54,7 @@ SUB main()
     canvas::present(items)
     frame = frame + 1
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::didResize() AS Boolean`.

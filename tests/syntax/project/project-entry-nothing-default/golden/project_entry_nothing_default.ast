@@ -1,0 +1,24 @@
+{
+  "project": "project_entry_nothing_default",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -95,10 +95,10 @@
       "name": "constant.language.mfbasic"
     },
     "end-block": {
-      "comment": "`END <modifier>` closes a block. Color the `END` with the SAME scope as its companion keyword so the pair renders as one unit. Declaration terminators (END FUNC/SUB/TYPE/ENUM/UNION) take keyword.declaration to match FUNC/TYPE/...; control terminators (END IF/MATCH/TRAP/WITH) take keyword.control to match IF/.... A bare `END`, or `END` with any other word (e.g. END LINK), falls through to the generic control-keyword rule.",
+      "comment": "`END <modifier>` closes a block. Color the `END` with the SAME scope as its companion keyword so the pair renders as one unit. Declaration terminators (END FUNC/TYPE/ENUM/UNION) take keyword.declaration to match FUNC/TYPE/...; control terminators (END IF/MATCH/TRAP/WITH) take keyword.control to match IF/.... A bare `END`, or `END` with any other word (e.g. END LINK), falls through to the generic control-keyword rule.",
       "patterns": [
         {
-          "match": "(?i)\\b(END)[ \\t]+(FUNC|SUB|TYPE|ENUM|UNION)\\b",
+          "match": "(?i)\\b(END)[ \\t]+(FUNC|TYPE|ENUM|UNION)\\b",
           "captures": {
             "1": { "name": "keyword.declaration.mfbasic" },
             "2": { "name": "keyword.declaration.mfbasic" }
@@ -122,7 +122,7 @@
         },
         {
           "comment": "Declarations and clause keywords. Their own keyword.declaration scope (NOT keyword.control) so a theme can tint them differently from control flow. They no longer carry storage.type, which themes paint with the TYPE color.",
-          "match": "(?i)\\b(FUNC|SUB|LAMBDA|LET|MUT|TYPE|ENUM|UNION|PACKAGE|PROGRAM|IMPORT|EXPORT|PRIVATE|ISOLATED|AS|OF|RES)\\b",
+          "match": "(?i)\\b(FUNC|LAMBDA|LET|MUT|TYPE|ENUM|UNION|PACKAGE|PROGRAM|IMPORT|EXPORT|PRIVATE|ISOLATED|AS|OF|RES)\\b",
           "name": "keyword.declaration.mfbasic"
         },
         {

@@ -10,14 +10,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 8,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 10 },

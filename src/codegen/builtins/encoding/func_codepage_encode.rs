@@ -66,10 +66,10 @@ const EX: &str = r#"Write text back out as `windows-1252` bytes:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows1252, "café")
   io::print(encoding::hexEncode(bytes))
-END SUB
+END FUNC
 ```
 
 Round-trip a body through a codepage, and handle a character the codepage cannot
@@ -86,12 +86,12 @@ FUNC toCodepage(cp AS encoding::Codepage, text AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = [toByte(200), toByte(233)]
   LET text AS String = encoding::codepageDecode(encoding::Codepage.Iso8859_5, raw)
   io::print(toCodepage(encoding::Codepage.Iso8859_5, text))
   io::print(toCodepage(encoding::Codepage.Windows1252, "世"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

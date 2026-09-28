@@ -79,7 +79,7 @@
     "name": "show",
     "line": 16,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "tag", "line": 16, "type": "String", "default": null },
     { "name": "got", "line": 16, "type": "String", "default": null },
@@ -104,7 +104,7 @@
     "name": "caseMapsLocal",
     "line": 26,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -147,7 +147,7 @@
     "name": "normalizeLocal",
     "line": 73,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -174,7 +174,7 @@
     "name": "replaceLocal",
     "line": 100,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -209,7 +209,7 @@
     "name": "pathNormalizeLocal",
     "line": 135,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -244,7 +244,7 @@
     "name": "rewritesGlobal",
     "line": 169,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -271,7 +271,7 @@
     "name": "rewriteThenUse",
     "line": 193,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -322,7 +322,7 @@
     "name": "trapReplaceEmptyOld",
     "line": 216,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

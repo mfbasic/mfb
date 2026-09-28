@@ -50,15 +50,15 @@ FUNC hexField(value AS List OF Byte) AS String
   RETURN encoded
 END FUNC
 
-SUB emitOne(algorithm AS String, outputLen AS Integer, inputHex AS String, digest AS List OF Byte)
+FUNC emitOne(algorithm AS String, outputLen AS Integer, inputHex AS String, digest AS List OF Byte) AS Nothing
   MUT line AS String = "case " & algorithm & " " & toString(outputLen)
   line = line & " " & inputHex & " " & encoding::hexEncode(digest)
   io::print(line)
-END SUB
+END FUNC
 
 ' Every algorithm `crypto` exposes, over one input. Keep this list and
 ' EXPECTED_PER_INPUT in run.sh in step.
-SUB emitAll(data AS List OF Byte)
+FUNC emitAll(data AS List OF Byte) AS Nothing
   LET inputHex AS String = hexField(data)
   emitOne("sha1", 20, inputHex, crypto::hash(crypto::Hash.SHA1, data))
   emitOne("sha2-224", 28, inputHex, crypto::hash(crypto::Hash.SHA2_224, data))
@@ -74,9 +74,9 @@ SUB emitAll(data AS List OF Byte)
   ' reference that ignored the parameter would still match on one of them.
   emitOne("shake256", 32, inputHex, crypto::shake256(data, 32))
   emitOne("shake256", 64, inputHex, crypto::shake256(data, 64))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' Lengths chosen to straddle every padding boundary these algorithms have:
   '   SHA-1 / SHA-224 / SHA-256   64-byte block, 8-byte length  -> 55, 56, 63, 64
   '   SHA-384 / SHA-512          128-byte block, 16-byte length -> 111, 112, 127, 128
@@ -95,4 +95,4 @@ SUB main()
   emitAll(strings::toBytes("abc"))
   emitAll(strings::toBytes("The quick brown fox jumps over the lazy dog"))
   emitAll(strings::toBytes("a-much-longer-passphrase-with-unicode-\u{e9}"))
-END SUB
+END FUNC

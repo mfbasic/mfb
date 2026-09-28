@@ -47,9 +47,9 @@ END FUNC
 ' Closing through a RES parameter: ownership floats up, so the caller's binding is
 ' the same resource and is closed when this returns. The compiler cannot see that,
 ' which is exactly the path the runtime closed-flag guard exists for.
-SUB closeIt(RES img AS canvas::Image)
+FUNC closeIt(RES img AS canvas::Image) AS Nothing
   canvas::destroyImage(img)
-END SUB
+END FUNC
 
 FUNC closedRefuses() AS Integer
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]

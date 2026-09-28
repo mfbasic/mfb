@@ -2233,7 +2233,11 @@ mod tests {
             project_manifest(&project_dir),
         )
         .expect("project manifest");
-        fs::write(src_dir.join("main_a.mfb"), "SUB main()\nEND SUB\n").expect("main_a");
+        fs::write(
+            src_dir.join("main_a.mfb"),
+            "FUNC main() AS Nothing\nEND FUNC\n",
+        )
+        .expect("main_a");
         fs::write(
             src_dir.join("main_b.mfb"),
             "FUNC main(args AS List OF String) AS Integer\n  RETURN 0\nEND FUNC\n",

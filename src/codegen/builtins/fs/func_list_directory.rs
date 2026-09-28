@@ -73,13 +73,13 @@ IMPORT fs
 IMPORT io
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch")
   LET names AS List OF String = fs::listDirectory("scratch")
   FOR i = 0 TO len(names) - 1
     io::print(collections::get(names, i))
   NEXT
-END SUB
+END FUNC
 ```
 
 An empty directory yields an empty `List`:
@@ -88,11 +88,11 @@ An empty directory yields an empty `List`:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch/empty")
   LET names AS List OF String = fs::listDirectory("scratch/empty")
   io::print(toString(len(names)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

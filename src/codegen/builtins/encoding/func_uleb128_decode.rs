@@ -39,10 +39,10 @@ const EX: &str = r#"Round-trip a value through `uleb128Encode` and back:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
   io::print(toString(encoding::uleb128Decode(bytes)))
-END SUB
+END FUNC
 ```
 
 Decode a literal two-byte sequence (`300` = `[0xAC, 0x02]`):
@@ -52,12 +52,12 @@ IMPORT encoding
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT bytes AS List OF Byte = []
   bytes = collections::append(bytes, toByte(172))
   bytes = collections::append(bytes, toByte(2))
   io::print(toString(encoding::uleb128Decode(bytes)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

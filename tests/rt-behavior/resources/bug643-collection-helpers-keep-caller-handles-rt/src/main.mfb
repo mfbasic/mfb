@@ -51,7 +51,7 @@ FUNC copyNamed(files AS List OF RES fs::File) AS Integer
   RETURN len(out)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText(PATH, "")
 
   RES a AS fs::File = fs::open(PATH, "read")
@@ -159,4 +159,4 @@ SUB main()
   LET lr AS List OF RES fs::File = [r]
   LET pairs = collections::zip(lr, [1])
   io::print("zip pairs=" & toString(len(pairs)) & ": " & state(r))
-END SUB
+END FUNC

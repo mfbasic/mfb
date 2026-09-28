@@ -16,9 +16,9 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  package binary hash: fc8f886574984d7457ecde2c502a8e6e72fc78427f87f0248b71049fee0b45a2
-  content hash: 819d9032745c24e082ce6d6acf73e40d43df97000372781cb5175e3237d70873
-  binary representation length: 3229
+  package binary hash: 852ad690eadad3b5eeefbcc87092999db0d4f9dc37de029db4e4cc9ffcfc1e45
+  content hash: 6d01c963ca89a4d8fef3d2120786d92dfb592730772c28be28293d5932513c81
+  binary representation length: 3230
 
 Manifest:
   name: package_shape
@@ -44,8 +44,8 @@ Binary Representation:
 Exports:
   FUNC shapeKind
     sigHash: 49d2569e6a0080516f7eca03acb2c7b75e7f1a568b1be3bbfc45f0a00c093679
-  SUB translate
-    sigHash: 3bccdaa713c3df0f943ff69275a6a7854eebb5df3b7f34d8e6b7270fa8d94ab2
+  FUNC translate
+    sigHash: ebe655d3a4999d7b53dafd20ac291f4882be539408a39b6fc668552cd161ec71
   TYPE Point
     sigHash: 4abca39216e8e74193d4ff7d28693854e618fea7f13783bc3c6951a876273bce
   TYPE Circle

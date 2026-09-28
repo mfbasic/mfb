@@ -2,7 +2,7 @@
 
 MFBASIC supports monomorphized templates, not runtime generics.
 
-Template parameters may appear only on `TYPE`, `UNION`, `FUNC`, and `SUB` declarations. A template is not a runtime entity and is not emitted to binary representation as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, binary representation, package metadata, or native lowering is produced.
+Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations. A template is not a runtime entity and is not emitted to binary representation as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, binary representation, package metadata, or native lowering is produced.
 
 Built-in type constructors such as `List`, `Map`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
 
@@ -15,14 +15,14 @@ FUNC push OF T(s AS Stack OF T, value AS T) AS Stack OF T
   RETURN WITH s { items := collections::append(s.items, value) }
 END FUNC
 
-SUB printValue OF T(value AS T)
+FUNC printValue OF T(value AS T) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 ```
 
 Template arguments are inferred only from explicit argument, parameter, field, and expected result types. The compiler binds each template parameter by structurally matching declared types against the concrete types at each use site; the matching algorithm, symbol mangling, and instantiation mechanics are specified in `./mfb spec architecture monomorphization`. There is no general inference engine, no trait system, no variance, no higher-kinded types, no boxing, and no runtime template dispatch.
 
-A template parameter of a built-in binds `Nothing` like any other type, so `collections::contains(List OF Nothing, NOTHING)` binds `T = Nothing`. Two positions refuse it. The first is a callback's result type (`transform`'s `FUNC(T) AS U`): a `Nothing`-returning callback does not satisfy a value-producing callback parameter (§7). The second is a slot of a thread handle, where a `Nothing` resource plane means "no resource plane". A refused binding is `TYPE_CALL_ARGUMENT_MISMATCH`. [[src/codegen/registry/mod.rs:unify_at]]
+A template parameter of a built-in binds `Nothing` like any other type, so `collections::contains(List OF Nothing, NOTHING)` binds `T = Nothing`. Two positions refuse it. The first is a callback's result type (`transform`'s `FUNC(T) AS U`): a `Nothing`-returning callback does not satisfy a value-producing callback parameter (§6). The second is a slot of a thread handle, where a `Nothing` resource plane means "no resource plane". A refused binding is `TYPE_CALL_ARGUMENT_MISMATCH`. [[src/codegen/registry/mod.rs:unify_at]]
 
 Template predicates such as comparability, copyability, defaultability, or resource restrictions are checked against each concrete instantiation:
 

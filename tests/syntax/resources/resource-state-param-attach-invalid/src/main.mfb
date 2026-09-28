@@ -12,10 +12,10 @@ END TYPE
 ' Param-attach is what makes two disagreeing declarations reachable with no stateful
 ' binding anywhere: a second parameter declaring `STATE Label` would then read
 ' this same block as a Label. See resource-state-param-mismatch-invalid.
-SUB tag(RES p AS fs::File STATE Cursor)
+FUNC tag(RES p AS fs::File STATE Cursor) AS Nothing
   p.state.pos = 7
   io::print(toString(p.state.pos))
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES f AS fs::File = fs::openFile("tests/syntax/resources/resource-state-param-attach-invalid/src/main.mfb")

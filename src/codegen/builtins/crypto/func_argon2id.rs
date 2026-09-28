@@ -89,7 +89,7 @@ IMPORT encoding
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   LET salt AS List OF Byte = crypto::randomBytes(16)
   ' A real password store uses crypto::Argon2Profile.Recommended. These explicit
   ' costs keep the example instant and are far too cheap to store a password with.
@@ -97,7 +97,7 @@ SUB main()
   LET guess AS List OF Byte = crypto::argon2id(strings::toBytes("correct horse"), salt, 32, 1, 1, 32)
   io::print("bytes=" & toString(len(stored)))
   io::print("match=" & toString(crypto::constantTimeEqual(stored, guess)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

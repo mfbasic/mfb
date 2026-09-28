@@ -33,11 +33,11 @@ const EX: &str = r#"Branch on the mode currently in effect:
 IMPORT money
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   IF money::getRounding() = money::Rounding.Banker THEN
     io::print("banker's rounding is active")
   END IF
-END SUB
+END FUNC
 ```
 
 Save the mode, switch it for one calculation, then restore what was there before:
@@ -46,12 +46,12 @@ Save the mode, switch it for one calculation, then restore what was there before
 IMPORT money
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET previous AS money::Rounding = money::getRounding()
   money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
   money::setRounding(previous)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

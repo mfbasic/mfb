@@ -50,9 +50,9 @@ const EX: &str = r#"The dot product of two 3D vectors:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::dot(vector::Float3[1.0, 2.0, 3.0], vector::Float3[4.0, 5.0, 6.0])))
-END SUB
+END FUNC
 ```
 
 Using the sign to test whether two directions broadly agree:
@@ -61,12 +61,12 @@ Using the sign to test whether two directions broadly agree:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET facing AS Float = vector::dot(vector::Float2[1.0, 0.0], vector::Float2[0.0 - 1.0, 0.0])
   IF facing < 0.0 THEN
     io::print("opposite")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

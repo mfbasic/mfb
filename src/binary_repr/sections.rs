@@ -903,11 +903,7 @@ impl AbiIndex {
             if !is_exported_function(function) {
                 continue;
             }
-            let kind = if function.flags & FUNCTION_FLAG_SUB != 0 {
-                BinaryReprExportKind::Sub
-            } else {
-                BinaryReprExportKind::Func
-            };
+            let kind = BinaryReprExportKind::Func;
             exports.push(AbiExport {
                 name: function.name,
                 kind,
@@ -1141,7 +1137,6 @@ fn table_string(strings: &[String], id: u32) -> Result<String, String> {
 pub(super) fn encode_export_kind(kind: BinaryReprExportKind) -> u16 {
     match kind {
         BinaryReprExportKind::Func => 1,
-        BinaryReprExportKind::Sub => 2,
         BinaryReprExportKind::Type => 3,
         BinaryReprExportKind::Union => 4,
         BinaryReprExportKind::Enum => 5,
@@ -1164,7 +1159,7 @@ pub(super) fn function_sig_hash(
     serializer.put_u16(ABI_FORMAT_VERSION);
     serializer.put_str("function");
     serializer.put_u16(encode_export_kind(export_kind));
-    serializer.put_u16(function.flags & (FUNCTION_FLAG_ISOLATED | FUNCTION_FLAG_SUB));
+    serializer.put_u16(function.flags & FUNCTION_FLAG_ISOLATED);
     serializer.put_u32(function.params.len() as u32);
     for param in &function.params {
         serializer.serialize_type(param.type_id)?;

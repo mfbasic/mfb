@@ -39,10 +39,10 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET packed AS List OF Byte = encoding::hexDecode("1f8b08000000000000ffcb48cdc9c9d751c840a21492f3730b8a528b8b018d6147741c000000")
   io::print(encoding::utf8Decode(compress::gzipDecode(packed)))
-END SUB
+END FUNC
 ```
 
 Two gzip members decode to their contents joined together:
@@ -53,7 +53,7 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET one AS List OF Byte = encoding::hexDecode("1f8b08000000000000ffcb48cdc9c9d751c840a21492f3730b8a528b8b018d6147741c000000")
   MUT both AS List OF Byte = one
   MUT i AS Integer = 0
@@ -62,7 +62,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print(toString(len(compress::gzipDecode(both))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

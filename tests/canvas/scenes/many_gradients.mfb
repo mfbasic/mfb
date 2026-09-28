@@ -3,7 +3,7 @@ IMPORT canvas
 IMPORT color
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   MUT scene AS List OF canvas::DrawItem = []
@@ -17,4 +17,4 @@ SUB main()
     k = k + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

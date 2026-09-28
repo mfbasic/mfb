@@ -52,9 +52,9 @@ const EX: &str = r#"The 3D cross product of the `x` and `y` basis vectors is the
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::cross(vector::Float3[1.0, 0.0, 0.0], vector::Float3[0.0, 1.0, 0.0])))
-END SUB
+END FUNC
 ```
 
 The unary 2D form is a quarter turn counterclockwise:
@@ -63,9 +63,9 @@ The unary 2D form is a quarter turn counterclockwise:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::cross(vector::Float2[1.0, 0.0])))
-END SUB
+END FUNC
 ```
 
 The ternary 4D form, orthogonal to all three basis operands:
@@ -74,10 +74,10 @@ The ternary 4D form, orthogonal to all three basis operands:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET n AS vector::Float4 = vector::cross(vector::Float4[1.0, 0.0, 0.0, 0.0], vector::Float4[0.0, 1.0, 0.0, 0.0], vector::Float4[0.0, 0.0, 1.0, 0.0])
   io::print(toString(n))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

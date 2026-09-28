@@ -5,7 +5,7 @@ IMPORT collections
 ' bug-667 (extended by plan-143 finding F1): `toString(<String>)` is an
 ' identity, and used to hand back its argument's own block. An owning store
 ' then took that block as its own: `s = toString(s)` freed the block it stored,
-' so `s` read whatever was allocated next. Each SUB allocates a same-sized junk
+' so `s` read whatever was allocated next. Each helper allocates a same-sized junk
 ' string after the store; a dangling binding would print the junk.
 
 MUT g AS String = ""
@@ -14,67 +14,67 @@ FUNC ident(p AS String) AS String
   RETURN toString(p)
 END FUNC
 
-SUB reassignLocal()
+FUNC reassignLocal() AS Nothing
   MUT s AS String = strings::repeat("ab", 4)
   s = toString(s)
   LET junk AS String = strings::repeat("#", 8)
   io::print(s & " " & junk)
-END SUB
+END FUNC
 
-SUB reassignGlobal()
+FUNC reassignGlobal() AS Nothing
   g = strings::repeat("cd", 4)
   g = toString(g)
   LET junk AS String = strings::repeat("#", 8)
   io::print(g & " " & junk)
-END SUB
+END FUNC
 
-SUB reassignCaptured()
+FUNC reassignCaptured() AS Nothing
   MUT s AS String = strings::repeat("ef", 4)
   collections::forEach([1], LAMBDA(v AS Integer) -> s = toString(s))
   LET junk AS String = strings::repeat("#", 8)
   io::print(s & " " & junk)
-END SUB
+END FUNC
 
-SUB bindThenReassignSource()
+FUNC bindThenReassignSource() AS Nothing
   MUT s AS String = strings::repeat("gh", 4)
   LET t AS String = toString(s)
   s = strings::repeat("ij", 4)
   LET junk AS String = strings::repeat("#", 8)
   io::print(t & " " & s & " " & junk)
-END SUB
+END FUNC
 
-SUB returnedFromFunction()
+FUNC returnedFromFunction() AS Nothing
   LET p AS String = strings::repeat("kl", 4)
   LET r AS String = ident(p)
   LET junk AS String = strings::repeat("#", 8)
   io::print(r & " " & p & " " & junk)
-END SUB
+END FUNC
 
-SUB freshArgumentLoop()
+FUNC freshArgumentLoop() AS Nothing
   MUT s AS String = "x"
   FOR i = 1 TO 50
     s = toString(s & "y")
     s = toString(s)
   NEXT
   io::print(toString(len(s)))
-END SUB
+END FUNC
 
 ' plan-146-B: `s = toString(s)` is the identity arm now — it emits nothing, at a
 ' local and at a global alike. The value must survive a loop of it either way.
-SUB identityLoopGlobal()
+FUNC identityLoopGlobal() AS Nothing
   g = strings::repeat("mn", 4)
   FOR i = 1 TO 3
     g = toString(g)
   NEXT
   LET junk AS String = strings::repeat("#", 8)
   io::print(g & " " & junk)
-END SUB
+END FUNC
 
-SUB literalThenAppend()
+FUNC literalThenAppend() AS Nothing
   MUT s AS String = toString("lit")
   s = s & "!"
   io::print(s)
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   reassignLocal()

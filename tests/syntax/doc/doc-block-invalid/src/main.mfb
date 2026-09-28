@@ -18,13 +18,13 @@ DOC
 END DOC
 
 DOC
-  SUB noisy
+  FUNC noisy
   GROUP A
   GROUP B
 END DOC
-SUB noisy()
+FUNC noisy() AS Nothing
   LET x AS Integer = 0
-END SUB
+END FUNC
 
 DOC
   FUNC add

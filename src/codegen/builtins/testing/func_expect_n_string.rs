@@ -28,9 +28,9 @@ const EX: &str = r#"Assert a transformation actually changed the text:
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   io::print(strings::upper("ab"))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "strings"

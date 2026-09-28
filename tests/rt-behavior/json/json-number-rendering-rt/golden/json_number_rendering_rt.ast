@@ -32,7 +32,7 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "check",
@@ -41,7 +41,7 @@
       { "name": "text", "type": "String", "default": null, "line": 31 },
       { "name": "expected", "type": "String", "default": null, "line": 31 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "checked", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "checked" }, "right": { "kind": "number", "value": "1" } }, "line": 32 },
       { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 33 },

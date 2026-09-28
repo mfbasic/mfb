@@ -74,12 +74,12 @@ fn filter_program(name: &str, predicate: &str) -> Value {
         &format!(
             "IMPORT io\n\
              IMPORT collections\n\
-             SUB main()\n\
+             FUNC main() AS Nothing\n\
             \x20 LET cap AS String = \"CAPTURED\"\n\
             \x20 LET xs AS List OF String = [\"a\", \"bb\", \"ccc\"]\n\
             \x20 LET c AS List OF String = collections::filter(xs, {predicate})\n\
             \x20 io::print(toString(len(c)) & cap)\n\
-             END SUB\n"
+             END FUNC\n"
         ),
     )
 }
@@ -136,11 +136,11 @@ fn a_retained_callback_argument_is_never_given_an_owner() {
         "b572_http_route",
         "IMPORT io\n\
          IMPORT http\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET cap AS String = \"CAPTURED\"\n\
         \x20 LET r AS http::Route = http::route(\"/x\", LAMBDA(req AS http::Request) -> http::ok(cap))\n\
         \x20 io::print(r.pattern)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         closure_envs(&retained, "_mfb_fn_main"),
@@ -169,14 +169,14 @@ fn an_escaping_closure_is_never_given_an_owner() {
          FUNC hold(f AS FUNC(String) AS Boolean) AS FUNC(String) AS Boolean\n\
         \x20 RETURN f\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET cap AS String = \"CAPTURED\"\n\
         \x20 MUT fs AS List OF FUNC(String) AS Boolean = []\n\
         \x20 fs = collections::append(fs, LAMBDA(s AS String) -> len(s) < len(cap))\n\
         \x20 LET h AS FUNC(String) AS Boolean = hold(LAMBDA(s AS String) -> len(s) < len(cap))\n\
         \x20 gfn = LAMBDA(s AS String) -> len(s) < len(cap)\n\
         \x20 io::print(toString(h(\"ab\")) & toString(gfn(\"ab\")) & toString(len(fs)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         closure_envs(&escaping, "_mfb_fn_main"),
@@ -209,10 +209,10 @@ fn a_user_hof_earns_the_free_only_when_its_parameter_is_invoke_only() {
             &format!(
                 "IMPORT io\n\
                  {callee}\
-                 SUB main()\n\
+                 FUNC main() AS Nothing\n\
                 \x20 LET bump AS Integer = 5\n\
                  {body}\
-                 END SUB\n"
+                 END FUNC\n"
             ),
         )
     }
@@ -260,12 +260,12 @@ fn nested_hof_calls_each_own_their_own_closure() {
         "b572_nested",
         "IMPORT io\n\
          IMPORT collections\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET cap AS String = \"CAPTURED\"\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\", \"ccc\"]\n\
         \x20 LET c AS List OF String = collections::filter(collections::filter(xs, LAMBDA(s AS String) -> len(s) < len(cap)), LAMBDA(s AS String) -> len(s) > 1)\n\
         \x20 io::print(toString(len(c)) & cap)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     // The inner lambda captures `cap`; the outer one does not, so only the inner
     // allocates an environment — and it is the inner call that owns it.

@@ -30,12 +30,12 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   canvas::present([face])
-END SUB
+END FUNC
 ```
 
 A gradient instead of a flat colour. `fillGradient` replaces the fill's *colour* and
@@ -47,7 +47,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 0.0], endPoint := canvas::Point[x := 360.0, y := 0.0], stops := stops]
@@ -59,7 +59,7 @@ SUB main()
   LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { fillGradient := glow }]
 
   canvas::present([bar, orb])
-END SUB
+END FUNC
 ```
 
 The ramp is measured in surface pixels, from its own two points and not from the

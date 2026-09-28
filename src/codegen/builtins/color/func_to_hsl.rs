@@ -33,12 +33,12 @@ const EX: &str = r#"Decompose a colour and read its parts:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET parts AS color::Hsl = color::toHsl(color::rgb(0, 255, 0))
   io::print(toString(parts.hue))
   io::print(toString(parts.saturation))
   io::print(toString(parts.lightness))
-END SUB
+END FUNC
 ```
 
 A grey reports hue `0.0`, and still round-trips exactly:
@@ -47,12 +47,12 @@ A grey reports hue `0.0`, and still round-trips exactly:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET grey AS color::Color = color::gray(128)
   LET parts AS color::Hsl = color::toHsl(grey)
   io::print("hue " & toString(parts.hue) & " sat " & toString(parts.saturation))
   io::print(color::toHex(color::hsl(parts.hue, parts.saturation, parts.lightness)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

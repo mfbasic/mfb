@@ -154,9 +154,9 @@ const EX: &str = r#"Print the uptime:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(os::uptime() >= 0))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

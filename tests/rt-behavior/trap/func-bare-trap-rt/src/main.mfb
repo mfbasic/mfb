@@ -1,7 +1,7 @@
 IMPORT io
 
 ' plan-37: function-level bare `TRAP` (no `(e)` binding). A bare handler behaves
-' identically to an unused `TRAP(e)`: RETURN / EXIT SUB / FAIL / PROPAGATE all
+' identically to an unused `TRAP(e)`: RETURN / FAIL / PROPAGATE all
 ' work. PROPAGATE inside a bare handler still re-propagates the same caught Error
 ' with its `code`, `message`, and `source` intact — the error stays internally
 ' bound even though the user has no name for it.
@@ -31,17 +31,17 @@ TRAP
 END TRAP
 END FUNC
 
-' Bare function-level trap in a SUB that EXITs on failure. Normal flow diverges
-' (EXIT SUB) before the trap, as the trap contract requires.
-SUB announce(s AS String)
+' Bare function-level trap in an `AS Nothing` function that RETURNs on failure. Normal
+' flow diverges (bare RETURN) before the trap, as the trap contract requires.
+FUNC announce(s AS String) AS Nothing
   LET n AS Integer = toInt(s)
   io::print("announce ok " & toString(n))
-  EXIT SUB
+  RETURN
 TRAP
   io::print("announce trapped, exiting")
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   io::print(outer("42"))

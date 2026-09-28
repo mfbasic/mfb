@@ -19,7 +19,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "cycle",
@@ -28,7 +28,7 @@
       { "name": "readPath", "type": "String", "default": null, "line": 29 },
       { "name": "writePath", "type": "String", "default": null, "line": 29 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "r", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "readPath" }] }, "line": 30 },
       { "kind": "stateAssignment", "resource": "r", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "1" } }] }, "line": 31 },

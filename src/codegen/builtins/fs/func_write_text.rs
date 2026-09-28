@@ -75,10 +75,10 @@ const EX: &str = r#"Write text to a file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::writeText("output/report.txt", "Hello")
-END SUB
+END FUNC
 ```
 
 Replace a file's contents and read them back:
@@ -87,11 +87,11 @@ Replace a file's contents and read them back:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("greeting.txt", "hello")
   LET text AS String = fs::readText("greeting.txt")
   io::print(text)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -1,0 +1,3 @@
+FUNC foobar(args AS List OF String) AS Nothing
+  FAIL error(100, "This is a message")
+END FUNC

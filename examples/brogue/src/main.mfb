@@ -10,12 +10,12 @@ IMPORT collections
 IMPORT io
 IMPORT os
 
-SUB usage()
+FUNC usage() AS Nothing
   io::printError("usage: brogue rng <seed> <count>")
   io::printError("       brogue dig <levelSeed> <depth>")
-END SUB
+END FUNC
 
-SUB dumpGrid(stage AS String, grid AS List OF Integer)
+FUNC dumpGrid(stage AS String, grid AS List OF Integer) AS Nothing
   io::print("stage " & stage & " grid rng=" & toString(randomNumbersGenerated()))
   FOR j = 0 TO DROWS - 1
     MUT line AS String = toString(gridAt(grid, 0, j))
@@ -24,9 +24,9 @@ SUB dumpGrid(stage AS String, grid AS List OF Integer)
     NEXT
     io::print(line)
   NEXT
-END SUB
+END FUNC
 
-SUB dumpMap(stage AS String)
+FUNC dumpMap(stage AS String) AS Nothing
   io::print("stage " & stage & " map rng=" & toString(randomNumbersGenerated()))
   LET layerNames = ["dungeon", "liquid", "gas", "surface"]
   FOR layer = 0 TO NUMBER_TERRAIN_LAYERS - 1
@@ -55,12 +55,12 @@ SUB dumpMap(stage AS String)
     NEXT
     io::print(line)
   NEXT
-END SUB
+END FUNC
 
 ' The terrain half of Architect.c `digDungeon` (everything before
 ' addMachines), dumping after each step exactly where check/terrain_dump.c
 ' does.
-SUB dumpDig(levelSeed AS Integer, depth AS Integer)
+FUNC dumpDig(levelSeed AS Integer, depth AS Integer) AS Nothing
   setDepthLevel(depth)
   setStream(Stream.Substantive)
   setRandomNumbersGenerated(0)
@@ -85,10 +85,10 @@ SUB dumpDig(levelSeed AS Integer, depth AS Integer)
 
   removeDiagonalOpenings()
   dumpMap("diagonals")
-END SUB
+END FUNC
 
 ' The same mixed call script as check/rng_dump.c, line for line.
-SUB dumpRng(seed AS Integer, count AS Integer)
+FUNC dumpRng(seed AS Integer, count AS Integer) AS Nothing
   setStream(Stream.Substantive)
   setRandomNumbersGenerated(0)
   LET ignored = seedRandomGenerator(seed)
@@ -122,7 +122,7 @@ SUB dumpRng(seed AS Integer, count AS Integer)
   NEXT
   io::print(line)
   io::print("generated " & toString(randomNumbersGenerated()))
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   LET args = os::args()

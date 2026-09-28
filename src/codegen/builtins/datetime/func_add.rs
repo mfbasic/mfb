@@ -35,10 +35,10 @@ const EX: &str = r#"Advance a `datetime::Instant` by a 90-second span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS datetime::Instant = datetime::instant(1_700_000_000)
   LET later AS datetime::Instant = datetime::add(base, datetime::duration(90))
-END SUB
+END FUNC
 ```
 
 A negative `datetime::Duration` shifts the `datetime::Instant` backward:
@@ -46,10 +46,10 @@ A negative `datetime::Duration` shifts the `datetime::Instant` backward:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS datetime::Instant = datetime::instant(1_700_000_000)
   LET earlier AS datetime::Instant = datetime::add(base, datetime::duration(-3600))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

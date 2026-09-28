@@ -121,7 +121,7 @@
     "name": "main",
     "line": 27,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

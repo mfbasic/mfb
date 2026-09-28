@@ -35,10 +35,10 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET packed AS List OF Byte = encoding::hexDecode("789ccb48cdc9c9d751c840a21492f3730b8a528b8b0191f40a61")
   io::print(encoding::utf8Decode(compress::zlibDecode(packed)))
-END SUB
+END FUNC
 ```
 
 A damaged checksum is refused unless you ask for it to be skipped:
@@ -49,7 +49,7 @@ IMPORT compress
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT packed AS List OF Byte = encoding::hexDecode("789ccb48cdc9c9d751c840a21492f3730b8a528b8b0191f40a61")
   packed = collections::set(packed, len(packed) - 1, toByte(0))
   LET strict AS List OF Byte = compress::zlibDecode(packed) TRAP(e)
@@ -58,7 +58,7 @@ SUB main()
   END TRAP
   LET lenient AS List OF Byte = compress::zlibDecode(packed, 67108864, TRUE)
   io::print(encoding::utf8Decode(lenient))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

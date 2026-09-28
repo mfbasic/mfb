@@ -32,14 +32,14 @@
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "gR", "type": "Rec", "value": { "kind": "constructor", "type": "Rec", "arguments": [{ "kind": "named", "name": "a", "value": { "kind": "number", "value": "1.5" } }, { "kind": "named", "name": "b", "value": { "kind": "number", "value": "1.5" } }] }, "line": 22 },
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "g", "type": "Float", "value": { "kind": "number", "value": "0.25" }, "line": 23 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "bumpGlobals",
       "line": 25,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "for",
@@ -56,7 +56,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "bumpState",
@@ -64,7 +64,7 @@
       "params": [
       { "name": "h", "type": "fs.File", "resource": true, "state": "P", "default": null, "line": 32 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "a", "value": { "kind": "binary", "operator": "-", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "a" }, "right": { "kind": "number", "value": "0.25" } } }] }, "line": 33 }
       ]

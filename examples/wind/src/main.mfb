@@ -109,11 +109,11 @@ END FUNC
 ' Hold the window open until the reader has had a chance to read something off
 ' it. Used only for the failure screen, where returning would close the window
 ' before the message could be read.
-SUB waitForKey
+FUNC waitForKey AS Nothing
   DO WHILE TRUE
-    IF nextKey(200) <> "" THEN EXIT SUB
+    IF nextKey(200) <> "" THEN RETURN
   LOOP
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Commands

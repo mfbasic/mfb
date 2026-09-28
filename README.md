@@ -8,9 +8,9 @@ collector, no runtime VM, and no external language runtime.
 ```basic
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print("Hello, world")
-END SUB
+END FUNC
 ```
 
 ```console

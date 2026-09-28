@@ -1,0 +1,76 @@
+' radixsort - sorts `order` one write at a time, without comparing elements.
+'
+' Least-significant-digit first, in base 10: each pass deals the elements out
+' by one digit, ones first, keeping their order within a digit, so after the
+' pass for the highest digit they are in order. It never compares two elements,
+' so its budget is spent in writes, and it has no comparison count.
+'
+' A pass copies the list to a spare buffer and counts how many elements have
+' each digit, which says where each digit's run starts; then it writes the
+' elements back one at a time, each to the next free place in its digit's run.
+
+IMPORT collections
+
+MUT radixBuffer AS List OF Integer = []
+MUT radixNextFree AS List OF Integer = []   ' by digit
+MUT radixPlace AS Integer = 0               ' 1, 10, 100, ... for this pass
+MUT radixRead AS Integer = 0                ' the next buffer element to write
+MUT radixFinished AS Boolean = FALSE
+
+FUNC radixDigit(v AS Integer) AS Integer
+  RETURN (v / radixPlace) MOD 10
+END FUNC
+
+' Copy the list and work out where each digit's run starts.
+FUNC radixBeginPass AS Nothing
+  FOR i = 0 TO DOT_COUNT - 1
+    radixBuffer = collections::set(radixBuffer, i, orderAt(i))
+  NEXT
+  radixNextFree = collections::repeat(radixNextFree, 0, 10)
+  FOR i = 0 TO DOT_COUNT - 1
+    LET d AS Integer = radixDigit(orderAt(i))
+    radixNextFree = collections::set(radixNextFree, d, collections::get(radixNextFree, d) + 1)
+  NEXT
+  MUT start AS Integer = 0
+  FOR d = 0 TO 9
+    LET count AS Integer = collections::get(radixNextFree, d)
+    radixNextFree = collections::set(radixNextFree, d, start)
+    start = start + count
+  NEXT
+  radixRead = 0
+END FUNC
+
+FUNC radixStart AS Nothing
+  radixBuffer = collections::repeat(radixBuffer, 0, DOT_COUNT)
+  radixPlace = 1
+  radixFinished = DOT_COUNT < 2
+  IF NOT radixFinished THEN radixBeginPass()
+END FUNC
+
+FUNC radixDone AS Boolean
+  RETURN radixFinished
+END FUNC
+
+' Run up to `budget` writes.
+FUNC radixSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT radixFinished
+    IF radixRead < DOT_COUNT THEN
+      LET v AS Integer = collections::get(radixBuffer, radixRead)
+      LET d AS Integer = radixDigit(v)
+      LET at AS Integer = collections::get(radixNextFree, d)
+      setOrder(at, v)
+      radixNextFree = collections::set(radixNextFree, d, at + 1)
+      radixRead = radixRead + 1
+      left = left - 1
+    ELSE
+      ' The largest value is DOT_COUNT - 1; once the place passes it, done.
+      radixPlace = radixPlace * 10
+      IF radixPlace > DOT_COUNT - 1 THEN
+        radixFinished = TRUE
+      ELSE
+        radixBeginPass()
+      END IF
+    END IF
+  LOOP
+END FUNC

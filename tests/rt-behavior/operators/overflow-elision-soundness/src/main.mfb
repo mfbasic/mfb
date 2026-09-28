@@ -38,7 +38,7 @@ FUNC reassignThenAdd(s AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("safeSub(2)=" & toString(safeSub(2)))
   io::print("safeSub(100)=" & toString(safeSub(100)))
   io::print("safeLoopSum(5)=" & toString(safeLoopSum(5)))
@@ -65,4 +65,4 @@ SUB main()
   ELSE
     io::print("reassignThenAdd NOT trapped: UNSOUND b=" & toString(b))
   END IF
-END SUB
+END FUNC

@@ -196,9 +196,9 @@ END FUNC
 ' somewhere in `[headerOffset, headerOffset + 30 + compressedSize)` at minimum;
 ' the real region is larger by the name and extra-field lengths this does not
 ' know. Using the minimum means every overlap reported here is a real one.
-PRIVATE SUB requireNoOverlap(entries AS List OF Entry)
+PRIVATE FUNC requireNoOverlap(entries AS List OF Entry) AS Nothing
   IF len(entries) < 2 THEN
-    EXIT SUB
+    RETURN
   END IF
   ' Sort the (offset, end) intervals by packing each into one Integer: an
   ' archive is far smaller than 2^31, so the offset can carry the high half.
@@ -216,7 +216,7 @@ PRIVATE SUB requireNoOverlap(entries AS List OF Entry)
     END IF
     previousEnd = start + span
   NEXT
-END SUB
+END FUNC
 
 ' The fewest bytes an entry can occupy: its 30-byte local header and its
 ' compressed data, with the name and extra fields unaccounted for.

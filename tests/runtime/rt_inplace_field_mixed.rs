@@ -274,7 +274,7 @@ fn a_pointer_and_a_scalar_update_in_place_without_a_leak() {
         format!(
             "IMPORT io\nIMPORT json\n\nTYPE Doc\n  j AS json::Json\n  n AS Integer\nEND TYPE\n\n\
              FUNC fresh(v AS Integer) AS json::Json\n  RETURN json::JsonNum[toFloat(v)]\nEND FUNC\n\n\
-             SUB sink(v AS json::Json)\nEND SUB\n\n\
+             FUNC sink(v AS json::Json) AS Nothing\nEND FUNC\n\n\
              FUNC main() AS Integer\n  MUT d AS Doc = Doc[j := json::parse(\"[1,2]\"), n := 0]\n  \
              FOR i = 1 TO {n}\n    {stmt}\n  NEXT\n  \
              io::print(json::stringify(d.j) & \" \" & toString(d.n))\n  RETURN 0\nEND FUNC\n"
@@ -285,7 +285,7 @@ fn a_pointer_and_a_scalar_update_in_place_without_a_leak() {
     assert_eq!(lines, vec![format!("{N} {N}")]);
     assert_eq!((alloc, live), (free, 0), "the replaced json::Json leaked");
     // The value allocates on its own; the control builds the same value and hands
-    // it to a no-op SUB. A rebuild adds the record (and the kept fields) on top.
+    // it to a no-op `AS Nothing` function. A rebuild adds the record (and the kept fields) on top.
     let (grow, _) = extra("mixed_pointer_grow", |n| program(update, n));
     let (control, _) = extra("mixed_pointer_control", |n| program("sink(fresh(i))", n));
     assert!(

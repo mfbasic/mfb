@@ -9,7 +9,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useS",
@@ -17,13 +17,13 @@
       "params": [
       { "name": "value", "type": "String", "default": null, "line": 8 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 9 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useI",
@@ -31,13 +31,13 @@
       "params": [
       { "name": "value", "type": "Integer", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 13 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useB",
@@ -45,7 +45,7 @@
       "params": [
       { "name": "value", "type": "Boolean", "default": null, "line": 16 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",
@@ -61,7 +61,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useInstant",
@@ -69,13 +69,13 @@
       "params": [
       { "name": "v", "type": "datetime.Instant", "default": null, "line": 24 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 25 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useDuration",
@@ -83,13 +83,13 @@
       "params": [
       { "name": "v", "type": "datetime.Duration", "default": null, "line": 28 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 29 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useDate",
@@ -97,13 +97,13 @@
       "params": [
       { "name": "v", "type": "datetime.Date", "default": null, "line": 32 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "year" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "month" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "day" } }] }, "line": 33 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useTime",
@@ -111,13 +111,13 @@
       "params": [
       { "name": "v", "type": "datetime.Time", "default": null, "line": 36 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "hour" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "minute" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "second" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 37 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useZone",
@@ -125,14 +125,14 @@
       "params": [
       { "name": "v", "type": "datetime.Zone", "default": null, "line": 40 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "offsetSeconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "kind" } }] }, "line": 41 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "useS", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "label" }] }, "line": 42 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useDateTime",
@@ -140,7 +140,7 @@
       "params": [
       { "name": "v", "type": "datetime.DateTime", "default": null, "line": 45 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "offset" }] }, "line": 46 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "useDate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "date" }] }, "line": 47 },
@@ -148,7 +148,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "useWeekday",
@@ -156,7 +156,7 @@
       "params": [
       { "name": "v", "type": "datetime.Weekday", "default": null, "line": 51 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "datetime.Weekday" }, "member": "Monday" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "datetime.Weekday" }, "member": "Sunday" } } }] }, "line": 52 }
       ]

@@ -43,12 +43,12 @@ const EX: &str = r#"Parse in base 10 and base 16, and see truncation:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toInt("42")))
   io::print(toString(toInt("ff", 16)))
   io::print(toString(toInt(1.9)))
   io::print(toString(toInt(-1.9)))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -65,14 +65,14 @@ Bad text raises rather than returning a sentinel:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toInt("not a number")))
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("toInt raised " & toString(err.code))
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:
@@ -91,13 +91,13 @@ ENUM Color
   Red, Green, Blue
 END ENUM
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(toInt(Color.Red)))
   io::print(toString(toInt(Color.Blue)))
   LET allColors AS List OF Color = [Color.Red, Color.Green, Color.Blue]
   LET back AS Color = collections::get(allColors, 1)
   io::print(toString(back = Color.Green))
-END SUB
+END FUNC
 ```
 
 prints:

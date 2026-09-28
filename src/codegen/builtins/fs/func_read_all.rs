@@ -67,12 +67,12 @@ const EX: &str = r#"Read all remaining text from an open file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET value AS String = fs::readAll(f)
   ' f closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Skip the first line, then read the rest of the file:
@@ -80,12 +80,12 @@ Skip the first line, then read the rest of the file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET header AS String = fs::readLine(f)
   LET body AS String = fs::readAll(f)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

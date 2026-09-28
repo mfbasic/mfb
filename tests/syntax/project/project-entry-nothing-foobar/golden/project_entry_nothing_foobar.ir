@@ -1,0 +1,25 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_nothing_foobar",
+  "entry": {
+    "name": "foobar",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "foobar",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

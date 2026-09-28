@@ -111,13 +111,13 @@ FUNC addShape(kind AS ShapeKind, x AS Float, y AS Float) AS Integer
   RETURN len(shapes) - 1
 END FUNC
 
-SUB removeShape(i AS Integer)
+FUNC removeShape(i AS Integer) AS Nothing
   shapes = collections::removeAt(shapes, i)
-END SUB
+END FUNC
 
-SUB moveShape(i AS Integer, x AS Float, y AS Float)
+FUNC moveShape(i AS Integer, x AS Float, y AS Float) AS Nothing
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { x := x, y := y })
-END SUB
+END FUNC
 
 ' Hold every object's centre inside the current play area - the same bound a
 ' drag already clamps to (main.mfb's mouse-drag handler). Called unconditionally
@@ -127,44 +127,44 @@ END SUB
 ' runs (bug-716) - it becomes permanently unselectable. Matching pipeWithin's
 ' own every-frame pattern keeps this invariant - no object ever sits under the
 ' toolbar - true regardless of what causes a shape's position to change.
-SUB clampShapes(play AS Float, height AS Float)
+FUNC clampShapes(play AS Float, height AS Float) AS Nothing
   FOR i = 0 TO len(shapes) - 1
     LET s AS Shape = collections::get(shapes, i)
     LET x AS Float = math::clamp(s.x, 0.0, play)
     LET y AS Float = math::clamp(s.y, 0.0, height)
     IF x <> s.x OR y <> s.y THEN shapes = collections::set(shapes, i, WITH s { x := x, y := y })
   NEXT
-END SUB
+END FUNC
 
-SUB rotateShape(i AS Integer, turns AS Float)
+FUNC rotateShape(i AS Integer, turns AS Float) AS Nothing
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { angle := collections::get(shapes, i).angle + turns * ROTATE_STEP })
-END SUB
+END FUNC
 
 ' Set an object spinning in a direction (-1 anticlockwise, 1 clockwise), or
 ' stop it when it is already spinning that way.
-SUB toggleSpin(i AS Integer, direction AS Float)
+FUNC toggleSpin(i AS Integer, direction AS Float) AS Nothing
   LET s AS Shape = collections::get(shapes, i)
   MUT spin AS Float = direction * SPIN_SPEED
   IF s.spin * direction > 0.0 THEN spin = 0.0
   shapes = collections::set(shapes, i, WITH s { spin := spin })
-END SUB
+END FUNC
 
-SUB stopSpin(i AS Integer)
+FUNC stopSpin(i AS Integer) AS Nothing
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { spin := 0.0 })
-END SUB
+END FUNC
 
 ' Turn every spinning object by how far it spins in `seconds`.
-SUB spinShapes(seconds AS Float)
+FUNC spinShapes(seconds AS Float) AS Nothing
   FOR i = 0 TO len(shapes) - 1
     LET s AS Shape = collections::get(shapes, i)
     IF s.spin <> 0.0 THEN shapes = collections::set(shapes, i, WITH s { angle := s.angle + s.spin * seconds })
   NEXT
-END SUB
+END FUNC
 
-SUB scaleShape(i AS Integer, steps AS Float)
+FUNC scaleShape(i AS Integer, steps AS Float) AS Nothing
   LET scale AS Float = math::clamp(collections::get(shapes, i).scale * math::pow(SCALE_STEP, steps), MIN_SCALE, MAX_SCALE)
   shapes = collections::set(shapes, i, WITH collections::get(shapes, i) { scale := scale })
-END SUB
+END FUNC
 
 FUNC shapeX(i AS Integer) AS Float
   RETURN collections::get(shapes, i).x
@@ -460,7 +460,7 @@ MUT starCornerYs AS List OF Float = []
 ' Recompute every shape's cached angle/scale-derived quantities. Called once
 ' at the top of stepWater, after spinShapes has updated every spinning
 ' shape's angle for the frame.
-SUB rebuildShapeCache
+FUNC rebuildShapeCache AS Nothing
   LET corners AS Integer = STAR_POINTS * 2
   MUT cosList AS List OF Float = []
   MUT sinList AS List OF Float = []
@@ -487,7 +487,7 @@ SUB rebuildShapeCache
   shapeSin = sinList
   starCornerXs = cxList
   starCornerYs = cyList
-END SUB
+END FUNC
 
 ' starContact, reading corner k of shape i's cache instead of recomputing
 ' STAR_POINTS * 2 * 2 trig calls on every invocation. Otherwise identical.

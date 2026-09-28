@@ -22,7 +22,7 @@
 IMPORT io
 IMPORT collections
 
-SUB main
+FUNC main AS Nothing
   ' --- probe-eligible String key ---
   LET si AS Map OF String TO Integer = collections::set(collections::set(collections::set(Map OF String TO Integer {}, "alpha", 1), "beta", 2), "gamma", 3)
   io::print("si hit=" & toString(collections::getOr(si, "beta", -1)) & " miss=" & toString(collections::getOr(si, "delta", -1)))
@@ -49,4 +49,4 @@ SUB main
 
   LET ms AS Map OF Money TO String = collections::set(collections::set(Map OF Money TO String {}, low, "low"), high, "high")
   io::print("ms hit=" & collections::getOr(ms, low, "absent") & " miss=" & collections::getOr(ms, absent, "absent"))
-END SUB
+END FUNC

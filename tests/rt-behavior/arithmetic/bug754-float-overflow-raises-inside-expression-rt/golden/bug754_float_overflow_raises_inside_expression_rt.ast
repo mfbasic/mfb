@@ -162,14 +162,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 65,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "r0", "type": "Float", "value": {
         "kind": "trapped",

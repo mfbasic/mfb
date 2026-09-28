@@ -17,6 +17,11 @@
 #   tools/link-package-sources/*      native link-collision packages
 #   tests/{syntax,rt-behavior}/**     in-tree `kind: package` fixtures (valid ones)
 #
+# NOT handled — a fixture whose directory holds `mfp-frozen.txt` carries a
+# package copy that is DELIBERATELY out of date (for example a package an older
+# compiler built, kept to prove the reader rejects it). Its copies are reported as
+# `frozen:` and never overwritten; the file says why.
+#
 # NOT handled — the security fixtures under `tools/security-package-sources/*` are
 # CRAFTED and deliberately TAMPERED by their own `generate.py` (via `mfp_craft.py`).
 # Their committed `.mfp` are intentionally malformed to exercise the decode/verify
@@ -42,6 +47,7 @@ trap 'rm -rf "$work"' EXIT
 
 updated=0
 unchanged=0
+frozen=0
 build_failed=0
 no_copy=0
 
@@ -84,6 +90,12 @@ while IFS= read -r proj; do
   while IFS= read -r committed; do
     [ -n "$committed" ] || continue
     found_any=1
+    # A copy lives at <fixture>/packages/<name>.mfp or <fixture>/golden/<name>.mfp.
+    if [ -f "$(dirname "$(dirname "$committed")")/mfp-frozen.txt" ]; then
+      echo "frozen: $committed"
+      frozen=$((frozen + 1))
+      continue
+    fi
     if cmp -s "$fresh" "$committed"; then
       unchanged=$((unchanged + 1))
     else
@@ -96,4 +108,4 @@ while IFS= read -r proj; do
 done < <(package_projects)
 
 echo "----"
-echo "updated $updated, unchanged $unchanged (build-failed/skipped $build_failed, no committed copy $no_copy)"
+echo "updated $updated, unchanged $unchanged, frozen $frozen (build-failed/skipped $build_failed, no committed copy $no_copy)"

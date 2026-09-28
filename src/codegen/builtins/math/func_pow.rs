@@ -16,9 +16,9 @@ fractional one raises `ErrFloatNaN` for `Float` and `ErrInvalidArgument` for
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::pow(2.0, 10.0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

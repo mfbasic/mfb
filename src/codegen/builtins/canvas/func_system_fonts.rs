@@ -43,12 +43,12 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   FOR EACH name IN canvas::listSystemFonts()
     io::print(name)
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 const LOAD_INTRO: &str =
@@ -81,17 +81,17 @@ IMPORT collections
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET names AS List OF String = canvas::listSystemFonts()
   IF len(names) = 0 THEN
     io::print("no system fonts")
-    EXIT SUB
+    RETURN
   END IF
   RES face AS canvas::Font = canvas::loadSystemFont(collections::getOr(names, 0, ""))
   LET label AS canvas::DrawItem = canvas::Text[x := 20.0, y := 60.0, text := "hello", font := face, size := 32.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
-END SUB
+END FUNC
 ```
 
 A name the machine does not have is `ErrNotFound`:
@@ -101,13 +101,13 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadSystemFont("No Such Font") TRAP(e)
     io::print("not installed: " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 ```"#;
 
 /// The table as a flat list of fields — `name, postScript, path, name, …` — split on

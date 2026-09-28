@@ -121,7 +121,7 @@ A local introduced at any of those sites whose name equals a top-level `LET`/`MU
 **visible from its file** is `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`, reported at the
 local's line and naming the top-level declaration. Visible means `PUBLIC`/`EXPORT`
 anywhere in the project, or `PRIVATE` in the same file. The rule does not cover a
-function, `SUB`, type, union, enum or resource name; another file's `PRIVATE`
+function, type, union, enum or resource name; another file's `PRIVATE`
 binding; an imported package's binding (reachable only as `pkg::Name`); a
 compiler-internal name; or a local inside a built-in package's source. A name
 already live as a local is reported as `SYMBOL_DUPLICATE_LOCAL` instead, and each

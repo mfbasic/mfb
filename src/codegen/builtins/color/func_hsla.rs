@@ -26,9 +26,9 @@ const EX: &str = r#"A half-transparent vivid red:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(color::hsla(0.0, 1.0, 0.5, 128)))
-END SUB
+END FUNC
 ```
 
 `hsla` with a fully opaque alpha is exactly `hsl`:
@@ -37,10 +37,10 @@ END SUB
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(color::hsla(210.0, 0.6, 0.5, 255)))
   io::print(color::toHexAlpha(color::hsl(210.0, 0.6, 0.5)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

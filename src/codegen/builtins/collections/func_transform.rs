@@ -28,7 +28,7 @@ single-argument `general` predicates (`isEven`, `isOdd`, and friends) *are*
 ordinary callables and can be passed directly where their type fits.
 
 `f` must produce a value: a callback whose success type is `Nothing` — such as a
-`SUB` — is a compile-time error, because there would be nothing to collect. Use
+`FUNC … AS Nothing` — is a compile-time error, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
 
 `value` is not modified; the result is a new list with exactly one value per

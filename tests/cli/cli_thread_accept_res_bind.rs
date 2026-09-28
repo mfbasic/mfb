@@ -214,9 +214,9 @@ fn trap_union_program(other_package: &str, variants: &str) -> String {
         \x20 END TRAP\n\
         \x20 RETURN 1\n\
          END FUNC\n\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 io::print(\"ok=\" & toString(openOne(0)))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 

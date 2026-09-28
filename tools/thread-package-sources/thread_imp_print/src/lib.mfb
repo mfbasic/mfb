@@ -1,5 +1,5 @@
 IMPORT io
 
-EXPORT SUB printLine(message AS String)
+EXPORT FUNC printLine(message AS String) AS Nothing
   io::print(message)
-END SUB
+END FUNC

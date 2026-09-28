@@ -34,12 +34,12 @@ const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   canvas::destroyImage(img)
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::destroyImage(image)` — set the closed bit.

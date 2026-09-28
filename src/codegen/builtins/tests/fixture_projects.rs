@@ -137,8 +137,8 @@ const PACKAGE_FIXTURES: &[&str] = &[
     "native-struct-scalar-rt",
     "project-entry-func-args-foobar-trap",
     "project-entry-func-foobar-trap",
-    "project-entry-sub-args-foobar-trap",
-    "project-entry-sub-foobar-trap",
+    "project-entry-nothing-args-foobar-trap",
+    "project-entry-nothing-foobar-trap",
 ];
 
 /// Each one lowers, on every backend.

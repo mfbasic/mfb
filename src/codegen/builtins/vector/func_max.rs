@@ -39,9 +39,9 @@ const EX: &str = r#"The component-wise maximum of two 2D vectors:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::max(vector::Float2[2.0, 3.0], vector::Float2[4.0, 1.0])))
-END SUB
+END FUNC
 ```
 
 The high corner of a bounding box around two points:
@@ -50,10 +50,10 @@ The high corner of a bounding box around two points:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET hi AS vector::Integer3 = vector::max(vector::Integer3[1, 7, 3], vector::Integer3[4, 2, 9])
   io::print(toString(hi))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

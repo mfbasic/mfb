@@ -84,10 +84,10 @@ then bring the console surface up:
 IMPORT app
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   io::print("no window yet")
   app::setMode(app::Mode.Console)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

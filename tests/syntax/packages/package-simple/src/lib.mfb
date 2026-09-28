@@ -30,12 +30,12 @@ EXPORT FUNC score(v AS Vec2) AS Integer
   RETURN v.x + v.y
 END FUNC
 
-EXPORT SUB mark()
-END SUB
+EXPORT FUNC mark() AS Nothing
+END FUNC
 
-EXPORT SUB mark(v AS Vec2)
+EXPORT FUNC mark(v AS Vec2) AS Nothing
   LET total = v.x + v.y
-END SUB
+END FUNC
 
 EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
   RETURN len(seed)

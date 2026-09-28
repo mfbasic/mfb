@@ -49,7 +49,7 @@ use serde_json::Value;
 /// Every positioned member, each with a style the `Light` literal cannot fake:
 /// `Double` and `HeavyDash` are different glyphs in every table, and `Dark` is a
 /// different glyph from a space.
-const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n  \
+const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nFUNC main() AS Nothing\n  \
      term::on()\n  \
      term::setBold(TRUE)\n  \
      term::setUnderline(TRUE)\n  \
@@ -65,7 +65,7 @@ const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n 
      term::sync()\n  \
      LET seen AS Boolean = term::getBold()\n  \
      io::print(toString(seen) & toString(term::isOn()) & toString(term::didResize()))\n  \
-     term::off()\nEND SUB\n";
+     term::off()\nEND FUNC\n";
 
 fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Value> {
     functions_of(&app_ncode_plan(name, target, TERM_SOURCE))
@@ -436,7 +436,7 @@ fn windows_app_mode_draw_text_drops_a_wide_cluster_at_the_edge_and_skips_control
 /// surface size: `terminalSize`, `didResize`, `moveTo` and an `io::write` that runs
 /// the grid walk while TUI mode is on (and `isOn`, which locates the arena
 /// term-state base, as [`fields_base`] does).
-const RESIZE_SOURCE: &str = "IMPORT io\nIMPORT term\n\nSUB main()\n  \
+const RESIZE_SOURCE: &str = "IMPORT io\nIMPORT term\n\nFUNC main() AS Nothing\n  \
      term::on()\n  \
      LET size AS term::TermSize = term::terminalSize()\n  \
      term::moveTo(size.rows - 1, size.columns - 1)\n  \
@@ -449,7 +449,7 @@ const RESIZE_SOURCE: &str = "IMPORT io\nIMPORT term\n\nSUB main()\n  \
      io::write(\"grid\")\n  \
      io::print(toString(term::didResize()) & toString(term::isOn()))\n  \
      term::sync()\n  \
-     term::off()\nEND SUB\n";
+     term::off()\nEND FUNC\n";
 
 fn resize_ncode_functions(name: &str) -> serde_json::Map<String, Value> {
     functions_of(&app_ncode_plan(name, "windows-x86_64", RESIZE_SOURCE))

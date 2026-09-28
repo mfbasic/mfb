@@ -39,9 +39,9 @@ const EX: &str = r#"Print the platform:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(os::name() & "/" & os::arch())
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

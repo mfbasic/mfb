@@ -20,14 +20,14 @@ const EX: &str = r#"```
 IMPORT net
 IMPORT http
 
-SUB main()
+FUNC main() AS Nothing
   RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
       http::pump(s)
     END IF
   END WHILE
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

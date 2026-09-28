@@ -27,10 +27,10 @@ const EX: &str = r#"Assert two fixed-point values are distinct:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Fixed = 1.0
   io::print(toString(a))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "fixed-point"

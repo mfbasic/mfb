@@ -3100,7 +3100,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // Every other external-call emitter in this file reserves one; this one did not,
         // and the damage was invisible on the console path and fatal on app mode's
         // worker thread, where the corrupted frame belonged to code that then dereferenced
-        // it. See bug-478 — an empty `SUB main() END SUB` faulted with `0xC0000005` inside
+        // it. See bug-478 — an empty value-less `main` faulted with `0xC0000005` inside
         // ntdll's activation-context machinery, several frames away from anything this
         // repository wrote.
         // 0x20, not 0x28. This emitter is *inline* in a larger body whose frame the
@@ -3108,7 +3108,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // the reservation has to be a multiple of 16 to keep it that way. 0x28 is the
         // right number for a function's own prologue — where entry `rsp` is 8 mod 16
         // because the call pushed a return address — and it is exactly wrong here:
-        // measured, an empty `SUB main() END SUB` console build faulted with it and
+        // measured, an empty value-less `main` console build faulted with it and
         // ran clean with this.
         instructions.push(abi::subtract_stack(SHADOW_FRAME));
         instructions.extend([
@@ -4327,7 +4327,7 @@ mod c_result_tests {
     ///
     /// The damage was invisible on the console path and fatal in app mode, where the
     /// corrupted frame belonged to code that then dereferenced it — an **empty**
-    /// `SUB main() END SUB` died with `0xC0000005` inside ntdll's activation-context
+    /// An empty value-less `main` died with `0xC0000005` inside ntdll's activation-context
     /// machinery, ~20 frames from anything this repository wrote, and every Windows
     /// `--app` program was unrunnable (bug-478).
     ///

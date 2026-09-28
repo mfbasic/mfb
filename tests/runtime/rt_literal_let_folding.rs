@@ -71,9 +71,9 @@ FUNC shown() AS String\n\
   RETURN toString(V)\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   io::print(shown())\n\
-END SUB\n"
+END FUNC\n"
         );
         let project = temp_project(&format!("literal_let_{}", type_.to_lowercase()), &source);
         let unoptimized = run_at(&project, 0);
@@ -106,13 +106,13 @@ FUNC bump(x AS Integer) AS Integer\n\
   RETURN BIG + x\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   LET n AS Integer = bump(1) TRAP(e)\n\
     io::print(\"code=\" & toString(e.code) & \" msg=\" & e.message & \" file=\" & e.source.filename & \" line=\" & toString(e.source.line) & \" char=\" & toString(e.source.char))\n\
-    EXIT SUB\n\
+    RETURN\n\
   END TRAP\n\
   io::print(toString(n))\n\
-END SUB\n";
+END FUNC\n";
     let project = temp_project("literal_let_overflow", source);
     let unoptimized = run_at(&project, 0);
     assert_eq!(unoptimized.0, 0, "-O0 run failed: {}", unoptimized.2);
@@ -167,9 +167,9 @@ FUNC cell(x AS Integer, y AS Integer) AS Integer\n\
   RETURN x * ROWS + y\n\
 END FUNC\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
   io::print(toString(cell(2, 3)))\n\
-END SUB\n";
+END FUNC\n";
     let project = temp_project("literal_let_immediate", source);
     assert!(
         loads_globals(&project, 0, "cell"),

@@ -9,14 +9,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 9,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": { "kind": "set", "elementType": "Integer", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 10 },
       { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "set", "elementType": "Integer", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 11 },

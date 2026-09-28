@@ -20,32 +20,32 @@ FUNC conv(text AS String) AS Integer
 END FUNC
 
 ' The failure is a call's: the local is freed.
-SUB a(text AS String)
+FUNC a(text AS String) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = conv(text)
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
 ' The failure is an inline conversion's: the local leaks.
-SUB b(text AS String)
+FUNC b(text AS String) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = toInt(text)
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
 ' A FAIL: the local is freed.
-SUB c(text AS String)
+FUNC c(text AS String) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   IF text = "x" THEN FAIL error(77050002, "neg")
   io::print(toString(q.age))
-END SUB
+END FUNC
 
 ' The failure is an operator's (division by zero): the local leaks.
-SUB d(v AS Integer)
+FUNC d(v AS Integer) AS Nothing
   LET q AS D = D[lon := 0.5, age := 1]
   LET n AS Integer = 10 / v
   io::print(toString(n + q.age))
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   LET which AS String = os::getEnvOr("W", "0")

@@ -25,7 +25,7 @@ FUNC rank(RES x AS fs::File) AS Integer
   RETURN 1
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText(PATH, "")
   RES a AS fs::File = fs::open(PATH, "read")
   RES b AS fs::File = fs::open(PATH, "read")
@@ -42,4 +42,4 @@ SUB main()
   io::print("findIndex=" & toString(at) & " findLastIndex=" & toString(last))
   io::print("all=" & toString(collections::all(files, LAMBDA(RES x AS fs::File) -> TRUE)) & " any=" & toString(collections::any(files, LAMBDA(RES x AS fs::File) -> FALSE)))
   io::print("a: " & state(a) & " b: " & state(b))
-END SUB
+END FUNC

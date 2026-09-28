@@ -70,18 +70,18 @@ fn string_drops(plan: &Value, symbol: &str) -> usize {
         .count()
 }
 
-/// The one `SUB main` all three callee shapes are measured through: the call
+/// The one `FUNC main() AS Nothing` all three callee shapes are measured through: the call
 /// result is left UNBOUND (consumed by `len`), which is exactly the position that
 /// had no owner at all before this fix.
 fn main_calling(callee: &str) -> String {
     format!(
         "IMPORT io\n\
          {callee}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET held AS String = \"held-value\"\n\
         \x20 io::print(toString(len(f(held))))\n\
         \x20 io::print(held)\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -137,11 +137,11 @@ fn a_param_borrow_string_callee_result_is_never_given_an_owner() {
     let no_call = ncode(
         "b536_b2_no_call",
         "IMPORT io\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET held AS String = \"held-value\"\n\
         \x20 io::print(toString(len(held)))\n\
         \x20 io::print(held)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let borrow_temps = pending_temps(&borrow, "_mfb_fn_main");
     let no_call_temps = pending_temps(&no_call, "_mfb_fn_main");
@@ -173,26 +173,26 @@ fn the_tostring_identity_adds_no_owner() {
     let plain = ncode(
         "b536_b2_identity_plain",
         "IMPORT io\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 MUT i AS Integer = 0\n\
         \x20 WHILE i < 3\n\
         \x20   LET a AS String = \"x\" & toString(i)\n\
         \x20   io::print(a)\n\
         \x20   i = i + 1\n\
         \x20 END WHILE\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let wrapped = ncode(
         "b536_b2_identity_wrapped",
         "IMPORT io\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 MUT i AS Integer = 0\n\
         \x20 WHILE i < 3\n\
         \x20   LET a AS String = toString(\"x\" & toString(i))\n\
         \x20   io::print(a)\n\
         \x20   i = i + 1\n\
         \x20 END WHILE\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let plain_drops = string_drops(&plain, "_mfb_fn_main");
     let wrapped_drops = string_drops(&wrapped, "_mfb_fn_main");
@@ -234,10 +234,10 @@ fn callee_reached_as_callback(body: &str) -> String {
         "IMPORT io\n\
          IMPORT collections\n\
          {body}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(collections::get(collections::transform(xs, f), 0))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -246,10 +246,10 @@ fn callee_reached_directly(body: &str) -> String {
         "IMPORT io\n\
          IMPORT collections\n\
          {body}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(f(collections::get(xs, 0)))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -391,20 +391,20 @@ fn transform_owns_the_string_block_its_callback_returns() {
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let to_integer = ncode(
         "b569_transform_integer",
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC pick(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(toString(collections::get(collections::transform(xs, pick), 0)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let string_frees = loop_item_frees(&to_string, "_mfb_fn_main");
     let integer_frees = loop_item_frees(&to_integer, "_mfb_fn_main");
@@ -431,20 +431,20 @@ fn sort_by_owns_the_string_key_its_callback_returns() {
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC key(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF Integer = [3, 1, 2]\n\
         \x20 io::print(toString(collections::get(collections::sortBy(xs, key), 0)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let float_key = ncode(
         "b569_sortby_float",
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC key(v AS Integer) AS Float\n  RETURN toFloat(v)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF Integer = [3, 1, 2]\n\
         \x20 io::print(toString(collections::get(collections::sortBy(xs, key), 0)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let string_frees = loop_item_frees(&string_key, &mfb_hof("sortBy", "Integer$String"));
     let float_frees = loop_item_frees(&float_key, &mfb_hof("sortBy", "Integer$Float"));
@@ -468,10 +468,10 @@ fn group_by_owns_the_string_value_its_callback_returns() {
          IMPORT collections\n\
          FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
          FUNC vf(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(collections::get(collections::get(collections::groupBy(xs, kf, vf), 1), 0))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let integer_value = ncode(
         "b569_groupby_integer",
@@ -479,10 +479,10 @@ fn group_by_owns_the_string_value_its_callback_returns() {
          IMPORT collections\n\
          FUNC kf(s AS String) AS Integer\n  RETURN len(s)\nEND FUNC\n\
          FUNC vf(s AS String) AS Integer\n  RETURN len(s) + 1\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(toString(collections::get(collections::get(collections::groupBy(xs, kf, vf), 1), 0)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let string_frees = loop_item_frees(&string_value, "_mfb_fn_main");
     let integer_frees = loop_item_frees(&integer_value, "_mfb_fn_main");
@@ -523,11 +523,11 @@ fn map_values_owns_the_string_value_its_callback_returns() {
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC deco(v AS Integer) AS Float\n  RETURN toFloat(v)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
         \x20 xs = collections::set(xs, 1, 7)\n\
         \x20 io::print(toString(collections::get(collections::mapValues(xs, deco), 1)))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let string_body = mfb_hof("mapValues", "Integer$Integer$String");
     let float_body = mfb_hof("mapValues", "Integer$Integer$Float");
@@ -553,22 +553,22 @@ fn map_values_owns_the_string_value_its_callback_returns() {
 const MAP_VALUES_STRING: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC deco(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
 \x20 xs = collections::set(xs, 1, 7)\n\
 \x20 io::print(collections::get(collections::mapValues(xs, deco), 1))\n\
-END SUB\n";
+END FUNC\n";
 
 /// The same program with the callback renamed to `f` — which is also the name of
 /// `__collections_mapValues`'s own callable PARAMETER.
 const MAP_VALUES_STRING_SHADOWING: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC f(v AS Integer) AS String\n  RETURN toString(v)\nEND FUNC\n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 MUT xs AS Map OF Integer TO Integer = Map OF Integer TO Integer {}\n\
 \x20 xs = collections::set(xs, 1, 7)\n\
 \x20 io::print(collections::get(collections::mapValues(xs, f), 1))\n\
-END SUB\n";
+END FUNC\n";
 
 /// A `Call` carries only its target's NAME, so `f(e.value)` inside
 /// `__collections_mapValues` is indistinguishable by shape from a direct call to
@@ -629,20 +629,20 @@ fn a_callback_that_returns_its_own_parameter_is_freed_exactly_once() {
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC pick(s AS String) AS String\n  RETURN s\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let identity = ncode(
         "b569_transform_identity",
         "IMPORT io\n\
          IMPORT collections\n\
          FUNC pick(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"a\", \"bb\"]\n\
         \x20 io::print(collections::get(collections::transform(xs, pick), 0))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         loop_item_frees(&bare, "_mfb_fn_main"),

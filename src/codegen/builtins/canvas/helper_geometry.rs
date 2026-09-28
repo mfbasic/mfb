@@ -1003,13 +1003,13 @@ END FUNC"#;
 const GEO_CACHE: &str =
 r#"' Count a slot as used by the frame in progress, once per frame however many times the
 ' scene names it. What `canvas::geoBeginFrame` knows about the live set comes from here.
-SUB __canvas_geoStamp(slot AS Integer)
+FUNC __canvas_geoStamp(slot AS Integer) AS Nothing
   LET at AS Integer = slot * 4
   IF collections::getOr(__CANVAS_GEO_SLOTS, at + 3, 0) <> __CANVAS_GEO_FRAME THEN
     __CANVAS_GEO_SLOTS = collections::set(__CANVAS_GEO_SLOTS, at + 3, __CANVAS_GEO_FRAME)
     __CANVAS_GEO_USED_FLOATS = __CANVAS_GEO_USED_FLOATS + collections::getOr(__CANVAS_GEO_SLOTS, at + 2, 0)
   END IF
-END SUB
+END FUNC
 
 ' Is the geometry at `offset` still this picture's? Its header holds the pixel-block
 ' address current when it was built, split across two slots; `setBytes` swaps the block
@@ -1350,16 +1350,16 @@ END FUNC"#;
 /// body.
 ///
 /// A normal build has nothing to check against and nowhere to report, so the hook is an
-/// empty `SUB`, like `__canvas_phaseMark`.
+/// empty `FUNC … AS Nothing`, like `__canvas_phaseMark`.
 #[rustfmt::skip]
-const GEO_VERIFY: &str = r#"SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
-END SUB
+const GEO_VERIFY: &str = r#"FUNC __canvas_geoVerify(item AS DrawItem, native AS List OF Float) AS Nothing
+END FUNC
 
-SUB __canvas_geoVerifyFrame(pending AS Integer)
-END SUB
+FUNC __canvas_geoVerifyFrame(pending AS Integer) AS Nothing
+END FUNC
 
-SUB __canvas_drawsVerify()
-END SUB"#;
+FUNC __canvas_drawsVerify() AS Nothing
+END FUNC"#;
 
 /// [`GEO_VERIFY`] for a `--debug` build.
 ///
@@ -1482,22 +1482,22 @@ FUNC __canvas_geoVerifying() AS Boolean
   RETURN __CANVAS_GEO_VERIFY_MODE = 2
 END FUNC
 
-SUB __canvas_geoVerify(item AS DrawItem, native AS List OF Float)
+FUNC __canvas_geoVerify(item AS DrawItem, native AS List OF Float) AS Nothing
   IF __canvas_geoVerifying() THEN
     __CANVAS_GEO_VERIFIED = __CANVAS_GEO_VERIFIED + 1
     IF NOT canvas::geoSame(native, __canvas_geoReference(item, 0 - 1)) THEN
       __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
     END IF
   END IF
-END SUB
+END FUNC
 
 ' The frame `canvas::sceneResolve` just laid out: every record it built natively,
 ' against the MFBASIC builders, and -- when no index went to MFBASIC, so the draw
 ' entries are the scene's one for one -- every draw hash it folded, against
 ' `__canvas_hashFloat`.
-SUB __canvas_geoVerifyFrame(pending AS Integer)
+FUNC __canvas_geoVerifyFrame(pending AS Integer) AS Nothing
   IF NOT __canvas_geoVerifying() THEN
-    EXIT SUB
+    RETURN
   END IF
   IF len(__CANVAS_GEO_BUILT) > 0 THEN
     LET items AS List OF DrawItem = __canvas_frameItems()
@@ -1548,13 +1548,13 @@ SUB __canvas_geoVerifyFrame(pending AS Integer)
       i = i + 1
     END WHILE
   END IF
-END SUB
+END FUNC
 
 ' The draw list `canvas::sceneDrawsFlat` laid out, against the MFBASIC walk it replaces
 ' on a frame with no group -- which is re-run here and left in place.
-SUB __canvas_drawsVerify()
+FUNC __canvas_drawsVerify() AS Nothing
   IF NOT __canvas_geoVerifying() THEN
-    EXIT SUB
+    RETURN
   END IF
   LET draws AS List OF Integer = __CANVAS_DRAWS
   LET blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
@@ -1565,7 +1565,7 @@ SUB __canvas_drawsVerify()
   IF NOT (__canvas_intListEquals(draws, walked) AND __canvas_intListEquals(blocks, __CANVAS_DRAW_BLOCKS) AND __canvas_intListEquals(inst, __CANVAS_DRAW_INST) AND nextInst = __CANVAS_DRAW_NEXT_INST) THEN
     __CANVAS_GEO_MISMATCHES = __CANVAS_GEO_MISMATCHES + 1
   END IF
-END SUB
+END FUNC
 
 FUNC __canvas_geoVerifyText() AS String
   RETURN " geoNative=" & toString(__CANVAS_GEO_NATIVE_BUILDS) & " geoVerified=" & toString(__CANVAS_GEO_VERIFIED) & " geoVerifyMismatches=" & toString(__CANVAS_GEO_MISMATCHES) & " drawsVerified=" & toString(__CANVAS_DRAWS_VERIFIED) & " geoResolvedChecked=" & toString(__CANVAS_GEO_RESOLVED_CHECKED) & " snapshotRehashed=" & toString(__CANVAS_SNAP_REHASHED)

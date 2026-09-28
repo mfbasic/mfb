@@ -10,14 +10,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 6,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "packed", "type": "List OF Byte", "value": { "kind": "call", "callee": "compress.gzipEncode", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "hello" }] }, { "kind": "named", "name": "level", "value": { "kind": "number", "value": "10" } }] }, "line": 8 },

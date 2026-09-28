@@ -16,11 +16,10 @@ const MOD = '(?:(?:EXPORT|PRIVATE|ISOLATED)\\s+)*'; // optional leading modifier
 
 // Blocks that produce an outline symbol, with their explicit `END` terminator.
 // `members` (when set) means leaf lines inside the block become child symbols
-// of the given kind. `container` means nested FUNC/SUB declarations become
+// of the given kind. `container` means nested FUNC declarations become
 // child symbols (the LINK FFI block).
 const SYMBOL_OPENERS = [
   { re: new RegExp('^\\s*' + MOD + 'FUNC\\s+([A-Za-z_]\\w*)', 'i'), kind: 'function', end: /^\s*END\s+FUNC\b/i, detail: true },
-  { re: new RegExp('^\\s*' + MOD + 'SUB\\s+([A-Za-z_]\\w*)', 'i'), kind: 'method', end: /^\s*END\s+SUB\b/i, detail: true },
   { re: new RegExp('^\\s*' + MOD + 'TYPE\\s+([A-Za-z_]\\w*)', 'i'), kind: 'struct', end: /^\s*END\s+TYPE\b/i, members: 'field' },
   { re: new RegExp('^\\s*' + MOD + 'ENUM\\s+([A-Za-z_]\\w*)', 'i'), kind: 'enum', end: /^\s*END\s+ENUM\b/i, members: 'enummember' },
   { re: new RegExp('^\\s*' + MOD + 'UNION\\s+([A-Za-z_]\\w*)', 'i'), kind: 'struct', end: /^\s*END\s+UNION\b/i, members: 'field' },
@@ -70,7 +69,7 @@ function parseSymbols(text) {
       continue;
     }
 
-    // Open a new symbol block? (LINK containers accept nested FUNC/SUB; other
+    // Open a new symbol block? (LINK containers accept nested FUNC; other
     // blocks only nest when the current top is a container.)
     let opened = false;
     if (!top || top.container) {
@@ -132,7 +131,6 @@ function parseSymbols(text) {
 // Folding: structural blocks, DOC blocks, region markers, and comment runs.
 const FOLD_OPENERS = [
   { open: new RegExp('^\\s*' + MOD + 'FUNC\\b', 'i'), close: /^\s*END\s+FUNC\b/i },
-  { open: new RegExp('^\\s*' + MOD + 'SUB\\b', 'i'), close: /^\s*END\s+SUB\b/i },
   { open: new RegExp('^\\s*' + MOD + 'TYPE\\b', 'i'), close: /^\s*END\s+TYPE\b/i },
   { open: new RegExp('^\\s*' + MOD + 'ENUM\\b', 'i'), close: /^\s*END\s+ENUM\b/i },
   { open: new RegExp('^\\s*' + MOD + 'UNION\\b', 'i'), close: /^\s*END\s+UNION\b/i },

@@ -20,9 +20,9 @@ accurate as a small one: `math::tan(100000000000000000000.0)` is about `-0.845`.
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::tan(0.0)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

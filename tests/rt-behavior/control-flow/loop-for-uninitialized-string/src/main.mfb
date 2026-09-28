@@ -6,9 +6,9 @@
 ' relocation target '_mfb_str_empty' is not a data object").
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR i = 0 TO 2
     MUT s AS String
     io::print(s)
   NEXT
-END SUB
+END FUNC

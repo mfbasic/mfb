@@ -72,7 +72,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "setFile",
@@ -81,7 +81,7 @@
       { "name": "path", "type": "String", "default": null, "line": 36 },
       { "name": "text", "type": "String", "default": null, "line": 36 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "text" }] }, "line": 37 }
       ]

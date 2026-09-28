@@ -22,7 +22,7 @@
 
 use super::lower::{self, LowerContext, LowerFacts};
 use super::{ExternalSignature, ImportedTypeDef};
-use crate::ast::{ExitTarget, FunctionKind, Visibility};
+use crate::ast::{ExitTarget, Visibility};
 use crate::codegen::builtins;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
@@ -116,9 +116,6 @@ struct Walker<'a> {
     /// `term::drawText(AttributedString)` bridge body, which is injected only
     /// then.
     astrings_imported: bool,
-    /// Whether the function being walked is a `SUB` (the EXIT/RETURN forms
-    /// that depend on it).
-    current_is_sub: bool,
     /// The success types of the enclosing inline-`TRAP` handlers (innermost
     /// last): what a `RECOVER` must (or must not) supply.
     inline_trap_types: Vec<ParameterType>,
@@ -196,7 +193,6 @@ struct DeclaredFunction {
     visibility: Visibility,
     owner_file: String,
     isolated: bool,
-    kind: crate::ast::FunctionKind,
 }
 
 /// What the call-shape rules know about one declared parameter: its name (the
@@ -284,7 +280,7 @@ fn is_always_in_scope_nominal(type_: &ParameterType) -> bool {
 ///   writer's `concrete_union_variants` does. The variant record's own name is
 ///   not checked. Neither the importer nor native codegen needs the record
 ///   exported, because the union row carries each variant's fields inline;
-/// * every `EXPORT FUNC`/`SUB` parameter and return type;
+/// * every `EXPORT FUNC` parameter and return type;
 /// * every `EXPORT LET`/`MUT` binding type.
 ///
 /// An exported type reached this way is checked as its own declaration, so the
@@ -842,7 +838,6 @@ impl<'a> Walker<'a> {
                             visibility: function.visibility,
                             owner_file: file.path.clone(),
                             isolated: function.isolated,
-                            kind: function.kind,
                         },
                     );
                 }
@@ -910,7 +905,6 @@ impl<'a> Walker<'a> {
             functions,
             imported_signatures,
             astrings_imported,
-            current_is_sub: false,
             inline_trap_types: Vec::new(),
             resource_types,
             handler_depth: 0,
@@ -1051,7 +1045,6 @@ impl<'a> Walker<'a> {
                             if !matches!(
                                 export.kind,
                                 crate::binary_repr::BinaryReprExportKind::Func
-                                    | crate::binary_repr::BinaryReprExportKind::Sub
                             ) {
                                 continue;
                             }
@@ -1276,7 +1269,6 @@ impl<'a> Walker<'a> {
         let previous_return_type = self.context.current_return_type.take();
         self.context.current_return_type = Some(lower::function_return_type(function));
         self.state_dropped.clear();
-        self.current_is_sub = function.kind == FunctionKind::Sub;
         // The body's top-level locals stay visible to the function-level
         // TRAP body (bug-285), exactly as `lower_function_body` scopes them.
         let mut body_locals = locals.clone();
@@ -1356,10 +1348,10 @@ impl<'a> Walker<'a> {
     /// Walk a block and report how it ends, the way the source checker's
     /// `check_block` did: the first diverging statement ends the walk (the
     /// checker checked nothing after it), and when that statement is an `EXIT
-    /// SUB`/`EXIT FUNC`/`EXIT PROGRAM` every statement after it is
-    /// UNREACHABLE_AFTER_EXIT — those three lower to a bare Return, to
-    /// nothing, and to an `ExitProgram` op that `ir::verify`'s loop-exit form
-    /// does not treat as an exit, so the IR cannot report them (the `EXIT
+    /// FUNC`/`EXIT PROGRAM` every statement after it is UNREACHABLE_AFTER_EXIT
+    /// — those two lower to nothing and to an `ExitProgram` op that
+    /// `ir::verify`'s loop-exit form does not treat as an exit, so the IR cannot
+    /// report them (the `EXIT
     /// FOR`/`DO`/`WHILE`/`CONTINUE` forms are verify's). Inside an inline-TRAP
     /// handler every exit form is shape's: `treeify_handler` drops the
     /// statements after any terminator before lowering sees them.
@@ -1384,7 +1376,7 @@ impl<'a> Walker<'a> {
             if flow == Flow::AlwaysReturns {
                 let erased_exit = match statement {
                     HirStatement::Exit {
-                        target: ExitTarget::Sub | ExitTarget::Func | ExitTarget::Program,
+                        target: ExitTarget::Func | ExitTarget::Program,
                         ..
                     } => true,
                     HirStatement::Exit { .. } | HirStatement::Continue { .. } => {
@@ -1590,16 +1582,6 @@ impl<'a> Walker<'a> {
                 self.bind(name, lowered_type, locals);
             }
             HirStatement::Return { value, line } => {
-                // SUB_RETURN_FORBIDDEN, the bare form: `RETURN` in a SUB lowers
-                // to the same bare `Return` op as `EXIT SUB`, so only the HIR
-                // knows which the source wrote (the valued form is verify's).
-                if self.current_is_sub && value.is_none() {
-                    self.emit(
-                        "SUB_RETURN_FORBIDDEN",
-                        "A SUB returns no value; use `EXIT SUB`.".to_string(),
-                        *line,
-                    );
-                }
                 if let Some(value) = value {
                     self.walk_expression(value, locals);
                     // TYPE_UNKNOWN_VALUE, the RETURN form (see
@@ -1619,19 +1601,6 @@ impl<'a> Walker<'a> {
                 match target {
                     // EXIT FOR/DO/WHILE outside a matching loop is `ir::verify`'s.
                     ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
-                    // EXIT_SUB_IN_FUNC: `EXIT SUB` lowers to a bare `Return`,
-                    // which a FUNC's IR cannot tell from a fall-through — the
-                    // statement's own kind is gone.
-                    ExitTarget::Sub => {
-                        if !self.current_is_sub {
-                            self.emit(
-                                "EXIT_SUB_IN_FUNC",
-                                "EXIT SUB is valid only inside a SUB; use RETURN <value> in a FUNC."
-                                    .to_string(),
-                                *line,
-                            );
-                        }
-                    }
                     // EXIT_FUNC_FORBIDDEN: `ExitTarget::Func` lowers to NOTHING —
                     // the fact does not exist in the IR.
                     ExitTarget::Func => {
@@ -2493,15 +2462,16 @@ impl<'a> Walker<'a> {
         // kind-independent: the rule is the same in an executable and a package,
         // which is why `is_package` is NOT threaded in (plan §Open Decisions).
         let Some((binding, member)) = name.split_once('.') else {
-            return self.functions.get(name).is_some_and(|function| {
-                function.isolated && function.kind == crate::ast::FunctionKind::Func
-            });
+            return self
+                .functions
+                .get(name)
+                .is_some_and(|function| function.isolated);
         };
         match self.context.current_imports.get(binding) {
             Some(package) => self
                 .imported_signatures
                 .get(&format!("{package}.{member}"))
-                .is_some_and(|signature| signature.isolated && !signature.sub),
+                .is_some_and(|signature| signature.isolated),
             None => false,
         }
     }
@@ -3577,7 +3547,7 @@ impl<'a> Walker<'a> {
     /// verdicts the checker made that the seam does not: a call its rules
     /// typed `Unknown`, a constructor or `WITH` of something it would not
     /// construct, an arithmetic on `Money` its lattice rejects or on a
-    /// value-less `SUB` call, `.state` on a plain `LET` of a stateful resource.
+    /// value-less call, `.state` on a plain `LET` of a stateful resource.
     /// (`ir::verify` cascades for the operator misuses its own rules poison.)
     fn checker_types_unknown(
         &self,
@@ -3651,7 +3621,7 @@ impl<'a> Walker<'a> {
                     | BinaryOp::Power
             ) =>
             {
-                // A value-less (`SUB`) or untyped operand: the checker's
+                // A value-less or untyped operand: the checker's
                 // promotion had nothing numeric to promote.
                 let (left, right) = (self.type_of(left, locals), self.type_of(right, locals));
                 if matches!(left, ParameterType::Nothing | ParameterType::Unknown)
@@ -4112,7 +4082,6 @@ mod tests {
                 ],
                 returns: ParameterType::Integer,
                 isolated: false,
-                sub: false,
             },
         );
         let src = "IMPORT shapes AS sh\nFUNC main AS Integer\n  LET a = sh::area(width := 1, depth := 2)\n  LET b = sh::area(1, width := 2)\n  RETURN a + b\nEND FUNC\n";
@@ -4943,19 +4912,12 @@ mod tests {
     // ---- control-flow shapes lowering erases -------------------------------
 
     #[test]
-    fn exit_forms_and_bare_sub_return() {
-        let codes = shape_codes(
-            "SUB tick()\n  RETURN\nEND SUB\nFUNC main AS Integer\n  EXIT SUB\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n",
-        );
-        assert_eq!(
-            codes,
-            [
-                "SUB_RETURN_FORBIDDEN",
-                "EXIT_SUB_IN_FUNC",
-                "UNREACHABLE_AFTER_EXIT",
-                "UNREACHABLE_AFTER_EXIT",
-            ]
-        );
+    fn exit_func_is_forbidden_and_ends_the_path() {
+        // plan-159-D: the half of this test that pinned the retired value-less
+        // callable's RETURN/EXIT rules is gone. `EXIT FUNC` is still rejected and
+        // still ends the path, so the statement after it is unreachable.
+        let codes = shape_codes("FUNC main AS Integer\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n");
+        assert_eq!(codes, ["EXIT_FUNC_FORBIDDEN", "UNREACHABLE_AFTER_EXIT"]);
     }
 
     #[test]
@@ -5012,7 +4974,7 @@ mod tests {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
-                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nSUB g()\n  EXIT SUB\nEND SUB\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
+                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC g() AS Nothing\n  RETURN\nEND FUNC\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
             ),
             &[],
             &[],

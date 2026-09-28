@@ -5,52 +5,52 @@
 IMPORT io
 IMPORT datetime
 
-SUB useS(value AS String)
+FUNC useS(value AS String) AS Nothing
   io::print(value)
-END SUB
+END FUNC
 
-SUB useI(value AS Integer)
+FUNC useI(value AS Integer) AS Nothing
   io::print(toString(value))
-END SUB
+END FUNC
 
-SUB useB(value AS Boolean)
+FUNC useB(value AS Boolean) AS Nothing
   IF value THEN
     io::print("1")
   ELSE
     io::print("0")
   END IF
-END SUB
+END FUNC
 
-SUB useInstant(v AS datetime::Instant)
+FUNC useInstant(v AS datetime::Instant) AS Nothing
   useI(v.seconds + v.nanos)
-END SUB
+END FUNC
 
-SUB useDuration(v AS datetime::Duration)
+FUNC useDuration(v AS datetime::Duration) AS Nothing
   useI(v.seconds + v.nanos)
-END SUB
+END FUNC
 
-SUB useDate(v AS datetime::Date)
+FUNC useDate(v AS datetime::Date) AS Nothing
   useI(v.year + v.month + v.day)
-END SUB
+END FUNC
 
-SUB useTime(v AS datetime::Time)
+FUNC useTime(v AS datetime::Time) AS Nothing
   useI(v.hour + v.minute + v.second + v.nanos)
-END SUB
+END FUNC
 
-SUB useZone(v AS datetime::Zone)
+FUNC useZone(v AS datetime::Zone) AS Nothing
   useI(v.offsetSeconds + v.kind)
   useS(v.label)
-END SUB
+END FUNC
 
-SUB useDateTime(v AS datetime::DateTime)
+FUNC useDateTime(v AS datetime::DateTime) AS Nothing
   useI(v.offset)
   useDate(v.date)
   useTime(v.time)
-END SUB
+END FUNC
 
-SUB useWeekday(v AS datetime::Weekday)
+FUNC useWeekday(v AS datetime::Weekday) AS Nothing
   useB(v = datetime::Weekday.Monday OR v = datetime::Weekday.Sunday)
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   ' --- Clocks (host-touching intrinsics) ---

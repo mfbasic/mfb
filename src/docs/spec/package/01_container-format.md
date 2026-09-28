@@ -76,7 +76,7 @@ Recommended magic:
 
 ```text
 4D 46 50 0D 0A 1A 0A 00
-M  F  P \r \n SUB \n NUL
+M  F  P \r \n ^Z \n NUL
 ```
 
 The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers are easier to detect.

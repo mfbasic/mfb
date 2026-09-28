@@ -37,10 +37,10 @@ const EX: &str = r#"Join a directory and a file name:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET path AS String = fs::pathJoin(["target", "output.txt"])
   io::print(path)
-END SUB
+END FUNC
 ```
 
 A trailing separator is not duplicated by the join:
@@ -49,9 +49,9 @@ A trailing separator is not duplicated by the join:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathJoin(["target/", "output.txt"]))
-END SUB
+END FUNC
 ```
 
 An absolute component discards everything joined before it:
@@ -60,9 +60,9 @@ An absolute component discards everything joined before it:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathJoin(["ignored", "/etc", "hosts"]))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

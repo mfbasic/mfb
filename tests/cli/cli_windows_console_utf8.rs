@@ -24,7 +24,7 @@ use std::process::Command;
 
 /// A program printing a multi-byte UTF-8 string (em-dash U+2014 = E2 80 94).
 const SOURCE: &str =
-    "IMPORT io\n\nSUB main()\n  io::print(\"browser — a tiny terminal web viewer\")\nEND SUB\n";
+    "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"browser — a tiny terminal web viewer\")\nEND FUNC\n";
 
 fn temp_project(name: &str) -> PathBuf {
     // A fixed-name project dir under the OS temp dir; the test target string keeps

@@ -30,10 +30,10 @@ const EX: &str = r#"Both answers from one division:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET parts AS big::DivResult = big::divMod(big::fromInteger(-7), big::fromInteger(2))
   io::print(toString(big::toInteger(parts.quotient)) & " " & toString(big::toInteger(parts.remainder)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

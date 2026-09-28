@@ -184,7 +184,7 @@ TYPE Node
   tag AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Node = Node[kids := [], tag := 1]
   LET b AS Node = Node[kids := [a], tag := 2]
   MUT xs AS List OF Node = []
@@ -193,7 +193,7 @@ SUB main()
   MUT ys AS List OF Node = []
   ys = collections::append(ys, Node[kids := [], tag := 9])
   io::print("b=" & toString(len(b.kids)) & " xs=" & toString(len(xs)) & " c=" & toString(c.tag) & " ys=" & toString(len(ys)) & " a=" & toString(a.tag))
-END SUB
+END FUNC
 "#;
 
 /// Every relocation object in an `-ncode` dump whose `from`, `to` prefix and `kind` match.
@@ -282,12 +282,12 @@ FUNC viaValues(m AS Map OF String TO Node) AS Integer
   RETURN len(ys)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Node = Node[kids := [], tag := 1]
   LET xs AS List OF Node = [a, a]
   LET m AS Map OF String TO Node = Map OF String TO Node { "k" := a }
   io::print(toString(viaAppend(xs, a)) & " " & toString(viaRemoveAt(xs)) & " " & toString(viaFilter(xs)) & " " & toString(viaValues(m)))
-END SUB
+END FUNC
 "#;
 
 #[test]

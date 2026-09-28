@@ -105,8 +105,8 @@ just as a failure of `divide` would. The one exception is the right operand of
 result: a call or raising operator there is rejected
 (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`), so give it its own statement and trap it
 there. Every path through the handler must `RECOVER` or diverge; falling through to
-`END TRAP` is a compile error. For a value-less trapped call (a `SUB` or a
-fallible effect-only built-in) `RECOVER` takes no operand. Use it for ordinary
+`END TRAP` is a compile error. For a value-less trapped call (a function
+declared `AS Nothing`, yours or a built-in) `RECOVER` takes no operand. Use it for ordinary
 absence too — `RECOVER` the recoverable case and bail on the rest:
 
 ```
@@ -120,7 +120,7 @@ END TRAP
 
 ## Function-level TRAP
 
-Each `FUNC` or `SUB` may declare at most one function-level `TRAP(e)`, at the
+Each `FUNC` may declare at most one function-level `TRAP(e)`, at the
 bottom of the function after normal flow. It traps every error from the body and
 is diverging-only — it has no `RECOVER`, because at function scope there is no
 failing statement to resume into:
@@ -140,16 +140,15 @@ END FUNC
 
 The function-level `TRAP` is reached only via `FAIL` in the body, an
 auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap —
-never by fall-through. Every body path before it must end with `RETURN` (in a
-`FUNC`) or `EXIT SUB` (in a `SUB`) or `FAIL`.
+never by fall-through. Every body path before it must end with `RETURN` or
+`FAIL` — in a function declared `AS Nothing`, a bare `RETURN`.
 
 ## Trap outcomes
 
 | Statement | Meaning | Scope |
 | --- | --- | --- |
 | `RECOVER v` | bind `v` and continue after the trap | inline `TRAP` only |
-| `RETURN v` | the function succeeds with value `v` | `FUNC` only |
-| `EXIT SUB` | the sub succeeds with no value | `SUB` only |
+| `RETURN v` | the function succeeds with value `v` (a bare `RETURN` in an `AS Nothing` function) | both |
 | `PROPAGATE` | re-propagate the current error to the caller | both |
 | `FAIL e2` | replace or wrap the error and fail to the caller | both |
 
@@ -180,8 +179,9 @@ one central policy over several calls.
 ## Program entry points
 
 An executable entry point may handle errors with `TRAP` like any other function.
-If an entry point returns an uncaught `Err`, the runtime writes
-`Code: <err.code> Message: <err.message>` to stderr and exits with status 255.
+If an entry point returns an uncaught `Err`, the program writes `Error:` and the
+error code on one line of stderr, the message on the next, and exits with
+status 255.
 
 ## Errors
 

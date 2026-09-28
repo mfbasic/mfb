@@ -84,9 +84,9 @@ fn main_of(name: &str, body: &str) -> Value {
              ISOLATED FUNC worker(w AS ThreadWorker OF String TO String, seed AS String) AS String\n\
             \x20 RETURN seed\n\
              END FUNC\n\
-             SUB main()\n\
+             FUNC main() AS Nothing\n\
              {body}\n\
-             END SUB\n"
+             END FUNC\n"
         ),
     )
 }
@@ -171,13 +171,13 @@ fn a_trapped_helper_resource_result_gains_no_owner() {
         "b566_resource",
         "IMPORT io\n\
          IMPORT fs\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET ok AS Boolean = TRUE\n\
         \x20 RES f AS fs::File = fs::openFile(\"p.txt\", \"read\") TRAP(e)\n\
-        \x20   EXIT SUB\n\
+        \x20   RETURN\n\
         \x20 END TRAP\n\
         \x20 io::print(toString(ok))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         materialised_results(&resource, "_mfb_fn_main"),

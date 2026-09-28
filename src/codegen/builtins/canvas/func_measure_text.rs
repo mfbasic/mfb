@@ -40,12 +40,12 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
   LET m AS canvas::TextMetrics = canvas::measureText(face, 24.0, "hello")
   io::print("width " & toString(m.width) & " height " & toString(m.height))
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::measureText(font, size, text)` — sum the advances, scale the metrics.

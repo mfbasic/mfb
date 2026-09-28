@@ -107,14 +107,7 @@ impl TypeEnv {
                     if let Some(value) = value {
                         self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);
-                        // A `$`-temp bind is the trap machinery capturing a
-                        // *statement-position* call result — a SUB call is
-                        // legal there (`doEffect(v) TRAP(e)`).
-                        if name.starts_with('$') {
-                            self.allow_sub_call.set(true);
-                        }
                         self.check_value(value, locals);
-                        self.allow_sub_call.set(false);
                         // the former source checker's cascade: an initializer whose type could
                         // not be determined *because it is erroneous* also gets
                         // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
@@ -429,10 +422,7 @@ impl TypeEnv {
                 }
                 IrOp::Eval { value, .. } => {
                     self.check_value_captures(value, closure_slots);
-                    // Statement position: a value-less SUB call is legal here.
-                    self.allow_sub_call.set(true);
                     self.check_value(value, locals);
-                    self.allow_sub_call.set(false);
                 }
                 IrOp::ExitProgram { code: value, .. } => {
                     self.check_value_captures(value, closure_slots);
@@ -481,14 +471,6 @@ impl TypeEnv {
                     }
                 }
                 IrOp::Return { value, .. } => {
-                    // A SUB produces no value; lowering keeps a SUB's `RETURN
-                    // <value>` so the rejection survives to the IR.
-                    if value.is_some() && *self.current_kind.borrow() == "sub" {
-                        self.emit(
-                            "SUB_RETURN_FORBIDDEN",
-                            "A SUB returns no value; use `EXIT SUB`.".to_string(),
-                        );
-                    }
                     if let Some(value) = value {
                         self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);

@@ -8,14 +8,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 9,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "for",

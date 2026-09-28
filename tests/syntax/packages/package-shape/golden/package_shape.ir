@@ -137,7 +137,7 @@
     "name": "translate",
     "line": 40,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "point", "line": 40, "type": "Point", "default": null },
     { "name": "dx", "line": 40, "type": "Float", "default": null },

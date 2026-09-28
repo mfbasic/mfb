@@ -187,7 +187,7 @@ fn a_named_call_fills_an_omitted_default_in_declaration_scope() {
     );
 }
 
-/// The P11 shape on a `SUB`.
+/// The P11 shape on an `AS Nothing` function.
 #[test]
 fn a_sub_default_ignores_a_callers_same_named_local() {
     let output = run_program(
@@ -199,9 +199,9 @@ fn a_sub_default_ignores_a_callers_same_named_local() {
         \x20 RETURN 5\n\
          END FUNC\n\
          \n\
-         SUB show(x AS Integer = helper())\n\
+         FUNC show(x AS Integer = helper()) AS Nothing\n\
         \x20 io::print(toString(x))\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC main() AS Integer\n\
         \x20 LET helper = LAMBDA() -> 99\n\
@@ -212,7 +212,7 @@ fn a_sub_default_ignores_a_callers_same_named_local() {
     assert_eq!(
         lines(&output),
         vec!["5"],
-        "the SUB's default must call the declaration's `helper`:\n{output}"
+        "the function's default must call the declaration's `helper`:\n{output}"
     );
 }
 
@@ -335,9 +335,9 @@ fn a_literal_default_is_unchanged() {
         "",
         "IMPORT io\n\
          \n\
-         SUB greet(name AS String, greeting AS String = \"Hello\")\n\
+         FUNC greet(name AS String, greeting AS String = \"Hello\") AS Nothing\n\
         \x20 io::print(greeting & \" \" & name)\n\
-         END SUB\n\
+         END FUNC\n\
          \n\
          FUNC main() AS Integer\n\
         \x20 greet(\"Ada\")\n\

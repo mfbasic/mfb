@@ -759,9 +759,6 @@ pub(super) fn lower_function(
     } else {
         FUNCTION_FLAG_PRIVATE
     };
-    if function.kind == "sub" {
-        flags |= FUNCTION_FLAG_SUB | FUNCTION_FLAG_RETURNS_NOTHING;
-    }
     if function.returns == crate::types::ParameterType::Nothing {
         flags |= FUNCTION_FLAG_RETURNS_NOTHING;
     }
@@ -1227,14 +1224,7 @@ impl BinaryReprProject {
                 continue;
             }
             put_u32(&mut bytes, function.name);
-            put_u16(
-                &mut bytes,
-                if function.flags & FUNCTION_FLAG_SUB != 0 {
-                    2
-                } else {
-                    1
-                },
-            );
+            put_u16(&mut bytes, encode_export_kind(BinaryReprExportKind::Func));
             put_u16(&mut bytes, 0);
             put_u32(&mut bytes, index as u32);
         }
@@ -1330,7 +1320,6 @@ pub(super) fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
         .map(|decl| DeclDocEntry {
             kind: match decl.kind {
                 IrDocKind::Func => "func",
-                IrDocKind::Sub => "sub",
                 IrDocKind::Type => "type",
                 IrDocKind::Union => "union",
                 IrDocKind::Enum => "enum",

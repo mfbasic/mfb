@@ -36,7 +36,7 @@ No errors.
 ## Examples
 
 ```
-SUB main()
+FUNC main() AS Nothing
   LET isAdmin AS Boolean = TRUE
   LET hasToken AS Boolean = FALSE
   LET oldValue AS Boolean = TRUE
@@ -44,7 +44,7 @@ SUB main()
   LET ready AS Boolean = NOT FALSE
   LET allowed AS Boolean = isAdmin OR hasToken
   LET changed AS Boolean = oldValue XOR newValue
-END SUB
+END FUNC
 ```
 
 ## See also

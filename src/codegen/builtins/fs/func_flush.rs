@@ -53,7 +53,7 @@ const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writi
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("report.txt", "first line\nsecond line\n")
   LET header AS String = "id,name\n"
   LET body AS String = "1,alice\n"
@@ -62,7 +62,7 @@ SUB main()
   fs::writeAll(out, header)
   fs::flush(out)             ' header reaches disk before the body is written
   fs::writeAll(out, body)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

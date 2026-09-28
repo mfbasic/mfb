@@ -47,13 +47,13 @@ const EX: &str = r#"Check for lost audio after a playback loop:
 IMPORT audio
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   audio::write(out, pcm)
   io::print("underruns: " & toString(audio::xruns(out)))
   audio::close(out)
-END SUB
+END FUNC
 ```"#;
 
 const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. The handle stays open — you still close it. A closed handle reports `0`.";

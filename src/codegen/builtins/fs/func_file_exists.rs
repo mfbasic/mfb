@@ -57,11 +57,11 @@ const EX: &str = r#"Test for a regular file before reading it:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF fs::fileExists("data.txt") THEN
     io::print("found")
   END IF
-END SUB
+END FUNC
 ```
 
 Unicode paths are accepted:
@@ -69,9 +69,9 @@ Unicode paths are accepted:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   LET present AS Boolean = fs::fileExists("é日😀.txt")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

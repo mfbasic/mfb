@@ -69,7 +69,7 @@ failed assertion aborts its case, and sibling cases and groups continue.
 - `expectTrap`/`expectNTrap` evaluate their argument under a trap guard built on
   the inline-`TRAP` machinery, so they accept **any call** it accepts — the same
   uniform surface (§8.6): infallible built-ins, the index/range members, the
-  callback members, and user `FUNC`/`SUB` calls. The only rejection is a scrutinee
+  callback members, and user `FUNC` calls. The only rejection is a scrutinee
   with no runtime call to trap — a non-call or a package constant
   (`TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE`). On an infallible callee the assertion
   simply evaluates against the real outcome: `expectTrap` always fails at runtime

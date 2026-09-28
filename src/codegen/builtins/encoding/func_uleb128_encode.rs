@@ -41,10 +41,10 @@ const EX: &str = r#"Encode a value and round-trip it back through `uleb128Decode
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
   io::print(toString(encoding::uleb128Decode(bytes)))
-END SUB
+END FUNC
 ```
 
 Small values fit in a single byte:
@@ -53,11 +53,11 @@ Small values fit in a single byte:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(len(encoding::uleb128Encode(0))))
   io::print(toString(len(encoding::uleb128Encode(127))))
   io::print(toString(len(encoding::uleb128Encode(128))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

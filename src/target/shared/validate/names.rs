@@ -78,7 +78,7 @@ pub(super) fn unique_function_names(functions: &[NirFunction]) -> Result<HashSet
         if function.name.is_empty() {
             return Err("NIR function name must not be empty".to_string());
         }
-        if !matches!(function.kind.as_str(), "func" | "sub") {
+        if function.kind != "func" {
             return Err(format!(
                 "NIR function '{}' has invalid kind '{}'",
                 function.name, function.kind
@@ -109,7 +109,7 @@ pub(super) fn unique_import_names(module: &NirModule) -> Result<HashSet<String>,
         if import.name.is_empty() || import.package.is_empty() || import.symbol.is_empty() {
             return Err("NIR import package, name, and symbol must not be empty".to_string());
         }
-        if !matches!(import.kind.as_str(), "func" | "sub") {
+        if import.kind != "func" {
             return Err(format!(
                 "NIR import '{}' has invalid kind '{}'",
                 import.name, import.kind

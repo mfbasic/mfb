@@ -216,7 +216,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// Excluded (already trappable): the conversion builtins
 /// `toInt`/`toFloat`/`toFixed`/`toByte` (`lower_inline_conversion_raw`) and every
 /// `runtime::helper_for_call` target (`lower_runtime_helper_call`); user
-/// `FUNC`/`SUB` calls carry real symbols and match none of the member forms here.
+/// `FUNC` calls carry real symbols and match none of the member forms here.
 ///
 /// `target` is the canonical, dot-qualified callee (`strings.find`,
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,

@@ -100,14 +100,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "afterCallRead",
       "line": 56,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 57 },
       { "kind": "binding", "mutable": false, "name": "y", "type": "List OF Integer", "value": { "kind": "call", "callee": "addOne", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "3" }] }, "line": 58 },
@@ -115,14 +115,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "trapReadsOld",
       "line": 65,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 66 },
       { "kind": "binding", "mutable": false, "name": "y", "type": "List OF Integer", "value": {
@@ -139,14 +139,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "recoverOld",
       "line": 75,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 76 },
       { "kind": "assignment", "name": "x", "value": {
@@ -185,14 +185,14 @@
     }
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "sameArgTwice",
       "line": 96,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 97 },
       { "kind": "assignment", "name": "x", "value": { "kind": "call", "callee": "pair", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "identifier", "value": "x" }] }, "line": 98 },
@@ -200,14 +200,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "globalArg",
       "line": 104,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "gxs", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 105 },
       { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "clobberGlobal", "arguments": [{ "kind": "identifier", "value": "gxs" }] }, "line": 106 },
@@ -215,14 +215,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "capturedArg",
       "line": 112,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 113 },
       { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(Integer) AS Integer", "value": { "kind": "lambda", "params": [
@@ -232,14 +232,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "errorSourceSame",
       "line": 124,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "a", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, "line": 125 },
       { "kind": "binding", "mutable": true, "name": "b", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 126 },
@@ -273,14 +273,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "resInListArg",
       "line": 152,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 153 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 154 },
@@ -325,14 +325,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "recordTrapReadsOld",
       "line": 175,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "a", "type": "Acc", "value": { "kind": "constructor", "type": "Acc", "arguments": [{ "kind": "named", "name": "items", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }, { "kind": "named", "name": "seen", "value": { "kind": "number", "value": "7" } }] }, "line": 176 },
       { "kind": "binding", "mutable": false, "name": "b", "type": "Acc", "value": {
@@ -349,14 +349,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "functionValueCall",
       "line": 186,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 187 },
       { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(List OF Integer, Integer) AS List OF Integer", "value": { "kind": "identifier", "value": "addOne" }, "line": 188 },

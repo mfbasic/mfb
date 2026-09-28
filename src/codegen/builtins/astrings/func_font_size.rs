@@ -18,10 +18,10 @@ start wins at read time; when their starts are equal, the one added later wins."
 const EX: &str = r#"```
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::fontSize(14))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

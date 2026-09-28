@@ -40,9 +40,9 @@ const EX: &str = r#"Absolute value of a `vector::Float2`:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::abs(vector::Float2[0.0 - 2.0, 3.0])))
-END SUB
+END FUNC
 ```
 
 Absolute value of a `vector::Integer3`:
@@ -51,10 +51,10 @@ Absolute value of a `vector::Integer3`:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS vector::Integer3 = vector::abs(vector::Integer3[0 - 3, 4, 0 - 5])
   io::print(toString(a))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

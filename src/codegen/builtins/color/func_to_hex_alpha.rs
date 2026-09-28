@@ -26,10 +26,10 @@ const EX: &str = r#"Alpha is kept, and the width is always nine characters:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(color::toHexAlpha(color::rgba(255, 0, 0, 128)))
   io::print(color::toHexAlpha(color::rgba(1, 2, 3, 4)))
-END SUB
+END FUNC
 ```
 
 The round trip through `fromHex` is exact, transparency included:
@@ -38,10 +38,10 @@ The round trip through `fromHex` is exact, transparency included:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::rgba(51, 102, 204, 64)
   io::print(color::toHexAlpha(color::fromHex(color::toHexAlpha(c))))
-END SUB
+END FUNC
 ```"#;
 
 // `r##"…"##`, not `r#"…"#`: the body contains the literal `"#`, which would

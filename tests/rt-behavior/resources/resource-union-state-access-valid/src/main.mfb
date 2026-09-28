@@ -13,9 +13,9 @@ END UNION
 
 ' plan-74: mutate a resource union's STATE through a union-typed RES parameter;
 ' the write is visible to the owner (the §15.5 alias contract).
-SUB advance(RES p AS Stream STATE Cursor)
+FUNC advance(RES p AS Stream STATE Cursor) AS Nothing
   p.state.pos = p.state.pos + 10
-END SUB
+END FUNC
 
 FUNC main AS Integer
   RES s AS Stream STATE Cursor = fs::createTempFile()

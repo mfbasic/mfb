@@ -79,9 +79,9 @@ const EX: &str = r#"Escape a fragment before placing it in element content:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::htmlEscape("<a href='#'>Tom & Jerry</a>"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `htmlUnescape`:
@@ -90,11 +90,11 @@ Round-trip through `htmlUnescape`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
   io::print(esc)
   io::print(encoding::htmlUnescape(esc))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

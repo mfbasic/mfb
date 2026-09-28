@@ -149,7 +149,7 @@
     "name": "shout",
     "line": 50,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "n", "line": 50, "type": "Integer", "default": null }
     ],

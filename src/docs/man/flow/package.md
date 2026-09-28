@@ -23,8 +23,7 @@ form whose statements are separated with `:`.
 
 `EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop of the
 matching kind; `CONTINUE FOR`, `CONTINUE DO`, and `CONTINUE WHILE` skip to its
-next iteration. `EXIT SUB` leaves the enclosing `SUB` successfully, and
-`EXIT PROGRAM <code>` terminates the process after running lexical cleanup for
+next iteration. `EXIT PROGRAM <code>` terminates the process after running lexical cleanup for
 every live scope. These are structured, lexically scoped exits, not arbitrary
 jumps.
 

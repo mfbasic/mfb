@@ -5,9 +5,9 @@ FUNC parsePositive(v AS Integer) AS Integer
   RETURN v + 1
 END FUNC
 
-SUB doEffect(v AS Integer)
+FUNC doEffect(v AS Integer) AS Nothing
   IF v < 0 THEN FAIL error(500, "effect failed")
-END SUB
+END FUNC
 
 ' Happy path: the trapped call auto-unwraps into the binding.
 FUNC happy() AS Integer
@@ -51,7 +51,7 @@ FUNC viaReturn(v AS Integer) AS Integer
   RETURN a
 END FUNC
 
-' Value-less RECOVER on a bare SUB call statement.
+' Value-less RECOVER on a bare `AS Nothing` call statement.
 FUNC viaSub(v AS Integer) AS Integer
   MUT code AS Integer = 0
   doEffect(v) TRAP(e)

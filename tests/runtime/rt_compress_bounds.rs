@@ -33,16 +33,16 @@ const BOMB: &str = r#"IMPORT compress
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES h AS fs::File = fs::openFile("bomb.z", "r")
   LET data AS List OF Byte = fs::readAllBytes(h)
   fs::close(h)
   LET out AS List OF Byte = compress::zlibDecode(data) TRAP(e)
     io::print("raised " & toString(e.code))
-    EXIT SUB
+    RETURN
   END TRAP
   io::print("decoded " & toString(len(out)))
-END SUB
+END FUNC
 "#;
 
 fn zlib(data: &[u8], level: u32) -> Vec<u8> {
@@ -105,7 +105,7 @@ FUNC timed(data AS List OF Byte) AS Integer
   RETURN elapsed
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET small AS List OF Byte = load("n.z")
   LET large AS List OF Byte = load("4n.z")
   MUT round AS Integer = 0
@@ -114,7 +114,7 @@ SUB main()
     io::print("4n " & toString(timed(large)))
     round = round + 1
   END WHILE
-END SUB
+END FUNC
 "#;
 
 /// Text lines with varying numbers and a sprinkle of pseudo-random bytes: literals and matches both.

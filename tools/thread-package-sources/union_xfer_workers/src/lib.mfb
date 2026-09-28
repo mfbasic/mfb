@@ -2,11 +2,11 @@ IMPORT thread
 IMPORT fs
 IMPORT tcp
 
-TYPE Cursor
+EXPORT TYPE Cursor
   pos AS Integer
 END TYPE
 
-UNION Stream
+EXPORT UNION Stream
   fs::File
   tcp::Socket
 END UNION

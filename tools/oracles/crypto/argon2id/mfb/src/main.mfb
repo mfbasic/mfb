@@ -41,16 +41,16 @@ FUNC hexField(value AS List OF Byte) AS String
 END FUNC
 
 ' Derive one tag and report it with the parameters that produced it.
-SUB emit(password AS List OF Byte, salt AS List OF Byte, memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer, length AS Integer)
+FUNC emit(password AS List OF Byte, salt AS List OF Byte, memoryKiB AS Integer, iterations AS Integer, parallelism AS Integer, length AS Integer) AS Nothing
   LET tag AS List OF Byte = crypto::argon2id(password, salt, memoryKiB, iterations, parallelism, length)
   MUT line AS String = "case " & hexField(password) & " " & hexField(salt)
   line = line & " " & toString(memoryKiB) & " " & toString(iterations)
   line = line & " " & toString(parallelism) & " " & toString(length)
   line = line & " " & encoding::hexEncode(tag)
   io::print(line)
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET password AS List OF Byte = strings::toBytes("password")
   LET salt AS List OF Byte = strings::toBytes("somesalt12345678")
 
@@ -87,4 +87,4 @@ SUB main()
   MUT profileLine AS String = "case " & hexField(password) & " " & hexField(salt)
   profileLine = profileLine & " 19456 2 1 32 " & encoding::hexEncode(viaProfile)
   io::print(profileLine)
-END SUB
+END FUNC

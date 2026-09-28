@@ -905,7 +905,7 @@ impl TypeModel {
                     );
                 }
             }
-            binary_repr::BinaryReprExportKind::Func | binary_repr::BinaryReprExportKind::Sub => {}
+            binary_repr::BinaryReprExportKind::Func => {}
         }
         Ok(())
     }

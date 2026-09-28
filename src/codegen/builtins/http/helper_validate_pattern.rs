@@ -11,7 +11,7 @@ const BODY: &str =
 r#"' Validate a route pattern: `:name?` and `*` are legal only as trailing
 ' segment(s) (§F.3.2). Fails ErrInvalidArgument on a mid-pattern optional /
 ' wildcard.
-SUB __http_validatePattern(pattern AS String)
+FUNC __http_validatePattern(pattern AS String) AS Nothing
   LET segs AS List OF String = __http_segments(pattern)
   LET n AS Integer = len(segs)
   MUT i AS Integer = 0
@@ -33,7 +33,7 @@ SUB __http_validatePattern(pattern AS String)
     END IF
     i = i + 1
   END WHILE
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("http_validatePattern", BODY));

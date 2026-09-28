@@ -289,7 +289,6 @@ fn collect_diagnostics_with(
                 .unwrap_or_default(),
         );
         env.current_return.replace(function.returns.clone());
-        env.current_kind.replace(function.kind.clone());
         env.current_function.replace(function.name.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
@@ -319,8 +318,8 @@ fn collect_diagnostics_with(
         // an entry need no longer be reached from another package, so a
         // file-local entry is well-formed and the visibility half of the rule
         // has no surviving justification. What remains is the declaration-form
-        // half: `ISOLATED` is still meaningless on a `SUB`, a lambda, a closure
-        // or a local function, so `kind != "func"` is still rejected.
+        // half: `ISOLATED` is still meaningless on a lambda, a closure or a
+        // local function, so `kind != "func"` is still rejected.
         if function.isolated && function.kind != "func" {
             env.current_line.set(function.loc.line);
             env.emit(
@@ -355,8 +354,8 @@ fn collect_diagnostics_with(
                 format!("FUNC `{}` must declare an `AS` return type.", function.name),
             );
         }
-        // A value-producing FUNC must return on every path (`AS Nothing`
-        // FUNCs, like SUBs, may fall through). Synthesized `$lambda` bodies
+        // A value-producing FUNC must return on every path (an `AS Nothing`
+        // FUNC may fall through). Synthesized `$lambda` bodies
         // always end in a lowered Return.
         if function.kind == "func"
             && function.returns != ParameterType::Nothing
@@ -693,8 +692,6 @@ struct FnSig {
     optional: usize,
     /// Declared parameter types, positional (for argument-type checking).
     params: Vec<ParameterType>,
-    /// `func` or `sub` — a SUB call produces no value (TYPE_SUB_HAS_NO_VALUE).
-    kind: String,
     /// The declared return type. A call node carries its own result type, which
     /// on decoded package IR is attacker-controlled; this is the independent
     /// truth it is reconciled against (`check_call_result_type`).
@@ -761,8 +758,6 @@ struct TypeEnv {
     /// Declared return type of the function currently being checked (for
     /// RETURN-type rules).
     current_return: RefCell<ParameterType>,
-    /// `kind` (`func`/`sub`) of the function currently being checked.
-    current_kind: RefCell<String>,
     /// Name of the function currently being checked, for diagnostics that name
     /// it (the normal-flow form of TYPE_TRAP_FALLTHROUGH).
     current_function: RefCell<String>,
@@ -795,18 +790,13 @@ struct TypeEnv {
     /// The enclosing loop kinds, innermost last — an EXIT/CONTINUE must name a
     /// kind present here. Checking is sequential, so a RefCell stack suffices.
     loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
-    /// Whether the value about to be checked sits in statement position, where
-    /// a value-less SUB call is legal (the former source checker's `allow_value_less_call`).
-    /// Consumed (reset) by the first Call node checked.
-    allow_sub_call: Cell<bool>,
     /// bug-517: set for exactly one recursion — the hash-selector argument of a
     /// call whose use of SHA-1 is sound — and consumed by the `MemberAccess` arm,
     /// which is what suppresses `CRYPTO_SHA1_INSECURE` there.
     ///
-    /// One-shot, like [`Self::allow_sub_call`] beside it and for the same reason
-    /// that field documents: the walker descends into arguments BEFORE the
-    /// wrapping node's own rule, so a flag left set would leak into a nested
-    /// expression. Every node replaces it with `false` on entry, so only a
+    /// One-shot: the walker descends into arguments BEFORE the wrapping node's
+    /// own rule, so a flag left set would leak into a nested expression. Every
+    /// node replaces it with `false` on entry, so only a
     /// DIRECT `crypto::Hash.SHA1` in the selector position is suppressed —
     /// `crypto::hmac(pickHash(crypto::Hash.SHA1), …)` still warns, because there
     /// the value is that inner call's argument, not hmac's selector.
@@ -965,7 +955,6 @@ impl TypeEnv {
                         .filter(|p| p.default.is_some())
                         .count(),
                     params: function.params.iter().map(|p| p.type_.clone()).collect(),
-                    kind: function.kind.clone(),
                     returns: function.returns.clone(),
                 },
             );
@@ -1026,7 +1015,6 @@ impl TypeEnv {
             current_file: RefCell::new(String::new()),
             current_sites: RefCell::new(Vec::new()),
             current_return: RefCell::new(ParameterType::Unknown),
-            current_kind: RefCell::new(String::new()),
             current_function: RefCell::new(String::new()),
             current_muts: RefCell::new(HashMap::new()),
             poisoned: Cell::new(false),
@@ -1037,7 +1025,6 @@ impl TypeEnv {
             imported_types_unknown: false,
             checking_state_assign: Cell::new(false),
             loop_stack: RefCell::new(Vec::new()),
-            allow_sub_call: Cell::new(false),
             sound_hash_selector: Cell::new(false),
             current_owners: RefCell::new(HashSet::new()),
             current_opaque_params: RefCell::new(HashSet::new()),

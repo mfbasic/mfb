@@ -51,9 +51,9 @@ const EX: &str = r#"Print the process id:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(os::pid()))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

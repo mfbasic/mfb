@@ -126,10 +126,10 @@ const EX: &str = r#"Round-trip a document through text:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"name\":\"Ada\",\"n\":3}")
   io::print(json::stringify(doc))
-END SUB
+END FUNC
 ```
 
 Serialize a member type directly, without wrapping it in the union:
@@ -138,10 +138,10 @@ Serialize a member type directly, without wrapping it in the union:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   io::print(json::stringify(json::JsonBool[TRUE]))
   io::print(json::stringify(json::JsonStr["a/b"]))
-END SUB
+END FUNC
 ```
 
 Build a value and serialize it:
@@ -150,10 +150,10 @@ Build a value and serialize it:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET items AS List OF json::Json = [json::JsonNum[1.0], json::JsonNum[2.5]]
   io::print(json::stringify(json::JsonArr[items]))
-END SUB
+END FUNC
 ```
 
 Indent by two spaces:
@@ -162,10 +162,10 @@ Indent by two spaces:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"name\":\"Ada\",\"tags\":[\"x\",\"y\"]}")
   io::print(json::stringify(doc, 2))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -186,10 +186,10 @@ Indent with a tab instead, and note that an empty container stays on one line:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"a\":[],\"b\":{\"c\":1}}")
   io::print(json::stringify(doc, "\t"))
-END SUB
+END FUNC
 ```
 
 prints:

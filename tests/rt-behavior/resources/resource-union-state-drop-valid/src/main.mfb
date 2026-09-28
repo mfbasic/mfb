@@ -15,14 +15,14 @@ END UNION
 ' explicit close. The tag-dispatched drop must close the active variant (File)
 ' and free the attached STATE exactly once. Looped so a leaked fd (missing close)
 ' hits the fd limit and a double-free corrupts the arena.
-SUB touchDrop(path AS String)
+FUNC touchDrop(path AS String) AS Nothing
   RES s AS Stream STATE Cursor = fs::openFile(path)
   s.state.pos = 42
-END SUB
+END FUNC
 
 ' Early explicit close via the matched variant. Scope-drop must not double-close
 ' (the handle is already closed → benign no-op) but must still free the STATE.
-SUB earlyClose(path AS String)
+FUNC earlyClose(path AS String) AS Nothing
   RES s AS Stream STATE Cursor = fs::openFile(path)
   s.state.pos = 7
   MATCH s
@@ -31,7 +31,7 @@ SUB earlyClose(path AS String)
     CASE tcp::Socket(sock)
       io::print("unexpected socket")
   END MATCH
-END SUB
+END FUNC
 
 ' Error-exit path: the union is live when a later fallible call FAILs, so `s`
 ' must close+free on the propagated-error exit. The caller absorbs the failure.

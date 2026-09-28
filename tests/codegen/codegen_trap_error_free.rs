@@ -87,9 +87,9 @@ fn trapping_main(body: &str) -> String {
         \x20 END IF\n\
         \x20 RETURN toString(n)\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
          {body}\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -185,13 +185,13 @@ fn only_the_lowering_that_stamps_its_own_error_loc_frees_one() {
         "b565_current_loc",
         "IMPORT io\n\
          IMPORT collections\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF String = [\"aa\", \"bb\"]\n\
         \x20 LET g AS String = collections::get(xs, 5) TRAP(e)\n\
         \x20   RECOVER e.message\n\
         \x20 END TRAP\n\
         \x20 io::print(g)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         labels(&inline_builtin, "_mfb_fn_main", SOURCE_GUARD),
@@ -219,10 +219,10 @@ fn a_program_without_an_inline_trap_gains_nothing() {
          FUNC safe(n AS Integer) AS String\n\
         \x20 RETURN toString(n)\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET s AS String = safe(1)\n\
         \x20 io::print(s)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(labels(&plain, "_mfb_fn_main", ASSEMBLY), 0);
     assert_eq!(labels(&plain, "_mfb_fn_main", PAYLOAD_GUARD), 0);
@@ -251,10 +251,10 @@ fn the_guarded_payload_free_is_an_arena_free() {
          FUNC risky(n AS Integer) AS String\n\
         \x20 RETURN toString(n)\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET s AS String = risky(1)\n\
         \x20 io::print(s)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let trapped_frees = calls(&trapped, "_mfb_fn_main", "_mfb_arena_free");
     let plain_frees = calls(&plain, "_mfb_fn_main", "_mfb_arena_free");

@@ -8,7 +8,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "tryDecode",
@@ -16,7 +16,7 @@
       "params": [
       { "name": "bytes", "type": "List OF Byte", "default": null, "line": 14 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 15 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accepted " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "decoded" }] }] } }] }, "line": 17 }

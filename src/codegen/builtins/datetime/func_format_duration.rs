@@ -37,10 +37,10 @@ const EX: &str = r#"Render a sub-day span:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(90)
   io::print(datetime::formatDuration(d))        ' 00:01:30.000
-END SUB
+END FUNC
 ```
 
 Render a span that includes whole days:
@@ -49,10 +49,10 @@ Render a span that includes whole days:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(1, 2, 3, 4, 500_000_000)
   io::print(datetime::formatDuration(d))        ' 1d 02:03:04.500
-END SUB
+END FUNC
 ```
 
 A negative span is prefixed with a minus sign:
@@ -61,10 +61,10 @@ A negative span is prefixed with a minus sign:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(-30)
   io::print(datetime::formatDuration(d))        ' -00:00:30.000
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -51,13 +51,13 @@ const EX: &str = r#"Draw a heavy horizontal rule across the top of the surface:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::drawHLine(term::LineStyle.Heavy, 0, 0, size.columns - 1)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Frame a box with two horizontal and two vertical lines:
@@ -65,7 +65,7 @@ Frame a box with two horizontal and two vertical lines:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::drawHLine(term::LineStyle.Light, 0, 0, 20)
   term::drawHLine(term::LineStyle.Light, 10, 0, 20)
@@ -73,7 +73,7 @@ SUB main()
   term::drawVLine(term::LineStyle.Light, 0, 20, 10)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::draw_hline` — delegates to the shared family-generic

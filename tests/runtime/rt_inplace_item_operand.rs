@@ -22,7 +22,7 @@
 //! expression may allocate on its own account: `mkBox(i).n` builds a record (and
 //! its list field) every iteration whatever the append does, which is the
 //! program's cost and not the arm's. The control writes that same item
-//! expression in the same inline position but hands it to a no-op `SUB` instead
+//! expression in the same inline position but hands it to a no-op `AS Nothing` function instead
 //! of to the self-update, so it pays the item's allocations and none of the
 //! collection's, and the difference between the two is the arm alone:
 //! `row(2N) - row(N)` must be under `control(2N) - control(N) + N / 8`. A row
@@ -72,14 +72,14 @@ FUNC mkBox(k AS Integer) AS Box
   RETURN Box[n := k * 3, items := [k, k]]
 END FUNC
 
-SUB sinkInteger(v AS Integer)
-END SUB
+FUNC sinkInteger(v AS Integer) AS Nothing
+END FUNC
 
-SUB sinkFloat(v AS Float)
-END SUB
+FUNC sinkFloat(v AS Float) AS Nothing
+END FUNC
 
-SUB sinkListOFInteger(v AS List OF Integer)
-END SUB
+FUNC sinkListOFInteger(v AS List OF Integer) AS Nothing
+END FUNC
 ";
 
 /// One row: `x`'s declaration, the self-update it runs, and the item operand —
@@ -190,7 +190,7 @@ enum Form {
     /// The row itself: the self-update with the item operand written inline.
     Row,
     /// The control: the item operand in the same inline position, handed to a
-    /// no-op `SUB` instead of to the self-update. It allocates whatever the item
+    /// no-op `AS Nothing` function instead of to the self-update. It allocates whatever the item
     /// expression allocates on its own account — `mkBox(i)` builds a record and
     /// its list field every iteration however the item is used — and nothing for
     /// the collection, so the difference between the two is the arm alone.

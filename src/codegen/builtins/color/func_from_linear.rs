@@ -27,11 +27,11 @@ const EX: &str = r#"The endpoints are exact, and the round trip through a channe
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(color::fromLinear(0)))
   io::print(toString(color::fromLinear(65535)))
   io::print(toString(color::fromLinear(color::toLinear(toByte(200)))))
-END SUB
+END FUNC
 ```
 
 Average two colours correctly — in linear light, not in encoded bytes:
@@ -40,13 +40,13 @@ Average two colours correctly — in linear light, not in encoded bytes:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS Byte = toByte(0)
   LET b AS Byte = toByte(255)
   LET midLinear AS Integer = (color::toLinear(a) + color::toLinear(b)) / 2
   io::print("linear midpoint " & toString(color::fromLinear(midLinear)))
   io::print("byte midpoint " & toString((toInt(a) + toInt(b)) / 2))
-END SUB
+END FUNC
 ```"#;
 
 /// The binary search moved verbatim from canvas's `__canvas_linearToSrgb`, down to

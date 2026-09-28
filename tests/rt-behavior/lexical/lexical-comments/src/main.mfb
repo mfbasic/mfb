@@ -3,7 +3,7 @@ IMPORT io
 REM top-level comment skips ignored tokens: )
 ' apostrophe comments skip ignored tokens too: )
 
-SUB main()
+FUNC main() AS Nothing
   REM comment inside a block skips ignored tokens: )
   LET remembered AS String = "ordinary rem identifier"
   LET premium AS String = remembered
@@ -11,4 +11,4 @@ SUB main()
   io::print("rem comment after colon")
   LET value AS Integer = 1 : rEm comment after separator skips ignored tokens: )
   io::print(toString(value))
-END SUB
+END FUNC

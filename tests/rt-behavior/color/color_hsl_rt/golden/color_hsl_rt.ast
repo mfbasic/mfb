@@ -9,7 +9,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "rt",
@@ -20,7 +20,7 @@
       { "name": "s", "type": "Float", "default": null, "line": 13 },
       { "name": "l", "type": "Float", "default": null, "line": 13 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "c", "type": "color.Color", "value": { "kind": "call", "callee": "color.hsl", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "l" }] }, "line": 14 },
       { "kind": "binding", "mutable": false, "name": "p", "type": "color.Hsl", "value": { "kind": "call", "callee": "color.toHsl", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 15 },

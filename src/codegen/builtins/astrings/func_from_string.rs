@@ -29,10 +29,10 @@ const EX: &str = r#"Build an attributed string and print its visible text:
 IMPORT astrings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   io::print(toString(a))
-END SUB
+END FUNC
 ```"#;
 /// Self-lowering inline body for `astrings.fromString` (`Body::abi_inline`),
 /// delegating to the shared `AttributedString` codegen carrier

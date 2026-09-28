@@ -136,7 +136,14 @@ const FUNCTION_BINARY_REPR: u16 = 1;
 
 const FUNCTION_FLAG_ISOLATED: u16 = 1 << 2;
 const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
-const FUNCTION_FLAG_SUB: u16 = 1 << 3;
+/// Function flag bit 3 marked the value-less callable kind plan-159-D removed from
+/// the language. The bit is reserved: the writer never sets it, and the reader
+/// rejects a package that carries it (built by an older compiler) with a
+/// "rebuild this package" error rather than reading it as something else.
+const RETIRED_FUNCTION_FLAG_SUB: u16 = 1 << 3;
+/// Export kind `2` was that callable kind until plan-159-D. Reserved like the flag above: never
+/// written, rejected on read, and never reused for another kind.
+const RETIRED_EXPORT_KIND_SUB: u16 = 2;
 const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
 
 /// Parameter record flag: the parameter declares a default.
@@ -217,7 +224,6 @@ pub struct BinaryReprExport {
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinaryReprExportKind {
     Func,
-    Sub,
     Type,
     Union,
     Enum,

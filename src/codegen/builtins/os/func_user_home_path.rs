@@ -65,9 +65,9 @@ const EX: &str = r#"Show a path in the home folder:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(os::userHomePath(".myapprc"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -19,7 +19,7 @@ FUNC shortBoxCode(priv AS List OF Byte, box AS List OF Byte) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
 
   ' Minimum valid box: empty plaintext -> ephPub(32) || ct(0) || tag(16) = 48 bytes.
@@ -35,4 +35,4 @@ SUB main()
   io::print("empty-invalid=" & toString(shortBoxCode(kp.privateKey, empty) = errorCode::ErrInvalidArgument))
   io::print("box32-invalid=" & toString(shortBoxCode(kp.privateKey, box32) = errorCode::ErrInvalidArgument))
   io::print("box47-invalid=" & toString(shortBoxCode(kp.privateKey, box47) = errorCode::ErrInvalidArgument))
-END SUB
+END FUNC

@@ -41,10 +41,10 @@ const EX: &str = r#"Encode bytes to lowercase hex:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hi")
   io::print(encoding::hexEncode(raw))
-END SUB
+END FUNC
 ```
 
 Round-trip through `hexDecode`, and uppercase the digits:
@@ -54,12 +54,12 @@ IMPORT encoding
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hi")
   LET hex AS String = encoding::hexEncode(raw)
   io::print(strings::upper(hex))
   io::print(encoding::utf8Decode(encoding::hexDecode(hex)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

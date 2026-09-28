@@ -120,9 +120,9 @@ fn callee(name: &str, body: &str) -> Value {
             "IMPORT io\n\
              IMPORT strings\n\
              {body}\n\
-             SUB main()\n\
+             FUNC main() AS Nothing\n\
             \x20 io::print(probe(\"ab\"))\n\
-             END SUB\n"
+             END FUNC\n"
         ),
     )
 }
@@ -251,9 +251,9 @@ fn a_returned_collection_frees_the_strings_that_built_it() {
          FUNC probe(n AS Integer) AS List OF String\n\
         \x20 RETURN [\"a\" & toString(n), \"b\" & toString(n)]\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 io::print(strings::join(probe(1), \",\"))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(concats(&plan, "_mfb_fn_probe"), 2, "one concat per element");
     assert_eq!(
@@ -337,12 +337,12 @@ fn a_fail_is_never_given_an_interior_free() {
          FUNC probe(n AS Integer) AS String\n\
         \x20 FAIL error(7, \"x\" & toString(n))\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET s AS String = probe(1) TRAP(e)\n\
         \x20   RECOVER \"f\"\n\
         \x20 END TRAP\n\
         \x20 io::print(s)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let contrast = ncode(
         "b567_fail_flat",
@@ -350,12 +350,12 @@ fn a_fail_is_never_given_an_interior_free() {
          FUNC probe(n AS Integer) AS String\n\
         \x20 FAIL error(7, \"x\")\n\
          END FUNC\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET s AS String = probe(1) TRAP(e)\n\
         \x20   RECOVER \"f\"\n\
         \x20 END TRAP\n\
         \x20 io::print(s)\n\
-         END SUB\n",
+         END FUNC\n",
     );
     assert_eq!(
         concats(&interior, "_mfb_fn_probe"),

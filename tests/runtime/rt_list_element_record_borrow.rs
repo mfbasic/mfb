@@ -427,13 +427,13 @@ END FUNC
 fn a_binding_across_a_call_that_writes_the_module_level_list_is_a_copy() {
     let source = format!(
         "{TYPES}{GLOBAL}
-SUB clobber()
+FUNC clobber() AS Nothing
   gps = [P[lon := 3.0, age := 42, trail := [5.0]]]
   MUT junk AS List OF List OF Integer = []
   FOR k = 1 TO 100
     junk = collections::append(junk, [k, k, k, k, k, k, k, k])
   NEXT
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   gps = mk()
@@ -599,15 +599,15 @@ END FUNC
 fn a_failing_element_update_leaves_the_list_unchanged() {
     let source = format!(
         "{TYPES}{GLOBAL}
-SUB bumpAt(i AS Integer, slot AS Integer, text AS String)
+FUNC bumpAt(i AS Integer, slot AS Integer, text AS String) AS Nothing
   MUT p AS P = collections::get(gps, i)
   p = WITH p {{ age := p.age + toInt(text), trail := collections::set(p.trail, slot, 1.0) }}
   gps = collections::set(gps, i, p)
-END SUB
+END FUNC
 
-SUB bumpInline(i AS Integer, slot AS Integer, text AS String)
+FUNC bumpInline(i AS Integer, slot AS Integer, text AS String) AS Nothing
   gps = collections::set(gps, i, WITH collections::get(gps, i) {{ age := collections::get(gps, i).age + toInt(text), trail := collections::set(collections::get(gps, i).trail, slot, 1.0) }})
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   gps = mk()

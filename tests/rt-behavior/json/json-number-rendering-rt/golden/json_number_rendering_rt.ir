@@ -264,7 +264,7 @@
     "name": "check",
     "line": 31,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "text", "line": 31, "type": "String", "default": null },
     { "name": "expected", "line": 31, "type": "String", "default": null }
@@ -870,7 +870,7 @@
     "name": "#json_requireFiniteNumberText",
     "line": 299,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "value", "line": 299, "type": "String", "default": null }
     ],

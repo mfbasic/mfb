@@ -1,0 +1,99 @@
+' mergesort - sorts `order` one comparison at a time.
+'
+' Bottom-up: runs of width 1 are merged in pairs into runs of 2, then 4, and so
+' on until one run covers the list. Each pair is copied to a spare buffer and
+' merged back into `order` one element at a time, so a dot moves the moment it
+' is placed.
+
+IMPORT collections
+IMPORT math
+
+MUT mergeBuffer AS List OF Integer = []
+MUT mergeWidth AS Integer = 1
+MUT mergeLo AS Integer = 0          ' where the current pair of runs starts
+MUT mergeMid AS Integer = 0
+MUT mergeHi AS Integer = 0
+MUT mergeLeft AS Integer = 0        ' next unmerged element of the left run
+MUT mergeRight AS Integer = 0       ' next unmerged element of the right run
+MUT mergeOut AS Integer = 0         ' the place the next merged element goes
+MUT merging AS Boolean = FALSE
+MUT mergeFinished AS Boolean = FALSE
+MUT mergeCompareCount AS Integer = 0
+
+FUNC mergeStart AS Nothing
+  mergeBuffer = collections::repeat(mergeBuffer, 0, DOT_COUNT)
+  mergeWidth = 1
+  mergeLo = 0
+  merging = FALSE
+  mergeFinished = DOT_COUNT < 2
+  mergeCompareCount = 0
+END FUNC
+
+FUNC mergeDone AS Boolean
+  RETURN mergeFinished
+END FUNC
+
+FUNC mergeCompares AS Integer
+  RETURN mergeCompareCount
+END FUNC
+
+' Take the next element from the buffer's `from` into order[mergeOut].
+FUNC mergeTake(from AS Integer) AS Nothing
+  setOrder(mergeOut, collections::get(mergeBuffer, from))
+  mergeOut = mergeOut + 1
+END FUNC
+
+' Begin the pair at mergeLo, or move on to the next width once a pass is done.
+FUNC mergeNextPair AS Nothing
+  IF mergeLo >= DOT_COUNT THEN
+    mergeWidth = mergeWidth * 2
+    mergeLo = 0
+    IF mergeWidth >= DOT_COUNT THEN
+      mergeFinished = TRUE
+      RETURN
+    END IF
+  END IF
+  mergeMid = math::min(mergeLo + mergeWidth, DOT_COUNT)
+  mergeHi = math::min(mergeLo + 2 * mergeWidth, DOT_COUNT)
+  IF mergeMid >= mergeHi THEN
+    ' A lone run at the end has nothing to merge with.
+    mergeLo = mergeHi
+    RETURN
+  END IF
+  FOR i = mergeLo TO mergeHi - 1
+    mergeBuffer = collections::set(mergeBuffer, i, orderAt(i))
+  NEXT
+  mergeLeft = mergeLo
+  mergeRight = mergeMid
+  mergeOut = mergeLo
+  merging = TRUE
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC mergeSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT mergeFinished
+    IF NOT merging THEN
+      mergeNextPair()
+    ELSEIF mergeLeft < mergeMid AND mergeRight < mergeHi THEN
+      ' Taking from the left on a tie keeps the sort stable.
+      IF collections::get(mergeBuffer, mergeLeft) <= collections::get(mergeBuffer, mergeRight) THEN
+        mergeTake(mergeLeft)
+        mergeLeft = mergeLeft + 1
+      ELSE
+        mergeTake(mergeRight)
+        mergeRight = mergeRight + 1
+      END IF
+      mergeCompareCount = mergeCompareCount + 1
+      left = left - 1
+    ELSEIF mergeLeft < mergeMid THEN
+      ' The right run is used up; the rest of the left follows without comparing.
+      mergeTake(mergeLeft)
+      mergeLeft = mergeLeft + 1
+    ELSE
+      ' The left run is used up, and what is left of the right is already in place.
+      merging = FALSE
+      mergeLo = mergeHi
+    END IF
+  LOOP
+END FUNC

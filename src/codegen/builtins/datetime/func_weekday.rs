@@ -29,12 +29,12 @@ const EX: &str = r#"Name the weekday of a civil date in the local zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
   LET w AS datetime::Weekday = datetime::weekday(dt)
-END SUB
+END FUNC
 ```
 
 Branch on whether a `datetime::DateTime` falls on the weekend:
@@ -43,13 +43,13 @@ Branch on whether a `datetime::DateTime` falls on the weekend:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
   LET w AS datetime::Weekday = datetime::weekday(dt)
   IF w = datetime::Weekday.Saturday OR w = datetime::Weekday.Sunday THEN
     io::print("weekend")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

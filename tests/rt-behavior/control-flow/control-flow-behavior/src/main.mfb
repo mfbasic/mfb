@@ -118,29 +118,29 @@ FUNC control_flow_valid_run AS Integer
 END FUNC
 
 ' ---- from exit-sub-valid ----
-SUB guard(flag AS Boolean)
+FUNC guard(flag AS Boolean) AS Nothing
   IF flag THEN
-    EXIT SUB
+    RETURN
   END IF
   FAIL error(10, "guard failed")
-END SUB
+END FUNC
 
-SUB swallow(flag AS Boolean)
+FUNC swallow(flag AS Boolean) AS Nothing
   IF flag THEN
-    EXIT SUB
+    RETURN
   END IF
   FAIL error(11, "swallowed")
   TRAP(err)
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 
-SUB exit_sub_valid_run
+FUNC exit_sub_valid_run AS Nothing
   guard(TRUE)
   swallow(TRUE)
   swallow(FALSE)
-  EXIT SUB
-END SUB
+  RETURN
+END FUNC
 
 FUNC main AS Integer
   LET _comparisons_valid AS Integer = comparisons_valid_run()

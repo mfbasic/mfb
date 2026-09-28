@@ -104,15 +104,15 @@ const EX: &str = r#"Make buffered output visible at a checkpoint:
 ```
 IMPORT io
 
-SUB longRunningWork()
-END SUB
+FUNC longRunningWork() AS Nothing
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::setBuffered(TRUE)
   io::print("phase one complete")
   io::flush()                ' the line reaches the terminal before the long work
   longRunningWork()
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

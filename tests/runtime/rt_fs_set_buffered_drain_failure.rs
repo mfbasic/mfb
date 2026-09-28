@@ -26,7 +26,7 @@ fn turning_buffering_off_reports_a_failed_drain_and_keeps_the_bytes() {
         r#"IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES h = fs::openFile("{path}", "r")
   fs::setBuffered(h, TRUE)
   fs::writeAll(h, "pending")
@@ -40,7 +40,7 @@ SUB main()
     RECOVER
   END TRAP
   io::print("done")
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("bug694_set_buffered", &source);

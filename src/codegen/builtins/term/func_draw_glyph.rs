@@ -43,13 +43,13 @@ const EX: &str = r#"Place a marker character at the centre of the surface:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::drawGlyph(size.rows / 2, size.columns / 2, 9731) ' ☃
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::draw_glyph` — delegates to the shared family-generic

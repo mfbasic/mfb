@@ -78,8 +78,8 @@ pub(crate) fn simplify(module: &mut NirModule) {
         keep
     });
     // bug-552: removing the global is only half of it. Every module-level
-    // binding is stored once by the synthetic `__mfb_init_globals_*` SUB, so a
-    // removed global leaves that SUB storing to a name that no longer exists —
+    // binding is stored once by the synthetic `__mfb_init_globals_*` function, so a
+    // removed global leaves that function storing to a name that no longer exists —
     // which `target/shared/validate/body.rs` refuses outright ("NIR global
     // store targets unknown global"). The deadness of this row was hiding that;
     // the store has to go in the same change.
@@ -131,7 +131,7 @@ fn constify(module: &mut NirModule, census: &Census) -> u64 {
 /// A function the initializer can reach may read a global before that
 /// global's own store has run, and such a read observes zero, not the
 /// initializer (`plans::globals::initializer_reachable`, bug-747). Those
-/// functions — and the initializer SUB itself — keep their reads.
+/// functions — and the initializer function itself — keep their reads.
 fn substitute_outside_initialization(
     module: &mut NirModule,
     constants: &std::collections::HashMap<String, NirValue>,
@@ -513,7 +513,7 @@ mod tests {
 
     /// bug-747: a function the global initializer can reach may run before a
     /// global's own store, when the slot still reads zero — so it keeps its
-    /// read (and so does the initializer SUB itself), while a function that
+    /// read (and so does the initializer function itself), while a function that
     /// only runs after initialization gets the literal.
     #[test]
     fn reads_that_can_run_during_initialization_are_kept() {
@@ -578,7 +578,7 @@ mod tests {
         };
         assert!(
             matches!(**left, NirValue::Global { .. }),
-            "the initializer SUB's own read runs before `limit` is stored"
+            "the initializer function's own read runs before `limit` is stored"
         );
         assert_eq!(module.globals.len(), 2, "`limit` is still read");
     }

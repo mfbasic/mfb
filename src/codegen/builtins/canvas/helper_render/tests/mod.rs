@@ -12,7 +12,7 @@ fn source() -> &'static str {
     RENDER_METAL.as_str()
 }
 
-/// The body of a `FUNC`/`SUB` in the injected MFBASIC source, by name.
+/// The body of a `FUNC` in the injected MFBASIC source, by name.
 fn body(name: &str) -> &'static str {
     let start = source()
         .find(&format!("__canvas_{name}("))

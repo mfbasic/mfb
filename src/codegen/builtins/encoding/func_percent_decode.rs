@@ -38,9 +38,9 @@ const EX: &str = r#"Decode a percent-encoded string containing a space escape:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::percentDecode("a%20b"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `percentEncode`, including a non-ASCII character:
@@ -49,11 +49,11 @@ Round-trip through `percentEncode`, including a non-ASCII character:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET enc AS String = encoding::percentEncode("café & tea")
   io::print(enc)
   io::print(encoding::percentDecode(enc))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

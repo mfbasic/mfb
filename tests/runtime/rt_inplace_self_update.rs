@@ -60,7 +60,7 @@
 //! not a collection (the scalars, `String`, `json::Json`, every package record
 //! type). A kind whose new value allocates on its own has the bound `arm+value`:
 //! `count(2N) - count(N) <= 1.125 * (control(2N) - control(N))`, the control
-//! program computing the same value and handing it to a no-op `SUB kindSink`
+//! program computing the same value and handing it to a no-op `FUNC kindSink … AS Nothing`
 //! instead of storing it (an assignment would add the copy of a borrowed value).
 //! At a field site the program also prints a sibling field before and after the
 //! loop, so a write that lands on the wrong part of the owner fails.
@@ -318,7 +318,7 @@ enum Site {
     /// and the bound is on the difference.
     Lambda,
     /// S2 — a module-level `MUT x` (plan-142-H): the program's body runs in
-    /// `SUB run1()`, which `main` calls.
+    /// `FUNC run1() AS Nothing`, which `main` calls.
     Global,
     /// S11 — `RETURN OP(x, …)` on an owned local at its last use (plan-147-B). The
     /// loop is replaced by RECURSION: `chain(k)` binds `chain(k - 1)`'s result to a
@@ -380,11 +380,11 @@ impl Site {
 }
 
 /// The whole program: `x` declared as `decl` — a `main` local, or at S2 a
-/// module-level global with `body` in a `SUB` — and `body` (main-body lines).
+/// module-level global with `body` in an `AS Nothing` function — and `body` (main-body lines).
 fn frame(site: Site, decl: &str, body: &str) -> String {
     let rest = match site {
         Site::Global => format!(
-            "\nMUT x AS {decl}\n\nSUB run1()\n{body}END SUB\n\n\
+            "\nMUT x AS {decl}\n\nFUNC run1() AS Nothing\n{body}END FUNC\n\n\
              FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
         ),
         _ => format!("\nFUNC main() AS Integer\n  MUT x AS {decl}\n{body}  RETURN 0\nEND FUNC\n"),
@@ -1226,7 +1226,7 @@ enum FieldSite {
     S3,
     /// The same record's last field `b`.
     S4,
-    /// The last field of a module-level record `gR`, updated in a `SUB`.
+    /// The last field of a module-level record `gR`, updated in an `AS Nothing` function.
     S5,
     /// `b` of `inner AS Rec` in `Out { n, inner }`:
     /// `o = WITH o { inner := WITH o.inner { b := f(o.inner.b, …) } }`.
@@ -1242,7 +1242,7 @@ enum FieldSite {
     T1,
     /// Field `b` of the same payload.
     T2,
-    /// T1 through a `RES` parameter: the body runs in `SUB run1(RES h …)`.
+    /// T1 through a `RES` parameter: the body runs in `FUNC run1(RES h …) AS Nothing`.
     T3,
     /// T2 through a `RES` parameter.
     T4,
@@ -1333,7 +1333,7 @@ impl FieldSite {
         }
     }
 
-    /// The statement computing the same value and handing it to a no-op `SUB` (the
+    /// The statement computing the same value and handing it to a no-op `AS Nothing` function (the
     /// `arm+value` control: the value's own allocations, and nothing stored — an
     /// assignment would add the copy of a value borrowed from the field).
     fn control(self, statement: &str, label: &str) -> String {
@@ -1568,7 +1568,9 @@ fn kind_helpers(ty: &str, text: &str) -> String {
         );
     }
     if text.contains("kindSink(") {
-        out.push_str(&format!("SUB kindSink(v AS {ty})\nEND SUB\n\n"));
+        out.push_str(&format!(
+            "FUNC kindSink(v AS {ty}) AS Nothing\nEND FUNC\n\n"
+        ));
     }
     if text.contains("kindRoute") {
         out.push_str(
@@ -1608,12 +1610,12 @@ fn field_frame(fc: &FieldCase, site: FieldSite, body: &str) -> String {
                 None => String::new(),
             };
             format!(
-                "MUT gR AS Rec{init}\n\nSUB run1()\n{body}END SUB\n\n\
+                "MUT gR AS Rec{init}\n\nFUNC run1() AS Nothing\n{body}END FUNC\n\n\
                  FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
             )
         }
         T3 | T4 => format!(
-            "SUB run1(RES h AS fs::File STATE P)\n{body}END SUB\n\n\
+            "FUNC run1(RES h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
              FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
              RETURN 0\nEND FUNC\n"
         ),

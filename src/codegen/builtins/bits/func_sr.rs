@@ -31,10 +31,10 @@ const EX: &str = r#"Shift a value right by four bits (unsigned divide by 16):
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::sr(256, 4)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Extract a byte-packed field by shifting it down into place and masking with
@@ -44,11 +44,11 @@ Extract a byte-packed field by shifting it down into place and masking with
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET packed AS Integer = 0xABCD
   LET high AS Integer = bits::band(bits::sr(packed, 8), 255)
   io::print(toString(high))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

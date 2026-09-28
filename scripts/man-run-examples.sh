@@ -484,7 +484,7 @@ for fn in $(functions "$@"); do
 				/^```/ {
 					if (inb) {
 						inb = 0
-						if (tag == "basic" || (tag == "" && first ~ /^IMPORT / && buf ~ /(^|\n)[ \t]*(SUB|FUNC)[ \t]+main[ \t]*(\(|AS|$)/)) {
+						if (tag == "basic" || (tag == "" && first ~ /^IMPORT / && buf ~ /(^|\n)[ \t]*FUNC[ \t]+main[ \t]*(\(|AS|$)/)) {
 							n++; print "###BLOCK" n; printf "%s", buf
 						} else if (tag == "" && first ~ /^IMPORT /) {
 							print "###FRAGMENT"

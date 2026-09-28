@@ -43,10 +43,10 @@ const EX: &str = r#"Arithmetic shift of a negative value preserves its sign (sig
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::sra(-256, 4)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Sign-extend the low byte of a packed field by shifting it up to bit 63 and back
@@ -56,11 +56,11 @@ down:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET byte AS Integer = 0x80
   LET signed AS Integer = bits::sra(bits::sl(byte, 56), 56)
   io::print(toString(signed))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

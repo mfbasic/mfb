@@ -62,12 +62,12 @@ const EX: &str = r#"Create a single output directory whose parent already exists
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch")
   IF NOT fs::directoryExists("scratch/example") THEN
     fs::createDirectory("scratch/example")
   END IF
-END SUB
+END FUNC
 ```
 
 Guard against re-creating a directory that already exists:
@@ -75,12 +75,12 @@ Guard against re-creating a directory that already exists:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch")
   IF NOT fs::directoryExists("scratch/cache") THEN
     fs::createDirectory("scratch/cache")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

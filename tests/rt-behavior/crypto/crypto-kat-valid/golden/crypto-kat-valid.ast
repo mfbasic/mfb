@@ -11,14 +11,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 9,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "string", "value": "abc" }] }] }] }, "line": 11 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Hash" }, "member": "SHA2_224" }, { "kind": "string", "value": "abc" }] }] }] }, "line": 12 },

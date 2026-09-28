@@ -9,9 +9,9 @@ IMPORT errorCode
 ' Closing through a callee is the case the static move rules cannot prove, so the
 ' runtime closed-flag is what refuses the later use (spec §15: "through a call
 ' that may hand the same resource back — the runtime flag catches it instead").
-SUB closeHandle(RES f AS fs::File)
+FUNC closeHandle(RES f AS fs::File) AS Nothing
   fs::close(f)
-END SUB
+END FUNC
 
 FUNC sizeOfClosed(path AS String) AS Integer
   RES f AS fs::File = fs::openFile(path)

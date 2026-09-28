@@ -99,14 +99,14 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("hello from " & req.path)
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```
 
 Reading a captured path parameter, and serving the same routes over TLS:
@@ -120,14 +120,14 @@ FUNC showUser(req AS http::Request) AS http::Response
   RETURN http::ok("user " & collections::getOr(req.params, "id", ""))
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/user/:id", showUser))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]
@@ -138,14 +138,14 @@ r#"' Plaintext accept -> read -> parse -> dispatch -> respond -> close (one conn
 ' bug-507 / OS-51: everything after the accept is trapped. The bounded read loop
 ' reports its outcome; an unexpected raise anywhere in reading, parsing, or
 ' serializing is answered 500 or drops this one connection — never the process.
-SUB __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route)
+FUNC __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route) AS Nothing
   RES sock AS tcp::Socket = tcp::accept(listener)
   MUT rr AS __http_ReadResult = __http_ReadResult[[], 0]
   rr = __http_readRequestNet(sock) TRAP(e)
     RECOVER __http_ReadResult[[], 500]
   END TRAP
   IF len(rr.raw) = 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   MUT resp AS Response = __http_status(500, "Internal Server Error")
   IF rr.status = 0 THEN
@@ -157,33 +157,33 @@ SUB __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route)
   END IF
   MUT head AS String = ""
   head = __http_serializeHead(resp) TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   tcp::write(sock, head) TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   IF len(resp.body) > 0 THEN
     tcp::write(sock, resp.body) TRAP(e)
-      EXIT SUB
+      RETURN
     END TRAP
   END IF
   IF rr.status <> 0 THEN
     __http_lingerNet(sock)
   END IF
-END SUB"#;
+END FUNC"#;
 
 #[rustfmt::skip]
 const BODY_SSL: &str =
 r#"' TLS counterpart: identical core, `tls::` transport (server-side handshake in
 ' tls::accept). The two bodies cannot share one socket variable (§F.5.6).
-SUB __http_handleRequestSSL(RES listener AS tls::Listener, routes AS List OF Route)
+FUNC __http_handleRequestSSL(RES listener AS tls::Listener, routes AS List OF Route) AS Nothing
   RES sock AS tls::Socket = tls::accept(listener)
   MUT rr AS __http_ReadResult = __http_ReadResult[[], 0]
   rr = __http_readRequestTls(sock) TRAP(e)
     RECOVER __http_ReadResult[[], 500]
   END TRAP
   IF len(rr.raw) = 0 THEN
-    EXIT SUB
+    RETURN
   END IF
   MUT resp AS Response = __http_status(500, "Internal Server Error")
   IF rr.status = 0 THEN
@@ -195,20 +195,20 @@ SUB __http_handleRequestSSL(RES listener AS tls::Listener, routes AS List OF Rou
   END IF
   MUT head AS String = ""
   head = __http_serializeHead(resp) TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   tls::write(sock, head) TRAP(e)
-    EXIT SUB
+    RETURN
   END TRAP
   IF len(resp.body) > 0 THEN
     tls::write(sock, resp.body) TRAP(e)
-      EXIT SUB
+      RETURN
     END TRAP
   END IF
   IF rr.status <> 0 THEN
     __http_lingerTls(sock)
   END IF
-END SUB"#;
+END FUNC"#;
 
 fn overload(listener_ty: &'static str, body: Body) -> Implementation {
     Implementation {

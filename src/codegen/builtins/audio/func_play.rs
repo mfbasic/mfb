@@ -15,22 +15,22 @@ use super::{param, AUDIO_OUTPUT_TYPE_ID};
 #[rustfmt::skip]
 const BODY_TRACK: &str =
 r#"' audio::play(output, mml) — parse a single MML track and write it to the stream.
-SUB __audio_play(RES out AS audio::AudioOutput, mml AS String)
+FUNC __audio_play(RES out AS audio::AudioOutput, mml AS String) AS Nothing
   __audio_playSamples(out, __audio_mmlRenderSamples(mml))
-END SUB"#;
+END FUNC"#;
 
 #[rustfmt::skip]
 const BODY_TRACKS: &str =
 r#"' audio::play(output, tracks) — parse each track, mix them, and write to the
 ' stream. Each track is isolated: tempo/length/octave/volume/instrument do not
 ' carry between tracks.
-SUB __audio_playTracks(RES out AS audio::AudioOutput, tracks AS List OF String)
+FUNC __audio_playTracks(RES out AS audio::AudioOutput, tracks AS List OF String) AS Nothing
   MUT rendered AS List OF List OF Integer = []
   FOR EACH tk IN tracks
     rendered = collections::append(rendered, __audio_mmlRenderSamples(tk))
   NEXT
   __audio_playSamples(out, __audio_mmlMix(rendered))
-END SUB"#;
+END FUNC"#;
 
 const INTRO: &str = r#"Parse MML music text and play it on an open output stream."#;
 const DESC: &str = r#"`audio::play` is a small MML (Music Macro Language) sequencer. It parses one or
@@ -51,14 +51,14 @@ const EX: &str = r#"Play a bass line and a lead together on the same stream:
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   LET bass = "T180 O2 L8 I triangle C G"
   LET lead = "T180 O4 L16 I sine C E G [ C E G ]"
 
   RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, [bass, lead])
   audio::close(out)
-END SUB
+END FUNC
 ```"#;
 
 fn output_param() -> Parameter {

@@ -16,9 +16,9 @@ fits."#;
 const EX: &str = r#"```
 IMPORT math
 IMPORT io
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(math::round(2.5)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -84,14 +84,14 @@ fn alias_witnesses(plan: &Value, symbol: &str) -> usize {
 fn list_loop(elem: &str, literal: &str, body: &str) -> String {
     format!(
         "IMPORT io\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF {elem} = {literal}\n\
         \x20 MUT acc AS Integer = 0\n\
         \x20 FOR EACH e IN xs\n\
         \x20   {body}\n\
         \x20 NEXT\n\
         \x20 io::print(toString(acc))\n\
-         END SUB\n"
+         END FUNC\n"
     )
 }
 
@@ -149,7 +149,7 @@ fn a_map_owns_one_block_per_string_side() {
         format!(
             "IMPORT io\n\
              IMPORT collections\n\
-             SUB main()\n\
+             FUNC main() AS Nothing\n\
             \x20 MUT m AS Map OF {key} TO {value} = Map OF {key} TO {value} {{}}\n\
             \x20 m = collections::set(m, {}, {})\n\
             \x20 MUT acc AS Integer = 0\n\
@@ -157,7 +157,7 @@ fn a_map_owns_one_block_per_string_side() {
             \x20   acc = acc + 1\n\
             \x20 NEXT\n\
             \x20 io::print(toString(acc))\n\
-             END SUB\n",
+             END FUNC\n",
             if key == "String" { "\"k\"" } else { "1" },
             if value == "String" { "\"v\"" } else { "2" },
         )
@@ -206,7 +206,7 @@ fn a_set_of_string_owns_its_element() {
         format!(
             "IMPORT io\n\
              IMPORT collections\n\
-             SUB main()\n\
+             FUNC main() AS Nothing\n\
             \x20 MUT s AS Set OF {elem} = Set OF {elem} {{}}\n\
             \x20 s = collections::add(s, {value})\n\
             \x20 MUT acc AS Integer = 0\n\
@@ -214,7 +214,7 @@ fn a_set_of_string_owns_its_element() {
             \x20   acc = acc + 1\n\
             \x20 NEXT\n\
             \x20 io::print(toString(acc))\n\
-             END SUB\n"
+             END FUNC\n"
         )
     }
     let integers = ncode("b571_set_int", &set_loop("Integer", "7"));
@@ -245,14 +245,14 @@ fn an_aliasing_element_is_never_given_an_owner() {
         "b571_list_record",
         "IMPORT io\n\
          TYPE Row\n  name AS String\n  n AS Integer\nEND TYPE\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET xs AS List OF Row = [Row[\"a\", 1], Row[\"bb\", 2]]\n\
         \x20 MUT acc AS Integer = 0\n\
         \x20 FOR EACH e IN xs\n\
         \x20   acc = acc + e.n\n\
         \x20 NEXT\n\
         \x20 io::print(toString(acc))\n\
-         END SUB\n",
+         END FUNC\n",
     );
     let nested = ncode(
         "b571_list_nested",

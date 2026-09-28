@@ -1,3 +1,0 @@
-SUB main(args AS List OF String)
-  FAIL error(100, "This is a message")
-END SUB

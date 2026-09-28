@@ -47,10 +47,10 @@ FUNC risky(n AS Integer) AS Integer
   RETURN n * 2
 END FUNC
 
-SUB shout(n AS Integer)
+FUNC shout(n AS Integer) AS Nothing
   IF n < 0 THEN FAIL error(77050003, "shout " & toString(n))
   io::print("  shouted " & toString(n))
-END SUB
+END FUNC
 
 FUNC apply(f AS FUNC(Integer) AS Integer, n AS Integer) AS Integer
   RETURN f(n)

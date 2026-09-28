@@ -129,10 +129,10 @@ const EX: &str = r#"Parse an object and read a nested value out of it:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET doc AS json::Json = json::parse("{\"ok\":true,\"items\":[1,2,3]}")
   io::print(json::stringify(json::get(doc, ["ok"])))
-END SUB
+END FUNC
 ```
 
 Pass the argument by name:
@@ -141,10 +141,10 @@ Pass the argument by name:
 IMPORT json
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET empty AS json::Json = json::parse(text := "null")
   io::print(json::stringify(empty))
-END SUB
+END FUNC
 ```
 
 Handle malformed input instead of failing:
@@ -160,10 +160,10 @@ FUNC parseOrNull(text AS String) AS json::Json
   END TRAP
 END FUNC
 
-SUB main
+FUNC main AS Nothing
   io::print(json::stringify(parseOrNull("[1,2]")))
   io::print(json::stringify(parseOrNull("not json")))
-END SUB
+END FUNC
 ```
 
 Transform every value as the document is read, using the reviver form:
@@ -182,9 +182,9 @@ FUNC double(key AS String, value AS json::Json) AS json::Json
   END MATCH
 END FUNC
 
-SUB main
+FUNC main AS Nothing
   io::print(json::stringify(json::parse("{\"a\":1,\"b\":[2,3]}", double)))
-END SUB
+END FUNC
 ```
 
 Act on one member by name, and on the finished document under the empty key:
@@ -203,9 +203,9 @@ FUNC summarize(key AS String, value AS json::Json) AS json::Json
   RETURN value
 END FUNC
 
-SUB main
+FUNC main AS Nothing
   io::print(json::stringify(json::parse("{\"name\":\"?\",\"id\":7}", summarize)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

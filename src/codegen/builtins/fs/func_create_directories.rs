@@ -71,9 +71,9 @@ const EX: &str = r#"Create a nested directory together with its missing parents:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("target/example/nested")
-END SUB
+END FUNC
 ```
 
 Re-running is safe because existing directories are accepted:
@@ -81,10 +81,10 @@ Re-running is safe because existing directories are accepted:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("target/example/nested")
   fs::createDirectories("target/example/nested")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -32,11 +32,11 @@ const EX: &str = r#"The byte order, spelled out:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   ' red 0x12, green 0x34, blue 0x56, alpha 0x78 -> 0x78123456
   LET c AS color::Color = color::rgba(18, 52, 86, 120)
   io::print(toString(color::toPacked(c)))
-END SUB
+END FUNC
 ```
 
 `color::fromPacked` is the exact inverse, so a colour survives the round trip:
@@ -45,11 +45,11 @@ END SUB
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::rgba(10, 20, 30, 40)
   LET back AS color::Color = color::fromPacked(color::toPacked(c))
   io::print(toString(back.red) & " " & toString(back.green) & " " & toString(back.blue) & " " & toString(back.alpha))
-END SUB
+END FUNC
 ```
 
 Drop alpha to get the 24-bit `0xRRGGBB` form:
@@ -59,10 +59,10 @@ IMPORT bits
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::rgba(51, 102, 204, 255)
   io::print(toString(bits::band(color::toPacked(c), 16777215)))
-END SUB
+END FUNC
 ```"#;
 
 /// `bits::sl`/`bor` rather than `*`/`+` so the intent is a bit layout rather than

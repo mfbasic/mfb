@@ -38,7 +38,7 @@ use serde_json::Value;
 /// Every gated `term::` member, plus the reader the offset probe uses. Every
 /// positioned member carries a non-`Light` style so a build cannot satisfy the
 /// gate assertions with a body the compiler folded away.
-const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n  \
+const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nFUNC main() AS Nothing\n  \
      term::on()\n  \
      term::setForeground(color::rgb(0, 255, 0))\n  \
      term::setBackground(color::rgb(0, 0, 0))\n  \
@@ -57,7 +57,7 @@ const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n 
      term::sync()\n  \
      LET size AS term::TermSize = term::terminalSize()\n  \
      io::print(toString(size.columns) & toString(term::isOn()) & toString(term::didResize()))\n  \
-     term::off()\nEND SUB\n";
+     term::off()\nEND FUNC\n";
 
 fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Value> {
     let project = temp_project(name, TERM_SOURCE);

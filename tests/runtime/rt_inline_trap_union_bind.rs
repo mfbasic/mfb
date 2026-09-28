@@ -112,7 +112,7 @@ fn a_plain_union_bind_from_a_variant_producer_matches_its_variant() {
     let root = unique_root("data_plain");
     let source = format!(
         "{DATA_PRELUDE}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET v AS Val = makeNum(7)\n\
         \x20 MATCH v\n\
         \x20   CASE Num(m)\n\
@@ -121,7 +121,7 @@ fn a_plain_union_bind_from_a_variant_producer_matches_its_variant() {
         \x20     io::print(\"matched-txt\")\n\
         \x20 END MATCH\n\
         \x20 io::print(\"after\")\n\
-         END SUB\n"
+         END FUNC\n"
     );
     let stdout = run(&build(&root, &source));
     assert!(
@@ -139,10 +139,10 @@ fn a_trap_bound_data_union_matches_its_variant() {
     let root = unique_root("data_trap");
     let source = format!(
         "{DATA_PRELUDE}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET v AS Val = makeNum(7) TRAP(e)\n\
         \x20   io::print(\"trapped\")\n\
-        \x20   EXIT SUB\n\
+        \x20   RETURN\n\
         \x20 END TRAP\n\
         \x20 MATCH v\n\
         \x20   CASE Num(m)\n\
@@ -151,7 +151,7 @@ fn a_trap_bound_data_union_matches_its_variant() {
         \x20     io::print(\"matched-txt\")\n\
         \x20 END MATCH\n\
         \x20 io::print(\"after\")\n\
-         END SUB\n"
+         END FUNC\n"
     );
     let stdout = run(&build(&root, &source));
     assert!(
@@ -173,10 +173,10 @@ fn a_trap_bound_data_union_still_reaches_its_handler() {
     let root = unique_root("data_trap_fires");
     let source = format!(
         "{DATA_PRELUDE}\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET v AS Val = makeNum(0 - 1) TRAP(e)\n\
         \x20   io::print(\"trapped\")\n\
-        \x20   EXIT SUB\n\
+        \x20   RETURN\n\
         \x20 END TRAP\n\
         \x20 MATCH v\n\
         \x20   CASE Num(m)\n\
@@ -184,7 +184,7 @@ fn a_trap_bound_data_union_still_reaches_its_handler() {
         \x20   CASE Txt(t)\n\
         \x20     io::print(\"matched-txt\")\n\
         \x20 END MATCH\n\
-         END SUB\n"
+         END FUNC\n"
     );
     let stdout = run(&build(&root, &source));
     assert!(
@@ -207,10 +207,10 @@ fn a_trap_bound_resource_union_matches_its_variant() {
                  \x20 udp::Socket\n\
                  \x20 fs::File\n\
                   END UNION\n\n\
-                  SUB probe(port AS Integer)\n\
+                  FUNC probe(port AS Integer) AS Nothing\n\
                  \x20 RES c AS Chan = udp::bind(\"127.0.0.1\", port) TRAP(e)\n\
                  \x20   io::print(\"trapped\")\n\
-                 \x20   EXIT SUB\n\
+                 \x20   RETURN\n\
                  \x20 END TRAP\n\
                  \x20 MATCH c\n\
                  \x20   CASE udp::Socket(s)\n\
@@ -218,13 +218,13 @@ fn a_trap_bound_resource_union_matches_its_variant() {
                  \x20   CASE fs::File(f)\n\
                  \x20     io::print(\"matched-file\")\n\
                  \x20 END MATCH\n\
-                  END SUB\n\n\
-                  SUB main()\n\
+                  END FUNC\n\n\
+                  FUNC main() AS Nothing\n\
                  \x20 IF fs::fileExists(\"/definitely/not/here\") THEN\n\
                  \x20   io::print(\"huh\")\n\
                  \x20 END IF\n\
                  \x20 probe(0)\n\
-                  END SUB\n";
+                  END FUNC\n";
     let stdout = run(&build(&root, source));
     assert!(
         stdout.contains("matched-udp"),
@@ -250,7 +250,7 @@ fn a_recovered_variant_in_a_union_returning_trap_matches_its_variant() {
         \x20 IF n < 0 THEN FAIL error(77050004, \"bad \" & toString(n))\n\
         \x20 RETURN Txt[\"t\"]\n\
          END FUNC\n\n\
-         SUB main()\n\
+         FUNC main() AS Nothing\n\
         \x20 LET v AS Val = makeVal(0 - 1) TRAP(e)\n\
         \x20   RECOVER makeNum(3)\n\
         \x20 END TRAP\n\
@@ -261,7 +261,7 @@ fn a_recovered_variant_in_a_union_returning_trap_matches_its_variant() {
         \x20     io::print(\"matched-txt\")\n\
         \x20 END MATCH\n\
         \x20 io::print(\"after\")\n\
-         END SUB\n"
+         END FUNC\n"
     );
     let stdout = run(&build(&root, &source));
     assert!(
@@ -293,7 +293,7 @@ fn a_recovered_variant_in_a_resource_union_returning_trap_is_matched_and_closed(
                  \x20 RES u AS Chan = udp::bind(host, 0)\n\
                  \x20 RETURN u\n\
                   END FUNC\n\n\
-                  SUB main()\n\
+                  FUNC main() AS Nothing\n\
                  \x20 MUT udp AS Integer = 0\n\
                  \x20 FOR i = 1 TO 200\n\
                  \x20   RES c AS Chan = open(\"999.999.1.1\") TRAP(e)\n\
@@ -307,7 +307,7 @@ fn a_recovered_variant_in_a_resource_union_returning_trap_is_matched_and_closed(
                  \x20   END MATCH\n\
                  \x20 NEXT\n\
                  \x20 io::print(\"udp=\" & toString(udp))\n\
-                  END SUB\n";
+                  END FUNC\n";
     let exe = build(&root, source);
     let out = Command::new("sh")
         .arg("-c")

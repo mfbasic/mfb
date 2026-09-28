@@ -22,16 +22,16 @@ PUBLIC FUNC depthLevel() AS Integer
   RETURN currentDepth
 END FUNC
 
-PUBLIC SUB setDepthLevel(depth AS Integer)
+PUBLIC FUNC setDepthLevel(depth AS Integer) AS Nothing
   currentDepth = depth
-END SUB
+END FUNC
 
 FUNC layerIndex(x AS Integer, y AS Integer, layer AS Integer) AS Integer
   RETURN gi(x, y) * NUMBER_TERRAIN_LAYERS + layer
 END FUNC
 
 ' Architect.c `clearLevel`: granite everywhere, nothing in the other layers.
-PUBLIC SUB clearLevel()
+PUBLIC FUNC clearLevel() AS Nothing
   MUT layers AS List OF Integer = []
   MUT zeros AS List OF Integer = []
   FOR k = 0 TO DCOLS * DROWS - 1
@@ -45,31 +45,31 @@ PUBLIC SUB clearLevel()
   pmapFlags = zeros
   pmapVolume = zeros
   pmapMachineNumber = zeros
-END SUB
+END FUNC
 
 PUBLIC FUNC layerAt(x AS Integer, y AS Integer, layer AS Integer) AS Integer
   RETURN collections::get(pmapLayers, layerIndex(x, y, layer))
 END FUNC
 
-PUBLIC SUB setLayer(x AS Integer, y AS Integer, layer AS Integer, tile AS Integer)
+PUBLIC FUNC setLayer(x AS Integer, y AS Integer, layer AS Integer, tile AS Integer) AS Nothing
   pmapLayers = collections::set(pmapLayers, layerIndex(x, y, layer), tile)
-END SUB
+END FUNC
 
 PUBLIC FUNC cellFlagsAt(x AS Integer, y AS Integer) AS Integer
   RETURN collections::get(pmapFlags, gi(x, y))
 END FUNC
 
-PUBLIC SUB addCellFlags(x AS Integer, y AS Integer, flags AS Integer)
+PUBLIC FUNC addCellFlags(x AS Integer, y AS Integer, flags AS Integer) AS Nothing
   pmapFlags = collections::set(pmapFlags, gi(x, y), bits::bor(cellFlagsAt(x, y), flags))
-END SUB
+END FUNC
 
 PUBLIC FUNC volumeAt(x AS Integer, y AS Integer) AS Integer
   RETURN collections::get(pmapVolume, gi(x, y))
 END FUNC
 
-PUBLIC SUB setVolume(x AS Integer, y AS Integer, volume AS Integer)
+PUBLIC FUNC setVolume(x AS Integer, y AS Integer, volume AS Integer) AS Nothing
   pmapVolume = collections::set(pmapVolume, gi(x, y), volume)
-END SUB
+END FUNC
 
 PUBLIC FUNC machineNumberAt(x AS Integer, y AS Integer) AS Integer
   RETURN collections::get(pmapMachineNumber, gi(x, y))

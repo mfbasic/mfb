@@ -12,7 +12,7 @@
     "items": [
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "g", "type": "String", "value": { "kind": "string", "value": "" }, "line": 14 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -22,7 +22,7 @@
       { "name": "got", "type": "String", "default": null, "line": 16 },
       { "name": "want", "type": "String", "default": null, "line": 16 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",
@@ -38,14 +38,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "caseMapsLocal",
       "line": 26,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "aBcD" }, "line": 27 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 28 },
@@ -82,14 +82,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "normalizeLocal",
       "line": 73,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "abc" }, "line": 74 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 75 },
@@ -110,14 +110,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "replaceLocal",
       "line": 100,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "abcabc" }, "line": 101 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "a" }, { "kind": "string", "value": "xy" }] }, "line": 102 },
@@ -146,14 +146,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "pathNormalizeLocal",
       "line": 135,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "a/b/../c" }, "line": 136 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 137 },
@@ -182,14 +182,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "rewritesGlobal",
       "line": 169,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "g", "value": { "kind": "string", "value": "straße" }, "line": 170 },
       { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 171 },
@@ -210,14 +210,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "rewriteThenUse",
       "line": 193,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "straße" }, "line": 194 },
       { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 195 },
@@ -254,26 +254,26 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "trapReplaceEmptyOld",
       "line": 216,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "abc" }, "line": 217 },
       { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "x" }] }, "line": 218 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap.replaceEmptyOld NOT RAISED [" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 219 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 220 }
+      { "kind": "return", "value": null, "line": 220 }
       ],
       "trap": {
       "name": "err",
       "line": 221,
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap.replaceEmptyOld raised=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }, "right": { "kind": "string", "value": " s=[" } }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 222 },
-      { "kind": "exit", "target": "sub", "code": null, "line": 223 }
+      { "kind": "return", "value": null, "line": 223 }
       ]
     }
     },

@@ -16,7 +16,7 @@ UNION Tree
   Branch
 END UNION
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS Tree = Leaf[v := 1]
   LET xs AS List OF Tree = [t]
   MUT ys AS List OF Tree = xs
@@ -26,4 +26,4 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("ys=" & toString(len(ys)) & " xs=" & toString(len(xs)))
-END SUB
+END FUNC

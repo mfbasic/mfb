@@ -1,0 +1,8 @@
+' plan-159-A: a `FUNC main() AS Nothing` entry that FAILs exits exactly as a
+' value-less entry always has for the same FAIL: the error is reported, exit code 255.
+IMPORT io
+
+FUNC main() AS Nothing
+  io::print("before")
+  FAIL error(700, "intentional failure out of main")
+END FUNC

@@ -163,11 +163,11 @@ const EX: &str = r#"Measure the elapsed time around a block of work in nanosecon
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t0 AS Integer = datetime::monotonicNanos()
   ' ... work ...
   LET elapsedNanos AS Integer = datetime::monotonicNanos() - t0
-END SUB
+END FUNC
 ```
 
 Convert the measured interval to whole milliseconds:
@@ -175,11 +175,11 @@ Convert the measured interval to whole milliseconds:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t0 AS Integer = datetime::monotonicNanos()
   ' ... work ...
   LET elapsedMs AS Integer = (datetime::monotonicNanos() - t0) / 1000000
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

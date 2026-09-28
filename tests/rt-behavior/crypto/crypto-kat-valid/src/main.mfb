@@ -6,7 +6,7 @@ IMPORT encoding
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   ' SHA-2 (FIPS 180-4).
   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_256, "abc")))
   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_224, "abc")))
@@ -98,4 +98,4 @@ SUB main()
   io::print("ulid-first-valid=" & toString(strings::mid(id, 0, 1) >= "0" AND strings::mid(id, 0, 1) <= "7"))
   MUT r AS Integer = crypto::randomInt(7, 7)
   io::print("randint-degenerate=" & toString(r))
-END SUB
+END FUNC

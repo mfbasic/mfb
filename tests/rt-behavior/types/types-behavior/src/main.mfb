@@ -27,10 +27,10 @@ END FUNC
 
 ' ---- from types-map-entry-valid ----
 
-SUB printEntry(entry AS MapEntry OF String TO Integer)
+FUNC printEntry(entry AS MapEntry OF String TO Integer) AS Nothing
   io::print(entry.key)
   io::print(toString(entry.value))
-END SUB
+END FUNC
 
 FUNC types_map_entry_valid_run AS Integer
   LET scores AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
@@ -49,19 +49,19 @@ FUNC literalNothing AS Nothing
   RETURN NOTHING
 END FUNC
 
-SUB fallthroughSub
+FUNC fallthroughSub AS Nothing
   io::print("fallthrough")
-END SUB
+END FUNC
 
-SUB bareReturnSub
+FUNC bareReturnSub AS Nothing
   io::print("bare-return")
-  EXIT SUB
-END SUB
+  RETURN
+END FUNC
 
-SUB explicitReturnSub
+FUNC explicitReturnSub AS Nothing
   io::print("explicit-return")
-  EXIT SUB
-END SUB
+  RETURN
+END FUNC
 
 FUNC callSubAsNothing AS Nothing
   fallthroughSub()

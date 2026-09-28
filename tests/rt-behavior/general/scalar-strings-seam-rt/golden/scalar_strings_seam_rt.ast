@@ -10,7 +10,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "check",
@@ -19,7 +19,7 @@
       { "name": "label", "type": "String", "default": null, "line": 7 },
       { "name": "cond", "type": "Boolean", "default": null, "line": 7 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",

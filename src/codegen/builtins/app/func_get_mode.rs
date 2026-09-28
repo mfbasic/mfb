@@ -64,11 +64,11 @@ const EX: &str = r#"Branch on the mode currently in effect:
 IMPORT app
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   IF app::getMode() = app::Mode.None THEN
     io::print("running windowless")
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

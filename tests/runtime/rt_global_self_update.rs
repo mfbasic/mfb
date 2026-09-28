@@ -45,9 +45,9 @@ const CASES: &[(&str, &str, &str, &str)] = &[
         "let_copy",
         "MUT g AS List OF Integer = [1, 2, 3]
 
-SUB grow()
+FUNC grow() AS Nothing
   g = collections::append(g, 4)
-END SUB",
+END FUNC",
         "LET y AS List OF Integer = g
   grow()
   io::print(showInts(y))
@@ -71,14 +71,14 @@ END FUNC",
         "for_each",
         "MUT g AS List OF Integer = [1, 2, 3]
 
-SUB walk()
+FUNC walk() AS Nothing
   MUT seen AS String = \"\"
   FOR EACH v IN g
     seen = seen & toString(v) & \" \"
     g = collections::append(g, v * 10)
   NEXT
   io::print(seen)
-END SUB",
+END FUNC",
         "walk()
   io::print(showInts(g))",
         "1 2 3 \n1 2 3 10 20 30 ",
@@ -92,9 +92,9 @@ FUNC addHundred() AS Integer
   RETURN 5
 END FUNC
 
-SUB advance()
+FUNC advance() AS Nothing
   g = collections::append(g, addHundred())
-END SUB",
+END FUNC",
         "advance()
   io::print(showInts(g))",
         "1 2 3 5 ",
@@ -119,14 +119,14 @@ END FUNC",
         "MUT m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
 MUT gset AS Set OF Integer = Set OF Integer { 1 }
 
-SUB fill()
+FUNC fill() AS Nothing
   FOR i = 1 TO 50
     m = collections::set(m, \"k\" & toString(i), i)
     gset = collections::add(gset, i)
   NEXT
   m = collections::removeKey(m, \"a\")
   gset = collections::remove(gset, 1)
-END SUB",
+END FUNC",
         "LET m0 AS Map OF String TO Integer = m
   LET s0 AS Set OF Integer = gset
   fill()
@@ -138,11 +138,11 @@ END SUB",
         "string_concat",
         "MUT gs AS String = \"a\"
 
-SUB grow()
+FUNC grow() AS Nothing
   FOR i = 1 TO 100
     gs = gs & \"b\"
   NEXT
-END SUB",
+END FUNC",
         "LET before AS String = gs
   grow()
   LET t AS String = \"T\" & toString(len(gs))
@@ -154,11 +154,11 @@ END SUB",
         "string_reassigned",
         "MUT gs AS String = \"a\"
 
-SUB grow(n AS Integer)
+FUNC grow(n AS Integer) AS Nothing
   FOR i = 1 TO n
     gs = gs & \"b\"
   NEXT
-END SUB",
+END FUNC",
         "grow(100)
   gs = \"x\" & toString(1)
   LET t1 AS String = \"T\" & toString(len(gs))

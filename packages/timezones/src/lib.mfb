@@ -66,12 +66,12 @@ DOC
     IMPORT datetime
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET winter AS datetime::Instant = datetime::instant(1768485600, 0)
       LET summer AS datetime::Instant = datetime::instant(1784120400, 0)
       io::print(toString(timezones::offsetAt("America/New_York", winter)))
       io::print(toString(timezones::offsetAt("America/New_York", summer)))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC offsetAt(name AS String, at AS datetime::Instant) AS Integer
@@ -98,12 +98,12 @@ DOC
     IMPORT datetime
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET at AS datetime::Instant = datetime::instant(1784120400, 0)
       LET zone AS datetime::Zone = timezones::toZone("America/New_York", at)
       io::print(zone.label & " " & toString(zone.offsetSeconds))
       io::print(datetime::toIso(datetime::inZone(at, zone)))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC toZone(name AS String, at AS datetime::Instant) AS datetime::Zone
@@ -143,14 +143,14 @@ DOC
     IMPORT datetime
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET winter AS datetime::DateTime = timezones::civil(datetime::date(2026, 1, 15), datetime::time(9, 0, 0, 0), "America/New_York")
       LET summer AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "America/New_York")
       io::print(datetime::toIso(winter))
       io::print(datetime::toIso(summer))
       LET skipped AS datetime::DateTime = timezones::civil(datetime::date(2026, 3, 8), datetime::time(2, 30, 0, 0), "America/New_York")
       io::print(datetime::toIso(skipped))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC civil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
@@ -209,11 +209,11 @@ DOC
     IMPORT datetime
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET meeting AS datetime::DateTime = timezones::civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 123456789), "America/New_York")
       io::print(timezones::toIso(meeting, "America/New_York"))
       io::print(timezones::toIso(meeting, 9, "America/New_York"))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC toIso(dt AS datetime::DateTime, name AS String) AS String
@@ -254,10 +254,10 @@ DOC
     IMPORT datetime
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET z AS timezones::ZonedDateTime = timezones::parseIso("2026-07-15T09:00:00.000-04:00[America/New_York]")
       io::print(z.name & " " & toString(datetime::resolve(z.dateTime).seconds) & " " & z.dateTime.zone.label)
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC parseIso(text AS String) AS ZonedDateTime

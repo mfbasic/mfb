@@ -50,11 +50,11 @@ FUNC one(doc AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(one("\r\n{\"a\":1}\r\n"))
   io::print(one("{\"a\":\r\n1}"))
   io::print(one("[1,\r\n 2,\r\n 3]"))
-END SUB
+END FUNC
 "#,
         Duration::from_secs(60),
         "parsing CRLF JSON did not finish",
@@ -87,7 +87,7 @@ FUNC one(doc AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(one("1\u{301}"))
   io::print(one("[1\u{E9}]"))
   io::print(one("1\u{1F600}"))
@@ -102,7 +102,7 @@ SUB main()
   io::print(one("[1,-0.5e+10,1E2,0.0,-0,7e-1]"))
   io::print(one("{\"n\":-12.5E3}"))
   io::print(one(" 42 "))
-END SUB
+END FUNC
 "#,
         Duration::from_secs(60),
         "the number-edge documents did not finish",
@@ -133,7 +133,7 @@ END SUB
 const LARGE_STRING: &str = r#"IMPORT io
 IMPORT json
 
-SUB main()
+FUNC main() AS Nothing
   MUT s AS String = "\""
   MUT i AS Integer = 0
   WHILE i < 3000000
@@ -148,7 +148,7 @@ SUB main()
     CASE ELSE
       io::print("not a string")
   END MATCH
-END SUB
+END FUNC
 "#;
 
 #[cfg(unix)]
@@ -194,7 +194,7 @@ FUNC one(idx AS Integer, doc AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(one(0, "null"))
   io::print(one(1, "true"))
   io::print(one(2, "false"))
@@ -258,7 +258,7 @@ SUB main()
   io::print(one(60, "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""))
   io::print(one(61, "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"))
   io::print(one(62, "{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":{\"k\":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"))
-END SUB
+END FUNC
 "####;
 
 const PARSE_CORPUS_EXPECTED: &str = r####"0: null

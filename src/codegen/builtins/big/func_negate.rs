@@ -26,11 +26,11 @@ const EX: &str = r#"Reverse a sign twice:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS big::Int = big::fromInteger(40)
   io::print(toString(big::toInteger(big::negate(a))))
   io::print(toString(big::toInteger(big::negate(big::negate(a)))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

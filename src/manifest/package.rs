@@ -622,11 +622,10 @@ pub(crate) fn imported_type_names(
                             entry.insert(variant.name);
                         }
                     }
-                    // A function or a sub is not a type; de-qualifying one would
-                    // rename the call target, which is the over-correction the
+                    // A function is not a type; de-qualifying one would rename
+                    // the call target, which is the over-correction the
                     // type-position normalizer exists to avoid.
-                    binary_repr::BinaryReprExportKind::Func
-                    | binary_repr::BinaryReprExportKind::Sub => {}
+                    binary_repr::BinaryReprExportKind::Func => {}
                 }
             }
         }
@@ -757,7 +756,7 @@ fn imported_type_def(
         binary_repr::BinaryReprExportKind::Type => ir::ImportedTypeKind::Record,
         binary_repr::BinaryReprExportKind::Union => ir::ImportedTypeKind::Union,
         binary_repr::BinaryReprExportKind::Enum => ir::ImportedTypeKind::Enum,
-        binary_repr::BinaryReprExportKind::Func | binary_repr::BinaryReprExportKind::Sub => {
+        binary_repr::BinaryReprExportKind::Func => {
             return None;
         }
     };
@@ -851,7 +850,6 @@ fn package_export_signature(
             .collect(),
         returns: qualify(&export.return_type),
         isolated: export.isolated,
-        sub: export.kind == binary_repr::BinaryReprExportKind::Sub,
     }
 }
 
@@ -2360,15 +2358,11 @@ mod tests {
     }
 
     #[test]
-    fn imported_type_def_drops_function_and_sub_exports() {
-        // Only record/union/enum exports become type defs; callable exports are
-        // dropped (they reach the build through `external_package_function_types`).
-        for kind in [
-            binary_repr::BinaryReprExportKind::Func,
-            binary_repr::BinaryReprExportKind::Sub,
-        ] {
-            assert!(imported_type_def(type_export("callable", kind), "pkg", &owned(&[])).is_none());
-        }
+    fn imported_type_def_drops_function_exports() {
+        // Only record/union/enum exports become type defs; a callable export is
+        // dropped (it reaches the build through `external_package_function_types`).
+        let kind = binary_repr::BinaryReprExportKind::Func;
+        assert!(imported_type_def(type_export("callable", kind), "pkg", &owned(&[])).is_none());
     }
 
     // --- imported type defs / resource closers from real fixtures ---------

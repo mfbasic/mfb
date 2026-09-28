@@ -1,0 +1,14 @@
+' A value-less function with a function-level TRAP must end every normal path
+' before the TRAP; falling through into it is TYPE_TRAP_FALLTHROUGH.
+FUNC bad(flag AS Boolean) AS Nothing
+  IF flag THEN
+    RETURN
+  END IF
+  TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

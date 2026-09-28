@@ -74,16 +74,16 @@ END FUNC
 ' 2 GiB entry from a file-backed archive holds one chunk rather than the entry.
 ' A deflated entry has to be inflated whole -- `compress::` is a whole-buffer
 ' codec -- so it goes through `read`, which applies the same CRC check.
-PRIVATE SUB writeEntry(archive AS Archive, entry AS Entry, target AS String)
+PRIVATE FUNC writeEntry(archive AS Archive, entry AS Entry, target AS String) AS Nothing
   IF entry.method = 0 THEN
     copyStored(archive, entry, target)
   ELSE
     LET data AS List OF Byte = readEntry(archive, entry, entry.size)
     fs::writeBytes(target, data)
   END IF
-END SUB
+END FUNC
 
-PRIVATE SUB copyStored(archive AS Archive, entry AS Entry, target AS String)
+PRIVATE FUNC copyStored(archive AS Archive, entry AS Entry, target AS String) AS Nothing
   LET dataOffset AS Integer = storedDataOffset(archive, entry)
   RES out AS fs::File = fs::open(target, "write")
   MUT copied AS Integer = 0
@@ -106,7 +106,7 @@ PRIVATE SUB copyStored(archive AS Archive, entry AS Entry, target AS String)
     fs::deleteFile(target)
     FAIL error(ErrorChecksum, "zip: entry \"" & entry.name & "\" failed its CRC-32 check")
   END IF
-END SUB
+END FUNC
 
 ' Where a stored entry's data begins, verified against its local header.
 PRIVATE FUNC storedDataOffset(archive AS Archive, entry AS Entry) AS Integer
@@ -126,7 +126,7 @@ END FUNC
 
 ' plan-139-B §4.3 rules 1-4: the name must be safe on its own terms, and must
 ' still land inside `directory` once the disk has had its say.
-PRIVATE SUB requireExtractableName(name AS String, directory AS String)
+PRIVATE FUNC requireExtractableName(name AS String, directory AS String) AS Nothing
   IF len(name) = 0 THEN
     FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"\"")
   END IF
@@ -157,7 +157,7 @@ PRIVATE SUB requireExtractableName(name AS String, directory AS String)
   IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
     FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
   END IF
-END SUB
+END FUNC
 
 ' The longest prefix of `path` that exists on disk.
 '

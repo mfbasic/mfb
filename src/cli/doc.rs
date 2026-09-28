@@ -132,7 +132,7 @@ mod tests {
     fn build_source_doc_page_single_file() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("prog.mfb");
-        fs::write(&file, "SUB main()\nEND SUB\n").unwrap();
+        fs::write(&file, "FUNC main() AS Nothing\nEND FUNC\n").unwrap();
         let (_, valid) = build_source_doc_page(&file).expect("page");
         assert!(valid);
     }
@@ -161,7 +161,7 @@ mod tests {
         let src = dir.path().join("src");
         fs::create_dir_all(&src).unwrap();
         fs::write(dir.path().join("project.json"), PROJECT_MANIFEST).unwrap();
-        fs::write(src.join("main.mfb"), "SUB main()\nEND SUB\n").unwrap();
+        fs::write(src.join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").unwrap();
         let (_, valid) = build_source_doc_page(dir.path()).expect("page");
         assert!(valid);
     }
@@ -180,7 +180,7 @@ mod tests {
     fn run_doc_command_writes_html_for_file() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("prog.mfb");
-        fs::write(&file, "SUB main()\nEND SUB\n").unwrap();
+        fs::write(&file, "FUNC main() AS Nothing\nEND FUNC\n").unwrap();
         let out = dir.path().join("out.html");
         let code = run_doc_command(&s(&[
             file.to_str().unwrap(),
@@ -224,7 +224,7 @@ mod tests {
     fn run_doc_command_write_failure_returns_one() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("prog.mfb");
-        fs::write(&file, "SUB main()\nEND SUB\n").unwrap();
+        fs::write(&file, "FUNC main() AS Nothing\nEND FUNC\n").unwrap();
         // Point --out at a path whose parent is not a directory.
         let bad_out = file.join("cannot").join("write.html");
         let code = run_doc_command(&s(&[

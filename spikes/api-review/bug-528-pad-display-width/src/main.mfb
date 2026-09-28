@@ -11,9 +11,9 @@
 IMPORT io
 IMPORT strings
 
-SUB show(label AS String, s AS String)
+FUNC show(label AS String, s AS String) AS Nothing
   io::print(label & " scalars=" & toString(len(s)) & " columns=" & toString(strings::displayWidth(s)) & "  [" & s & "]")
-END SUB
+END FUNC
 
 FUNC main AS Integer
   show("padLeft(\"x\", 3, emoji)     ", strings::padLeft("x", 3, "😀"))

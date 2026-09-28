@@ -16,10 +16,10 @@ scalar is overlined when any covering span carries the overline flag."#;
 const EX: &str = r#"```
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::overline())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

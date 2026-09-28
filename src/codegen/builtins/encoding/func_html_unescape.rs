@@ -109,9 +109,9 @@ const EX: &str = r#"Decode named references:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::htmlUnescape("&lt;a&gt;"))
-END SUB
+END FUNC
 ```
 
 Decode decimal and hexadecimal numeric references:
@@ -120,9 +120,9 @@ Decode decimal and hexadecimal numeric references:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::htmlUnescape("caf&#233; / caf&#xE9;"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `htmlEscape`:
@@ -131,10 +131,10 @@ Round-trip through `htmlEscape`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
   io::print(encoding::htmlUnescape(esc))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

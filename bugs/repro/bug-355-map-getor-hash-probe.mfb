@@ -17,7 +17,7 @@ IMPORT io
 IMPORT collections
 IMPORT datetime
 
-SUB bench(m AS Integer, lookups AS Integer)
+FUNC bench(m AS Integer, lookups AS Integer) AS Nothing
   MUT map AS Map OF String TO Integer = Map OF String TO Integer {}
   MUT i AS Integer = 0
   WHILE i < m
@@ -43,9 +43,9 @@ SUB bench(m AS Integer, lookups AS Integer)
   LET t2 AS Integer = datetime::monotonicNanos()
 
   io::print("M=" & toString(m) & " get_us=" & toString((t1 - t0) / 1000) & " getOr_us=" & toString((t2 - t1) / 1000) & " acc=" & toString(acc) & "/" & toString(acc2))
-END SUB
+END FUNC
 
-SUB main
+FUNC main AS Nothing
   bench(64, 20000)
   bench(128, 20000)
   bench(256, 20000)
@@ -53,4 +53,4 @@ SUB main
   bench(1024, 20000)
   bench(2048, 20000)
   bench(4096, 20000)
-END SUB
+END FUNC

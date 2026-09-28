@@ -76,11 +76,11 @@ const EX: &str = r#"Write raw bytes to a file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeBytes("output/report.bin", bytes)
-END SUB
+END FUNC
 ```
 
 Replace a file's contents with bytes read from another file:
@@ -88,11 +88,11 @@ Replace a file's contents with bytes read from another file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytes("copy.bin", bytes)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

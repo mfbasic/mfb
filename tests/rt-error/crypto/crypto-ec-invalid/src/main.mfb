@@ -4,11 +4,11 @@ IMPORT crypto
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET badPub AS List OF Byte = encoding::hexDecode("04aabbccdd")
   LET msg AS List OF Byte = encoding::utf8Encode("hi")
   LET sig AS List OF Byte = encoding::hexDecode("3006020101020102")
   io::print("before")
   LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, badPub, msg, sig)
   io::print("after=" & toString(ok))
-END SUB
+END FUNC

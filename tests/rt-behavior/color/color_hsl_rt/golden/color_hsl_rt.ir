@@ -103,7 +103,7 @@
     "name": "rt",
     "line": 13,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 13, "type": "String", "default": null },
     { "name": "h", "line": 13, "type": "Float", "default": null },

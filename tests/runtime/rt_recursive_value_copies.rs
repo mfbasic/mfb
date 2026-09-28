@@ -288,7 +288,7 @@ FUNC weigh(t AS Tree) AS Integer
   RETURN result
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   MUT acc AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 20000
@@ -317,7 +317,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("acc=" & toString(acc))
-END SUB
+END FUNC
 "#;
 
 #[cfg(unix)]

@@ -216,7 +216,7 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
     NirFunction {
         name: global_initializer_name(&ir.name),
         visibility: "private".to_string(),
-        kind: "sub".to_string(),
+        kind: "func".to_string(),
         isolated: false,
         params: Vec::new(),
         returns: ParameterType::Nothing,

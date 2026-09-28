@@ -61,9 +61,9 @@ const EX: &str = r#"Toggle fullscreen from whatever state the window is in now:
 ```
 IMPORT app
 
-SUB main
+FUNC main AS Nothing
   app::setFullscreen(NOT app::getFullscreen())
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

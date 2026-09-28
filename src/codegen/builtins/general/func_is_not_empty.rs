@@ -26,14 +26,14 @@ const EX: &str = r#"Act only when there is something to act on:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET results AS List OF String = ["a", "b"]
   IF isNotEmpty(results) THEN
     io::print("got " & toString(len(results)) & " results")
   ELSE
     io::print("nothing found")
   END IF
-END SUB
+END FUNC
 ```
 
 prints:
@@ -47,11 +47,11 @@ A string of spaces counts as non-empty:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(isNotEmpty("a")))
   io::print(toString(isNotEmpty(" ")))
   io::print(toString(isNotEmpty("")))
-END SUB
+END FUNC
 ```
 
 prints:

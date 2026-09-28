@@ -50,7 +50,7 @@ IMPORT io
 IMPORT math
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT x AS Float = 0.0
   MUT i AS Integer = 0
@@ -64,7 +64,7 @@ SUB main()
   END WHILE
   LET s AS canvas::FrameStats = canvas::getFrameStats()
   io::print("presents: " & toString(s.presents))
-END SUB
+END FUNC
 ```
 
 This prints `presents: 30`. The square moves by `dt`, not by one fixed step per loop,

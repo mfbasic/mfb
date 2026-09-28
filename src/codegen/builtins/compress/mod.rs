@@ -243,7 +243,7 @@ mod tests {
     /// the generic pass never sees that call — and only the helpers that call reaches.
     #[test]
     fn a_canvas_program_gets_the_zlib_decoder_without_importing_compress() {
-        let paths = injected_paths("IMPORT canvas\n\nSUB main()\nEND SUB\n");
+        let paths = injected_paths("IMPORT canvas\n\nFUNC main() AS Nothing\nEND FUNC\n");
         assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 1);
         assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 0);
     }
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn a_program_importing_compress_and_canvas_gets_each_helper_once() {
         let paths = injected_paths(
-            "IMPORT canvas\nIMPORT compress\n\nSUB main()\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND SUB\n",
+            "IMPORT canvas\nIMPORT compress\n\nFUNC main() AS Nothing\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND FUNC\n",
         );
         assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 1);
         assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 1);
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn a_compress_program_that_only_checksums_carries_no_decoder() {
         let paths = injected_paths(
-            "IMPORT compress\n\nSUB main()\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND SUB\n",
+            "IMPORT compress\n\nFUNC main() AS Nothing\n  LET c AS Integer = compress::crc32([toByte(1)])\nEND FUNC\n",
         );
         assert_eq!(count(&paths, "builtins/compress_crc32.mfb"), 1);
         assert_eq!(count(&paths, "builtins/compress_zlib_frame.mfb"), 0);

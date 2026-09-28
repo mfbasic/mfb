@@ -43,7 +43,7 @@ for index, block in enumerate(blocks):
     body = "\n".join(
         line[4:] if line.startswith("    ") else line for line in block.split("\n")
     )
-    if not re.search(r"^(FUNC|SUB) main", body, flags=re.M):
+    if not re.search(r"^FUNC main", body, flags=re.M):
         body += "\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n"
     project = os.path.join(work, f"ex{index}")
     os.makedirs(os.path.join(project, "src"), exist_ok=True)

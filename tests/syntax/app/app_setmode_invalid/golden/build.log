@@ -1,5 +1,5 @@
 $ mfb build -ast -ir tests/syntax/app/app_setmode_invalid
-   4 | SUB main()
+   4 | FUNC main() AS Nothing
    5 |   ' setMode takes exactly one Mode argument (wrong arity: none).
    6 |   app::setMode()
      | ^

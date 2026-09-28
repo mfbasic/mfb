@@ -1396,7 +1396,10 @@ mod tests {
         // ~300 nested `List OF …` trips `parse_type_name`'s `enter_type` false
         // body (569-582) and its bail (597).
         on_big_stack(|| {
-            let src = format!("SUB s(x AS {}Integer)\nEND SUB\n", "List OF ".repeat(300),);
+            let src = format!(
+                "FUNC s(x AS {}Integer) AS Nothing\nEND FUNC\n",
+                "List OF ".repeat(300),
+            );
             assert!(parse(&src).is_err());
         });
     }

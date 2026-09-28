@@ -7,10 +7,10 @@ IMPORT thread
 ' non-escaping exception never extends to resources or threads
 ' (plan-08-lambda-mut.md §10, §12.4).
 
-SUB applyTwice(action AS FUNC(Integer) AS Nothing)
+FUNC applyTwice(action AS FUNC(Integer) AS Nothing) AS Nothing
   action(1)
   action(2)
-END SUB
+END FUNC
 
 FUNC makeCounter() AS FUNC(Integer) AS Nothing
   MUT running AS Integer = 0

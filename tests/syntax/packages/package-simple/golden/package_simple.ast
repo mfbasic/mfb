@@ -85,19 +85,19 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "mark",
       "line": 33,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "mark",
@@ -105,7 +105,7 @@
       "params": [
       { "name": "v", "type": "Vec2", "default": null, "line": 36 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "total", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "y" } }, "line": 37 }
       ]

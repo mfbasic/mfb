@@ -136,7 +136,7 @@ FUNC varintDecode AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET r1 AS Integer = percentDecode()
   LET r2 AS Integer = formUrlDecode()
   LET r3 AS Integer = base32Decode()
@@ -152,4 +152,4 @@ SUB main()
   LET r13 AS Integer = utf8DecodeBytes()
   LET r14 AS Integer = utf8DecodeInts()
   LET r15 AS Integer = varintDecode()
-END SUB
+END FUNC

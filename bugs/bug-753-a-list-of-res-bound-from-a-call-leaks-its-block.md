@@ -20,7 +20,7 @@ IMPORT collections
 IMPORT fs
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("/tmp/b753.txt", "")
   RES a AS fs::File = fs::open("/tmp/b753.txt", "read")
   LET la AS List OF RES fs::File = [a, a, a]
@@ -33,7 +33,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print(toString(total))
-END SUB
+END FUNC
 ```
 
 `mfb build --debug`, then `N=1000` and `N=2000`: `arena.0.peak_live_bytes` is

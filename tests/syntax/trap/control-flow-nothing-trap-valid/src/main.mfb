@@ -1,0 +1,29 @@
+FUNC viaReturn(flag AS Boolean) AS Nothing
+  IF flag THEN
+    RETURN
+  ELSE
+    FAIL error(10, "return path failed")
+  END IF
+  TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+FUNC viaTrapReturn(flag AS Boolean) AS Nothing
+  IF flag THEN
+    RETURN
+  ELSE
+    FAIL error(11, "trap path failed")
+  END IF
+  TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  viaReturn(TRUE)
+  viaReturn(FALSE)
+  viaTrapReturn(TRUE)
+  viaTrapReturn(FALSE)
+  RETURN 0
+END FUNC

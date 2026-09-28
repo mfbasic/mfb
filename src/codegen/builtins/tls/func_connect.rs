@@ -72,12 +72,12 @@ const EX: &str = r#"Connect to an HTTPS server and validate its certificate:
 IMPORT encoding
 IMPORT tls
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("example.com", 443)
   tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET response = encoding::utf8Decode(tls::read(conn, 4096))
   ' conn closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Connect to a literal IP but validate against a named certificate via SNI:
@@ -86,10 +86,10 @@ Connect to a literal IP but validate against a named certificate via SNI:
 IMPORT encoding
 IMPORT tls
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("8.8.8.8", 443, timeoutMs := 5000, serverName := "dns.google")
   ' conn closes itself when this scope ends
-END SUB
+END FUNC
 ```
 
 Reach a development server that serves its own self-signed certificate. The name
@@ -98,10 +98,10 @@ is still checked, so `serverName` must be a name the certificate carries:
 ```
 IMPORT tls
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("127.0.0.1", 7413, timeoutMs := 5000, serverName := "localhost", allowSelfSigned := TRUE)
   ' conn closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

@@ -99,7 +99,7 @@
     "name": "doEffect",
     "line": 8,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 8, "type": "Integer", "default": null }
     ],

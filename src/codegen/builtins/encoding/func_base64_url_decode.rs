@@ -51,10 +51,10 @@ const EX: &str = r#"Decode a URL-safe Base64 string (no padding) back to text:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bytes AS List OF Byte = encoding::base64UrlDecode("aGVsbG8")
   io::print(encoding::utf8Decode(bytes))
-END SUB
+END FUNC
 ```
 
 Round-trip through `base64UrlEncode`:
@@ -63,12 +63,12 @@ Round-trip through `base64UrlEncode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hello")
   LET text AS String = encoding::base64UrlEncode(raw)
   io::print(text)
   io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

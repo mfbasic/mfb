@@ -1,0 +1,49 @@
+' bubblesort - sorts `order` one comparison at a time.
+'
+' Each pass walks the unsorted front of the list swapping neighbours that are
+' out of order, which carries the largest of them to the end of it; that element
+' is then in its final place. A pass with no swaps means the rest is in order.
+
+MUT bubbleEnd AS Integer = 0        ' the places from here on are final
+MUT bubbleScan AS Integer = 0
+MUT bubbleSwapped AS Boolean = FALSE
+MUT bubbleFinished AS Boolean = FALSE
+MUT bubbleCompareCount AS Integer = 0
+
+FUNC bubbleStart AS Nothing
+  bubbleEnd = DOT_COUNT
+  bubbleScan = 0
+  bubbleSwapped = FALSE
+  bubbleFinished = DOT_COUNT < 2
+  bubbleCompareCount = 0
+END FUNC
+
+FUNC bubbleDone AS Boolean
+  RETURN bubbleFinished
+END FUNC
+
+FUNC bubbleCompares AS Integer
+  RETURN bubbleCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC bubbleSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT bubbleFinished
+    IF bubbleScan < bubbleEnd - 1 THEN
+      IF orderAt(bubbleScan) > orderAt(bubbleScan + 1) THEN
+        swapOrder(bubbleScan, bubbleScan + 1)
+        bubbleSwapped = TRUE
+      END IF
+      bubbleScan = bubbleScan + 1
+      bubbleCompareCount = bubbleCompareCount + 1
+      left = left - 1
+    ELSE
+      ' The pass carried its largest element to bubbleEnd - 1.
+      bubbleEnd = bubbleEnd - 1
+      IF NOT bubbleSwapped OR bubbleEnd <= 1 THEN bubbleFinished = TRUE
+      bubbleScan = 0
+      bubbleSwapped = FALSE
+    END IF
+  LOOP
+END FUNC

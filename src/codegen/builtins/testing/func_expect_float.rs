@@ -32,9 +32,9 @@ FUNC half(x AS Float) AS Float
   RETURN x / 2.0
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(half(3.0)))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "arithmetic"

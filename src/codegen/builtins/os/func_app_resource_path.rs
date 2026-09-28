@@ -251,10 +251,10 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET path AS String = os::appResourcePath("music/song.ogg")
   io::print(path)
-END SUB
+END FUNC
 ```
 
 List everything the build shipped, starting from the resource directory:
@@ -264,11 +264,11 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH entry IN fs::listDirectory(os::appResourcePath())
     io::print(entry)
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

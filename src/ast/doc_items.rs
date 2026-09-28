@@ -12,7 +12,7 @@ impl<'a> FileParser<'a> {
         let Some(header_index) = header_index else {
             self.report_at(
                 "DOC_BAD_HEADER",
-                "DOC block has no header line; expected FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE.",
+                "DOC block has no header line; expected FUNC, TYPE, UNION, ENUM, RESOURCE, or PACKAGE.",
                 line,
             );
             return None;
@@ -21,7 +21,6 @@ impl<'a> FileParser<'a> {
         let (head_kw, head_rest) = split_first_word(lines[header_index].text.trim());
         let header_kind = match head_kw.to_ascii_uppercase().as_str() {
             "FUNC" => DocHeaderKind::Func,
-            "SUB" => DocHeaderKind::Sub,
             "TYPE" => DocHeaderKind::Type,
             "UNION" => DocHeaderKind::Union,
             "ENUM" => DocHeaderKind::Enum,
@@ -31,16 +30,16 @@ impl<'a> FileParser<'a> {
                 self.report_at(
                     "DOC_BAD_HEADER",
                     &format!(
-                        "`{head_kw}` is not a valid DOC header; expected FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE."
+                        "`{head_kw}` is not a valid DOC header; expected FUNC, TYPE, UNION, ENUM, RESOURCE, or PACKAGE."
                     ),
                     header_line,
                 );
                 return None;
             }
         };
-        // FUNC/SUB headers may carry a parenthesized parameter-type list to pick a
+        // FUNC headers may carry a parenthesized parameter-type list to pick a
         // specific overload, e.g. `FUNC query(Db, String, List OF String)`.
-        let callable = matches!(header_kind, DocHeaderKind::Func | DocHeaderKind::Sub);
+        let callable = matches!(header_kind, DocHeaderKind::Func);
         let (header_name, header_params) = if callable {
             self.parse_header_signature(head_rest.trim(), header_line)
         } else {
@@ -255,7 +254,7 @@ impl<'a> FileParser<'a> {
 }
 
 impl<'a> FileParser<'a> {
-    /// Parse a FUNC/SUB doc header's name and optional parenthesized parameter-type
+    /// Parse a FUNC doc header's name and optional parenthesized parameter-type
     /// disambiguator: `name` -> (name, None); `name(T1, T2)` -> (name, Some([T1, T2])).
     /// Type strings are whitespace-normalized; commas inside nested parens (function
     /// types) are not split on.

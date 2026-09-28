@@ -22,7 +22,7 @@ FUNC ms(t AS Integer) AS String
   RETURN toString((datetime::monotonicNanos() - t) / 1000) & "us"
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET n AS Integer = 10000
   LET paint AS canvas::Paint = canvas::fill(color::rgba(0, 200, 255, 160))
@@ -72,5 +72,5 @@ SUB main()
     io::print("present 10k polys: " & ms(t))
     rep = rep + 1
   END WHILE
-END SUB
+END FUNC
 M

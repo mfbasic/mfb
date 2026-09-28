@@ -8,13 +8,12 @@
 //!     dropped. The emitted binary is byte-identical to one whose blocks were
 //!     physically deleted (the plan-18-A build-exclusion gate).
 //!   * **`mfb test`** ([`CompileMode::Test`]) — each `TCASE` desugars to a
-//!     generated parameterless `SUB`, and a synthesized driver `FUNC` (the entry
+//!     generated parameterless `FUNC … AS Nothing`, and a synthesized driver `FUNC` (the entry
 //!     point) runs every case under per-case trap isolation, streams the
 //!     pass/fail tree, and exits non-zero iff any case failed.
 
 use crate::ast::{
-    AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, TestGroupMember,
-    Visibility,
+    AstProject, Function, Import, Item, TestCase, TestGroup, TestGroupMember, Visibility,
 };
 use crate::testing::coverage::CovSlot;
 use std::path::Path;
@@ -98,8 +97,8 @@ pub(crate) fn lower_testing_blocks(
 }
 
 /// Test-mode lowering: replace every file's `TESTING` blocks with the generated
-/// case `SUB`s *in that same file*, then append the driver `FUNC` to the first
-/// file. Keeping each case SUB in its originating file means its body inherits
+/// case functions *in that same file*, then append the driver `FUNC` to the first
+/// file. Keeping each case function in its originating file means its body inherits
 /// that file's import scope — a `bits::` call stays in the file that
 /// `IMPORT bits`, and any file-local `PRIVATE` references (already rewritten by
 /// `scope_privates`) still resolve against that file's declarations.
@@ -108,7 +107,7 @@ pub(crate) fn lower_testing_blocks(
 fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> Vec<CovSlot> {
     // Enumerate the report steps (group headers and cases) in declaration order
     // across all files; each case's index (globally unique across the project)
-    // names its generated SUB. The step order the driver iterates is exactly this
+    // names its generated function. The step order the driver iterates is exactly this
     // order.
     let mut steps: Vec<desugar::DriverStep> = Vec::new();
     let mut case_index = 0usize;
@@ -126,7 +125,7 @@ fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> 
                 other => replacement.push(other),
             }
         }
-        // The generated case SUBs stay in the file they were declared in, after
+        // The generated case functions stay in the file they were declared in, after
         // that file's ordinary items.
         replacement.extend(generated.into_iter().map(Item::Function));
         file.items = replacement;
@@ -134,7 +133,7 @@ fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> 
 
     // The driver (entry point) goes into the first file — there is always at least
     // one source file in a project. It streams the report through `io::print`, so
-    // ensure that file imports `io`; the case SUBs it calls are Public, so the
+    // ensure that file imports `io`; the case functions it calls are Public, so the
     // cross-file calls resolve regardless of which file each case lives in.
     // The driver is emitted as a thin entry function plus the chunk functions it
     // calls (bug-445 follow-up: chunking bounds each generated function's stack
@@ -207,9 +206,9 @@ fn lower_group(
     for member in group.members {
         match member {
             TestGroupMember::Case(case) => {
-                // One generated SUB per case; its index is the running case count
-                // across the whole project, so the name is globally unique even
-                // though the SUB stays in its own file.
+                // One generated `FUNC … AS Nothing` per case; its index is the
+                // running case count across the whole project, so the name is
+                // globally unique even though the function stays in its own file.
                 let index = *case_index;
                 *case_index += 1;
                 let sub_name = format!("__mfb_test_case_{index}");
@@ -218,7 +217,6 @@ fn lower_group(
                 } = case;
                 let desugared_body = desugar::desugar_case_body(body);
                 generated.push(Function {
-                    kind: FunctionKind::Sub,
                     // Public so the driver (in the first file) can call it across
                     // file boundaries; the unique generated name avoids collision.
                     visibility: Visibility::Public,
@@ -226,7 +224,7 @@ fn lower_group(
                     name: sub_name.clone(),
                     template_params: Vec::new(),
                     params: Vec::new(),
-                    return_type: None,
+                    return_type: Some("Nothing".to_string()),
                     return_resource: false,
                     return_state_type: None,
                     body: desugared_body,
@@ -303,7 +301,7 @@ END TESTING
         let lowering = lower_testing_blocks(&mut ast, CompileMode::Build, Path::new("/tmp"));
         assert!(lowering.entry.is_none());
         assert!(lowering.cov_slots.is_empty());
-        // No `TESTING` item survives, and no driver/case SUB was generated.
+        // No `TESTING` item survives, and no driver/case function was generated.
         assert!(!ast.files.iter().any(|file| file
             .items
             .iter()
@@ -328,7 +326,7 @@ END TESTING
             "no coverage without --coverage"
         );
 
-        // The two real cases became sequentially-numbered SUBs; the case-less group
+        // The two real cases became sequentially-numbered functions; the case-less group
         // produced none.
         let names = function_names(&ast);
         assert!(names.iter().any(|name| name == "__mfb_test_case_0"));
@@ -431,7 +429,7 @@ END TESTING
         assert_eq!(index, 0);
 
         // A group with a case emits a group header then a case step, and generates
-        // one SUB whose name uses the running index.
+        // one function whose name uses the running index.
         lower_group(
             TestGroup {
                 description: "grp".to_string(),

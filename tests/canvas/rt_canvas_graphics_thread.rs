@@ -72,8 +72,8 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
 /// A program body, wrapped in the canvas-mode boilerplate.
 fn program(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(app::Mode.Canvas)\n{body}END SUB\n"
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+         app::setMode(app::Mode.Canvas)\n{body}END FUNC\n"
     )
 }
 
@@ -506,12 +506,12 @@ const FRAME_H: usize = 640;
 /// Build a picture program, run it headless with `env`, and return the last dumped frame.
 fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
     let source = format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT os\n\nSUB main()\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
          LET tile AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
          LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n\
-         {body}END SUB\n"
+         {body}END FUNC\n"
     );
     let project = common::temp_project(name, &source);
     let frame_path = project.join("frame.rgba");

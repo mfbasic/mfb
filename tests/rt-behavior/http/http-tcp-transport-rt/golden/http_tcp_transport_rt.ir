@@ -1161,7 +1161,7 @@
     "name": "#http_waitReadable",
     "line": 461,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "s", "line": 461, "type": "http.Stream STATE http.PendingState", "default": null }
     ],
@@ -2357,7 +2357,7 @@
     "name": "#http_lingerNet",
     "line": 963,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "sock", "line": 963, "type": "tcp.Socket", "default": null }
     ],
@@ -2405,7 +2405,7 @@
     "name": "#http_lingerTls",
     "line": 988,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "sock", "line": 988, "type": "tls.Socket", "default": null }
     ],
@@ -3017,7 +3017,7 @@
     "name": "#http_validatePattern",
     "line": 1236,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "pattern", "line": 1236, "type": "String", "default": null }
     ],
@@ -4103,7 +4103,7 @@
     "name": "#http_pump",
     "line": 1534,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "s", "line": 1534, "type": "http.Stream STATE http.PendingState", "default": null }
     ],
@@ -4280,7 +4280,7 @@
     "name": "#http_handleRequest",
     "line": 1594,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "listener", "line": 1594, "type": "tcp.Listener", "default": null },
     { "name": "routes", "line": 1594, "type": "List OF http.Route", "default": null }
@@ -4400,7 +4400,7 @@
     "name": "#http_handleRequestSSL",
     "line": 1630,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "listener", "line": 1630, "type": "tls.Listener", "default": null },
     { "name": "routes", "line": 1630, "type": "List OF http.Route", "default": null }

@@ -55,10 +55,10 @@ const EX: &str = r#"Write a prompt on the same line as the answer:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::write("Name: ")
   LET name AS String = io::readLine()
-END SUB
+END FUNC
 ```
 
 Build a line from several pieces:
@@ -66,11 +66,11 @@ Build a line from several pieces:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::write("x=")
   io::write(toString(3))
   io::print("")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

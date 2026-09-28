@@ -597,7 +597,7 @@ fn collect_imported_calls_records_used_symbols() {
 #[test]
 fn socket_and_listener_resources_are_emitted_when_used() {
     let mut project = empty_project("net");
-    let mut f = fn_named("takes", "export", "sub", "Nothing");
+    let mut f = fn_named("takes", "export", "func", "Nothing");
     f.params = vec![
         IrParam {
             name: "s".to_string(),

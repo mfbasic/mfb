@@ -1,6 +1,6 @@
 $ mfb build -ast -ir tests/syntax/types/types-assign-invalid
    2 | 
-   3 | SUB reset(seed AS Integer)
+   3 | FUNC reset(seed AS Integer) AS Nothing
    4 |   seed = 0
      | ^
 tests/syntax/types/types-assign-invalid/src/main.mfb:4 error[2-203-0048 TYPE_ASSIGN_REQUIRES_MUT]: assignment target must be mutable

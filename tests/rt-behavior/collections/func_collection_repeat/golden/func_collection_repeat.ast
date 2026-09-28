@@ -54,7 +54,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showTrees",
@@ -63,7 +63,7 @@
       { "name": "label", "type": "String", "default": null, "line": 24 },
       { "name": "xs", "type": "List OF Tree", "default": null, "line": 24 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 25 },
       {
@@ -79,7 +79,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showInts",
@@ -88,7 +88,7 @@
       { "name": "label", "type": "String", "default": null, "line": 32 },
       { "name": "xs", "type": "List OF Integer", "default": null, "line": 32 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 33 },
       {
@@ -104,7 +104,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showFloats",
@@ -113,7 +113,7 @@
       { "name": "label", "type": "String", "default": null, "line": 40 },
       { "name": "xs", "type": "List OF Float", "default": null, "line": 40 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 41 },
       {
@@ -129,7 +129,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showStrings",
@@ -138,13 +138,13 @@
       { "name": "label", "type": "String", "default": null, "line": 48 },
       { "name": "xs", "type": "List OF String", "default": null, "line": 48 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "string", "value": ", " }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 49 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showTags",
@@ -153,7 +153,7 @@
       { "name": "label", "type": "String", "default": null, "line": 52 },
       { "name": "xs", "type": "List OF Tag", "default": null, "line": 52 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 53 },
       {
@@ -169,7 +169,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "showNested",
@@ -178,7 +178,7 @@
       { "name": "label", "type": "String", "default": null, "line": 60 },
       { "name": "xs", "type": "List OF List OF Integer", "default": null, "line": 60 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 61 },
       {

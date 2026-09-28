@@ -117,11 +117,11 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET raw AS List OF Byte = fs::readBytes("photos.zip")
       LET archive AS zip::Archive = zip::open(raw)
       io::print(toString(len(zip::entries(archive))) & " entries")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -144,13 +144,13 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("photos.zip")
       LET archive AS zip::Archive = zip::open(f)
       FOR EACH entry IN zip::entries(archive)
         io::print(entry.name)
       NEXT
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -216,12 +216,12 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("photos.zip")
       LET archive AS zip::Archive = zip::open(f)
       LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
       io::print(toString(len(bytes)) & " bytes")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -250,11 +250,11 @@ DOC
     IMPORT zip
     IMPORT fs
 
-    SUB main()
+    FUNC main() AS Nothing
       MUT b AS zip::Builder = zip::create()
       b = zip::addText(b, "notes.txt", "hello")
       fs::writeBytes("out.zip", zip::finish(b))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 
@@ -350,10 +350,10 @@ DOC
     IMPORT fs
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       RES f = fs::openFile("photos.zip")
       LET archive AS zip::Archive = zip::open(f)
       io::print(toString(zip::extractTo(archive, "out")) & " files")
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC

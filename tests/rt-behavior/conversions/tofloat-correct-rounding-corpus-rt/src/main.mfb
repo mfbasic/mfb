@@ -40,7 +40,7 @@ FUNC scale1000(value AS Float) AS Float
   RETURN v
 END FUNC
 
-SUB check(text AS String, places AS Integer, expected AS String)
+FUNC check(text AS String, places AS Integer, expected AS String) AS Nothing
   checked = checked + 1
   LET v AS Float = toFloat(text)
   LET got AS String = toString(v, toByte(places))
@@ -52,10 +52,10 @@ SUB check(text AS String, places AS Integer, expected AS String)
     io::print("  want " & expected)
     io::print("  got  " & got)
   END IF
-END SUB
+END FUNC
 
 ' A vector too small to render directly: scale by 2^1000 first.
-SUB checkTiny(text AS String, places AS Integer, expected AS String)
+FUNC checkTiny(text AS String, places AS Integer, expected AS String) AS Nothing
   checked = checked + 1
   LET v AS Float = scale1000(toFloat(text))
   LET got AS String = toString(v, toByte(places))
@@ -67,7 +67,7 @@ SUB checkTiny(text AS String, places AS Integer, expected AS String)
     io::print("  want " & expected)
     io::print("  got  " & got)
   END IF
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' --- the review's I3 vector, and its neighbours -------------------------

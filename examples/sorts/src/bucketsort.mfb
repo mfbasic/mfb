@@ -1,0 +1,90 @@
+' bucketsort - sorts `order` one step at a time.
+'
+' The values run from 0 to DOT_COUNT - 1, so each can be dealt straight into
+' one of BUCKET_COUNT equal ranges without comparing it to anything. Laid end
+' to end, the buckets are already in order with each other, and only the
+' elements within a bucket are out of order, so an insertion sort over the
+' whole list finishes it with few comparisons. The deal is spent from the
+' budget one write at a time; the insertion sort one comparison at a time.
+
+IMPORT collections
+
+LET BUCKET_COUNT AS Integer = 500
+
+MUT bucketBuffer AS List OF Integer = []
+MUT bucketNextFree AS List OF Integer = []  ' by bucket
+MUT bucketRead AS Integer = 0               ' the next buffer element to deal
+MUT bucketDealing AS Boolean = TRUE
+MUT bucketNext AS Integer = 1               ' the insertion sort's element
+MUT bucketAt AS Integer = 1                 ' where it is now
+MUT bucketFinished AS Boolean = FALSE
+MUT bucketCompareCount AS Integer = 0
+
+FUNC bucketOf(v AS Integer) AS Integer
+  RETURN v * BUCKET_COUNT / DOT_COUNT
+END FUNC
+
+FUNC bucketStart AS Nothing
+  bucketBuffer = collections::repeat(bucketBuffer, 0, DOT_COUNT)
+  bucketNextFree = collections::repeat(bucketNextFree, 0, BUCKET_COUNT)
+  FOR i = 0 TO DOT_COUNT - 1
+    bucketBuffer = collections::set(bucketBuffer, i, orderAt(i))
+    LET b AS Integer = bucketOf(orderAt(i))
+    bucketNextFree = collections::set(bucketNextFree, b, collections::get(bucketNextFree, b) + 1)
+  NEXT
+  MUT start AS Integer = 0
+  FOR b = 0 TO BUCKET_COUNT - 1
+    LET count AS Integer = collections::get(bucketNextFree, b)
+    bucketNextFree = collections::set(bucketNextFree, b, start)
+    start = start + count
+  NEXT
+  bucketRead = 0
+  bucketDealing = TRUE
+  bucketNext = 1
+  bucketAt = 1
+  bucketFinished = DOT_COUNT < 2
+  bucketCompareCount = 0
+END FUNC
+
+FUNC bucketDone AS Boolean
+  RETURN bucketFinished
+END FUNC
+
+FUNC bucketCompares AS Integer
+  RETURN bucketCompareCount
+END FUNC
+
+' Run up to `budget` steps: writes while dealing, then comparisons.
+FUNC bucketSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT bucketFinished
+    IF bucketDealing THEN
+      IF bucketRead < DOT_COUNT THEN
+        LET v AS Integer = collections::get(bucketBuffer, bucketRead)
+        LET b AS Integer = bucketOf(v)
+        LET at AS Integer = collections::get(bucketNextFree, b)
+        setOrder(at, v)
+        bucketNextFree = collections::set(bucketNextFree, b, at + 1)
+        bucketRead = bucketRead + 1
+        left = left - 1
+      ELSE
+        bucketDealing = FALSE
+      END IF
+    ELSEIF bucketAt = 0 THEN
+      bucketNext = bucketNext + 1
+      bucketAt = bucketNext
+      IF bucketNext >= DOT_COUNT THEN bucketFinished = TRUE
+    ELSE
+      bucketCompareCount = bucketCompareCount + 1
+      left = left - 1
+      IF orderAt(bucketAt - 1) > orderAt(bucketAt) THEN
+        swapOrder(bucketAt - 1, bucketAt)
+        bucketAt = bucketAt - 1
+      ELSE
+        bucketNext = bucketNext + 1
+        bucketAt = bucketNext
+        IF bucketNext >= DOT_COUNT THEN bucketFinished = TRUE
+      END IF
+    END IF
+  LOOP
+END FUNC

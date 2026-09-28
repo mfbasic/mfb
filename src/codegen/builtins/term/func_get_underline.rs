@@ -36,12 +36,12 @@ const EX: &str = r#"Set underline and read it back:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setUnderline(TRUE)
   LET u AS Boolean = term::getUnderline()
   term::off()
-END SUB
+END FUNC
 ```
 
 Branch on the current state:
@@ -50,7 +50,7 @@ Branch on the current state:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   IF term::getUnderline() THEN
     io::print("underlined")
@@ -59,7 +59,7 @@ SUB main()
   END IF
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::get_underline` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

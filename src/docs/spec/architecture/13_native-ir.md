@@ -44,7 +44,7 @@ NirModule {
 ```
 
 If the project has any global bindings, `lower_functions` prepends a synthetic
-private SUB named `__mfb_init_globals_<project>` whose body is one `StoreGlobal`
+private `func` (returning `Nothing`) named `__mfb_init_globals_<project>` whose body is one `StoreGlobal`
 per binding; it runs before user code to materialize global initializers.
 [[src/target/shared/nir/lower.rs:lower_functions]]
 [[src/target/shared/nir/lower.rs:lower_global_initializer]]

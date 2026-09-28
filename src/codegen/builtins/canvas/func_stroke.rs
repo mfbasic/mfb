@@ -31,12 +31,12 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET green AS color::Color = color::rgb(0, 160, 0)
   LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
   canvas::present([smile])
-END SUB
+END FUNC
 ```
 
 A trail that fades out: one `canvas::PolyLine` with a colour per point, whose alpha
@@ -49,7 +49,7 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT points AS List OF canvas::Point = []
   MUT colors AS List OF color::Color = []
@@ -63,7 +63,7 @@ SUB main()
   END WHILE
   LET trail AS canvas::DrawItem = canvas::PolyLine[points := points, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 140, 40), 12.0)]
   canvas::present([trail])
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

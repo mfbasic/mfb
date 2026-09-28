@@ -36,7 +36,7 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET black AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, black)
@@ -46,7 +46,7 @@ SUB main()
   ' The scene is unchanged; only the pixels behind the id are.
   LET white AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   canvas::setBytes(img, white)
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::setBytes(image, pixels)`.

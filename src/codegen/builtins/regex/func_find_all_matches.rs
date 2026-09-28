@@ -87,11 +87,11 @@ because the lengths differ from match to match:
 IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH m IN regex::findAllMatches("a1b22c333", "\\d+")
     io::print(m.text)
   NEXT
-END SUB
+END FUNC
 ```
 
 Report each match's span, and rewrite around one:
@@ -101,14 +101,14 @@ IMPORT regex
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET text AS String = "a1b22c333"
   FOR EACH m IN regex::findAllMatches(text, "\\d+")
     io::print("[" & toString(m.start) & ", " & toString(m.endIndex) & ") = " & m.text)
   NEXT
   LET first AS regex::MatchInfo = regex::findMatch(text, "\\d+")
   io::print(strings::left(text, first.start) & "#" & strings::right(text, len(text) - first.endIndex))
-END SUB
+END FUNC
 ```
 
 Pull a named group out of every match:
@@ -118,11 +118,11 @@ IMPORT regex
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH m IN regex::findAllMatches("2024-06 1999-12", "(?<year>\\d{4})-(?<month>\\d{2})")
     io::print(collections::get(m.groups, collections::get(m.names, "year")).text)
   NEXT
-END SUB
+END FUNC
 ```"##;
 
 #[rustfmt::skip]

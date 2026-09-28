@@ -26,11 +26,11 @@ const EX: &str = r#"Toggle the low byte of a value by XORing with an all-ones ma
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET value AS Integer = 0x1234
   LET toggled AS Integer = bits::bxor(value, 255)
   io::print(toString(toggled))
-END SUB
+END FUNC
 ```
 
 Swap two integers without a temporary using the XOR identity:
@@ -39,7 +39,7 @@ Swap two integers without a temporary using the XOR identity:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET x AS Integer = 5
   LET y AS Integer = 9
   LET x2 AS Integer = bits::bxor(x, y)
@@ -47,7 +47,7 @@ SUB main()
   LET x3 AS Integer = bits::bxor(x2, y2)
   io::print(toString(x3))
   io::print(toString(y2))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

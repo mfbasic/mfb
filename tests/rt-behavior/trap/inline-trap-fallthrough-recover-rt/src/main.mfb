@@ -28,7 +28,7 @@ FUNC handled(n AS Integer, flag AS Integer) AS Integer
   RETURN v
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' success path: no failure, RECOVER never runs -> boom(5) = 50
   io::print(toString(handled(5, 0)))
   ' fail + flag=1 -> first RECOVER fires; no later trace additions -> 111
@@ -39,4 +39,4 @@ SUB main()
   io::print(toString(handled(-1, 2)))
   ' fail + flag=3 -> trace = 1+400+300 = 701 -> 999+701 = 1700
   io::print(toString(handled(-1, 3)))
-END SUB
+END FUNC

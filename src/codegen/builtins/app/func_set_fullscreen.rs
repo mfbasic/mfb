@@ -83,12 +83,12 @@ const EX: &str = r#"Show the transcript fullscreen, then go back to a window:
 IMPORT app
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   app::setMode(app::Mode.Console)
   app::setFullscreen(TRUE)
   io::print("fullscreen: " & toString(app::getFullscreen()))
   app::setFullscreen(FALSE)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

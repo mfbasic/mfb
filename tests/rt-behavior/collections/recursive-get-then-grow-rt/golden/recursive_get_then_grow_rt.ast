@@ -85,14 +85,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 47,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": true, "name": "reps", "type": "List OF Rep", "value": { "kind": "list", "values": [] }, "line": 48 },
       { "kind": "assignment", "name": "reps", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "constructor", "type": "Rep", "arguments": [{ "kind": "named", "name": "child", "value": { "kind": "constructor", "type": "Node2", "arguments": [{ "kind": "named", "name": "left", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "named", "name": "v", "value": { "kind": "number", "value": "1" } }] } }, { "kind": "named", "name": "right", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "named", "name": "v", "value": { "kind": "number", "value": "2" } }] } }] } }, { "kind": "named", "name": "lo", "value": { "kind": "number", "value": "3" } }] }] }, "line": 49 },

@@ -762,7 +762,7 @@
   {
     "name": "__mfb_init_globals_app_5Fmouse_5Fsurface",
     "visibility": "private",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -961,7 +961,7 @@
   {
     "name": "main",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "src/main.mfb",
     "params": [
@@ -4210,7 +4210,7 @@
   {
     "name": "#canvas_rememberScene",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -4439,7 +4439,7 @@
   {
     "name": "#canvas_glyphEvict",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -5958,7 +5958,7 @@
   {
     "name": "#canvas_geoVerify",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -5972,7 +5972,7 @@
   {
     "name": "#canvas_geoVerifyFrame",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -5985,7 +5985,7 @@
   {
     "name": "#canvas_drawsVerify",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -7266,7 +7266,7 @@
   {
     "name": "#canvas_geoStamp",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -8798,7 +8798,7 @@
   {
     "name": "#canvas_readDisplayOverride",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -8870,7 +8870,7 @@
   {
     "name": "#canvas_phaseMark",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -9426,7 +9426,7 @@
   {
     "name": "#canvas_pushOneDraw",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -9516,7 +9516,7 @@
   {
     "name": "#canvas_pushDraw",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -9631,7 +9631,7 @@
   {
     "name": "#canvas_drawGroup",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -9838,7 +9838,7 @@
   {
     "name": "#canvas_ensureFrameItems",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -10370,7 +10370,7 @@
   {
     "name": "#canvas_presentedDirect",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [
@@ -10382,7 +10382,7 @@
   {
     "name": "#canvas_closeRetired",
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [

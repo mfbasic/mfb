@@ -224,12 +224,12 @@ IMPORT os
 IMPORT io
 IMPORT collections
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS List OF String = os::args()
   FOR i = 0 TO len(a) - 1
     io::print(collections::get(a, i))
   NEXT
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

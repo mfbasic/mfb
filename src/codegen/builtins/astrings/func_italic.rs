@@ -16,10 +16,10 @@ is italic when any covering span carries the italic flag."#;
 const EX: &str = r#"```
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello")
   LET styled AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::italic())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

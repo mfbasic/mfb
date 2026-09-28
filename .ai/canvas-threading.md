@@ -628,7 +628,7 @@ Three environment variables, all off by default and none on the production path:
   `glyphEvictions=`), `generations=` (geometry builds — one per CHANGED item per frame
   since bug-686), `directFrames=` (Metal frames presented straight to the window), and
   the cumulative phase timers `phaseOffsetsMs=` / `phaseDrawsMs=` / `phaseDamageMs=` /
-  `phaseRenderMs=` (bug-686 Phase 0; `__canvas_phaseMark` is an empty SUB in a normal
+  `phaseRenderMs=` (bug-686 Phase 0; `__canvas_phaseMark` is an empty `FUNC … AS Nothing` in a normal
   build). `tools/canvas-bench/` reads them. **A `--debug` build is ~35% slower on this
   path** (116 vs 157 frames/5 s on 1,000 moving polygons), and much more on
   allocation-heavy code, so judge frame rates on a release build. Appends rather than overwrites because the interesting quantity is

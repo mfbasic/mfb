@@ -27,11 +27,11 @@ const EX: &str = r#"Each channel becomes `255 -` itself, and alpha is carried th
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::rgba(10, 200, 30, 128)
   LET n AS color::Color = color::invert(c)
   io::print(toString(n.red) & " " & toString(n.green) & " " & toString(n.blue) & " alpha " & toString(n.alpha))
-END SUB
+END FUNC
 ```
 
 A colour inverted twice is itself:
@@ -40,11 +40,11 @@ A colour inverted twice is itself:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS color::Color = color::rgba(10, 200, 30, 128)
   LET back AS color::Color = color::invert(color::invert(c))
   io::print(toString(back.red) & " " & toString(back.green) & " " & toString(back.blue))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -1,5 +1,5 @@
 $ mfb build -ast -ir tests/syntax/app/app_window_invalid
-   4 | SUB main()
+   4 | FUNC main() AS Nothing
    5 |   ' setTitle takes exactly one String (wrong arity: none).
    6 |   app::setTitle()
      | ^

@@ -33,11 +33,11 @@ const EX: &str = r#"Replace the body of an existing response:
 IMPORT http
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET base AS http::Response = http::status(418, "")
   LET resp AS http::Response = WITH base { body := http::bytes("I'm a teapot") }
   io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -52,11 +52,11 @@ Round-trip a body back to text:
 IMPORT http
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET body AS List OF Byte = http::bytes("hello")
   io::print(toString(len(body)))
   io::print(toString(body))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

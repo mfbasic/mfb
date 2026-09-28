@@ -23,14 +23,14 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "export",
       "isolated": false,
       "name": "flushStreams",
       "line": 8,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "console.flush", "arguments": [] }, "line": 9 }
       ]

@@ -899,7 +899,7 @@
     "name": "main",
     "line": 55,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -4259,7 +4259,7 @@
     "name": "#canvas_rememberScene",
     "line": 1794,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "hashes", "line": 1794, "type": "List OF Integer", "default": null },
     { "name": "offsets", "line": 1794, "type": "List OF Integer", "default": null }
@@ -4492,7 +4492,7 @@
     "name": "#canvas_glyphEvict",
     "line": 1934,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -6094,7 +6094,7 @@
     "name": "#canvas_geoVerify",
     "line": 2657,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "item", "line": 2657, "type": "canvas.DrawItem", "default": null },
     { "name": "native", "line": 2657, "type": "List OF Float", "default": null }
@@ -6107,7 +6107,7 @@
     "name": "#canvas_geoVerifyFrame",
     "line": 2660,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "pending", "line": 2660, "type": "Integer", "default": null }
     ],
@@ -6119,7 +6119,7 @@
     "name": "#canvas_drawsVerify",
     "line": 2663,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -7439,7 +7439,7 @@
     "name": "#canvas_geoStamp",
     "line": 3558,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "slot", "line": 3558, "type": "Integer", "default": null }
     ],
@@ -9054,7 +9054,7 @@
     "name": "#canvas_readDisplayOverride",
     "line": 4520,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -9129,7 +9129,7 @@
     "name": "#canvas_phaseMark",
     "line": 4536,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "phase", "line": 4536, "type": "Integer", "default": null }
     ],
@@ -9713,7 +9713,7 @@
     "name": "#canvas_pushOneDraw",
     "line": 4987,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "base", "line": 4987, "type": "Integer", "default": null },
     { "name": "count", "line": 4987, "type": "Integer", "default": null },
@@ -9806,7 +9806,7 @@
     "name": "#canvas_pushDraw",
     "line": 5071,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "base", "line": 5071, "type": "Integer", "default": null },
     { "name": "count", "line": 5071, "type": "Integer", "default": null },
@@ -9927,7 +9927,7 @@
     "name": "#canvas_drawGroup",
     "line": 5125,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "slot", "line": 5125, "type": "Integer", "default": null },
     { "name": "hashes", "line": 5125, "type": "List OF Integer", "default": null },
@@ -10143,7 +10143,7 @@
     "name": "#canvas_ensureFrameItems",
     "line": 5226,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -10703,7 +10703,7 @@
     "name": "#canvas_presentedDirect",
     "line": 5599,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -10714,7 +10714,7 @@
     "name": "#canvas_closeRetired",
     "line": 5602,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "gone", "line": 5602, "type": "List OF canvas.DrawItem", "default": null },
     { "name": "scene", "line": 5602, "type": "List OF canvas.DrawItem", "default": null }

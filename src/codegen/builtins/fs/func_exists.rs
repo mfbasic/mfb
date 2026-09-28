@@ -52,11 +52,11 @@ const EX: &str = r#"Test for any entry at a path before acting on it:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF fs::exists("data.txt") THEN
     io::print("found")
   END IF
-END SUB
+END FUNC
 ```
 
 Unicode paths are accepted:
@@ -64,9 +64,9 @@ Unicode paths are accepted:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   LET present AS Boolean = fs::exists("é日😀.txt")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

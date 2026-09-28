@@ -39,10 +39,10 @@ const EX: &str = r#"Encode bytes to Base32:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hi")
   io::print(encoding::base32Encode(raw))
-END SUB
+END FUNC
 ```
 
 Round-trip through `base32Decode`:
@@ -51,12 +51,12 @@ Round-trip through `base32Decode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hello")
   LET text AS String = encoding::base32Encode(raw)
   io::print(text)
   io::print(encoding::utf8Decode(encoding::base32Decode(text)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

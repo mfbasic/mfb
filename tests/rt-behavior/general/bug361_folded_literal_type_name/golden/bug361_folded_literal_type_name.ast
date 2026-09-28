@@ -8,7 +8,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "logType",
@@ -16,13 +16,13 @@
       "params": [
       { "name": "value", "type": "String", "default": null, "line": 8 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "type=" }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 9 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "logCount",
@@ -30,20 +30,20 @@
       "params": [
       { "name": "count", "type": "Integer", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count is " }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "count" }] } }, "right": { "kind": "string", "value": "." } }] }, "line": 13 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 16,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "logType", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 17 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "logCount", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 18 }

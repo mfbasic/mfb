@@ -1,2 +1,2 @@
-EXPORT SUB sharedMain
-END SUB
+EXPORT FUNC sharedMain AS Nothing
+END FUNC

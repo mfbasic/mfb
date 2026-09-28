@@ -245,7 +245,7 @@ FUNC showI(xs AS List OF Integer) AS String
   RETURN "[" & strings::join(out, " ") & "]"
 END FUNC
 
-SUB copies()
+FUNC copies() AS Nothing
   LET an AS List OF Node = [el("a"), tx("b"), el("c"), tx("d")]
   LET tn = collections::take(an, 2)
   LET dn = collections::drop(an, 1)
@@ -273,9 +273,9 @@ SUB copies()
   LET keepI = xi
   xi = collections::mid(xi, 1, 1)
   io::print("alias int " & showI(keepI) & " " & showI(xi))
-END SUB
+END FUNC
 
-SUB nodes()
+FUNC nodes() AS Nothing
   MUT x AS List OF Node = [el("a"), tx("b"), el("c"), tx("d"), el("e")]
   x = collections::take(x, len(x))
   io::print("n take-all " & showN(x))
@@ -310,9 +310,9 @@ SUB nodes()
   x = collections::append(x, el("z"))
   x = collections::drop(x, 5)
   io::print("n drop-past " & showN(x))
-END SUB
+END FUNC
 
-SUB strs()
+FUNC strs() AS Nothing
   MUT x AS List OF String = ["d", "bb", "a", "ccc", "eeeee"]
   x = collections::take(x, len(x))
   x = collections::drop(x, 0)
@@ -336,9 +336,9 @@ SUB strs()
   io::print("s take0 " & showS(x) & " " & toString(len(x)))
   x = collections::append(x, "r")
   io::print("s reuse " & showS(x))
-END SUB
+END FUNC
 
-SUB ints()
+FUNC ints() AS Nothing
   MUT x AS List OF Integer = [1, 2, 3, 4, 5]
   x = collections::take(x, len(x))
   x = collections::drop(x, 0)
@@ -346,14 +346,14 @@ SUB ints()
   x = collections::drop(x, 1)
   x = collections::mid(x, 1, 1)
   io::print("i " & showI(x))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   copies()
   nodes()
   strs()
   ints()
-END SUB
+END FUNC
 "#;
 
 const VALUE_OUTPUT: &str = "\

@@ -87,8 +87,16 @@ fn file_root_ignores_include_patterns() {
     let root = test_temp_dir("file_root_ignores_include_patterns");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("project src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
-    fs::write(project_dir.join("src/other.mfb"), "SUB other\nEND SUB\n").expect("write other");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        project_dir.join("src/other.mfb"),
+        "FUNC other AS Nothing\nEND FUNC\n",
+    )
+    .expect("write other");
 
     let manifest = manifest_with_sources(vec![source_entry(
         "src/main.mfb",
@@ -115,11 +123,19 @@ fn directory_root_applies_include_and_exclude_patterns() {
     let root = test_temp_dir("directory_root_applies_include_and_exclude_patterns");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/pkg")).expect("project pkg");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
-    fs::write(project_dir.join("src/pkg/keep.mfb"), "SUB keep\nEND SUB\n").expect("write keep");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        project_dir.join("src/pkg/keep.mfb"),
+        "FUNC keep AS Nothing\nEND FUNC\n",
+    )
+    .expect("write keep");
     fs::write(
         project_dir.join("src/pkg/skip_test.mfb"),
-        "SUB skip_test\nEND SUB\n",
+        "FUNC skip_test AS Nothing\nEND FUNC\n",
     )
     .expect("write skip");
 
@@ -148,7 +164,11 @@ fn overlapping_source_entries_are_rejected() {
     let root = test_temp_dir("overlapping_source_entries_are_rejected");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("project src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![
         source_entry("src", Some(vec!["**/*.mfb"]), None),
@@ -171,7 +191,11 @@ fn symlinked_source_paths_must_stay_inside_project() {
     let outside_dir = root.join("outside");
     fs::create_dir_all(&project_dir).expect("project dir");
     fs::create_dir_all(&outside_dir).expect("outside dir");
-    fs::write(outside_dir.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("write escape");
+    fs::write(
+        outside_dir.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("write escape");
     symlink(&outside_dir, project_dir.join("src")).expect("symlink src");
 
     let manifest = manifest_with_sources(vec![source_entry("src", Some(vec!["**/*.mfb"]), None)]);
@@ -560,7 +584,7 @@ fn bare_expression_error_is_rejected() {
 
 /// Parse `LET v AS <type> = NOTHING` inside `main` and return the parsed type.
 fn type_of(type_name: &str) -> String {
-    let src = format!("SUB main\n  LET v AS {type_name} = NOTHING\nEND SUB\n");
+    let src = format!("FUNC main AS Nothing\n  LET v AS {type_name} = NOTHING\nEND FUNC\n");
     let file = parse_ok(&src);
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function");
@@ -572,7 +596,7 @@ fn type_of(type_name: &str) -> String {
 }
 
 fn type_err(type_name: &str) {
-    let src = format!("SUB main\n  LET v AS {type_name} = NOTHING\nEND SUB\n");
+    let src = format!("FUNC main AS Nothing\n  LET v AS {type_name} = NOTHING\nEND FUNC\n");
     parse_err(&src);
 }
 
@@ -752,54 +776,57 @@ fn param_type(src: &str) -> String {
 fn type_names_cover_thread_map_list_and_function_forms() {
     // Thread with message + resource + output.
     assert_eq!(
-        param_type("SUB s(t AS Thread OF Msg RES Handle TO Out)\nEND SUB\n"),
+        param_type("FUNC s(t AS Thread OF Msg RES Handle TO Out) AS Nothing\nEND FUNC\n"),
         "Thread OF Msg RES Handle TO Out"
     );
     // Thread resource-only (message defaults to Nothing).
     assert_eq!(
-        param_type("SUB s(t AS Thread OF RES Handle TO Out)\nEND SUB\n"),
+        param_type("FUNC s(t AS Thread OF RES Handle TO Out) AS Nothing\nEND FUNC\n"),
         "Thread OF RES Handle TO Out"
     );
     // Thread with just message + output.
     assert_eq!(
-        param_type("SUB s(t AS Thread OF Msg TO Out)\nEND SUB\n"),
+        param_type("FUNC s(t AS Thread OF Msg TO Out) AS Nothing\nEND FUNC\n"),
         "Thread OF Msg TO Out"
     );
     // ThreadWorker canonicalizes.
     assert_eq!(
-        param_type("SUB s(t AS ThreadWorker OF Msg TO Out)\nEND SUB\n"),
+        param_type("FUNC s(t AS ThreadWorker OF Msg TO Out) AS Nothing\nEND FUNC\n"),
         "ThreadWorker OF Msg TO Out"
     );
     // Map type with RES value.
     assert_eq!(
-        param_type("SUB s(m AS Map OF String TO RES File)\nEND SUB\n"),
+        param_type("FUNC s(m AS Map OF String TO RES File) AS Nothing\nEND FUNC\n"),
         "Map OF String TO RES File"
     );
     // List of RES.
     assert_eq!(
-        param_type("SUB s(xs AS List OF RES File)\nEND SUB\n"),
+        param_type("FUNC s(xs AS List OF RES File) AS Nothing\nEND FUNC\n"),
         "List OF RES File"
     );
     // Multi-arg template type.
     assert_eq!(
-        param_type("SUB s(p AS Pair OF Integer, String)\nEND SUB\n"),
+        param_type("FUNC s(p AS Pair OF Integer, String) AS Nothing\nEND FUNC\n"),
         "Pair OF Integer, String"
     );
     // Function type.
     assert_eq!(
-        param_type("SUB s(f AS FUNC(Integer, String) AS Boolean)\nEND SUB\n"),
+        param_type("FUNC s(f AS FUNC(Integer, String) AS Boolean) AS Nothing\nEND FUNC\n"),
         "FUNC(Integer, String) AS Boolean"
     );
     // ISOLATED function type.
     assert_eq!(
-        param_type("SUB s(f AS ISOLATED FUNC() AS Integer)\nEND SUB\n"),
+        param_type("FUNC s(f AS ISOLATED FUNC() AS Integer) AS Nothing\nEND FUNC\n"),
         "ISOLATED FUNC() AS Integer"
     );
     // Grouped type.
-    assert_eq!(param_type("SUB s(f AS (Integer))\nEND SUB\n"), "(Integer)");
+    assert_eq!(
+        param_type("FUNC s(f AS (Integer)) AS Nothing\nEND FUNC\n"),
+        "(Integer)"
+    );
     // Nothing base type.
     assert_eq!(
-        param_type("SUB s(f AS FUNC() AS Nothing)\nEND SUB\n"),
+        param_type("FUNC s(f AS FUNC() AS Nothing) AS Nothing\nEND FUNC\n"),
         "FUNC() AS Nothing"
     );
 }
@@ -807,19 +834,19 @@ fn type_names_cover_thread_map_list_and_function_forms() {
 #[test]
 fn type_name_errors() {
     // Map type missing TO.
-    assert!(try_parse("SUB s(m AS Map OF String Integer)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(m AS Map OF String Integer) AS Nothing\nEND FUNC\n").is_err());
     // Thread type missing TO.
-    assert!(try_parse("SUB s(t AS Thread OF Msg Out)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(t AS Thread OF Msg Out) AS Nothing\nEND FUNC\n").is_err());
     // ISOLATED not followed by FUNC.
-    assert!(try_parse("SUB s(f AS ISOLATED Integer)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS ISOLATED Integer) AS Nothing\nEND FUNC\n").is_err());
     // Function type missing (.
-    assert!(try_parse("SUB s(f AS FUNC Integer)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS FUNC Integer) AS Nothing\nEND FUNC\n").is_err());
     // Function type missing AS.
-    assert!(try_parse("SUB s(f AS FUNC(Integer))\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS FUNC(Integer)) AS Nothing\nEND FUNC\n").is_err());
     // Grouped type missing ).
-    assert!(try_parse("SUB s(f AS (Integer)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS (Integer)\nEND FUNC\n").is_err());
     // A bare type where a type name is required but token is bad.
-    assert!(try_parse("SUB s(f AS 123)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS 123) AS Nothing\nEND FUNC\n").is_err());
 }
 
 #[test]
@@ -909,7 +936,11 @@ fn parse_project_reads_files_and_appends_prelude() {
     let root = test_temp_dir("parse_project_reads_files_and_appends_prelude");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
@@ -941,8 +972,16 @@ fn selected_source_paths_are_sorted_actual_paths() {
     let root = test_temp_dir("selected_source_paths_are_sorted_actual_paths");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/a.mfb"), "SUB a\nEND SUB\n").expect("write a");
-    fs::write(project_dir.join("src/b.mfb"), "SUB b\nEND SUB\n").expect("write b");
+    fs::write(
+        project_dir.join("src/a.mfb"),
+        "FUNC a AS Nothing\nEND FUNC\n",
+    )
+    .expect("write a");
+    fs::write(
+        project_dir.join("src/b.mfb"),
+        "FUNC b AS Nothing\nEND FUNC\n",
+    )
+    .expect("write b");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let paths = selected_source_paths(&project_dir, &manifest).expect("paths");
@@ -966,7 +1005,11 @@ fn write_ast_writes_ast_json_file() {
     let root = test_temp_dir("write_ast_writes_ast_json_file");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
     let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
@@ -994,8 +1037,12 @@ fn write_ast_reports_write_failure() {
 
 #[test]
 fn parse_source_internal_marks_file_internal() {
-    let file = parse_source_internal(Path::new("pkg.mfb"), "pkg.mfb", "SUB main\nEND SUB\n")
-        .expect("parse internal");
+    let file = parse_source_internal(
+        Path::new("pkg.mfb"),
+        "pkg.mfb",
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("parse internal");
     assert!(file.internal);
     assert_eq!(file.path, "pkg.mfb");
 }
@@ -1033,7 +1080,11 @@ fn source_entry_without_root_is_ignored() {
     let root = test_temp_dir("source_entry_without_root_is_ignored");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
 
     // One entry has no `root` key (filtered out by source_entries), the other is valid.
     let bad = JsonValue::Object(HashMap::from([(
@@ -1054,7 +1105,11 @@ fn file_root_ignores_non_mfb_extension() {
     let root = test_temp_dir("file_root_ignores_non_mfb_extension");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     fs::write(project_dir.join("src/notes.txt"), "notes\n").expect("write notes");
 
     // A file root pointing at a non-.mfb file selects nothing, so the entry is
@@ -1072,7 +1127,11 @@ fn directory_cycle_via_symlink_is_tolerated() {
     let root = test_temp_dir("directory_cycle_via_symlink_is_tolerated");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/sub")).expect("src/sub");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     // A symlink pointing back to src forms a directory cycle; visited-dir
     // tracking must break it and still return the real file.
     symlink(project_dir.join("src"), project_dir.join("src/sub/loop")).expect("symlink loop");
@@ -1094,8 +1153,16 @@ fn nested_symlink_escape_is_rejected() {
     let outside_dir = root.join("outside");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
     fs::create_dir_all(&outside_dir).expect("outside dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
-    fs::write(outside_dir.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("write escape");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        outside_dir.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("write escape");
     // A file symlink inside a scanned directory pointing outside the project.
     symlink(
         outside_dir.join("escape.mfb"),
@@ -1157,7 +1224,11 @@ fn broken_symlink_entry_reports_read_failure() {
     let root = test_temp_dir("broken_symlink_entry_reports_read_failure");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
     symlink(
         project_dir.join("src/nonexistent_target.mfb"),
         project_dir.join("src/dangling.mfb"),
@@ -1177,13 +1248,13 @@ fn parse_source_reports_lex_failure() {
     assert!(parse_source(
         Path::new("main.mfb"),
         "main.mfb",
-        "SUB main\n  LET x = `\nEND SUB\n"
+        "FUNC main AS Nothing\n  LET x = `\nEND FUNC\n"
     )
     .is_err());
     assert!(parse_source_internal(
         Path::new("pkg.mfb"),
         "pkg.mfb",
-        "SUB main\n  LET x = `\nEND SUB\n"
+        "FUNC main AS Nothing\n  LET x = `\nEND FUNC\n"
     )
     .is_err());
 }
@@ -1197,7 +1268,7 @@ fn parse_project_reports_unreadable_source_file() {
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src dir");
     let file = project_dir.join("src/main.mfb");
-    fs::write(&file, "SUB main\nEND SUB\n").expect("write main");
+    fs::write(&file, "FUNC main AS Nothing\nEND FUNC\n").expect("write main");
     // Strip all read permission so parse_file's read_to_string fails.
     fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).expect("chmod");
 
@@ -1220,8 +1291,16 @@ fn unreadable_directory_reports_read_failure() {
     let project_dir = root.join("project");
     let locked = project_dir.join("src/locked");
     fs::create_dir_all(&locked).expect("locked dir");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
-    fs::write(locked.join("inner.mfb"), "SUB inner\nEND SUB\n").expect("write inner");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("write main");
+    fs::write(
+        locked.join("inner.mfb"),
+        "FUNC inner AS Nothing\nEND FUNC\n",
+    )
+    .expect("write inner");
     // Remove read/exec permission so read_dir on the nested directory fails
     // with a non-PermissionDenied-mapped error path.
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
@@ -1323,7 +1402,11 @@ fn collect_handles_single_file_and_non_mfb_root() {
     let root = test_temp_dir("collect_handles_single_file_and_non_mfb_root");
     let project_dir = root.join("project");
     fs::create_dir_all(&project_dir).expect("dir");
-    fs::write(project_dir.join("main.mfb"), "SUB main\nEND SUB\n").expect("main");
+    fs::write(
+        project_dir.join("main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("main");
     fs::write(project_dir.join("notes.txt"), "hi\n").expect("notes");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
 
@@ -1359,9 +1442,21 @@ fn collect_walks_nested_directories() {
     let root = test_temp_dir("collect_walks_nested_directories");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src/a/b")).expect("dirs");
-    fs::write(project_dir.join("src/top.mfb"), "SUB top\nEND SUB\n").expect("top");
-    fs::write(project_dir.join("src/a/mid.mfb"), "SUB mid\nEND SUB\n").expect("mid");
-    fs::write(project_dir.join("src/a/b/deep.mfb"), "SUB deep\nEND SUB\n").expect("deep");
+    fs::write(
+        project_dir.join("src/top.mfb"),
+        "FUNC top AS Nothing\nEND FUNC\n",
+    )
+    .expect("top");
+    fs::write(
+        project_dir.join("src/a/mid.mfb"),
+        "FUNC mid AS Nothing\nEND FUNC\n",
+    )
+    .expect("mid");
+    fs::write(
+        project_dir.join("src/a/b/deep.mfb"),
+        "FUNC deep AS Nothing\nEND FUNC\n",
+    )
+    .expect("deep");
     fs::write(project_dir.join("src/a/skip.txt"), "x\n").expect("txt");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
@@ -1386,7 +1481,11 @@ fn nested_symlink_escaping_project_is_rejected() {
     let outside = root.join("outside");
     fs::create_dir_all(project_dir.join("src")).expect("src");
     fs::create_dir_all(&outside).expect("outside");
-    fs::write(outside.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("escape");
+    fs::write(
+        outside.join("escape.mfb"),
+        "FUNC escape AS Nothing\nEND FUNC\n",
+    )
+    .expect("escape");
     // A symlink *inside* a walked subdirectory pointing outside the project.
     symlink(&outside, project_dir.join("src/link")).expect("symlink");
     let canonical = fs::canonicalize(&project_dir).expect("canonical");
@@ -1434,7 +1533,7 @@ fn unreadable_source_file_reports_read_failure() {
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src");
     let file = project_dir.join("src/main.mfb");
-    fs::write(&file, "SUB main\nEND SUB\n").expect("write");
+    fs::write(&file, "FUNC main AS Nothing\nEND FUNC\n").expect("write");
     // Remove all read permission so parse_file's read_to_string fails.
     fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).expect("chmod");
     let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
@@ -1451,7 +1550,11 @@ fn symlink_cycle_within_project_is_skipped() {
     let root = test_temp_dir("symlink_cycle_within_project_is_skipped");
     let project_dir = root.join("project");
     fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("main");
+    fs::write(
+        project_dir.join("src/main.mfb"),
+        "FUNC main AS Nothing\nEND FUNC\n",
+    )
+    .expect("main");
     // A symlink pointing back at its own parent creates a cycle; the visited-dirs
     // guard must break it rather than recursing forever.
     symlink(project_dir.join("src"), project_dir.join("src/loop")).expect("symlink");
@@ -1737,10 +1840,10 @@ fn function_signature_line_renders_visibility_isolated_and_params() {
         "EXPORT ISOLATED FUNC f(x AS Integer, RES h AS File) AS String"
     );
 
-    // A SUB has no return clause; a PACKAGE bare param has no `AS`.
-    let file = parse_file("PRIVATE SUB g(a)\nEND SUB\n");
+    // An `AS Nothing` return clause is kept verbatim; a PACKAGE bare param has no `AS`.
+    let file = parse_file("PRIVATE FUNC g(a) AS Nothing\nEND FUNC\n");
     let g = function(&file, "g");
-    assert_eq!(g.signature_line(), "PRIVATE SUB g(a)");
+    assert_eq!(g.signature_line(), "PRIVATE FUNC g(a) AS Nothing");
 
     // A private FUNC with no explicit return type defaults to Nothing.
     let file = parse_file("FUNC h()\nEND FUNC\n");
@@ -1815,20 +1918,20 @@ fn serialize_covers_none_and_default_branches() {
     let src = r#"
 LET plain = 1
 RES bare AS File
-SUB doer(a, RES h AS File)
+FUNC doer(a, RES h AS File)
   LET x = 1
   MUT y
-  EXIT SUB
   RETURN
   RECOVER
   FOR i = 1 TO 3
     y = i
+    EXIT FOR
   NEXT
   MATCH y
     CASE ELSE
       y = 0
   END MATCH
-END SUB
+END FUNC
 
 LINK "lib" AS l
   FUNC noRet(a AS Integer)
@@ -1842,14 +1945,14 @@ END LINK
     assert!(json.contains("\"type\": null"));
     // A RES declaration with no STATE serializes state null.
     assert!(json.contains("\"resource\": true, \"state\": null"));
-    // A SUB with no return type.
-    assert!(json.contains("\"kind\": \"sub\""));
+    // A FUNC with no return type.
+    assert!(json.contains("\"kind\": \"func\""));
     assert!(json.contains("\"returnType\": null"));
     // RETURN / RECOVER with no value.
     assert!(json.contains("\"kind\": \"return\", \"value\": null"));
     assert!(json.contains("\"kind\": \"recover\", \"value\": null"));
-    // EXIT SUB (no code).
-    assert!(json.contains("\"kind\": \"exit\", \"target\": \"sub\", \"code\": null"));
+    // EXIT FOR (no code).
+    assert!(json.contains("\"kind\": \"exit\", \"target\": \"for\", \"code\": null"));
     // FOR without STEP.
     assert!(json.contains("\"step\": null"));
     // MATCH else.
@@ -1957,15 +2060,13 @@ fn top_level_errors_are_reported() {
     // Unterminated type.
     assert!(try_parse("TYPE T\n  x AS Integer\n").is_err());
     // END without matching kind.
-    assert!(try_parse("FUNC main\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main\nEND TYPE\n").is_err());
 }
 
 #[test]
 fn function_header_and_body_errors() {
     // Missing close paren on params.
     assert!(try_parse("FUNC f(a AS Integer\nEND FUNC\n").is_err());
-    // ISOLATED on a SUB is rejected.
-    assert!(try_parse("ISOLATED SUB s\nEND SUB\n").is_err());
     // Two TRAPs.
     assert!(try_parse(
         "FUNC f AS Integer\n  RETURN 0\n  TRAP(a)\n    RETURN 1\n  END TRAP\n  TRAP(b)\n    RETURN 2\n  END TRAP\nEND FUNC\n"
@@ -1981,18 +2082,18 @@ fn function_header_and_body_errors() {
 }
 
 #[test]
-fn function_declaration_requires_the_func_or_sub_keyword() {
+fn function_declaration_requires_the_func_keyword() {
     // bug-292: with a visibility prefix, `check_top_level_item_start` stops
     // looking after `ISOLATED`, so `parse_function` is the only place that can
-    // reject what follows it. It used to default every non-`SUB` token to `Func`
-    // and compile these to an executable.
+    // reject what follows it. It used to default every unrecognized token to
+    // `Func` and compile these to an executable.
     assert!(try_parse("PUBLIC ISOLATED BOGUS weird AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
     assert!(try_parse("PUBLIC ISOLATED ISOLATED f AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
     // The valid spellings the check must leave alone.
     assert!(try_parse("PUBLIC ISOLATED FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
     assert!(try_parse("ISOLATED FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
     assert!(try_parse("PUBLIC FUNC f AS Integer\n  RETURN 0\nEND FUNC\n").is_ok());
-    assert!(try_parse("EXPORT SUB s\nEND SUB\n").is_ok());
+    assert!(try_parse("EXPORT FUNC s AS Nothing\nEND FUNC\n").is_ok());
 }
 
 #[test]
@@ -2081,7 +2182,6 @@ fn expression_errors() {
 #[test]
 fn doc_header_kind_keywords() {
     assert_eq!(DocHeaderKind::Func.keyword(), "FUNC");
-    assert_eq!(DocHeaderKind::Sub.keyword(), "SUB");
     assert_eq!(DocHeaderKind::Type.keyword(), "TYPE");
     assert_eq!(DocHeaderKind::Union.keyword(), "UNION");
     assert_eq!(DocHeaderKind::Enum.keyword(), "ENUM");
@@ -2190,31 +2290,38 @@ END FUNC
 #[test]
 fn doc_block_header_variants_and_errors() {
     // PACKAGE header takes no name.
-    assert!(try_parse("DOC\nPACKAGE\nDESC ok\nEND DOC\nSUB main\nEND SUB\n").is_ok());
+    assert!(try_parse("DOC\nPACKAGE\nDESC ok\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_ok());
     // PACKAGE with a name is rejected.
-    assert!(try_parse("DOC\nPACKAGE thing\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nPACKAGE thing\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // A FUNC header with no name is rejected.
-    assert!(try_parse("DOC\nFUNC\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nFUNC\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // Unknown header keyword.
-    assert!(try_parse("DOC\nWIDGET x\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nWIDGET x\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // Empty DOC (no header line) is rejected.
-    assert!(try_parse("DOC\n\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\n\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // A TYPE header with a signature disambiguator is fine (non-callable path).
-    assert!(try_parse("DOC\nTYPE Widget\nDESC ok\nEND DOC\nSUB main\nEND SUB\n").is_ok());
+    assert!(
+        try_parse("DOC\nTYPE Widget\nDESC ok\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_ok()
+    );
 }
 
 #[test]
 fn doc_block_named_line_errors_and_unknown() {
     // ARG with no name.
-    assert!(try_parse("DOC\nFUNC f\nARG\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nFUNC f\nARG\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // PROP with no name.
-    assert!(try_parse("DOC\nTYPE T\nPROP\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nTYPE T\nPROP\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // ERROR with no code.
-    assert!(try_parse("DOC\nFUNC f\nERROR\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse("DOC\nFUNC f\nERROR\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err());
     // Unknown line keyword.
-    assert!(try_parse("DOC\nFUNC f\nFLARB nope\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(
+        try_parse("DOC\nFUNC f\nFLARB nope\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n").is_err()
+    );
     // Unterminated EXAMPLE (no END EXAMPLE before END DOC).
-    assert!(try_parse("DOC\nFUNC f\nEXAMPLE\n  code here\nEND DOC\nSUB main\nEND SUB\n").is_err());
+    assert!(try_parse(
+        "DOC\nFUNC f\nEXAMPLE\n  code here\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n"
+    )
+    .is_err());
 }
 
 #[test]
@@ -2233,7 +2340,7 @@ END FUNC
     let json = project_json(src);
     assert!(json.contains("FUNC(Integer, Integer) AS Integer"));
     // An empty parameter list `f()` yields an empty signature array.
-    let json = project_json("DOC\nFUNC g()\nDESC ok\nEND DOC\nSUB main\nEND SUB\n");
+    let json = project_json("DOC\nFUNC g()\nDESC ok\nEND DOC\nFUNC main AS Nothing\nEND FUNC\n");
     assert!(json.contains("\"signature\": []"));
 }
 
@@ -2270,7 +2377,7 @@ fn native_func_missing_symbol_or_abi() {
     .is_err());
     // END must name FUNC.
     assert!(try_parse(
-        "LINK \"x\" AS l\n  FUNC f AS Integer\n    SYMBOL \"s\"\n    ABI () AS r CInt32\n  END SUB\nEND LINK\n"
+        "LINK \"x\" AS l\n  FUNC f AS Integer\n    SYMBOL \"s\"\n    ABI () AS r CInt32\n  END TYPE\nEND LINK\n"
     )
     .is_err());
 }
@@ -2441,7 +2548,7 @@ fn doc_example_dedent_handles_multibyte_whitespace() {
     // the NBSP line's first char and panicked "byte index 1 is not a char
     // boundary", aborting the whole compile. Indentation is now a CHAR prefix.
     let src =
-        "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
+        "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nFUNC foo() AS Nothing\nEND FUNC\n";
     let json = project_json(src);
     // One char stripped from each line: " a" -> "a", "\u{a0}\u{a0}b" -> "\u{a0}b".
     assert!(json.contains("\"example\""), "doc block parsed: {json}");
@@ -2449,7 +2556,7 @@ fn doc_example_dedent_handles_multibyte_whitespace() {
 
     // All-ASCII indentation is unchanged (the overwhelmingly common case).
     let ascii = project_json(
-        "DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n",
+        "DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nFUNC foo() AS Nothing\nEND FUNC\n",
     );
     assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
 }
@@ -2607,7 +2714,7 @@ fn lambda_and_function_type_close_errors() {
     // Lambda missing `->`.
     assert!(try_parse("FUNC f AS Integer\n  LET g = LAMBDA(x) 1\n  RETURN 0\nEND FUNC\n").is_err());
     // Function type missing the closing `)` of its parameter list.
-    assert!(try_parse("SUB s(f AS FUNC(Integer AS Boolean)\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC s(f AS FUNC(Integer AS Boolean)\nEND FUNC\n").is_err());
 }
 
 #[test]
@@ -2712,19 +2819,19 @@ fn parse_tcase_without_end_tcase_is_rejected() {
 
 #[test]
 fn parse_rejects_a_record_field_assignment_statement() {
-    assert!(try_parse("SUB main()\n  p.x = 77\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main() AS Nothing\n  p.x = 77\nEND FUNC\n").is_err());
 }
 
 #[test]
 fn parse_rejects_a_nested_record_field_assignment_statement() {
-    assert!(try_parse("SUB main()\n  o.inner.x = 77\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main() AS Nothing\n  o.inner.x = 77\nEND FUNC\n").is_err());
 }
 
 #[test]
 fn parse_rejects_a_record_field_assignment_in_an_inline_if_branch() {
     // The inline-IF branch is statement position too, reached through
     // `parse_simple_statement(true)`.
-    assert!(try_parse("SUB main()\n  IF c THEN p.x = 77\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main() AS Nothing\n  IF c THEN p.x = 77\nEND FUNC\n").is_err());
 }
 
 #[test]
@@ -2733,7 +2840,7 @@ fn parse_keeps_the_state_member_assignment_forms() {
     // member-target assignment in the language (§15) and must be untouched by
     // the record-field guard. The nested form desugars to a single-field
     // `WITH` over the current state.
-    let file = try_parse("SUB main()\n  f.state = c\n  f.state.pos = 10\nEND SUB\n")
+    let file = try_parse("FUNC main() AS Nothing\n  f.state = c\n  f.state.pos = 10\nEND FUNC\n")
         .expect("state assignment forms still parse");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");
@@ -2764,8 +2871,9 @@ fn parse_keeps_the_state_member_assignment_forms() {
 fn parse_keeps_a_member_comparison_in_expression_position() {
     // `IF p.x = 77 THEN` is a genuine equality comparison — the guard fires only
     // in statement position, so this must still parse as a `=` binary.
-    let file = try_parse("SUB main()\n  IF p.x = 77 THEN\n    q = 1\n  END IF\nEND SUB\n")
-        .expect("member comparison in a condition still parses");
+    let file =
+        try_parse("FUNC main() AS Nothing\n  IF p.x = 77 THEN\n    q = 1\n  END IF\nEND FUNC\n")
+            .expect("member comparison in a condition still parses");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");
     };
@@ -2782,7 +2890,8 @@ fn parse_keeps_a_member_comparison_in_expression_position() {
 #[test]
 fn parse_keeps_a_plain_identifier_assignment() {
     // The single-identifier assignment shape is unaffected by the guard.
-    let file = try_parse("SUB main()\n  p = 77\nEND SUB\n").expect("plain assignment still parses");
+    let file = try_parse("FUNC main() AS Nothing\n  p = 77\nEND FUNC\n")
+        .expect("plain assignment still parses");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");
     };
@@ -2793,7 +2902,7 @@ fn parse_keeps_a_plain_identifier_assignment() {
 fn parse_leaves_a_malformed_member_path_to_its_own_diagnostic() {
     // `a.b. = c` runs out of identifiers mid-chain, so the record-field guard
     // declines it and the ordinary syntax diagnostic reports the statement.
-    assert!(try_parse("SUB main()\n  a.b. = c\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main() AS Nothing\n  a.b. = c\nEND FUNC\n").is_err());
 }
 
 // ---- an inline IF ends at its line: an ELSE on the next line is the enclosing block IF's ----
@@ -2806,7 +2915,7 @@ fn parse_leaves_a_malformed_member_path_to_its_own_diagnostic() {
 #[test]
 fn parse_gives_a_next_line_else_to_the_enclosing_block_if() {
     let file = try_parse(
-        "SUB main()\n  IF a THEN\n    IF b THEN n = 5\n  ELSE\n    n = 7\n  END IF\nEND SUB\n",
+        "FUNC main() AS Nothing\n  IF a THEN\n    IF b THEN n = 5\n  ELSE\n    n = 7\n  END IF\nEND FUNC\n",
     )
     .expect("an inline IF followed by the block's ELSE parses");
     let Item::Function(function) = &file.items[0] else {
@@ -2837,7 +2946,7 @@ fn parse_gives_a_next_line_else_to_the_enclosing_block_if() {
 
 #[test]
 fn parse_still_binds_a_same_line_else_to_the_inline_if() {
-    let file = try_parse("SUB main()\n  IF b THEN n = 5 ELSE n = 7\nEND SUB\n")
+    let file = try_parse("FUNC main() AS Nothing\n  IF b THEN n = 5 ELSE n = 7\nEND FUNC\n")
         .expect("inline IF with a same-line ELSE parses");
     let Item::Function(function) = &file.items[0] else {
         panic!("expected function item");

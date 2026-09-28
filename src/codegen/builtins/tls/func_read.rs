@@ -39,12 +39,12 @@ const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 ```
 IMPORT tls
 
-SUB main()
+FUNC main() AS Nothing
   RES conn = tls::connect("example.com", 443)
   tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET chunk = tls::read(conn, 4096)
   ' conn closes itself when this scope ends
-END SUB
+END FUNC
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

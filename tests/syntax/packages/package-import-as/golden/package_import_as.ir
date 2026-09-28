@@ -85,7 +85,7 @@
     "name": "flushStreams",
     "line": 8,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

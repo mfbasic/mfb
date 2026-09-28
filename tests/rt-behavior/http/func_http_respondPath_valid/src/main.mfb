@@ -13,13 +13,13 @@ FUNC root() AS String
   RETURN fs::pathJoin([fs::tempDirectory(), "mfbhttp_respondpath_root"])
 END FUNC
 
-SUB setup()
+FUNC setup() AS Nothing
   LET r AS String = root()
   fs::createDirectories(r)
   fs::writeText(fs::pathJoin([r, "hi.txt"]), "hello static")
   fs::writeText(fs::pathJoin([r, "page.html"]), "<h1>hi</h1>")
   fs::writeText(fs::pathJoin([fs::tempDirectory(), "mfbhttp_respondpath_secret.txt"]), "SECRET")
-END SUB
+END FUNC
 
 ' Build a Request whose "*" capture is `star` (as a "/static/*" route would).
 FUNC mkReq(star AS String) AS http::Request

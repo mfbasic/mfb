@@ -9,14 +9,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 16,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "before", "type": "String", "value": { "kind": "call", "callee": "app.getTitle", "arguments": [] }, "line": 17 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "app.setTitle", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Window " }, "right": { "kind": "identifier", "value": "before" } }] }, "line": 18 },

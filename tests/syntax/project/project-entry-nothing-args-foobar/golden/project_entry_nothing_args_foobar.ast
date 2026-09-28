@@ -1,0 +1,25 @@
+{
+  "project": "project_entry_nothing_args_foobar",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "foobar",
+      "line": 1,
+      "params": [
+      { "name": "args", "type": "List OF String", "default": null, "line": 1 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

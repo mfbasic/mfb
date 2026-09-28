@@ -12,28 +12,28 @@
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "appended", "type": "String", "value": null, "line": 10 },
     { "kind": "binding", "visibility": "public", "mutable": true, "name": "untouched", "type": "String", "value": null, "line": 11 },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "reassign",
       "line": 13,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "reassigned", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "e" }, { "kind": "number", "value": "3" }] }, "line": 14 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "reassigned" }] }, "line": 15 }
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "append",
       "line": 18,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "assignment", "name": "appended", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "appended" }, "right": { "kind": "string", "value": "c" } }, "line": 19 },
       { "kind": "assignment", "name": "appended", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "appended" }, "right": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "string", "value": "d" }, { "kind": "number", "value": "40" }] } }, "line": 20 },

@@ -8,7 +8,7 @@ TYPE Node
   tag AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   LET n AS Integer = toInt(collections::get(os::args(), 0))
   MUT cur AS Node = Node[kids := [], tag := 0]
   MUT i AS Integer = 1
@@ -19,4 +19,4 @@ SUB main()
   MUT xs AS List OF Node = []
   xs = collections::append(xs, cur)
   io::print("top=" & toString(cur.tag) & " len=" & toString(len(xs)))
-END SUB
+END FUNC

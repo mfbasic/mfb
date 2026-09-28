@@ -34,12 +34,12 @@ const EX: &str = r#"The endpoints are exact, and green far outweighs blue:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(color::luminance(color::rgb(0, 0, 0))))
   io::print(toString(color::luminance(color::rgb(255, 255, 255))))
   io::print(toString(color::luminance(color::rgb(0, 255, 0))))
   io::print(toString(color::luminance(color::rgb(0, 0, 255))))
-END SUB
+END FUNC
 ```"#;
 
 /// The weights are integers over 10000 rather than `0.2126`-style literals so the

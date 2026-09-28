@@ -10,7 +10,7 @@ TYPE Node
   tag AS Integer
 END TYPE
 
-SUB main()
+FUNC main() AS Nothing
   LET n AS Integer = toInt(collections::get(os::args(), 0))
   MUT cur AS Node = Node[kids := [], tag := 0]
   MUT i AS Integer = 1
@@ -22,4 +22,4 @@ SUB main()
   xs = collections::append(xs, cur)
   LET top AS Node = collections::get(xs, 0)
   io::print("top=" & toString(top.tag))
-END SUB
+END FUNC

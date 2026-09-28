@@ -44,13 +44,13 @@ FUNC nested(n AS Integer) AS List OF Integer
   RETURN r
 END FUNC
 
-SUB printList(label AS String, xs AS List OF Integer)
+FUNC printList(label AS String, xs AS List OF Integer) AS Nothing
   io::print(label & ":")
   FOR EACH x IN xs
     io::print(" " & toString(x))
   NEXT
   io::print("\n")
-END SUB
+END FUNC
 
 FUNC main AS Integer
   ' Move independence: mutating a must not disturb b.

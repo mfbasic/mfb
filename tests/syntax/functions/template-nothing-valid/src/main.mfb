@@ -1,0 +1,10 @@
+IMPORT io
+
+FUNC consume OF T(value AS T) AS Nothing
+END FUNC
+
+FUNC main() AS Nothing
+  consume(42)
+  consume("ok")
+  io::print("ok")
+END FUNC

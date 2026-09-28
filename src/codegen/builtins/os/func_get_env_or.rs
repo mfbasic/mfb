@@ -43,10 +43,10 @@ const EX: &str = r#"Read an optional variable with a default:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET level AS String = os::getEnvOr("LOG_LEVEL", "info")
   io::print(level)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

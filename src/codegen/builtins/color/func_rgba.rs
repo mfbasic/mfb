@@ -28,9 +28,9 @@ const EX: &str = r#"A half-transparent red:
 ```
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   LET wash AS color::Color = color::rgba(255, 0, 0, 128)
-END SUB
+END FUNC
 ```
 
 Components are clamped, so arithmetic that overshoots is safe:
@@ -39,11 +39,11 @@ Components are clamped, so arithmetic that overshoots is safe:
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   ' 300 clamps to 255, -20 clamps to 0.
   LET c AS color::Color = color::rgba(300, -20, 128, 255)
   io::print(toString(c.red) & " " & toString(c.green))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

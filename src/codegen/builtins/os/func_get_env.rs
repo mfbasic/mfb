@@ -44,10 +44,10 @@ const EX: &str = r#"Read a variable that is expected to be present:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET home AS String = os::getEnv("HOME")
   io::print(home)
-END SUB
+END FUNC
 ```
 
 Treat an unset variable as a recoverable condition:
@@ -56,12 +56,12 @@ Treat an unset variable as a recoverable condition:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET token = os::getEnv("API_TOKEN") TRAP(err)
     RECOVER ""
   END TRAP
   io::print(token)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

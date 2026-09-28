@@ -14,7 +14,7 @@
     "name": "consume",
     "line": 17,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "f", "line": 17, "type": "fs.File", "default": null }
     ],

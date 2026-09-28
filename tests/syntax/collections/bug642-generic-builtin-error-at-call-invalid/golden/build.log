@@ -5,7 +5,7 @@ $ mfb build -ast -ir tests/syntax/collections/bug642-generic-builtin-error-at-ca
      | ^
 tests/syntax/collections/bug642-generic-builtin-error-at-call-invalid/src/main.mfb:22 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
                In the body of `collections::distinct`, instantiated by this call: Call to `collections.contains` requires a comparable type, got `FUNC(Integer) AS Boolean`.
-  11 | SUB main()
+  11 | FUNC main() AS Nothing
   12 |   LET flags AS List OF Boolean = [TRUE, FALSE]
   13 |   LET sortedFlags = collections::sort(flags)
      | ^

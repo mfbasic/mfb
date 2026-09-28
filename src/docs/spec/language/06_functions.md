@@ -1,18 +1,28 @@
 # 6. Functions
 
-Only `FUNC` (returns a value) and `SUB` (no value). No methods.
+`FUNC` is the one kind of callable. No methods.
 
 ```basic
 FUNC greet(name AS String, greeting AS String = "Hello") AS String
   RETURN greeting & ", " & name & "!"
 END FUNC
 
-SUB log(msg AS String)
+FUNC log(msg AS String) AS Nothing
   io::print("[log] " & msg)
-END SUB
+END FUNC
 ```
 
-- **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A `SUB` yields nothing on success and may still fail (see §7).
+- **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A function declared `AS Nothing` yields `NOTHING` on success and may still fail.
+- **Effect-only functions** are declared `AS Nothing`. Such a body may end with a bare `RETURN` (or `RETURN NOTHING`), or fall through to `END FUNC`; each succeeds with `NOTHING` (`mfb spec language error-model` §8.6 rules 8–9). Its call is usually a statement, but it is an ordinary value expression too: `LET v = log("x")` binds `NOTHING`, which binds, passes, compares and collects like any other value (§4.6). A call to a built-in declared `AS Nothing` (`io::print`, `fs::writeAll`) is the same. [[src/ir/lower.rs:function_return_type]]
+- **Effect-only callbacks.** Naming a function yields a function value of its type, so naming an `AS Nothing` function yields a `FUNC(...) AS Nothing` value — what APIs such as `collections::forEach` take, with no wrapper needed. APIs that infer and collect a result, such as `collections::transform`, reject a callback whose success type is `Nothing`: there would be nothing to collect.
+
+  ```basic
+  FUNC printItem(x AS Integer) AS Nothing
+    io::print(toString(x))
+  END FUNC
+
+  collections::forEach(nums, printItem)
+  ```
 - **Default args** allowed (trailing). A non-default parameter may not follow a
   defaulted one (the semantic verifier rejects it with `TYPE_DEFAULT_ARG_ORDER`:
   "Parameter … must have a default because an earlier parameter has one").
@@ -36,7 +46,7 @@ END SUB
   native target; there is no parameter-count limit. (See `./mfb spec
   memory 06_native-calling-convention` for the register/stack layout.)
 - **Named args** at call site: `greet("Ada", greeting := "Hi")`. Named arguments bind by parameter name, may be mixed with positional arguments, and are evaluated/lowered in declaration order after omitted default parameters are filled. For a builtin whose overloads place the same name at different positions — `tcp::connect`'s `timeoutMs` is the second parameter of the `Address` forms and the third of the `host`/`port` forms — the overload is selected first (the one naming every supplied name, leaving no name on a slot a positional argument already filled, and filled by the supplied arguments as a contiguous prefix — an overload taking exactly this many arguments wins, else the shortest longer one whose unsupplied parameters all trail the supplied ones, which are then filled from their defaults), and names bind within it. So `tls::connect("h", 443, timeoutMs := 5000, serverName := "h")` leaves its trailing `allowSelfSigned` to its default. A call may not skip a parameter before a later named one. Selection looks only at names and positions, so such a call can still select another overload whose contiguous prefix the arguments fill: `tls::connect("h", 443, serverName := "h")` (no `timeoutMs`) fills the `Address` form, whose type check then rejects it with `TYPE_CALL_ARGUMENT_MISMATCH` listing every signature. When no overload's prefix fits, or the builtin has a single layout, the checker reports `TYPE_CALL_ARITY_MISMATCH` — "omits parameter `p` before a later supplied argument" — and then type-checks the arguments it did bind, in parameter order, which can add a `TYPE_CALL_ARGUMENT_MISMATCH` for the same call (`compress::zlibDecode(data, ignoreChecksum := TRUE)` reports both). A named argument therefore always binds to the parameter it names, or the call is rejected. [[src/codegen/builtins/mod.rs:select_param_name_overload]] [[src/ir/shape.rs:check_builtin_call]]
-- **Overloading.** Several `FUNC`s or `SUB`s may share one name as long as their signatures differ. A callable's identity is its name together with its **ordered parameter types and return type**; two declarations collide (`SYMBOL_DUPLICATE_TOP_LEVEL`) only when *all three* match (default values never distinguish an overload). A name sharing parameter types but differing in return type is a legal return-type overload set. Overloads usually differ by **arity** or **parameter type** and are selected from the argument types. They may also differ **only by return type** (identical parameter lists): such a *return-type overload set* is selected by the call's **expected (contextual) type** (the declared type of the assignment/`LET`/`DIM` target, the parameter type of an argument slot, the enclosing function's return type for a `RETURN` operand, or the element/field type of a typed initializer). When two or more return-type overloads remain and no expected type uniquely selects one, the call is a `TYPE_OVERLOAD_AMBIGUOUS` error; the fix is a type annotation (e.g. `LET b AS List OF Byte = utf8Encode(s)`). Overloads may be declared across the files of one package, and an `EXPORT`ed overload set is resolved across the package boundary by importers. Visibility is not part of a callable's identity, so an `EXPORT` and a `PUBLIC` or `PRIVATE` declaration may share a name; an importer sees only the `EXPORT` members, and a call it makes is resolved against those alone. (For how expected types are propagated, see `./mfb spec architecture type-inference`.)
+- **Overloading.** Several `FUNC`s may share one name as long as their signatures differ. A callable's identity is its name together with its **ordered parameter types and return type**; two declarations collide (`SYMBOL_DUPLICATE_TOP_LEVEL`) only when *all three* match (default values never distinguish an overload). A name sharing parameter types but differing in return type is a legal return-type overload set. Overloads usually differ by **arity** or **parameter type** and are selected from the argument types. They may also differ **only by return type** (identical parameter lists): such a *return-type overload set* is selected by the call's **expected (contextual) type** (the declared type of the assignment/`LET`/`DIM` target, the parameter type of an argument slot, the enclosing function's return type for a `RETURN` operand, or the element/field type of a typed initializer). When two or more return-type overloads remain and no expected type uniquely selects one, the call is a `TYPE_OVERLOAD_AMBIGUOUS` error; the fix is a type annotation (e.g. `LET b AS List OF Byte = utf8Encode(s)`). Overloads may be declared across the files of one package, and an `EXPORT`ed overload set is resolved across the package boundary by importers. Visibility is not part of a callable's identity, so an `EXPORT` and a `PUBLIC` or `PRIVATE` declaration may share a name; an importer sees only the `EXPORT` members, and a call it makes is resolved against those alone. (For how expected types are propagated, see `./mfb spec architecture type-inference`.)
 
   ```basic
   FUNC area(width AS Float, height AS Float) AS Float   ' rectangle
@@ -54,7 +64,7 @@ END SUB
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations receive a pointer to the one handle and do not move ownership; close operations consume it. MFBASIC source does not add ownership-annotation parameter keywords such as `MOVE`.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.
-- **Isolated functions**: any top-level `FUNC` may be marked `ISOLATED` to declare that it can run as a thread entry point. `ISOLATED` is independent of visibility — `PRIVATE`, `PUBLIC` (the default) and `EXPORT` are all valid. `ISOLATED` is invalid on `SUB`, lambdas, closures, and local functions; a non-`FUNC` declaration marked `ISOLATED` is rejected ("ISOLATED function … must be a top-level FUNC declaration"). [[src/ir/verify/mod.rs]]
+- **Isolated functions**: any top-level `FUNC` may be marked `ISOLATED` to declare that it can run as a thread entry point. `ISOLATED` is independent of visibility — `PRIVATE`, `PUBLIC` (the default) and `EXPORT` are all valid. `ISOLATED` is invalid on lambdas, closures, and local functions; a non-`FUNC` declaration marked `ISOLATED` is rejected ("ISOLATED function … must be a top-level FUNC declaration"). [[src/ir/verify/mod.rs]]
 - **First-class functions & lambdas**:
 
 ```basic

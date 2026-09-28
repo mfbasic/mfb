@@ -164,7 +164,7 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
    slots and materialize the argv strings into an in-arena `List OF String`
    (`emit_entry_args_list_materialization`, via `arena_alloc`); the resulting list
    pointer is loaded into `x0` as the entry's argument. [[src/codegen/engine/function/entry.rs:emit_entry_args_list_materialization]]
-5. **Language entry.** Call the language entry FUNC/SUB. The result is routed the
+5. **Language entry.** Call the language entry FUNC. The result is routed the
    same way: `RESULT_PROGRAM_EXIT_TAG` → exit with `x1`; non-OK → error path. On
    success, a `Nothing` return exits `0`; an `Integer` return becomes the exit
    code but is range-checked against `255` (`ERR_OVERFLOW` if higher).

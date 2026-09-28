@@ -76,12 +76,12 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories(os::appCachePath())
   LET copy AS String = os::appCachePath("latest.json")
   fs::writeText(copy, "{}")
   io::print(toString(fs::fileExists(copy)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

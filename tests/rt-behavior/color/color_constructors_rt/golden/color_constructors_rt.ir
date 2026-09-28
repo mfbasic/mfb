@@ -103,7 +103,7 @@
     "name": "show",
     "line": 12,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "label", "line": 12, "type": "String", "default": null },
     { "name": "c", "line": 12, "type": "color.Color", "default": null }

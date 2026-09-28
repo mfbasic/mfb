@@ -31,9 +31,9 @@ FUNC try(tune AS String) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET tune AS String = os::getEnvOr("TUNE", "{ C }200000")
   io::print("tune=" & tune)
   LET r AS Integer = try(tune)
   io::print("after r=" & toString(r))
-END SUB
+END FUNC

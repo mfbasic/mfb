@@ -26,7 +26,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "writeBuffered",
@@ -34,7 +34,7 @@
       "params": [
       { "name": "path", "type": "String", "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": true }] }, "line": 14 },

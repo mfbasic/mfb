@@ -31,11 +31,11 @@ might be empty."#;
 const EX: &str = r#"```
 IMPORT astrings
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello world here")
   MUT b AS AttributedString = astrings::addAttribute(a, 5, 15, astrings::bold())
   b = astrings::removeAttribute(b, 8, 10, astrings::bold())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

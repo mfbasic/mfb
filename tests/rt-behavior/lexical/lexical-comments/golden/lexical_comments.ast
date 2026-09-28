@@ -8,14 +8,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 6,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "remembered", "type": "String", "value": { "kind": "string", "value": "ordinary rem identifier" }, "line": 8 },
       { "kind": "binding", "mutable": false, "name": "premium", "type": "String", "value": { "kind": "identifier", "value": "remembered" }, "line": 9 },

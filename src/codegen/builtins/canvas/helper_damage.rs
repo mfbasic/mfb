@@ -229,14 +229,14 @@ FUNC __canvas_boundsMeetOffset(offset AS Integer, damage AS List OF Integer, gdx
 END FUNC
 
 ' Remember what was drawn, so the next frame has something to diff against.
-SUB __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Integer)
+FUNC __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Integer) AS Nothing
   ' Damage mode only. `__canvas_damageFor` is the one reader of what this records, and
   ' outside damage mode it answers a full frame before looking at either list -- so
   ' recording them anyway cost five appends per item per frame for nothing: 1.6-1.9 ms
   ' of a 10,000-item Metal frame (bug-686). The mode is resolved once, so a frame cannot
   ' find the lists stale because an earlier one skipped them.
   IF NOT __canvas_damageEnabled() THEN
-    EXIT SUB
+    RETURN
   END IF
   ' plan-116-G section 4.6: the bounds recorded are the ones the item was DRAWN at, so
   ' translated by its accumulated group offset. Recording the untranslated rectangle
@@ -267,7 +267,7 @@ SUB __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Integer
     kept = collections::append(kept, h)
   NEXT
   __CANVAS_LAST_HASHES = kept
-END SUB"#;
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_damageState", DAMAGE_STATE));

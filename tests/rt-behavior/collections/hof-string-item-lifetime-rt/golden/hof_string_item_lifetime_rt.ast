@@ -10,7 +10,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -18,7 +18,7 @@
       "params": [
       { "name": "s", "type": "String", "default": null, "line": 22 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  item=" }, "right": { "kind": "identifier", "value": "s" } }] }, "line": 23 }
       ]

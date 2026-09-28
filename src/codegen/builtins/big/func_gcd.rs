@@ -31,11 +31,11 @@ const EX: &str = r#"Signs do not matter, and zero is handled:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(big::toString(big::gcd(big::fromInteger(-12), big::fromInteger(18))))
   io::print(big::toString(big::gcd(big::fromInteger(0), big::fromInteger(-7))))
   io::print(big::toString(big::gcd(big::fromInteger(0), big::fromInteger(0))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

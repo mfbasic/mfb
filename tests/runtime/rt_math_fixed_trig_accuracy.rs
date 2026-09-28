@@ -365,7 +365,7 @@ fn run(raws: &[i64]) -> Vec<(i64, String, String, String)> {
         .join(", ");
     let source = format!(
         r#"{PROGRAM_HEAD}
-SUB main()
+FUNC main() AS Nothing
   LET his AS List OF Integer = [{his}]
   LET los AS List OF Float = [{los}]
   MUT i AS Integer = 0
@@ -374,7 +374,7 @@ SUB main()
     io::print(toString(x, toByte(32)) & "|" & sinOf(x) & "|" & cosOf(x) & "|" & tanOf(x))
     i = i + 1
   END WHILE
-END SUB
+END FUNC
 "#
     );
     let project = common::temp_project("math_fixed_trig_accuracy", &source);
@@ -641,8 +641,8 @@ FUNC oneatan2(y AS Fixed, x AS Fixed) AS String
   END TRAP
 END FUNC
 
-SUB main()
-{body}END SUB
+FUNC main() AS Nothing
+{body}END FUNC
 "#
     );
     let project = common::temp_project("math_fixed_inverse_trig", &source);

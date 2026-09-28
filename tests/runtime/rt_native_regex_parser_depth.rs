@@ -79,9 +79,9 @@ FUNC deep() AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("caught=" & toString(deep()))
-END SUB
+END FUNC
 "#,
     );
     assert!(
@@ -126,9 +126,9 @@ FUNC deep() AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print("caught=" & toString(deep()))
-END SUB
+END FUNC
 "#,
     );
     assert!(
@@ -150,7 +150,7 @@ fn native_regex_modest_nesting_still_compiles() {
         r#"IMPORT regex
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   ' 40 nested capturing groups around a literal — deep, but ordinary.
   MUT s AS String = ""
   MUT i AS Integer = 0
@@ -165,7 +165,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print("match=" & toString(regex::match("abc", s)))
-END SUB
+END FUNC
 "#,
     );
     assert!(

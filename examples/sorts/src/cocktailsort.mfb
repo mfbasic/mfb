@@ -1,0 +1,77 @@
+' cocktailsort - sorts `order` one comparison at a time.
+'
+' A bubble sort that sweeps both ways: forward, carrying the largest of the
+' unsorted middle to its end, then backward, carrying the smallest to its
+' start. Each sweep leaves one more element in its final place, at one end or
+' the other. A sweep with no swaps means the middle is already in order.
+
+MUT shakeLo AS Integer = 0          ' everything before here is final
+MUT shakeHi AS Integer = 0          ' everything after here is final
+MUT shakeScan AS Integer = 0
+MUT shakeForward AS Boolean = TRUE
+MUT shakeSwapped AS Boolean = FALSE
+MUT shakeFinished AS Boolean = FALSE
+MUT shakeCompareCount AS Integer = 0
+
+FUNC cocktailStart AS Nothing
+  shakeLo = 0
+  shakeHi = DOT_COUNT - 1
+  shakeScan = 0
+  shakeForward = TRUE
+  shakeSwapped = FALSE
+  shakeFinished = DOT_COUNT < 2
+  shakeCompareCount = 0
+END FUNC
+
+FUNC cocktailDone AS Boolean
+  RETURN shakeFinished
+END FUNC
+
+FUNC cocktailCompares AS Integer
+  RETURN shakeCompareCount
+END FUNC
+
+' Compare the neighbours at `a` and `a + 1`, swapping them if out of order.
+FUNC shakeCompare(a AS Integer) AS Nothing
+  shakeCompareCount = shakeCompareCount + 1
+  IF orderAt(a) > orderAt(a + 1) THEN
+    swapOrder(a, a + 1)
+    shakeSwapped = TRUE
+  END IF
+END FUNC
+
+' A sweep has ended; stop if it swapped nothing.
+FUNC shakeSweepEnded AS Nothing
+  IF NOT shakeSwapped OR shakeLo >= shakeHi THEN shakeFinished = TRUE
+  shakeSwapped = FALSE
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC cocktailSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT shakeFinished
+    IF shakeForward THEN
+      IF shakeScan < shakeHi THEN
+        shakeCompare(shakeScan)
+        shakeScan = shakeScan + 1
+        left = left - 1
+      ELSE
+        shakeHi = shakeHi - 1
+        shakeForward = FALSE
+        shakeScan = shakeHi
+        shakeSweepEnded()
+      END IF
+    ELSE
+      IF shakeScan > shakeLo THEN
+        shakeCompare(shakeScan - 1)
+        shakeScan = shakeScan - 1
+        left = left - 1
+      ELSE
+        shakeLo = shakeLo + 1
+        shakeForward = TRUE
+        shakeScan = shakeLo
+        shakeSweepEnded()
+      END IF
+    END IF
+  LOOP
+END FUNC

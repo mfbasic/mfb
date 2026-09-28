@@ -343,7 +343,7 @@ END FUNC
 
 ' plan-139-B §4.3 rules 1-3, applied at write time so this package cannot build
 ' the archive its own `extractTo` refuses.
-PRIVATE SUB requireSafeName(name AS String)
+PRIVATE FUNC requireSafeName(name AS String) AS Nothing
   IF len(name) = 0 THEN
     FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
   END IF
@@ -360,4 +360,4 @@ PRIVATE SUB requireSafeName(name AS String)
       FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
     END IF
   NEXT
-END SUB
+END FUNC

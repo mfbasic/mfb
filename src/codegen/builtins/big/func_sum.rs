@@ -27,12 +27,12 @@ const EX: &str = r#"Total a list whose sum leaves the `Integer` range:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET top AS big::Int = big::fromInteger(9223372036854775807)
   LET values AS List OF big::Int = [top, top, big::fromInteger(2)]
   LET total AS big::Int = big::sum(values)
   io::print(toString(big::equals(total, big::multiply(big::add(top, big::fromInteger(1)), big::fromInteger(2)))))
-END SUB
+END FUNC
 ```
 
 An empty list sums to zero:
@@ -41,10 +41,10 @@ An empty list sums to zero:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET none AS List OF big::Int = []
   io::print(toString(big::isZero(big::sum(none))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

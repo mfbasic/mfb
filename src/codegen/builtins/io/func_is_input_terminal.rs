@@ -36,13 +36,13 @@ const EX: &str = r#"Prompt only when standard input is a terminal, otherwise rea
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   IF io::isInputTerminal() THEN
     io::print(io::input("Name: "))
   ELSE
     io::print(io::readLine())
   END IF
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -26,7 +26,7 @@ END TYPE
 ' ~27 KiB per cycle with the reclaim working perfectly: it was measuring file
 ' content, not retention. Keep both files fixed-size or this fixture proves
 ' nothing.
-SUB cycle(readPath AS String, writePath AS String)
+FUNC cycle(readPath AS String, writePath AS String) AS Nothing
   RES r AS fs::File STATE Cursor = fs::openFile(readPath)
   r.state.pos = 1
   r.state.name = "carried"
@@ -36,7 +36,7 @@ SUB cycle(readPath AS String, writePath AS String)
   w.state.name = "carried"
   fs::setBuffered(w, TRUE)
   fs::writeAll(w, "x")
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET readPath AS String = "target/resource_reclaim_loop_read.txt"

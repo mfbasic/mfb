@@ -40,10 +40,10 @@ const EX: &str = r#"Encode bytes to URL-safe Base64:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hi")
   io::print(encoding::base64UrlEncode(raw))
-END SUB
+END FUNC
 ```
 
 Round-trip through `base64UrlDecode`:
@@ -52,12 +52,12 @@ Round-trip through `base64UrlDecode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("hello")
   LET text AS String = encoding::base64UrlEncode(raw)
   io::print(text)
   io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

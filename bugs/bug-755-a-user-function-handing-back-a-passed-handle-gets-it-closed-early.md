@@ -44,7 +44,7 @@ FUNC same(xs AS List OF RES fs::File) AS List OF RES fs::File
   RETURN xs
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("/tmp/b750.txt", "")
   RES a AS fs::File = fs::open("/tmp/b750.txt", "read")
   IF TRUE THEN
@@ -57,7 +57,7 @@ SUB main()
     LET p = same(lb)
   END IF
   io::print("b: " & state(b))
-END SUB
+END FUNC
 ```
 
 Observed (macos-aarch64, `a0082e4ae` and after bug-643): `a: CLOSED`, `b: CLOSED`.

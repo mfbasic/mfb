@@ -56,13 +56,13 @@ IMPORT term
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBackground(color::rgb(255, 0, 0))
   io::print("alert")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 The red, green and blue channels round-trip through `term::getBackground`, so saving
@@ -73,7 +73,7 @@ alpha of 255, whatever alpha was passed in:
 IMPORT term
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET saved AS color::Color = term::getBackground()
   term::setBackground(color::fromName("teal"))
@@ -82,7 +82,7 @@ SUB main()
   term::drawText(1, 0, "default again")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::set_background` — delegates to the shared family-generic

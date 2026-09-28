@@ -32,11 +32,11 @@ const EX: &str = r#"Order a negative and a positive value:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS big::Int = big::fromInteger(-5)
   LET b AS big::Int = big::fromInteger(3)
   io::print(toString(big::compare(a, b)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

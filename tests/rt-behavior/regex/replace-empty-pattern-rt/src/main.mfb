@@ -129,11 +129,11 @@ FUNC main AS Integer
   END TRAP
   io::print("strings::replace  nonEmpty    -> \"" & produced & "\"")
 
-  ' And the List overload is still INFALLIBLE, so this handler is dead code and
-  ' the build log carries its TYPE_INLINE_TRAP_DEAD_HANDLER advisory. If that
-  ' warning ever disappears, the fail-closed rule has widened too far.
+  ' The List overload allocates its result and declares ErrOutOfMemory (bug-698),
+  ' so this handler is live too — no TYPE_INLINE_TRAP_DEAD_HANDLER — and the
+  ' success path must still produce the replaced list, not reach the handler.
   LET kept AS List OF String = collections::replace(l, e, "Z") TRAP(err)
-    io::print("DEAD: collections::replace is infallible, code=" & toString(err.code))
+    io::print("UNEXPECTED: collections::replace failed, code=" & toString(err.code))
     RECOVER []
   END TRAP
   io::print("collections::replace inline   -> n=" & toString(len(kept)))

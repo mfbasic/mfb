@@ -56,12 +56,12 @@ const EX: &str = r#"Draw one frame and restore the terminal:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::moveTo(0, 0)
   io::print("done")
   term::off()          ' presents the frame, then restores the screen
-END SUB
+END FUNC
 ```
 
 Leave TUI mode only if it was entered:
@@ -69,11 +69,11 @@ Leave TUI mode only if it was entered:
 ```
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   IF term::isOn() THEN
     term::off()
   END IF
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::off` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

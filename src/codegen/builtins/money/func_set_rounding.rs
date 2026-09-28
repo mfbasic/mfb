@@ -39,12 +39,12 @@ const EX: &str = r#"Accumulate under banker's rounding, then restore the default
 IMPORT money
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
   money::setRounding(money::Rounding.Commercial)
   io::print(toString(money::round(0.125m, 2)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

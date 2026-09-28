@@ -89,13 +89,13 @@ const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for readin
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("srv/data")
   fs::writeText("srv/data/alice.txt", "hi")
   LET userName AS String = "alice.txt"
   RES f AS fs::File = fs::openWithin("srv/data", userName)
   fs::close(f)
-END SUB
+END FUNC
 ```
 
 A `relPath` that tries to escape the root is refused rather than followed:
@@ -105,12 +105,12 @@ IMPORT fs
 IMPORT errorCode
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   RES f AS fs::File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
     io::print(toString(e.code = errorCode::ErrInvalidArgument))
-    EXIT SUB
+    RETURN
   END TRAP
-END SUB
+END FUNC
 ```
 
 Write beneath the root; a symlinked component makes the open fail:
@@ -118,12 +118,12 @@ Write beneath the root; a symlinked component makes the open fail:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("srv/data/reports")
   RES w AS fs::File = fs::openWithin("srv/data", "reports/today.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

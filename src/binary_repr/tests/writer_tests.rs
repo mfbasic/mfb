@@ -177,7 +177,7 @@ fn fixed_raw_from_decimal_rejects_malformed() {
 #[test]
 fn ir_uses_resource_type_detects_file_param() {
     let mut project = empty_project("res");
-    let mut f = fn_named("takesFile", "export", "sub", "Nothing");
+    let mut f = fn_named("takesFile", "export", "func", "Nothing");
     f.params = vec![crate::ir::IrParam {
         name: "h".to_string(),
         type_: crate::types::ParameterType::parse("fs.File"),
@@ -367,7 +367,6 @@ fn lower_project_encodes_the_doc_table_from_ir() {
         }),
         decls: vec![
             decl(IrDocKind::Func, "f"),
-            decl(IrDocKind::Sub, "s"),
             decl(IrDocKind::Type, "T"),
             decl(IrDocKind::Union, "U"),
             decl(IrDocKind::Enum, "E"),
@@ -380,7 +379,7 @@ fn lower_project_encodes_the_doc_table_from_ir() {
     );
     let path = temp_mfp(&wrap_mfp(&inner, "docpkg", "docpkg", "1.0.0"));
     let docs = read_package_docs(&path).expect("docs");
-    assert_eq!(docs.decls.len(), 6, "every documented decl round-trips");
+    assert_eq!(docs.decls.len(), 5, "every documented decl round-trips");
     assert!(docs.package.is_some());
     let _ = std::fs::remove_file(&path);
 }

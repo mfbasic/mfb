@@ -52,9 +52,9 @@ const EX: &str = r#"The midpoint of a segment:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::lerp(vector::Float2[0.0, 0.0], vector::Float2[10.0, 0.0], 0.5)))
-END SUB
+END FUNC
 ```
 
 An out-of-range `t` is clamped, so this returns the endpoint rather than
@@ -64,9 +64,9 @@ overshooting it:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::lerp(vector::Float2[0.0, 0.0], vector::Float2[10.0, 0.0], 2.0)))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

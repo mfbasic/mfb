@@ -21,7 +21,7 @@ END FUNC
 ' levels. Before bug-735 carried every distance input at double-float precision and
 ' evaluated the distance in double-float, the GPU's fp32 distance from 16.16 inputs put
 ' pixels past GPU_DEFAULT here on Metal and on Vulkan.
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT scene AS List OF canvas::DrawItem = []
   MUT k AS Integer = 0
@@ -38,4 +38,4 @@ SUB main()
     k = k + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

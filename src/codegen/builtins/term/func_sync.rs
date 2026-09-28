@@ -51,14 +51,14 @@ const EX: &str = r#"Compose a frame, then present it once:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()
   term::moveTo(0, 0)
   io::print("hello")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 The canonical render loop — draw the whole frame, present, then wait up to 50
@@ -69,7 +69,7 @@ IMPORT errorCode
 IMPORT io
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   MUT running AS Boolean = TRUE
   WHILE running
@@ -88,7 +88,7 @@ SUB main()
     END IF
   END WHILE
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::sync` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

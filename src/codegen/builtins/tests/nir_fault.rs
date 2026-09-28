@@ -38,7 +38,7 @@ use crate::types::ParameterType;
 /// because a corruption only reaches a builder path some value in the tree took:
 /// a record field write and a `WITH` rebuild, a list/map/set literal and an
 /// in-place mutation of each, a nested list, a union match, an enum comparison,
-/// every loop form, a global read and write, a `SUB` call, a lambda, string
+/// every loop form, a global read and write, an `AS Nothing` call, a lambda, string
 /// slicing, `Float`/`Fixed`/`Money` arithmetic, a comparison chain, and a
 /// `TRAP`.
 const SRC: &str = r#"IMPORT collections
@@ -104,9 +104,9 @@ FUNC classify(n AS Integer, limit AS Integer) AS String
   END MATCH
 END FUNC
 
-SUB bump(by AS Integer)
+FUNC bump(by AS Integer) AS Nothing
   counter = counter + by
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   MUT dot AS Dot = Dot[1, 2, "origin"]

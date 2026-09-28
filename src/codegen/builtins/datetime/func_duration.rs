@@ -77,9 +77,9 @@ const EX: &str = r#"Build a `datetime::Duration` from a whole-second span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(90)
-END SUB
+END FUNC
 ```
 
 Build a `datetime::Duration` with a sub-second adjustment that normalizes into the `seconds`
@@ -88,9 +88,9 @@ field:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(10, 1_500_000_000)
-END SUB
+END FUNC
 ```
 
 Build a `datetime::Duration` from day, hour, minute, second, and nanosecond components:
@@ -98,9 +98,9 @@ Build a `datetime::Duration` from day, hour, minute, second, and nanosecond comp
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(1, 2, 3, 4, 0)
-END SUB
+END FUNC
 ```
 
 A negative argument yields a backward span:
@@ -108,9 +108,9 @@ A negative argument yields a backward span:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Duration = datetime::duration(-30)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

@@ -37,10 +37,10 @@ FUNC scale(x AS Fixed) AS Fixed
   RETURN x * 3
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET start AS Fixed = 0.5
   io::print(toString(scale(start)))
-END SUB
+END FUNC
 
 TESTING
   TGROUP "fixed-point"

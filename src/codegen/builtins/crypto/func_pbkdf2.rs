@@ -64,14 +64,14 @@ IMPORT crypto
 IMPORT strings
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET password AS List OF Byte = strings::toBytes("correct horse")
   LET salt AS List OF Byte = crypto::randomBytes(16)
   ' 10000 keeps this example quick. Use at least 600000 for a real password —
   ' the whole point of pbkdf2 is that it is slow to attack.
   LET key AS List OF Byte = crypto::pbkdf2(crypto::Hash.SHA2_256, password, salt, 10000, 32)
   io::print(toString(len(key)) & " bytes")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

@@ -37,9 +37,9 @@ const EX: &str = r#"A directory and a file name yield the file name:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathBaseName("target/output.txt"))
-END SUB
+END FUNC
 ```
 
 The final component of an absolute path:
@@ -48,9 +48,9 @@ The final component of an absolute path:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathBaseName("/usr/local/bin"))
-END SUB
+END FUNC
 ```
 
 A trailing separator is ignored before the component is located:
@@ -59,9 +59,9 @@ A trailing separator is ignored before the component is located:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathBaseName("/usr/local/bin/"))
-END SUB
+END FUNC
 ```
 
 A path with no separator is returned unchanged:
@@ -70,9 +70,9 @@ A path with no separator is returned unchanged:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathBaseName("output.txt"))
-END SUB
+END FUNC
 ```
 
 The root path yields itself:
@@ -81,9 +81,9 @@ The root path yields itself:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathBaseName("/"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

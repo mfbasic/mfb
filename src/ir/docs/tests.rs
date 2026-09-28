@@ -41,8 +41,8 @@ END DOC
 EXPORT FUNC greet() AS String
   RETURN \"hi\"
 END FUNC
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert_eq!(
         doc_names(present),
@@ -57,8 +57,8 @@ DOC
   FUNC greet()
   DESC Say hello.
 END DOC
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert!(
         doc_names(absent).is_empty(),
@@ -83,8 +83,8 @@ END DOC
 FUNC hidden() AS String
   RETURN \"x\"
 END FUNC
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert!(
         doc_names(source).is_empty(),
@@ -105,8 +105,8 @@ DOC
   TYPE Point
   DESC A point.
 END DOC
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert!(
         doc_names(missing_type).is_empty(),
@@ -121,8 +121,8 @@ END DOC
 EXPORT TYPE Point
   x AS Integer
 END TYPE
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert_eq!(
         doc_names(present_type),
@@ -135,8 +135,8 @@ DOC
   RESOURCE Handle
   DESC A handle.
 END DOC
-SUB main
-END SUB
+FUNC main AS Nothing
+END FUNC
 ";
     assert!(
         doc_names(missing_resource).is_empty(),

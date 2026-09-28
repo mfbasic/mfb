@@ -63,12 +63,12 @@ No errors.
 ## Examples
 
 ```
-SUB main()
+FUNC main() AS Nothing
   LET same AS Boolean = "Ada" = "Ada"
   LET ordered AS Boolean = 1.5 < 2
   LET textOrder AS Boolean = "Ada" < "Grace"
   LET mixed AS Boolean = 1 = toByte(1)
-END SUB
+END FUNC
 ```
 
 ## See also

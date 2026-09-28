@@ -17,9 +17,9 @@ use std::process::{Command, Output};
 mod common;
 use common::*;
 
-/// `SUB main()` wrapping `opens` nested `IF TRUE THEN … END IF` blocks.
+/// `FUNC main() AS Nothing` wrapping `opens` nested `IF TRUE THEN … END IF` blocks.
 fn tower(opens: usize) -> String {
-    let mut source = String::from("SUB main()\n");
+    let mut source = String::from("FUNC main() AS Nothing\n");
     for _ in 0..opens {
         source.push_str("IF TRUE THEN\n");
     }
@@ -27,7 +27,7 @@ fn tower(opens: usize) -> String {
     for _ in 0..opens {
         source.push_str("END IF\n");
     }
-    source.push_str("END SUB\n");
+    source.push_str("END FUNC\n");
     source
 }
 
@@ -125,7 +125,7 @@ fn fmt_still_formats_an_ordinary_file_identically() {
 
 #[test]
 fn fmt_formats_a_tower_exactly_at_the_cap() {
-    // `SUB` is frame 1, so 1023 `IF`s fill the stack to the cap without
+    // `FUNC main` is frame 1, so 1023 `IF`s fill the stack to the cap without
     // crossing it: still formatted, with bounded output.
     let source = tower(1023);
     let project = temp_project("bug502_fmt_at_cap", &source);
@@ -139,6 +139,6 @@ fn fmt_formats_a_tower_exactly_at_the_cap() {
         String::from_utf8_lossy(&output.stderr)
     );
     let formatted = std::fs::read_to_string(&file).unwrap();
-    assert!(formatted.starts_with("SUB main()\n  IF TRUE THEN\n    IF TRUE THEN\n"));
+    assert!(formatted.starts_with("FUNC main() AS Nothing\n  IF TRUE THEN\n    IF TRUE THEN\n"));
     assert!(formatted.len() > source.len());
 }

@@ -37,13 +37,13 @@ FUNC one(label AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   FOR EACH line IN strings::split(fs::readText("labels.txt"), "\n")
     IF len(line) > 0 THEN
       io::print(one(line))
     END IF
   NEXT
-END SUB
+END FUNC
 "#;
 
 /// `ErrInvalidFormat` — the one code `punycodeDecode` documents for malformed input.

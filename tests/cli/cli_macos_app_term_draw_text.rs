@@ -31,14 +31,14 @@ const DRAW_TEXT_SYMBOL: &str = "_mfb_macapp_term_drawText";
 const WRITE_STRING_SYMBOL: &str = "_mfb_macapp_term_writeString";
 
 /// A `term::` program: the IMP is built with the utf8proc width table (`uses_term`).
-const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\n\nSUB main()\n  \
+const TERM_SOURCE: &str = "IMPORT io\nIMPORT term\n\nFUNC main() AS Nothing\n  \
      term::on()\n  \
      term::drawText(0, 0, \"ab\")\n  \
      term::sync()\n  \
-     term::off()\nEND SUB\n";
+     term::off()\nEND FUNC\n";
 
 /// An app with no `term::` import: the IMP is still emitted, without the width table.
-const PLAIN_SOURCE: &str = "IMPORT io\n\nSUB main()\n  io::print(\"ab\")\nEND SUB\n";
+const PLAIN_SOURCE: &str = "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"ab\")\nEND FUNC\n";
 
 fn app_ncode_functions(name: &str, source: &str) -> HashMap<String, Vec<Value>> {
     let project = temp_project(name, source);

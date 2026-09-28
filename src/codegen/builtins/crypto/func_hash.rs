@@ -117,11 +117,11 @@ IMPORT strings
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = strings::toBytes("hello")
   LET digest AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, raw)
   io::print(encoding::hexEncode(digest))
-END SUB
+END FUNC
 ```
 
 crypto::Hash a string (its UTF-8 bytes) under a different digest:
@@ -131,9 +131,9 @@ IMPORT crypto
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_512, "hello")))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

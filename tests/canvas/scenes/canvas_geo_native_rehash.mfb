@@ -27,10 +27,10 @@ FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem
   RETURN items
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present(scene(0, FALSE))
   canvas::present(scene(1, TRUE))
   canvas::present(scene(2, FALSE))
   io::print("rendered")
-END SUB
+END FUNC

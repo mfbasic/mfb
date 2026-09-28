@@ -29,7 +29,7 @@ fn run_mfb(project: &Path, args: &[&str]) -> (bool, String, String) {
     )
 }
 
-const APP_SOURCE: &str = "IMPORT io\n\nSUB main()\n  io::print(\"App mode started\")\n  LET name AS String = io::readLine()\n  io::print(\"Hello, \" & name)\nEND SUB\n";
+const APP_SOURCE: &str = "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"App mode started\")\n  LET name AS String = io::readLine()\n  io::print(\"Hello, \" & name)\nEND FUNC\n";
 
 #[test]
 fn linux_app_mode_nir_records_build_mode() {
@@ -344,7 +344,7 @@ fn linux_console_mode_still_emits_both_flavors() {
 /// A GTK app-mode program that exercises every positioned `term::` member, with a
 /// dash style, a dot style and `Double` so a wrong ordinal→glyph mapping cannot hide
 /// behind `Light` (the whole style table is selected at emit time).
-const TERM_DRAW_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n  \
+const TERM_DRAW_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nFUNC main() AS Nothing\n  \
      term::on()\n  term::setForeground(color::rgb(0, 255, 0))\n  \
      term::moveTo(2, 4)\n  io::write(\"oracle\")\n  \
      term::drawHLine(term::LineStyle.LightDash, 5, 1, 12)\n  \
@@ -352,7 +352,7 @@ const TERM_DRAW_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main
      term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)\n  \
      term::fillRect(term::FillStyle.Medium, 8, 4, 10, 16)\n  \
      term::drawText(9, 6, \"app\")\n  term::drawGlyph(10, 7, 9731)\n  \
-     term::sync()\n  term::off()\nEND SUB\n";
+     term::sync()\n  term::off()\nEND FUNC\n";
 
 /// Read the `-ncode` plan of a `--app` build as JSON, keyed by function symbol.
 fn app_ncode_functions(name: &str, source: &str) -> serde_json::Map<String, serde_json::Value> {

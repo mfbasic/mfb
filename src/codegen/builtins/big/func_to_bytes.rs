@@ -33,10 +33,10 @@ IMPORT big
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wire AS List OF Byte = big::toBytes(big::fromInteger(258), big::Endian.Big)
   io::print(toString(collections::get(wire, 0)) & " " & toString(collections::get(wire, 1)))
-END SUB
+END FUNC
 ```
 
 Zero has no bytes:
@@ -45,9 +45,9 @@ Zero has no bytes:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(len(big::toBytes(big::fromInteger(0)))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

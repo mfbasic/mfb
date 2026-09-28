@@ -239,11 +239,11 @@ IMPORT canvas
 IMPORT collections
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES img AS canvas::Image = canvas::loadImage("fixture.png") TRAP(e)
     io::print("failed:" & e.message)
-    EXIT SUB
+    RETURN
   END TRAP
   LET size AS canvas::Size = canvas::getSize(img)
   LET px AS List OF Byte = canvas::getBytes(img)
@@ -254,7 +254,7 @@ SUB main()
     i = i + 1
   END WHILE
   io::print(out)
-END SUB
+END FUNC
 "#;
 
 fn decode(name: &str, file: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {

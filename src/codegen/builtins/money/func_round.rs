@@ -49,12 +49,12 @@ const EX: &str = r#"Book a taxed line item to whole cents:
 IMPORT money
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   LET price AS Money = 19.99m
   LET line AS Money = price * 1.0825F
   LET booked AS Money = money::round(line, 2)
   io::print(toString(booked))
-END SUB
+END FUNC
 ```
 
 The same tie settles differently under each mode:
@@ -63,12 +63,12 @@ The same tie settles differently under each mode:
 IMPORT money
 IMPORT io
 
-SUB main
+FUNC main AS Nothing
   money::setRounding(money::Rounding.Commercial)
   io::print(toString(money::round(0.125m, 2)))
   money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

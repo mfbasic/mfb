@@ -70,9 +70,9 @@ const EX: &str = r#"Decode a Punycode label to Unicode:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(encoding::punycodeDecode("xn--mnchen-3ya.de"))
-END SUB
+END FUNC
 ```
 
 Round-trip through `punycodeEncode`:
@@ -81,11 +81,11 @@ Round-trip through `punycodeEncode`:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET ace AS String = encoding::punycodeEncode("bücher.example")
   io::print(ace)
   io::print(encoding::punycodeDecode(ace))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

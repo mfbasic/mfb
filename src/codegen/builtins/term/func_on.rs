@@ -74,7 +74,7 @@ IMPORT term
 IMPORT color
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()
   term::moveTo(0, 0)
@@ -82,7 +82,7 @@ SUB main()
   io::print("hello in red")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Enter TUI mode only once:
@@ -91,11 +91,11 @@ Enter TUI mode only once:
 IMPORT term
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   IF NOT term::isOn() THEN
     term::on()
   END IF
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::on` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

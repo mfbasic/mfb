@@ -4,7 +4,7 @@ IMPORT io
 ' data-object collection pass skipped, so "B" and "C" reached codegen with no
 ' read-only data object and aborted the build. Every arm must be selectable at
 ' runtime, which proves each literal got its object.
-SUB classify(g AS String)
+FUNC classify(g AS String) AS Nothing
   MATCH g
     CASE "A"
       io::print("a")
@@ -13,11 +13,11 @@ SUB classify(g AS String)
     CASE ELSE
       io::print("?")
   END MATCH
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   classify("A")
   classify("B")
   classify("C")
   classify("D")
-END SUB
+END FUNC

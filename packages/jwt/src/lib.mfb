@@ -533,9 +533,9 @@ DOC
     IMPORT json
     IMPORT io
 
-    SUB describe(token AS String)
+    FUNC describe(token AS String) AS Nothing
       io::print("claims (UNVERIFIED): " & json::stringify(jwt::unverifiedClaims(token)))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC unverifiedClaims(token AS String) AS json::Json
@@ -566,12 +566,12 @@ DOC
     IMPORT jwt
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET mac AS jwt::Key = jwt::generate("HS256", "")
       LET edwards AS jwt::Key = jwt::generate("EdDSA", "Ed448")
       LET nist AS jwt::Key = jwt::generate("ES256", "")
       io::print(jwt::exportJwk(jwt::publicKeyOf(edwards), FALSE))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC generate(algorithm AS String, curve AS String) AS Key
@@ -701,13 +701,13 @@ DOC
     IMPORT collections
     IMPORT io
 
-    SUB publish(keys AS List OF jwt::Key)
+    FUNC publish(keys AS List OF jwt::Key) AS Nothing
       MUT published AS List OF jwt::Key = []
       FOR EACH key IN keys
         published = collections::append(published, jwt::publicKeyOf(key))
       NEXT
       io::print(jwt::exportJwkSet(published, FALSE))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC publicKeyOf(key AS Key) AS Key
@@ -823,10 +823,10 @@ DOC
     IMPORT jwt
     IMPORT io
 
-    SUB main()
+    FUNC main() AS Nothing
       LET key AS jwt::Key = jwt::withKid(jwt::generate("ES256", ""), "2026-09")
       io::print(jwt::exportJwk(jwt::publicKeyOf(key), FALSE))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC exportJwk(key AS Key, withPrivate AS Boolean) AS String
@@ -849,9 +849,9 @@ DOC
     IMPORT jwt
     IMPORT fs
 
-    SUB publish(keys AS List OF jwt::Key, path AS String)
+    FUNC publish(keys AS List OF jwt::Key, path AS String) AS Nothing
       fs::writeText(path, jwt::exportJwkSet(keys, FALSE))
-    END SUB
+    END FUNC
   END EXAMPLE
 END DOC
 EXPORT FUNC exportJwkSet(keys AS List OF Key, withPrivate AS Boolean) AS String

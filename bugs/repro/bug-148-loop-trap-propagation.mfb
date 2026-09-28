@@ -206,7 +206,7 @@ END FUNC
 
 ' Repaint the whole board. Each row is built as one string and drawn in a single
 ' write, overwriting the previous frame in place.
-SUB drawGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer)
+FUNC drawGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer) AS Nothing
   term::setForeground(color::rgb(120, 230, 140))
   FOR y = 0 TO gridH - 1
     MUT row AS String = ""
@@ -220,10 +220,10 @@ SUB drawGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer)
     term::moveTo(y, 0)
     io::write(row)
   NEXT
-END SUB
+END FUNC
 
 ' Draw the status bar on the last terminal line.
-SUB drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Integer, gen AS Integer, choice AS Integer, startNanos AS Integer, paused AS Boolean)
+FUNC drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Integer, gen AS Integer, choice AS Integer, startNanos AS Integer, paused AS Boolean) AS Nothing
   LET dead AS Integer = gridW * gridH - live
   LET elapsedMs AS Integer = (datetime::monotonicNanos() - startNanos) / 1000000
   LET secs AS Integer = elapsedMs / 1000
@@ -245,7 +245,7 @@ SUB drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Inte
   term::setBackground(color::rgb(0, 0, 0))
   term::setForeground(color::rgb(255, 255, 255))
   term::setBold(FALSE)
-END SUB
+END FUNC
 
 ' Read one keypress, returning "" on end-of-input or a read error so the caller
 ' can quit cleanly.

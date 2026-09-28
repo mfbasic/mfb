@@ -18,7 +18,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "touch",
@@ -26,7 +26,7 @@
       "params": [
       { "name": "path", "type": "String", "default": null, "line": 11 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 12 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 13 }

@@ -82,7 +82,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "visit",
@@ -90,7 +90,7 @@
       "params": [
       { "name": "v", "type": "Integer", "default": null, "line": 22 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       {
         "kind": "if",

@@ -100,10 +100,10 @@ convertedPublic`."#;
 const EX: &str = r#"```
 IMPORT crypto
 
-SUB main()
+FUNC main() AS Nothing
   LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
   LET x AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed25519ToX25519, ed)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

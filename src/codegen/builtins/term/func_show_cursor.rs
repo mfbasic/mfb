@@ -35,7 +35,7 @@ const EX: &str = r#"Hide the cursor while a frame is drawn, then show it again f
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::hideCursor()
   term::clear()
@@ -47,7 +47,7 @@ SUB main()
   io::write("Name: ")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::show_cursor` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

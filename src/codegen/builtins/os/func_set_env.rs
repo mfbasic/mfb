@@ -123,8 +123,8 @@ pub(crate) fn lower_set_env(
 
 const INTRO: &str = r#"Set or overwrite an environment variable"#;
 const DESC: &str = r#"`os::setEnv` sets the environment variable named `name` to `value` in the live
-process environment, overwriting any existing value. It is a SUB and returns
-nothing. The change is visible to every later `os::getEnv`, `os::getEnvOr`,
+process environment, overwriting any existing value. It returns
+`Nothing`. The change is visible to every later `os::getEnv`, `os::getEnvOr`,
 `os::hasEnv`, and `os::environ` in the same process, and is inherited by child
 processes spawned afterward. It maps to the host `setenv(name, value, 1)`.
 
@@ -139,10 +139,10 @@ const EX: &str = r#"Set a variable and read it back:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   os::setEnv("GREETING", "hello")
   io::print(os::getEnv("GREETING"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -28,12 +28,12 @@ const EX: &str = r#"Multiply a list whose product leaves the `Integer` range:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET twoTo32 AS big::Int = big::fromInteger(4294967296)
   LET values AS List OF big::Int = [twoTo32, twoTo32, big::fromInteger(-1)]
   LET result AS big::Int = big::product(values)
   io::print(toString(big::sign(result)) & " " & toString(len(result.magnitude)))
-END SUB
+END FUNC
 ```
 
 An empty list multiplies to one:
@@ -42,10 +42,10 @@ An empty list multiplies to one:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET none AS List OF big::Int = []
   io::print(toString(big::toInteger(big::product(none))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

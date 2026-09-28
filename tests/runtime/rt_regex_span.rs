@@ -78,7 +78,7 @@ FUNC probe(label AS String, v AS String, p AS String, at AS Integer) AS Integer
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' The bug's own case: three matches whose lengths differ and which no caller
   ' can know in advance.
   FOR EACH m IN regex::findAllMatches("a1b22c333", "\\d+")
@@ -121,7 +121,7 @@ SUB main()
   LET r2 AS Integer = probe("past", "abc", "x*", 4)
   LET r3 AS Integer = probe("negative", "abc", "x*", -1)
   LET r4 AS Integer = probe("badPattern", "abc", "(", 9)
-END SUB
+END FUNC
 "####;
 
 const SPANS_EXPECTED: &str = r####"span [1,2)=1 (1,2:1)
@@ -179,13 +179,13 @@ FUNC bump(g AS Group) AS Group
   RETURN Group[g.n + 1]
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET mine AS Group = bump(Group[41])
   io::print("mine=" & toString(mine.n))
   LET m AS regex::MatchInfo = regex::findMatch("ab", "(a)(b)")
   LET theirs AS regex::Group = collections::get(m.groups, 2)
   io::print("theirs=" & theirs.text & " at " & toString(theirs.start))
-END SUB
+END FUNC
 "####;
 
 /// The positive pin on the new type surface: adding `regex::Group` must not take
@@ -305,7 +305,7 @@ FUNC one(idx AS Integer, pat AS String, subj AS String) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(one(0, "abc", "xxabcxxabc"))
   io::print(one(1, "a.c", "abc a\nc a-c"))
   io::print(one(2, "(?s)a.c", "abc a\nc"))
@@ -391,7 +391,7 @@ SUB main()
   io::print(one(82, "(", "a"))
   io::print(one(83, "a{3,2}", "a"))
   io::print(one(84, "*a", "a"))
-END SUB
+END FUNC
 "####;
 
 const CROSSCHECK_EXPECTED: &str = r####"0: ok

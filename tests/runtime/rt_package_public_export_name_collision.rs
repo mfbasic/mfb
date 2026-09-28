@@ -44,13 +44,13 @@ END FUNC\n";
 const PROGRAM: &str = "IMPORT io\n\
 IMPORT pk\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 LET s AS String = pk::f(\"x\")\n\
 \x20 io::print(s)\n\
 \x20 io::print(toString(len(pk::f(\"x\"))))\n\
 \x20 io::print(pk::f(\"y\"))\n\
 \x20 io::print(pk::both())\n\
-END SUB\n";
+END FUNC\n";
 
 const EXPECTED: &str = "export:x\n8\nexport:y\nexport:a|public:3";
 
@@ -73,10 +73,10 @@ END FUNC\n";
 const RETURN_PROGRAM: &str = "IMPORT io\n\
 IMPORT pk\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 io::print(pk::g(\"x\"))\n\
 \x20 io::print(pk::both())\n\
-END SUB\n";
+END FUNC\n";
 
 /// How the importer names its dependency.
 #[derive(Clone, Copy)]
@@ -251,10 +251,10 @@ fn two_export_overloads_still_resolve_by_argument_types() {
     const BOTH: &str = "IMPORT io\n\
 IMPORT pk\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 io::print(pk::f(\"x\"))\n\
 \x20 io::print(pk::f(1, 2))\n\
-END SUB\n";
+END FUNC\n";
     for (name, form) in [
         ("two_export_src", Form::Source),
         ("two_export_mfp", Form::Mfp),
@@ -278,9 +278,9 @@ fn calling_the_public_overload_from_an_importer_is_a_located_error() {
     const CALLS_PUBLIC: &str = "IMPORT io\n\
 IMPORT pk\n\
 \n\
-SUB main()\n\
+FUNC main() AS Nothing\n\
 \x20 io::print(pk::f(1, 2))\n\
-END SUB\n";
+END FUNC\n";
     for (name, form) in [
         ("call_public_src", Form::Source),
         ("call_public_mfp", Form::Mfp),

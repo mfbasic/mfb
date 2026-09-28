@@ -35,10 +35,10 @@ const EX: &str = r#"Encode a string to raw UTF-8 bytes:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET raw AS List OF Byte = encoding::utf8Encode("héllo")
   io::print(toString(len(raw)))
-END SUB
+END FUNC
 ```
 
 Encode to the `List OF Integer` form and round-trip it back:
@@ -47,10 +47,10 @@ Encode to the `List OF Integer` form and round-trip it back:
 IMPORT encoding
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET units AS List OF Integer = encoding::utf8Encode("hi")
   io::print(encoding::utf8Decode(units))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

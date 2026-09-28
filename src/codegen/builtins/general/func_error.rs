@@ -33,11 +33,11 @@ const EX: &str = r#"Build an error and read its fields back:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET e AS Error = error(77050002, "made up")
   io::print(toString(e.code))
   io::print(e.message)
-END SUB
+END FUNC
 ```
 
 prints:

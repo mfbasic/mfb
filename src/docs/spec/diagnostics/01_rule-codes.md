@@ -263,7 +263,7 @@ severity is `error`.
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
 | `1-103-0001` | `DOC_UNTERMINATED` | error | DOC block was not closed with END DOC |
-| `1-103-0002` | `DOC_BAD_HEADER` | error | DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE |
+| `1-103-0002` | `DOC_BAD_HEADER` | error | DOC block header must be FUNC, TYPE, UNION, ENUM, RESOURCE, or PACKAGE |
 | `1-103-0003` | `DOC_UNKNOWN_LINE` | error | DOC line keyword is not recognized |
 | `1-103-0004` | `DOC_EXAMPLE_UNTERMINATED` | error | EXAMPLE block was not closed with END EXAMPLE |
 
@@ -398,7 +398,7 @@ Scheme*).
 | `2-203-0039` | `TYPE_READ_ONLY_RECORD_CONSTRUCTOR` | error | read-only record cannot be constructed |
 | `2-203-0040` | `TYPE_RESULT_IS_IMPLICIT` | error | Result return wrapping is implicit |
 | `2-203-0041` | `TYPE_RETURN_MISMATCH` | error | return value type does not match function success type |
-| `2-203-0042` | `TYPE_SUB_CANNOT_RETURN_VALUE` | error | SUB cannot return a value |
+| `2-203-0042` | `TYPE_SUB_CANNOT_RETURN_VALUE` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
 | `2-203-0043` | `TYPE_UNKNOWN_VALUE` | error | value type could not be determined |
 | `2-203-0044` | `TYPE_UNKNOWN_ENUM_MEMBER` | error | enum member does not exist |
 | `2-203-0045` | `TYPE_UNKNOWN_FIELD` | error | record field does not exist |
@@ -456,11 +456,11 @@ Scheme*).
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |
-| `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | RETURN is forbidden in a SUB; use EXIT SUB |
-| `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | a SUB call produces no value and cannot be used in value position |
+| `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
+| `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
 | `2-203-0075` | `EXIT_NO_MATCHING_LOOP` | error | EXIT has no matching enclosing loop |
 | `2-203-0076` | `CONTINUE_NO_MATCHING_LOOP` | error | CONTINUE has no matching enclosing loop |
-| `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | EXIT SUB is valid only inside a SUB |
+| `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
 | `2-203-0078` | `EXIT_FUNC_FORBIDDEN` | error | EXIT FUNC is forbidden; functions must RETURN a value |
 | `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | EXIT PROGRAM requires an Integer exit code |
 | `2-203-0080` | `EXIT_PROGRAM_CODE_OUT_OF_RANGE` | error | EXIT PROGRAM constant exit code is outside the host range |
@@ -531,7 +531,7 @@ DOC block semantics (resolver):
 | `2-205-0016` | `DOC_UNKNOWN_ATTR` | error | unrecognized keyword in the DOC-line attribute position |
 | `2-205-0017` | `DOC_INTERNAL_INVALID_CONTEXT` | error | INTERNAL is not valid on a PACKAGE doc block |
 | `2-205-0018` | `DOC_DUPLICATE_DEPRECATED` | error | more than one DEPRECATED line in a doc block |
-| `2-205-0019` | `DOC_GROUP_INVALID_CONTEXT` | error | GROUP is valid only on FUNC and SUB doc blocks |
+| `2-205-0019` | `DOC_GROUP_INVALID_CONTEXT` | error | GROUP is valid only on FUNC doc blocks |
 | `2-205-0020` | `DOC_DUPLICATE_GROUP` | error | more than one GROUP line in a doc block |
 | `2-205-0021` | `DOC_OVERLOAD_UNRESOLVED` | error | DOC header parameter types match no overload of the declaration |
 

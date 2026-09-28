@@ -2,7 +2,7 @@ IMPORT io
 
 ' Exercises every window-backed io::* built-in so app-mode lowering for each is
 ' captured by the .app native goldens (plan-04-macos-app.md §7).
-SUB main()
+FUNC main() AS Nothing
   io::print("print")
   io::write("write")
   io::printError("printError")
@@ -18,4 +18,4 @@ SUB main()
   LET outTerm AS Boolean = io::isOutputTerminal()
   LET errTerm AS Boolean = io::isErrorTerminal()
   io::print(prompted & line & ch & toString(raw) & toString(sc) & k.grapheme & toString(inTerm) & toString(outTerm) & toString(errTerm))
-END SUB
+END FUNC

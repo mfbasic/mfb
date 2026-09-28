@@ -105,7 +105,7 @@
     "name": "check",
     "line": 43,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "text", "line": 43, "type": "String", "default": null },
     { "name": "places", "line": 43, "type": "Integer", "default": null },
@@ -136,7 +136,7 @@
     "name": "checkTiny",
     "line": 58,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "text", "line": 58, "type": "String", "default": null },
     { "name": "places", "line": 58, "type": "Integer", "default": null },

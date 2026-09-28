@@ -10,7 +10,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "closeHandle",
@@ -18,7 +18,7 @@
       "params": [
       { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 12 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 13 }
       ]

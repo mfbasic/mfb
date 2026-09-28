@@ -161,12 +161,6 @@ fn binding(
     }
 }
 
-fn sub(name: &str, params: Vec<IrParam>, body: Vec<IrOp>) -> IrFunction {
-    let mut f = func_returns(name, "Nothing", params, body);
-    f.kind = "sub".to_string();
-    f
-}
-
 fn func(name: &str, params: Vec<IrParam>, body: Vec<IrOp>) -> IrFunction {
     func_returns(name, "Integer", params, body)
 }
@@ -1578,7 +1572,7 @@ fn rejects_assign_global_type_mismatch() {
     expect_rule(&p, "TYPE_ASSIGNMENT_MISMATCH");
 }
 
-// --- return / sub rules ----------------------------------------------------
+// --- return rules --------------------------------------------------------
 
 #[test]
 fn rejects_return_mismatch() {
@@ -1590,93 +1584,8 @@ fn rejects_return_mismatch() {
 }
 
 #[test]
-fn rejects_sub_return_value() {
-    let s = sub("doit", vec![], vec![ret(int_const("1"))]);
-    expect_rule(&project(vec![s], vec![]), "SUB_RETURN_FORBIDDEN");
-}
-
-#[test]
-fn rejects_sub_call_in_value_position() {
-    let s = sub("doit", vec![], vec![]);
-    let body = vec![bind(
-        "x",
-        "Integer",
-        Some(IrValue::Call {
-            target: "doit".to_string(),
-            args: vec![],
-            type_: crate::types::ParameterType::parse("Nothing"),
-            loc: IrSourceLoc::default(),
-        }),
-        false,
-        false,
-    )];
-    expect_rule(
-        &project(
-            vec![s, func_returns("run", "Nothing", vec![], body)],
-            vec![],
-        ),
-        "TYPE_SUB_HAS_NO_VALUE",
-    );
-}
-
-/// bug-301 G2: `allow_sub_call` is a single shared `Cell`, set for a
-/// statement-position value and consumed by the first `Call` the walker reaches.
-/// Because the walker descends into operands before applying the wrapping node's
-/// own rule, a call nested under a non-call node was reached while the flag was
-/// still set -- so it was treated as statement position and
-/// `TYPE_SUB_HAS_NO_VALUE` never fired. Only a value whose ROOT is the call may be
-/// value-less.
-#[test]
-fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
-    let s = sub("doit", vec![], vec![]);
-    let sub_call = || IrValue::Call {
-        target: "doit".to_string(),
-        args: vec![],
-        type_: crate::types::ParameterType::parse("Nothing"),
-        loc: IrSourceLoc::default(),
-    };
-    // `Eval(Binary(1, doit()))` -- statement position, but the SUB call is an
-    // OPERAND, which is value position.
-    let body = vec![IrOp::Eval {
-        value: IrValue::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(int_const("1")),
-            right: Box::new(sub_call()),
-            type_: crate::types::ParameterType::parse("Integer"),
-            loc: IrSourceLoc::default(),
-        },
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(
-            vec![s.clone(), func_returns("run", "Nothing", vec![], body)],
-            vec![],
-        ),
-        "TYPE_SUB_HAS_NO_VALUE",
-    );
-
-    // A unary operand is the same shape one level shallower.
-    let body = vec![IrOp::Eval {
-        value: IrValue::Unary {
-            op: UnaryOp::Not,
-            operand: Box::new(sub_call()),
-            type_: crate::types::ParameterType::parse("Boolean"),
-            loc: IrSourceLoc::default(),
-        },
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(
-            vec![s, func_returns("run", "Nothing", vec![], body)],
-            vec![],
-        ),
-        "TYPE_SUB_HAS_NO_VALUE",
-    );
-}
-
-#[test]
-fn accepts_sub_call_in_statement_position() {
-    let s = sub("doit", vec![], vec![]);
+fn accepts_a_nothing_call_in_statement_position() {
+    let s = func_returns("doit", "Nothing", vec![], vec![]);
     let body = vec![IrOp::Eval {
         value: IrValue::Call {
             target: "doit".to_string(),
@@ -7991,9 +7900,11 @@ fn accepts_private_isolated_func() {
 }
 
 #[test]
-fn rejects_isolated_sub() {
+fn rejects_isolated_on_a_non_func_kind() {
+    // `ISOLATED` marks a top-level FUNC only; a body of any other kind (here the
+    // optimizer's synthesized `function`) carrying it is rejected.
     let mut s = func_returns("w", "Nothing", vec![], vec![ret_none()]);
-    s.kind = "sub".to_string();
+    s.kind = "function".to_string();
     s.isolated = true;
     expect_rule(&project(vec![s], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
 }

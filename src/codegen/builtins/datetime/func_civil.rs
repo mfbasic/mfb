@@ -43,11 +43,11 @@ const EX: &str = r#"Combine a date and time into a `datetime::DateTime` in the l
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
-END SUB
+END FUNC
 ```
 
 Build a `datetime::DateTime` in UTC and recover its `datetime::Instant`:
@@ -55,12 +55,12 @@ Build a `datetime::DateTime` in UTC and recover its `datetime::Instant`:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 1, 1)
   LET tm AS datetime::Time = datetime::time(0, 0)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
   LET at AS datetime::Instant = datetime::resolve(dt)
-END SUB
+END FUNC
 ```
 
 Resolve a local time on the two days a year when one does not exist, or exists
@@ -73,7 +73,7 @@ measured, not derived from the policy:
 IMPORT io
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   ' Spring forward. 2026-03-08 02:30 local is SKIPPED — the clock jumps from
   ' 01:59:59 -05:00 to 03:00:00 -04:00. A gap shifts forward onto the
   ' post-transition offset, so this names 03:30, not 01:30.
@@ -87,7 +87,7 @@ SUB main()
   LET overlap AS datetime::DateTime = datetime::civil(datetime::date(2026, 11, 1), datetime::time(1, 30), datetime::local())
   io::print(datetime::format(overlap, "yyyy-MM-dd HH:mm:ss ZZ"))
   ' 2026-11-01 01:30:00 -04:00
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

@@ -1,6 +1,6 @@
 $ mfb build -ast -ir tests/syntax/resources/resource-state-unknown-binding-invalid
    7 | 
-   8 | SUB main()
+   8 | FUNC main() AS Nothing
    9 |   RES f AS fs::File STATE Nonexistent = fs::createTempFile()
      | ^
 tests/syntax/resources/resource-state-unknown-binding-invalid/src/main.mfb:9 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved

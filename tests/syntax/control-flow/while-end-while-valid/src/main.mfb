@@ -1,6 +1,6 @@
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT x AS Integer = 0
   WHILE x < 3
     x = x + 1
@@ -30,4 +30,4 @@ SUB main()
     IF wend >= 4 THEN EXIT WHILE
   END WHILE
   io::print("exit=" & toString(wend))
-END SUB
+END FUNC

@@ -16,7 +16,7 @@ FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
   RETURN px
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES a AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))
   RES b AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 90))
@@ -36,4 +36,4 @@ SUB main()
     k = k + 1
   END WHILE
   canvas::present(scene)
-END SUB
+END FUNC

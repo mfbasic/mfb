@@ -36,7 +36,7 @@ re-reads the terminal's size.
 IMPORT os
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   MUT frames AS Integer = 0
   WHILE frames < 20
@@ -52,7 +52,7 @@ SUB main()
     frames = frames + 1
   END WHILE
   term::off()
-END SUB
+END FUNC
 ```
 
 Read the new extent on the frame that reports the resize:
@@ -62,7 +62,7 @@ IMPORT io
 IMPORT os
 IMPORT term
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   MUT size AS term::TermSize = term::terminalSize()
   MUT frames AS Integer = 0
@@ -78,7 +78,7 @@ SUB main()
   END WHILE
   term::off()
   io::print("last seen " & toString(size.columns) & "x" & toString(size.rows))
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::did_resize` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

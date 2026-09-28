@@ -9,14 +9,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 25,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "si", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [] }, { "kind": "string", "value": "alpha" }, { "kind": "number", "value": "1" }] }, { "kind": "string", "value": "beta" }, { "kind": "number", "value": "2" }] }, { "kind": "string", "value": "gamma" }, { "kind": "number", "value": "3" }] }, "line": 27 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "si hit=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "beta" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] } }, "right": { "kind": "string", "value": " miss=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "delta" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] } }] }, "line": 28 },

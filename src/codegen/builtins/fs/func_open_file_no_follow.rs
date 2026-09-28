@@ -86,11 +86,11 @@ const EX: &str = r#"Open a file for reading using the default mode, refusing a s
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("data.txt", "first line\nsecond line\n")
   RES f AS fs::File = fs::openFileNoFollow("data.txt")
   fs::close(f)
-END SUB
+END FUNC
 ```
 
 Open a file for writing; the open fails if any component of the path is a symlink:
@@ -98,12 +98,12 @@ Open a file for writing; the open fails if any component of the path is a symlin
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("out.txt", "first line\nsecond line\n")
   RES w AS fs::File = fs::openFileNoFollow("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
-END SUB
+END FUNC
 ```
 
 Open a file for appending so each write lands at the end:
@@ -111,12 +111,12 @@ Open a file for appending so each write lands at the end:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("app.log", "first line\nsecond line\n")
   RES log AS fs::File = fs::openFileNoFollow("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -20,10 +20,10 @@ u32                        declCount
 declCount * DocEntry
 
 DocEntry:
-  u16                      kind (0=func, 1=sub, 2=type, 3=union, 4=enum)
+  u16                      kind (0=func, 1=reserved, 2=type, 3=union, 4=enum, 5=resource)
   str                      name
   str                      signature (rendered source-form declaration line)
-  str                      group ("" if none; FUNC/SUB only)
+  str                      group ("" if none; FUNC only)
   Prose                    description (paragraphs + callouts)
   u32 + (str,str)*         args  (name, description)
   u32 + (str,str)*         props (name, description)
@@ -34,7 +34,9 @@ DocEntry:
   u8 + (str if 1)          deprecated flag, then optional message
 ```
 
-`str` is a `u32` byte length followed by that many UTF-8 bytes. A consumer that
+`str` is a `u32` byte length followed by that many UTF-8 bytes. Kind `1` is reserved: it was the
+value-less callable kind plan-159-D removed, nothing writes it, and a reader treats it — like any
+unknown id — as `func`, so an older package's documentation still renders. [[wire/src/docs.rs:doc_kind_name]] A consumer that
 does not recognize section id `17` skips it; doc data never affects execution. [[wire/src/docs.rs:read_doc_table]]
 
 ## See Also

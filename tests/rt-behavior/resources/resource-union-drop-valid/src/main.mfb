@@ -9,7 +9,7 @@ END UNION
 
 ' The union's active variant is File. On scope-drop the tag-dispatched cleanup
 ' must run the File variant's close op, which flushes and closes the file.
-SUB writeVia(path AS String, data AS String)
+FUNC writeVia(path AS String, data AS String) AS Nothing
   RES s AS Stream = fs::openFile(path, "write")
   MATCH s
     CASE fs::File(f)
@@ -17,7 +17,7 @@ SUB writeVia(path AS String, data AS String)
     CASE tcp::Socket(sock)
       io::print("unexpected socket")
   END MATCH
-END SUB
+END FUNC
 
 FUNC main AS Integer
   LET path AS String = "target/resource_union_drop_valid.txt"

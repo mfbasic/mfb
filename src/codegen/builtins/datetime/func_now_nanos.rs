@@ -129,9 +129,9 @@ const EX: &str = r#"Read the current time as a raw nanosecond count:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET ns AS Integer = datetime::nowNanos()
-END SUB
+END FUNC
 ```
 
 Derive a millisecond timestamp from the nanosecond reading:
@@ -139,10 +139,10 @@ Derive a millisecond timestamp from the nanosecond reading:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET ns AS Integer = datetime::nowNanos()
   LET ms AS Integer = ns / 1000000
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

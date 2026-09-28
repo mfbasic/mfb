@@ -71,7 +71,6 @@ pub struct DocDecl {
 
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
-        "sub" => "Subroutine",
         "type" => "Type",
         "union" => "Union",
         "enum" => "Enum",
@@ -82,7 +81,6 @@ pub fn kind_label(kind: &str) -> &'static str {
 
 pub fn badge_class(kind: &str) -> &'static str {
     match kind {
-        "sub" => "function",
         "type" => "type",
         "union" => "union",
         "enum" => "enum",
@@ -301,7 +299,7 @@ mod tests {
                 decl("func", "addUp", "Math", false),
                 decl("type", "Point", "", false),
                 decl("func", "helper", "", true),
-                decl("sub", "logIt", "Math", false),
+                decl("func", "logIt", "Math", false),
             ],
         };
         let page = from_package(docs, "ignored");

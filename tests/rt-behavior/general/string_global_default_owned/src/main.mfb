@@ -10,16 +10,16 @@ MUT reassigned AS String
 MUT appended AS String
 MUT untouched AS String
 
-SUB reassign()
+FUNC reassign() AS Nothing
   reassigned = strings::repeat("e", 3)
   io::print(reassigned)
-END SUB
+END FUNC
 
-SUB append()
+FUNC append() AS Nothing
   appended = appended & "c"
   appended = appended & strings::repeat("d", 40)
   io::print(appended)
-END SUB
+END FUNC
 
 FUNC main() AS Integer
   reassign()

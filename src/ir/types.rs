@@ -138,10 +138,6 @@ pub struct ExternalSignature {
     pub params: Vec<ExternalFunctionParam>,
     pub returns: ParameterType,
     pub isolated: bool,
-    /// Whether the export is a `SUB` (value-less) rather than a `FUNC` — the
-    /// fact the thread-entry rule needs (`thread::start` takes an ISOLATED
-    /// FUNC), which the return type alone does not spell (plan-107-E).
-    pub sub: bool,
 }
 
 impl ExternalSignature {
@@ -231,7 +227,7 @@ pub(crate) struct EntryPoint {
     pub(crate) accepts_args: bool,
 }
 
-/// One function (or SUB) in the IR: its signature, lowered body, source
+/// One function in the IR: its signature, lowered body, source
 /// provenance, and per-resource ownership decisions from escape analysis.
 #[derive(Clone)]
 pub(crate) struct IrFunction {

@@ -41,14 +41,14 @@ const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
 IMPORT term
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::setBackground(color::rgb(0, 0, 40))
   term::fillRect(term::FillStyle.Filled, 1, 2, 12, 30)
   term::fillRect(term::FillStyle.Light, 3, 4, 5, 28)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Fill the whole surface as a background wash:
@@ -57,13 +57,13 @@ Fill the whole surface as a background wash:
 IMPORT term
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET size AS term::TermSize = term::terminalSize()
   term::fillRect(term::FillStyle.Medium, 0, 0, size.rows - 1, size.columns - 1)
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 
 /// `abi_function` body for `term::fill_rect` — delegates to the shared family-generic

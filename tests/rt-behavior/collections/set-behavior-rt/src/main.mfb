@@ -23,7 +23,7 @@ FUNC roundtrip(s AS Set OF Integer) AS Set OF Integer
   RETURN s
 END FUNC
 
-SUB main
+FUNC main AS Nothing
   ' Probe-eligible Integer: literal dedup (the second 1 collapses).
   LET nums = Set OF Integer { 3, 1, 4, 1, 5 }
   io::print("numslen=" & toString(len(nums)))
@@ -64,4 +64,4 @@ SUB main
   ' A set embeds in a record field and frees cleanly at scope exit.
   LET bag = Bag[names]
   io::print("bagtags=" & toString(len(bag.tags)))
-END SUB
+END FUNC

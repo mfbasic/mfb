@@ -195,24 +195,24 @@ MUT trailHead AS Integer = 0
 MUT trailLon0 AS Float = 0.0
 
 ' Re-project every trail point for a map centred on lon0, when that has changed.
-SUB reprojectTrails(lon0 AS Float)
-  IF lon0 = trailLon0 THEN EXIT SUB
+FUNC reprojectTrails(lon0 AS Float) AS Nothing
+  IF lon0 = trailLon0 THEN RETURN
   trailLon0 = lon0
   FOR k = 0 TO len(trailLon) - 1
     LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], lon0)
     trailX = collections::set(trailX, k, p.x)
     trailY = collections::set(trailY, k, p.y)
   NEXT
-END SUB
+END FUNC
 
 ' Record point k of the trails: the place, and where it lands on today's map.
-SUB setTrailPoint(k AS Integer, g AS Geo)
+FUNC setTrailPoint(k AS Integer, g AS Geo) AS Nothing
   LET p AS Plane = project(g, trailLon0)
   trailLon = collections::set(trailLon, k, g.lon)
   trailLat = collections::set(trailLat, k, g.lat)
   trailX = collections::set(trailX, k, p.x)
   trailY = collections::set(trailY, k, p.y)
-END SUB
+END FUNC
 
 FUNC particleCount AS Integer
   RETURN len(swarm)
@@ -244,7 +244,7 @@ END FUNC
 ' Put particle i at a place, with its whole trail collapsed onto that one point
 ' so it has nothing to draw until it has moved. A negative age holds it there,
 ' unmoved and undrawn, for that many frames.
-SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
+FUNC placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer) AS Nothing
   swarm = collections::set(swarm, i, WITH collections::get(swarm, i) { lon := g.lon, lat := g.lat, age := age, life := life, speed := 0.0, startLon := g.lon, startLat := g.lat })
 
   ' Every point of the trail starts where the particle does.
@@ -254,7 +254,7 @@ SUB placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer)
   trailLat = collections::repeat(trailLat, g.lat, TRAIL_LENGTH, base)
   trailX = collections::repeat(trailX, p.x, TRAIL_LENGTH, base)
   trailY = collections::repeat(trailY, p.y, TRAIL_LENGTH, base)
-END SUB
+END FUNC
 
 ' A staggered life, so that a swarm seeded all at once does not expire all at
 ' once and leave the map blank every PARTICLE_LIFE frames. Drawn once per pair,
@@ -273,7 +273,7 @@ END FUNC
 ' early near a pole and dropped again while the follower was still out; then it
 ' starts at once, and gives up as much of this life as it is late, so the next
 ' drop finds the pair half a life apart again.
-SUB placeFollower(i AS Integer)
+FUNC placeFollower(i AS Integer) AS Nothing
   LET leader AS Integer = i - 1
   LET life AS Integer = collections::get(swarm, leader).life
   LET late AS Integer = collections::get(swarm, leader).age - life / 2
@@ -283,22 +283,22 @@ SUB placeFollower(i AS Integer)
   ELSE
     placeParticle(i, start, life, late)
   END IF
-END SUB
+END FUNC
 
 ' Drop particle i again once its life is over: a leader somewhere new, for the
 ' same life it had, and a follower after its leader.
-SUB respawnParticle(i AS Integer, v AS View)
+FUNC respawnParticle(i AS Integer, v AS View) AS Nothing
   IF i MOD 2 = 1 THEN
     placeFollower(i)
   ELSE
     placeParticle(i, birthplace(v), collections::get(swarm, i).life, 0)
   END IF
-END SUB
+END FUNC
 
 ' Build a swarm of `count` particles - count / 2 leader and follower pairs -
 ' scattered over the view. Called at startup and again whenever the window
 ' changes size enough to want a different number.
-SUB seedSwarm(count AS Integer, v AS View)
+FUNC seedSwarm(count AS Integer, v AS View) AS Nothing
   swarm = []
   trailLon = []
   trailLat = []
@@ -321,7 +321,7 @@ SUB seedSwarm(count AS Integer, v AS View)
       placeParticle(i, birthplace(v), staggeredLife(), 0)
     END IF
   NEXT
-END SUB
+END FUNC
 
 ' Advance the whole swarm by dt seconds of animation, through the wind `mix` of
 ' the way from one forecast hour to the next (windBetween). Movement is divided
@@ -335,9 +335,9 @@ END SUB
 ' stops the division running away above 83 degrees, where a particle would
 ' otherwise be flung right round the world in a frame; particles that get that
 ' far are retired on the next line anyway.
-SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom AS Float, dt AS Float)
+FUNC stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom AS Float, dt AS Float) AS Nothing
   LET count AS Integer = particleCount()
-  IF count = 0 THEN EXIT SUB
+  IF count = 0 THEN RETURN
 
   trailHead = (trailHead + 1) MOD TRAIL_LENGTH
   LET safeZoom AS Float = math::max(zoom, 0.000001)
@@ -372,7 +372,7 @@ SUB stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom AS
 
     setTrailPoint(i * TRAIL_LENGTH + trailHead, Geo[lon := lon, lat := lat])
   NEXT
-END SUB
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Drawing the swarm

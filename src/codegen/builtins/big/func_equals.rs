@@ -33,10 +33,10 @@ const EX: &str = r#"A hand-built value with a trailing zero byte still equals th
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET spelled AS big::Int = big::Int[[7, 0], FALSE]
   io::print(toString(big::equals(spelled, big::fromInteger(7))))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

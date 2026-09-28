@@ -37,20 +37,16 @@ pub(crate) fn validate_entry_point(
                 continue;
             }
 
-            // An unannotated `FUNC` elaborates to `Unknown`, which is not
-            // `Integer` and so is rejected by the guard below — exactly as the
-            // `unwrap_or("")` it replaces was.
-            let returns = match function.kind {
-                crate::ast::FunctionKind::Sub => ParameterType::Nothing,
-                crate::ast::FunctionKind::Func => function.returns.clone(),
-            };
+            // An unannotated `FUNC` elaborates to `Unknown`, which is neither
+            // `Integer` nor `Nothing` and so is rejected by the guard below.
+            // A `FUNC … AS Nothing` entry is a value-less entry (plan-159-A):
+            // the runtime entry wrapper keys off `returns`, not the kind.
+            let returns = function.returns.clone();
 
-            if matches!(function.kind, crate::ast::FunctionKind::Func)
-                && returns != ParameterType::Integer
-            {
+            if returns != ParameterType::Integer && returns != ParameterType::Nothing {
                 rules::show_diagnostic(
                     "PROJECT_ENTRY_INVALID",
-                    &format!("Executable FUNC entry `{entry}` must return Integer."),
+                    &format!("Executable FUNC entry `{entry}` must return Integer or Nothing."),
                     &project_dir.join(&file.path),
                     function.line,
                     1,
@@ -195,7 +191,9 @@ mod tests {
 
     #[test]
     fn sub_entry_accepts_args_parameter() {
-        let hir = project("SUB main(args AS List OF String)\n  LET n AS Integer = 0\nEND SUB\n");
+        let hir = project(
+            "FUNC main(args AS List OF String) AS Nothing\n  LET n AS Integer = 0\nEND FUNC\n",
+        );
         let entry = validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
@@ -205,6 +203,20 @@ mod tests {
         .expect("entry");
         assert_eq!(entry.returns.name(), "Nothing");
         assert!(entry.accepts_args);
+    }
+
+    #[test]
+    fn func_entry_returning_nothing_is_accepted() {
+        let hir = project("FUNC main() AS Nothing\n  LET n AS Integer = 0\nEND FUNC\n");
+        let entry = validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &hir,
+        )
+        .expect("ok")
+        .expect("entry");
+        assert_eq!(entry.returns.name(), "Nothing");
+        assert!(!entry.accepts_args);
     }
 
     #[test]

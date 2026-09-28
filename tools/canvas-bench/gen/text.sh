@@ -22,7 +22,7 @@ IMPORT datetime
 IMPORT io
 IMPORT strings
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("$FONT")
   LET alphabet AS String = "The quick brown fox jumps over the lazy dog 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz "
@@ -51,5 +51,5 @@ SUB main()
     IF datetime::monotonicNanos() - start > $SECS * 1000000000 THEN again = FALSE
   LOOP
   io::print("presents=" & toString(frame))
-END SUB
+END FUNC
 M

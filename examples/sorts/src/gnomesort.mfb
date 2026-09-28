@@ -1,0 +1,45 @@
+' gnomesort - sorts `order` one comparison at a time.
+'
+' The gnome looks at the pair in front of it: in order, it steps forward; out of
+' order, it swaps them and steps back. It makes the same swaps as an insertion
+' sort, but walks back up over the ground it has just covered instead of
+' remembering where it was, so it compares about twice as often.
+
+MUT gnomeAt AS Integer = 1
+MUT gnomeFinished AS Boolean = FALSE
+MUT gnomeCompareCount AS Integer = 0
+
+FUNC gnomeStart AS Nothing
+  gnomeAt = 1
+  gnomeFinished = DOT_COUNT < 2
+  gnomeCompareCount = 0
+END FUNC
+
+FUNC gnomeDone AS Boolean
+  RETURN gnomeFinished
+END FUNC
+
+FUNC gnomeCompares AS Integer
+  RETURN gnomeCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+FUNC gnomeSteps(budget AS Integer) AS Nothing
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT gnomeFinished
+    IF gnomeAt >= DOT_COUNT THEN
+      gnomeFinished = TRUE
+    ELSEIF gnomeAt = 0 THEN
+      gnomeAt = 1
+    ELSE
+      gnomeCompareCount = gnomeCompareCount + 1
+      left = left - 1
+      IF orderAt(gnomeAt - 1) > orderAt(gnomeAt) THEN
+        swapOrder(gnomeAt - 1, gnomeAt)
+        gnomeAt = gnomeAt - 1
+      ELSE
+        gnomeAt = gnomeAt + 1
+      END IF
+    END IF
+  LOOP
+END FUNC

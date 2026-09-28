@@ -349,7 +349,8 @@ failure the `Error` auto-propagates to the nearest `TRAP` or to the caller (see
 name, construct, or match.
 
 - **A function may fail.** `FUNC F(...) AS T` yields a `T` on success and an
-  `Error` on failure; a `SUB` yields nothing on success and may still fail.
+  `Error` on failure; a function declared `AS Nothing` yields `NOTHING` on success
+  and may still fail.
 - Failure always carries the single public `Error` type — no per-function error
   types, no coercion. Users create errors with `error(code, message)`, read
   `e.code` / `e.message` / `e.source`, and bind the error in `TRAP(e)`.
@@ -393,23 +394,21 @@ A member's `toInt` is its 0-based declaration index: `toInt(Color.Red)` is `0` a
 
 ## 4.6 `Nothing`
 
-`Nothing` is the unit type. It has one value, written `NOTHING`. It is used for
-marker union members and for the `FUNC(...) AS Nothing` callback bridge that lets
-a `SUB` be passed where a function value is expected. A `SUB` is value-less — it
-produces no success value (see §7) — so a `SUB` body does not name `Nothing`.
+`Nothing` is the unit type. It has one value, written `NOTHING`. It is the
+success type of an effect-only function (`FUNC … AS Nothing`, §6), and it is used
+for marker union members and for `FUNC(...) AS Nothing` callback values.
 
 A `FUNC … AS Nothing` is an ordinary `FUNC`: its call is a value expression that
 yields `NOTHING`, so it may be bound (`LET y = f(1)`, `LET y AS Nothing = f(1)`),
 passed, compared, stored in a record field, or returned. The same holds for a call
-through a `FUNC(...) AS Nothing` value — including a `SUB` named as a value — and for
-a built-in declared `AS Nothing`. Only a direct `SUB` call is barred from value
-position (`TYPE_SUB_HAS_NO_VALUE`, §7). [[src/ir/verify/values.rs:check_value_depth]]
+through a `FUNC(...) AS Nothing` value and for a built-in declared `AS Nothing`.
+No call is barred from value position. [[src/ir/verify/values.rs:check_value_depth]]
 
 ```basic
-SUB log(msg AS String)
-  IF msg = "" THEN RETURN       ' bare RETURN: early, value-less exit
+FUNC log(msg AS String) AS Nothing
+  IF msg = "" THEN RETURN       ' bare RETURN: early exit, succeeds with NOTHING
   io::print(msg)
-END SUB
+END FUNC
 ```
 
 ## 4.7 Collections

@@ -58,10 +58,10 @@ const EX: &str = r#"Remove an empty directory:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch/example")
   fs::deleteDirectory("scratch/example")
-END SUB
+END FUNC
 ```
 
 Create a directory and then remove it:
@@ -69,10 +69,10 @@ Create a directory and then remove it:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("scratch/cache")
   fs::deleteDirectory("scratch/cache")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

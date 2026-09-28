@@ -37,9 +37,9 @@ const EX: &str = r#"A directory and a file name yield the directory:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathDirName("target/output.txt"))
-END SUB
+END FUNC
 ```
 
 Leading separators are preserved in the result:
@@ -48,9 +48,9 @@ Leading separators are preserved in the result:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathDirName("/usr/local/bin"))
-END SUB
+END FUNC
 ```
 
 A path with no separator yields `"."`:
@@ -59,9 +59,9 @@ A path with no separator yields `"."`:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathDirName("output.txt"))
-END SUB
+END FUNC
 ```
 
 The root path yields itself:
@@ -70,9 +70,9 @@ The root path yields itself:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(fs::pathDirName("/"))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -31,10 +31,10 @@ const EX: &str = r#"Length of common and leap-year February:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(datetime::daysInMonth(2023, 2)))   ' 28
   io::print(toString(datetime::daysInMonth(2024, 2)))   ' 29 (leap year)
-END SUB
+END FUNC
 ```
 
 Lengths of the other months ignore the year:
@@ -43,10 +43,10 @@ Lengths of the other months ignore the year:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(datetime::daysInMonth(2026, 1)))   ' 31
   io::print(toString(datetime::daysInMonth(2026, 4)))   ' 30
-END SUB
+END FUNC
 ```
 
 Clamp a day-of-month to the end of its month:
@@ -55,7 +55,7 @@ Clamp a day-of-month to the end of its month:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET year AS Integer = 2024
   LET month AS Integer = 2
   MUT day AS Integer = 31
@@ -64,7 +64,7 @@ SUB main()
     day = last
   END IF
   io::print(toString(day))   ' 29
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

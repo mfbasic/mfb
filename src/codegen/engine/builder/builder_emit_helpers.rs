@@ -194,7 +194,7 @@ impl CodeBuilder<'_> {
                 self.claim_pending_temp(&value);
             }
             // Observation boundary: a `Float` argument is read by the callee
-            // (user FUNC/SUB, runtime helper, or native `LINK` thunk) and must
+            // (user FUNC, runtime helper, or native `LINK` thunk) and must
             // be finite (plan-17).
             self.observe_float(arg, &value)?;
             // Arguments are marshalled through integer slots/registers, so a

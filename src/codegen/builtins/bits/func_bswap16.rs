@@ -24,10 +24,10 @@ const EX: &str = r#"Swap the two low bytes of a 16-bit value:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET result AS Integer = bits::bswap16(0x00FF)
   io::print(toString(result))
-END SUB
+END FUNC
 ```
 
 Bits above bit 15 are cleared, so the result stays in `0`..`65535`:
@@ -36,9 +36,9 @@ Bits above bit 15 are cleared, so the result stays in `0`..`65535`:
 IMPORT bits
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(bits::bswap16(0x11223344)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

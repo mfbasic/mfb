@@ -225,7 +225,7 @@ fn rewrite_item_refs(
         Item::Testing(testing) => {
             // TESTING case bodies are ordinary statement blocks and may reference
             // file-local PRIVATE declarations; rewrite them before the block is
-            // desugared into generated SUBs (plan-18-A).
+            // desugared into generated `AS Nothing` functions (plan-18-A).
             for group in testing.groups.iter_mut() {
                 rewrite_test_group(group, rename, types);
             }
@@ -638,18 +638,18 @@ PRIVATE FUNC helper(n AS Integer = secret) AS Integer
   RETURN n + secret
 END FUNC
 
-PRIVATE SUB noop()
+PRIVATE FUNC noop() AS Nothing
   counter = counter + 1
-END SUB
+END FUNC
 
-PRIVATE SUB extras()
+PRIVATE FUNC extras() AS Nothing
   IF counter > secret THEN FAIL secret
   EXIT PROGRAM secret
-END SUB
+END FUNC
 
-PRIVATE SUB more()
+PRIVATE FUNC more() AS Nothing
   PROPAGATE
-END SUB
+END FUNC
 
 FUNC driver(input AS Shape) AS Integer
   LET a AS Integer = helper(secret)

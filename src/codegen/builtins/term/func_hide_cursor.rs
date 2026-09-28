@@ -39,7 +39,7 @@ const EX: &str = r#"Draw a full-screen frame with no blinking cursor:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::hideCursor()
   term::clear()
@@ -47,7 +47,7 @@ SUB main()
   io::print("drawing without a blinking cursor")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::hide_cursor` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

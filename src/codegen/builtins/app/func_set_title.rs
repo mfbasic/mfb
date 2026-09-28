@@ -174,13 +174,13 @@ const EX: &str = r#"Show progress in the title bar:
 ```
 IMPORT app
 
-SUB main
+FUNC main AS Nothing
   app::setMode(app::Mode.Console)
   FOR i = 1 TO 3
     app::setTitle("Working: step " & toString(i) & " of 3")
   NEXT
   app::setTitle("Done")
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

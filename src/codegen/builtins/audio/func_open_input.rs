@@ -50,11 +50,11 @@ const EX: &str = r#"Capture 100 ms of mono audio at 48 kHz from the default inpu
 ```
 IMPORT audio
 
-SUB main()
+FUNC main() AS Nothing
   RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET pcm = audio::read(mic, 4800)
   audio::close(mic)
-END SUB
+END FUNC
 ```"#;
 
 const SAMPLE_RATE: &str = "Capture rate in Hz. Must be in `8000..=192000`.";

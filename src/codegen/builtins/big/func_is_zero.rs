@@ -27,10 +27,10 @@ const EX: &str = r#"A `big::Int` declared with `MUT` and no initializer is zero:
 IMPORT big
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   MUT x AS big::Int
   io::print(toString(big::isZero(x)))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

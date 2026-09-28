@@ -11,7 +11,7 @@
 //! `builder_values::lower_runtime_helper_call` could not name a call result's
 //! type, so it fell to the bytes lowering and marshalled the `String*` as a
 //! collection. The write raised `ErrConnectionClosed` into `handleRequest`'s
-//! silent `EXIT SUB`. See `rt_native_write_overload_call_argument.rs` for the
+//! silent early `RETURN`. See `rt_native_write_overload_call_argument.rs` for the
 //! mechanism in isolation; this test pins the user-visible contract.
 //!
 //! The server binds port 0 and publishes the host-assigned port through an

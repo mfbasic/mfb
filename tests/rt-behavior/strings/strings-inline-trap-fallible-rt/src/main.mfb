@@ -74,15 +74,15 @@ FUNC main() AS Integer
 
   io::print("")
   io::print("-- a member that really cannot fail is STILL infallible --")
-  ' `strings::upper` declares no error and raises none, so this handler IS dead
-  ' code and the build log below carries its TYPE_INLINE_TRAP_DEAD_HANDLER
-  ' warning. That warning is the proof the fix is narrow: it did not make every
-  ' strings member fallible.
-  LET i AS String = strings::upper("ok") TRAP(err)
-    io::print("upper      UNEXPECTED handler code=" & toString(err.code))
-    RECOVER "unexpected"
+  ' `strings::byteLen` declares no error and raises none (`upper` allocates and
+  ' declares ErrOutOfMemory since bug-698), so this handler IS dead code and the
+  ' build log carries its TYPE_INLINE_TRAP_DEAD_HANDLER warning. That warning is
+  ' the proof the fix is narrow: it did not make every strings member fallible.
+  LET i AS Integer = strings::byteLen("ok") TRAP(err)
+    io::print("byteLen    UNEXPECTED handler code=" & toString(err.code))
+    RECOVER -1
   END TRAP
-  io::print("upper      valid=" & i)
+  io::print("byteLen    valid=" & toString(i))
 
   RETURN 0
 END FUNC

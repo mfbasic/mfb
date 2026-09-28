@@ -379,7 +379,7 @@
     "name": "main",
     "line": 70,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

@@ -29,9 +29,9 @@ const EX: &str = r#"Construct a valid date:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
-END SUB
+END FUNC
 ```
 
 Combine a date and time into a zoned `datetime::DateTime`:
@@ -39,11 +39,11 @@ Combine a date and time into a zoned `datetime::DateTime`:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET t AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, t, datetime::utc())
-END SUB
+END FUNC
 ```
 
 An impossible calendar date raises `ErrInvalidArgument`:
@@ -52,15 +52,15 @@ An impossible calendar date raises `ErrInvalidArgument`:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bad AS datetime::Date = datetime::date(2026, 2, 29)
   io::print("accepted")
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("rejected: " & err.message)
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:

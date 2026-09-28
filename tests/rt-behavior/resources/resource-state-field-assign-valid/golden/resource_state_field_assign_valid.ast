@@ -19,7 +19,7 @@
       ]
     },
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "seek",
@@ -28,7 +28,7 @@
       { "name": "s", "type": "fs.File", "resource": true, "state": "Cursor", "default": null, "line": 10 },
       { "name": "dest", "type": "Integer", "default": null, "line": 10 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "identifier", "value": "dest" } }] }, "line": 11 }
       ]

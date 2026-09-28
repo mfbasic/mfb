@@ -24,7 +24,7 @@ bugs/completed/ once archived) for why a full parse is unnecessary here.
   `project.json`; the glob is resolved against the example directory to get
   the shipped file set (as dst-relative names, e.g. `dungeon/stone_N.png`).
 - Every `**/*.mfb` file under the example's source roots is scanned for
-  `FUNC`/`SUB` definitions (name, parameter list, body lines).
+  `FUNC` definitions (name, parameter list, body lines).
 - Starting at the entry function named by `project.json`'s `"entry"` field
   (default `main`), the tool walks each function body top-to-bottom as a
   flat (branch-blind) symbolic interpreter tracking, per local variable, the
@@ -34,7 +34,7 @@ bugs/completed/ once archived) for why a full parse is unnecessary here.
     - a bare identifier resolves to whatever reached it via the nearest
       preceding `LET`/`MUT` assignment or an enclosing `FOR EACH ... IN`
       (loop variables take the union of their iterable's element values);
-    - a call to a `FUNC`/`SUB` defined in the same source tree binds its
+    - a call to a `FUNC` defined in the same source tree binds its
       formal parameters to the caller's argument value sets and recurses
       into every `RETURN` expression reachable in its body (all branches,
       unioned -- again branch-blind);
@@ -164,7 +164,7 @@ LET_RE = re.compile(r"^(?:LET|MUT)\s+(\w+)\s+AS\s+.+?=\s*(.+)$")
 LET_NOTYPE_RE = re.compile(r"^(?:LET|MUT)\s+(\w+)\s*=\s*(.+)$")
 FOREACH_RE = re.compile(r"^FOR\s+EACH\s+(\w+)\s+IN\s+(.+)$")
 RETURN_RE = re.compile(r"\bRETURN\s+([^\n:]+)")
-FUNCDEF_RE = re.compile(r"^(?:FUNC|SUB)\s+(\w+)\s*(\(([^)]*)\))?")
+FUNCDEF_RE = re.compile(r"^FUNC\s+(\w+)\s*(\(([^)]*)\))?")
 
 
 def strip_trailer(expr):
@@ -196,7 +196,7 @@ class Registry:
                     params.append(p.split()[0])
                 body = []
                 i += 1
-                while i < len(lines) and lines[i].strip() not in ("END FUNC", "END SUB"):
+                while i < len(lines) and lines[i].strip() != "END FUNC":
                     body.append(lines[i])
                     i += 1
                 self.funcs[name] = {"params": params, "body": body}

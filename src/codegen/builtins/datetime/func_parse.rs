@@ -86,9 +86,9 @@ const EX: &str = r#"Parse a date and time, interpreted as UTC:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
-END SUB
+END FUNC
 ```
 
 Parse civil fields against an explicit zone:
@@ -96,10 +96,10 @@ Parse civil fields against an explicit zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::fixedOffset(-5, 0)
   LET dt AS datetime::DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
-END SUB
+END FUNC
 ```
 
 An offset token in the value overrides the zone argument:
@@ -107,9 +107,9 @@ An offset token in the value overrides the zone argument:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
-END SUB
+END FUNC
 ```
 
 An out-of-range calendar field raises `ErrInvalidFormat` rather than rolling
@@ -119,15 +119,15 @@ over into a different date:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bad AS datetime::DateTime = datetime::parse("2026-13-45", "yyyy-MM-dd")
   io::print("accepted")
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("rejected: " & err.message)
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```
 
 prints:
@@ -142,15 +142,15 @@ Text that does not match the pattern raises `ErrInvalidFormat`:
 IMPORT datetime
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET bad AS datetime::DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
   io::print("accepted")
-  EXIT SUB
+  RETURN
 TRAP(err)
   io::print("rejected: " & toString(err.code))
-  EXIT SUB
+  RETURN
 END TRAP
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {

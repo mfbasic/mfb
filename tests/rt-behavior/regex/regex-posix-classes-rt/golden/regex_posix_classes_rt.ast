@@ -9,7 +9,7 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "show",
@@ -19,7 +19,7 @@
       { "name": "yes", "type": "Boolean", "default": null, "line": 10 },
       { "name": "no", "type": "Boolean", "default": null, "line": 10 }
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " match=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "yes" }] } }, "right": { "kind": "string", "value": " reject=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "unary", "operator": "NOT", "operand": { "kind": "identifier", "value": "no" } }] } }] }, "line": 11 }
       ]

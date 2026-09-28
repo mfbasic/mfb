@@ -11,14 +11,14 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "public",
       "isolated": false,
       "name": "main",
       "line": 8,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Nothing",
       "body": [
       { "kind": "binding", "mutable": false, "name": "data", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "123456789 and then some more bytes" }] }, "line": 9 },
       { "kind": "binding", "mutable": false, "name": "whole", "type": "Integer", "value": { "kind": "call", "callee": "compress.crc32", "arguments": [{ "kind": "identifier", "value": "data" }] }, "line": 10 },

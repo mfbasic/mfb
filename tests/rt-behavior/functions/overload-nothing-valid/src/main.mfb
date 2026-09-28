@@ -1,0 +1,26 @@
+IMPORT io
+
+' Overloading `FUNC … AS Nothing`: like any `FUNC`, several may share one name
+' when their parameter type lists differ (by type or by arity). Each call site
+' resolves to the matching signature.
+
+' Overload by parameter type.
+FUNC log(value AS Integer) AS Nothing
+  io::print("int " & toString(value))
+END FUNC
+
+FUNC log(value AS String) AS Nothing
+  io::print("str " & value)
+END FUNC
+
+' Overload by arity.
+FUNC log(label AS String, value AS Integer) AS Nothing
+  io::print(label & "=" & toString(value))
+END FUNC
+
+FUNC main AS Integer
+  log(7)
+  log("hi")
+  log("count", 3)
+  RETURN 0
+END FUNC

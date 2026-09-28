@@ -67,7 +67,7 @@ FUNC tryConvert(c AS crypto::KeyConvert, priv AS List OF Byte, pub AS List OF By
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   LET base448 AS List OF Byte = basePoint(56, 5)
   LET alice AS List OF Byte = encoding::hexDecode("9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b")
   LET bob AS List OF Byte = encoding::hexDecode("1c306a7ac2a0e2e0990b294470cba339e6453772b075811d8fad0d1d6927c120bb5ee8972b0d3e21374c9c921b09d1b0366f10b65173992d")
@@ -118,4 +118,4 @@ SUB main()
   io::print("x25519-badlen=" & tryExchange(crypto::Certificate.X25519, alice, base255))
   LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
   io::print("exchange-ed25519-reject=" & tryExchange(crypto::Certificate.Ed25519, ed.privateKey, ed.publicKey))
-END SUB
+END FUNC

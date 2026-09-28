@@ -70,7 +70,7 @@ bit 1 = entry accepts command-line args as List OF String
 bit 2 = entry is FUNC returning Integer
 ```
 
-How the runtime maps an entry-point outcome to a process exit code and stderr (the `SUB`/`FUNC ... AS Integer`/uncaught-error contract) is the source-level entry-point contract, owned by `./mfb spec language error-model`. When args are accepted, argument element zero is the program name as invoked by the host.
+How the runtime maps an entry-point outcome to a process exit code and stderr (the `FUNC ... AS Nothing`/`FUNC ... AS Integer`/uncaught-error contract) is the source-level entry-point contract, owned by `./mfb spec language error-model`. When args are accepted, argument element zero is the program name as invoked by the host.
 
 When reading a **package** (as opposed to a root executable image), the current reader ignores the manifest's `entryFunction`/`entryFlags` and forces them to `0xFFFFFFFF`/`0` in the decoded project, since a reusable package has no entry point of its own.
 
@@ -128,10 +128,10 @@ Export kinds the current compiler emits and the reader accepts:
 
 ```text
 1 = function   (exported FUNC)
-2 = sub        (exported SUB)
+2 = reserved   (retired by plan-159-D; never written, rejected on read)
 ```
 
-The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC` (kind `1`) and `SUB` (kind `2`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kinds `1` and `2` and rejects any other value. [[src/binary_repr/reader.rs:decode_callable_export_kind]]
+The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC`s (kind `1`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kind `1`. Kind `2` was the value-less callable kind the language no longer has; a package an older compiler built can still carry it, and the reader rejects it with an error that says to rebuild the package rather than reading it as a function. Any other value is rejected too. There is one package format and no compatibility path. [[src/binary_repr/reader.rs:decode_callable_export_kind]] [[src/binary_repr/reader.rs:retired_sub_error]]
 
 Exported **types** (record/union/enum) are not listed in `EXPORT_TABLE`. They are surfaced through `TYPE_TABLE` and `ABI_INDEX` instead (the latter carrying their ABI hashes). Higher kind numbers for top-level `LET`/`MUT`, constructors, and native wrappers are not part of the current encoding.
 
@@ -172,21 +172,21 @@ The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_expor
 
 ```text
 1 = exported FUNC
-2 = exported SUB
+2 = reserved (retired by plan-159-D; rejected on read)
 3 = exported record type
 4 = exported union type
 5 = exported enum type
 ```
 
-The ABI index emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[src/binary_repr/sections.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
+The ABI index emits one entry per exported function (kind `1`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[src/binary_repr/sections.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
 Because `ABI_INDEX` lives inside `packageBinaryRepr`, the `packageBinaryHash` and the package signature already cover it — no header change is needed to trust it. The registry parses this section from a published package (string pool + `ABI_INDEX` only) and serves the resulting `{ "<symbol>": "<hex abiHash>" }` map as the `abiIndex` field of `GET /index`. `mfb repo check-abi` builds the working tree, reads its `ABI_INDEX`, and diffs it against the latest published version's served map, naming every changed or dropped symbol (both break the superset relation the resolver relies on).[[repository/src/abi.rs:parse_abi_index]][[src/cli/pkg.rs:check_abi]]
 
-The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16, currently `1`; it gates the ABI_INDEX *wire encoding*, so a change to what the hash is computed over does not bump it — a stale hash is caught per symbol by `validate_abi_index` instead). For a **function or sub** (`function_sig_hash`) the remaining input is: [[src/binary_repr/sections.rs:function_sig_hash]]
+The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16, currently `1`; it gates the ABI_INDEX *wire encoding*, so a change to what the hash is computed over does not bump it — a stale hash is caught per symbol by `validate_abi_index` instead). For a **function** (`function_sig_hash`) the remaining input is: [[src/binary_repr/sections.rs:function_sig_hash]]
 
 * the literal string `"function"`,
 * the export kind (u16),
-* the function flags **masked to `ISOLATED | SUB`** (u16) — only the isolated and sub bits are ABI-significant; other flags are excluded,
+* the function flags **masked to `ISOLATED`** (u16) — only the isolated bit is ABI-significant; other flags are excluded. (The mask also covered bit 3 before plan-159-D retired it; no function the current writer emits sets bit 3, so every hash is unchanged by the narrower mask.)
 * the parameter count (u32),
 * for each parameter, its structurally-serialized type, then a default byte: `0` for no default; `1` followed by the serialized default constant for a literal default; or `2` for a computed default (parameter flag bit 3). Only a computed default's existence is hashed, not its hidden function's index or expression — a default expression is not ABI, so changing one inside a package is not an ABI break,
 * the structurally-serialized return type.

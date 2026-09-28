@@ -41,13 +41,13 @@ cat > "$adump/src/main.mfb" <<'MFB'
 IMPORT io
 IMPORT os
 
-SUB main()
+FUNC main() AS Nothing
   LET a AS List OF String = os::args()
   io::print("argc=" & toString(len(a)))
   FOR EACH s IN a
     io::print("arg=[" & s & "]")
   NEXT
-END SUB
+END FUNC
 MFB
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ IMPORT io
 IMPORT process
 IMPORT strings
 
-SUB runArgs(label AS String, args AS List OF String)
+FUNC runArgs(label AS String, args AS List OF String) AS Nothing
   RES p = process::spawn(args)
   WHILE TRUE
     LET line AS String = process::receive(p) TRAP(e)
@@ -76,9 +76,9 @@ SUB runArgs(label AS String, args AS List OF String)
     io::print(label & ":" & strings::trimEnd(line))
   END WHILE
   io::print(label & ":rc=" & toString(process::waitFor(p)))
-END SUB
+END FUNC
 
-SUB runStdin(label AS String, args AS List OF String, a AS String, b AS String)
+FUNC runStdin(label AS String, args AS List OF String, a AS String, b AS String) AS Nothing
   RES p = process::spawn(args)
   process::send(p, a)
   process::send(p, b)
@@ -90,9 +90,9 @@ SUB runStdin(label AS String, args AS List OF String, a AS String, b AS String)
     io::print(label & ":" & strings::trimEnd(line))
   END WHILE
   io::print(label & ":rc=" & toString(process::waitFor(p)))
-END SUB
+END FUNC
 
-SUB runEnv(label AS String, args AS List OF String, cwd AS String, env AS Map OF String TO String, replace AS Boolean)
+FUNC runEnv(label AS String, args AS List OF String, cwd AS String, env AS Map OF String TO String, replace AS Boolean) AS Nothing
   RES p = process::spawn(args, cwd, env, replace)
   WHILE TRUE
     LET line AS String = process::receive(p) TRAP(e)
@@ -101,9 +101,9 @@ SUB runEnv(label AS String, args AS List OF String, cwd AS String, env AS Map OF
     io::print(label & ":" & strings::trimEnd(line))
   END WHILE
   io::print(label & ":rc=" & toString(process::waitFor(p)))
-END SUB
+END FUNC
 
-SUB runShell(label AS String, cmd AS String)
+FUNC runShell(label AS String, cmd AS String) AS Nothing
   RES p = process::shell(cmd)
   WHILE TRUE
     LET line AS String = process::receive(p) TRAP(e)
@@ -112,9 +112,9 @@ SUB runShell(label AS String, cmd AS String)
     io::print(label & ":" & strings::trimEnd(line))
   END WHILE
   io::print(label & ":rc=" & toString(process::waitFor(p)))
-END SUB
+END FUNC
 
-SUB runShellStdin(label AS String, cmd AS String, a AS String, b AS String)
+FUNC runShellStdin(label AS String, cmd AS String, a AS String, b AS String) AS Nothing
   RES p = process::shell(cmd)
   process::send(p, a)
   process::send(p, b)
@@ -126,9 +126,9 @@ SUB runShellStdin(label AS String, cmd AS String, a AS String, b AS String)
     io::print(label & ":" & strings::trimEnd(line))
   END WHILE
   io::print(label & ":rc=" & toString(process::waitFor(p)))
-END SUB
+END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   ' --- plan-119-A Phase 1: the cmd.exe matrix the research spike proved, re-run
   ' through the shared spawn tail. Command sequencing, exit-code propagation,
   ' redirection, a pipeline, and stdin streamed into a filter.
@@ -190,7 +190,7 @@ SUB main()
   ' merge with a case-VARIANT key. Windows env names are case-insensitive, so a
   ' byte-exact skip would hand the child both `Path` and `path`.
   runEnv("e6", ["cmd.exe", "/C", "set"], "", pathish, FALSE)
-END SUB
+END FUNC
 MFB
 
 echo "--- building argdump + procprobe for windows-x86_64 ---"

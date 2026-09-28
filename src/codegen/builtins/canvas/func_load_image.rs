@@ -39,13 +39,13 @@ IMPORT app
 IMPORT canvas
 IMPORT color
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES logo AS canvas::Image = canvas::loadImage("logo.png")
   LET size AS canvas::Size = canvas::getSize(logo)
   LET art AS canvas::DrawItem = canvas::Picture[x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := logo, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([art])
-END SUB
+END FUNC
 ```"#;
 
 /// `canvas::loadImage(path)` — read, decode, and stamp.

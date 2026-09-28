@@ -43,10 +43,10 @@ const EX: &str = r#"Truncate a `datetime::DateTime` to the start of its civil da
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET dt AS datetime::DateTime = datetime::toLocal(datetime::now())
   LET midnight AS datetime::DateTime = datetime::startOfDay(dt)
-END SUB
+END FUNC
 ```
 
 Start of day in a fixed UTC zone:
@@ -54,12 +54,12 @@ Start of day in a fixed UTC zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
   LET midnight AS datetime::DateTime = datetime::startOfDay(dt)
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

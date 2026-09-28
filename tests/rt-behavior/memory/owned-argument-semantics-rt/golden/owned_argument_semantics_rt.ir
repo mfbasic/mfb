@@ -172,7 +172,7 @@
     "name": "afterCallRead",
     "line": 56,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -186,7 +186,7 @@
     "name": "trapReadsOld",
     "line": 65,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -215,7 +215,7 @@
     "name": "recoverOld",
     "line": 75,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -265,7 +265,7 @@
     "name": "sameArgTwice",
     "line": 96,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -279,7 +279,7 @@
     "name": "globalArg",
     "line": 104,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -293,7 +293,7 @@
     "name": "capturedArg",
     "line": 112,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -308,7 +308,7 @@
     "name": "errorSourceSame",
     "line": 124,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -360,7 +360,7 @@
     "name": "resInListArg",
     "line": 152,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -400,7 +400,7 @@
     "name": "recordTrapReadsOld",
     "line": 175,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -429,7 +429,7 @@
     "name": "functionValueCall",
     "line": 186,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

@@ -51,7 +51,7 @@ FUNC bulk(shift AS Float) AS List OF canvas::DrawItem
   RETURN items
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET start AS Integer = datetime::monotonicNanos()
   LET still AS List OF canvas::DrawItem = bulk(0.0)
@@ -61,7 +61,7 @@ SUB main()
   IF $ONESHOT = 1 THEN
     canvas::present(still)
     io::print("presents=1 workerBuildMs=0 workerPresentMs=0")
-    EXIT SUB
+    RETURN
   END IF
   DO WHILE datetime::monotonicNanos() - start < $SECS * 1000000000
     LET t0 AS Integer = datetime::monotonicNanos()
@@ -76,5 +76,5 @@ SUB main()
     frame = frame + 1
   LOOP
   io::print("presents=" & toString(frame) & " workerBuildMs=" & toString(buildNanos / 1000000) & " workerPresentMs=" & toString(presentNanos / 1000000))
-END SUB
+END FUNC
 M

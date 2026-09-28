@@ -35,10 +35,10 @@ FUNC quotient(a AS Integer, b AS Integer) AS String
   END TRAP
 END FUNC
 
-SUB main()
+FUNC main() AS Nothing
   io::print(quotient(-7, 2))
   io::print(quotient(7, 0))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

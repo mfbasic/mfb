@@ -42,13 +42,13 @@ const EX: &str = r#"Blank the surface and draw from the top of each frame:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   term::clear()          ' also homes the cursor to (0, 0)
   io::print("a fresh screen")
   term::sync()
   term::off()
-END SUB
+END FUNC
 ```
 
 Clear at the top of a render loop:
@@ -57,7 +57,7 @@ Clear at the top of a render loop:
 IMPORT term
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   term::on()
   LET rows AS List OF String = ["first", "second"]
   FOR EACH row IN rows
@@ -66,7 +66,7 @@ SUB main()
     term::sync()
   NEXT
   term::off()
-END SUB
+END FUNC
 ```"#;
 /// `abi_function` body for `term::clear` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the

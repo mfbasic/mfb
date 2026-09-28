@@ -97,7 +97,7 @@
     "name": "mark$",
     "line": 33,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -108,7 +108,7 @@
     "name": "mark$Vec2",
     "line": 36,
     "visibility": "export",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "v", "line": 36, "type": "Vec2", "default": null }
     ],

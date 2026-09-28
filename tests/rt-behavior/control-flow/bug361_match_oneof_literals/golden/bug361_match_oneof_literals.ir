@@ -76,7 +76,7 @@
     "name": "classify",
     "line": 7,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "g", "line": 7, "type": "String", "default": null }
     ],
@@ -120,7 +120,7 @@
     "name": "main",
     "line": 18,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

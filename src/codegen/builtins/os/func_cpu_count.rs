@@ -114,9 +114,9 @@ const EX: &str = r#"Print the CPU count:
 IMPORT os
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(os::cpuCount()))
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

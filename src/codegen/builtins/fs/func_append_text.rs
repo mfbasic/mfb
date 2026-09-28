@@ -78,10 +78,10 @@ const EX: &str = r#"Append a line to a log file:
 ```
 IMPORT fs
 
-SUB main()
+FUNC main() AS Nothing
   fs::createDirectories("output")
   fs::appendText("output/app.log", "line\n")
-END SUB
+END FUNC
 ```
 
 Build up a file across several calls:
@@ -90,13 +90,13 @@ Build up a file across several calls:
 IMPORT fs
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   fs::writeText("notes.txt", "first line\nsecond line\n")
   fs::appendText("notes.txt", "first\n")
   fs::appendText("notes.txt", "second\n")
   LET text AS String = fs::readText("notes.txt")
   io::print(text)
-END SUB
+END FUNC
 ```"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

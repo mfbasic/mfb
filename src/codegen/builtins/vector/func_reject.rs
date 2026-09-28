@@ -47,9 +47,9 @@ const EX: &str = r#"The part of a diagonal vector that is not along the `+x` axi
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::reject(vector::Float2[2.0, 2.0], vector::Float2[1.0, 0.0])))
-END SUB
+END FUNC
 ```
 
 Flatten a movement vector so it slides along a wall instead of passing through
@@ -59,11 +59,11 @@ it:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET wall AS vector::Float3 = vector::normalize(vector::Float3[1.0, 0.0, 0.0])
   LET slide AS vector::Float3 = vector::reject(vector::Float3[1.0, 2.0, 0.0], wall)
   io::print(toString(slide))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

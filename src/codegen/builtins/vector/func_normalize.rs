@@ -52,9 +52,9 @@ const EX: &str = r#"Normalize a 3-4-5 vector to unit length:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::normalize(vector::Float3[3.0, 0.0, 4.0])))
-END SUB
+END FUNC
 ```
 
 The `Integer` overload snaps to the nearest lattice direction rather than
@@ -64,9 +64,9 @@ producing a unit vector:
 IMPORT vector
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(vector::normalize(vector::Integer2[3, 4])))
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

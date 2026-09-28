@@ -34,12 +34,12 @@ const EX: &str = r#"Render several types, and note what a `Float` does by defaul
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   io::print(toString(1))
   io::print(toString(1.5))
   io::print(toString(3.14159, toByte(2)))
   io::print(toString(TRUE))
-END SUB
+END FUNC
 ```
 
 prints:
@@ -56,10 +56,10 @@ Build a message — `&` will not convert for you:
 ```
 IMPORT io
 
-SUB main()
+FUNC main() AS Nothing
   LET count AS Integer = 3
   io::print("found " & toString(count) & " items")
-END SUB
+END FUNC
 ```
 
 prints:
@@ -77,11 +77,11 @@ ENUM Color
   Red, Green, Blue
 END ENUM
 
-SUB main()
+FUNC main() AS Nothing
   LET c AS Color = Color.Green
   io::print(toString(c))
   io::print(typeName(c) & "." & toString(c))
-END SUB
+END FUNC
 ```
 
 prints:

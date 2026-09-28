@@ -142,7 +142,7 @@
     "name": "printEntry",
     "line": 30,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     { "name": "entry", "line": 30, "type": "MapEntry OF String TO Integer", "default": null }
     ],
@@ -192,7 +192,7 @@
     "name": "fallthroughSub",
     "line": 52,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -204,7 +204,7 @@
     "name": "bareReturnSub",
     "line": 56,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
@@ -217,7 +217,7 @@
     "name": "explicitReturnSub",
     "line": 61,
     "visibility": "public",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
     "returns": "Nothing",

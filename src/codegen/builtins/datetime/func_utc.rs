@@ -30,9 +30,9 @@ const EX: &str = r#"Obtain the UTC zone:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET z AS datetime::Zone = datetime::utc()
-END SUB
+END FUNC
 ```
 
 Project the current instant into UTC to read its civil fields:
@@ -40,10 +40,10 @@ Project the current instant into UTC to read its civil fields:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET t AS datetime::Instant = datetime::now()
   LET inUtc AS datetime::DateTime = datetime::inZone(t, datetime::utc())
-END SUB
+END FUNC
 ```
 
 Combine a date and time into a UTC-zoned `datetime::DateTime`:
@@ -51,11 +51,11 @@ Combine a date and time into a UTC-zoned `datetime::DateTime`:
 ```
 IMPORT datetime
 
-SUB main()
+FUNC main() AS Nothing
   LET d AS datetime::Date = datetime::date(2026, 6, 26)
   LET tm AS datetime::Time = datetime::time(9, 30)
   LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
-END SUB
+END FUNC
 ```"#;
 
 #[rustfmt::skip]

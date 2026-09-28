@@ -1,0 +1,31 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "buildMode": "console",
+  "project": "project_entry_nothing_main",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": [],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}
