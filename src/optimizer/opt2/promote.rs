@@ -14,8 +14,21 @@
 //! in a well-formed stream, and the prologue-zeroed slots are excluded, below).
 //! The allocator colors `%vO` like any other virtual register: kept in a
 //! register when one is free for its whole life (a callee-saved one across a
-//! call), spilled to a slot of its own otherwise — never worse than the frame
-//! round-trip it replaces.
+//! call), spilled to a slot of its own otherwise.
+//!
+//! That is **not** "never worse than the frame round-trip it replaces", which
+//! this comment used to claim. Every promoted slot is a new long-lived value
+//! competing for the register file, so promotion raises pressure on *other*
+//! values. Under the first-come allocator that let promoted values take the
+//! registers and pushed each hot loop temporary into a spill whose every use
+//! evicted a live register around it — `nbody` 7.5× slower, -O1 inline `sort`
+//! 6× (bug-760 C/D). What bounds the cost now is `linear_scan::run`'s spill
+//! choice: under pressure the value with the least weighted use per instruction
+//! of its interval goes to memory, which for a slot touched only a few times
+//! across a long range is the promoted value itself, back to one load or store
+//! per access (plus a copy the coalescer could not remove). That is a
+//! heuristic, not a proof, so a function can still come out slower than
+//! without promotion.
 //!
 //! What makes it exact is the **reachability proof**, per frame object, over
 //! the whole function (the stream is scanned once, before any rewrite):
