@@ -2,8 +2,8 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::builtins::vector::builder_vector_inline::is_reevaluation_safe;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::value::reeval::is_reevaluation_safe;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
