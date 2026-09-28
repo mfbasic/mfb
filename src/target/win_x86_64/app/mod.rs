@@ -113,10 +113,14 @@ const TERM_RESIZE_H_ENV_SYM: &str = "_mfb_winapp_term_resize_h_env";
 const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
 const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
 const TUI_COL_SYM: &str = "_mfb_winapp_tui_col"; // cursor col (0-based)
-                                                 // plan-70-F: a real fixed-pitch CJK-capable font (CreateFontW) replaces the legacy
-                                                 // SYSTEM_FIXED_FONT bitmap face, which has no CJK/emoji glyphs. DEFAULT_CHARSET lets
-                                                 // GDI font-linking supply CJK from the system fallback (MS Gothic/JhengHei/Malgun,
-                                                 // present on the box). The HFONT is cached so it is created once with the surface.
+/// bug-730: the cursor-visible flag, mirrored out of term-state for `WM_PAINT`.
+/// The WndProc is a C callback with no arena-state register, so it cannot read
+/// `TERM_STATE_CURSOR_VISIBLE_OFFSET`; `term::on` and the setters write both.
+const TUI_CURSOR_VIS_SYM: &str = "_mfb_winapp_tui_cursor_vis";
+// plan-70-F: a real fixed-pitch CJK-capable font (CreateFontW) replaces the legacy
+// SYSTEM_FIXED_FONT bitmap face, which has no CJK/emoji glyphs. DEFAULT_CHARSET lets
+// GDI font-linking supply CJK from the system fallback (MS Gothic/JhengHei/Malgun,
+// present on the box). The HFONT is cached so it is created once with the surface.
 const TUI_FONT_SYM: &str = "_mfb_winapp_tui_font"; // cached HFONT (0 until term::on)
 const FONT_NAME_SYM: &str = "_mfb_winapp_tui_fontname"; // L"Consolas"
                                                         // GDI / window message constants.
@@ -1334,6 +1338,71 @@ fn emit_wndproc(
         &(TUI_MAX_COLS * TUI_CELL_W).to_string(),
     )); // width
     call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
+    // bug-730: while `term::showCursor` is in effect, paint a 2px white caret bar
+    // along the bottom of the cursor cell — on the window DC, never into the grid
+    // bitmap, so it moves with the cursor and leaves no trail. Same bar the console
+    // (`ESC[?25h`), macOS and Linux GTK backends show.
+    load_addr(
+        abi::mfb_arg(0),
+        TUI_CURSOR_VIS_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_paint_no_cursor"));
+    load_addr(abi::mfb_arg(1), TUI_COL_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(1), 0));
+    load_addr(abi::mfb_arg(2), TUI_ROW_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(2), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), "0"));
+    ins.push(abi::branch_lt("wnd_paint_no_cursor"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
+    ins.push(abi::branch_lt("wnd_paint_no_cursor"));
+    load_addr(abi::mfb_arg(3), GRID_COLS_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(3), 0));
+    ins.push(abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)));
+    ins.push(abi::branch_ge("wnd_paint_no_cursor"));
+    load_addr(abi::mfb_arg(3), GRID_ROWS_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(3), 0));
+    ins.push(abi::compare_registers(abi::mfb_arg(2), abi::mfb_arg(3)));
+    ins.push(abi::branch_ge("wnd_paint_no_cursor"));
+    // PatBlt(hdc, col*CELL_W, row*CELL_H + CELL_H - 2, CELL_W, 2, WHITENESS)
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "2"));
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "16711778")); // WHITENESS 0x00FF0062
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), 0x28)); // rop (6th)
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(3),
+        "Integer",
+        &TUI_CELL_W.to_string(),
+    ));
+    ins.push(abi::multiply_registers(
+        abi::mfb_arg(1),
+        abi::mfb_arg(1),
+        abi::mfb_arg(3),
+    )); // x
+    ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 1));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(3),
+        "Integer",
+        &TUI_CELL_H.to_string(),
+    ));
+    ins.push(abi::multiply_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+    ));
+    ins.push(abi::subtract_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 2)); // y
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HDC));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(3),
+        "Integer",
+        &TUI_CELL_W.to_string(),
+    )); // width
+    call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
+    ins.push(abi::label("wnd_paint_no_cursor"));
     // EndPaint(hwnd, &ps)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
     ins.push(abi::add_immediate(
@@ -3145,8 +3214,8 @@ pub(super) fn emit_app_term_helper(
         "term.setUnderline" => {
             emit_term_set_flag(tso, TERM_STATE_UNDERLINE_OFFSET, instructions, relocations)
         }
-        "term.showCursor" => emit_term_cursor_visible(tso, "1", instructions, relocations),
-        "term.hideCursor" => emit_term_cursor_visible(tso, "0", instructions, relocations),
+        "term.showCursor" => emit_term_cursor_visible(symbol, tso, "1", instructions, relocations),
+        "term.hideCursor" => emit_term_cursor_visible(symbol, tso, "0", instructions, relocations),
         "term.sync" => emit_term_sync(symbol, tso, instructions, relocations),
         "term.terminalSize" => emit_term_size(symbol, tso, instructions, relocations),
         "term.didResize" => emit_term_did_resize(symbol, instructions, relocations),
@@ -4347,8 +4416,16 @@ fn emit_term_on(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
-    // bug-699: TUI mode reads keys — every key event in the kitty form, as the
-    // macOS and GTK `term::on` switch the window to raw input.
+    load_addr(
+        abi::mfb_arg(1),
+        TUI_CURSOR_VIS_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0)); // bug-730 mirror
+                                                                   // bug-699: TUI mode reads keys — every key event in the kitty form, as the
+                                                                   // macOS and GTK `term::on` switch the window to raw input.
     keys::emit_set_input_mode(from, keys::INPUT_MODE_RAW, &mut ins, &mut rel);
     // Hide the transcript EDIT, then invalidate the window to present the grid.
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
@@ -4590,13 +4667,15 @@ fn emit_term_set_flag(
 
 /// `term::showCursor/hideCursor()`: set the cursor-visible term-state flag.
 fn emit_term_cursor_visible(
+    symbol: &str,
     tso: usize,
     value: &str,
     instructions: &mut Vec<CodeInstruction>,
-    _relocations: &mut Vec<CodeRelocation>,
+    relocations: &mut Vec<CodeRelocation>,
 ) {
     // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
     // bug-541: inert while TUI mode is off.
     emit_win_term_active_gate(&mut ins, tso, "cur_done");
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", value));
@@ -4605,6 +4684,16 @@ fn emit_term_cursor_visible(
         ARENA_STATE_REGISTER,
         tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
+    // bug-730: mirror it for WM_PAINT, then repaint so the caret appears/vanishes
+    // on the next present.
+    load_addr(
+        abi::mfb_arg(1),
+        TUI_CURSOR_VIS_SYM,
+        symbol,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
     ins.push(abi::label("cur_done"));
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -4613,6 +4702,7 @@ fn emit_term_cursor_visible(
     ));
     ins.push(abi::return_());
     instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::sync()`: present the coalesced grid — invalidate + update the window so
@@ -5438,6 +5528,7 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
         writable_qword(TUI_MEMDC_SYM),
         writable_qword(TUI_ROW_SYM),
         writable_qword(TUI_COL_SYM),
+        writable_qword(TUI_CURSOR_VIS_SYM),
         // bug-540 WIN-02/WIN-03: the live surface size — the headless default until
         // a `WM_SIZE` or a scripted resize says otherwise — and the resize counter
         // pair `term::didResize` compares.

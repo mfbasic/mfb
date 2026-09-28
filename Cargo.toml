@@ -434,6 +434,10 @@ name = "codegen_term_color_record_offsets"
 path = "tests/codegen/codegen_term_color_record_offsets.rs"
 
 [[test]]
+name = "codegen_term_app_cursor"
+path = "tests/codegen/codegen_term_app_cursor.rs"
+
+[[test]]
 name = "codegen_thread_c_return_x86_64"
 path = "tests/codegen/codegen_thread_c_return_x86_64.rs"
 

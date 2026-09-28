@@ -401,6 +401,101 @@ fn emit_fill_current_cell(asm: &mut Asm) {
     asm.call_external(NS_RECT_FILL, LIB_APPKIT);
 }
 
+/// bug-730: `NSRectFill` a 2-point caret bar along the bottom of the cell at
+/// (col `LOCAL[5]`, row `LOCAL[4]`) of the grid whose state is `LOCAL[0]`, in
+/// whatever colour is set — the same bar the Linux GTK backend draws
+/// (`emit_term_cell_rect`). The view is flipped (row 0 at the top), so the bottom
+/// of row `r` is `round((r+1)*cellH)`. The x extent is rounded per edge exactly as
+/// [`emit_fill_current_cell`] rounds it, so the bar is flush with its cell.
+fn emit_fill_cursor_bar(asm: &mut Asm) {
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        TV_CELL_W_OFFSET,
+    ));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[0],
+    )); // cellW
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        TV_CELL_H_OFFSET,
+    ));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[0],
+    )); // cellH
+        // x: origin = round(col*cellW), width = round((col+1)*cellW) - origin.
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[4],
+        abi::LOCAL[5],
+    ));
+    asm.push(abi::float_multiply_d(
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[2],
+    ));
+    asm.push(abi::float_round_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[4],
+    ));
+    asm.push(abi::add_immediate(abi::SCRATCH[2], abi::LOCAL[5], 1));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[4],
+        abi::SCRATCH[2],
+    ));
+    asm.push(abi::float_multiply_d(
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[2],
+    ));
+    asm.push(abi::float_round_to_signed_x(
+        abi::SCRATCH[2],
+        abi::FP_SCRATCH[4],
+    ));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[1],
+    )); // x
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[2],
+    )); // w
+        // y: round((row+1)*cellH) - 2, height 2.
+    asm.push(abi::add_immediate(abi::SCRATCH[2], abi::LOCAL[4], 1));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[4],
+        abi::SCRATCH[2],
+    ));
+    asm.push(abi::float_multiply_d(
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[4],
+        abi::FP_SCRATCH[3],
+    ));
+    asm.push(abi::float_round_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[4],
+    ));
+    asm.push(abi::subtract_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 2));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[1],
+    )); // y
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "2"));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[1],
+    )); // h
+        // d0 = x, d1 = y, d2 = width, d3 = height.
+    asm.call_external(NS_RECT_FILL, LIB_APPKIT);
+}
+
 pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
     let mut asm = Asm::new(TERM_VIEW_DRAW_RECT_SYMBOL);
     // Frame: lr@0; callee-saved x19(state)@8, x20(cells)@16, x21(rows)@24,
@@ -1060,7 +1155,7 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_pass,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    asm.push(abi::branch_ne("draw_done"));
+    asm.push(abi::branch_ne("draw_cursor"));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
@@ -1068,6 +1163,44 @@ pub(super) fn emit_term_view_draw_rect() -> CodeFunction {
         off_pass,
     ));
     asm.push(abi::branch("draw_pass"));
+    // bug-730: after both passes, while `term::showCursor` is in effect, draw a white
+    // caret bar at the cursor cell — the terminal and Linux GTK backends already do.
+    // Only reached with a live state and grid (rows/cols loaded), unlike draw_done.
+    asm.push(abi::label("draw_cursor"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        TV_CURSOR_VISIBLE_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq("draw_done"));
+    asm.push(abi::load_u64(
+        abi::LOCAL[4],
+        abi::LOCAL[0],
+        TV_CURSOR_ROW_OFFSET,
+    ));
+    asm.push(abi::load_u64(
+        abi::LOCAL[5],
+        abi::LOCAL[0],
+        TV_CURSOR_COL_OFFSET,
+    ));
+    asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
+    asm.push(abi::branch_lt("draw_done"));
+    asm.push(abi::compare_registers(abi::LOCAL[4], abi::LOCAL[2]));
+    asm.push(abi::branch_ge("draw_done"));
+    asm.push(abi::compare_immediate(abi::LOCAL[5], "0"));
+    asm.push(abi::branch_lt("draw_done"));
+    asm.push(abi::compare_registers(abi::LOCAL[5], abi::LOCAL[3]));
+    asm.push(abi::branch_ge("draw_done"));
+    asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", "16777215")); // 0xFFFFFF white
+    emit_color_from_packed(&mut asm, off_color_sel); // x0 = white
+    asm.push(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_set_sel,
+    ));
+    asm.call_external("_objc_msgSend", LIB_OBJC); // [white set]
+    emit_fill_cursor_bar(&mut asm);
     asm.push(abi::label("draw_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in saved {
