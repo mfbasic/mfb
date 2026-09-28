@@ -149,7 +149,9 @@ LITERALS = {
     "http::Route": 'http::Route[pattern := "/", handler := kindRoute]',
     # `net::Address` is compiler-owned (no literal) but defaultable: `kindAddress()`.
     "net::PingResult": "net::PingResult[status := net::PingStatus.Ok, address := kindAddress(), rttMs := 1.0, ttl := 1, size := 1]",
-    "term::MouseEvent": "term::MouseEvent[kind := term::MouseKind.None, button := term::MouseButton.None, row := 1, column := 1, shift := FALSE, ctrl := FALSE, alt := FALSE]",
+    # bug-699 gave `io::Key` enum fields (`key`, `event`), so it has no default.
+    "io::Key": 'io::Key[key := io::KeyName.Unicode, grapheme := "a", event := io::KeyEvent.Press, shift := FALSE, ctrl := FALSE, alt := FALSE, meta := FALSE]',
+    "term::MouseEvent":"term::MouseEvent[kind := term::MouseKind.None, button := term::MouseButton.None, row := 1, column := 1, shift := FALSE, ctrl := FALSE, alt := FALSE]",
     # The canvas records that hold an enum or a `canvas::Paint` (`canvas::fill`).
     "canvas::Paint": "canvas::fill(color::fromName(\"red\"))",
     "canvas::FrameStats": "canvas::FrameStats[dt := 0.0, pps := 0.0, fps := 0.0, displayHz := 0.0, frameSeconds := 0.0, presents := 0, frames := 0, renderer := canvas::Renderer.Software]",
