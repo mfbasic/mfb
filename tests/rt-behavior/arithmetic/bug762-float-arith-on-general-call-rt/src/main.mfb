@@ -1,0 +1,27 @@
+' bug-762: Float arithmetic whose operand is a bare `general` builtin call with an
+' argument-computed return (`toFloat(len(xs))`) must build and raise. The
+' module-wide pre-pass that registers the Float error messages could not type
+' `len(xs)` (the registry's qualified-name lookup never sees a bare name), so it
+' registered nothing and lowering failed with "native code string literal
+' 'Floating-point arithmetic overflowed to infinity.' has no data object". Keep
+' every Float operation in this module in that shape: any plainly typed one
+' (a `-1.0` literal, a Float local times a Float local) registers the messages
+' for the whole module and masks the bug.
+IMPORT io
+
+FUNC half(times AS List OF Integer) AS Float
+  RETURN toFloat(len(times)) / 2.0
+END FUNC
+
+FUNC scaled(times AS List OF Integer, k AS Float) AS Float
+  RETURN toFloat(len(times)) * k
+END FUNC
+
+FUNC main() AS Nothing
+  io::print(toString(half([5, 7]), toByte(6)))
+  LET r AS Float = scaled([1, 2], 1.0e308) TRAP(e)
+    io::print("len * k: raised " & toString(e.code))
+    RECOVER 0.0
+  END TRAP
+  io::print("len * k = " & toString(r))
+END FUNC

@@ -1,0 +1,27 @@
+{
+  "project": "bug762_float_arith_on_runtime_call_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "os", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "os.args", "arguments": [] }] }] }, "right": { "kind": "number", "value": "2.0" } }] }] }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

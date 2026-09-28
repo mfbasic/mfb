@@ -1,0 +1,10 @@
+' bug-762: a Float operation whose operand reaches NIR through a runtime-helper
+' call (`os::args()` lowers to a `RuntimeCall`) must still register the Float
+' error messages. Keep it the only Float operation here (see
+' bug762-float-arith-on-general-call-rt for why).
+IMPORT io
+IMPORT os
+
+FUNC main() AS Nothing
+  io::print(toString(toFloat(len(os::args())) * 2.0))
+END FUNC

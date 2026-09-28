@@ -1,0 +1,30 @@
+{
+  "project": "bug762_money_times_collection_sum_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Money", "value": { "kind": "number", "value": "2.50" }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.0" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Money", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "m" }, "right": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "identifier", "value": "xs" }] } }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r" }] }] }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

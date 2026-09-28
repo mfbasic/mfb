@@ -1,0 +1,18 @@
+' bug-762: a Float operation over a user function's result (`f(2) * a`) must
+' register the Float error messages; the pre-pass now types the call by the
+' function's declared return. `f` is recursive so the call survives to codegen
+' (a leaf is inlined into a constant). Keep it the only Float operation here
+' (see bug762-float-arith-on-general-call-rt for why).
+IMPORT io
+
+FUNC f(n AS Integer) AS Float
+  IF n <= 0 THEN
+    RETURN 3.0
+  END IF
+  RETURN f(n - 1)
+END FUNC
+
+FUNC main() AS Nothing
+  LET a AS Float = 1.5
+  io::print(toString(f(2) * a))
+END FUNC

@@ -1,0 +1,55 @@
+{
+  "project": "bug762_float_arith_on_closure_call_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "apply",
+      "line": 8,
+      "params": [
+      { "name": "g", "type": "FUNC(Float) AS Float", "default": null, "line": 8 },
+      { "name": "a", "type": "Float", "default": null, "line": 8 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "g", "arguments": [{ "kind": "identifier", "value": "a" }] }, "right": { "kind": "identifier", "value": "a" } }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "ident",
+      "line": 12,
+      "params": [
+      { "name": "x", "type": "Float", "default": null, "line": 12 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "identifier", "value": "ident" }, { "kind": "number", "value": "1.5" }] }] }] }, "line": 17 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "project": "bug762_float_arith_on_general_call_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "half",
+      "line": 12,
+      "params": [
+      { "name": "times", "type": "List OF Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "/", "left": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "times" }] }] }, "right": { "kind": "number", "value": "2.0" } }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "scaled",
+      "line": 16,
+      "params": [
+      { "name": "times", "type": "List OF Integer", "default": null, "line": 16 },
+      { "name": "k", "type": "Float", "default": null, "line": 16 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "times" }] }] }, "right": { "kind": "identifier", "value": "k" } }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "half", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "7" }] }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "6" }] }] }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Float", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 22,
+        "expression": { "kind": "call", "callee": "scaled", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "1.0e308" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len * k: raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 23 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0.0" }, "line": 24 }
+        ]
+      }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len * k = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r" }] } }] }, "line": 26 }
+      ]
+    }
+    ]
+  }
+  ]
+}

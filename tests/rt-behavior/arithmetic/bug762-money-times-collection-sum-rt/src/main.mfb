@@ -1,0 +1,15 @@
+' bug-762: `Money * collections::sum(xs)` over a `List OF Float` consumes a
+' Float into Money, which fails with ErrInvalidFormat on a non-finite operand,
+' so the module must register that message. The pre-pass's hand-typed table
+' has no entry for `collections::sum`, so it registered nothing and lowering
+' failed with "has no data object". Nothing else in this module may register
+' the message (no `toFloat`/`toMoney`).
+IMPORT io
+IMPORT collections
+
+FUNC main() AS Nothing
+  LET m AS Money = 2.50
+  LET xs AS List OF Float = [1.5, 2.0]
+  LET r AS Money = m * collections::sum(xs)
+  io::print(toString(r))
+END FUNC

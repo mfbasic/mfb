@@ -1,0 +1,28 @@
+{
+  "project": "bug762_float_arith_on_overloaded_builtin_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "math", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Float", "value": { "kind": "number", "value": "1.5" }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "identifier", "value": "a" }] }, "right": { "kind": "identifier", "value": "a" } }] }] }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

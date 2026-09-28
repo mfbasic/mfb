@@ -1,0 +1,12 @@
+' bug-762: a Float operation over an OVERLOADED qualified builtin
+' (`math::abs(a)`, whose return depends on its argument) must register the
+' Float error messages. The pre-pass typed such a call only by its static
+' nominal return, which an overloaded member does not have. Keep it the only
+' Float operation here (see bug762-float-arith-on-general-call-rt for why).
+IMPORT io
+IMPORT math
+
+FUNC main() AS Nothing
+  LET a AS Float = 1.5
+  io::print(toString(math::abs(a) * a))
+END FUNC

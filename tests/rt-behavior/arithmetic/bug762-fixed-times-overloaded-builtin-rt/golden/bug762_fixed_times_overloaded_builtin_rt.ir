@@ -1,0 +1,91 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug762_fixed_times_overloaded_builtin_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": false, "name": "q", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.5" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "x", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "r", "type": "Fixed", "value": { "kind": "binary", "type": "Fixed", "op": "*", "left": { "kind": "local", "name": "q" }, "right": { "kind": "call", "type": "Float", "target": "math.abs", "args": [{ "kind": "local", "name": "x" }] } } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r" }] }] } }
+    ]
+  }
+  ]
+}

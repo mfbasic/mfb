@@ -1,0 +1,18 @@
+' bug-762: a Float operation over a call through a function-valued parameter
+' (`g(a) * a` for `g AS FUNC(Float) AS Float`) must register the Float error
+' messages; the pre-pass now types the call by the `FUNC` type's return. Keep
+' it the only Float operation here (see bug762-float-arith-on-general-call-rt
+' for why).
+IMPORT io
+
+FUNC apply(g AS FUNC(Float) AS Float, a AS Float) AS Float
+  RETURN g(a) * a
+END FUNC
+
+FUNC ident(x AS Float) AS Float
+  RETURN x
+END FUNC
+
+FUNC main() AS Nothing
+  io::print(toString(apply(ident, 1.5)))
+END FUNC

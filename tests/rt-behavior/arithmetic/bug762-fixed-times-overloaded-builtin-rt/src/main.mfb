@@ -1,0 +1,15 @@
+' bug-762: a Float operand promoted into Fixed can fail with ErrInvalidFormat,
+' so `q * math::abs(x)` must register that message. The pre-pass's hand-typed
+' table has no entry for an overloaded builtin, so it registered nothing and
+' lowering failed with "native code string literal 'Text parse or non-finite
+' numeric representation conversion failed.' has no data object". Nothing
+' else in this module may register the message (no `toFloat`/`toFixed`).
+IMPORT io
+IMPORT math
+
+FUNC main() AS Nothing
+  LET q AS Fixed = 2.5
+  LET x AS Float = 1.5
+  LET r AS Fixed = q * math::abs(x)
+  io::print(toString(r))
+END FUNC

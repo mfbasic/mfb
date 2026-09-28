@@ -1,0 +1,40 @@
+{
+  "project": "bug762_float_negate_general_call_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "neg",
+      "line": 7,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 7 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }] } }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "neg", "arguments": [{ "kind": "string", "value": "abc" }] }] }] }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}
