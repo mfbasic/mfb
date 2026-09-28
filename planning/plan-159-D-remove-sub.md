@@ -334,7 +334,7 @@ Acceptance: no `SUB` left in the docs, the citations resolve, and the man pages 
   Result (2026-09-27): `rg` → 0; citations `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`;
   links `993 unresolved=0`; man `unclassified memory-vocabulary hits: 0`; `spec` tests: see
   the final gate.
-Commit: — (recorded in the next commit)
+Commit: b8d588905
 
 ## Validation Plan
 
@@ -345,6 +345,12 @@ Commit: — (recorded in the next commit)
   path.
 - Runtime proof: `mfb init /tmp/p159-final && mfb run /tmp/p159-final` → runs;
   `mfb run examples/<one example that had SUBs>` → the same output as before B.
+  Result (2026-09-27, merged tree): `mfb init` → `mfb build` → `Hello World`, exit 0 (there
+  is no `mfb run`); the same project rewritten to `SUB main()` → two
+  `MFB_PARSE_UNEXPECTED_STATEMENT`. `examples/brogue` (19 SUB lines at the base, 0 now),
+  plan-base compiler + sources vs final compiler + sources (`/tmp/p159/brogue-cmp.sh`):
+  `rng 12345 20`, `dig 12345 3`, `dig 777 1` → IDENTICAL output and exit codes.
+  `cargo test --release --test rt_nothing_func_value_position` → `13 passed; 0 failed`.
 - Doc sync: the spec (all 33 files), the man topics, `diagnostics/01_rule-codes.md`,
   and the editor README.
 - **Final gate (run ONCE, after Phase 3):** `cargo test --no-fail-fast` (est. 40 min;
@@ -352,6 +358,14 @@ Commit: — (recorded in the next commit)
   `bash scripts/artifact-gate.sh target/release/mfb all` → 0 unexpected diffs (est.
   20 min). Before calling it green, check that every diff is in the predicted set
   (`.nir` initializer kind), and fix anything else.
+  Result (2026-09-27, after merging main 241861298 and `cargo fmt`): `cargo test
+  --no-fail-fast` → 259 test binaries, `6387 passed; 2 failed; 8 ignored`. The 2 were
+  `the_syntax_corpus_{reproduces_its_goldens_in_process,still_reaches_every_rule_it_used_to}`
+  — the corpus list still named the renamed/deleted fixtures and its rule floor counted
+  the three retired rules; fixed in `a52f3a23b` (floor 77→74 proven by diffing the reached
+  sets: exactly the three retired rules) and both re-run → pass. `artifact_gate_all` (inside
+  the suite) → `2182 golden(s) checked, 0 diff(s)`. Whole-tree `test-accept.sh` on the
+  merged tree → `acceptance tests passed (1571 test(s) ran)`.
 
 ## Open Decisions
 
