@@ -232,12 +232,21 @@ fn a_construction_store_copies_an_aliased_source_once_and_a_fresh_value_never() 
         "b=1 xs=1 c=1 ys=1 a=1",
         "the copy-count probe's values"
     );
-    let ncode = common::build_ncode(&project, "macos-aarch64", "p134e_copy_count");
+    // At `-O0` the copy insertion alone decides: three stores of `a`, each read after.
+    let ncode = common::build_ncode_opt(&project, "macos-aarch64", "p134e_copy_count", "0");
     let copies = count_calls(&ncode, "_mfb_fn_main", "_mfb_thread_copy_", "branch26");
     assert_eq!(
         copies, 3,
         "plan-134-E: `main` copies `a` at its three reads-after stores and never copies the fresh \
          constructor appended to `ys`"
+    );
+    // At the default level plan-149's place copy forwarding deletes `LET c = a` (`a` is
+    // never written, `c` only read), so `c.tag` reads `a.tag` and that store's copy goes.
+    let ncode = common::build_ncode_opt(&project, "macos-aarch64", "p134e_copy_count", "1");
+    let copies = count_calls(&ncode, "_mfb_fn_main", "_mfb_thread_copy_", "branch26");
+    assert_eq!(
+        copies, 2,
+        "plan-149: at -O1 `LET c = a` is forwarded, leaving the list-literal and append copies"
     );
     let _ = std::fs::remove_dir_all(&project);
 }

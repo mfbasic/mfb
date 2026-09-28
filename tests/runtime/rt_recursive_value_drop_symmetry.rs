@@ -26,12 +26,17 @@ use std::process::Command;
 
 const HOOK_ENV: &str = "MFB_TEST_GRAPH_DROP";
 
-/// Build `source` with `--debug`, the hook naming `hook` (or unset), and return the
-/// executable (the host libc's on Linux).
+/// Build `source` with `--debug` at `-O0`, the hook naming `hook` (or unset), and return
+/// the executable (the host libc's on Linux).
+///
+/// `-O0` because the hook's instrument is a copy: `LET probe AS Node = cur` exists only to
+/// be deep-copied and dropped. At the default level plan-149's place copy forwarding
+/// deletes exactly such a binding (`probe` is read, `cur` never written after), so the
+/// hook would have nothing to copy. The drop walker under test is the same at every level.
 fn build(name: &str, source: &str, hook: Option<&str>) -> PathBuf {
     let project = common::temp_project(name, source);
     let mut command = Command::new(common::mfb_exe());
-    command.arg("build").arg("--debug").arg(&project);
+    command.arg("build").arg("--debug").arg("-O0").arg(&project);
     match hook {
         Some(locals) => command.env(HOOK_ENV, locals),
         None => command.env_remove(HOOK_ENV),
