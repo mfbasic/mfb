@@ -8,11 +8,15 @@ Depends on: plan-163-A (see Prerequisites)
 split rule needs medium/large units. It was written as one letter because it was asked
 for as one. Before Phase 1 starts, split it along the phase boundaries below:
 
-1. B: caps on `Paint`, Square cap, joins (Phases 1–4).
-2. C: dashes (Phases 5–6).
-
-The docs phase goes with whichever letter lands last. Phase numbering here is the
-implementation order either way.
+1. B: caps on `Paint`, Square cap, joins (Phases 1–4, plus the Phase 7 doc work for
+   them).
+2. **D**: dashes (Phases 5–6, plus their docs). Not C: plan-163-C (path clipping,
+   `transparency`, picture tint) was written after this letter and lands between B and
+   D. When splitting, D takes the dash-only parts of §7's layout growth
+   (`DASH_COUNT`/`DASH_OFFSET` header slots, `dashBase`/`dashCount` block words). B
+   grows the header only by `JOIN_COUNT` and keeps the new `strokeStyle` `ivec4` with
+   its two dash words unwritten until D. Each letter's Phase 1 re-derives its slot
+   numbers from the letter before it.
 
 SVG strokes are styled by `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`,
 `stroke-dasharray` and `stroke-dashoffset`. Canvas has a per-item `cap` on `Line`,
@@ -63,7 +67,7 @@ References:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-163-A complete and archived | `ls planning/completed/plan-163-A-*` → match | NOT MET (2026-09-27: A is not started) |
-| This letter has been split into B and C per the note above | `ls planning/plan-163-C-*` → match | NOT MET |
+| This letter has been split into B and D per the note above | `ls planning/plan-163-D-*` → match | NOT MET |
 
 Everything below is written against the world where A has landed:
 `Polygon.contours`, `Polygon.rule`, header slot 21 = rule, and item word `arc.y` = rule

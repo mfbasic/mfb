@@ -12,8 +12,10 @@ implementation order:
 | Letter | Delivers | Effort |
 |---|---|---|
 | **A** (this) | `Polygon.points` → `Polygon.contours` (several closed rings in one item) and a new `Polygon.rule AS canvas::FillRule` (`EvenOdd` / `NonZero`), in the software oracle, Metal and Vulkan | large |
-| B | Stroke styling on `canvas::Paint`: `cap` moves off Line/Arc/PolyLine, `Square` cap, `JoinStyle` + `miterLimit`, `dashes` + `dashOffset` (`plan-163-B-stroke-styling.md`; to be split B/C before it starts) | x-large |
-| C… | Not yet scoped (to be added) | — |
+| B | Stroke styling on `canvas::Paint`: `cap` moves off Line/Arc/PolyLine, `Square` cap, `JoinStyle` + `miterLimit` (`plan-163-B-stroke-styling.md`; its dash phases split out to D before it starts) | large |
+| C | Path clipping (`Paint.clip` as rings + `clipRule`, following the transform and group offset; `canvas::Bounds` removed), `Paint.transparency` (0 = opaque), picture tint = fill colour with alpha as tint strength (`plan-163-C-clip-path-transparency.md`) | large |
+| D | Dashes (`dashes` + `dashOffset`), split out of B | large |
+| E… | Not yet scoped (to be added) | — |
 
 Today a `canvas::Polygon` is one closed ring of points. That means it cannot draw a
 shape with a hole (an "O", a donut) or a shape whose outline is made of several
