@@ -197,6 +197,22 @@ const DIB_RGB_COLORS: &str = "0";
 /// "retrievable in canvas mode, released after exit" observable, and is where
 /// plan-98-F reads the handle from.
 const CANVAS_HWND_SYM: &str = "_mfb_winapp_canvas_hwnd";
+/// bug-688 V6: writable 8-byte global, the child window the Vulkan swapchain presents
+/// to (0 until canvas mode is first entered). A `STATIC` control: it answers
+/// `WM_NCHITTEST` with `HTTRANSPARENT` and never takes focus, so the mouse and the
+/// keyboard still reach this window's procedure. Created hidden and kept at the client
+/// size; shown by [`WM_APP_CANVAS_SHOW`] and hidden by a readback frame's
+/// [`WM_APP_BLIT`] and by every reconcile out of canvas mode — the renderer module
+/// (`vulkan_present.rs`) says why the swapchain cannot present to this window itself.
+const CANVAS_CHILD_SYM: &str = crate::codegen::runtime::canvas::vulkan::CANVAS_CHILD_SYMBOL;
+/// bug-688 V6: posted by the renderer after each directly presented frame.
+const WM_APP_CANVAS_SHOW: &str = crate::codegen::runtime::canvas::vulkan::WM_APP_CANVAS_SHOW;
+/// `L"STATIC"`, the canvas child window's class.
+const STATIC_CLASS_SYM: &str = "_mfb_winapp_static_class";
+/// `WS_CHILD`, without `WS_VISIBLE`: the canvas child is created hidden.
+const WS_CHILD: &str = "1073741824"; // 0x40000000
+/// `SW_SHOWNA`: show without activating, so focus stays with the top-level window.
+const SW_SHOWNA: &str = "8";
 /// plan-155-A: the `HMONITOR` the display rate was last published for. A platform
 /// static rather than a graphics-state word: only the UI thread reads or writes it,
 /// and it exists so `WM_MOVE` — sent on every move — costs one `MonitorFromWindow`
@@ -1233,6 +1249,9 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
+/// bug-758: the label the WndProc's mouse arms start at.
+const WND_CHECK_MOUSE: &str = "wnd_check_mouse";
+
 fn emit_wndproc(
     uses_canvas: bool,
     uses_mouse: bool,
@@ -1603,6 +1622,10 @@ fn emit_wndproc(
         ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
         ins.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
         ins.push(abi::branch_eq("wnd_default")); // not in canvas mode → unchanged
+                                                 // bug-688 V6: the swapchain's child window follows the client area, and before
+                                                 // the new size is published — a frame rendered at the new size into a child
+                                                 // still at the old one would decline to readback for nothing.
+        emit_canvas_child_resize(from, H3, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), H3));
         ins.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "65535"));
         ins.push(abi::and_registers(
@@ -1745,7 +1768,16 @@ fn emit_wndproc(
     // opaquely, so erasing to the class background first would only produce a flash.
     ins.push(abi::label("wnd_check_blit"));
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_BLIT));
-    ins.push(abi::branch_ne("wnd_check_reconcile"));
+    ins.push(abi::branch_ne(if uses_canvas {
+        "wnd_check_canvas_show"
+    } else {
+        "wnd_check_reconcile"
+    }));
+    // bug-688 V6: a readback frame is the newest, so the swapchain's child comes down
+    // and this window paints the frame.
+    if uses_canvas {
+        emit_canvas_child_hide(from, "wnd_blit_child", &mut ins, &mut rel);
+    }
     load_addr(abi::mfb_arg(3), CANVAS_FRAME_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(3), 0)); // previous block
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
@@ -1768,6 +1800,31 @@ fn emit_wndproc(
     ins.push(abi::add_stack(frame));
     ins.push(abi::return_());
 
+    // ---- bug-688 V6: WM_APP_CANVAS_SHOW — a frame was presented to the child ----
+    //
+    // Shown only while canvas mode is still on: the renderer may present one more
+    // frame after the reconcile out of canvas mode ran, and its request must not bring
+    // the child back over the transcript.
+    if uses_canvas {
+        ins.push(abi::label("wnd_check_canvas_show"));
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_CANVAS_SHOW));
+        ins.push(abi::branch_ne("wnd_check_reconcile"));
+        load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("wnd_canvas_show_done"));
+        load_addr(abi::mfb_arg(0), CANVAS_CHILD_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("wnd_canvas_show_done"));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOWNA));
+        call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+        ins.push(abi::label("wnd_canvas_show_done"));
+        ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+        ins.push(abi::add_stack(frame));
+        ins.push(abi::return_());
+    }
+
     ins.push(abi::label("wnd_check_reconcile"));
     // The `app` window members' sync request, ahead of the reconcile test.
     if uses_window {
@@ -1781,7 +1838,13 @@ fn emit_wndproc(
         );
     }
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
-    ins.push(abi::branch_ne("wnd_default"));
+    // bug-758: the last test of the dispatch chain, so a message it does not match
+    // goes on to the mouse arms when there are any — not straight to the default.
+    ins.push(abi::branch_ne(if uses_mouse {
+        WND_CHECK_MOUSE
+    } else {
+        "wnd_default"
+    }));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "2"));
     ins.push(abi::branch_eq("wnd_reconcile_canvas"));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
@@ -1805,6 +1868,10 @@ fn emit_wndproc(
     // visible control is a no-op.
     load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    // bug-688 V6: the swapchain's child comes down with the canvas.
+    if uses_canvas {
+        emit_canvas_child_hide(from, "wnd_console_child", &mut ins, &mut rel);
+    }
     load_addr(
         abi::mfb_arg(0),
         EDIT_HWND_SAVED_SYM,
@@ -1862,6 +1929,44 @@ fn emit_wndproc(
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "1"));
         call_internal(from, DISPLAY_RATE_SYMBOL, &mut ins, &mut rel);
+        // bug-688 V6: the swapchain's child window, made (hidden) on the first entry and
+        // fitted to the client area on every one — `WM_SIZE` only moves it while canvas
+        // mode is on, so a resize made in `Console` has not reached it.
+        emit_canvas_child_fit(from, H0, BMI, &mut ins, &mut rel);
+        // bug-688 V6: and publish the client size as the canvas size. `WM_SIZE` only
+        // publishes while canvas mode is on, and the one `CreateWindowExW` sends comes
+        // before it — so without this a windowed program drew its first canvas frames
+        // at the 900x640 default into a 384x261 client (box 206, the default 400x300
+        // window) until something resized the window, and those frames could never
+        // present directly because the surface was not the canvas size. The same
+        // publish-then-signal pair as `WM_SIZE`; `GetClientRect` left the size in the
+        // `RECT` at `BMI` (right, bottom), and a zero-sized (minimised) client is
+        // skipped for the same reason `WM_SIZE` skips it.
+        ins.push(abi::load_u32(
+            abi::SCRATCH[2],
+            abi::stack_pointer(),
+            BMI + 8,
+        ));
+        ins.push(abi::load_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            BMI + 12,
+        ));
+        ins.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
+        ins.push(abi::branch_le("wnd_canvas_entry_sized"));
+        ins.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+        ins.push(abi::branch_le("wnd_canvas_entry_sized"));
+        crate::codegen::runtime::canvas::emit_publish_surface_size_tagged(
+            from,
+            "_canvas_entry",
+            abi::SCRATCH[0],
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            &mut ins,
+            &mut rel,
+        );
+        call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+        ins.push(abi::label("wnd_canvas_entry_sized"));
     }
     // A title or fullscreen request made while windowless lands now.
     if uses_window {
@@ -1875,6 +1980,10 @@ fn emit_wndproc(
     ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
     load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    // bug-688 V6: the swapchain's child comes down with the canvas.
+    if uses_canvas {
+        emit_canvas_child_hide(from, "wnd_none_child", &mut ins, &mut rel);
+    }
     load_addr(
         abi::mfb_arg(0),
         EDIT_HWND_SAVED_SYM,
@@ -1899,7 +2008,15 @@ fn emit_wndproc(
     // plan-94-E: the mouse arms. Placed last in the dispatch chain, so the
     // messages the window already handles keep their existing paths, and anything
     // that is not a mouse message falls through to `wnd_default` unchanged.
+    //
+    // bug-758: reached through `WND_CHECK_MOUSE`, which the reconcile test's
+    // no-match branch targets. As first written the arms followed
+    // `wnd_reconcile_done`'s return with no label and that branch went to
+    // `wnd_default`, so no mouse message ever reached them: on Windows neither
+    // `canvas::pollMouse` nor `term::pollMouse` ever reported an event (box 206,
+    // injected moves and clicks, at the plan-94-E code unchanged).
     if uses_mouse {
+        ins.push(abi::label(WND_CHECK_MOUSE));
         mouse::emit_mouse_arms(
             from,
             uses_canvas,
@@ -4736,22 +4853,137 @@ fn emit_term_sync(
     relocations.extend(rel);
 }
 
-/// plan-98-A Phase 3 (worker side): the `app::setMode` reconcile seam. `setMode`
-/// has already stored the new mode into the presentation slot; this reloads it and
-/// `SendMessageW`s `WM_APP_RECONCILE` to the main window, so the UI thread — which
-/// owns the window — performs the surface build/teardown.
-///
-/// `SendMessageW`, not `PostMessageW`: a cross-thread `SendMessageW` blocks until
-/// the owning thread's message pump dispatches it, so `setMode` returns only once
-/// the surface matches. That is required, not stylistic — the worker's next
-/// `getMode`/`io::` call must observe the reconciled surface, and it is the same
-/// synchronous contract macOS gets from `waitUntilDone:YES`.
-///
-/// A no-op when `MAIN_HWND_SYM` is 0. That is the headless case: `_main` takes the
-/// `headless_spawn` path, which builds no window and runs no message loop, so a
-/// `SendMessageW` would have no pump to dispatch it and would block the worker
-/// forever. Same shape, same reason, as the macOS marshal's nil-delegate skip.
-///
+/// bug-688 V6: `ShowWindow(child, SW_HIDE)` when the canvas child window exists.
+/// `tag` names the one label, so the helper can be emitted at several sites.
+fn emit_canvas_child_hide(
+    from: &str,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    let skip = format!("{tag}_hidden");
+    load_addr(abi::mfb_arg(0), CANVAS_CHILD_SYM, from, ins, rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq(&skip));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_HIDE));
+    call_external(from, "ShowWindow", USER32, ins, rel);
+    ins.push(abi::label(&skip));
+}
+
+/// bug-688 V6: `MoveWindow(child, 0, 0, LOWORD(lParam), HIWORD(lParam), FALSE)` for the
+/// `WM_SIZE` whose `lParam` is parked at `sp + lparam`. Clobbers the four argument
+/// registers only; the `WM_SIZE` arm reloads what it needs from the stack.
+fn emit_canvas_child_resize(
+    from: &str,
+    lparam: usize,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    load_addr(abi::mfb_arg(0), CANVAS_CHILD_SYM, from, ins, rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_size_child_done"));
+    ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), lparam));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
+    ins.push(abi::shift_right_immediate(
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+        16,
+    ));
+    ins.push(abi::and_registers(
+        abi::mfb_arg(2),
+        abi::mfb_arg(2),
+        abi::mfb_arg(1),
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // nHeight (5th)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // bRepaint (6th)
+    ins.push(abi::and_registers(
+        abi::mfb_arg(3),
+        abi::mfb_arg(3),
+        abi::mfb_arg(1),
+    )); // nWidth
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // X
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // Y
+    call_external(from, "MoveWindow", USER32, ins, rel);
+    ins.push(abi::label("wnd_size_child_done"));
+}
+
+/// bug-688 V6: create the canvas child window on the first canvas entry, hidden and at
+/// the client size; on later entries move it to the client size. `rect` is a free
+/// 16-byte `RECT` slot in the caller's frame, and the outgoing stack-argument area at
+/// `sp + 0x20..0x60` holds `CreateWindowExW`'s eight stack arguments.
+fn emit_canvas_child_fit(
+    from: &str,
+    hwnd: usize,
+    rect: usize,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    // GetClientRect(hwnd, &rect): left and top are 0, so right/bottom are the size.
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), hwnd));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        rect,
+    ));
+    call_external(from, "GetClientRect", USER32, ins, rel);
+    load_addr(abi::mfb_arg(0), CANVAS_CHILD_SYM, from, ins, rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_ne("wnd_canvas_child_move"));
+
+    // CreateWindowExW(0, L"STATIC", NULL, WS_CHILD, 0, 0, w, h, hwnd, 0, hInst, 0).
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
+    call_external(from, "GetModuleHandleW", KERNEL32, ins, rel);
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x50)); // hInstance
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20)); // x
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // y
+    ins.push(abi::load_u32(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        rect + 8,
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x30)); // width
+    ins.push(abi::load_u32(
+        abi::mfb_arg(2),
+        abi::stack_pointer(),
+        rect + 12,
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x38)); // height
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), hwnd));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x40)); // hWndParent
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // hMenu
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0")); // dwExStyle
+    load_addr(abi::mfb_arg(1), STATIC_CLASS_SYM, from, ins, rel);
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // lpWindowName
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", WS_CHILD));
+    call_external(from, "CreateWindowExW", USER32, ins, rel);
+    load_addr(abi::mfb_arg(1), CANVAS_CHILD_SYM, from, ins, rel);
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
+    ins.push(abi::branch("wnd_canvas_child_done"));
+
+    // MoveWindow(child, 0, 0, w, h, FALSE) — the child is in the first argument.
+    ins.push(abi::label("wnd_canvas_child_move"));
+    ins.push(abi::load_u32(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        rect + 12,
+    ));
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x20)); // nHeight
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // bRepaint
+    ins.push(abi::load_u32(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        rect + 8,
+    )); // nWidth
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
+    call_external(from, "MoveWindow", USER32, ins, rel);
+    ins.push(abi::label("wnd_canvas_child_done"));
+}
+
 /// plan-98-C Phase 3 (worker side): `_mfb_winapp_canvas_blit`.
 ///
 /// `mfb_arg(0)` = the frame's first pixel, `(1)` = width, `(2)` = height. Packs the
@@ -4924,6 +5156,22 @@ pub(super) fn emit_canvas_blit_seam(
     relocations.extend(rel);
 }
 
+/// plan-98-A Phase 3 (worker side): the `app::setMode` reconcile seam. `setMode`
+/// has already stored the new mode into the presentation slot; this reloads it and
+/// `SendMessageW`s `WM_APP_RECONCILE` to the main window, so the UI thread — which
+/// owns the window — performs the surface build/teardown.
+///
+/// `SendMessageW`, not `PostMessageW`: a cross-thread `SendMessageW` blocks until
+/// the owning thread's message pump dispatches it, so `setMode` returns only once
+/// the surface matches. That is required, not stylistic — the worker's next
+/// `getMode`/`io::` call must observe the reconciled surface, and it is the same
+/// synchronous contract macOS gets from `waitUntilDone:YES`.
+///
+/// A no-op when `MAIN_HWND_SYM` is 0. That is the headless case: `_main` takes the
+/// `headless_spawn` path, which builds no window and runs no message loop, so a
+/// `SendMessageW` would have no pump to dispatch it and would block the worker
+/// forever. Same shape, same reason, as the macOS marshal's nil-delegate skip.
+///
 /// Appended into the shared (vreg-lowered) `setMode` helper, so it names only the
 /// `mfb_arg` role tokens — never a physical register (plan-34-D), and never
 /// `c_arg`/`SCRATCH`, whose Win64 realizations alias the callee-saved bank.
@@ -5505,6 +5753,7 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
             value: "00".repeat(RESIZE_BUF_CHARS * 2),
         },
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
+        utf16z_data_object(STATIC_CLASS_SYM, "STATIC"),
         utf16z_data_object(CRLF_SYM, "\r\n"),
         utf16z_data_object(INPUT_ENV_SYM, "MFB_WINAPP_INPUT"),
         // Writable 8-byte globals (kind:"raw" → the writable data partition): the
@@ -5516,6 +5765,7 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
         // copy of the transcript EDIT HWND.
         writable_qword(CANVAS_HWND_SYM),
         writable_qword(CANVAS_FRAME_SYM),
+        writable_qword(CANVAS_CHILD_SYM),
         // plan-155-A: the monitor the display rate was last published for.
         writable_qword(DISPLAY_MONITOR_SYM),
         writable_qword(EDIT_HWND_SAVED_SYM),
@@ -6021,6 +6271,89 @@ mod canvas_reconcile_tests {
         f.relocations.iter().filter(|r| r.to == name).count()
     }
 
+    /// bug-758: the mouse arms are reachable — something branches to their entry
+    /// label. As first written (plan-94-E) they followed a `return` with no label,
+    /// and the dispatch chain's last no-match branch went to `DefWindowProcW`, so
+    /// no Windows mouse event was ever reported (box 206, injected input).
+    #[test]
+    fn the_mouse_arms_are_reachable_from_the_dispatch_chain() {
+        let mut spec = spec(PresentationMode::Console);
+        spec.uses_mouse = true;
+        let wndproc = emit_app_program_entry(&spec, &HashMap::new())
+            .expect("app entry")
+            .into_iter()
+            .find(|f| f.symbol == WNDPROC_SYMBOL)
+            .unwrap();
+        let mentions = |f: &CodeFunction| {
+            f.instructions
+                .iter()
+                .filter(|i| i.op != CodeOp::Label)
+                .filter(|i| {
+                    i.fields
+                        .iter()
+                        .any(|(_, v)| v.to_string() == WND_CHECK_MOUSE)
+                })
+                .count()
+        };
+        assert!(
+            wndproc.instructions.iter().any(|i| i.op == CodeOp::Label
+                && i.fields
+                    .iter()
+                    .any(|(_, v)| v.to_string() == WND_CHECK_MOUSE)),
+            "the mouse arms must start at a label"
+        );
+        assert!(
+            mentions(&wndproc) >= 1,
+            "some branch must reach the mouse arms"
+        );
+    }
+
+    /// bug-758: the mouse arms name only registers that stay distinct on x86-64.
+    /// `SCRATCH[0..=9]` realize to ten different registers, but `SCRATCH[10]` and up
+    /// wrap onto them (`map_scratch_register` is `POOL[(n - 9) % 11]` over `x9`-`x18`,
+    /// `x20`-`x28`), and `LOCAL[1]` is `x20` = `SCRATCH[0]`'s rbx. Every one of those
+    /// aliases corrupted a report: y read after lParam was overwritten, the button
+    /// code built in the register used as the mask, the report cursor reset by the
+    /// digit loop. `LOCAL[0]` (`x19` -> rbp) is the one extra register allowed.
+    #[test]
+    fn the_mouse_arms_use_only_distinct_x86_registers() {
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        mouse::emit_mouse_arms(
+            WNDPROC_SYMBOL,
+            true,
+            0x108,
+            0x68,
+            0x70,
+            0x78,
+            0x60,
+            "wnd_default",
+            &mut ins,
+            &mut rel,
+        );
+        let mut bad: Vec<String> = ins
+            .iter()
+            .flat_map(|i| i.fields.iter().map(|(_, v)| v.to_string()))
+            .filter(|v| {
+                let scratch_high = v
+                    .strip_prefix("%scratch")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .is_some_and(|n| n >= 10);
+                let local_other = v
+                    .strip_prefix("%local")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .is_some_and(|n| n != 0);
+                scratch_high || local_other
+            })
+            .collect();
+        bad.sort();
+        bad.dedup();
+        assert!(
+            bad.is_empty(),
+            "aliasing register tokens in the mouse arms: {bad:?}"
+        );
+    }
+
     fn compare_immediates(f: &CodeFunction) -> Vec<String> {
         f.instructions
             .iter()
@@ -6116,10 +6449,11 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            12,
-            "6 address loads — Canvas publishes, Console and None clear, WM_PAINT \
-             gates on it, WM_SIZE gates on it (plan-98-F Phase 3), and \
-             WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A) — each an adrp/add \
+            14,
+            "7 address loads — Canvas publishes, Console and None clear, WM_PAINT \
+             gates on it, WM_SIZE gates on it (plan-98-F Phase 3), \
+             WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A), and \
+             WM_APP_CANVAS_SHOW gates on it (bug-688 V6) — each an adrp/add \
              pair = 2 relocations"
         );
     }
@@ -6393,10 +6727,11 @@ mod canvas_reconcile_tests {
                 assert!(externals(find(MAIN_SYMBOL), env) > 0, "_main reads {env}");
             }
             assert!(fns.iter().any(|f| f.symbol == TERM_RESIZE_SYMBOL));
-            // The canvas half of WM_SIZE still runs after the term half.
+            // The canvas half of WM_SIZE still runs after the term half. (The second
+            // call is the canvas reconcile's publish of the client size, bug-688 V6.)
             assert_eq!(
                 externals(find(WNDPROC_SYMBOL), CANVAS_SIGNAL_REDRAW_SYMBOL),
-                usize::from(uses_canvas)
+                2 * usize::from(uses_canvas)
             );
         }
         let plain = emit_app_program_entry(&spec(PresentationMode::Console), &HashMap::new())
@@ -6595,6 +6930,27 @@ mod canvas_reconcile_tests {
         );
     }
 
+    /// bug-688 V6: the Vulkan swapchain's child window is touched by exactly these
+    /// arms: the readback blit hides it, `WM_APP_CANVAS_SHOW` shows it, the Console and
+    /// None reconciles hide it, `WM_SIZE` moves it, and the canvas reconcile loads it
+    /// and stores it once created. A program without canvas emits none of them — its
+    /// swapchain can never exist, and a stray `ShowWindow` would be dead weight.
+    #[test]
+    fn the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        assert_eq!(
+            externals(&wndproc, CANVAS_CHILD_SYM),
+            14,
+            "7 address loads — blit hides, show shows, Console and None hide, \
+             WM_SIZE moves, the canvas reconcile loads and stores — 2 relocations each"
+        );
+        let mut plain = spec(PresentationMode::Console);
+        plain.uses_canvas = false;
+        let fns = emit_app_program_entry(&plain, &HashMap::new()).expect("app entry");
+        let wndproc = fns.iter().find(|f| f.symbol == WNDPROC_SYMBOL).unwrap();
+        assert_eq!(externals(wndproc, CANVAS_CHILD_SYM), 0);
+    }
+
     /// bug-698: a resize is redraw trigger 2 (`.ai/canvas-threading.md` §4), signalled
     /// by the main thread on every platform. macOS (`setFrameSize:`) and GTK (the
     /// resize signal) signal after publishing; Windows' WM_SIZE published the size and
@@ -6605,8 +6961,9 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL),
-            1,
-            "the WM_SIZE arm must call canvas::signalRedraw after publishing the size"
+            2,
+            "the WM_SIZE arm and the canvas reconcile (bug-688 V6) must each call \
+             canvas::signalRedraw after publishing the size"
         );
     }
 }

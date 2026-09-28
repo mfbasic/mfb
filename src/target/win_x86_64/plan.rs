@@ -176,6 +176,9 @@ impl NativePlanPlatform for Platform {
             import("GetDC", USER32, "_main"),
             import("ReleaseDC", USER32, "_main"),
             import("ShowWindow", USER32, "_main"),
+            // bug-688 V6: the WndProc fits the canvas child window to the client.
+            import("GetClientRect", USER32, "_main"),
+            import("MoveWindow", USER32, "_main"),
             // plan-155-A: the refresh rate of the canvas window's monitor —
             // monitor handle, its device name, then that device's current mode.
             import("MonitorFromWindow", USER32, "_main"),
@@ -600,6 +603,7 @@ impl NativePlanPlatform for Platform {
             | "canvas.metalAvailable"
             | "canvas.vulkanReady"
             | "canvas.vulkanDrawScene"
+            | "canvas.vulkanPresentScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
             | "canvas.useGpu"
@@ -628,6 +632,10 @@ impl NativePlanPlatform for Platform {
                 // time the renderer grows.
                 import("LoadLibraryExA", KERNEL32, required_by),
                 import("GetProcAddress", KERNEL32, required_by),
+                // bug-688 V6: `vkCreateWin32SurfaceKHR` takes the module's HINSTANCE,
+                // and a direct present posts the child-window show request.
+                import("GetModuleHandleW", KERNEL32, required_by),
+                import("PostMessageW", "user32.dll", required_by),
             ],
             call if call.starts_with("thread.") => {
                 vec![

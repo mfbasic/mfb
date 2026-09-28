@@ -202,7 +202,7 @@ pub(crate) fn lower_vulkan_draw_scene(
         builder,
         ctx.platform,
         ctx.platform_imports,
-        &located[0],
+        Some(&located[0]),
         &located[1],
         &located[2],
         &located[3],
@@ -210,6 +210,68 @@ pub(crate) fn lower_vulkan_draw_scene(
         &located[5],
         &located[6],
         &located[7],
+    )?;
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+/// `canvas::vulkanPresentScene(width, height, geometry, offsets, glyphMeta,
+/// glyphCoverage, draws) AS Boolean` — bug-688 V6.
+///
+/// The Vulkan twin of `metalPresentScene`: the same render as `vulkanDrawScene`, into
+/// the canvas window's swapchain instead of a CPU surface, answering whether the frame
+/// reached the window. FALSE is not an error — headless (no window), no swapchain
+/// support, a window whose size differs from the canvas, or no image this frame — and
+/// `__canvas_renderVulkan` then renders the frame down the readback path. Only Windows
+/// has a present path; every other target answers FALSE without touching Vulkan.
+pub(crate) fn lower_vulkan_present_scene(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let mut located = Vec::new();
+    for (index, what) in [
+        "the width argument",
+        "the height argument",
+        "the geometry argument",
+        "the offsets argument",
+        "the glyph metadata argument",
+        "the glyph coverage argument",
+        "the draw list argument",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        located.push(
+            args.get(index)
+                .ok_or_else(|| format!("'{symbol}' expects {what}"))?
+                .location
+                .clone(),
+        );
+    }
+    emit_vulkan_draw_scene(
+        builder,
+        ctx.platform,
+        ctx.platform_imports,
+        None,
+        &located[0],
+        &located[1],
+        &located[2],
+        &located[3],
+        &located[4],
+        &located[5],
+        &located[6],
     )?;
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -252,6 +314,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::abi_function(lower_vulkan_draw_scene),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "vulkanPresentScene",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            // `vulkanDrawScene`'s parameters without the surface.
+            params: scene_params().into_iter().skip(1).collect(),
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_vulkan_present_scene),
         }],
     });
 }
