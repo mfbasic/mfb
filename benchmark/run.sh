@@ -53,7 +53,9 @@ c_srcs=("$here/c/main.c" "$here/c/listmatrix.c" "$here/c/mapbench.c" "$here/c/ma
         "$here/c/dispatchbench.c" "$here/c/cryptobench.c" \
         "$here/c/serializebench.c" "$here/c/setmatrix.c" \
         "$here/c/widthbench.c" "$here/c/pipelinebench.c" "$here/c/convertbench.c" \
-        "$here/c/recordbench.c" "$here/c/bigintbench.c" "$here/c/compressbench.c" "$here/c/elembench.c" "$here/c/closurebench.c" "$here/c/treebench.c" "$here/c/interpbench.c")
+        "$here/c/recordbench.c" "$here/c/bigintbench.c" "$here/c/compressbench.c" \
+        "$here/c/elembench.c" "$here/c/closurebench.c" "$here/c/treebench.c" \
+        "$here/c/interpbench.c")
 cc -O0 -o "$here/c/bench-O0.out" "${c_srcs[@]}" -lm -lpthread -lz
 cc -O2 -o "$here/c/bench-O2.out" "${c_srcs[@]}" -lm -lpthread -lz
 
@@ -84,9 +86,10 @@ echo
 echo "==> logs written (timestamp $ts):"
 for n in mfb-O1 mfb-O2 mfb-O3 c-O0 c-O2 python; do echo "    $here/${n}-${ts}.log"; done
 
-# Cross-validate the per-row checksums: every shared `test_<name>` key must
-# agree wherever the README claims bit-for-bit peers (mismatches are listed;
-# a few rows are documented approximations). Within one language the
+# Cross-validate the per-row checksums: every shared `<key> = <value>` line
+# must agree across languages, except the documented approximations in
+# APPROX (see "Coverage vs. throughput" in benchmark/README.md), which are
+# listed but not counted as mismatches. Within one language the
 # optimization levels (mfb -O1/-O2/-O3, c -O0/-O2) must ALWAYS agree — a
 # disagreement means the optimizer changed observable work, and is fatal.
 echo
@@ -97,11 +100,15 @@ python3 - "$here/mfb-O1-${ts}.sums" "$here/mfb-O2-${ts}.sums" \
 import re, sys
 names = ["mfb-O1", "mfb-O2", "mfb-O3", "c-O0", "c-O2", "python"]
 levels = {"mfb": ["mfb-O1", "mfb-O2", "mfb-O3"], "c": ["c-O0", "c-O2"]}
+# Rows whose peers are documented as approximating mfb's work (a different
+# PRNG, approximated grapheme/normalization counts, or a different Float
+# operation order), so their cross-language values are stable but not equal.
+APPROX = {"math_int", "vector_int", "vector_math", "string_unicode", "string_unibig"}
 maps = []
 for p in sys.argv[1:len(names) + 1]:
     m = {}
     for line in open(p, encoding="utf-8", errors="replace"):
-        mm = re.match(r"(test_\w+) = (-?\d+)\s*$", line)
+        mm = re.match(r"([A-Za-z_]\w*) = (\S.*?)\s*$", line)
         if mm:
             m[mm.group(1)] = mm.group(2)
     maps.append(m)
@@ -116,13 +123,12 @@ for k in shared:
             got = {vals[n] for n in lvls if n in vals}
             if len(got) > 1:
                 hard_bad.append("%s (%s)" % (k, lang))
-print("    %d checksum keys, %d shared across >=2 targets, %d mismatched"
-      % (len(keys), len(shared), len(bad)))
+approx = [(k, v) for k, v in bad if k in APPROX]
+bad = [(k, v) for k, v in bad if k not in APPROX]
+print("    %d checksum keys, %d shared across >=2 targets, %d mismatched,"
+      " %d documented approximations" % (len(keys), len(shared), len(bad), len(approx)))
 for k, vals in bad:
     print("    MISMATCH %s: %s" % (k, "  ".join("%s=%s" % nv for nv in vals.items())))
-if bad:
-    print("    (a few rows are documented approximations -- see"
-          " 'Coverage vs. throughput' in benchmark/README.md)")
 if hard_bad:
     print("ERROR: optimization levels of one language disagree (same source): "
           + ", ".join(hard_bad))

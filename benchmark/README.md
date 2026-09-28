@@ -155,10 +155,11 @@ mfb-O1-<ts>.log   mfb-O2-<ts>.log   mfb-O3-<ts>.log
 c-O0-<ts>.log     c-O2-<ts>.log     python-<ts>.log
 ```
 
-Each target's stderr (the per-row `test_<name> = <checksum>` lines) is captured
+Each target's stderr (the per-row `<key> = <checksum>` lines) is captured
 to a matching `<target>-<ts>.sums` file, and run.sh ends by cross-validating
-every checksum key shared between targets: mismatches are listed (a few rows
-are documented approximations — see below), and a disagreement between one
+every checksum key shared between targets: mismatches are listed, the documented
+approximations below (run.sh's `APPROX` set) are counted separately rather than
+as mismatches, and a disagreement between one
 language's optimization levels (mfb -O1/-O2/-O3, c -O0/-O2) is fatal, because
 those are the same source and a divergence means the optimizer changed the
 observable work.
@@ -257,7 +258,10 @@ Python `record(group, name, None)` does.
   `math int` and `vector int` rows use a self-contained deterministic generator
   where mfb uses its PCG, and the `string unicode`/`string unibig`
   grapheme/normalization counts are approximated in C/Python, so those checksums
-  are stable but not expected to match mfb bit-for-bit.
+  are stable but not expected to match mfb bit-for-bit. `vector math` agrees to
+  ~1e-12 relative, not bit-for-bit: the C/Python peers compose the Float3 ops
+  as scalar component math in their own operation order (`c/vectorbench.c`
+  header). These five keys form run.sh's `APPROX` set.
 - **`mathpipe finance`** — a `Money` running-balance calc — is mfb-only, like the
   `Fixed` rows (C/Python have no exact base-10 decimal type). It marks `Money` as
   a tracked feature.
