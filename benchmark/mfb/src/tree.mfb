@@ -1,0 +1,141 @@
+' Recursive-union tree benchmarks. Group `tree`.
+'
+' A recursive UNION (a member TYPE whose fields hold the union itself, spec
+' §4.3 / §14.5) is the idiomatic MFBASIC tree: each child edge is an owned
+' node, built by construction and taken apart with MATCH. The `dispatch union`
+' row walks a tree flattened into a `List OF Expr` by index; these rows exercise
+' the real owned-node representation instead. Two rows:
+'   binarytrees  the Benchmarks Game binary-trees shape: a stretch tree, one
+'                long-lived tree, and many short-lived trees at depths
+'                4..MAXD step 2, each built recursively, checked (node count via
+'                MATCH), then dropped. Allocation + drop throughput of owned
+'                recursive nodes. checksum = the sum of every tree's check.
+'   treewalk     one weighted tree built once (untimed), then walked many times
+'                with MATCH computing a depth-weighted sum. Pure recursive
+'                MATCH-dispatch read throughput over owned nodes.
+'
+' The C peer (treebench.c) uses malloc'd struct nodes (freed), the Python peer
+' (treebench.py) tuples; all three produce identical checksums.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+IMPORT bits
+
+' ---- binarytrees: payload-free recursive union -------------------------------
+
+TYPE BLeaf
+END TYPE
+
+TYPE BNode
+  left AS BTree
+  right AS BTree
+END TYPE
+
+UNION BTree
+  BLeaf
+  BNode
+END UNION
+
+' A perfect tree of the given depth: 2^(depth+1) - 1 nodes, BLeaf at depth 0.
+FUNC bottomUpTree(depth AS Integer) AS BTree
+  IF depth <= 0 THEN
+    RETURN BLeaf[]
+  END IF
+  RETURN BNode[left := bottomUpTree(depth - 1), right := bottomUpTree(depth - 1)]
+END FUNC
+
+' The Benchmarks Game "check": the number of nodes in the tree.
+FUNC itemCheck(t AS BTree) AS Integer
+  MATCH t
+    CASE BLeaf(l)
+      RETURN 1
+    CASE BNode(n)
+      RETURN 1 + itemCheck(n.left) + itemCheck(n.right)
+  END MATCH
+END FUNC
+
+FUNC binaryTrees(maxDepth AS Integer) AS Integer
+  LET minDepth AS Integer = 4
+  MUT total AS Integer = itemCheck(bottomUpTree(maxDepth + 1))   ' stretch tree
+  LET longLived AS BTree = bottomUpTree(maxDepth)
+  FOR depth = minDepth TO maxDepth STEP 2
+    LET iterations AS Integer = bits::sl(1, maxDepth - depth + minDepth)
+    MUT check AS Integer = 0
+    FOR i = 1 TO iterations
+      check = check + itemCheck(bottomUpTree(depth))
+    NEXT
+    total = total + check
+  NEXT
+  RETURN total + itemCheck(longLived)
+END FUNC
+
+FUNC test_tree_binarytrees(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET maxDepth AS Integer = 12
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = binaryTrees(maxDepth)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_tree_binarytrees = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("tree", "binarytrees", times))
+END FUNC
+
+' ---- treewalk: weighted recursive union --------------------------------------
+
+TYPE WLeaf
+  value AS Integer
+END TYPE
+
+TYPE WNode
+  value AS Integer
+  left AS WTree
+  right AS WTree
+END TYPE
+
+UNION WTree
+  WLeaf
+  WNode
+END UNION
+
+' Heap-numbered perfect tree: node k has children 2k+1 / 2k+2; an internal node
+' weighs (k MOD 5) + 1, a leaf (k MOD 7) + 1.
+FUNC buildWeighted(depth AS Integer, k AS Integer) AS WTree
+  IF depth <= 0 THEN
+    RETURN WLeaf[value := (k MOD 7) + 1]
+  END IF
+  RETURN WNode[value := (k MOD 5) + 1, left := buildWeighted(depth - 1, 2 * k + 1), right := buildWeighted(depth - 1, 2 * k + 2)]
+END FUNC
+
+' Depth-weighted sum: every node contributes value * level. The starting level
+' varies per walk so no walk is loop-invariant (a C -O2 build would otherwise
+' hoist the constant walk out of the timed loop).
+FUNC walkWeighted(t AS WTree, level AS Integer) AS Integer
+  MATCH t
+    CASE WLeaf(l)
+      RETURN l.value * level
+    CASE WNode(n)
+      RETURN n.value * level + walkWeighted(n.left, level + 1) + walkWeighted(n.right, level + 1)
+  END MATCH
+END FUNC
+
+FUNC test_tree_treewalk(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET tree AS WTree = buildWeighted(16, 0)   ' 131071 nodes, built untimed
+  LET walks AS Integer = 50
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR w = 1 TO walks
+      acc = acc + walkWeighted(tree, w)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_tree_treewalk = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("tree", "treewalk", times))
+END FUNC

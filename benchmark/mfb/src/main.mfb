@@ -1610,6 +1610,9 @@ FUNC main(args AS List OF String) AS Integer
   ' closure group (closure.mfb) — P1 coverage: user HOF param / returned closure
   tests = test_closure_hof_param(run, tests)
   tests = test_closure_closure_ret(run, tests)
+  ' tree group (tree.mfb) — P1 coverage: recursive UNION build + MATCH walk
+  tests = test_tree_binarytrees(run, tests)
+  tests = test_tree_treewalk(run, tests)
 
   tests = test_primes(run, tests)
 

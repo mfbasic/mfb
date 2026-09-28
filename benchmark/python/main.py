@@ -49,6 +49,7 @@ import tempfile
 import threading
 import time
 import vectorbench
+import treebench
 import widthbench
 from math import (acos, asin, atan, atan2, cos, exp, log, log10, pow as mpow,
                   sin, sqrt, tan)
@@ -886,6 +887,8 @@ def main():
 
     # closure group (P1 coverage — user HOF param / returned closure)
     closurebench.run_all(RUN, now_ns, record)
+    # tree group (P1 recursive union — binarytrees/treewalk)
+    treebench.run_all(RUN, now_ns, record)
 
     test_primes()
 

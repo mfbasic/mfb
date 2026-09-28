@@ -50,6 +50,7 @@
 #include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
+#include "treebench.h"
 #include "widthbench.h"
 
 int RUN = 10;
@@ -774,6 +775,7 @@ int main(int argc, char **argv) {
   run_elem_group();
 
   run_closure_group();
+  run_tree_group();
 
   test_primes();
 
