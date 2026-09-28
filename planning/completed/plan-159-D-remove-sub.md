@@ -366,6 +366,10 @@ Commit: b8d588905
   sets: exactly the three retired rules) and both re-run → pass. `artifact_gate_all` (inside
   the suite) → `2182 golden(s) checked, 0 diff(s)`. Whole-tree `test-accept.sh` on the
   merged tree → `acceptance tests passed (1571 test(s) ran)`.
+  Re-run after merging main again (b0d24716f, bug-688/756, clean merge, no new SUB
+  sources): `cargo test --no-fail-fast` → 259 binaries, `6390 passed; 0 failed; 8
+  ignored`; `artifact_gate_all` → `2182 golden(s) checked, 0 diff(s)`; `test-accept.sh` →
+  `acceptance tests passed (1571 test(s) ran)`.
 
 ## Open Decisions
 
