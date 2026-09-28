@@ -1249,6 +1249,9 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
+/// bug-757: the label the WndProc's mouse arms start at.
+const WND_CHECK_MOUSE: &str = "wnd_check_mouse";
+
 fn emit_wndproc(
     uses_canvas: bool,
     uses_mouse: bool,
@@ -1835,7 +1838,13 @@ fn emit_wndproc(
         );
     }
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
-    ins.push(abi::branch_ne("wnd_default"));
+    // bug-757: the last test of the dispatch chain, so a message it does not match
+    // goes on to the mouse arms when there are any — not straight to the default.
+    ins.push(abi::branch_ne(if uses_mouse {
+        WND_CHECK_MOUSE
+    } else {
+        "wnd_default"
+    }));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "2"));
     ins.push(abi::branch_eq("wnd_reconcile_canvas"));
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
@@ -1999,7 +2008,15 @@ fn emit_wndproc(
     // plan-94-E: the mouse arms. Placed last in the dispatch chain, so the
     // messages the window already handles keep their existing paths, and anything
     // that is not a mouse message falls through to `wnd_default` unchanged.
+    //
+    // bug-757: reached through `WND_CHECK_MOUSE`, which the reconcile test's
+    // no-match branch targets. As first written the arms followed
+    // `wnd_reconcile_done`'s return with no label and that branch went to
+    // `wnd_default`, so no mouse message ever reached them: on Windows neither
+    // `canvas::pollMouse` nor `term::pollMouse` ever reported an event (box 206,
+    // injected moves and clicks, at the plan-94-E code unchanged).
     if uses_mouse {
+        ins.push(abi::label(WND_CHECK_MOUSE));
         mouse::emit_mouse_arms(
             from,
             uses_canvas,
@@ -6252,6 +6269,89 @@ mod canvas_reconcile_tests {
 
     fn externals(f: &CodeFunction, name: &str) -> usize {
         f.relocations.iter().filter(|r| r.to == name).count()
+    }
+
+    /// bug-757: the mouse arms are reachable — something branches to their entry
+    /// label. As first written (plan-94-E) they followed a `return` with no label,
+    /// and the dispatch chain's last no-match branch went to `DefWindowProcW`, so
+    /// no Windows mouse event was ever reported (box 206, injected input).
+    #[test]
+    fn the_mouse_arms_are_reachable_from_the_dispatch_chain() {
+        let mut spec = spec(PresentationMode::Console);
+        spec.uses_mouse = true;
+        let wndproc = emit_app_program_entry(&spec, &HashMap::new())
+            .expect("app entry")
+            .into_iter()
+            .find(|f| f.symbol == WNDPROC_SYMBOL)
+            .unwrap();
+        let mentions = |f: &CodeFunction| {
+            f.instructions
+                .iter()
+                .filter(|i| i.op != CodeOp::Label)
+                .filter(|i| {
+                    i.fields
+                        .iter()
+                        .any(|(_, v)| v.to_string() == WND_CHECK_MOUSE)
+                })
+                .count()
+        };
+        assert!(
+            wndproc.instructions.iter().any(|i| i.op == CodeOp::Label
+                && i.fields
+                    .iter()
+                    .any(|(_, v)| v.to_string() == WND_CHECK_MOUSE)),
+            "the mouse arms must start at a label"
+        );
+        assert!(
+            mentions(&wndproc) >= 1,
+            "some branch must reach the mouse arms"
+        );
+    }
+
+    /// bug-757: the mouse arms name only registers that stay distinct on x86-64.
+    /// `SCRATCH[0..=9]` realize to ten different registers, but `SCRATCH[10]` and up
+    /// wrap onto them (`map_scratch_register` is `POOL[(n - 9) % 11]` over `x9`-`x18`,
+    /// `x20`-`x28`), and `LOCAL[1]` is `x20` = `SCRATCH[0]`'s rbx. Every one of those
+    /// aliases corrupted a report: y read after lParam was overwritten, the button
+    /// code built in the register used as the mask, the report cursor reset by the
+    /// digit loop. `LOCAL[0]` (`x19` -> rbp) is the one extra register allowed.
+    #[test]
+    fn the_mouse_arms_use_only_distinct_x86_registers() {
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        mouse::emit_mouse_arms(
+            WNDPROC_SYMBOL,
+            true,
+            0x108,
+            0x68,
+            0x70,
+            0x78,
+            0x60,
+            "wnd_default",
+            &mut ins,
+            &mut rel,
+        );
+        let mut bad: Vec<String> = ins
+            .iter()
+            .flat_map(|i| i.fields.iter().map(|(_, v)| v.to_string()))
+            .filter(|v| {
+                let scratch_high = v
+                    .strip_prefix("%scratch")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .is_some_and(|n| n >= 10);
+                let local_other = v
+                    .strip_prefix("%local")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .is_some_and(|n| n != 0);
+                scratch_high || local_other
+            })
+            .collect();
+        bad.sort();
+        bad.dedup();
+        assert!(
+            bad.is_empty(),
+            "aliasing register tokens in the mouse arms: {bad:?}"
+        );
     }
 
     fn compare_immediates(f: &CodeFunction) -> Vec<String> {

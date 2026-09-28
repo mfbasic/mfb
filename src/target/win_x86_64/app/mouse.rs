@@ -232,13 +232,13 @@ fn emit_coordinates(
     // a drag outside the client area reports negative coordinates and the range
     // check below has to see them as negative.
     ins.push(abi::load_u64(
-        abi::LOCAL[1],
+        abi::SCRATCH[2],
         abi::stack_pointer(),
         lparam_slot,
     ));
     ins.push(abi::shift_left_immediate(
         abi::SCRATCH[0],
-        abi::LOCAL[1],
+        abi::SCRATCH[2],
         48,
     ));
     ins.push(abi::arithmetic_shift_right_immediate(
@@ -248,7 +248,7 @@ fn emit_coordinates(
     ));
     ins.push(abi::shift_left_immediate(
         abi::SCRATCH[1],
-        abi::LOCAL[1],
+        abi::SCRATCH[2],
         32,
     ));
     ins.push(abi::arithmetic_shift_right_immediate(
@@ -547,7 +547,7 @@ fn emit_modifiers(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
-    ins.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), off_code));
+    ins.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), off_code));
     for (mk_bit, sgr_bit, name) in [(MK_SHIFT, SGR_SHIFT, "sh"), (MK_CONTROL, SGR_CTRL, "ct")] {
         let skip = format!("{from}_mouse_mod_{tag}_{name}");
         ins.push(abi::load_u64(
@@ -573,8 +573,8 @@ fn emit_modifiers(
             &sgr_bit.to_string(),
         ));
         ins.push(abi::or_registers(
-            abi::LOCAL[1],
-            abi::LOCAL[1],
+            abi::LOCAL[0],
+            abi::LOCAL[0],
             abi::SCRATCH[0],
         ));
         ins.push(abi::label(&skip));
@@ -601,13 +601,13 @@ fn emit_modifiers(
         &SGR_ALT.to_string(),
     ));
     ins.push(abi::or_registers(
-        abi::LOCAL[1],
-        abi::LOCAL[1],
+        abi::LOCAL[0],
+        abi::LOCAL[0],
         abi::SCRATCH[0],
     ));
     ins.push(abi::label(&skip_alt));
     ins.push(abi::store_u64(
-        abi::LOCAL[1],
+        abi::LOCAL[0],
         abi::stack_pointer(),
         off_code,
     ));
@@ -637,45 +637,62 @@ fn emit_format_and_write(
         addr: abi::SCRATCH[5].into(),
         scratch_base: abi::SCRATCH[6].into(),
     };
+    // bug-757: every register here must be distinct on x86-64, and only TEN scratch
+    // indices are: `SCRATCH[0..=9]` realize to `x9`-`x18` -> rbx, rsi, rdi, r8, r9,
+    // r10, r11, r12, r13, rcx, while `SCRATCH[10]` is `x20` -> rbx again
+    // (`arch/x86_64/select.rs` `map_scratch_register`). The report was held in
+    // `SCRATCH[11]`/`SCRATCH[12]` (rbx/rsi — the digit loop's value and divisor), so
+    // every report came out as garbage the key reader delivered as keys. Now: the
+    // seven formatter registers are `SCRATCH[0..=6]`, the buffer `SCRATCH[7]`, x and y
+    // `SCRATCH[8]`/`[9]`, and the cursor `LOCAL[0]` (`x19` -> rbp, free once the gate's
+    // mode has been used). Two values need no register of their own:
+    // - the button code goes straight into `scratch.value`, the first thing the
+    //   decimal emitter copies its input into;
+    // - the terminator is written after the report is formatted, from its stack
+    //   slot over the byte the formatter wrote (it is handed `digit`, a don't-care).
     ins.push(abi::add_immediate(
         abi::SCRATCH[7],
         abi::stack_pointer(),
         off_report,
     ));
     ins.push(abi::load_u64(
-        abi::SCRATCH[8],
+        abi::SCRATCH[0],
         abi::stack_pointer(),
         off_code,
     ));
-    ins.push(abi::load_u64(abi::SCRATCH[9], abi::stack_pointer(), off_x));
-    ins.push(abi::load_u64(abi::SCRATCH[10], abi::stack_pointer(), off_y));
-    ins.push(abi::load_u64(
-        abi::SCRATCH[11],
-        abi::stack_pointer(),
-        off_terminator,
-    ));
+    ins.push(abi::load_u64(abi::SCRATCH[8], abi::stack_pointer(), off_x));
+    ins.push(abi::load_u64(abi::SCRATCH[9], abi::stack_pointer(), off_y));
     // One-based on the wire, in both units.
+    ins.push(abi::add_immediate(abi::SCRATCH[8], abi::SCRATCH[8], 1));
     ins.push(abi::add_immediate(abi::SCRATCH[9], abi::SCRATCH[9], 1));
-    ins.push(abi::add_immediate(abi::SCRATCH[10], abi::SCRATCH[10], 1));
     emit_format_report(
         &SgrReport {
-            button_code: abi::SCRATCH[8].into(),
-            x: abi::SCRATCH[9].into(),
-            y: abi::SCRATCH[10].into(),
-            terminator: abi::SCRATCH[11].into(),
+            button_code: abi::SCRATCH[0].into(),
+            x: abi::SCRATCH[8].into(),
+            y: abi::SCRATCH[9].into(),
+            terminator: abi::SCRATCH[3].into(),
         },
         &abi::SCRATCH[7].into(),
-        &abi::SCRATCH[12].into(),
+        &abi::LOCAL[0].into(),
         off_scratch,
         &format!("{from}_{tag}"),
         &scratch,
         ins,
     );
-    ins.push(abi::store_u64(
-        abi::SCRATCH[12],
+    // report[len - 1] = terminator.
+    ins.push(abi::load_u64(
+        abi::SCRATCH[3],
         abi::stack_pointer(),
-        off_len,
+        off_terminator,
     ));
+    ins.push(abi::add_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[7],
+        abi::LOCAL[0],
+    ));
+    ins.push(abi::subtract_immediate(abi::SCRATCH[5], abi::SCRATCH[5], 1));
+    ins.push(abi::store_u8(abi::SCRATCH[3], abi::SCRATCH[5], 0));
+    ins.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), off_len));
 
     // WriteFile(hWrite, report, len, NULL, NULL) — the same handle `editproc`
     // writes each WM_CHAR to, whose read end is dup2'd onto fd 0. Reusing it is
