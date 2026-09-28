@@ -148,28 +148,40 @@ pub(crate) fn static_nir_value_type(
             .zip(static_nir_value_type(right, locals, fields))
             .map(|(left_type, right_type)| promoted_binary_type(*op, &left_type, &right_type)),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
-        NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
-            let arg_types = args
-                .iter()
-                .map(|arg| static_nir_value_type(arg, locals, fields))
-                .collect::<Option<Vec<_>>>()?;
-            // plan-72-BB: the narrow `general`/`collections`/`strings` return-type
-            // resolution (the argument-computed types codegen needs) goes through
-            // the registry aggregate, gated to exactly that set so a broader
-            // package's computed return never widens this oracle (the aggregate is
-            // byte-identical to each package's own `resolve_call`). Other builtins
-            // fall through to the nominal `call_return_type_name`, as before.
-            // plan-104-C: the typed entry — no render/parse for `collections`
-            // (the bespoke `general`/`strings` resolvers keep their string pocket
-            // inside the twin); the nominal fallback parses a static descriptor
-            // name, a registry-literal boundary.
-            match builtins::builtin_package_name(target) {
-                Some("general" | "collections" | "strings") => {
-                    builtins::resolve_call_return_type_typed(target, &arg_types, false)
-                }
-                _ => None,
+        // bug-762: this oracle's one consumer is the Float-error-message pre-pass
+        // (`module_may_emit_float_numeric_error`, and the `ErrInvalidFormat`
+        // gate's fallback), and an under-typed call there is a hard build
+        // failure — "native code string literal '…' has no data object" — so a
+        // call types as precisely as the lowering will:
+        //
+        // * EVERY builtin resolves through the arg-typed registry resolver. It
+        //   was gated to `general`/`collections`/`strings` (plan-72-BB), and the
+        //   `general` arm was dead besides: `general` members are BARE names
+        //   (`len`), the registry's owner lookup splits on `.`, so
+        //   `builtin_package_name` never answers "general". `toFloat(len(xs))`
+        //   and `math::abs(a)` (overloaded; no static nominal) both typed `None`.
+        // * An untyped argument no longer sinks the call: the static nominal
+        //   return (`toFloat` is `Float` whatever its argument) still answers.
+        // * A user function answers with its declared return.
+        // * A call through a function-valued local (`g(a)` for a
+        //   `g AS FUNC(Float) AS Float` parameter) answers with its `FUNC` type's
+        //   return.
+        // * A `RuntimeCall` (`os::args()`, a builtin lowered to a runtime
+        //   helper) types exactly as the same call's `Call` does.
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. } => {
+            if let Some(ParameterType::Func(_, ret, _)) = locals.get(target) {
+                return Some((**ret).clone());
             }
-            .or_else(|| builtins::call_return_type(target))
+            args.iter()
+                .map(|arg| static_nir_value_type(arg, locals, fields))
+                .collect::<Option<Vec<_>>>()
+                .and_then(|arg_types| {
+                    builtins::resolve_call_return_type_typed(target, &arg_types, false)
+                })
+                .or_else(|| builtins::call_return_type(target))
+                .or_else(|| fields.function_returns.get(target).cloned())
         }
         NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
         // `Checked` annotates its SUCCESS type and this oracle echoes it, exactly
@@ -217,9 +229,7 @@ pub(crate) fn static_nir_value_type(
                 _ => None,
             }
         }
-        NirValue::RuntimeCall { .. } | NirValue::UnionWrap { .. } | NirValue::Closure { .. } => {
-            None
-        }
+        NirValue::UnionWrap { .. } | NirValue::Closure { .. } => None,
     }
 }
 
@@ -376,10 +386,21 @@ pub(crate) fn binary_may_consume_float_into_exact(
     ) {
         return false;
     }
-    let Some(left_type) = static_type_name_with_types(left, types, fields) else {
+    // bug-762: the hand table in `static_type_name_with_types` knows no
+    // overloaded builtin's return (`math::abs`, `collections::sum`), so a
+    // `Fixed * math::abs(x)` registered no message and failed at lowering with
+    // "has no data object". Fall back to the arg-typed oracle when it has no
+    // answer — this only ever ADDS a registration, and does not widen the table
+    // itself (its other consumers keep their exact answers; see
+    // `static_type_name_for_fold_with_types`).
+    let operand_type = |operand: &NirValue| {
+        static_type_name_with_types(operand, types, fields)
+            .or_else(|| static_nir_value_type(operand, types, fields))
+    };
+    let Some(left_type) = operand_type(left) else {
         return false;
     };
-    let Some(right_type) = static_type_name_with_types(right, types, fields) else {
+    let Some(right_type) = operand_type(right) else {
         return false;
     };
     let result = promoted_binary_type(op, &left_type, &right_type);

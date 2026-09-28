@@ -372,7 +372,9 @@ pub(crate) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
     ) {
         return true;
     }
-    let fields = module_field_types(module);
+    // bug-762: with each function's declared return, so a Float operation over a
+    // user call (`f() * a`) types as the lowering types it.
+    let fields = module_field_types(module).with_function_returns(module);
     if module.globals.iter().any(|global| {
         global.value.as_ref().is_some_and(|value| {
             value_may_emit_float_arithmetic_error(value, &HashMap::new(), &fields)
