@@ -45,9 +45,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-145 complete and archived | `ls planning/completed/plan-145-* \| wc -l` → 9, and `ls planning/plan-145*` → no match | MET (2026-09-22: 9 / no match) |
-| The default level is 1 | `grep -n 'OptLevel(1)' src/optimizer/mod.rs` → the `Default` impl (line 73) | MET (2026-09-22) |
-| The direct form is correct today, including a sibling that reads the owner | build and run the Appendix A program → `4 3` / `3 4` / `9 2` / `9 77` | MET (2026-09-22, `target/release/mfb build`, output as stated) |
+| plan-145 complete and archived | `ls planning/completed/plan-145-* \| wc -l` → 9, and `ls planning/plan-145*` → no match | MET (2026-09-27: 9 / no match) |
+| The default level is 1 | `grep -n 'OptLevel(1)' src/optimizer/mod.rs` → the `Default` impl (line 73) | MET (2026-09-27: line 73) |
+| The direct form is correct today, including a sibling that reads the owner | build and run the Appendix A program → `4 3` / `3 4` / `9 2` / `9 77` | MET (2026-09-27, `target/release/mfb build /tmp/p149/appa`, output `4 3`/`3 4`/`9 2`/`9 77`) |
 
 Everything below is written against the world where these hold.
 
@@ -140,11 +140,38 @@ Everything below is written against the world where these hold.
 - **The direct form is correct with sibling reads of the owner** (probe `/tmp/getprobe/e`, output
   `4 3 / 3 4 / 9 2 / 9 77`). The last pair shows that `RETURN rec.xs` from a parameter returns an independent copy:
   `WITH` evaluates every right-hand side against the old record, and a member-access return copies.
-- **UNVERIFIED: a member-access read never costs more than a `Local` read in any consuming context.** If some context
-  borrows `Local(b)` but copies `MemberAccess`, forwarding a `b` read many times in a loop could add copies. Task A1
-  measures this.
-- **UNVERIFIED: how an indirect call (through a function value) appears in NIR.** It matters for B's call gate. Task A1
-  records it.
+- **A member-access read never costs more than a `Local` read in any measured consuming context** (A1, probe
+  `/tmp/p149/a1`, `target/release/mfb build -q -ncode -target linux-x86_64`, per-function `stackSlots` counted by
+  `/tmp/p149/count.py`; each function builds its owner `LET rec AS R = mk(n)` locally). `L` = the argument is `cur`
+  bound by `LET cur = rec.xs`; `D` = the argument is `rec.xs` directly. Counts are `copy_source` / `copy_result` /
+  `with_target` slots in that function:
+
+  | Context | `L` | `D` |
+  |---|---|---|
+  | builtin call argument (`collections::get`) | 1 / 1 / 0 | 0 / 0 / 0 |
+  | user call argument (`sumit(xs)`) | 1 / 1 / 0 | 0 / 0 / 0 |
+  | `LET` initializer (`LET other = …`) | 2 / 2 / 0 | 1 / 1 / 0 |
+  | `RETURN` | 1 / 1 / 0 | 1 / 1 / 0 |
+  | constructor argument (`H[…]`) | 1 / 1 / 0 | 0 / 0 / 0 |
+  | `FOR EACH` iterable, no owner write in the body | 1 / 1 / 0 | 0 / 0 / 0 |
+  | `FOR EACH` iterable, owner write in the body (W2 declines this one) | 1 / 1 / 0 | 1 / 1 / 0 |
+  | `WITH` update value (`h = WITH h { ys := … }`) | 1 / 1 / 1 | 0 / 0 / 1 |
+  | list-literal element (`[…, …]`) | 1 / 1 / 0 | 0 / 0 / 0 |
+  | `String &` operand (`LET cur AS String = rec.name`) | 1 / 1 / 0 | 0 / 0 / 0 |
+  | `len()` | 1 / 1 / 0 | 0 / 0 / 0 |
+
+  `D` is never above `L` in any column. The `L` excess is exactly the one `LET cur` copy in every row.
+- **Indirect calls and lambda arguments in NIR** (A1, probe `/tmp/p149/nir1`, `target/release/mfb build -q --nir`):
+  - a call through a function value is `Call{target: "<local name>"}`: the target is the *binding's* name (`f`, `g`),
+    which is neither in `module.functions` nor package-qualified. A named function bound to a value appears as
+    `FunctionRef{name: "twice"}` in the binding; a lambda as `FunctionRef{name: "$lambda0"}` (no captures) or
+    `Closure{name: "$lambda1", captures: [...]}`;
+  - a `collections::` call with a lambda argument is `Call{target: "collections.filter", args: [..., Closure{...}]}`;
+  - unqualified builtins also exist (`Call{target: "toString"}`), so "no `.` in the target" does **not** mean "user
+    call". The only sound test for an indirect call is "the target names a local, a parameter, or a global";
+  - the by-ref capture (`collections::forEach` with a `MUT`-writing lambda) is `Closure{captures: [LocalRef{rec}]}`
+    in the parent, and in the lambda `Bind{mutable: true, name: "rec", value: Capture{index: 0, by_ref: true}}`
+    followed by ordinary `Assign{rec}` writes.
 
 ## 3. Design Overview
 
@@ -182,8 +209,9 @@ it is `Assign{o}`, so no call can break the window. B adds global, `STATE` and b
 must also be call-safe.
 
 **Design uncertainty, scheduled first (A1):** whether some consuming context makes a forwarded read cost more than the
-old `Local` read. If A1 finds such a context, the row forwards only when every read of `b` is in a context A1 marks as
-safe. That is an allow-list, and it is decided by measurement, not guessed here.
+old `Local` read. **Resolved: no allow-list needed.** The A1 table (§2 Verified properties) shows the member access at
+or below the `Local` read's copy count in every one of the 11 measured contexts, so the row forwards reads in any
+context.
 
 **Correctness gate class.** Behaviour legitimately changes (fewer copies), so **byte-identity is NOT the gate.** The
 gates are:
@@ -214,7 +242,7 @@ dropped copy, and nothing else. Any other golden diff is a bug to localize (objd
 
 ### Phase A1 — Cost audit (uncertainty first; no code change)
 
-- [ ] For each consuming context of a `Local(b)` read, build one probe at `-O1` in two versions: the argument as
+- [x] For each consuming context of a `Local(b)` read, build one probe at `-O1` in two versions: the argument as
       `Local(cur)` bound by `LET cur = rec.xs`, and the argument as `rec.xs` directly. Compare the `.ncode`
       `copy_source` / `copy_result` / `with_target` counts **per function**, isolating the function's JSON object
       rather than the whole file (plan-145's follow-up probe did not isolate it). The contexts:
@@ -230,9 +258,11 @@ dropped copy, and nothing else. Any other golden diff is a bug to localize (objd
       - `len()`.
 
       Record a table: context → copies with `Local`, copies with the member access.
-- [ ] Record how a call through a function value (`LET f AS FUNC… = …; f(x)`) and a `collections::` call with a lambda
+      Done: 11 rows in §2 Verified properties (`python3 /tmp/p149/count.py /tmp/p149/a1/a1.ncode`).
+- [x] Record how a call through a function value (`LET f AS FUNC… = …; f(x)`) and a `collections::` call with a lambda
       argument appear in NIR (`mfb build --nir`). Write the result into §2 Verified properties.
-- [ ] Update this plan: any context where the member access costs more becomes a **read-context allow-list** in §3,
+      Done: `Call{target: "<local>"}`; lambda args are `Closure` / `FunctionRef` (§2).
+- [x] Update this plan: any context where the member access costs more becomes a **read-context allow-list** in §3,
       with the table as evidence. If none does, record "no allow-list needed" with the table.
 
 Acceptance: the cost table and the indirect-call shape are recorded in §2, and the allow-list decision is written in
