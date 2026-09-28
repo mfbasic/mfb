@@ -38,6 +38,29 @@ Inside a `DOC … END DOC` block, the header line `SUB name(Type, …)` becomes
 `FUNC name(Type, …)` (a doc header names the callable and carries no return type),
 and the code between `EXAMPLE` and `END EXAMPLE` is rewritten like any other code.
 
+## MFBASIC inside Rust (`--rust-literals`)
+
+```
+python3 tools/sub-to-func/sub-to-func.py --rust-literals [--skip-fn REGEX] <file.rs | dir> ...
+```
+
+Rewrites MFBASIC held in Rust string literals (`r"…"`, `r#"…"#`, and ordinary
+`"…"` strings with `\n`, `\"`, `\x20`, `\u{…}` escapes and `\`-newline line
+continuations). A directory is searched for `*.rs`.
+
+- A literal is treated as MFBASIC only if one of its lines is a `SUB` declaration
+  header (optionally after `format!` placeholders such as `{prelude}`) or is exactly
+  `END SUB` / `EXIT SUB`. Any other literal that mentions `SUB` — a diagnostic
+  message, an assertion on one — is left alone and reported as `rust-other`.
+- A literal containing a Markdown fence (a `mfb man` page) is rewritten only inside
+  its fenced code blocks; `SUB` in the surrounding prose is reported as `doc-prose`.
+- Only the changed keyword spans are edited, so the literal keeps its escapes exactly
+  as written.
+- `--skip-fn REGEX` leaves every literal inside a Rust `fn` whose text matches the
+  regex, for tests whose purpose is a `SUB`-only rule. Skipped literals are reported
+  as `skipped-fn`.
+- `SUB` in Rust comments is reported as `rust-comment`.
+
 ## Report
 
 Every `SUB` the tool leaves alone is printed as `path:line: [reason] text`:

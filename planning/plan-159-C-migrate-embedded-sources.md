@@ -42,8 +42,8 @@ The plan-wide prerequisites are in plan-159-A. In addition:
 
 | What | Count | Command |
 |---|---|---|
-| `SUB main` in builtin descriptors (man examples) | 821 | `rg -o '\bSUB main' src/codegen/builtins \| wc -l` |
-| builtin files mentioning `SUB` | 482 | `rg -l '\bSUB\b' src/codegen/builtins \| wc -l` |
+| `SUB main` in builtin descriptors (man examples) | 821 (813 at execution, 2026-09-27) | `rg -o '\bSUB main' src/codegen/builtins \| wc -l` |
+| builtin files mentioning `SUB` | 482 (477 at execution) | `rg -l '\bSUB\b' src/codegen/builtins \| wc -l` |
 | injected `SUB __…` bodies | 34 in 15 files | `rg -n '(^\|r#?"\|\\n)\s*SUB __' src/codegen/builtins \| wc -l`; `-l` → 15 (for example `http/func_pump.rs`, `canvas/helper_render.rs`, `datetime/helper_check_fields.rs`, `audio/func_play.rs`) |
 | inline `SUB x` in non-builtin `src/` Rust | 376 lines in 33 files | `rg -n '\bSUB [A-Za-z_]' src --type rust -g '!src/codegen/builtins/**' \| wc -l`; `-l` → 33 (largest: `ir/tests.rs`, `resolver/resolution.rs`, `ast/tests.rs`, `monomorph/lower.rs`) |
 | `SUB` in `tests/**/*.rs` | 1023 lines in 84 files | `rg -n '\bSUB\b' tests --type rust \| wc -l`; `-l` → 84 |
@@ -83,7 +83,12 @@ of `.ncodesum` is the gate, and `canvas` is not byte-identity-covered except thr
 
 ### Phase 1 — Man examples
 
-- [ ] 1.1 Add `--rust-literals` to `tools/sub-to-func/` and update its README.
+- [x] 1.1 Add `--rust-literals` to `tools/sub-to-func/` and update its README. — Done,
+      plus `--skip-fn REGEX` (for §3's SUB-rule tests) and fence-aware rewriting of man
+      pages. Dry run `--check --rust-literals src tests` → `582 file(s) would change; 2
+      unhandled line(s)` (the two deliberately malformed headers in `src/ast/tests.rs`,
+      handled by hand in 3.3); `.mfb` mode unchanged (`--check` over the `.mfb` dirs →
+      only the 4 exclusion fixtures).
 - [ ] 1.2 Rewrite the example strings in `src/codegen/builtins/**` (the 821 `SUB main`,
       with their `END SUB`/`EXIT SUB`). Skip the 15 injected-body files in this phase.
 - [ ] 1.3 Migrate the example code blocks in `src/docs/man/**` (code only).

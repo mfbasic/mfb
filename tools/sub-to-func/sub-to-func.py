@@ -19,18 +19,22 @@ Usage: see README.md.
 """
 
 import argparse
+import difflib
 import os
 import re
 import sys
 
 VIS = r"(?:(?:PUBLIC|PRIVATE|EXPORT)\s+)?"
-DECL_RE = re.compile(r"^(\s*" + VIS + r"(?:ISOLATED\s+)?)(SUB)\b", re.IGNORECASE)
+# `{name}` prefixes are Rust format!() placeholders splicing a prelude in front
+# of a declaration (--rust-literals); MFBASIC itself never starts a line with `{`.
+PLACEHOLDERS = r"(?:\{[A-Za-z_0-9]*\})*"
+DECL_RE = re.compile(r"^(\s*" + PLACEHOLDERS + VIS + r"(?:ISOLATED\s+)?)(SUB)\s+(?=[A-Za-z_])", re.IGNORECASE)
 END_RE = re.compile(r"\bEND(\s+)SUB\b", re.IGNORECASE)
 EXIT_RE = re.compile(r"\bEXIT\s+SUB\b", re.IGNORECASE)
-WORD_SUB_RE = re.compile(r"\bSUB\b", re.IGNORECASE)
+WORD_SUB_RE = re.compile(r"(?<![-\w])SUB(?![-\w])")
 PROSE_SUB_RE = re.compile(r"\bSUB\b")
 DOC_START_RE = re.compile(r"^\s*DOC(\s+[A-Za-z \t]*)?$", re.IGNORECASE)
-DOC_HEADER_RE = re.compile(r"^(\s*)(SUB)\b", re.IGNORECASE)
+DOC_HEADER_RE = re.compile(r"^(\s*)(SUB)\s+(?=[A-Za-z_])", re.IGNORECASE)
 REM_RE = re.compile(r"^\s*REM\b", re.IGNORECASE)
 
 
@@ -192,13 +196,217 @@ class Rewriter:
         return "".join(out)
 
 
-def iter_files(paths):
+# --- Rust string literals (--rust-literals) ----------------------------------
+
+# A literal is MFBASIC source when one of its lines is a SUB declaration header,
+# or is exactly `END SUB` / `EXIT SUB` (a fragment of a program assembled from
+# several literals). Anything else that mentions SUB (a diagnostic message, an
+# assertion on one) is only reported.
+SRC_LINE_RE = re.compile(r"^\s*" + PLACEHOLDERS + r"(?:" + VIS + r"(?:ISOLATED\s+)?SUB\s+[A-Za-z_]|END\s+SUB\s*$|EXIT\s+SUB\s*$)")
+IDENT_CH = re.compile(r"[A-Za-z0-9_]")
+
+
+def rust_scan(src):
+    """Lex just enough Rust to find string literals, comments and `fn` bodies.
+
+    Returns (literals, comments, fn_spans): literals are (start, end, raw) spans of
+    the literal CONTENT (raw=True for r"…"/r#"…"#); comments are (start, end);
+    fn_spans are (start, end) from the `fn` keyword to its body's closing brace.
+    """
+    lits, comments, fns = [], [], []
+    i, n = 0, len(src)
+    depth = 0
+    pending_fn = []  # fn keyword offsets waiting for their body `{`
+    open_fns = []  # (fn_start, depth_at_open)
+    while i < n:
+        c = src[i]
+        if src.startswith("//", i):
+            j = src.find("\n", i)
+            j = n if j == -1 else j
+            comments.append((i, j))
+            i = j
+            continue
+        if src.startswith("/*", i):
+            d, j = 1, i + 2
+            while j < n and d:
+                if src.startswith("/*", j):
+                    d += 1; j += 2
+                elif src.startswith("*/", j):
+                    d -= 1; j += 2
+                else:
+                    j += 1
+            comments.append((i, j))
+            i = j
+            continue
+        prev_ident = i > 0 and IDENT_CH.match(src[i - 1])
+        m = None if prev_ident else re.compile(r"(?:b|c)?r(#*)\"").match(src, i)
+        if m:
+            hashes = m.group(1)
+            start = m.end()
+            end = src.find('"' + hashes, start)
+            lits.append((start, end, True))
+            i = end + 1 + len(hashes)
+            continue
+        if c == '"' or (not prev_ident and c in "bc" and src.startswith('"', i + 1)):
+            start = i + (1 if c == '"' else 2)
+            j = start
+            while j < n and src[j] != '"':
+                j += 2 if src[j] == "\\" else 1
+            lits.append((start, j, False))
+            i = j + 1
+            continue
+        if c == "'":
+            if src.startswith("\\", i + 1):
+                j = src.find("'", i + 3)
+                i = j + 1
+                continue
+            if i + 2 < n and src[i + 2] == "'":
+                i += 3
+                continue
+            i += 1  # a lifetime
+            continue
+        if not prev_ident and src.startswith("fn", i) and (i + 2 >= n or not IDENT_CH.match(src[i + 2])):
+            pending_fn.append(i)
+            i += 2
+            continue
+        if c == "{":
+            if pending_fn:
+                open_fns.append((pending_fn.pop(), depth))
+                pending_fn.clear()
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if open_fns and open_fns[-1][1] == depth:
+                fns.append((open_fns.pop()[0], i + 1))
+        elif c == ";":
+            pending_fn.clear()  # a declaration without a body (trait item, extern)
+        i += 1
+    return lits, comments, fns
+
+
+SIMPLE_ESCAPES = {"n": "\n", "t": "\t", '"': '"', "\\": "\\", "'": "'", "0": "\0", "r": "\r"}
+ESC_RE = re.compile(r"\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f]+\}|\n[ \t]*|.)", re.DOTALL)
+
+
+def _decode_mapped(raw):
+    """Decode a Rust (non-raw) string body. Returns (text, starts, ends): decoded
+    char k came from raw[starts[k]:ends[k]]. A line continuation (backslash,
+    newline, indentation) decodes to nothing."""
+    text, starts, ends = [], [], []
+    i = 0
+    while i < len(raw):
+        if raw[i] == "\\":
+            m = ESC_RE.match(raw, i)
+            tok = m.group(0)
+            if tok[1] == "\n":
+                i = m.end()
+                continue
+            if tok[1] == "x":
+                ch = chr(int(tok[2:], 16))
+            elif tok[1] == "u":
+                ch = chr(int(tok[3:-1], 16))
+            elif tok[1] in SIMPLE_ESCAPES:
+                ch = SIMPLE_ESCAPES[tok[1]]
+            else:
+                return None
+            text.append(ch); starts.append(i); ends.append(m.end())
+            i = m.end()
+        else:
+            text.append(raw[i]); starts.append(i); ends.append(i + 1)
+            i += 1
+    return "".join(text), starts, ends
+
+
+def _encode(text):
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\t", "\\t").replace("\n", "\\n")
+
+
+def rewrite_literal(content, raw, rw, first_line):
+    """Rewrite one literal's content; returns the new content (or the same)."""
+    fenced = "```" in content
+    if raw and not fenced:
+        return rw.rewrite_text(content, first_line)
+    if raw:
+        text, starts, ends = content, list(range(len(content))), list(range(1, len(content) + 1))
+    else:
+        dec = _decode_mapped(content)
+        if dec is None:
+            rw.report(first_line, "unhandled-escape", content[:120])
+            return content
+        text, starts, ends = dec
+    if fenced:
+        # A man page: only the fenced code blocks are MFBASIC.
+        lines = text.split("\n")
+        out, inside = [], False
+        for l in lines:
+            if l.strip().startswith("```"):
+                inside = not inside
+                out.append(l)
+            elif inside:
+                out.append(rw.rewrite_code_line(first_line, l))
+            else:
+                if WORD_SUB_RE.search(l):
+                    rw.report(first_line, "doc-prose", l)
+                out.append(l)
+        new = "\n".join(out)
+    else:
+        new = rw.rewrite_text(text, first_line)
+    if new == text:
+        return content
+    edits = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, text, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        r1 = starts[i1] if i1 < len(starts) else len(content)
+        r2 = ends[i2 - 1] if i2 > i1 else r1
+        edits.append((r1, r2, new[j1:j2] if raw else _encode(new[j1:j2])))
+    out = content
+    for r1, r2, rep_text in reversed(edits):
+        out = out[:r1] + rep_text + out[r2:]
+    return out
+
+
+def rewrite_rust(src, rw, skip_fn_re=None):
+    lits, comments, fns = rust_scan(src)
+    out, last = [], 0
+    line_of = lambda off: src.count("\n", 0, off) + 1
+    for start, end, raw in lits:
+        content = src[start:end]
+        if not WORD_SUB_RE.search(content):
+            continue
+        dec = None if raw else _decode_mapped(content)
+        text = content if raw else (dec[0] if dec else content)
+        if not any(SRC_LINE_RE.match(l) for l in text.split("\n")):
+            rw.report(line_of(start), "rust-other", content[:160].replace("\n", "⏎"))
+            continue
+        if skip_fn_re is not None:
+            enclosing = [f for f in fns if f[0] <= start < f[1]]
+            if enclosing:
+                fs, fe = min(enclosing, key=lambda f: f[1] - f[0])
+                if skip_fn_re.search(src[fs:fe]):
+                    rw.report(line_of(start), "skipped-fn", content[:80].replace("\n", "⏎"))
+                    continue
+        new = rewrite_literal(content, raw, rw, line_of(start))
+        if new != content:
+            out.append(src[last:start])
+            out.append(new)
+            last = end
+    for cs, ce in comments:
+        if PROSE_SUB_RE.search(src[cs:ce]):
+            for k, l in enumerate(src[cs:ce].split("\n")):
+                if PROSE_SUB_RE.search(l):
+                    rw.report(line_of(cs) + k, "rust-comment", l.strip())
+    out.append(src[last:])
+    return "".join(out)
+
+
+def iter_files(paths, ext=".mfb"):
     for p in paths:
         if os.path.isdir(p):
             for root, dirs, files in os.walk(p):
                 dirs[:] = sorted(d for d in dirs if d not in (".git", "target", "build"))
                 for f in sorted(files):
-                    if f.endswith(".mfb"):
+                    if f.endswith(ext):
                         yield os.path.join(root, f)
         else:
             yield p
@@ -209,15 +417,29 @@ def main(argv):
     ap.add_argument("paths", nargs="+", help=".mfb files or directories (recursed for *.mfb)")
     ap.add_argument("--check", action="store_true", help="write nothing; exit 1 if any file would change")
     ap.add_argument("--quiet", action="store_true", help="do not print the report lines")
+    ap.add_argument(
+        "--rust-literals",
+        action="store_true",
+        help="treat inputs as Rust (*.rs): rewrite MFBASIC held in string literals",
+    )
+    ap.add_argument(
+        "--skip-fn",
+        metavar="REGEX",
+        help="with --rust-literals: leave literals inside a fn whose text matches REGEX",
+    )
     args = ap.parse_args(argv)
+    skip_fn_re = re.compile(args.skip_fn) if args.skip_fn else None
 
     changed = []
     unhandled = 0
-    for path in iter_files(args.paths):
+    for path in iter_files(args.paths, ".rs" if args.rust_literals else ".mfb"):
         with open(path, encoding="utf-8", newline="") as fh:
             src = fh.read()
         rw = Rewriter()
-        new = rw.rewrite_text(src)
+        if args.rust_literals:
+            new = rewrite_rust(src, rw, skip_fn_re)
+        else:
+            new = rw.rewrite_text(src)
         for line_no, reason, text in rw.reports:
             if reason.startswith("unhandled"):
                 unhandled += 1
