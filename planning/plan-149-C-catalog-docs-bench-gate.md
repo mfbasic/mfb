@@ -249,6 +249,13 @@ Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commi
     `cargo test --test rt_recursive_value_construction_copies --test rt_recursive_value_drop_symmetry` → 4 / 6
     passed. Every other test in the suite passed; the `mfb` unit binary reported 4,514 passed.
   - `scripts/artifact-gate.sh target/release/mfb all` after the regeneration: `2182 golden(s) checked, 0 diff(s)`.
+  - **After merging main (`223145b13`, 16 commits: bug-688 / bug-758 / plan-162 / plan-163)**, the whole gate re-ran
+    on the merged tree. The only conflicts were `syntax/app/app-mouse-surface` goldens, which both sides had
+    regenerated; they were regenerated on the merged tree, and their `.nir` against main's differs in 11 functions, all
+    exactly explained by forwarding. Results: `scripts/artifact-gate.sh target/release/mfb all` → `2182 golden(s)
+    checked, 0 diff(s)`; `scripts/test-accept.sh target/debug/mfb target/accept-actual` → "acceptance tests passed
+    (1571 test(s) ran)"; `cargo test --no-fail-fast -- --skip artifact_gate_all` → `EXIT=0`, 0 `failures:` blocks;
+    `cargo test --release --test rt_inplace_self_update -- --ignored` → 3 passed, 4,561.7 s.
 
 - **The golden-diff census looked in the wrong place (final gate).** The two `grep` commands in the Validation Plan
   scan fixture *sources*; the diffs came instead from the MFBASIC helper code of builtin packages, which is merged into
