@@ -48,7 +48,7 @@ Three things the implementation had to get right, each found on the real box:
 
 Input with the child shown: keys verified on box 206 (`SendKeys` "q"/"z" arrive as press
 and release through `io::readKey` while every frame presents directly). The mouse, re-checked
-after bug-757 (Windows app mouse never delivered) was fixed: with every frame presenting
+after bug-758 (Windows app mouse never delivered) was fixed: with every frame presenting
 directly through the child, injected moves to client (50,40) and (60,45) and a left click
 arrive as `Move 50,40`, `Move 60,45`, `Down Left 60,45`, `Up Left 60,45` — the `STATIC`
 child's `HTTRANSPARENT` passes them to the canvas window as intended.

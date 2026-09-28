@@ -637,7 +637,7 @@ fn emit_format_and_write(
         addr: abi::SCRATCH[5].into(),
         scratch_base: abi::SCRATCH[6].into(),
     };
-    // bug-757: every register here must be distinct on x86-64, and only TEN scratch
+    // bug-758: every register here must be distinct on x86-64, and only TEN scratch
     // indices are: `SCRATCH[0..=9]` realize to `x9`-`x18` -> rbx, rsi, rdi, r8, r9,
     // r10, r11, r12, r13, rcx, while `SCRATCH[10]` is `x20` -> rbx again
     // (`arch/x86_64/select.rs` `map_scratch_register`). The report was held in

@@ -1,11 +1,11 @@
-# bug-757: in a Windows `--app` build, no mouse event ever reaches `canvas::pollMouse` or `term::pollMouse`
+# bug-758: in a Windows `--app` build, no mouse event ever reaches `canvas::pollMouse` or `term::pollMouse`
 
 Last updated: 2026-09-27
 Effort: small
 Severity: HIGH
 Class: Correctness (a whole input device silently absent on one platform)
 
-Status: FIXED — measured on box 206 (real Windows 11 desktop, injected input): canvas mouse on the readback and the swapchain path, and term mouse under `term::on`, all report the exact moves and clicks the driver made.
+Status: FIXED (filed as bug-757 in commit 94b6bf151; renumbered because 8cbd0206a took 757 on main) — measured on box 206 (real Windows 11 desktop, injected input): canvas mouse on the readback and the swapchain path, and term mouse under `term::on`, all report the exact moves and clicks the driver made.
 Regression Test: `src/target/win_x86_64/app/mod.rs` `canvas_reconcile_tests::the_mouse_arms_are_reachable_from_the_dispatch_chain` and `the_mouse_arms_use_only_distinct_x86_registers` (both fail against the pre-fix code); the manual box-206 run below.
 
 A Windows `--app` program that calls `canvas::enableMouse(TRUE)` and polls

@@ -1249,7 +1249,7 @@ fn emit_parse_wide_env(
 }
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-/// bug-757: the label the WndProc's mouse arms start at.
+/// bug-758: the label the WndProc's mouse arms start at.
 const WND_CHECK_MOUSE: &str = "wnd_check_mouse";
 
 fn emit_wndproc(
@@ -1838,7 +1838,7 @@ fn emit_wndproc(
         );
     }
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
-    // bug-757: the last test of the dispatch chain, so a message it does not match
+    // bug-758: the last test of the dispatch chain, so a message it does not match
     // goes on to the mouse arms when there are any — not straight to the default.
     ins.push(abi::branch_ne(if uses_mouse {
         WND_CHECK_MOUSE
@@ -2009,7 +2009,7 @@ fn emit_wndproc(
     // messages the window already handles keep their existing paths, and anything
     // that is not a mouse message falls through to `wnd_default` unchanged.
     //
-    // bug-757: reached through `WND_CHECK_MOUSE`, which the reconcile test's
+    // bug-758: reached through `WND_CHECK_MOUSE`, which the reconcile test's
     // no-match branch targets. As first written the arms followed
     // `wnd_reconcile_done`'s return with no label and that branch went to
     // `wnd_default`, so no mouse message ever reached them: on Windows neither
@@ -6271,7 +6271,7 @@ mod canvas_reconcile_tests {
         f.relocations.iter().filter(|r| r.to == name).count()
     }
 
-    /// bug-757: the mouse arms are reachable — something branches to their entry
+    /// bug-758: the mouse arms are reachable — something branches to their entry
     /// label. As first written (plan-94-E) they followed a `return` with no label,
     /// and the dispatch chain's last no-match branch went to `DefWindowProcW`, so
     /// no Windows mouse event was ever reported (box 206, injected input).
@@ -6308,7 +6308,7 @@ mod canvas_reconcile_tests {
         );
     }
 
-    /// bug-757: the mouse arms name only registers that stay distinct on x86-64.
+    /// bug-758: the mouse arms name only registers that stay distinct on x86-64.
     /// `SCRATCH[0..=9]` realize to ten different registers, but `SCRATCH[10]` and up
     /// wrap onto them (`map_scratch_register` is `POOL[(n - 9) % 11]` over `x9`-`x18`,
     /// `x20`-`x28`), and `LOCAL[1]` is `x20` = `SCRATCH[0]`'s rbx. Every one of those
