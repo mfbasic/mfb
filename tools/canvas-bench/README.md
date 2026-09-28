@@ -23,6 +23,22 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
 
     bash tools/canvas-bench/bench.sh <path-to-mfb> <subcommand> [args...]
 
+## Windows mode (bug-688 V5)
+
+    bash tools/canvas-bench/bench.sh <path-to-mfb> --target windows-x86_64 --host test@192.168.1.206 sweep
+
+`--target windows-x86_64 --host <user@host>` runs every subcommand against a
+Windows box over key-auth ssh: the scene builds as a `.exe` (`mfb build --app
+--target windows-x86_64`), is copied into a fresh `canvas-bench-*` directory
+under the user's home, and runs headless (`MFB_WINAPP_HEADLESS=1`) through a
+CRLF `.bat` that sets the `MFB_CANVAS_*` variables (cmd's `set X=1 && prog`
+is unreliable over ssh). Stats and dump files come back to the same local paths
+the other modes use, so every parser and `cmp.py` call is unchanged, and the
+renderer column reads `Vulkan`. `text` uses `C:\Windows\Fonts\arial.ttf`.
+
+Box 206 (`.ai/remote_systems.md`) has a **real GPU** (Intel UHD 630), so its fps
+numbers are GPU numbers — the only Vulkan box where that is true.
+
 ## Linux mode (bug-688)
 
 Add `--target linux-aarch64|linux-x86_64 --box <ssh-port>` (and optionally
