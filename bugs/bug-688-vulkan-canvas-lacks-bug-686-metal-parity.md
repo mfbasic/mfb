@@ -47,13 +47,11 @@ Three things the implementation had to get right, each found on the real box:
   build). The base goes through `add_immediate` as everywhere else in `vulkan.rs`.
 
 Input with the child shown: keys verified on box 206 (`SendKeys` "q"/"z" arrive as press
-and release through `io::readKey` while every frame presents directly). The mouse rests on
-Win32's documented `STATIC` behaviour (`HTTRANSPARENT`, so the canvas window receives the
-messages) and is **not yet runtime-verified**: injected moves and clicks produced no
-`canvas::pollMouse` event on box 206 on either path — readback included, where the child
-is hidden — while the same injection reaches a WinForms window. So Windows canvas mouse
-delivery fails independently of V6; it is being chased as its own bug, after which this
-is re-checked.
+and release through `io::readKey` while every frame presents directly). The mouse, re-checked
+after bug-757 (Windows app mouse never delivered) was fixed: with every frame presenting
+directly through the child, injected moves to client (50,40) and (60,45) and a left click
+arrive as `Move 50,40`, `Move 60,45`, `Down Left 60,45`, `Up Left 60,45` — the `STATIC`
+child's `HTTRANSPARENT` passes them to the canvas window as intended.
 
 Transition run (windowed → fullscreen → windowed → Console → canvas, 8 s each): 1,899 of
 1,900 GPU frames direct; every phase's Desktop Duplication capture shows the scene, and
