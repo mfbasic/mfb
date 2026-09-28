@@ -219,6 +219,37 @@ Commit: efa38f1d0 (C3 changes no code; its results were recorded with C2's commi
 
 ## Corrections
 
+- **Final-gate findings (all resolved).**
+  - `rt_inplace_self_update -- --ignored` (unfiltered, 5,500 s): 13 of 1,230 pairs failed, all `io::Key` "build
+    failed: TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE". Pre-existing on main: bug-699 Phase 4 (`7e554824c`) gave `io::Key`
+    enum fields, so it has no default, and the pre-A2 compiler rejects `MUT x AS io::Key` identically.
+    `field_kinds_gen.py` gained the `io::Key` literal (as `term::MouseEvent` has); regenerating changes exactly that
+    TSV line; `MFB_SELF_UPDATE_FILTER='io::Key' … every_field_kind -- --ignored` → pass (`2159d14c0`).
+  - `cargo test --bin mfb`: two plan-134-C `last_use` tests lowered their probes at the default level, where this
+    row now rewrites them (`LET b = a; RETURN b.tag` → `RETURN a.tag`; `#json_parseArrayItems`' `item` forwarded,
+    NIR diff exact). The hand-derived table now lowers at `-O0`, with every row unchanged. The decoder test keeps the
+    default level and asserts the stronger fact: the append of `parsed.value` is that field's last read, so the
+    element moves with no copy (`86677797e`).
+  - `scripts/test-accept.sh target/debug/mfb target/accept-actual`: 1,570 of 1,571 matched; the one mismatch is
+    `[1] acceptance`, a `timeout` (the 300 s `MFB_ACCEPT_RUN_TIMEOUT`) while the harness above loaded every core. The
+    same project run directly passes 782 / 782 with the release compiler and with the debug one (`mfb test`, exit 0),
+    and re-run through the harness alone and unloaded, `scripts/test-accept.sh target/debug/mfb target/accept-actual
+    acceptance` → "acceptance tests passed (1 test(s) ran)". All 1,571 fixtures therefore match.
+  - `cargo test --no-fail-fast -- --skip artifact_gate_all` (`EXIT=101`): 5 failures, every one a test whose
+    *instrument* was a `LET b = <local or field>` the row now legitimately forwards. None is a behaviour change.
+    - The 2 `last_use` unit tests (above, `86677797e`).
+    - `rt_recursive_value_construction_copies::a_construction_store_copies_an_aliased_source_once_and_a_fresh_value_never`:
+      `LET c = a` forwarded, so 2 graph copies instead of 3. The test now asserts 3 at `-O0` (copy insertion
+      alone) and 2 at `-O1` (the forward's saving).
+    - `rt_recursive_value_drop_symmetry::{churn_frees_every_copy_as_it_goes, a_million_deep_chain_drops_exactly_its_copy}`:
+      the hook's `LET probe AS Node = cur` was forwarded, so the hook copied nothing. The probes build at `-O0`
+      (`19c3a6504`).
+
+    All five re-run green: `cargo test --bin mfb codegen::engine::analysis::last_use` → 6 passed;
+    `cargo test --test rt_recursive_value_construction_copies --test rt_recursive_value_drop_symmetry` → 4 / 6
+    passed. Every other test in the suite passed; the `mfb` unit binary reported 4,514 passed.
+  - `scripts/artifact-gate.sh target/release/mfb all` after the regeneration: `2182 golden(s) checked, 0 diff(s)`.
+
 - **The golden-diff census looked in the wrong place (final gate).** The two `grep` commands in the Validation Plan
   scan fixture *sources*; the diffs came instead from the MFBASIC helper code of builtin packages, which is merged into
   every module that imports them and which the row also optimizes. The first full gate
