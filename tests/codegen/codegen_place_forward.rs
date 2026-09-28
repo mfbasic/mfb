@@ -168,3 +168,94 @@ fn the_bare_local_shape_goes_in_place() {
     );
     assert_eq!(slot_count(&o0, f, "inplace_set_index"), 0);
 }
+
+// ---- plan-149-B3: global and `STATE` owners ----
+
+/// The `-O1` / `-O0` pair for a forwarded write-back through `cur`: the named
+/// in-place slot at `-O1`, with no rebuild and no copy; the rebuild at `-O0`.
+fn assert_forward_goes_in_place(o1: &Value, o0: &Value, f: &str, inplace_slot: &str) {
+    assert!(
+        slot_count(o1, f, inplace_slot) >= 1,
+        "-O1: the forwarded update must reach `{inplace_slot}`"
+    );
+    assert_eq!(slot_count(o1, f, "with_target"), 0, "-O1: no rebuild");
+    assert_eq!(copy_count(o1, f), 0, "-O1: no copy of the field");
+    assert!(
+        slot_count(o0, f, "with_target") >= 1,
+        "control: at -O0 the copy stays and the owner is rebuilt"
+    );
+    assert_eq!(slot_count(o0, f, inplace_slot), 0);
+}
+
+/// The global `set` shape. A global's NIR read carries an empty type, so this
+/// also pins that the call gate (W4) takes the type from the declaration.
+#[test]
+fn the_global_set_shape_goes_in_place() {
+    let (o1, o0) = plans(
+        "place_forward_global_set",
+        &format!(
+            "{RECORD}\
+             MUT g AS R = R[1, [1, 2, 3], 0]\n\
+             FUNC work(n AS Integer) AS Integer\n\
+            \x20 FOR j = 1 TO n\n\
+            \x20   LET cur AS List OF Integer = g.xs\n\
+            \x20   LET v AS Integer = collections::get(cur, 0)\n\
+            \x20   g = WITH g {{ xs := collections::set(cur, 0, v + 1) }}\n\
+            \x20 NEXT\n\
+            \x20 RETURN collections::get(g.xs, 0)\n\
+             END FUNC\n\
+             FUNC main AS Integer\n\
+            \x20 RETURN work(3)\n\
+             END FUNC\n"
+        ),
+    );
+    assert_forward_goes_in_place(&o1, &o0, "_mfb_fn_work", "inplace_recfield_set_index");
+}
+
+const STATE_MAIN: &str = "FUNC main AS Integer\n\
+    \x20 RES f AS fs::File STATE R = fs::openFile(\"project.json\")\n\
+    \x20 f.state = R[1, [1, 2, 3, 4, 5, 6], 0]\n\
+    \x20 LET n AS Integer = work(f, 2)\n\
+    \x20 fs::close(f)\n\
+    \x20 RETURN n\n\
+     END FUNC\n";
+
+/// The benchmark's `list (State-Fixed) set` row.
+#[test]
+fn the_state_set_shape_goes_in_place() {
+    let (o1, o0) = plans(
+        "place_forward_state_set",
+        &format!(
+            "IMPORT fs\n{RECORD}\
+             FUNC work(RES f AS fs::File STATE R, n AS Integer) AS Integer\n\
+            \x20 FOR j = 1 TO n\n\
+            \x20   LET cur AS List OF Integer = f.state.xs\n\
+            \x20   LET v AS Integer = collections::get(cur, 0)\n\
+            \x20   f.state.xs = collections::set(cur, 0, v + 1)\n\
+            \x20 NEXT\n\
+            \x20 RETURN collections::get(f.state.xs, 0)\n\
+             END FUNC\n\
+             {STATE_MAIN}"
+        ),
+    );
+    assert_forward_goes_in_place(&o1, &o0, "_mfb_fn_work", "inplace_state_set_index");
+}
+
+#[test]
+fn the_state_remove_at_shape_goes_in_place() {
+    let (o1, o0) = plans(
+        "place_forward_state_remove_at",
+        &format!(
+            "IMPORT fs\n{RECORD}\
+             FUNC work(RES f AS fs::File STATE R, n AS Integer) AS Integer\n\
+            \x20 FOR j = 1 TO n\n\
+            \x20   LET cur AS List OF Integer = f.state.xs\n\
+            \x20   f.state.xs = collections::removeAt(cur, 0)\n\
+            \x20 NEXT\n\
+            \x20 RETURN len(f.state.xs)\n\
+             END FUNC\n\
+             {STATE_MAIN}"
+        ),
+    );
+    assert_forward_goes_in_place(&o1, &o0, "_mfb_fn_work", "inplace_state_remove_at_index");
+}

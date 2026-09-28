@@ -129,19 +129,27 @@ Commit: 18948ec80
 
 Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass (est. 5 min).
 Verified 2026-09-27: 37 passed.
-Commit: —
+Commit: 7bb8c5f71
 
 ### Phase B3 — Codegen and run-time proof for B's classes
 
-- [ ] Extend `tests/codegen/codegen_place_forward.rs` to cover the global `set`, the `STATE` `set` and the `STATE`
+- [x] Extend `tests/codegen/codegen_place_forward.rs` to cover the global `set`, the `STATE` `set` and the `STATE`
       `removeAt` shapes. At `-O1` it asserts the plan-145 store slots: `global_field_inplace` / `state_field_inplace`
       (or the collection arm's slot that plan-145 records for that site) are present, and `with_target` is 0. At `-O0`
       the rebuild is present.
-- [ ] Extend `tests/runtime/rt_place_forward.rs` to cover every B forwarding shape, plus the W4 and W5 negatives as
+      Done. The measured slots (`/tmp/p149/b3`, `count.py`): the global `set` takes `inplace_recfield_set_index`,
+      the `STATE` `set` `inplace_state_set_index`, the `STATE` `removeAt` `inplace_state_remove_at_index`; each has
+      `with_target` 0 and no `*copy_source` at `-O1`, and `with_target` 1 at `-O0`.
+- [x] Extend `tests/runtime/rt_place_forward.rs` to cover every B forwarding shape, plus the W4 and W5 negatives as
       programs (a user `SUB` that writes the global, called in the window, where the old value must be observed). It
       asserts stdout is identical at `-O0` and `-O1`.
+      Done, 8 programs: global `set`, global `removeAt`, a bare global, `STATE` `set` + `removeAt`, `STATE`
+      `removeKey` + `remove`, W4 (a user `SUB` writing the global in the window), W4 inside op L's value
+      (`g = WITH g { xs := set(cur, 1, bumpAndGive()) }`), and W5 (the resource passed to a `SUB` that rewrites its
+      `STATE`). The by-ref-capture shape has no source form (Corrections), so its coverage is the unit tests.
 
 Acceptance: `cargo test --test codegen_place_forward --test rt_place_forward` → all pass (est. 5 min).
+Verified 2026-09-27: 6 passed / 17 passed.
 Commit: —
 
 ## Corrections
@@ -157,6 +165,16 @@ Commit: —
   unqualified target can also be a builtin (`toString`). The gate declines a call whose target is a user function,
   a global, or any name bound in the function (a `Bind`, a parameter, or a `FOR` / `FOR EACH` / `TRAP` binder — the
   census now records the binder types too, so a `FOR EACH fn IN fs … fn(x)` call is caught).
+- **A global read carries no type in NIR (B3).** `NirValue::Global` is lowered with an empty type
+  (`mfb build --nir` on `/tmp/p149/b3`: `{"kind": "global", "name": "g", "type": ""}`), so B1's W4 read the type
+  from the value, could not resolve `""`, and declined every global window: the global `set` probe still had
+  `with_target=1` at `-O1`. The gate now takes a global's type from its declaration in `module.globals`, and the
+  unit tests' `global()` helper builds the empty type real lowering emits, so the unit tests pin it; the codegen
+  test `the_global_set_shape_goes_in_place` pins it end to end.
+- **The by-ref-capture class has no source form that binds a `LET` (B3).** A `LAMBDA` body is a single expression
+  (`mfb man lambda`: "a parenthesized parameter list, ->, and a single body expression"), so the lambda that holds the
+  by-ref slot cannot contain `LET cur = rec.xs`. The class stays (leaf inlining or a future multi-statement lambda can
+  produce it, and the gate is proven by the unit tests), but B3's run-time programs cannot exercise it.
 - **Unit-test modules declare their record types (B1).** The gate resolves members through `module.types`, which a
   real module always fills; the tests' `module_of` declares `R` and `Inner` so a case declines for its own hazard,
   not because `R` is unresolvable.

@@ -553,9 +553,13 @@ impl NirVisitor for CallGate<'_, '_> {
                 .bind_types
                 .get(name)
                 .is_none_or(|type_| module.may_hold_function(type_)),
-            NirValue::Capture { type_, .. } | NirValue::Global { type_, .. } => {
-                module.may_hold_function(type_)
-            }
+            NirValue::Capture { type_, .. } => module.may_hold_function(type_),
+            // A `Global` read carries no type of its own (lowering leaves it
+            // empty); the declaration in `module.globals` has it.
+            NirValue::Global { name, .. } => module
+                .globals
+                .get(name)
+                .is_none_or(|type_| module.may_hold_function(type_)),
             _ => false,
         };
         if found {

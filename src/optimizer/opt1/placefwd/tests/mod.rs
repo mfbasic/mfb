@@ -35,8 +35,8 @@ fn record(name: &str, fields: Vec<(&str, ParameterType)>) -> NirType {
     }
 }
 
-/// A test module declaring the record types the cases use, as a real module
-/// declares every user type (the call gate resolves members through them).
+/// A test module declaring the record types and the global the cases use, as a
+/// real module declares them (the call gate resolves types through both).
 fn module_of(functions: Vec<NirFunction>) -> NirModule {
     let mut module = test_module(functions);
     module.types = vec![
@@ -51,6 +51,14 @@ fn module_of(functions: Vec<NirFunction>) -> NirModule {
         ),
         record("Inner", vec![("xs", list_int())]),
     ];
+    module.globals = vec![crate::target::shared::nir::NirGlobal {
+        name: "g".to_string(),
+        symbol: "g".to_string(),
+        visibility: "private".to_string(),
+        mutable: true,
+        type_: rec_type(),
+        value: None,
+    }];
     module
 }
 
@@ -576,10 +584,13 @@ fn level_zero_keeps_the_copy() {
 
 // ---- plan-149-B1: global and by-ref-capture owners, and the call gate W4 ----
 
+/// A global read as lowering emits it: with an empty type (`"type": ""` in
+/// `mfb build --nir`). The declared type is only in `module.globals`, which is
+/// where the call gate must look (plan-149-B3).
 fn global(name: &str) -> NirValue {
     NirValue::Global {
         name: name.to_string(),
-        type_: rec_type(),
+        type_: ParameterType::named(""),
     }
 }
 

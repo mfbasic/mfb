@@ -62,6 +62,7 @@ fn assert_same_output(name: &str, body: &str, expected: &str) {
 
 const PRELUDE: &str = "\
 IMPORT collections
+IMPORT fs
 IMPORT io
 TYPE Inner
   xs AS List OF Integer
@@ -246,5 +247,183 @@ fn w2_an_owner_write_nested_in_the_last_op_keeps_the_old_value() {
 END FUNC
 ",
         "101,301,401,\n",
+    );
+}
+
+// ---- plan-149-B3: global and `STATE` owners ----
+
+/// A program with a `MUT` global record `g`.
+fn owner_program(body: &str) -> String {
+    format!("MUT g AS R = R[1, [1, 2, 3], Inner[[10, 20, 30]], 0]\n{body}")
+}
+
+#[test]
+fn the_global_set_shape() {
+    assert_same_output(
+        "pf_global_set",
+        &owner_program(
+            "FUNC main AS Integer
+  FOR j = 0 TO 2
+    LET cur AS List OF Integer = g.xs
+    LET v AS Integer = collections::get(cur, j)
+    g = WITH g { xs := collections::set(cur, j, v + 10) }
+  NEXT
+  io::print(show(g.xs))
+  RETURN 0
+END FUNC
+",
+        ),
+        "11,12,13,\n",
+    );
+}
+
+#[test]
+fn the_global_remove_at_shape() {
+    assert_same_output(
+        "pf_global_remove_at",
+        &owner_program(
+            "FUNC main AS Integer
+  LET cur AS List OF Integer = g.xs
+  g = WITH g { xs := collections::removeAt(cur, 0) }
+  io::print(show(g.xs))
+  RETURN 0
+END FUNC
+",
+        ),
+        "2,3,\n",
+    );
+}
+
+#[test]
+fn a_bare_global() {
+    assert_same_output(
+        "pf_global_bare",
+        "MUT gl AS List OF Integer = [1, 2, 3]
+FUNC main AS Integer
+  LET snap AS List OF Integer = gl
+  gl = collections::set(snap, 1, collections::get(snap, 0) + 40)
+  io::print(show(gl))
+  RETURN 0
+END FUNC
+",
+        "1,41,3,\n",
+    );
+}
+
+#[test]
+fn the_state_set_and_remove_at_shapes() {
+    assert_same_output(
+        "pf_state_list",
+        "FUNC main AS Integer
+  RES f AS fs::File STATE R = fs::openFile(\"project.json\")
+  f.state = mk()
+  FOR j = 0 TO 2
+    LET cur AS List OF Integer = f.state.xs
+    LET v AS Integer = collections::get(cur, j)
+    f.state.xs = collections::set(cur, j, v + 10)
+  NEXT
+  io::print(show(f.state.xs))
+  LET cur2 AS List OF Integer = f.state.xs
+  f.state.xs = collections::removeAt(cur2, 1)
+  io::print(show(f.state.xs))
+  fs::close(f)
+  RETURN 0
+END FUNC
+",
+        "11,12,13,\n11,13,\n",
+    );
+}
+
+#[test]
+fn the_state_remove_key_and_remove_shapes() {
+    assert_same_output(
+        "pf_state_map_set",
+        "TYPE Bag
+  m AS Map OF Integer TO Integer
+  s AS Set OF Integer
+END TYPE
+FUNC main AS Integer
+  RES f AS fs::File STATE Bag = fs::openFile(\"project.json\")
+  f.state = Bag[Map OF Integer TO Integer { 1 := 10, 2 := 20, 3 := 30 }, Set OF Integer { 4, 5, 6 }]
+  LET m AS Map OF Integer TO Integer = f.state.m
+  f.state.m = collections::removeKey(m, 2)
+  LET s AS Set OF Integer = f.state.s
+  f.state.s = collections::remove(s, 5)
+  io::print(toString(len(f.state.m)) & \" \" & toString(collections::hasKey(f.state.m, 2)))
+  io::print(toString(len(f.state.s)) & \" \" & toString(collections::contains(f.state.s, 5)))
+  fs::close(f)
+  RETURN 0
+END FUNC
+",
+        "2 FALSE\n2 FALSE\n",
+    );
+}
+
+/// W4: a user `SUB` called in the window writes the global; the read after it
+/// must still see the value from before the call.
+#[test]
+fn w4_a_user_sub_writing_the_global_keeps_the_old_value() {
+    assert_same_output(
+        "pf_w4_sub",
+        &owner_program(
+            "FUNC bump() AS Nothing
+  g = WITH g { xs := collections::set(g.xs, 0, 100) }
+END FUNC
+FUNC main AS Integer
+  LET cur AS List OF Integer = g.xs
+  bump()
+  g = WITH g { xs := collections::append(cur, 7) }
+  io::print(show(g.xs))
+  RETURN 0
+END FUNC
+",
+        ),
+        "1,2,3,7,\n",
+    );
+}
+
+/// W4 on op L's own value: `helper()` runs while the owner write's arguments
+/// are evaluated. `cur` was taken before it ran.
+#[test]
+fn w4_a_user_call_inside_the_owner_write_keeps_the_old_value() {
+    assert_same_output(
+        "pf_w4_inside",
+        &owner_program(
+            "FUNC bumpAndGive() AS Integer
+  g = WITH g { xs := collections::set(g.xs, 0, 100) }
+  RETURN 5
+END FUNC
+FUNC main AS Integer
+  LET cur AS List OF Integer = g.xs
+  g = WITH g { xs := collections::set(cur, 1, bumpAndGive()) }
+  io::print(show(g.xs))
+  RETURN 0
+END FUNC
+",
+        ),
+        "1,5,3,\n",
+    );
+}
+
+/// W5: the resource is handed to a user `SUB` that rewrites its `STATE`.
+#[test]
+fn w5_passing_the_resource_keeps_the_old_value() {
+    assert_same_output(
+        "pf_w5",
+        "FUNC touch(RES f AS fs::File STATE R) AS Nothing
+  f.state.xs = collections::set(f.state.xs, 0, 100)
+END FUNC
+FUNC main AS Integer
+  RES f AS fs::File STATE R = fs::openFile(\"project.json\")
+  f.state = mk()
+  LET cur AS List OF Integer = f.state.xs
+  touch(f)
+  f.state.xs = collections::append(cur, 7)
+  io::print(show(f.state.xs))
+  fs::close(f)
+  RETURN 0
+END FUNC
+",
+        "1,2,3,7,\n",
     );
 }
