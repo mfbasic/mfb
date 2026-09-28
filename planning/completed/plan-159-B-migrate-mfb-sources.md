@@ -148,7 +148,7 @@ For the textual goldens the gate is "moved only in the predicted fields".
 Acceptance: `rg` for SUB in these directories → 0 hits; the `.mfp` loop → 0; all examples build.
   Check: `rg -l "$R|\b(END|EXIT)\s+SUB\b" -g '*.mfb' examples packages tools bugs spikes benchmark` → empty (est. 5 s); the `.mfp` loop → 0 (est. 1 min).
   Result (2026-09-27): `rg` exit 1 (no matches); loop `total=161 hits=0`; 15/15 example projects build.
-Commit: —
+Commit: 710111713 (after pre-B `a76df3d54`, `27217cbc2`, `7481a59a2`, `a3985ea3c`)
 
 ### Phase 2 — `tests/**/*.mfb` and their goldens
 
@@ -204,13 +204,15 @@ Acceptance: only the exclusion list still contains `SUB`; the native goldens are
   `artifact-gate.sh target/release/mfb all` → `1544 tests, 1723 build(s), 2182 golden(s)
   checked, 0 diff(s)`.
   Check: `bash scripts/artifact-gate.sh target/release/mfb all` → 0 diffs (est. 20 min; this is the only instrument that checks every `.ncodesum` across 5 targets, and B touches ~200 fixtures, so no smaller check covers them). Do not run it concurrently with another gate (`pgrep -f artifact-gate` first).
-Commit: —
+Commit: 0daecef3a (2.1–2.3), fc28a07d7 (2.4–2.5)
 
 ## Validation Plan
 
 - Runtime proof: `bash scripts/test-accept.sh target/release/mfb /tmp/p159-acc` over
   `tests/rt-behavior` → all PASS (est. 15 min). The rt fixtures execute, so this
   proves behavior, not just bytes.
+  Result (2026-09-27, whole tree, after cherry-picking the 3 pre-existing golden fixes
+  `a0642e7b0`/`e25a7d2d8`/`b841bb7fd`): `acceptance tests passed (1570 test(s) ran)`.
 - Final gate: at the end of D.
 
 ## Open Decisions
@@ -235,8 +237,11 @@ Commit: —
   `TYPE_INLINE_TRAP_DEAD_HANDLER` advisory, and `collections/func_collections_helpers_invalid`
   prints `collections::sort` where its golden says `__collections_sort`. None has a source
   change in B, and all three fail the same way with a compiler built at `4fe38df41`
-  (`git worktree add --detach /tmp/p159-base 4fe38df41`). Being root-caused and fixed
-  separately; their goldens are not touched by B.
+  (`git worktree add --detach /tmp/p159-base 4fe38df41`). Root-caused separately: all three
+  were goldens left stale by deliberate changes (bug-698 made `collections::replace` and
+  `strings::upper` declare `ErrOutOfMemory`; bug-642 `b7f63f820` made the call-level
+  messages name `collections::sort`), fixed test-only as `a0642e7b0`, `e25a7d2d8`,
+  `b841bb7fd`.
 - **2026-09-27 — `sync-goldens.sh` was not used (task 2.3).** It copies every actual over
   its golden, so it would have laundered the 3 pre-existing failures above into the tree.
   The classifier copies only files whose every changed line is a predicted rewrite.

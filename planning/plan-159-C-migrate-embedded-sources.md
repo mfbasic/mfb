@@ -20,7 +20,7 @@ The plan-wide prerequisites are in plan-159-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-159-B complete | `ls planning/plan-159-B-*` → no match | NOT MET |
+| plan-159-B complete | `ls planning/plan-159-B-*` → no match | MET (2026-09-27: B archived to `planning/completed/`) |
 
 ## 1. Goal
 
