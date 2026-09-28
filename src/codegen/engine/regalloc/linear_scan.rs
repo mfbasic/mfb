@@ -13,6 +13,12 @@
 //!   register survives an internal runtime helper (`_mfb_arena_alloc` clobbers
 //!   callee-saved `x20`–`x28`; see `.ai/compiler.md`).
 //!
+//! Which value spills under pressure is chosen by cost at Level 1 and up
+//! (bug-760; see [`SpillCosts`]): the scan may move an already-colored value to
+//! memory to give its register to a hotter newcomer, and schedules every access
+//! of a spilled value as a one-instruction scratch interval, so a reload finds a
+//! free register instead of evicting a live one.
+//!
 //! Liveness is represented as over-approximating per-virtual-register intervals
 //! (sound: wider intervals only forbid more), so coloring is a near-linear scan
 //! with binary-search interference checks — fast even on the multi-thousand-
@@ -193,8 +199,32 @@ pub(crate) fn run(
         }
     }
 
+    // Spill choice (bug-760 C/D; on with the Level-1 rows that raise register
+    // pressure — `vreg_live_across_clobber` above and "Stack slot promotion").
+    // When no register is free for a newcomer, the cheaper of {the newcomer,
+    // an active value whose register it could take} goes to memory, not
+    // always the newcomer; and every use/def of a spilled value is scheduled
+    // as a one-instruction scratch interval the scan must also find a register
+    // for, spilling a live value to make room if needed. First-come alone let
+    // long-lived (promoted) values fill the file, so each short temporary
+    // spilled and its every use found no free scratch, taking the eviction arm
+    // in the rewrite (a save/restore of a live register around nearly every
+    // instruction of a hot loop). Off (-O0), the newcomer always spills.
+    let spill_choice = crate::optimizer::level_enabled(1);
+    let spill_costs = if spill_choice {
+        SpillCosts::new(&instructions, &effects, &live.vreg_interval)
+    } else {
+        SpillCosts::default()
+    };
+    // Scratch intervals still to place: `(instruction, spilled vreg)`, popped
+    // in instruction order, interleaved with `vregs` by start.
+    let mut pending_scratch: std::collections::BinaryHeap<std::cmp::Reverse<(usize, u32)>> =
+        std::collections::BinaryHeap::new();
+    let mut next_vreg = 0usize;
+
     // Active intervals: (end, vreg, phys_index), and the mask of physicals they
-    // hold. Expired by start order.
+    // hold. Expired by start order. A scratch interval holds its register under
+    // the `SCRATCH_HOLDER` id for its single instruction.
     let mut active: Vec<(usize, u32, u32)> = Vec::new();
     let mut active_mask: u64 = 0;
     // plan-82-B: a colored vreg records its physical `(name, index)` — the static
@@ -212,16 +242,63 @@ pub(crate) fn run(
     let mut split_tail: analysis::U32Map<(usize, &'static str, u32)> = analysis::U32Map::default();
     let mut split_ranges = 0u64;
 
-    for &(v, s, e) in &vregs {
-        // Expire intervals that ended before this one starts.
-        active.retain(|&(end, _, pi)| {
-            if end < s {
-                active_mask &= !(1u64 << pi);
-                false
-            } else {
-                true
+    loop {
+        // The next event in start order: a pending scratch interval at `i`
+        // goes before a value starting at `i`, so the value sees it held.
+        let scratch_next = match (pending_scratch.peek(), vregs.get(next_vreg)) {
+            (Some(std::cmp::Reverse((i, _))), Some(&(_, s, _))) => *i <= s,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        if scratch_next {
+            let std::cmp::Reverse((i, _)) = pending_scratch
+                .pop()
+                .expect("peeked a pending scratch interval");
+            expire(&mut active, &mut active_mask, i);
+            let free = allocatable
+                .iter()
+                .find(|&&(_, pi)| (active_mask & (1u64 << pi)) == 0 && !phys_busy_in(pi, i, i));
+            let pi = match free {
+                Some(&(_, pi)) => Some(pi),
+                // Every register is held at `i`: spill the cheapest value live
+                // across `i` that `i` does not itself read or write (its
+                // register then serves as this scratch). With none, the
+                // rewrite's eviction arm still covers `i`.
+                None => active
+                    .iter()
+                    .filter(|&&(_, holder, _)| {
+                        holder != SCRATCH_HOLDER
+                            && !split_tail.contains_key(&holder)
+                            && !spill_costs.occurs_at(holder, i)
+                    })
+                    .min_by(|a, b| spill_costs.cheaper_victim(a, b))
+                    .copied()
+                    .map(|(_, holder, pi)| {
+                        spill_colored(
+                            holder,
+                            i,
+                            &mut active,
+                            &mut active_mask,
+                            &mut assignment,
+                            &mut assigned_index,
+                            &mut spilled,
+                            &mut pending_scratch,
+                            &spill_costs,
+                        );
+                        pi
+                    }),
+            };
+            if let Some(pi) = pi {
+                active.push((i, SCRATCH_HOLDER, pi));
+                active_mask |= 1u64 << pi;
             }
-        });
+            continue;
+        }
+        let (v, s, e) = vregs[next_vreg];
+        next_vreg += 1;
+        // Expire intervals that ended before this one starts.
+        expire(&mut active, &mut active_mask, s);
         // Registers the calls in this value's interval destroy. The value must
         // avoid them (plan-03 §4.3); e.g. across `_mfb_arena_alloc` an FP value is
         // unrestricted (it touches no FP) while an integer value avoids `x20`–`x28`.
@@ -310,11 +387,63 @@ pub(crate) fn run(
                         active_mask |= 1u64 << second;
                         split_ranges += 1;
                     }
+                    None if spill_choice => {
+                        // The cheapest active value whose register this one
+                        // could hold for its whole interval. When it is cheaper
+                        // to keep in memory than the newcomer, it moves there
+                        // and the newcomer takes its register.
+                        let victim = active
+                            .iter()
+                            .filter(|&&(_, holder, pi)| {
+                                holder != SCRATCH_HOLDER
+                                    && !split_tail.contains_key(&holder)
+                                    && (clobbered & (1u64 << pi)) == 0
+                                    && !phys_busy_in(pi, s, e)
+                            })
+                            .min_by(|a, b| spill_costs.cheaper_victim(a, b))
+                            .copied()
+                            .filter(|&(_, holder, _)| {
+                                spill_costs.priority(holder) < spill_costs.priority(v)
+                            });
+                        match victim {
+                            Some((_, holder, pi)) => {
+                                spill_colored(
+                                    holder,
+                                    s,
+                                    &mut active,
+                                    &mut active_mask,
+                                    &mut assignment,
+                                    &mut assigned_index,
+                                    &mut spilled,
+                                    &mut pending_scratch,
+                                    &spill_costs,
+                                );
+                                let name = allocatable
+                                    .iter()
+                                    .find(|&&(_, index)| index == pi)
+                                    .expect("an active register is allocatable")
+                                    .0;
+                                assignment.insert(v, (name, pi));
+                                assigned_index.insert(v, pi);
+                                active.push((e, v, pi));
+                                active_mask |= 1u64 << pi;
+                            }
+                            None => {
+                                spilled.push(v);
+                                for &i in spill_costs.occurrences(v) {
+                                    pending_scratch.push(std::cmp::Reverse((i, v)));
+                                }
+                            }
+                        }
+                    }
                     None => spilled.push(v),
                 }
             }
         }
     }
+    // A value spilled to make room is discovered after its start; the slot
+    // walk below needs start order (the order the first-come scan produced).
+    spilled.sort_by_key(|v| (live.vreg_interval[v].0, *v));
 
     // Assign a stack slot to each spilled vreg. With the "Stack slot coloring"
     // row (Level 2) on, slots are *reused* by values whose live intervals do
@@ -326,8 +455,8 @@ pub(crate) fn run(
     // Per slot index, the end of the interval currently occupying it.
     let mut slot_end: Vec<usize> = Vec::new();
     let mut slots_reused = 0u64;
-    // Spills are discovered in interval-start order (the scan above), so this
-    // walk is already sorted by start.
+    // `spilled` is sorted by interval start (after the scan above), as this
+    // walk requires.
     for &v in &spilled {
         let (s, e) = live.vreg_interval[&v];
         let reused = slot_coloring
@@ -386,10 +515,31 @@ pub(crate) fn run(
     // Per-instruction physical occupancy after coloring (hardcoded physicals plus
     // colored virtual registers live there), used to pick spill scratch. Built
     // only when there are spills.
+    // A split value occupies its head register over `[s, m]` and its tail
+    // register over `[m + 1, e]` — not the head over the whole interval, which is
+    // all `assigned_index` records. Sweeping it that way both hid the tail
+    // register (a spill scratch could be handed the register the split value
+    // lives in) and falsely held the head after `m`, so split values are masked
+    // range by range here.
     let colored_mask_at = if spilled.is_empty() {
         Vec::new()
-    } else {
+    } else if split_tail.is_empty() {
         colored_mask_sweep(&live.phys_busy_at, &live.vreg_interval, &assigned_index)
+    } else {
+        let unsplit: analysis::U32Map<u32> = assigned_index
+            .iter()
+            .filter(|(v, _)| !split_tail.contains_key(v))
+            .map(|(&v, &pi)| (v, pi))
+            .collect();
+        let mut masks = colored_mask_sweep(&live.phys_busy_at, &live.vreg_interval, &unsplit);
+        for (v, &(tail_start, _, tail)) in &split_tail {
+            let (s, e) = live.vreg_interval[v];
+            let head = assigned_index[v];
+            for (i, mask) in masks.iter_mut().enumerate().take(e + 1).skip(s) {
+                *mask |= 1u64 << if i < tail_start { head } else { tail };
+            }
+        }
+        masks
     };
 
     // Rewrite the stream. Evict-slot base sits just past the per-value spill
@@ -463,6 +613,19 @@ pub(crate) fn run(
         };
         let used_spilled: Vec<u32> = eff.uses.iter().filter_map(spilled_vreg).collect();
         let def_spilled: Vec<u32> = eff.defs.iter().filter_map(spilled_vreg).collect();
+        // A copy of a spilled value onto itself is a no-op. Rewritten like any
+        // other instruction it would become reload / `mov xN, xN` / store, and
+        // the self-move sweep below deletes only the middle — leaving a reload
+        // and a store of the same slot back to back.
+        if coalescing
+            && matches!(instruction.op, CodeOp::Mov | CodeOp::FMovDFromD)
+            && eff.defs.len() == 1
+            && eff.uses.len() == 1
+            && def_spilled.len() == 1
+            && used_spilled == def_spilled
+        {
+            continue 'rewrite;
+        }
 
         // plan-82-B: a spilled vreg's per-instruction scratch physical, as
         // `(name, index)` — the static name for `emit_spill`/`emit_reload` and the
@@ -475,7 +638,9 @@ pub(crate) fn run(
             match *reg {
                 RegRef::Phys(p) => operand_mask |= 1u64 << p,
                 RegRef::VReg(v) => {
-                    if let Some(&pi) = assigned_index.get(&v) {
+                    // `assignment`, not `assigned_index`: past a split
+                    // boundary the value is in its tail register.
+                    if let Some(&(_, pi)) = assignment.get(&v) {
                         operand_mask |= 1u64 << pi;
                     }
                 }
@@ -782,6 +947,154 @@ pub(crate) fn run(
         spill_slot_count: total_slot_count,
         extra_callee_saved,
         error: alloc_error,
+    }
+}
+
+/// The `active` holder id of a one-instruction spill-scratch interval. Never a
+/// real virtual register (vreg ids are minted upward from 0).
+const SCRATCH_HOLDER: u32 = u32::MAX;
+
+/// Drop every active interval that ended before instruction `at`.
+fn expire(active: &mut Vec<(usize, u32, u32)>, active_mask: &mut u64, at: usize) {
+    active.retain(|&(end, _, pi)| {
+        if end < at {
+            *active_mask &= !(1u64 << pi);
+            false
+        } else {
+            true
+        }
+    });
+}
+
+/// Move the colored, unsplit value `holder` to memory at scan point `from`: it
+/// gives up its register and every occurrence at or after `from` is scheduled
+/// as a scratch interval. Occurrences before `from` need no scheduling — the
+/// value held its register alone over `[start, from)`, so with it gone that
+/// register is free there to serve as the reload scratch.
+#[allow(clippy::too_many_arguments)]
+fn spill_colored(
+    holder: u32,
+    from: usize,
+    active: &mut Vec<(usize, u32, u32)>,
+    active_mask: &mut u64,
+    assignment: &mut analysis::U32Map<(&'static str, u32)>,
+    assigned_index: &mut analysis::U32Map<u32>,
+    spilled: &mut Vec<u32>,
+    pending_scratch: &mut std::collections::BinaryHeap<std::cmp::Reverse<(usize, u32)>>,
+    costs: &SpillCosts,
+) {
+    active.retain(|&(_, held_by, pi)| {
+        if held_by == holder {
+            *active_mask &= !(1u64 << pi);
+            false
+        } else {
+            true
+        }
+    });
+    assignment.remove(&holder);
+    assigned_index.remove(&holder);
+    spilled.push(holder);
+    for &i in costs.occurrences(holder) {
+        if i >= from {
+            pending_scratch.push(std::cmp::Reverse((i, holder)));
+        }
+    }
+}
+
+/// What keeping each virtual register in memory would cost, for the spill
+/// choice in [`run`].
+///
+/// A spilled value pays one memory access per instruction that names it, so
+/// its cost is its occurrence count, each weighted by `8^loop depth` (capped
+/// at depth 3) — the loop depth of an instruction is the number of CFG back
+/// edges (a branch to a block at or before its own) whose span covers it. The
+/// spill *priority* divides that by the interval length: a value touched
+/// rarely over a long range frees the most register-time for the least
+/// memory traffic, and goes first.
+#[derive(Default)]
+struct SpillCosts {
+    /// Per vreg, the distinct instruction indices naming it, ascending.
+    occurrences: analysis::U32Map<Vec<usize>>,
+    /// Per vreg, weighted cost / interval length.
+    priority: analysis::U32Map<f64>,
+    /// Per vreg, interval end (the tie-break: the furthest end spills first).
+    end: analysis::U32Map<usize>,
+}
+
+impl SpillCosts {
+    fn new(
+        instructions: &[CodeInstruction],
+        effects: &[analysis::Effect],
+        intervals: &analysis::U32Map<(usize, usize)>,
+    ) -> Self {
+        let n = instructions.len();
+        let mut depth_delta = vec![0i32; n + 1];
+        let blocks = analysis::build_cfg(instructions);
+        for block in &blocks {
+            for &successor in &block.succ {
+                let head = blocks[successor].start;
+                if head <= block.start {
+                    depth_delta[head] += 1;
+                    depth_delta[block.end] -= 1;
+                }
+            }
+        }
+        let mut weight = Vec::with_capacity(n);
+        let mut depth = 0i32;
+        for delta in depth_delta.iter().take(n) {
+            depth += delta;
+            weight.push(8f64.powi(depth.clamp(0, 3)));
+        }
+        let mut occurrences: analysis::U32Map<Vec<usize>> = analysis::U32Map::default();
+        let mut cost: analysis::U32Map<f64> = analysis::U32Map::default();
+        for (i, eff) in effects.iter().enumerate() {
+            for reg in eff.defs.iter().chain(eff.uses.iter()) {
+                if let RegRef::VReg(v) = *reg {
+                    let at = occurrences.entry(v).or_default();
+                    if at.last() != Some(&i) {
+                        at.push(i);
+                        *cost.entry(v).or_insert(0.0) += weight[i];
+                    }
+                }
+            }
+        }
+        let priority = cost
+            .iter()
+            .map(|(&v, &c)| {
+                let length = intervals.get(&v).map_or(1, |&(s, e)| e - s + 1);
+                (v, c / length as f64)
+            })
+            .collect();
+        let end = intervals.iter().map(|(&v, &(_, e))| (v, e)).collect();
+        SpillCosts {
+            occurrences,
+            priority,
+            end,
+        }
+    }
+
+    fn occurrences(&self, v: u32) -> &[usize] {
+        self.occurrences.get(&v).map_or(&[], Vec::as_slice)
+    }
+
+    fn occurs_at(&self, v: u32, i: usize) -> bool {
+        self.occurrences(v).binary_search(&i).is_ok()
+    }
+
+    fn priority(&self, v: u32) -> f64 {
+        self.priority.get(&v).copied().unwrap_or(0.0)
+    }
+
+    /// Order two `active` entries so the better one to spill is `Less`: lower
+    /// priority, then the later end, then the lower vreg id (determinism).
+    fn cheaper_victim(&self, a: &(usize, u32, u32), b: &(usize, u32, u32)) -> std::cmp::Ordering {
+        self.priority(a.1)
+            .total_cmp(&self.priority(b.1))
+            .then_with(|| {
+                let end = |v: u32| self.end.get(&v).copied().unwrap_or(0);
+                end(b.1).cmp(&end(a.1))
+            })
+            .then_with(|| a.1.cmp(&b.1))
     }
 }
 
