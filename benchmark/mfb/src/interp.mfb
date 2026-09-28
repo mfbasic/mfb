@@ -15,12 +15,8 @@ IMPORT io
 IMPORT collections
 IMPORT datetime
 
-' The arithmetic opcodes are Plus/Minus/Times/Less rather than Add/Sub/Mul/Lt:
-' dispatch.mfb declares TYPE Add and TYPE Mul in this same project, and a
-' qualified enum arm `CASE Op.Plus` is currently mis-resolved to that record
-' type (TYPE_MATCH_PATTERN_MISMATCH) — a compiler bug, reported separately.
 ENUM Op
-  Push, Load, Store, Plus, Minus, Times, Modulo, Less, Jz, Jmp, Halt
+  Push, Load, Store, Add, Sub, Mul, Modulo, Lt, Jz, Jmp, Halt
 END ENUM
 
 TYPE Instr
@@ -50,19 +46,19 @@ FUNC runVm(prog AS List OF Instr, nvars AS Integer) AS Integer
       CASE Op.Store
         sp = sp - 1
         vars = collections::set(vars, ins.arg, collections::get(stack, sp))
-      CASE Op.Plus
+      CASE Op.Add
         sp = sp - 1
         stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) + collections::get(stack, sp))
-      CASE Op.Minus
+      CASE Op.Sub
         sp = sp - 1
         stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) - collections::get(stack, sp))
-      CASE Op.Times
+      CASE Op.Mul
         sp = sp - 1
         stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) * collections::get(stack, sp))
       CASE Op.Modulo
         sp = sp - 1
         stack = collections::set(stack, sp - 1, collections::get(stack, sp - 1) MOD collections::get(stack, sp))
-      CASE Op.Less
+      CASE Op.Lt
         sp = sp - 1
         IF collections::get(stack, sp - 1) < collections::get(stack, sp) THEN
           stack = collections::set(stack, sp - 1, 1)
@@ -109,7 +105,7 @@ FUNC fibProgram(reps AS Integer, n AS Integer) AS List OF Instr
   LET outer AS Integer = len(prog)
   prog = emit(prog, Op.Load, 1)
   prog = emit(prog, Op.Push, reps)
-  prog = emit(prog, Op.Less, 0)
+  prog = emit(prog, Op.Lt, 0)
   LET exitOuter AS Integer = len(prog)
   prog = emit(prog, Op.Jz, 0)
   prog = emit(prog, Op.Push, 0)
@@ -121,12 +117,12 @@ FUNC fibProgram(reps AS Integer, n AS Integer) AS List OF Instr
   LET inner AS Integer = len(prog)
   prog = emit(prog, Op.Load, 4)
   prog = emit(prog, Op.Push, n)
-  prog = emit(prog, Op.Less, 0)
+  prog = emit(prog, Op.Lt, 0)
   LET exitInner AS Integer = len(prog)
   prog = emit(prog, Op.Jz, 0)
   prog = emit(prog, Op.Load, 2)
   prog = emit(prog, Op.Load, 3)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Push, p)
   prog = emit(prog, Op.Modulo, 0)
   prog = emit(prog, Op.Store, 5)
@@ -136,21 +132,21 @@ FUNC fibProgram(reps AS Integer, n AS Integer) AS List OF Instr
   prog = emit(prog, Op.Store, 3)
   prog = emit(prog, Op.Load, 4)
   prog = emit(prog, Op.Push, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Store, 4)
   prog = emit(prog, Op.Jmp, inner)
   prog = patch(prog, exitInner, len(prog))
   prog = emit(prog, Op.Load, 0)
   prog = emit(prog, Op.Load, 2)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Load, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Push, p)
   prog = emit(prog, Op.Modulo, 0)
   prog = emit(prog, Op.Store, 0)
   prog = emit(prog, Op.Load, 1)
   prog = emit(prog, Op.Push, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Store, 1)
   prog = emit(prog, Op.Jmp, outer)
   prog = patch(prog, exitOuter, len(prog))
@@ -172,7 +168,7 @@ FUNC loopProgram(rows AS Integer, cols AS Integer) AS List OF Instr
   LET outer AS Integer = len(prog)
   prog = emit(prog, Op.Load, 1)
   prog = emit(prog, Op.Push, rows)
-  prog = emit(prog, Op.Less, 0)
+  prog = emit(prog, Op.Lt, 0)
   LET exitOuter AS Integer = len(prog)
   prog = emit(prog, Op.Jz, 0)
   prog = emit(prog, Op.Push, 0)
@@ -180,28 +176,28 @@ FUNC loopProgram(rows AS Integer, cols AS Integer) AS List OF Instr
   LET inner AS Integer = len(prog)
   prog = emit(prog, Op.Load, 2)
   prog = emit(prog, Op.Push, cols)
-  prog = emit(prog, Op.Less, 0)
+  prog = emit(prog, Op.Lt, 0)
   LET exitInner AS Integer = len(prog)
   prog = emit(prog, Op.Jz, 0)
   prog = emit(prog, Op.Load, 0)
   prog = emit(prog, Op.Load, 1)
   prog = emit(prog, Op.Load, 2)
-  prog = emit(prog, Op.Times, 0)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Mul, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Push, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Push, 1000003)
   prog = emit(prog, Op.Modulo, 0)
   prog = emit(prog, Op.Store, 0)
   prog = emit(prog, Op.Load, 2)
   prog = emit(prog, Op.Push, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Store, 2)
   prog = emit(prog, Op.Jmp, inner)
   prog = patch(prog, exitInner, len(prog))
   prog = emit(prog, Op.Load, 1)
   prog = emit(prog, Op.Push, 1)
-  prog = emit(prog, Op.Plus, 0)
+  prog = emit(prog, Op.Add, 0)
   prog = emit(prog, Op.Store, 1)
   prog = emit(prog, Op.Jmp, outer)
   prog = patch(prog, exitOuter, len(prog))
