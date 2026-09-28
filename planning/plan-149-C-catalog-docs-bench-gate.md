@@ -71,7 +71,7 @@ is **not** fixed here (see Open Decisions).
 - [ ] Update the pipeline comment in `src/optimizer/opt1/mod.rs` (the module doc lists the rows) to include the new
       row.
 
-Acceptance: `cargo test --lib optimizer::catalog` → pass; `target/debug/mfb man optimizations | grep -c 'Place copy'`
+Acceptance: `cargo test --bin mfb optimizer::catalog` → pass; `target/debug/mfb man optimizations | grep -c 'Place copy'`
 → 1; building `/tmp/getprobe/a` with `-v` prints a `Place copy forwarding` line with a count of at least 1
 (est. 5 min).
 Commit: —

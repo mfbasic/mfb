@@ -129,6 +129,9 @@ pub(super) static LIVE_RANGES_SPLIT: AtomicU64 = AtomicU64::new(0);
 /// "Object / aggregate copy propagation" (Opt1): whole-block copies of a
 /// value-semantic aggregate removed by pointing the readers at the source.
 pub(super) static AGGREGATE_COPIES_FORWARDED: AtomicU64 = AtomicU64::new(0);
+/// "Place copy forwarding" (Opt1): `LET b = <place>` copies removed by pointing
+/// `b`'s reads at the place, when every read precedes the owner's next write.
+pub(super) static PLACE_COPIES_FORWARDED: AtomicU64 = AtomicU64::new(0);
 /// "Recovery-region simplification" (Opt1): `TRAP` handlers removed because
 /// the region they guard provably cannot enter the error path.
 pub(super) static RECOVERY_REGIONS_SIMPLIFIED: AtomicU64 = AtomicU64::new(0);
@@ -430,4 +433,8 @@ pub(crate) fn count_recovery_regions_simplified(fired: u64) {
 
 pub(crate) fn count_aggregate_copies_forwarded(fired: u64) {
     add(&AGGREGATE_COPIES_FORWARDED, fired);
+}
+
+pub(crate) fn count_place_copies_forwarded(fired: u64) {
+    add(&PLACE_COPIES_FORWARDED, fired);
 }

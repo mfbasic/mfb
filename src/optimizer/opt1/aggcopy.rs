@@ -47,7 +47,7 @@ use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirModule, NirOp, NirValue};
 use crate::types::ParameterType;
 
-use super::plans::shape::{nested_bodies_mut, own_values_mut};
+use super::plans::shape::{nested_bodies_mut, own_values_mut, value_children_mut};
 
 /// Apply the row to the whole module. Self-guarded on its catalog level (3).
 pub(crate) fn propagate(module: &mut NirModule) {
@@ -146,7 +146,7 @@ impl NirVisitor for Facts {
 }
 
 /// The types whose binding copies a block rather than a register.
-fn is_aggregate(type_: &ParameterType) -> bool {
+pub(super) fn is_aggregate(type_: &ParameterType) -> bool {
     // plan-111-G merge repair: `worktree-opts` wrote this against the string API
     // that letters E and F deleted. Same decision, on variants — which also
     // removes the three substring tests (`contains("FUNC")`, `contains("Thread")`,
@@ -240,39 +240,8 @@ fn rewrite_value(value: &mut NirValue, binding: &str, source: &str) {
         *value = NirValue::Local(source.to_string());
         return;
     }
-    for child in children_mut(value) {
+    for child in value_children_mut(value) {
         rewrite_value(child, binding, source);
-    }
-}
-
-fn children_mut(value: &mut NirValue) -> Vec<&mut NirValue> {
-    match value {
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. } => args.iter_mut().collect(),
-        NirValue::Closure { captures, .. } => captures.iter_mut().collect(),
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value }
-        | NirValue::MemberAccess { target: value, .. }
-        | NirValue::Unary { operand: value, .. } => vec![&mut **value],
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => std::iter::once(&mut **target)
-            .chain(updates.iter_mut().map(|update| &mut update.value))
-            .collect(),
-        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
-            values.iter_mut().collect()
-        }
-        NirValue::MapLiteral { entries, .. } => entries
-            .iter_mut()
-            .flat_map(|(key, value)| [key, value])
-            .collect(),
-        NirValue::Binary { left, right, .. } => vec![&mut **left, &mut **right],
-        _ => Vec::new(),
     }
 }
 
@@ -438,6 +407,38 @@ mod tests {
         let mut module = test_module(vec![f]);
         run(&mut module, 3);
         assert_eq!(module.functions[0].body.len(), 2);
+    }
+
+    /// A read inside a `Checked` (bug-471's trapped operator) is a read like any
+    /// other. The rewrite used to skip `Checked`'s child, so the binding was
+    /// deleted while that read still named it (plan-149-A2).
+    #[test]
+    fn a_read_inside_a_checked_value_is_forwarded() {
+        let mut module = test_module(vec![function(vec![
+            bind(
+                "a",
+                ParameterType::String,
+                typed_const(ParameterType::String, "hi"),
+            ),
+            bind("b", ParameterType::String, local("a")),
+            NirOp::Return {
+                value: Some(NirValue::Checked {
+                    type_: ParameterType::String,
+                    value: Box::new(local("b")),
+                }),
+            },
+        ])]);
+        run(&mut module, 3);
+        let body = &module.functions[0].body;
+        assert_eq!(body.len(), 2, "the copy binding is gone");
+        assert!(
+            matches!(
+                &body[1],
+                NirOp::Return { value: Some(NirValue::Checked { value, .. }) }
+                    if matches!(&**value, NirValue::Local(name) if name == "a")
+            ),
+            "the read inside `Checked` now reads the source"
+        );
     }
 
     /// The row is off below `-O3`.

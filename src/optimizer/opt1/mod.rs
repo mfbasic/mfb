@@ -25,6 +25,7 @@ pub(crate) mod lencache;
 pub(crate) mod licm;
 pub(crate) mod local_rewrites;
 pub(crate) mod peel;
+pub(crate) mod placefwd;
 pub(crate) mod plans;
 pub(crate) mod recovery;
 pub(crate) mod rotate;
@@ -75,6 +76,11 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
         inline::inline_leaf_calls(&mut module)
     });
     timed("local rewrites", || local_rewrites::apply(&mut module));
+    // Place copy forwarding (Level 1) runs right after them and before every
+    // other row: it turns `LET cur = rec.xs; rec = WITH rec { xs := OP(cur, …) }`
+    // into the direct form, and every later row — and codegen's in-place field
+    // seam — must see that direct form, not the copy.
+    timed("place copy forwarding", || placefwd::forward(&mut module));
     // After the local rewrites: branch simplification (Level 2) folds the
     // constant conditions folding just minted; then the loop rows (Level 3)
     // on the still-structured loops — LICM shrinks bodies, unswitching

@@ -98,7 +98,7 @@ The benchmark rows contain only builtin calls (`collections::get` / `set` / `rem
       - an indirect call in the window;
       - a `StoreGlobal{g}` between the bind and a read.
 
-Acceptance: `cargo test --lib optimizer::opt1::placefwd` → all pass, including the new cases (est. 5 min).
+Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass, including the new cases (est. 5 min).
 Commit: —
 
 ### Phase B2 — `STATE` owners
@@ -116,7 +116,7 @@ Commit: —
       - `f` passed to a user `SUB` in the window;
       - a `StateAssign{f}` between the bind and a read.
 
-Acceptance: `cargo test --lib optimizer::opt1::placefwd` → all pass (est. 5 min).
+Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass (est. 5 min).
 Commit: —
 
 ### Phase B3 — Codegen and run-time proof for B's classes

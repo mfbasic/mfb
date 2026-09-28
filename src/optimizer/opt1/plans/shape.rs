@@ -136,3 +136,48 @@ pub(in crate::optimizer::opt1) fn match_guards(op: &NirOp) -> Vec<&NirValue> {
         _ => Vec::new(),
     }
 }
+
+/// The direct child values of `value`, for a rewriting walk that must reach
+/// every read inside an expression.
+///
+/// Exhaustive on purpose (no `_ =>` arm): a new `NirValue` variant that carries
+/// children must say so here, or a rewrite that repoints reads would silently
+/// skip the ones inside it and leave them naming a binding it then deletes.
+/// That is how `Checked` (bug-471's trapped-operator node) was missed when this
+/// lived in `aggcopy.rs` (plan-149-A2).
+pub(in crate::optimizer::opt1) fn value_children_mut(value: &mut NirValue) -> Vec<&mut NirValue> {
+    match value {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => args.iter_mut().collect(),
+        NirValue::Closure { captures, .. } => captures.iter_mut().collect(),
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::Checked { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::MemberAccess { target: value, .. }
+        | NirValue::Unary { operand: value, .. } => vec![&mut **value],
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => std::iter::once(&mut **target)
+            .chain(updates.iter_mut().map(|update| &mut update.value))
+            .collect(),
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+            values.iter_mut().collect()
+        }
+        NirValue::MapLiteral { entries, .. } => entries
+            .iter_mut()
+            .flat_map(|(key, value)| [key, value])
+            .collect(),
+        NirValue::Binary { left, right, .. } => vec![&mut **left, &mut **right],
+        NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => Vec::new(),
+    }
+}

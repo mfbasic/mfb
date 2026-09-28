@@ -267,14 +267,17 @@ dropped copy, and nothing else. Any other golden diff is a bug to localize (objd
 
 Acceptance: the cost table and the indirect-call shape are recorded in §2, and the allow-list decision is written in
 §3. Check: the table has one row per context above, each with both counts (est. 30 min).
-Commit: —
+Commit: 99b11f282
 
 ### Phase A2 — The row for owned-local owners
 
-- [ ] Move `children_mut` from `src/optimizer/opt1/aggcopy.rs` to `src/optimizer/opt1/plans/shape.rs` as
+- [x] Move `children_mut` from `src/optimizer/opt1/aggcopy.rs` to `src/optimizer/opt1/plans/shape.rs` as
       `pub(crate) fn value_children_mut`, and repoint aggcopy at it. That part is a pure move (Check: aggcopy's 6 unit
       tests still pass).
-- [ ] Add `src/optimizer/opt1/placefwd.rs` with `pub(crate) fn forward(module: &mut NirModule)`, self-guarded by
+      Done, **not** a pure move: the function is now exhaustive and gains the missing `Checked` arm (Corrections).
+      `cargo test --bin mfb optimizer::opt1::aggcopy` → 7 passed (the 6 plus
+      `a_read_inside_a_checked_value_is_forwarded`).
+- [x] Add `src/optimizer/opt1/placefwd.rs` with `pub(crate) fn forward(module: &mut NirModule)`, self-guarded by
       `level_enabled(1)`. It contains:
       - the census (§3 function-wide gates);
       - the candidate test (the place is `Local`, or a `MemberAccess` chain rooted at a `Local` owner);
@@ -284,9 +287,9 @@ Commit: —
 
       Declare it in `src/optimizer/opt1/mod.rs`, and call it with `timed("place copy forwarding", …)` right after
       `local_rewrites::apply`. Add a comment there saying why it runs first: every later row must see the direct form.
-- [ ] Add the counter `PLACE_COPIES_FORWARDED` and `count_place_copies_forwarded` to `src/optimizer/stats.rs`,
+- [x] Add the counter `PLACE_COPIES_FORWARDED` and `count_place_copies_forwarded` to `src/optimizer/stats.rs`,
       mirroring `AGGREGATE_COPIES_FORWARDED` (`stats.rs:122`, `:410`). The catalog row that makes it visible lands in C.
-- [ ] Unit tests in `placefwd.rs`, in aggcopy's style (built NIR, `with_opt_level`). Each asserts the body after the
+- [x] Unit tests in `placefwd.rs`, in aggcopy's style (built NIR, `with_opt_level`). Each asserts the body after the
       pass. These **forward**:
       - the benchmark `set` shape (`get(cur)`, then `WITH` rewriting `cur`);
       - the `removeAt` shape;
@@ -307,8 +310,13 @@ Commit: —
       - a scalar `b`;
       - `-O0`.
 
+      Done in `src/optimizer/opt1/placefwd/tests/mod.rs` (the `dce/tests` layout), plus three not listed: a member
+      path of a parameter forwards, a rebound (shadowed) owner declines, and the counter is bumped.
+      `cargo test --bin mfb optimizer::opt1::placefwd` → 19 passed.
+
 Acceptance: the owned-local shapes are forwarded, and every negative case keeps its copy. Check:
-`cargo test --lib optimizer::opt1::placefwd` → all pass; `cargo test --lib optimizer::opt1::aggcopy` → 6 pass (est. 5 min).
+`cargo test --bin mfb optimizer::opt1::placefwd` → all pass; `cargo test --bin mfb optimizer::opt1::aggcopy` → 7 pass (est. 5 min).
+Verified 2026-09-27: 19 passed / 7 passed.
 Commit: —
 
 ### Phase A3 — Codegen and run-time proof for owned locals
@@ -366,6 +374,21 @@ END FUNC
   Only the 2 `set` rows are out of reach. The Non-goals, §2, and plan-149-C's goal, acceptance and Open Decisions are
   corrected to 14 rows in scope. plan-149-C3's acceptance floor also drops from 10× to 5×: the old text claimed 10× was
   cleared everywhere, but `STATE` `removeAt` measured 8× (986 → 124 ns).
+
+- **`cargo test --lib` runs nothing here (A2).** The optimizer lives in the `mfb` binary crate, so the plan's
+  `cargo test --lib optimizer::opt1::…` checks filter to 0 tests (`cargo test --lib optimizer::opt1::placefwd` →
+  "0 passed; 403 filtered out"). Every such check in plan-149 is corrected to `cargo test --bin mfb …`.
+- **aggcopy's `children_mut` skipped `Checked` (A2).** The private helper had no arm for `NirValue::Checked`
+  (bug-471's trapped-operator node), so aggcopy's rewrite left a read of `b` inside a `Checked` naming a binding it then
+  deleted. The move to `plans::shape::value_children_mut` makes the match exhaustive (a new child-carrying variant is
+  now a compile error there) and adds the arm; `aggcopy::tests::a_read_inside_a_checked_value_is_forwarded` pins it.
+  A source-level reproduction was not found: the inline-`TRAP` lowering hoists an operator's operands into `$trap_arg`
+  temps (`/tmp/p149/chk`, `target/release/mfb build -O3 --nir`), so the NIR-level test is the proof.
+- **The owner's `RES` test (A2).** A `RES` binding's NIR type is `ParameterType::Stateful` (for `… STATE T`) or a
+  named nominal, not `ParameterType::Res` (which is only a collection-element marker), and `resource_owners` lists
+  every `RES` binding, parameters included (`/tmp/p149/st`, `--nir`: `resourceOwners: [{name: f, owner: local}]` in
+  both `main` and `bump`). The local-owner gate therefore declines any owner in `resource_owners` or of a `Stateful`
+  type; the `STATE` class is plan-149-B2's.
 
 ## Summary
 
