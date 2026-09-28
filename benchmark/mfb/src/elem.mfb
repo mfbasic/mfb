@@ -1,0 +1,314 @@
+' Record- and Float-element collection benchmarks (P1 coverage). The bug-430
+' list/map matrix (list.mfb / mapmatrix.mfb) varies the element over Integer
+' (`Fixed`) and String (`Dynamic`) only; a real program's lists hold records
+' and Floats just as often. These rows run the common collection ops over a
+' `List OF Item` (Item = {id AS Integer, name AS String, score AS Float} — a
+' mixed fixed/variable-width record), a `List OF Float`, and a
+' `Map OF Integer TO Item`, all held in plain MUT/LET locals. Group `elem`.
+'
+' Every score is an exact dyadic (a multiple of 0.25), so Float sums and
+' products stay exact and each checksum is an exact integer projection that
+' matches the C and Python peers bit-for-bit.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+TYPE Item
+  id AS Integer
+  name AS String
+  score AS Float
+END TYPE
+
+' The canonical record list: id = i, name = "item<i>", score in 0.0..50.0 in
+' 0.5 steps. Only 101 distinct scores over 1000 items, so `sortBy score` has
+' many ties and the checksum below proves the sort kept them stable.
+FUNC elemMakeItem(i AS Integer) AS Item
+  RETURN Item[id := i, name := "item" & toString(i), score := toFloat((i * 37) MOD 101) * 0.5]
+END FUNC
+
+FUNC elemBuildItems(n AS Integer) AS List OF Item
+  MUT xs AS List OF Item = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, elemMakeItem(i))
+  NEXT
+  RETURN xs
+END FUNC
+
+' A scrambled permutation of 0..n-1 (7919 is coprime to every size used),
+' scaled by 0.25 — distinct, exact Float values in unsorted order.
+FUNC elemBuildFloats(n AS Integer) AS List OF Float
+  MUT xs AS List OF Float = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, toFloat((i * 7919) MOD n) * 0.25)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC elemScoreKey(it AS Item) AS Float
+  RETURN it.score
+END FUNC
+
+FUNC elemAddF(acc AS Float, x AS Float) AS Float
+  RETURN acc + x
+END FUNC
+
+' ---- rec_get: indexed read of a record element -------------------------------
+FUNC test_elem_rec_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 999
+      FOR i = 0 TO 999
+        LET it AS Item = collections::get(items, i)
+        acc = acc + it.id + toInt(it.score)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_get = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_get", times))
+END FUNC
+
+' ---- rec_set: collections::set of a record element (read-modify-write) -------
+'
+' The working list is rebuilt untimed before each timed pass.
+FUNC test_elem_rec_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT items AS List OF Item = elemBuildItems(1000)
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR pass = 0 TO 99
+      FOR j = 0 TO 999
+        LET it AS Item = collections::get(items, j)
+        items = collections::set(items, j, WITH it { id := it.id + 1, score := it.score + 0.5 })
+      NEXT
+    NEXT
+    MUT acc AS Integer = 0
+    FOR j = 0 TO 999
+      LET it AS Item = collections::get(items, j)
+      acc = acc + it.id + toInt(it.score) + len(it.name)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_set", times))
+END FUNC
+
+' ---- rec_sortby: stable collections::sortBy on a Float record field ----------
+'
+' 101 distinct keys over 1000 items: the order-sensitive id hash only matches
+' the peers if equal-score items keep their original (ascending-id) order.
+FUNC test_elem_rec_sortby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 19
+      LET sorted AS List OF Item = collections::sortBy(items, elemScoreKey)
+      MUT h AS Integer = 0
+      FOR i = 0 TO len(sorted) - 1
+        h = (h * 31 + collections::get(sorted, i).id) MOD 1000000007
+      NEXT
+      acc = acc + h
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_sortby = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_sortby", times))
+END FUNC
+
+' ---- rec_find: collections::find of a record by structural equality ----------
+'
+' The needle equals the LAST element (built separately, so equal by value, not
+' identity): every call compares all 1000 records field-by-field.
+FUNC test_elem_rec_find(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  LET needle AS Item = elemMakeItem(999)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 999
+      acc = acc + collections::find(items, needle)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_find = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_find", times))
+END FUNC
+
+' ---- rec_filter: collections::filter on a record field -----------------------
+FUNC test_elem_rec_filter(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET high AS List OF Item = collections::filter(items, LAMBDA(it AS Item) -> it.score >= 25.0)
+      acc = acc + len(high) + collections::get(high, 0).id
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_filter = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_filter", times))
+END FUNC
+
+' ---- rec_transform: collections::transform producing updated records ---------
+FUNC test_elem_rec_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET scaled AS List OF Item = collections::transform(items, LAMBDA(it AS Item) -> WITH it { score := it.score * 2.0 + 0.25 })
+      acc = acc + len(scaled) + toInt(collections::get(scaled, k).score * 4.0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_rec_transform = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "rec_transform", times))
+END FUNC
+
+' ---- flt_sort: collections::sort of a List OF Float --------------------------
+FUNC test_elem_flt_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET xs AS List OF Float = elemBuildFloats(20000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 4
+      LET sorted AS List OF Float = collections::sort(xs)
+      MUT h AS Integer = 0
+      FOR i = 0 TO len(sorted) - 1
+        h = (h * 31 + toInt(collections::get(sorted, i) * 4.0)) MOD 1000000007
+      NEXT
+      acc = acc + h
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_flt_sort = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "flt_sort", times))
+END FUNC
+
+' ---- flt_sum: collections::reduce folding a List OF Float --------------------
+FUNC test_elem_flt_sum(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET xs AS List OF Float = elemBuildFloats(10000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET total AS Float = collections::reduce(xs, 0.0, elemAddF)
+      acc = acc + toInt(total * 4.0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_flt_sum = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "flt_sum", times))
+END FUNC
+
+' ---- flt_transform: collections::transform over a List OF Float --------------
+FUNC test_elem_flt_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET xs AS List OF Float = elemBuildFloats(10000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET ys AS List OF Float = collections::transform(xs, LAMBDA(x AS Float) -> x * 1.5 + 0.25)
+      acc = acc + len(ys) + toInt(collections::get(ys, k) * 8.0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_flt_transform = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "flt_transform", times))
+END FUNC
+
+' ---- map_rec_set: build a Map OF Integer TO Item by collections::set ---------
+'
+' Insert every item under its id, then overwrite each entry once (the update
+' path). The source items are built untimed.
+FUNC test_elem_map_rec_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 9
+      MUT m AS Map OF Integer TO Item = Map OF Integer TO Item { }
+      FOR i = 0 TO 999
+        m = collections::set(m, i, collections::get(items, i))
+      NEXT
+      FOR i = 0 TO 999
+        LET it AS Item = collections::get(items, i)
+        m = collections::set(m, i, WITH it { score := it.score + 1.0 })
+      NEXT
+      LET last AS Item = collections::get(m, 999 - k)
+      acc = acc + len(m) + last.id + toInt(last.score)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_map_rec_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "map_rec_set", times))
+END FUNC
+
+' ---- map_rec_get: keyed read of a record value -------------------------------
+FUNC test_elem_map_rec_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET items AS List OF Item = elemBuildItems(1000)
+  MUT m AS Map OF Integer TO Item = Map OF Integer TO Item { }
+  FOR i = 0 TO 999
+    m = collections::set(m, i, collections::get(items, i))
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      FOR i = 0 TO 999
+        LET it AS Item = collections::get(m, i)
+        acc = acc + it.id + toInt(it.score)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_elem_map_rec_get = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("elem", "map_rec_get", times))
+END FUNC

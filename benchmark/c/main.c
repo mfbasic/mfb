@@ -29,6 +29,7 @@
 #include "churnbench.h"
 #include "compressbench.h"
 #include "convertbench.h"
+#include "elembench.h"
 #include "cryptobench.h"
 #include "datetimebench.h"
 #include "dispatchbench.h"
@@ -769,6 +770,7 @@ int main(int argc, char **argv) {
   run_bigint_group();
 
   run_compress_group();
+  run_elem_group();
 
   test_primes();
 

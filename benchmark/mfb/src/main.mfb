@@ -1594,6 +1594,18 @@ FUNC main(args AS List OF String) AS Integer
 
   ' compress group (compress.mfb) — P1 coverage: compress::crc32
   tests = test_compress_crc32(run, tests)
+  ' elem group (elem.mfb) — P1 coverage: Record/Float element collection ops
+  tests = test_elem_rec_get(run, tests)
+  tests = test_elem_rec_set(run, tests)
+  tests = test_elem_rec_sortby(run, tests)
+  tests = test_elem_rec_find(run, tests)
+  tests = test_elem_rec_filter(run, tests)
+  tests = test_elem_rec_transform(run, tests)
+  tests = test_elem_flt_sort(run, tests)
+  tests = test_elem_flt_sum(run, tests)
+  tests = test_elem_flt_transform(run, tests)
+  tests = test_elem_map_rec_set(run, tests)
+  tests = test_elem_map_rec_get(run, tests)
 
   tests = test_primes(run, tests)
 

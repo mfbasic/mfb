@@ -50,13 +50,15 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `record wide`/`nested` + `float nbody_rec`/`nbody_vec` (`recordbench.*`) | record-shaped code the way users write it (P1 coverage): `wide` (1M `WITH`-updates of a 10-field mixed Integer/Float/String record passed into and returned from a FUNC), `nested` (the same update on that record inside a record inside a `List` — `get`, nested `WITH`, `collections::set` write-back); `nbody_rec` / `nbody_vec` are the **same simulation as `float nbody`** (same bodies, 100000 steps, same pair and float op order) over a `List OF Body` of records updated with `WITH` + `collections::set`, and over `vector::Float3` position/velocity fields with `vector::dot`/`vector::distance`. C peers use structs by value (a 3-double struct for `vec`), Python `dataclasses.replace` (records) and `__slots__` objects / tuples (n-body). Record-row Float ops are adds or power-of-two multiplies (exact), and the n-body rows fold `round(energy × 1e9)` — the nine decimals `float nbody` prints — so all checksums match bit-for-bit (`wide=10005154`, `nested=3543353`, `nbody_rec`=`nbody_vec`=`-169079859`) |
 | `bigint`            | the `big::Int` arbitrary-precision integer (P1): `pidigits` (Benchmarks Game spigot, 400 digits — add/multiply/divide/compare on growing state), `factorial` (`big::factorial(2000)` + `big::toString`), `modpow` (RSA-2048 public-key shape: 16 bases ^ 65537 mod a 2048-bit modulus), and `gcd` (200 Fibonacci pairs — Euclid's worst case — `big::parse`d, `big::gcd`'d and rendered back). Python peer is native `int`; no C peer (`--`) |
 | `compress`          | `compress::crc32` (P1) — 64× CRC-32 of a deterministic ~128 KB text; C peer is system zlib `crc32()` (`-lz`), Python `zlib.crc32` |
+| `elem`              | the **Record** and **Float** element types the Integer/String list/map matrix never varies (P1 coverage), all in plain `MUT`/`LET` locals: over a `List OF Item` (`Item = {id AS Integer, name AS String, score AS Float}`) — `rec_get`, `rec_set` (`collections::set` of a `WITH`-updated record), `rec_sortby` (stable `sortBy` on the `score` field, 101 distinct keys over 1000 items so the order-sensitive id hash proves tie stability), `rec_find` (structural record equality), `rec_filter`, `rec_transform`; over a `List OF Float` — `flt_sort`, `flt_sum` (`reduce`), `flt_transform`; and over a `Map OF Integer TO Item` — `map_rec_set` (insert then overwrite from empty) / `map_rec_get` |
 
 The `io` group also gains `readnum` (read+parse), `buf_on`/`buf_off` (buffered vs
 unbuffered write, quantifying the buffering win), `format` (mixed Int/Float/String
 formatting), and `binary` (`strings::toBytes` + `fs` byte round-trip); the `string`
 group gains `unibig` (realistic-size Unicode churn). These new rows live in
 per-theme files (`mapchurn.*`, `listchurn.*`, `mathpipe.*`, `strbuild.*`,
-`regexbench.*`, `arena.*`, `scalarbench.*`, `width.*`, `pipeline.*`, `convert.*`)
+`regexbench.*`, `arena.*`, `scalarbench.*`, `width.*`, `pipeline.*`, `convert.*`,
+`elem.*`/`elembench.*`)
 mirrored across all three languages.
 
 Three more per-member groups extend the existing surface (plan-45): the `map`
@@ -295,6 +297,21 @@ Python `record(group, name, None)` does.
   decompressed data, never a compressed length — compressed bytes legitimately
   differ from zlib's.
 
+- **`elem` (P1)** scores are exact dyadics (multiples of 0.25), so every Float
+  sum/product is exact and each checksum is an exact integer projection that
+  matches bit-for-bit (`rec_get=524258000`, `rec_set=681148`,
+  `rec_sortby=1463331720`, `rec_find=999000`, `rec_filter=101400`,
+  `rec_transform=240236`, `flt_sort=1163083625`, `flt_sum=9999000000`,
+  `flt_transform=4994700`, `map_rec_set=20217`, `map_rec_get=262129000`). C's
+  `qsort` is not stable, so `elembench.c` sorts records with its own stable merge
+  sort (Python's `sorted` is stable); `flt_sort` keys are distinct, so C uses
+  `qsort` there. C's record copies (filter/transform/sortBy results, map values)
+  copy the struct and share the immutable `name` string by pointer, and Python's
+  copy references — each language's idiomatic copy of an immutable string. The
+  map peers are a hand-rolled open-addressing table (C) and `dict` (Python). The
+  record rows run at a modest 1000 elements (the record carries a `String`
+  field — arena-churn caveat below); none degrades across the run loop at that
+  size.
 ### Arena-churn caveat + regression gate (plan-39-A)
 
 Several rows use **deliberately tiny** iteration counts because MFBASIC's runtime

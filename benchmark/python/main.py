@@ -30,6 +30,7 @@ import mapbench
 import mapmatrix
 import math
 import convertbench
+import elembench
 import mathbench
 import mathpipe
 import os
@@ -879,6 +880,8 @@ def main():
 
     # compress group (P1 compress:: coverage — crc32)
     compressbench.run_all(RUN, now_ns, record)
+    # elem group (P1 coverage — Record/Float element collection ops)
+    elembench.run_all(RUN, now_ns, record)
 
     test_primes()
 
