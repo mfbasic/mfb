@@ -1,0 +1,79 @@
+' heapsort - sorts `order` one comparison at a time.
+'
+' First the list is made a max-heap: every element is at least as large as its
+' two children (at 2i + 1 and 2i + 2), built by sifting each parent down from
+' the last one to the root. Then the root - the largest left - is swapped to the
+' end of the heap, where it is in its final place, and the new root is sifted
+' down, until the heap is empty.
+
+MUT heapBuilding AS Boolean = TRUE
+MUT heapBuildNext AS Integer = 0    ' the next parent to sift while building
+MUT heapEnd AS Integer = 0          ' the heap is order[0 .. heapEnd]
+MUT heapSifting AS Boolean = FALSE
+MUT heapSiftAt AS Integer = 0
+MUT heapSiftLimit AS Integer = 0    ' the sift stays below this place
+MUT heapFinished AS Boolean = FALSE
+MUT heapCompareCount AS Integer = 0
+
+SUB heapStart
+  heapBuilding = TRUE
+  heapBuildNext = DOT_COUNT / 2 - 1
+  heapEnd = DOT_COUNT - 1
+  heapSifting = FALSE
+  heapFinished = DOT_COUNT < 2
+  heapCompareCount = 0
+END SUB
+
+FUNC heapDone AS Boolean
+  RETURN heapFinished
+END FUNC
+
+FUNC heapCompares AS Integer
+  RETURN heapCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+SUB heapSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT heapFinished
+    IF heapSifting THEN
+      MUT child AS Integer = 2 * heapSiftAt + 1
+      IF child >= heapSiftLimit THEN
+        heapSifting = FALSE
+      ELSE
+        ' Take the larger of the two children.
+        IF child + 1 < heapSiftLimit THEN
+          heapCompareCount = heapCompareCount + 1
+          left = left - 1
+          IF orderAt(child + 1) > orderAt(child) THEN child = child + 1
+        END IF
+        heapCompareCount = heapCompareCount + 1
+        left = left - 1
+        IF orderAt(heapSiftAt) < orderAt(child) THEN
+          swapOrder(heapSiftAt, child)
+          heapSiftAt = child
+        ELSE
+          heapSifting = FALSE
+        END IF
+      END IF
+    ELSEIF heapBuilding THEN
+      IF heapBuildNext < 0 THEN
+        heapBuilding = FALSE
+      ELSE
+        heapSiftAt = heapBuildNext
+        heapSiftLimit = DOT_COUNT
+        heapBuildNext = heapBuildNext - 1
+        heapSifting = TRUE
+      END IF
+    ELSEIF heapEnd <= 0 THEN
+      heapFinished = TRUE
+    ELSE
+      ' The largest left goes to the end of the heap, its final place.
+      swapOrder(0, heapEnd)
+      heapSiftAt = 0
+      heapSiftLimit = heapEnd
+      heapEnd = heapEnd - 1
+      heapSifting = TRUE
+    END IF
+  LOOP
+END SUB

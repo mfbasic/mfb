@@ -1,0 +1,57 @@
+' oddevensort - sorts `order` one comparison at a time.
+'
+' Odd-even transposition: one phase compares every even-indexed element with
+' its right neighbour, the next phase every odd-indexed one, and so on. Every
+' comparison in a phase is independent of the others, which is why it is the
+' sort parallel hardware uses. It stops after an even and an odd phase in a row
+' swap nothing. Nothing is in its final place until then.
+
+MUT oddEvenParity AS Integer = 0    ' 0 for an even phase, 1 for an odd one
+MUT oddEvenScan AS Integer = 0
+MUT oddEvenSwapped AS Boolean = FALSE
+MUT oddEvenQuietPhases AS Integer = 0
+MUT oddEvenFinished AS Boolean = FALSE
+MUT oddEvenCompareCount AS Integer = 0
+
+SUB oddEvenStart
+  oddEvenParity = 0
+  oddEvenScan = 0
+  oddEvenSwapped = FALSE
+  oddEvenQuietPhases = 0
+  oddEvenFinished = DOT_COUNT < 2
+  oddEvenCompareCount = 0
+END SUB
+
+FUNC oddEvenDone AS Boolean
+  RETURN oddEvenFinished
+END FUNC
+
+FUNC oddEvenCompares AS Integer
+  RETURN oddEvenCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+SUB oddEvenSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT oddEvenFinished
+    IF oddEvenScan + 1 < DOT_COUNT THEN
+      IF orderAt(oddEvenScan) > orderAt(oddEvenScan + 1) THEN
+        swapOrder(oddEvenScan, oddEvenScan + 1)
+        oddEvenSwapped = TRUE
+      END IF
+      oddEvenScan = oddEvenScan + 2
+      oddEvenCompareCount = oddEvenCompareCount + 1
+      left = left - 1
+    ELSE
+      IF oddEvenSwapped THEN
+        oddEvenQuietPhases = 0
+      ELSE
+        oddEvenQuietPhases = oddEvenQuietPhases + 1
+      END IF
+      IF oddEvenQuietPhases >= 2 THEN oddEvenFinished = TRUE
+      oddEvenParity = 1 - oddEvenParity
+      oddEvenScan = oddEvenParity
+      oddEvenSwapped = FALSE
+    END IF
+  LOOP
+END SUB

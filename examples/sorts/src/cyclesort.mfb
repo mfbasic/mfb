@@ -1,0 +1,89 @@
+' cyclesort - sorts `order` one comparison at a time.
+'
+' Take the element at the front of the unsorted part and count how many
+' elements after it are smaller: that count is where it belongs. Write it there
+' and pick up the element it replaces, find where that one belongs, and so on
+' until the chain comes back round to the front. Every write puts an element in
+' its final place, so it makes the fewest writes any sort can - each dot flies
+' once, straight to its slot.
+'
+' A place that has been written holds its final element, so the sort skips it
+' when looking for the next front; only places never written are counted out.
+'
+' While the chain runs, one element is "in hand": out of the list, with its old
+' place still showing the element that was there first. main's placeOf keeps
+' each dot heading for the place it was written to last, so the dot in hand
+' waits where it was until it is written to its slot.
+
+IMPORT collections
+
+MUT cycleWritten AS List OF Boolean = []
+MUT cycleFront AS Integer = 0       ' the chain being followed started here
+MUT cycleItem AS Integer = 0        ' the element in hand
+MUT cycleScan AS Integer = 0
+MUT cycleTarget AS Integer = 0      ' where the element in hand belongs, so far
+MUT cycleInChain AS Boolean = FALSE
+MUT cycleFinished AS Boolean = FALSE
+MUT cycleCompareCount AS Integer = 0
+
+' Pick up the element at the first front at or after `front` that was never
+' written, and start counting where it belongs; finish if there is none.
+SUB cycleBeginAt(front AS Integer)
+  MUT f AS Integer = front
+  DO WHILE f < DOT_COUNT - 1 AND collections::get(cycleWritten, f)
+    f = f + 1
+  LOOP
+  IF f >= DOT_COUNT - 1 THEN
+    cycleFinished = TRUE
+    EXIT SUB
+  END IF
+  cycleFront = f
+  cycleItem = orderAt(f)
+  cycleTarget = f
+  cycleScan = f + 1
+  cycleInChain = FALSE
+END SUB
+
+SUB cycleStart
+  cycleWritten = collections::repeat(cycleWritten, FALSE, DOT_COUNT)
+  cycleFinished = DOT_COUNT < 2
+  cycleCompareCount = 0
+  IF NOT cycleFinished THEN cycleBeginAt(0)
+END SUB
+
+FUNC cycleDone AS Boolean
+  RETURN cycleFinished
+END FUNC
+
+FUNC cycleCompares AS Integer
+  RETURN cycleCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+SUB cycleSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT cycleFinished
+    IF cycleScan < DOT_COUNT THEN
+      IF orderAt(cycleScan) < cycleItem THEN cycleTarget = cycleTarget + 1
+      cycleScan = cycleScan + 1
+      cycleCompareCount = cycleCompareCount + 1
+      left = left - 1
+    ELSEIF NOT cycleInChain AND cycleTarget = cycleFront THEN
+      ' Already where it belongs.
+      cycleBeginAt(cycleFront + 1)
+    ELSE
+      ' Write the element in hand to its place and pick up the one it replaces.
+      LET replaced AS Integer = orderAt(cycleTarget)
+      setOrder(cycleTarget, cycleItem)
+      cycleWritten = collections::set(cycleWritten, cycleTarget, TRUE)
+      IF cycleTarget = cycleFront THEN
+        cycleBeginAt(cycleFront + 1)
+      ELSE
+        cycleItem = replaced
+        cycleInChain = TRUE
+        cycleTarget = cycleFront
+        cycleScan = cycleFront + 1
+      END IF
+    END IF
+  LOOP
+END SUB

@@ -1,0 +1,81 @@
+' shellsort - sorts `order` one comparison at a time.
+'
+' An insertion sort over elements `gap` apart, for gaps that shrink to 1. The
+' wide gaps move elements a long way in few steps, so by the time the gap is 1
+' the list is nearly in order. The gaps are Ciura's, extended by 2.25 each for
+' lists longer than his. Nothing is in its final place until the last pass ends.
+
+IMPORT collections
+IMPORT math
+
+MUT shellGaps AS List OF Integer = []
+MUT shellGapIndex AS Integer = 0    ' the gap in use, counting down to 0 (gap 1)
+MUT shellNext AS Integer = 0        ' the element being inserted started here
+MUT shellAt AS Integer = 0          ' where it is now
+MUT shellInserting AS Boolean = FALSE
+MUT shellFinished AS Boolean = FALSE
+MUT shellCompareCount AS Integer = 0
+
+FUNC shellGap AS Integer
+  RETURN collections::get(shellGaps, shellGapIndex)
+END FUNC
+
+SUB shellStart
+  shellGaps = [1, 4, 10, 23, 57, 132, 301, 701, 1750]
+  MUT gap AS Float = 1750.0
+  DO WHILE gap * 2.25 < toFloat(DOT_COUNT)
+    gap = gap * 2.25
+    shellGaps = collections::append(shellGaps, math::floor(gap))
+  LOOP
+  ' Start at the largest gap smaller than the list.
+  shellGapIndex = len(shellGaps) - 1
+  DO WHILE shellGapIndex > 0 AND shellGap() >= DOT_COUNT
+    shellGapIndex = shellGapIndex - 1
+  LOOP
+  shellNext = shellGap()
+  shellInserting = FALSE
+  shellFinished = DOT_COUNT < 2
+  shellCompareCount = 0
+END SUB
+
+FUNC shellDone AS Boolean
+  RETURN shellFinished
+END FUNC
+
+FUNC shellCompares AS Integer
+  RETURN shellCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+SUB shellSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT shellFinished
+    IF NOT shellInserting THEN
+      IF shellNext >= DOT_COUNT THEN
+        ' This gap's pass is done; move to the next smaller gap.
+        IF shellGapIndex = 0 THEN
+          shellFinished = TRUE
+        ELSE
+          shellGapIndex = shellGapIndex - 1
+          shellNext = shellGap()
+        END IF
+      ELSE
+        shellAt = shellNext
+        shellInserting = TRUE
+      END IF
+    ELSEIF shellAt < shellGap() THEN
+      shellInserting = FALSE
+      shellNext = shellNext + 1
+    ELSE
+      shellCompareCount = shellCompareCount + 1
+      left = left - 1
+      IF orderAt(shellAt - shellGap()) > orderAt(shellAt) THEN
+        swapOrder(shellAt - shellGap(), shellAt)
+        shellAt = shellAt - shellGap()
+      ELSE
+        shellInserting = FALSE
+        shellNext = shellNext + 1
+      END IF
+    END IF
+  LOOP
+END SUB

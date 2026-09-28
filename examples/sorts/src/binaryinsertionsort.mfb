@@ -1,0 +1,59 @@
+' binaryinsertionsort - sorts `order` one comparison at a time.
+'
+' An insertion sort that finds where each next element belongs in the sorted
+' front by binary search, so it needs only about log2(n) comparisons per
+' element. The front still has to shift up one place to make room, and that
+' shift - which costs no comparisons - happens all at once when the search ends.
+
+MUT binaryNext AS Integer = 1       ' the element being inserted
+MUT binaryLo AS Integer = 0         ' it belongs in [binaryLo, binaryHi]
+MUT binaryHi AS Integer = 1
+MUT binaryFinished AS Boolean = FALSE
+MUT binaryCompareCount AS Integer = 0
+
+SUB binaryInsertionStart
+  binaryNext = 1
+  binaryLo = 0
+  binaryHi = 1
+  binaryFinished = DOT_COUNT < 2
+  binaryCompareCount = 0
+END SUB
+
+FUNC binaryInsertionDone AS Boolean
+  RETURN binaryFinished
+END FUNC
+
+FUNC binaryInsertionCompares AS Integer
+  RETURN binaryCompareCount
+END FUNC
+
+' Run up to `budget` comparisons.
+SUB binaryInsertionSteps(budget AS Integer)
+  MUT left AS Integer = budget
+  DO WHILE left > 0 AND NOT binaryFinished
+    IF binaryLo < binaryHi THEN
+      LET middle AS Integer = (binaryLo + binaryHi) / 2
+      IF orderAt(binaryNext) < orderAt(middle) THEN
+        binaryHi = middle
+      ELSE
+        binaryLo = middle + 1
+      END IF
+      binaryCompareCount = binaryCompareCount + 1
+      left = left - 1
+    ELSE
+      ' Shift the front up one place from binaryLo and drop the element in.
+      LET item AS Integer = orderAt(binaryNext)
+      FOR j = binaryNext TO binaryLo + 1 STEP -1
+        setOrder(j, orderAt(j - 1))
+      NEXT
+      setOrder(binaryLo, item)
+      binaryNext = binaryNext + 1
+      IF binaryNext >= DOT_COUNT THEN
+        binaryFinished = TRUE
+      ELSE
+        binaryLo = 0
+        binaryHi = binaryNext
+      END IF
+    END IF
+  LOOP
+END SUB
