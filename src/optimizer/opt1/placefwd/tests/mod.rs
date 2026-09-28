@@ -802,3 +802,145 @@ fn an_owned_local_forwards_across_a_user_call() {
         ]
     );
 }
+
+// ---- plan-149-B2: `STATE` owners, and the resource gate W5 ----
+
+fn state_type() -> ParameterType {
+    ParameterType::Stateful {
+        base: Box::new(ParameterType::named("fs.File")),
+        state: Box::new(rec_type()),
+    }
+}
+
+/// `f.state`, the place every `STATE` case reads through.
+fn state_of(resource: &str) -> NirValue {
+    member(local(resource), "state")
+}
+
+fn state_assign(resource: &str, value: NirValue) -> NirOp {
+    NirOp::StateAssign {
+        resource: resource.to_string(),
+        value,
+    }
+}
+
+/// `f.state.xs = OP(cur, …)`, as the front end desugars it.
+fn state_field_update(op: &str, args: Vec<NirValue>) -> NirOp {
+    state_assign("f", with_field(state_of("f"), "xs", call(op, args)))
+}
+
+/// Run the row over `body` in a function whose parameter `f` is a
+/// `RES fs::File STATE R`, beside a user `helper`.
+fn state_body_after(body: Vec<NirOp>) -> Vec<String> {
+    let mut f = function(body);
+    f.params = vec![param("f", state_type()), param("j", ParameterType::Integer)];
+    f.resource_owners
+        .insert("f".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    let mut module = module_of(vec![f, helper()]);
+    run(&mut module, 1);
+    render_ops(&module.functions[0].body)
+}
+
+fn assert_state_kept(body: Vec<NirOp>) {
+    let expected = render_ops(&body);
+    assert_eq!(state_body_after(body), expected, "the copy must be kept");
+}
+
+fn state_cur() -> NirOp {
+    bind("cur", list_int(), member(state_of("f"), "xs"))
+}
+
+fn state_set_shape() -> Vec<NirOp> {
+    vec![
+        state_cur(),
+        bind(
+            "v",
+            ParameterType::Integer,
+            call("collections.get", vec![local("cur"), local("j")]),
+        ),
+        state_field_update(
+            "collections.set",
+            vec![local("cur"), local("j"), local("v")],
+        ),
+    ]
+}
+
+#[test]
+fn the_state_set_shape_is_forwarded() {
+    assert_eq!(
+        state_body_after(state_set_shape()),
+        vec![
+            "LET v = collections.get(f.state.xs, j)",
+            "f.state = WITH f.state { xs := collections.set(f.state.xs, j, v) }",
+        ]
+    );
+}
+
+#[test]
+fn the_state_remove_at_shape_is_forwarded() {
+    assert_eq!(
+        state_body_after(vec![
+            state_cur(),
+            state_field_update("collections.removeAt", vec![local("cur"), local("j")]),
+        ]),
+        vec!["f.state = WITH f.state { xs := collections.removeAt(f.state.xs, j) }"]
+    );
+}
+
+#[test]
+fn the_state_remove_key_shape_is_forwarded() {
+    assert_eq!(
+        state_body_after(vec![
+            state_cur(),
+            state_field_update("collections.removeKey", vec![local("cur"), local("j")]),
+        ]),
+        vec!["f.state = WITH f.state { xs := collections.removeKey(f.state.xs, j) }"]
+    );
+}
+
+#[test]
+fn the_state_remove_shape_is_forwarded() {
+    assert_eq!(
+        state_body_after(vec![
+            state_cur(),
+            state_field_update("collections.remove", vec![local("cur"), local("j")]),
+        ]),
+        vec!["f.state = WITH f.state { xs := collections.remove(f.state.xs, j) }"]
+    );
+}
+
+/// W5: closing the resource in the window ends its `STATE`.
+#[test]
+fn closing_the_resource_in_the_window_keeps_the_copy() {
+    let mut body = state_set_shape();
+    body.insert(1, eval(call("fs.close", vec![local("f")])));
+    assert_state_kept(body);
+}
+
+/// W4 and W5 both: a user `SUB` handed the resource can write its `STATE`.
+#[test]
+fn passing_the_resource_to_a_user_sub_keeps_the_copy() {
+    let mut body = state_set_shape();
+    body.insert(1, eval(call("helper", vec![local("f")])));
+    assert_state_kept(body);
+}
+
+#[test]
+fn a_state_assign_between_the_bind_and_a_read_keeps_the_copy() {
+    let mut body = state_set_shape();
+    body.insert(1, state_assign("f", call("mk", vec![])));
+    assert_state_kept(body);
+}
+
+/// A resource has no place but its `STATE`: a record field named `state` on a
+/// non-resource is an ordinary local path, and a non-`state` member of a
+/// resource is not a place.
+#[test]
+fn a_non_state_member_of_a_resource_keeps_the_copy() {
+    assert_state_kept(vec![
+        bind("cur", list_int(), member(local("f"), "xs")),
+        NirOp::Return {
+            value: Some(call("len", vec![local("cur")])),
+        },
+    ]);
+}

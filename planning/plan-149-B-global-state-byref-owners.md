@@ -106,13 +106,15 @@ The benchmark rows contain only builtin calls (`collections::get` / `set` / `rem
 
 Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass, including the new cases (est. 5 min).
 Verified 2026-09-27: 29 passed.
-Commit: —
+Commit: 18948ec80
 
 ### Phase B2 — `STATE` owners
 
-- [ ] Accept a chain rooted at `MemberAccess{Local(f), "state"}` where `f` is in `function.resource_owners`. The owner
+- [x] Accept a chain rooted at `MemberAccess{Local(f), "state"}` where `f` is in `function.resource_owners`. The owner
       write is `StateAssign{f}`. Apply W4 and W5.
-- [ ] Unit tests. These **forward**:
+      Done: `Owner::State`, `BareUse` (W5). A resource is recognized by `resource_owners` **or** a `Stateful` type,
+      and any other member of a resource is not a place (declines).
+- [x] Unit tests. These **forward**:
       - the `list (State-Fixed) set` shape (`get(cur)`, then `f.state.xs = set(cur, …)`);
       - the `removeAt` shape;
       - the `removeKey` shape;
@@ -123,7 +125,10 @@ Commit: —
       - `f` passed to a user `SUB` in the window;
       - a `StateAssign{f}` between the bind and a read.
 
+      Done, plus one not listed: a non-`state` member of a resource declines.
+
 Acceptance: `cargo test --bin mfb optimizer::opt1::placefwd` → all pass (est. 5 min).
+Verified 2026-09-27: 37 passed.
 Commit: —
 
 ### Phase B3 — Codegen and run-time proof for B's classes

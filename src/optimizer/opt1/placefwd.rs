@@ -288,6 +288,9 @@ enum Owner {
     ByRef(String),
     /// A module global.
     Global(String),
+    /// The `STATE` payload of a `RES` binding (`f.state.…`): written by
+    /// `StateAssign{f}`, and reachable by anything the handle is passed to.
+    State(String),
 }
 
 impl Owner {
@@ -304,6 +307,11 @@ impl Owner {
                 NirOp::StoreGlobal { name: written, .. } | NirOp::Assign { name: written, .. }
                     if written == name
             ),
+            Owner::State(name) => matches!(
+                op,
+                NirOp::StateAssign { resource: written, .. } | NirOp::Assign { name: written, .. }
+                    if written == name
+            ),
         }
     }
 
@@ -314,15 +322,22 @@ impl Owner {
     }
 }
 
-/// The root of a place, or `None` when `value` is not a place.
-fn place_root(value: &NirValue) -> Option<(&NirValue, usize)> {
+/// The root of a place, its depth, and the member taken directly on the root
+/// (`state` in `f.state.xs`), or `None` when `value` is not a place.
+fn place_root(value: &NirValue) -> Option<(&NirValue, usize, Option<&str>)> {
     let mut depth = 0;
     let mut cursor = value;
-    while let NirValue::MemberAccess { target, .. } = cursor {
+    let mut first_member = None;
+    while let NirValue::MemberAccess { target, member } = cursor {
         depth += 1;
+        first_member = Some(member.as_str());
         cursor = target;
     }
-    matches!(cursor, NirValue::Local(_) | NirValue::Global { .. }).then_some((cursor, depth))
+    matches!(cursor, NirValue::Local(_) | NirValue::Global { .. }).then_some((
+        cursor,
+        depth,
+        first_member,
+    ))
 }
 
 /// Find and apply the first forwardable binding in `ops` (or any nested body).
@@ -416,12 +431,24 @@ fn candidate(ops: &[NirOp], index: usize, context: &Context) -> Option<(String, 
             return None;
         }
     }
+    // W5: the resource itself goes nowhere in the window. Handing it to
+    // anything — `fs::close(f)`, a user `SUB` — can change or end its `STATE`.
+    if let Owner::State(resource) = &owner {
+        let mut bare = BareUse {
+            name: resource,
+            found: false,
+        };
+        bare.visit_ops(&ops[index + 1..=last]);
+        if bare.found {
+            return None;
+        }
+    }
     Some((binding.clone(), place.clone(), last))
 }
 
 /// The owner of `place` when it is one this row can prove a window for.
 fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner> {
-    let (root, depth) = place_root(place)?;
+    let (root, depth, first_member) = place_root(place)?;
     let owner = match root {
         // A global cannot be address-taken, captured or rebound, so it needs
         // no census gate beyond W4.
@@ -436,15 +463,22 @@ fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner>
     let is_param = context.function_params.contains(owner);
     // One binding: its own `Bind`, or the parameter (which never has a `Bind`
     // of the same name when the count is exactly one).
-    let owner_stable = facts.binds.get(owner).copied() == Some(1)
+    let bound_once = facts.binds.get(owner).copied() == Some(1)
         && !facts.address_taken.contains(owner)
-        && !facts.captured.contains(owner)
-        && !context.resource_owners.contains(owner)
-        && !matches!(
+        && !facts.captured.contains(owner);
+    if !bound_once {
+        return None;
+    }
+    let is_resource = context.resource_owners.contains(owner)
+        || matches!(
             facts.bind_types.get(owner),
-            Some(ParameterType::Stateful { .. } | ParameterType::Res(_)) | None
+            Some(ParameterType::Stateful { .. } | ParameterType::Res(_))
         );
-    if !owner_stable {
+    if is_resource {
+        // A resource's only place is its `STATE` payload.
+        return (first_member == Some("state")).then(|| Owner::State(owner.clone()));
+    }
+    if !facts.bind_types.contains_key(owner) {
         return None;
     }
     // A bare local copied from a parameter keeps the copy (return-move).
@@ -455,6 +489,33 @@ fn owner_of(place: &NirValue, binding: &str, context: &Context) -> Option<Owner>
         return Some(Owner::ByRef(owner.clone()));
     }
     Some(Owner::Local(owner.clone()))
+}
+
+/// W5's scan: is the resource `name` used other than as the root of a
+/// `MemberAccess` chain (`f.state.xs`)?
+struct BareUse<'a> {
+    name: &'a str,
+    found: bool,
+}
+
+impl NirVisitor for BareUse<'_> {
+    fn visit_value(&mut self, value: &NirValue) {
+        match value {
+            NirValue::MemberAccess { .. } => {
+                let mut cursor = value;
+                while let NirValue::MemberAccess { target, .. } = cursor {
+                    cursor = target;
+                }
+                if matches!(cursor, NirValue::Local(root) if root == self.name) {
+                    return; // a read through the handle, not the handle itself
+                }
+                walk_value(self, value);
+            }
+            NirValue::Local(name) if name == self.name => self.found = true,
+            NirValue::LocalRef { name, .. } if name == self.name => self.found = true,
+            _ => walk_value(self, value),
+        }
+    }
 }
 
 /// W4's scan: does anything in the window run user code? A call to a user
