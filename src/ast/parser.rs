@@ -288,7 +288,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.",
+                "Expected an IMPORT, LET, MUT, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.",
                 &token,
             );
             self.synchronize();

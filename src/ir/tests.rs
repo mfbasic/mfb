@@ -918,14 +918,14 @@ mod lower_tests {
         assert!(!x.explicit_type);
     }
 
-    // ---- FUNC / SUB variants --------------------------------------------
+    // ---- FUNC variants --------------------------------------------------
 
     #[test]
-    fn func_sub_kinds_and_returns() {
+    fn func_kinds_and_returns() {
         let ir = lower_src(
             "FUNC add(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\n\
-             SUB greet(name AS String)\n  LET x AS String = name\nEND SUB\n\
-             SUB main\nEND SUB\n",
+             FUNC greet(name AS String) AS Nothing\n  LET x AS String = name\nEND FUNC\n\
+             FUNC main AS Nothing\nEND FUNC\n",
         );
         let add = function(&ir, "add");
         assert_eq!(add.kind, "func");
@@ -933,7 +933,7 @@ mod lower_tests {
         assert_eq!(add.params.len(), 2);
 
         let greet = function(&ir, "greet");
-        assert_eq!(greet.kind, "sub");
+        assert_eq!(greet.kind, "func");
         assert_eq!(greet.returns.name(), "Nothing");
     }
 
@@ -2114,13 +2114,13 @@ mod lower_tests {
     }
 
     #[test]
-    fn doc_block_for_union_and_sub() {
+    fn doc_block_for_union_and_nothing_func() {
         let src = "DOC\n  UNION Shape\n  DESC A shape.\nEND DOC\n\
              TYPE Dot\n  n AS Integer\nEND TYPE\n\
              EXPORT UNION Shape\n  Dot\nEND UNION\n\
-             DOC INTERNAL\n  SUB logIt\n  DESC Logs.\n  DEPRECATED Use logger.\nEND DOC\n\
-             EXPORT SUB logIt(value AS Integer)\n  LET x AS Integer = value\nEND SUB\n\
-             SUB main\nEND SUB\n";
+             DOC INTERNAL\n  FUNC logIt\n  DESC Logs.\n  DEPRECATED Use logger.\nEND DOC\n\
+             EXPORT FUNC logIt(value AS Integer) AS Nothing\n  LET x AS Integer = value\nEND FUNC\n\
+             FUNC main AS Nothing\nEND FUNC\n";
         if let Some(ir) = try_lower_src(src) {
             assert!(ir
                 .docs
@@ -2129,7 +2129,7 @@ mod lower_tests {
                 .any(|d| d.name == "Shape" && d.kind == IrDocKind::Union));
             let log = ir.docs.decls.iter().find(|d| d.name == "logIt");
             assert!(log
-                .is_some_and(|d| d.kind == IrDocKind::Sub && d.internal && d.deprecated.is_some()));
+                .is_some_and(|d| d.kind == IrDocKind::Func && d.internal && d.deprecated.is_some()));
         }
     }
 
@@ -2225,7 +2225,7 @@ mod lower_tests {
                RETURN 0\n\
              END FUNC\n",
         );
-        // The `advance` SUB has a RES param carrying STATE in its type string.
+        // The `advance` function has a RES param carrying STATE in its type string.
         let advance = function(&ir, "advance");
         assert!(advance.params[0].type_.name().contains("STATE FileState"));
         // Its body assigns the resource STATE via StateAssign.
@@ -2551,7 +2551,6 @@ mod lower_tests {
                 ],
                 returns: crate::types::ParameterType::parse("Integer"),
                 isolated: false,
-                sub: false,
             },
         );
         let ir = lower_project_with_external_functions(&project, None, &signatures, &[], &[]);
@@ -5708,7 +5707,6 @@ END FUNC
                 }],
                 returns: crate::types::ParameterType::parse("String"),
                 isolated: false,
-                sub: false,
             },
         );
         let entry = Some(super::EntryPoint {

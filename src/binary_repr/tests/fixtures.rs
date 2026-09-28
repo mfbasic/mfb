@@ -175,7 +175,7 @@ pub(super) fn rich_project() -> IrProject {
     isolated.isolated = true;
     project.functions = vec![
         exported,
-        fn_named("doThing", "export", "sub", "Nothing"),
+        fn_named("doThing", "export", "func", "Nothing"),
         isolated,
     ];
     project

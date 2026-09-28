@@ -2638,7 +2638,7 @@ pub(crate) enum Site {
     /// by-ref `String` the owner's capacity shadow, shared through the closure
     /// environment, so every `String` arm and `&` fire here too.
     Lambda,
-    /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `SUB`.
+    /// S2 — a module-level `MUT` global (plan-142-H), self-updated in a `FUNC … AS Nothing`.
     Global,
     /// S11 — `RETURN OP(x, …)` on an owned local at its last use (plan-147-B). The
     /// probe is a recursive `chain`, one level per call, so the block threads
@@ -2664,7 +2664,7 @@ pub(crate) enum Site {
     S3,
     /// The same record's last field `b`.
     S4,
-    /// The last field of a module-level record, updated in a `SUB`.
+    /// The last field of a module-level record, updated in a `FUNC … AS Nothing`.
     S5,
     /// `b` of `inner AS Rec` in `Out { n, inner }`, through a nested `WITH`.
     S6,
@@ -2678,7 +2678,7 @@ pub(crate) enum Site {
     T1,
     /// Field `b` of the same payload.
     T2,
-    /// T1 through a `RES` parameter (`SUB run1(RES h …)`).
+    /// T1 through a `RES` parameter (`FUNC run1(RES h …) AS Nothing`).
     T3,
     /// T2 through a `RES` parameter.
     T4,

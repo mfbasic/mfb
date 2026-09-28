@@ -1271,7 +1271,7 @@ const RENDER_LOOP: &str = concat!(render_loop_head!(), render_loop_tail!());
 ///
 /// `__canvas_renderFrame` marks five points: the frame's start, then the end of the scene
 /// walk, of the draw list, of the damage diff and of the render (the predicate, the
-/// backend's own work, readback and present). A normal build's mark is an empty `SUB`;
+/// backend's own work, readback and present). A normal build's mark is an empty `FUNC … AS Nothing`;
 /// a `--debug` build's accumulates the nanoseconds between consecutive marks per phase,
 /// and `__canvas_phaseText` reports each total in milliseconds. Cumulative, like
 /// `generations=`, because the interesting quantity is the delta between frames.

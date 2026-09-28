@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/syntax/packages/package-retired-sub-export-invalid
+uses package_simple - [Unsigned]
+   1 | IMPORT io
+   2 | IMPORT package_simple
+     | ^
+tests/syntax/packages/package-retired-sub-export-invalid/src/main.mfb:2 error[2-201-0001 IMPORT_PACKAGE_INVALID]: imported package binary could not be read
+               Package `package_simple` type exports could not be read: failed to read 'tests/syntax/packages/package-retired-sub-export-invalid/packages/package_simple.mfp': package was built by an older compiler and exports a callable of a retired kind (export kind 2); rebuild the package with this compiler
+[exit 1]
+$ mfb build tests/syntax/packages/package-retired-sub-export-invalid
+uses package_simple - [Unsigned]
+   1 | IMPORT io
+   2 | IMPORT package_simple
+     | ^
+tests/syntax/packages/package-retired-sub-export-invalid/src/main.mfb:2 error[2-201-0001 IMPORT_PACKAGE_INVALID]: imported package binary could not be read
+               Package `package_simple` type exports could not be read: failed to read 'tests/syntax/packages/package-retired-sub-export-invalid/packages/package_simple.mfp': package was built by an older compiler and exports a callable of a retired kind (export kind 2); rebuild the package with this compiler
+[exit 1]

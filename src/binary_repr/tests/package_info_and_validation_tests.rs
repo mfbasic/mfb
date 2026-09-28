@@ -199,7 +199,7 @@ fn validate_manifest_counts_rejects_a_manifest_that_lies_about_its_tables() {
 #[test]
 fn validate_abi_index_rejects_callable_export_with_no_export_table_row() {
     // bug-282 B1: the callable verification loop is driven by EXPORT_TABLE, so
-    // an ABI_INDEX Func/Sub entry naming no EXPORT_TABLE row was never reached
+    // a callable ABI_INDEX entry naming no EXPORT_TABLE row was never reached
     // and its sigHash never recomputed -- it was accepted verbatim, then flowed
     // into `pkg info`, `repo check-abi` and the registry `abi_index`, where it
     // could satisfy an importer's used-symbol pin for a function that does not

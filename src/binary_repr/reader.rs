@@ -478,7 +478,7 @@ pub(super) fn decode_type_export(
             }
             (Vec::new(), Vec::new(), members)
         }
-        BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {
+        BinaryReprExportKind::Func => {
             return Err(format!("export `{name}` is not a type export"));
         }
     };
@@ -814,6 +814,9 @@ pub(super) fn read_function_table(
         let name = cursor_u32(bytes, &mut offset)?;
         let kind = cursor_u16(bytes, &mut offset)?;
         let flags = cursor_u16(bytes, &mut offset)?;
+        if flags & RETIRED_FUNCTION_FLAG_SUB != 0 {
+            return Err(retired_sub_error());
+        }
         let param_count = cursor_u32(bytes, &mut offset)? as usize;
         let return_type = cursor_u32(bytes, &mut offset)?;
         let register_count = cursor_u32(bytes, &mut offset)? as usize;
@@ -1205,7 +1208,7 @@ pub(super) fn validate_abi_index(
             // resolve time for a function that does not exist -- failing much
             // later at merge with a far more confusing error. Require the
             // counterpart here; the hash itself is then verified above.
-            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {
+            BinaryReprExportKind::Func => {
                 if !exports
                     .iter()
                     .any(|export| export.name == abi_export.name && export.kind == abi_export.kind)
@@ -1356,7 +1359,6 @@ pub(super) fn abi_export_for_decoded<'a>(
 pub(super) fn decode_callable_export_kind(value: u16) -> Result<BinaryReprExportKind, String> {
     match decode_export_kind(value)? {
         BinaryReprExportKind::Func => Ok(BinaryReprExportKind::Func),
-        BinaryReprExportKind::Sub => Ok(BinaryReprExportKind::Sub),
         other => Err(format!(
             "unsupported callable export kind {}",
             encode_export_kind(other)
@@ -1364,10 +1366,20 @@ pub(super) fn decode_callable_export_kind(value: u16) -> Result<BinaryReprExport
     }
 }
 
+/// A package built before plan-159-D can carry a retired value-less-callable
+/// export (kind `2`, function flag bit 3). There is one package format and no
+/// compatibility path: the reader names the cause and the fix instead of guessing
+/// what the export meant.
+pub(super) fn retired_sub_error() -> String {
+    "package was built by an older compiler and exports a callable of a retired kind \
+     (export kind 2); rebuild the package with this compiler"
+        .to_string()
+}
+
 pub(super) fn decode_export_kind(value: u16) -> Result<BinaryReprExportKind, String> {
     match value {
         1 => Ok(BinaryReprExportKind::Func),
-        2 => Ok(BinaryReprExportKind::Sub),
+        RETIRED_EXPORT_KIND_SUB => Err(retired_sub_error()),
         3 => Ok(BinaryReprExportKind::Type),
         4 => Ok(BinaryReprExportKind::Union),
         5 => Ok(BinaryReprExportKind::Enum),

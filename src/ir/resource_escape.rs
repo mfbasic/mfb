@@ -678,12 +678,11 @@ pub(super) fn call_arg_expr_mut(arg: &mut HirCallArg) -> &mut HirExpression {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{FunctionKind, Visibility};
+    use crate::ast::{Visibility};
     use crate::types::ParameterType;
 
     fn func(body: Vec<HirStatement>) -> HirFunction {
         HirFunction {
-            kind: FunctionKind::Func,
             visibility: Visibility::Private,
             isolated: false,
             name: "f".to_string(),

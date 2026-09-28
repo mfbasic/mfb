@@ -162,12 +162,11 @@ fn build_entry(chunk_names: &[String], total: i64, coverage: bool) -> Function {
 /// Shared shell for the entry and chunk functions: a public, parameterless
 /// `FUNC … AS Integer` with the given name and body. Public so `scope_privates`
 /// never mangles the name — the entry point pins `#mfb_test_main` verbatim and
-/// the entry calls each chunk by literal name. (The generated case SUBs are
+/// the entry calls each chunk by literal name. (The generated case functions are
 /// likewise Public, since the driver calls them across file boundaries; each
 /// stays in its own originating file so its body keeps that file's import scope.)
 fn driver_function(name: String, body: Vec<Statement>) -> Function {
     Function {
-        kind: FunctionKind::Func,
         visibility: Visibility::Public,
         isolated: false,
         name,

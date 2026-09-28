@@ -26,7 +26,7 @@
 //! a concrete type — no generic-variable classification happens here (that is a
 //! later plan). Name resolution beyond the structural copy is likewise deferred.
 
-use crate::ast::{ExitTarget, FunctionKind, LoopKind, TypeDeclKind, Visibility};
+use crate::ast::{ExitTarget, LoopKind, TypeDeclKind, Visibility};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
@@ -204,7 +204,7 @@ pub(crate) struct HirLinkParam {
     pub(crate) resource: bool,
     /// The `STATE T` type attached to a `RES` parameter, if any.
     pub(crate) state_type: Option<ParameterType>,
-    /// plan-136-A: elaborated like a FUNC/SUB default, so it can be resolved and
+    /// plan-136-A: elaborated like a FUNC default, so it can be resolved and
     /// lowered at the declaration.
     pub(crate) default: Option<HirExpression>,
     pub(crate) line: usize,
@@ -292,10 +292,9 @@ pub(crate) struct HirTypeField {
     pub(crate) line: usize,
 }
 
-/// A function or sub — the elaborated mirror of [`crate::ast::Function`].
+/// A function — the elaborated mirror of [`crate::ast::Function`].
 #[derive(Clone, Debug)]
 pub(crate) struct HirFunction {
-    pub(crate) kind: FunctionKind,
     pub(crate) visibility: Visibility,
     pub(crate) isolated: bool,
     pub(crate) name: String,
@@ -805,7 +804,6 @@ fn elaborate_type_field(field: &crate::ast::TypeField, type_params: &[String]) -
 fn elaborate_function(function: &crate::ast::Function) -> HirFunction {
     let type_params = &function.template_params;
     HirFunction {
-        kind: function.kind,
         visibility: function.visibility,
         isolated: function.isolated,
         name: function.name.clone(),

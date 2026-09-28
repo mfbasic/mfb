@@ -1,0 +1,4 @@
+' plan-159-D: SUB is no longer a keyword. The old declaration form is an
+' ordinary top-level parse error, with no special diagnostic.
+SUB main()
+END SUB

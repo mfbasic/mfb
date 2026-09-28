@@ -26,7 +26,7 @@
 //! is refused at compile time (`TYPE_USE_AFTER_MOVE`) and never reaches a
 //! backend. The reachable shape is the one §15 describes: a `RES` parameter is
 //! the same handle seen from a deeper scope, and any holder may close it — so a
-//! `SUB` taking `RES` and closing it, called twice, is a real double close and is
+//! function taking `RES` and closing it, called twice, is a real double close and is
 //! how a program meets this in practice.
 //!
 //! ## Coverage

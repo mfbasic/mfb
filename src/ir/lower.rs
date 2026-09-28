@@ -645,12 +645,9 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
 /// `with_state_matches_parse_of_the_concatenated_spelling` in `src/types.rs`), so
 /// the clause is attached without a render→parse round trip.
 pub(super) fn function_return_type(function: &HirFunction) -> ParameterType {
-    match function.kind {
-        FunctionKind::Func => match (&function.return_state_type, function.return_resource) {
-            (Some(state), true) => function.returns.with_state(state),
-            _ => function.returns.clone(),
-        },
-        FunctionKind::Sub => ParameterType::Nothing,
+    match (&function.return_state_type, function.return_resource) {
+        (Some(state), true) => function.returns.with_state(state),
+        _ => function.returns.clone(),
     }
 }
 
@@ -659,10 +656,7 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
     // escape analysis below and the body lowering both read the function.
     let hoisted = super::resource_hoist::hoist_resource_temporaries(function, context);
     let function = &hoisted;
-    let kind = match function.kind {
-        FunctionKind::Func => "func",
-        FunctionKind::Sub => "sub",
-    };
+    let kind = "func";
     let returns = function_return_type(function);
     let mut locals = HashMap::new();
     for param in &function.params {
@@ -1174,7 +1168,6 @@ fn lower_statement_inner(
                 kind: LoopKind::While,
                 loc,
             }],
-            ExitTarget::Sub => vec![IrOp::Return { value: None, loc }],
             ExitTarget::Func => Vec::new(),
             ExitTarget::Program => vec![IrOp::ExitProgram {
                 code: lower_expression(

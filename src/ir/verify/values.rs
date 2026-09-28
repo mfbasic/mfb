@@ -30,17 +30,6 @@ impl TypeEnv {
             );
             return;
         }
-        // bug-301 G2: `allow_sub_call` is a single shared `Cell` set for a
-        // statement-position value, and only the `Call` arm consumes it. But this
-        // walker recurses into operands and arguments BEFORE the wrapping node's
-        // own rule, so for a shape like `Eval(Binary(a, Call(sub)))` the DFS
-        // reached the nested SUB call with the flag still set -- marking it
-        // statement position and skipping `TYPE_SUB_HAS_NO_VALUE`. The intent is
-        // that only a value whose ROOT is the call may be value-less, so any other
-        // node clears the flag before descending.
-        if !matches!(value, IrValue::Call { .. } | IrValue::CallResult { .. }) {
-            self.allow_sub_call.set(false);
-        }
         // bug-517: consumed here, by EVERY node, so the flag reaches only the one
         // value it was set for. See `TypeEnv::sound_hash_selector`.
         let sound_hash_selector = self.sound_hash_selector.replace(false);
@@ -51,22 +40,6 @@ impl TypeEnv {
                 self.check_member_access_type(target, member, value, locals);
             }
             IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
-                // Statement position permits a value-less SUB call; any nested
-                // call (arguments, operands, initializers) is value position.
-                let statement_position = self.allow_sub_call.replace(false);
-                if !statement_position
-                    && self
-                        .functions
-                        .get(target)
-                        .is_some_and(|sig| sig.kind == "sub")
-                {
-                    self.emit(
-                        "TYPE_SUB_HAS_NO_VALUE",
-                        format!(
-                            "SUB `{target}` produces no value; its call is a statement, not an expression."
-                        ),
-                    );
-                }
                 for (index, arg) in args.iter().enumerate() {
                     // bug-517: `Hash.SHA1` in the selector position of a member
                     // whose security does not rest on collision resistance is a

@@ -762,7 +762,7 @@
   {
     "name": "__mfb_init_globals_app_5Fmouse_5Fsurface",
     "visibility": "private",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
     "params": [

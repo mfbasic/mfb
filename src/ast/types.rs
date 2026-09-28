@@ -100,7 +100,6 @@ pub struct TestCase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum DocHeaderKind {
     Func,
-    Sub,
     Type,
     Union,
     Enum,
@@ -115,7 +114,6 @@ impl DocHeaderKind {
     pub fn keyword(self) -> &'static str {
         match self {
             DocHeaderKind::Func => "FUNC",
-            DocHeaderKind::Sub => "SUB",
             DocHeaderKind::Type => "TYPE",
             DocHeaderKind::Union => "UNION",
             DocHeaderKind::Enum => "ENUM",
@@ -150,7 +148,7 @@ pub struct DocBlock {
     pub header_kind: DocHeaderKind,
     /// Declaration name; empty for a `PACKAGE` header.
     pub header_name: String,
-    /// Parenthesized parameter-type disambiguator from the header (FUNC/SUB), or
+    /// Parenthesized parameter-type disambiguator from the header (FUNC), or
     /// `None` when the header named no overload signature.
     pub header_params: Option<Vec<String>>,
     pub header_line: usize,
@@ -158,7 +156,7 @@ pub struct DocBlock {
     pub desc: Vec<DocProse>,
     /// `DEPRECATED` body lines: `(message, line)`. More than one is an error.
     pub deprecated: Vec<(String, usize)>,
-    /// `GROUP` body lines: `(name, line)`. FUNC/SUB only; more than one is an error.
+    /// `GROUP` body lines: `(name, line)`. FUNC only; more than one is an error.
     pub groups: Vec<(String, usize)>,
     pub args: Vec<DocNamed>,
     /// `RET` body lines: `(text, line)`. More than one is an error.
@@ -462,7 +460,6 @@ pub struct EnumMember {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub kind: FunctionKind,
     pub visibility: Visibility,
     pub isolated: bool,
     pub name: String,
@@ -483,12 +480,6 @@ pub struct Trap {
     pub name: String,
     pub body: Vec<Statement>,
     pub line: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FunctionKind {
-    Func,
-    Sub,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -635,7 +626,6 @@ pub enum ExitTarget {
     For,
     Do,
     While,
-    Sub,
     Func,
     Program,
 }

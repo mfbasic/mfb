@@ -140,7 +140,7 @@ pub(crate) fn is_overridable(name: &str) -> bool {
 }
 
 /// Whether a general built-in name is **reserved** and may not be declared as a
-/// user `FUNC`/`SUB` (plan-01-overload.md §A.5). The reserved set is exactly
+/// user `FUNC` (plan-01-overload.md §A.5). The reserved set is exactly
 /// `{ error }`.
 pub(crate) fn reserved_builtin_name(name: &str) -> bool {
     name == ERROR

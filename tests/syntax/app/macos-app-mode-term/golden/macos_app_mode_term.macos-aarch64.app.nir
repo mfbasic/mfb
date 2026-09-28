@@ -177,7 +177,7 @@
   {
     "name": "__mfb_init_globals_macos_5Fapp_5Fmode_5Fterm",
     "visibility": "private",
-    "kind": "sub",
+    "kind": "func",
     "isolated": false,
     "file": "builtins/color.mfb",
     "params": [

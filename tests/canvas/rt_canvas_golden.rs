@@ -24,7 +24,7 @@ use std::process::Command;
 const WIDTH: u32 = 900;
 const HEIGHT: u32 = 640;
 
-/// The smiley from `plan-98-api.md`, verbatim apart from being a `SUB` that returns
+/// The smiley from `plan-98-api.md`, verbatim apart from being an `AS Nothing` function that returns
 /// rather than blocking on input — a golden run must terminate.
 const SMILEY: &str = r#"IMPORT app
 IMPORT canvas

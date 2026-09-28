@@ -39,17 +39,11 @@ pub(crate) fn validate_entry_point(
 
             // An unannotated `FUNC` elaborates to `Unknown`, which is neither
             // `Integer` nor `Nothing` and so is rejected by the guard below.
-            // A `FUNC … AS Nothing` entry is exactly a `SUB` entry (plan-159-A):
+            // A `FUNC … AS Nothing` entry is a value-less entry (plan-159-A):
             // the runtime entry wrapper keys off `returns`, not the kind.
-            let returns = match function.kind {
-                crate::ast::FunctionKind::Sub => ParameterType::Nothing,
-                crate::ast::FunctionKind::Func => function.returns.clone(),
-            };
+            let returns = function.returns.clone();
 
-            if matches!(function.kind, crate::ast::FunctionKind::Func)
-                && returns != ParameterType::Integer
-                && returns != ParameterType::Nothing
-            {
+            if returns != ParameterType::Integer && returns != ParameterType::Nothing {
                 rules::show_diagnostic(
                     "PROJECT_ENTRY_INVALID",
                     &format!("Executable FUNC entry `{entry}` must return Integer or Nothing."),

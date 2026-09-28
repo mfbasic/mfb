@@ -122,8 +122,6 @@ impl<'a> FileParser<'a> {
                 ExitTarget::Do
             } else if self.match_keyword(Keyword::While) {
                 ExitTarget::While
-            } else if self.match_keyword(Keyword::Sub) {
-                ExitTarget::Sub
             } else if self.match_keyword(Keyword::Func) {
                 ExitTarget::Func
             } else if self.match_keyword(Keyword::Program) {
@@ -132,7 +130,7 @@ impl<'a> FileParser<'a> {
                 let unexpected = self.peek().clone();
                 self.report(
                     "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "EXIT must be followed by FOR, DO, WHILE, SUB, FUNC, or PROGRAM.",
+                    "EXIT must be followed by FOR, DO, WHILE, FUNC, or PROGRAM.",
                     &unexpected,
                 );
                 return None;

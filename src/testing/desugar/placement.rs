@@ -7,7 +7,7 @@ use super::*;
 /// Report every assertion builtin used outside a `TCASE` body. The `TESTING`
 /// blocks themselves are validated in-place (their case bodies are the only legal
 /// home for `expect*`); every other item — top-level bindings and ordinary
-/// FUNC/SUB bodies — is walked for stray assertion calls. Returns `true` iff a
+/// FUNC bodies — is walked for stray assertion calls. Returns `true` iff a
 /// misplacement was reported. Runs on the parsed AST before any lowering, in both
 /// build and test mode.
 pub(crate) fn validate_expect_placement(ast: &AstProject) -> bool {

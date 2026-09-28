@@ -20,7 +20,6 @@ pub(crate) struct IrPackageDoc {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IrDocKind {
     Func,
-    Sub,
     Type,
     Union,
     Enum,
@@ -32,7 +31,7 @@ pub(crate) struct IrDocDecl {
     pub(crate) kind: IrDocKind,
     pub(crate) name: String,
     pub(crate) signature: String,
-    /// `GROUP` name for FUNC/SUB, or empty.
+    /// `GROUP` name for FUNC, or empty.
     pub(crate) group: String,
     /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
     pub(crate) desc: Vec<(u8, String)>,
@@ -61,7 +60,7 @@ fn doc_prose(desc: &[crate::ast::DocProse]) -> Vec<(u8, String)> {
 /// documented in source but never persisted into the compiled package. Runs after
 /// `DOC` validation, so every block here is well-formed.
 pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs {
-    use crate::ast::{DocHeaderKind, Function, FunctionKind, Item, TypeDeclKind, Visibility};
+    use crate::ast::{DocHeaderKind, Function, Item, TypeDeclKind, Visibility};
 
     let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
     let mut types: HashMap<&str, (TypeDeclKind, Visibility, String)> = HashMap::new();
@@ -93,13 +92,10 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
     }
 
     // Pick the overload a callable DOC block documents: the one matching the
-    // header's parameter types, or the first matching-kind overload otherwise.
-    let overload_for = |doc: &crate::ast::DocBlock, want_sub: bool| -> Option<&Function> {
+    // header's parameter types, or the first overload otherwise.
+    let overload_for = |doc: &crate::ast::DocBlock| -> Option<&Function> {
         let list = funcs.get(doc.header_name.as_str())?;
-        let matching = list
-            .iter()
-            .copied()
-            .filter(|f| (f.kind == FunctionKind::Sub) == want_sub);
+        let matching = list.iter().copied();
         match &doc.header_params {
             Some(wanted) => matching
                 .clone()
@@ -167,21 +163,15 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
                         });
                     }
                 }
-                DocHeaderKind::Func | DocHeaderKind::Sub => {
-                    let want_sub = doc.header_kind == DocHeaderKind::Sub;
+                DocHeaderKind::Func => {
                     // Only exported overloads are persisted (plan-09-doc.md §3).
-                    let Some(function) = overload_for(doc, want_sub) else {
+                    let Some(function) = overload_for(doc) else {
                         continue;
                     };
                     if function.visibility != Visibility::Export {
                         continue;
                     }
-                    let kind = if want_sub {
-                        IrDocKind::Sub
-                    } else {
-                        IrDocKind::Func
-                    };
-                    decls.push(make_decl(doc, kind, function.signature_line()));
+                    decls.push(make_decl(doc, IrDocKind::Func, function.signature_line()));
                 }
                 DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
                     let Some((_, vis, signature)) = types.get(doc.header_name.as_str()) else {

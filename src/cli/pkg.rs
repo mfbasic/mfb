@@ -2130,7 +2130,6 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
 fn package_export_kind_name(kind: binary_repr::BinaryReprExportKind) -> &'static str {
     match kind {
         binary_repr::BinaryReprExportKind::Func => "FUNC",
-        binary_repr::BinaryReprExportKind::Sub => "SUB",
         binary_repr::BinaryReprExportKind::Type => "TYPE",
         binary_repr::BinaryReprExportKind::Union => "UNION",
         binary_repr::BinaryReprExportKind::Enum => "ENUM",
@@ -2390,7 +2389,6 @@ mod tests {
     fn package_export_kind_names() {
         use binary_repr::BinaryReprExportKind::*;
         assert_eq!(package_export_kind_name(Func), "FUNC");
-        assert_eq!(package_export_kind_name(Sub), "SUB");
         assert_eq!(package_export_kind_name(Type), "TYPE");
         assert_eq!(package_export_kind_name(Union), "UNION");
         assert_eq!(package_export_kind_name(Enum), "ENUM");

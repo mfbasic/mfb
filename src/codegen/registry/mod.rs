@@ -2673,7 +2673,7 @@ fn unify(
 /// still refuse it, each for a reason of its own:
 ///
 /// * a callback's RESULT (`transform`'s `FUNC(T) AS U`): an effect-only callback
-///   collects nothing, so a `SUB` / `FUNC … AS Nothing` does not satisfy a
+///   collects nothing, so a `FUNC … AS Nothing` does not satisfy a
 ///   value-producing callback (`mfb spec language subs` §7; bug-443);
 /// * a thread-handle slot: a data-only handle's `Nothing` resource plane must fail a
 ///   member that captures `res` (`accept`/`transfer`), see [`thread_slot_unifies`].
@@ -2721,7 +2721,7 @@ fn unify_at(
         (ParameterType::Var(name), _) => {
             // STRICT validation: a type variable in a callback-result or thread-slot
             // position never binds to `Nothing` — a value-returning callback
-            // parameter (`transform`'s `FUNC(T) AS U`) is not satisfied by a `SUB` /
+            // parameter (`transform`'s `FUNC(T) AS U`) is not satisfied by a
             // `FUNC(..) AS Nothing` argument (bug-443). Everywhere else `Nothing` is an
             // ordinary type (bug-745, [`NothingBinding`]). The lenient
             // dispatch/inference path binds it everywhere, so `Nothing`-returning

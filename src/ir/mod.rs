@@ -17,7 +17,7 @@
 //! hub through which the rest of the crate reaches the model.
 
 use crate::ast::{
-    EnumMember, ExitTarget, Expression, FunctionKind, LoopKind, TypeDeclKind, Visibility,
+    EnumMember, ExitTarget, Expression, LoopKind, TypeDeclKind, Visibility,
 };
 use crate::codegen::builtins;
 use crate::json::json_string;

@@ -2563,7 +2563,7 @@ mod tests {
 
     #[test]
     fn generic_function_instantiated_per_argument_type() {
-        // A generic SUB called with Integer and String is monomorphized into two
+        // A generic `AS Nothing` function called with Integer and String is monomorphized into two
         // concrete symbols (mangled by argument type); the template is dropped.
         let src = "\
 IMPORT io

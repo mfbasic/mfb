@@ -153,7 +153,6 @@ fn string_at_bounds_check() {
 fn export_kind_encode_decode_round_trips() {
     for kind in [
         BinaryReprExportKind::Func,
-        BinaryReprExportKind::Sub,
         BinaryReprExportKind::Type,
         BinaryReprExportKind::Union,
         BinaryReprExportKind::Enum,
@@ -168,9 +167,19 @@ fn export_kind_encode_decode_round_trips() {
 }
 
 #[test]
+fn the_retired_sub_export_kind_is_rejected_with_a_rebuild_message() {
+    // plan-159-D: kind 2 was the retired value-less callable kind. It is reserved, never decoded as anything else,
+    // and names the fix for a package an older compiler built.
+    for decode in [decode_export_kind, decode_callable_export_kind] {
+        let err = decode(2).err().expect("kind 2 is rejected");
+        assert!(err.contains("rebuild the package"), "{err}");
+    }
+}
+
+#[test]
 fn doc_kind_name_maps_codes() {
     assert_eq!(doc_kind_name(DOC_KIND_FUNC), "func");
-    assert_eq!(doc_kind_name(DOC_KIND_SUB), "sub");
+    assert_eq!(doc_kind_name(DOC_KIND_RESERVED_SUB), "func");
     assert_eq!(doc_kind_name(DOC_KIND_TYPE), "type");
     assert_eq!(doc_kind_name(DOC_KIND_UNION), "union");
     assert_eq!(doc_kind_name(DOC_KIND_ENUM), "enum");

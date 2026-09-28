@@ -187,7 +187,7 @@ fn a_named_call_fills_an_omitted_default_in_declaration_scope() {
     );
 }
 
-/// The P11 shape on a `SUB`.
+/// The P11 shape on an `AS Nothing` function.
 #[test]
 fn a_sub_default_ignores_a_callers_same_named_local() {
     let output = run_program(
@@ -212,7 +212,7 @@ fn a_sub_default_ignores_a_callers_same_named_local() {
     assert_eq!(
         lines(&output),
         vec!["5"],
-        "the SUB's default must call the declaration's `helper`:\n{output}"
+        "the function's default must call the declaration's `helper`:\n{output}"
     );
 }
 

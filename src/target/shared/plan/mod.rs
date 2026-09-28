@@ -549,7 +549,7 @@ mod tests {
             functions: vec![NirFunction {
                 name: "main".to_string(),
                 visibility: "private".to_string(),
-                kind: "sub".to_string(),
+                kind: "func".to_string(),
                 isolated: false,
                 params: Vec::new(),
                 returns: ParameterType::Nothing,

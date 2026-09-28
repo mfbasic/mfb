@@ -14,7 +14,7 @@ impl Resolver<'_> {
     pub(super) fn resolve_doc_blocks(&mut self) {
         let hir = self.hir;
 
-        // Index user declarations by name. Functions and subs share a namespace,
+        // Index user declarations by name. Functions share one namespace,
         // and a name may carry several overloads.
         let mut funcs: HashMap<&str, Vec<&HirFunction>> = HashMap::new();
         let mut types: HashMap<&str, &HirTypeDecl> = HashMap::new();
@@ -96,7 +96,7 @@ impl Resolver<'_> {
         }
 
         let kind = doc.header_kind;
-        let is_callable = matches!(kind, DocHeaderKind::Func | DocHeaderKind::Sub);
+        let is_callable = matches!(kind, DocHeaderKind::Func);
         let is_member_kind = matches!(
             kind,
             DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum
@@ -107,7 +107,7 @@ impl Resolver<'_> {
             if let Some(arg) = doc.args.first() {
                 self.report(
                     "DOC_ARG_INVALID_CONTEXT",
-                    "ARG is valid only on FUNC and SUB doc blocks.",
+                    "ARG is valid only on FUNC doc blocks.",
                     file,
                     arg.line,
                 );
@@ -115,7 +115,7 @@ impl Resolver<'_> {
             if let Some((_, line)) = doc.rets.first() {
                 self.report(
                     "DOC_RET_INVALID_CONTEXT",
-                    "RET is valid only on FUNC and SUB doc blocks.",
+                    "RET is valid only on FUNC doc blocks.",
                     file,
                     *line,
                 );
@@ -123,7 +123,7 @@ impl Resolver<'_> {
             if let Some(error) = doc.errors.first() {
                 self.report(
                     "DOC_ERROR_INVALID_CONTEXT",
-                    "ERROR is valid only on FUNC and SUB doc blocks.",
+                    "ERROR is valid only on FUNC doc blocks.",
                     file,
                     error.line,
                 );
@@ -143,7 +143,7 @@ impl Resolver<'_> {
             if let Some((_, line)) = doc.groups.first() {
                 self.report(
                     "DOC_GROUP_INVALID_CONTEXT",
-                    "GROUP is valid only on FUNC and SUB doc blocks.",
+                    "GROUP is valid only on FUNC doc blocks.",
                     file,
                     *line,
                 );
@@ -206,27 +206,11 @@ impl Resolver<'_> {
                     *package_doc_seen = true;
                 }
             }
-            DocHeaderKind::Func | DocHeaderKind::Sub => {
-                let want_sub = kind == DocHeaderKind::Sub;
+            DocHeaderKind::Func => {
                 let resolved = match funcs.get(doc.header_name.as_str()) {
                     Some(list) => {
-                        let matching: Vec<&&HirFunction> = list
-                            .iter()
-                            .filter(|f| (f.kind == FunctionKind::Sub) == want_sub)
-                            .collect();
-                        if matching.is_empty() {
-                            self.report(
-                                "DOC_NAME_MISMATCH",
-                                &format!(
-                                    "`{}` is not a {} in this package.",
-                                    doc.header_name,
-                                    kind.keyword()
-                                ),
-                                file,
-                                doc.header_line,
-                            );
-                            false
-                        } else if let Some(types_wanted) = &doc.header_params {
+                        let matching: Vec<&&HirFunction> = list.iter().collect();
+                        if let Some(types_wanted) = &doc.header_params {
                             // The header named a specific overload by its parameter
                             // types; validate ARGs against exactly that overload.
                             match matching
@@ -659,7 +643,7 @@ impl Resolver<'_> {
                 .collect::<HashSet<_>>();
             for param in &function.params {
                 // plan-136-A: a LINK parameter default resolves at the declaration,
-                // exactly like a FUNC/SUB one. It was never resolved before, so an
+                // exactly like a FUNC one. It was never resolved before, so an
                 // unknown name in it went unreported.
                 if let Some(default) = &param.default {
                     self.resolve_parameter_default(
@@ -2349,7 +2333,7 @@ mod tests {
 
     #[test]
     fn doc_ret_on_non_callable_reports() {
-        // RET is only valid on FUNC/SUB; here it sits on a TYPE block.
+        // RET is only valid on FUNC; here it sits on a TYPE block.
         assert!(resolve_source_fails(concat!(
             "DOC\n  TYPE Point\n  RET nonsense\nEND DOC\n",
             "TYPE Point\n  x AS Integer\nEND TYPE\n\n",
@@ -2410,17 +2394,6 @@ mod tests {
             "EXPORT FUNC f() AS Integer\n  RETURN 0\nEND FUNC\n\n",
             "DOC INTERNAL\n  PACKAGE\nEND DOC\n\n",
             "FUNC main() AS Nothing\nEND FUNC\n",
-        )));
-    }
-
-    #[test]
-    fn doc_func_wrong_subkind_reports() {
-        // A `SUB` doc header naming a name that exists only as a FUNC → the
-        // matching-overload list is empty (DOC_NAME_MISMATCH).
-        assert!(resolve_source_fails(concat!(
-            "DOC\n  SUB add\n  DESC add is a FUNC, not a SUB.\nEND DOC\n",
-            "EXPORT FUNC add(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\n\n",
-            "SUB main()\nEND SUB\n",
         )));
     }
 

@@ -95,7 +95,6 @@ pub enum Keyword {
     Next,
     Xor,
     Return,
-    Sub,
     Testing,
     Then,
     True,
@@ -1198,8 +1197,6 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Xor)
     } else if value.eq_ignore_ascii_case("RETURN") {
         Some(Keyword::Return)
-    } else if value.eq_ignore_ascii_case("SUB") {
-        Some(Keyword::Sub)
     } else if value.eq_ignore_ascii_case("THEN") {
         Some(Keyword::Then)
     } else if value.eq_ignore_ascii_case("TRUE") {
@@ -1281,7 +1278,6 @@ pub fn keyword_lexeme(keyword: Keyword) -> &'static str {
         Keyword::Next => "next",
         Keyword::Xor => "xor",
         Keyword::Return => "return",
-        Keyword::Sub => "sub",
         Keyword::Testing => "testing",
         Keyword::Then => "then",
         Keyword::True => "true",
@@ -1502,7 +1498,6 @@ END DOC
             "next",
             "xor",
             "return",
-            "sub",
             "then",
             "true",
             "end",

@@ -833,10 +833,7 @@ impl ToJson for Function {
             ),
             pad,
             pad,
-            json_string(match self.kind {
-                FunctionKind::Func => "func",
-                FunctionKind::Sub => "sub",
-            }),
+            json_string("func"),
             pad,
             json_string(visibility_name(self.visibility)),
             pad,
@@ -1537,10 +1534,7 @@ impl Function {
         if self.isolated {
             out.push_str("ISOLATED ");
         }
-        out.push_str(match self.kind {
-            FunctionKind::Func => "FUNC ",
-            FunctionKind::Sub => "SUB ",
-        });
+        out.push_str("FUNC ");
         out.push_str(&self.name);
         out.push('(');
         let params = self
@@ -1562,11 +1556,9 @@ impl Function {
             .join(", ");
         out.push_str(&params);
         out.push(')');
-        if let FunctionKind::Func = self.kind {
-            let ret = self.return_type.as_deref().unwrap_or("Nothing");
-            out.push_str(" AS ");
-            out.push_str(ret);
-        }
+        let ret = self.return_type.as_deref().unwrap_or("Nothing");
+        out.push_str(" AS ");
+        out.push_str(ret);
         out
     }
 }
@@ -1624,7 +1616,6 @@ fn exit_target_name(target: ExitTarget) -> &'static str {
         ExitTarget::For => "for",
         ExitTarget::Do => "do",
         ExitTarget::While => "while",
-        ExitTarget::Sub => "sub",
         ExitTarget::Func => "func",
         ExitTarget::Program => "program",
     }

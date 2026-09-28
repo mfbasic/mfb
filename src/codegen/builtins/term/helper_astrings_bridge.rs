@@ -8,7 +8,7 @@
 //! (`HelperGate::WhenBothImported`, the legacy `term::bridge_uses_package`) — a
 //! `Body::Mfb` body renders into `get_mfb` unconditionally. The gated chunk is its
 //! own synthetic file (`<builtin-term_astrings_bridge>`), and injected FUNCs are
-//! file-local, so its FUNC/SUB/TYPE members must stay together in one chunk. The
+//! file-local, so its FUNC/TYPE members must stay together in one chunk. The
 //! `strings` scalar seam the bridge calls rides in through `strings`' own
 //! `WhenImported("astrings")` gate. Body byte-significant; do not reformat.
 

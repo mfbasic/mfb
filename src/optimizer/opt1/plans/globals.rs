@@ -29,12 +29,12 @@ pub(crate) struct GlobalUse {
     /// Total read occurrences (`NirValue::Global`).
     pub(crate) reads: usize,
     /// Write occurrences (`NirOp::StoreGlobal`) that are NOT the global's own
-    /// initializer store. bug-552: the synthetic `__mfb_init_globals_*` SUB
+    /// initializer store. bug-552: the synthetic `__mfb_init_globals_*` function
     /// stores every module-level binding exactly once, so counting its stores
     /// here made `writes >= 1` for every global in the language and both proofs
     /// below permanently false.
     pub(crate) writes: usize,
-    /// Write occurrences inside the synthetic global-initializer SUB. Kept
+    /// Write occurrences inside the synthetic global-initializer function. Kept
     /// separate rather than discarded: the dead-global row must REMOVE these
     /// ops when it removes the global, or it leaves the initializer storing to
     /// a name that no longer exists and the NIR validator refuses the module
@@ -80,7 +80,7 @@ pub(crate) fn census(module: &NirModule) -> Census {
         census: &'a mut Census,
         function: usize,
         /// Whether the function being walked is the synthetic
-        /// `__mfb_init_globals_*` SUB (bug-552).
+        /// `__mfb_init_globals_*` function (bug-552).
         in_initializer: bool,
     }
     impl NirVisitor for Walk<'_> {
@@ -143,7 +143,7 @@ pub(crate) fn census(module: &NirModule) -> Census {
 }
 
 /// Every function that can run while the global initializer is still running,
-/// by name — the initializer SUB itself plus everything it can reach.
+/// by name — the initializer function itself plus everything it can reach.
 ///
 /// Bindings initialize one at a time, in order (`mfb spec language
 /// modules-and-packages`), and a slot not yet initialized reads zero. So a read
@@ -347,7 +347,7 @@ mod tests {
         }
     }
 
-    /// bug-747: the initializer SUB reaches what it calls, what those call,
+    /// bug-747: the initializer function reaches what it calls, what those call,
     /// and every function it mentions as a value; nothing else. A call to a
     /// name that is no module function (a builtin) is not an edge.
     #[test]

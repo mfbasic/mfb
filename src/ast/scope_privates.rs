@@ -225,7 +225,7 @@ fn rewrite_item_refs(
         Item::Testing(testing) => {
             // TESTING case bodies are ordinary statement blocks and may reference
             // file-local PRIVATE declarations; rewrite them before the block is
-            // desugared into generated SUBs (plan-18-A).
+            // desugared into generated `AS Nothing` functions (plan-18-A).
             for group in testing.groups.iter_mut() {
                 rewrite_test_group(group, rename, types);
             }

@@ -51,7 +51,9 @@ a `cargo test` target, another script, or a person.
 - **sync-package-mfp.sh** — Rebuilds every buildable package fixture from source
   (`tools/thread-package-sources`, `tools/link-package-sources`, `tests/`) and
   overwrites every committed copy of its `.mfp`, which otherwise go stale when the
-  package format changes. Skips the deliberately tampered security packages.
+  package format changes. Skips the deliberately tampered security packages, and
+  leaves alone the copies of any fixture holding `mfp-frozen.txt` (a deliberately
+  out-of-date package, reported as `frozen:`).
   Usage: `bash scripts/sync-package-mfp.sh <mfb-exe>`. Run by: by hand.
 - **artifact-baseline.sh** — Captures or verifies a SHA-256 manifest of every codegen
   dump and every linked `.out` for a set of targets, building each fixture in a

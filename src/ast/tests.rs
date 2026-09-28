@@ -1815,20 +1815,20 @@ fn serialize_covers_none_and_default_branches() {
     let src = r#"
 LET plain = 1
 RES bare AS File
-SUB doer(a, RES h AS File)
+FUNC doer(a, RES h AS File)
   LET x = 1
   MUT y
-  EXIT SUB
   RETURN
   RECOVER
   FOR i = 1 TO 3
     y = i
+    EXIT FOR
   NEXT
   MATCH y
     CASE ELSE
       y = 0
   END MATCH
-END SUB
+END FUNC
 
 LINK "lib" AS l
   FUNC noRet(a AS Integer)
@@ -1842,14 +1842,14 @@ END LINK
     assert!(json.contains("\"type\": null"));
     // A RES declaration with no STATE serializes state null.
     assert!(json.contains("\"resource\": true, \"state\": null"));
-    // A SUB with no return type.
-    assert!(json.contains("\"kind\": \"sub\""));
+    // A FUNC with no return type.
+    assert!(json.contains("\"kind\": \"func\""));
     assert!(json.contains("\"returnType\": null"));
     // RETURN / RECOVER with no value.
     assert!(json.contains("\"kind\": \"return\", \"value\": null"));
     assert!(json.contains("\"kind\": \"recover\", \"value\": null"));
-    // EXIT SUB (no code).
-    assert!(json.contains("\"kind\": \"exit\", \"target\": \"sub\", \"code\": null"));
+    // EXIT FOR (no code).
+    assert!(json.contains("\"kind\": \"exit\", \"target\": \"for\", \"code\": null"));
     // FOR without STEP.
     assert!(json.contains("\"step\": null"));
     // MATCH else.
@@ -1957,15 +1957,13 @@ fn top_level_errors_are_reported() {
     // Unterminated type.
     assert!(try_parse("TYPE T\n  x AS Integer\n").is_err());
     // END without matching kind.
-    assert!(try_parse("FUNC main\nEND SUB\n").is_err());
+    assert!(try_parse("FUNC main\nEND TYPE\n").is_err());
 }
 
 #[test]
 fn function_header_and_body_errors() {
     // Missing close paren on params.
     assert!(try_parse("FUNC f(a AS Integer\nEND FUNC\n").is_err());
-    // ISOLATED on a SUB is rejected.
-    assert!(try_parse("ISOLATED SUB s\nEND SUB\n").is_err());
     // Two TRAPs.
     assert!(try_parse(
         "FUNC f AS Integer\n  RETURN 0\n  TRAP(a)\n    RETURN 1\n  END TRAP\n  TRAP(b)\n    RETURN 2\n  END TRAP\nEND FUNC\n"
@@ -1981,11 +1979,11 @@ fn function_header_and_body_errors() {
 }
 
 #[test]
-fn function_declaration_requires_the_func_or_sub_keyword() {
+fn function_declaration_requires_the_func_keyword() {
     // bug-292: with a visibility prefix, `check_top_level_item_start` stops
     // looking after `ISOLATED`, so `parse_function` is the only place that can
-    // reject what follows it. It used to default every non-`SUB` token to `Func`
-    // and compile these to an executable.
+    // reject what follows it. It used to default every unrecognized token to
+    // `Func` and compile these to an executable.
     assert!(try_parse("PUBLIC ISOLATED BOGUS weird AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
     assert!(try_parse("PUBLIC ISOLATED ISOLATED f AS Integer\n  RETURN 1\nEND FUNC\n").is_err());
     // The valid spellings the check must leave alone.
@@ -2081,7 +2079,6 @@ fn expression_errors() {
 #[test]
 fn doc_header_kind_keywords() {
     assert_eq!(DocHeaderKind::Func.keyword(), "FUNC");
-    assert_eq!(DocHeaderKind::Sub.keyword(), "SUB");
     assert_eq!(DocHeaderKind::Type.keyword(), "TYPE");
     assert_eq!(DocHeaderKind::Union.keyword(), "UNION");
     assert_eq!(DocHeaderKind::Enum.keyword(), "ENUM");
@@ -2270,7 +2267,7 @@ fn native_func_missing_symbol_or_abi() {
     .is_err());
     // END must name FUNC.
     assert!(try_parse(
-        "LINK \"x\" AS l\n  FUNC f AS Integer\n    SYMBOL \"s\"\n    ABI () AS r CInt32\n  END SUB\nEND LINK\n"
+        "LINK \"x\" AS l\n  FUNC f AS Integer\n    SYMBOL \"s\"\n    ABI () AS r CInt32\n  END TYPE\nEND LINK\n"
     )
     .is_err());
 }

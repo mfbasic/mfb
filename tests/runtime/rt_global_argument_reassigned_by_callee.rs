@@ -83,7 +83,7 @@ END FUNC
 ";
 
 /// Higher-order builtins walking `g` while their callback reassigns it: a named
-/// `SUB` handed to `forEach`, and a `LAMBDA` handed to `filter` whose body calls
+/// `AS Nothing` function handed to `forEach`, and a `LAMBDA` handed to `filter` whose body calls
 /// a function that writes `g`.
 const HOF_CALLBACKS: &str = "\
 IMPORT collections

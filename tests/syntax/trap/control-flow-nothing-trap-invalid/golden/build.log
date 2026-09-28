@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/trap/control-flow-nothing-trap-invalid
+   5 |     RETURN
+   6 |   END IF
+   7 |   TRAP(err)
+     | ^
+tests/syntax/trap/control-flow-nothing-trap-invalid/src/main.mfb:7 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
+               Normal flow in `bad` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.
+[exit 1]

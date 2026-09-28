@@ -397,7 +397,7 @@ mod tests {
             // Leaf statements: exercise `statement_line` arms and the `_ => {}`
             // no-nested-block branch of `instrument_nested`.
             Statement::Exit {
-                target: ExitTarget::Sub,
+                target: ExitTarget::For,
                 code: None,
                 line: 120,
             },

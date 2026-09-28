@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/functions/isolated_non_func_invalid
+  14 | ' pinned by the unit test `rejects_isolated_on_a_non_func_kind` in
+  15 | ' src/ir/verify/tests.rs, which constructs the IR directly.
+  16 | ISOLATED TYPE Point
+     | ^^^^^^^^
+tests/syntax/functions/isolated_non_func_invalid/src/main.mfb:16 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+  15 | ' src/ir/verify/tests.rs, which constructs the IR directly.
+  16 | ISOLATED TYPE Point
+  17 |   x AS Integer
+     |   ^
+tests/syntax/functions/isolated_non_func_invalid/src/main.mfb:17 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+  16 | ISOLATED TYPE Point
+  17 |   x AS Integer
+  18 | END TYPE
+     | ^^^
+tests/syntax/functions/isolated_non_func_invalid/src/main.mfb:18 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+  19 | 
+  20 | FUNC main AS Integer
+  21 |   LET f = ISOLATED LAMBDA(x AS Integer) -> x
+     |           ^^^^^^^^
+tests/syntax/functions/isolated_non_func_invalid/src/main.mfb:21 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+  19 | 
+  20 | FUNC main AS Integer
+  21 |   LET f = ISOLATED LAMBDA(x AS Integer) -> x
+     |                    ^^^^^^
+tests/syntax/functions/isolated_non_func_invalid/src/main.mfb:21 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+[exit 1]

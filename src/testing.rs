@@ -13,7 +13,7 @@
 //!     pass/fail tree, and exits non-zero iff any case failed.
 
 use crate::ast::{
-    AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, TestGroupMember,
+    AstProject, Function, Import, Item, TestCase, TestGroup, TestGroupMember,
     Visibility,
 };
 use crate::testing::coverage::CovSlot;
@@ -218,7 +218,6 @@ fn lower_group(
                 } = case;
                 let desugared_body = desugar::desugar_case_body(body);
                 generated.push(Function {
-                    kind: FunctionKind::Func,
                     // Public so the driver (in the first file) can call it across
                     // file boundaries; the unique generated name avoids collision.
                     visibility: Visibility::Public,

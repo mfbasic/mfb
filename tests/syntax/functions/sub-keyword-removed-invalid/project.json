@@ -1,5 +1,5 @@
 {
-  "name": "isolated_sub_invalid",
+  "name": "sub_keyword_removed_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

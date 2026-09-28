@@ -70,7 +70,7 @@ fn string_drops(plan: &Value, symbol: &str) -> usize {
         .count()
 }
 
-/// The one `SUB main` all three callee shapes are measured through: the call
+/// The one `FUNC main() AS Nothing` all three callee shapes are measured through: the call
 /// result is left UNBOUND (consumed by `len`), which is exactly the position that
 /// had no owner at all before this fix.
 fn main_calling(callee: &str) -> String {

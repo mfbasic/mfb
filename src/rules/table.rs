@@ -556,11 +556,14 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "return value type does not match function success type",
     },
+    // plan-159-D retired this row and 0073, 0074 and 0077 below with the
+    // callable kind they policed. Kept as reserved rows so the numbers are never
+    // recycled for a different meaning — the `2-203-0100` precedent.
     Rule {
         code: "2-203-0042",
         name: "TYPE_SUB_CANNOT_RETURN_VALUE",
         severity: Severity::Error,
-        message: "SUB cannot return a value",
+        message: "reserved: retired by plan-159-D (SUB removed from the language)",
     },
     Rule {
         code: "2-203-0043",
@@ -970,13 +973,13 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0073",
         name: "SUB_RETURN_FORBIDDEN",
         severity: Severity::Error,
-        message: "RETURN is forbidden in a SUB; use EXIT SUB",
+        message: "reserved: retired by plan-159-D (SUB removed from the language)",
     },
     Rule {
         code: "2-203-0074",
         name: "TYPE_SUB_HAS_NO_VALUE",
         severity: Severity::Error,
-        message: "a SUB call produces no value and cannot be used in value position",
+        message: "reserved: retired by plan-159-D (SUB removed from the language)",
     },
     Rule {
         code: "2-203-0075",
@@ -994,7 +997,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0077",
         name: "EXIT_SUB_IN_FUNC",
         severity: Severity::Error,
-        message: "EXIT SUB is valid only inside a SUB",
+        message: "reserved: retired by plan-159-D (SUB removed from the language)",
     },
     Rule {
         code: "2-203-0078",
@@ -1381,7 +1384,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "1-103-0002",
         name: "DOC_BAD_HEADER",
         severity: Severity::Error,
-        message: "DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE",
+        message: "DOC block header must be FUNC, TYPE, UNION, ENUM, RESOURCE, or PACKAGE",
     },
     Rule {
         code: "1-103-0003",
@@ -1508,7 +1511,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-205-0019",
         name: "DOC_GROUP_INVALID_CONTEXT",
         severity: Severity::Error,
-        message: "GROUP is valid only on FUNC and SUB doc blocks",
+        message: "GROUP is valid only on FUNC doc blocks",
     },
     Rule {
         code: "2-205-0020",

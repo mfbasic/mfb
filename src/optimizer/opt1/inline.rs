@@ -598,14 +598,15 @@ mod tests {
         );
         let mut isolated = gi("grid.mfb");
         isolated.isolated = true;
-        let mut sub = gi("grid.mfb");
-        sub.kind = "sub".to_string();
+        // A body the optimizer synthesized (kind `function`) is not a user `func`.
+        let mut synthesized = gi("grid.mfb");
+        synthesized.kind = "function".to_string();
         for callee in [
             helper_calling_user_code,
             two_statements,
             string_result,
             isolated,
-            sub,
+            synthesized,
         ] {
             let args = callee.params.iter().map(|_| local("i")).collect();
             let mut module = test_module(vec![callee, caller("grid.mfb", call("gi", args))]);

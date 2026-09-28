@@ -60,7 +60,7 @@
 //! not a collection (the scalars, `String`, `json::Json`, every package record
 //! type). A kind whose new value allocates on its own has the bound `arm+value`:
 //! `count(2N) - count(N) <= 1.125 * (control(2N) - control(N))`, the control
-//! program computing the same value and handing it to a no-op `SUB kindSink`
+//! program computing the same value and handing it to a no-op `FUNC kindSink … AS Nothing`
 //! instead of storing it (an assignment would add the copy of a borrowed value).
 //! At a field site the program also prints a sibling field before and after the
 //! loop, so a write that lands on the wrong part of the owner fails.
@@ -318,7 +318,7 @@ enum Site {
     /// and the bound is on the difference.
     Lambda,
     /// S2 — a module-level `MUT x` (plan-142-H): the program's body runs in
-    /// `SUB run1()`, which `main` calls.
+    /// `FUNC run1() AS Nothing`, which `main` calls.
     Global,
     /// S11 — `RETURN OP(x, …)` on an owned local at its last use (plan-147-B). The
     /// loop is replaced by RECURSION: `chain(k)` binds `chain(k - 1)`'s result to a
@@ -380,7 +380,7 @@ impl Site {
 }
 
 /// The whole program: `x` declared as `decl` — a `main` local, or at S2 a
-/// module-level global with `body` in a `SUB` — and `body` (main-body lines).
+/// module-level global with `body` in an `AS Nothing` function — and `body` (main-body lines).
 fn frame(site: Site, decl: &str, body: &str) -> String {
     let rest = match site {
         Site::Global => format!(
@@ -1226,7 +1226,7 @@ enum FieldSite {
     S3,
     /// The same record's last field `b`.
     S4,
-    /// The last field of a module-level record `gR`, updated in a `SUB`.
+    /// The last field of a module-level record `gR`, updated in an `AS Nothing` function.
     S5,
     /// `b` of `inner AS Rec` in `Out { n, inner }`:
     /// `o = WITH o { inner := WITH o.inner { b := f(o.inner.b, …) } }`.
@@ -1242,7 +1242,7 @@ enum FieldSite {
     T1,
     /// Field `b` of the same payload.
     T2,
-    /// T1 through a `RES` parameter: the body runs in `SUB run1(RES h …)`.
+    /// T1 through a `RES` parameter: the body runs in `FUNC run1(RES h …) AS Nothing`.
     T3,
     /// T2 through a `RES` parameter.
     T4,
@@ -1333,7 +1333,7 @@ impl FieldSite {
         }
     }
 
-    /// The statement computing the same value and handing it to a no-op `SUB` (the
+    /// The statement computing the same value and handing it to a no-op `AS Nothing` function (the
     /// `arm+value` control: the value's own allocations, and nothing stored — an
     /// assignment would add the copy of a value borrowed from the field).
     fn control(self, statement: &str, label: &str) -> String {

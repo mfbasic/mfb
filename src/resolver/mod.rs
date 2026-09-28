@@ -1,5 +1,5 @@
 use crate::ast::{
-    AstProject, DocBlock, DocHeaderKind, FunctionKind, ResourceDecl, TypeDeclKind, Visibility,
+    AstProject, DocBlock, DocHeaderKind, ResourceDecl, TypeDeclKind, Visibility,
 };
 use crate::binary_repr;
 use crate::codegen::builtins;
@@ -390,7 +390,7 @@ fn declared(type_: &ParameterType) -> Declared {
 struct FunctionSymbol {
     symbol: Symbol,
     params: Vec<Declared>,
-    /// Declared return type (`None` for a `SUB`). Part of the duplicate-detection
+    /// Declared return type (`None` when the source wrote no `AS` clause). Part of the duplicate-detection
     /// key so two declarations sharing a name and parameter types but differing in
     /// return type form a legal return-type overload set (plan-01-overload.md §F.1).
     return_type: Declared,
@@ -525,7 +525,7 @@ impl<'a> Resolver<'a> {
                     // after symbol collection (see `resolve_doc_blocks`).
                     HirItem::Doc(_) => {}
                     // TESTING blocks are lowered away (dropped or desugared into
-                    // ordinary SUBs) before resolution runs (plan-18-A §3).
+                    // ordinary `AS Nothing` functions) before resolution runs (plan-18-A §3).
                     HirItem::Testing(_) => {}
                 }
             }
@@ -601,7 +601,7 @@ impl<'a> Resolver<'a> {
 
     fn insert_function(&mut self, file: &HirFile, function: &HirFunction) {
         // A reserved general built-in (`error`) is a language primitive and may not
-        // be redeclared as a user `FUNC`/`SUB` (plan-01-overload.md §A.5). Every
+        // be redeclared as a user `FUNC` (plan-01-overload.md §A.5). Every
         // other overridable built-in name (`toString`, `len`, …) is accepted.
         if crate::codegen::builtins::general::reserved_builtin_name(&function.name) {
             self.report(
@@ -638,8 +638,9 @@ impl<'a> Resolver<'a> {
         // declarations collide only when all three match. Sharing name + parameter
         // types but differing in return type is a legal return-type overload set
         // (plan-01-overload.md §F.1).
-        // A `SUB` elaborates to `returns: Unknown`, which `declared` maps back to
-        // the `None` that distinguishes it from a `FUNC … AS T` in the key.
+        // A FUNC with no `AS` clause elaborates to `returns: Unknown`, which
+        // `declared` maps back to the `None` that distinguishes it from a
+        // `FUNC … AS T` in the key.
         let return_type = declared(&function.returns);
         if let Some(previous) = self
             .functions
@@ -760,7 +761,7 @@ use packages::{dependency_packages, qualify_package_name, DependencyPackage};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{FunctionKind, Param, Visibility};
+    use crate::ast::{Param, Visibility};
     use crate::hir::{HirCallArg, HirParam};
     use crate::manifest::validate_project_manifest;
 
@@ -811,7 +812,6 @@ mod tests {
 
     fn func(name: &str, params: Vec<HirParam>) -> HirFunction {
         HirFunction {
-            kind: FunctionKind::Func,
             visibility: Visibility::Export,
             isolated: false,
             name: name.into(),

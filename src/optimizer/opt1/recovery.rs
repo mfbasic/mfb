@@ -3,7 +3,7 @@
 //! an error.
 //!
 //! MFB's error model puts at most one function-level `TRAP` at the bottom of a
-//! `FUNC`/`SUB`, and it is "reachable only via `FAIL` (in the body), an
+//! `FUNC`, and it is "reachable only via `FAIL` (in the body), an
 //! auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap"
 //! (`mfb spec language error-model` §8.6 rule 3) — never by falling through.
 //! So when the guarded region provably contains none of those, the handler is

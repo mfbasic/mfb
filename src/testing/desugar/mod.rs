@@ -4,13 +4,13 @@
 //! The driver is built directly as MFBASIC AST — an ordinary `FUNC … AS Integer`
 //! entry point — so it flows through resolve/typecheck/lowering exactly like
 //! hand-written source and needs no new runtime. Each `TCASE` becomes a
-//! parameterless `SUB`; the driver calls each under an inline `TRAP`, reads the
+//! parameterless `FUNC … AS Nothing`; the driver calls each under an inline `TRAP`, reads the
 //! error to tell an assertion failure (the reserved [`TEST_ABORT_CODE`]) from a
 //! genuine runtime error, streams the pass/fail tree, and returns a non-zero exit
 //! code iff any case failed.
 
 use crate::ast::{
-    AstProject, CallArg, Expression, Function, FunctionKind, Item, Statement, Visibility,
+    AstProject, CallArg, Expression, Function, Item, Statement, Visibility,
 };
 
 // Names of the generated coverage runtime helpers (plan-18-C). Plain (non-sigil)

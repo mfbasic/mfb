@@ -1350,7 +1350,7 @@ END FUNC"#;
 /// body.
 ///
 /// A normal build has nothing to check against and nowhere to report, so the hook is an
-/// empty `SUB`, like `__canvas_phaseMark`.
+/// empty `FUNC … AS Nothing`, like `__canvas_phaseMark`.
 #[rustfmt::skip]
 const GEO_VERIFY: &str = r#"FUNC __canvas_geoVerify(item AS DrawItem, native AS List OF Float) AS Nothing
 END FUNC

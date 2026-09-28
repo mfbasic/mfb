@@ -43,32 +43,21 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_function(&mut self) -> Option<Function> {
         let isolated = self.match_keyword(Keyword::Isolated);
         let kind_token = self.advance().clone();
-        // Anything that is not FUNC or SUB is rejected outright (bug-292). The
-        // `else` used to default to `FunctionKind::Func`, so any garbage token in
-        // this position was silently treated as a function header —
+        // Anything that is not FUNC is rejected outright (bug-292). This used to
+        // default to a FUNC, so any garbage token in this position was silently
+        // treated as a function header —
         // `PUBLIC ISOLATED BOGUS name(...)` compiled and linked as if it read
         // FUNC. Only `check_top_level_item_start` guarded the visibility-less
         // spelling, so the misparse was reachable exactly through a visibility or
         // ISOLATED prefix.
-        let kind = match kind_token.kind {
-            TokenKind::Keyword(Keyword::Sub) => FunctionKind::Sub,
-            TokenKind::Keyword(Keyword::Func) => FunctionKind::Func,
-            _ => {
-                self.report(
-                    "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "A function declaration must begin with FUNC or SUB.",
-                    &kind_token,
-                );
-                self.synchronize();
-                return None;
-            }
-        };
-        if isolated && !matches!(kind, FunctionKind::Func) {
+        if !matches!(kind_token.kind, TokenKind::Keyword(Keyword::Func)) {
             self.report(
                 "MFB_PARSE_UNEXPECTED_TOKEN",
-                "ISOLATED is valid only on FUNC declarations.",
+                "A function declaration must begin with FUNC.",
                 &kind_token,
             );
+            self.synchronize();
+            return None;
         }
 
         let Some(name) = self.consume_identifier("Function name must be an identifier.") else {
@@ -92,7 +81,7 @@ impl<'a> FileParser<'a> {
         };
 
         let (return_type, return_resource, return_state_type) =
-            if matches!(kind, FunctionKind::Func) && self.match_keyword(Keyword::As) {
+            if self.match_keyword(Keyword::As) {
                 let return_resource = self.match_keyword(Keyword::Res);
                 let return_type = self.parse_type_name();
                 let return_state_type = if return_resource {
@@ -128,17 +117,12 @@ impl<'a> FileParser<'a> {
             }
             if self.check_keyword(Keyword::End) {
                 self.advance();
-                let expected = match kind {
-                    FunctionKind::Func => Keyword::Func,
-                    FunctionKind::Sub => Keyword::Sub,
-                };
-                if !self.consume_keyword(expected, "END must name the block kind it closes.") {
+                if !self.consume_keyword(Keyword::Func, "END must name the block kind it closes.") {
                     self.synchronize();
                     return None;
                 }
                 self.consume_statement_end("Expected end of statement after END.");
                 return Some(Function {
-                    kind,
                     visibility: Visibility::Private,
                     isolated,
                     name,
@@ -514,8 +498,7 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn check_top_level_item_start(&self) -> bool {
-        self.check_keyword(Keyword::Sub)
-            || self.check_keyword(Keyword::Func)
+        self.check_keyword(Keyword::Func)
             || (self.check_keyword(Keyword::Isolated)
                 && self
                     .tokens
@@ -525,9 +508,7 @@ impl<'a> FileParser<'a> {
                 && self.tokens.get(self.current + 1).is_some_and(|token| {
                     matches!(
                         token.kind,
-                        TokenKind::Keyword(Keyword::Sub)
-                            | TokenKind::Keyword(Keyword::Func)
-                            | TokenKind::Keyword(Keyword::Isolated)
+                        TokenKind::Keyword(Keyword::Func) | TokenKind::Keyword(Keyword::Isolated)
                     )
                 }))
     }

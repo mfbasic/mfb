@@ -1,5 +1,5 @@
 {
-  "name": "sub_value_less_invalid",
+  "name": "isolated_non_func_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

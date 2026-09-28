@@ -24,8 +24,8 @@ tests/syntax/doc/doc-block-invalid/src/main.mfb:2 error[2-205-0001 DOC_UNRESOLVE
   11 |   DESC `add` is a function, not a type.
   12 |   GROUP Things
      | ^
-tests/syntax/doc/doc-block-invalid/src/main.mfb:12 error[2-205-0019 DOC_GROUP_INVALID_CONTEXT]: GROUP is valid only on FUNC and SUB doc blocks
-               GROUP is valid only on FUNC and SUB doc blocks.
+tests/syntax/doc/doc-block-invalid/src/main.mfb:12 error[2-205-0019 DOC_GROUP_INVALID_CONTEXT]: GROUP is valid only on FUNC doc blocks
+               GROUP is valid only on FUNC doc blocks.
    8 | 
    9 | DOC
   10 |   TYPE add

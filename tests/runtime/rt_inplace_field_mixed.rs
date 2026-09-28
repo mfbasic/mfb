@@ -285,7 +285,7 @@ fn a_pointer_and_a_scalar_update_in_place_without_a_leak() {
     assert_eq!(lines, vec![format!("{N} {N}")]);
     assert_eq!((alloc, live), (free, 0), "the replaced json::Json leaked");
     // The value allocates on its own; the control builds the same value and hands
-    // it to a no-op SUB. A rebuild adds the record (and the kept fields) on top.
+    // it to a no-op `AS Nothing` function. A rebuild adds the record (and the kept fields) on top.
     let (grow, _) = extra("mixed_pointer_grow", |n| program(update, n));
     let (control, _) = extra("mixed_pointer_control", |n| program("sink(fresh(i))", n));
     assert!(

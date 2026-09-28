@@ -6,7 +6,7 @@
 //! original text verbatim, then rewrites only two things:
 //!
 //! - **Indentation** — leading whitespace is recomputed from block nesting
-//!   (`FUNC`/`SUB`/`IF`/`FOR`/`MATCH`/…) using a configurable indent width.
+//!   (`FUNC`/`IF`/`FOR`/`MATCH`/…) using a configurable indent width.
 //! - **Capitalization** — keywords are uppercased to match the MFBASIC
 //!   convention (§2 of the language spec). Identifiers, package members
 //!   (`pkg::name`), and field accesses (`value.field`) are left untouched, even
@@ -384,7 +384,6 @@ fn scan_line(line: &str) -> Scanned {
 #[derive(Clone, Copy, PartialEq)]
 enum Block {
     Func,
-    Sub,
     Type,
     Union,
     Enum,
@@ -420,7 +419,7 @@ enum Op {
     EndImplicit,
 }
 
-/// Whether a logical line is a `[vis] FUNC|SUB name AS pkg::member` re-export
+/// Whether a logical line is a `[vis] FUNC name AS pkg::member` re-export
 /// alias, which declares no body and so opens no block.
 ///
 /// This is the parser's own test (`check_top_level_func_alias`, bug-480): the
@@ -443,7 +442,7 @@ fn is_func_alias(text: &str) -> bool {
     let Some(keyword) = words.next() else {
         return false;
     };
-    if !keyword.eq_ignore_ascii_case("FUNC") && !keyword.eq_ignore_ascii_case("SUB") {
+    if !keyword.eq_ignore_ascii_case("FUNC") {
         return false;
     }
     let Some(name) = words.next() else {
@@ -541,15 +540,12 @@ fn classify(
         K::Case => Some(Op::Case),
         K::End => Some(Op::End(next_keyword(sig, idx))),
         K::Next | K::Loop => Some(Op::EndImplicit),
-        // FUNC/SUB may be preceded by visibility/ISOLATED modifiers, so they are
-        // not required to lead the line; EXIT FUNC/SUB is excluded by `after_exit`.
-        // A function *type* `FUNC(…) AS T` / `SUB(…)` (the keyword immediately
-        // followed by `(`) is an annotation, not a declaration, and opens nothing.
+        // FUNC may be preceded by visibility/ISOLATED modifiers, so it is not
+        // required to lead the line; EXIT FUNC is excluded by `after_exit`. A
+        // function *type* `FUNC(…) AS T` (the keyword immediately followed by
+        // `(`) is an annotation, not a declaration, and opens nothing.
         K::Func => {
             (!after_exit && !func_alias && !func_type(sig, idx)).then_some(Op::Open(Block::Func))
-        }
-        K::Sub => {
-            (!after_exit && !func_alias && !func_type(sig, idx)).then_some(Op::Open(Block::Sub))
         }
         // FOR/WHILE/DO open a loop block. They do *not* when the keyword is an
         // exit target (`EXIT FOR`) or, for WHILE, a loop condition (`DO WHILE c`).
@@ -588,7 +584,7 @@ fn contextual_block_opener(trimmed: &str) -> Option<Block> {
     }
 }
 
-/// Whether the keyword at `idx` is a function *type* (`FUNC(`/`SUB(`), i.e. the
+/// Whether the keyword at `idx` is a function *type* (`FUNC(`), i.e. the
 /// next token is `(` — an annotation, not a declaration.
 fn func_type(sig: &[Sig], idx: usize) -> bool {
     matches!(sig.get(idx + 1), Some(Sig::LParen))
@@ -772,13 +768,11 @@ fn format_link_block(
         // body and correctly opens nothing.
         let is_bind_block = first.eq_ignore_ascii_case("BIND") && second.eq_ignore_ascii_case("IN");
         let is_opener = first.eq_ignore_ascii_case("FUNC")
-            || first.eq_ignore_ascii_case("SUB")
             || first.eq_ignore_ascii_case("FREE")
             || first.eq_ignore_ascii_case("CSTRUCT")
             || is_bind_block;
         let is_closer = first.eq_ignore_ascii_case("END")
             && (second.eq_ignore_ascii_case("FUNC")
-                || second.eq_ignore_ascii_case("SUB")
                 || second.eq_ignore_ascii_case("FREE")
                 || second.eq_ignore_ascii_case("CSTRUCT")
                 || second.eq_ignore_ascii_case("BIND"));
@@ -826,7 +820,7 @@ mod tests {
 
     // ---- Nesting cap (audit-3 FE-02 / bug-502) ----
 
-    /// `SUB main()` plus `opens` nested `IF TRUE THEN` lines (unterminated on
+    /// `FUNC main() AS Nothing` plus `opens` nested `IF TRUE THEN` lines (unterminated on
     /// purpose: the cap must trip on the way IN, before any output is built).
     fn nested_ifs(opens: usize) -> String {
         let mut source = String::from("FUNC main() AS Nothing\n");
@@ -838,7 +832,7 @@ mod tests {
 
     #[test]
     fn nesting_at_the_cap_still_formats() {
-        // `SUB` is frame 1, so MAX_NESTING_DEPTH - 1 `IF`s fill the stack exactly.
+        // `FUNC main` is frame 1, so MAX_NESTING_DEPTH - 1 `IF`s fill the stack exactly.
         let source = nested_ifs(MAX_NESTING_DEPTH - 1);
         let formatted = format_source(&source, 2).expect("a stack exactly at the cap formats");
         // Bounded output: at most depth × width bytes of indentation per line.
@@ -1153,7 +1147,7 @@ mod tests {
 
     /// bug-356: `CSTRUCT … END CSTRUCT` and `BIND IN … END BIND` are block
     /// constructs inside a LINK block, but `format_link_block` recognized only
-    /// `FUNC`/`SUB`/`FREE` as openers -- so both bodies were emitted at the
+    /// `FUNC`/`FREE` as openers -- so both bodies were emitted at the
     /// enclosing depth, silently de-indenting them one level. `BIND STATE` is a
     /// single line with no body and must NOT open a block, which is why the
     /// opener test is `BIND` + `IN` rather than `BIND` alone.

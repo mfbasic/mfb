@@ -1,8 +1,7 @@
 //! Regression tests for bug-744: a call to a `FUNC … AS Nothing` used as a VALUE.
 //!
 //! `Nothing` is a normal concrete unit type whose one value is `NOTHING`
-//! (`mfb spec language types` §4.6), and only a `SUB` call is barred from value
-//! position (`TYPE_SUB_HAS_NO_VALUE`, §7). So `LET y = f(1)` for a `FUNC f … AS
+//! (`mfb spec language types` §4.6). So `LET y = f(1)` for a `FUNC f … AS
 //! Nothing` is a legal program that binds `NOTHING`. Native codegen lowered every
 //! `Nothing`-typed call to a `void` location — no register — because a statement
 //! call has no value to carry. Any consumer that needed the value (a binding
@@ -13,8 +12,8 @@
 //!
 //! One test per value position. Each program prints `eq` only when the value it
 //! read back really is `NOTHING`, so a lowering that stores a garbage register
-//! instead of panicking still fails here. The two contrast tests pin what already
-//! worked: a statement-position call, and the `SUB` value-position diagnostic.
+//! instead of panicking still fails here. The contrast test pins what already
+//! worked: a statement-position call.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -23,17 +22,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A `FUNC … AS Nothing` with an observable effect, a `SUB` of the same shape,
-/// a consumer taking a `Nothing` parameter, and a record with a `Nothing` field.
+/// A `FUNC … AS Nothing` with an observable effect, a consumer taking a
+/// `Nothing` parameter, and a record with a `Nothing` field.
 const PRELUDE: &str = concat!(
     "IMPORT io\n\n",
     "FUNC f(x AS Integer) AS Nothing\n",
     "  io::print(\"f\" & toString(x))\n",
     "  RETURN NOTHING\n",
     "END FUNC\n\n",
-    "SUB sb(x AS Integer)\n",
-    "  io::print(\"sb\" & toString(x))\n",
-    "END SUB\n\n",
     "FUNC takesN(n AS Nothing) AS Integer\n",
     "  IF n = NOTHING THEN RETURN 7\n",
     "  RETURN 0\n",
@@ -100,7 +96,7 @@ fn build_and_run(name: &str, body: &str) -> String {
     stdout
 }
 
-fn main_sub(lines: &str) -> String {
+fn main_fn(lines: &str) -> String {
     format!("FUNC main() AS Nothing\n{lines}  io::print(\"done\")\nEND FUNC\n")
 }
 
@@ -108,7 +104,7 @@ fn main_sub(lines: &str) -> String {
 fn let_binds_the_result_of_a_nothing_func() {
     let out = build_and_run(
         "let",
-        &main_sub("  LET y = f(1)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  LET y = f(1)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "f1\neq\ndone\n");
 }
@@ -117,7 +113,7 @@ fn let_binds_the_result_of_a_nothing_func() {
 fn let_with_an_explicit_nothing_type_binds_the_result() {
     let out = build_and_run(
         "let_typed",
-        &main_sub("  LET y AS Nothing = f(1)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  LET y AS Nothing = f(1)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "f1\neq\ndone\n");
 }
@@ -126,14 +122,14 @@ fn let_with_an_explicit_nothing_type_binds_the_result() {
 fn mut_binds_and_reassigns_the_result_of_a_nothing_func() {
     let out = build_and_run(
         "mut",
-        &main_sub("  MUT y = f(1)\n  y = f(2)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  MUT y = f(1)\n  y = f(2)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "f1\nf2\neq\ndone\n");
 }
 
 #[test]
 fn a_nothing_func_call_is_an_argument() {
-    let out = build_and_run("arg", &main_sub("  io::print(toString(takesN(f(1))))\n"));
+    let out = build_and_run("arg", &main_fn("  io::print(toString(takesN(f(1))))\n"));
     assert_eq!(out, "f1\n7\ndone\n");
 }
 
@@ -154,7 +150,7 @@ fn a_nothing_value_round_trips_through_a_nothing_func() {
 fn a_nothing_func_call_is_a_comparison_operand() {
     let out = build_and_run(
         "operand",
-        &main_sub("  IF f(1) = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  IF f(1) = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "f1\neq\ndone\n");
 }
@@ -174,7 +170,7 @@ fn a_nothing_func_returns_another_nothing_func_call() {
 fn a_nothing_func_call_initializes_a_record_field() {
     let out = build_and_run(
         "field",
-        &main_sub(
+        &main_fn(
             "  LET h = Holder[value := f(1)]\n  IF h.value = NOTHING THEN io::print(\"eq\")\n",
         ),
     );
@@ -185,7 +181,7 @@ fn a_nothing_func_call_initializes_a_record_field() {
 fn a_lambda_whose_body_is_a_nothing_func_call_yields_nothing() {
     let out = build_and_run(
         "lambda",
-        &main_sub(
+        &main_fn(
             "  LET l = LAMBDA(x AS Integer) -> f(x)\n  LET y = l(3)\n  \
              IF y = NOTHING THEN io::print(\"eq\")\n",
         ),
@@ -197,28 +193,17 @@ fn a_lambda_whose_body_is_a_nothing_func_call_yields_nothing() {
 fn a_nothing_func_called_through_a_func_value_yields_nothing() {
     let out = build_and_run(
         "funcvalue",
-        &main_sub("  LET g = f\n  LET y = g(4)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  LET g = f\n  LET y = g(4)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "f4\neq\ndone\n");
 }
 
-/// §7: naming a `SUB` yields a `FUNC(...) AS Nothing` value, and a call through
-/// that value is an ordinary `FUNC` call — it yields `NOTHING`.
-#[test]
-fn a_sub_called_through_its_func_value_yields_nothing() {
-    let out = build_and_run(
-        "subvalue",
-        &main_sub("  LET g = sb\n  LET y = g(5)\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
-    );
-    assert_eq!(out, "sb5\neq\ndone\n");
-}
-
-/// A built-in declared `AS Nothing` (`io::print`) is a `FUNC`, not a `SUB`.
+/// A built-in declared `AS Nothing` (`io::print`) is a `FUNC` like any other.
 #[test]
 fn a_nothing_builtin_call_is_a_value() {
     let out = build_and_run(
         "builtin",
-        &main_sub("  LET y = io::print(\"x\")\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
+        &main_fn("  LET y = io::print(\"x\")\n  IF y = NOTHING THEN io::print(\"eq\")\n"),
     );
     assert_eq!(out, "x\neq\ndone\n");
 }
@@ -229,7 +214,7 @@ fn a_nothing_builtin_call_is_a_value() {
 fn an_inline_trapped_nothing_func_call_binds_nothing() {
     let out = build_and_run(
         "trap",
-        &main_sub(
+        &main_fn(
             "  LET y = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  \
              IF y = NOTHING THEN io::print(\"eq\")\n",
         ),
@@ -240,22 +225,7 @@ fn an_inline_trapped_nothing_func_call_binds_nothing() {
 /// Contrast: the statement-position call has always worked.
 #[test]
 fn a_statement_position_nothing_func_call_still_runs() {
-    let out = build_and_run("statement", &main_sub("  f(1)\n"));
+    let out = build_and_run("statement", &main_fn("  f(1)\n"));
     assert_eq!(out, "f1\ndone\n");
 }
 
-/// Contrast: a direct `SUB` call in value position stays a compile error.
-#[test]
-fn a_sub_call_in_value_position_is_still_rejected() {
-    let root = project("subdiag", &main_sub("  LET y = sb(1)\n"));
-    let (ok, combined) = mfb_build(&root);
-    let _ = fs::remove_dir_all(&root);
-    assert!(
-        !ok,
-        "a SUB call in value position must not build:\n{combined}"
-    );
-    assert!(
-        combined.contains("TYPE_SUB_HAS_NO_VALUE") && !combined.contains("panicked"),
-        "expected TYPE_SUB_HAS_NO_VALUE, got:\n{combined}"
-    );
-}

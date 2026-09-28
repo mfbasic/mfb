@@ -157,7 +157,6 @@ pub(crate) fn func(
     body: Vec<Statement>,
 ) -> Function {
     Function {
-        kind: FunctionKind::Func,
         visibility: Visibility::Public,
         isolated: false,
         name: name.to_string(),
