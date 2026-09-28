@@ -39,7 +39,76 @@ pub(crate) struct InlineGrow {
     pub(crate) field_off_slot: usize,
 }
 
+/// bug-760 B1: whether a value of `type_` is a `Map` or `Set` block — the shapes
+/// whose entries can be tombstones.
+pub(crate) fn is_map_or_set_type(type_: &ParameterType) -> bool {
+    typed_map_type_parts(type_).is_some()
+        || crate::codegen::engine::types::typed_set_element_type(type_).is_some()
+}
+
 impl CodeBuilder<'_> {
+    /// bug-760 B1: settle the `Map`/`Set` block `value` (read out of a binding)
+    /// before a consumer that is not tombstone-aware sees it: when its dead count
+    /// is not 0, `_mfb_rt_map_settle` drops the tombstones in place. The block
+    /// does not move; the result names a fresh register holding it. A null block
+    /// (a binding not yet initialized) is passed through untouched.
+    pub(crate) fn emit_map_settle_value(&mut self, value: ValueResult) -> ValueResult {
+        let map = self.temporary_vreg();
+        let dead = self.temporary_vreg();
+        let skip = self.label("map_settle_skip");
+        self.emit(abi::move_register(&map, &value.location));
+        self.emit(abi::compare_immediate(&map, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::load_u32(&dead, &map, COLLECTION_OFFSET_MAP_STATE));
+        self.emit(abi::shift_right_immediate(
+            &dead,
+            &dead,
+            MAP_DEAD_ENTRIES_SHIFT,
+        ));
+        self.emit(abi::compare_immediate(&dead, "0"));
+        self.emit(abi::branch_eq(&skip));
+        self.emit(abi::move_register(abi::c_arg(0), &map));
+        self.emit(abi::branch_link(MAP_SETTLE_SYMBOL));
+        self.push_internal_call_relocation(MAP_SETTLE_SYMBOL);
+        self.emit(abi::move_register(&map, abi::mfb_return(0)));
+        self.emit(abi::label(&skip));
+        ValueResult {
+            location: Operand::from(map),
+            ..value
+        }
+    }
+
+    /// bug-760 B1: settle the `Map`/`Set` whose block pointer is in `map_slot`
+    /// (see [`Self::emit_map_settle_value`]) — for an in-place arm that walks every
+    /// entry of its destination. The slot is not rewritten: the block does not
+    /// move.
+    pub(crate) fn emit_map_settle_slot(&mut self, map_slot: usize) {
+        let map = self.temporary_vreg();
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), map_slot));
+        let value = ValueResult {
+            origin: None,
+            type_: ParameterType::Nothing,
+            location: Operand::from(map),
+            text: String::new(),
+        };
+        self.emit_map_settle_value(value);
+    }
+
+    /// bug-760 B1: finish an in-place removal of entry `index_slot` of the map in
+    /// `map_slot`, whose bucket [`Self::emit_map_mark_removed`] has deleted and
+    /// flagged — `_mfb_rt_map_retire` truncates it at the back or leaves it as a
+    /// tombstone, compacting once the tombstones outnumber the live entries.
+    pub(crate) fn emit_map_retire(&mut self, map_slot: usize, index_slot: usize) {
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        self.emit(abi::branch_link(MAP_RETIRE_SYMBOL));
+        self.push_internal_call_relocation(MAP_RETIRE_SYMBOL);
+    }
+
     /// Set `key -> value` in the map whose buffer pointer lives in `map_slot`,
     /// **mutating the buffer in place** (plan-02 §4.3). Linear-scans for the key
     /// (linear scan): on a hit, overwrites the value bytes when the new value fits
@@ -462,7 +531,7 @@ impl CodeBuilder<'_> {
         // verbatim against the capacity-based base, then repoint. bug-733: first
         // reclaim dead bytes, and retry the room check if that made room.
         self.emit(abi::label(&vgrow));
-        self.emit_map_reclaim_before_grow(map_slot, map_type, &value_grow)?;
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &value_grow, Some(found_index_slot))?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -772,7 +841,7 @@ impl CodeBuilder<'_> {
         // --- Grow: geometric capacity + data, copy entries/data verbatim. ---
         // bug-733: first reclaim dead bytes, and retry the room check.
         self.emit(abi::label(&grow));
-        self.emit_map_reclaim_before_grow(map_slot, map_type, &not_found)?;
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &not_found, None)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             &scratch10,
@@ -1156,11 +1225,16 @@ impl CodeBuilder<'_> {
     /// room check, which recomputes from the new `dataLength`); otherwise fall
     /// through to the grow. `map_slot` may hold a record field's sub-block
     /// address: the block does not move.
+    ///
+    /// bug-760 B1: the reclaim also drops tombstones, which moves entries; a
+    /// caller that holds an entry index in a slot across it names the slot in
+    /// `tracked_index_slot` and finds it rewritten to the entry's new index.
     pub(crate) fn emit_map_reclaim_before_grow(
         &mut self,
         map_slot: usize,
         map_type: &ParameterType,
         retry: &str,
+        tracked_index_slot: Option<usize>,
     ) -> Result<(), String> {
         let (key_type, value_type) = match typed_map_type_parts(map_type) {
             Some((key, value)) => (key.clone(), value.clone()),
@@ -1186,6 +1260,14 @@ impl CodeBuilder<'_> {
             "Integer",
             &value_align.to_string(),
         ));
+        match tracked_index_slot {
+            Some(slot) => self.emit(abi::add_immediate(
+                abi::c_arg(3),
+                abi::stack_pointer(),
+                slot,
+            )),
+            None => self.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0")),
+        }
         self.emit(abi::branch_link(MAP_RECLAIM_SYMBOL));
         self.push_internal_call_relocation(MAP_RECLAIM_SYMBOL);
         self.emit(abi::move_register(&status, abi::mfb_return(0)));
@@ -1337,13 +1419,24 @@ impl CodeBuilder<'_> {
     /// Remove `key` from the map (or element from the set) whose block pointer is
     /// in `map_slot`, **in place** (plan-86 D1, bug-732). The key is found by
     /// [`Self::emit_map_find_index`]; a missing key leaves the map unchanged. A
-    /// value that owns a graph is freed (plan-134-H), the entry's bucket is deleted
-    /// from the hash index, and the later entries slide down one slot with their
-    /// buckets renumbered, so insertion order is kept and the index stays built:
-    /// the call costs the lookup plus the entries after the removed one, never a
-    /// rebuild of the index. The removed key and value bytes stay behind in the
-    /// data region as dead slack — the same model `set` uses when it overwrites a
-    /// value — and are dropped by the next tight copy.
+    /// value that owns a graph is freed (plan-134-H) and the entry's bucket is
+    /// deleted from the hash index. Then:
+    ///
+    /// * `tombstone` (bug-760 B1) — `_mfb_rt_map_retire` truncates the entry when
+    ///   it is the last, else leaves it as a tombstone, compacting once the
+    ///   tombstones outnumber the live entries: O(1) amortized plus the lookup,
+    ///   wherever the key sits, so removing the oldest key of a FIFO no longer
+    ///   moves every entry. Only for a probe-eligible key type (a scanned key type
+    ///   would match a tombstone's key) at a binding whose every other read settles
+    ///   (`lower_value`'s map settle): a local, a global or a by-reference capture.
+    /// * otherwise (a record or `STATE` field, whose sub-block is read by record
+    ///   copies and comparisons that do not settle; or a scanned key type) — the
+    ///   later entries slide down one slot with their buckets renumbered
+    ///   (`_mfb_rt_map_compact_from`), leaving no tombstone.
+    ///
+    /// Either way insertion order is kept and the index stays built, and the
+    /// removed key and value bytes stay behind in the data region as dead slack —
+    /// the same model `set` uses when it overwrites a value — for the reclaim.
     ///
     /// Every access to `map_slot` is a load, so a record field's map can be handed
     /// in as its sub-block address (plan-145-B).
@@ -1353,7 +1446,9 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         map_type: &ParameterType,
         key_type: &ParameterType,
+        tombstone: bool,
     ) -> Result<ValueResult, String> {
+        let tombstone = tombstone && Self::map_key_probe_eligible(key_type);
         let done = self.label("mrk_done");
         let found_slot = self.emit_map_find_index(map_slot, key_slot, key_type, &done)?;
         // plan-134-H: the removed entry's value owns a graph nothing else reaches; free it
@@ -1380,7 +1475,11 @@ impl CodeBuilder<'_> {
             }
         }
         self.emit_map_mark_removed(map_slot, found_slot);
-        self.emit_map_compact_from(map_slot, found_slot);
+        if tombstone {
+            self.emit_map_retire(map_slot, found_slot);
+        } else {
+            self.emit_map_compact_from(map_slot, found_slot);
+        }
         self.emit(abi::label(&done));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));

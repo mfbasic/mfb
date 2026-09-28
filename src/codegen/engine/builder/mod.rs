@@ -187,6 +187,12 @@ pub(crate) struct CodeBuilder<'a> {
     /// initializer; consumed by the very next `lower_value` frame, which is that
     /// initializer's own node.
     pub(crate) borrow_get_armed: bool,
+    /// bug-760 B1: set by a tombstone-aware consumer of a `Map`/`Set` (`len`, a
+    /// hash lookup) immediately before it lowers that operand. `lower_value` takes
+    /// it on entry — so it covers exactly the next frame — and a `Local`/`Global`
+    /// read in that frame then skips the settle every other read of a map binding
+    /// runs (`CodeBuilder::emit_map_settle_value`).
+    pub(crate) map_settle_exempt_armed: bool,
     /// bug-744: set by a position that discards its value — an `Eval` statement, or
     /// a `RETURN` from a `Nothing` function, whose result register is never read —
     /// immediately before it lowers that value; consumed by the very next
@@ -672,6 +678,7 @@ impl<'a> CodeBuilder<'a> {
             element_updates: ElementUpdates::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
+            map_settle_exempt_armed: false,
             value_discarded_armed: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
@@ -2881,6 +2888,15 @@ pub(crate) fn lower_module_for_platform(
             MAP_RECLAIM_SYMBOL,
             crate::codegen::collection::map::map_bucket_remove::lower_map_reclaim_helper,
         ),
+        // bug-760 B1: tombstone removal and the settle every other reader runs.
+        (
+            MAP_RETIRE_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_retire_helper,
+        ),
+        (
+            MAP_SETTLE_SYMBOL,
+            crate::codegen::collection::map::map_bucket_remove::lower_map_settle_helper,
+        ),
     ] {
         let used = code_functions.iter().any(|function| {
             function
@@ -3626,6 +3642,7 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
     let zdone = format!("{symbol}_zdone");
     let eloop = format!("{symbol}_eloop");
     let edone = format!("{symbol}_edone");
+    let enext = format!("{symbol}_enext");
     let hloop = format!("{symbol}_hloop");
     let hdone = format!("{symbol}_hdone");
     let ploop = format!("{symbol}_ploop");
@@ -3687,6 +3704,10 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::multiply_registers(&v14, &v13, &v16),
         abi::add_registers(&v14, &v14, &v18),
         abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE), // entry addr
+        // bug-760 B1: a tombstone has no bucket.
+        abi::load_u8(&v3, &v14, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::compare_immediate(&v3, &COLLECTION_ENTRY_FLAG_REMOVED.to_string()),
+        abi::branch_eq(&enext),
         abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers(&v15, &v11, &v15), // keyPtr
         abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
@@ -3721,6 +3742,7 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::label(&place),
         abi::add_immediate(&v6, &v13, 1),
         abi::store_u64(&v6, &v7, 0),
+        abi::label(&enext),
         abi::add_immediate(&v13, &v13, 1),
         abi::branch(&eloop),
         abi::label(&edone),

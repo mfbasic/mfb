@@ -1143,6 +1143,9 @@ impl CodeBuilder<'_> {
     }
 
     pub(crate) fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        // bug-760 B1: a `Map`/`Set`'s length is `count - dead`, read straight off a
+        // binding that may hold tombstones — no settle, so `len` stays O(1).
+        self.map_settle_exempt_armed = true;
         let value = self.lower_value(value)?;
         if value.type_ == ParameterType::String {
             let count_slot = self.allocate_stack_object("len_string_count", 8);
@@ -1191,6 +1194,20 @@ impl CodeBuilder<'_> {
                 &value.location,
                 COLLECTION_OFFSET_COUNT,
             ));
+            if crate::codegen::collection::map::map_mutate::is_map_or_set_type(&value.type_) {
+                let dead = self.allocate_register();
+                self.emit(abi::load_u32(
+                    &dead,
+                    &value.location,
+                    COLLECTION_OFFSET_MAP_STATE,
+                ));
+                self.emit(abi::shift_right_immediate(
+                    &dead,
+                    &dead,
+                    MAP_DEAD_ENTRIES_SHIFT,
+                ));
+                self.emit(abi::subtract_registers(&register, &register, &dead));
+            }
             Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Integer,
@@ -1528,12 +1545,13 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
-        // Map hash index built lazily on first probe (no-op field for lists).
-        self.emit(abi::move_immediate(&scratch8, "Byte", "0"));
-        self.emit(abi::store_u8(
+        // Map hash index built lazily on first probe, and no tombstones (bug-760
+        // B1) — one word (no-op field for lists).
+        self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
+        self.emit(abi::store_u32(
             &scratch8,
             abi::mfb_return(1),
-            COLLECTION_OFFSET_BUCKETS_READY,
+            COLLECTION_OFFSET_MAP_STATE,
         ));
         self.emit(abi::move_immediate(
             &scratch8,

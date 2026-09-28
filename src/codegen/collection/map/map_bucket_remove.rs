@@ -337,6 +337,187 @@ pub(crate) fn lower_map_compact_from_helper() -> CodeFunction {
     helper(symbol, "runtime.mapCompactFrom", body)
 }
 
+/// bug-760 B1: drop every tombstone ([`COLLECTION_ENTRY_FLAG_REMOVED`] entry) of
+/// the map in `%v20`, sliding the live entries down in their order (five words
+/// each, no hashing), store the new `count`, and clear the whole
+/// [`COLLECTION_OFFSET_MAP_STATE`] word: no tombstones, and the index not ready —
+/// every live entry's index changed, so the next probe rebuilds it (one pass,
+/// once per compaction). The payload bytes do not move; a tombstone's key and
+/// value are dead slack for the reclaim. Clobbers `%v9`, `%v13`, `%v16`, `%v19`,
+/// `%v23`, `%v24`, `%v27`.
+///
+/// `track` is `(address, index)`: when the address register is not 0, the live
+/// entry at the index register moves, and its new index is stored at the address
+/// — for a caller that holds an entry index across the compaction.
+fn compact_tombstones(
+    r: &Regs,
+    labels: &str,
+    track: Option<(VirtualRegister, VirtualRegister)>,
+) -> Vec<CodeInstruction> {
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let top = format!("{labels}_loop");
+    let keep = format!("{labels}_keep");
+    let skip = format!("{labels}_skip");
+    let end = format!("{labels}_end");
+    let untracked = format!("{labels}_untracked");
+    let mut body = vec![
+        abi::load_u64(r.v27, r.v20, COLLECTION_OFFSET_COUNT),
+        abi::move_immediate(r.v23, "Integer", "0"), // i: the entry read
+        abi::move_immediate(r.v24, "Integer", "0"), // w: where the next live one goes
+        abi::label(&top),
+        abi::compare_registers(r.v23, r.v27),
+        abi::branch_ge(&end),
+        abi::move_immediate(r.v16, "Integer", &entry_size),
+        abi::multiply_registers(r.v13, r.v23, r.v16),
+        abi::add_registers(r.v13, r.v13, r.v20),
+        abi::add_immediate(r.v13, r.v13, COLLECTION_HEADER_SIZE),
+        abi::load_u8(r.v9, r.v13, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::compare_immediate(r.v9, &COLLECTION_ENTRY_FLAG_REMOVED.to_string()),
+        abi::branch_eq(&skip),
+        abi::compare_registers(r.v23, r.v24),
+        abi::branch_eq(&keep),
+        abi::multiply_registers(r.v19, r.v24, r.v16),
+        abi::add_registers(r.v19, r.v19, r.v20),
+        abi::add_immediate(r.v19, r.v19, COLLECTION_HEADER_SIZE),
+    ];
+    for word in 0..COLLECTION_ENTRY_SIZE / 8 {
+        body.push(abi::load_u64(r.v9, r.v13, word * 8));
+        body.push(abi::store_u64(r.v9, r.v19, word * 8));
+    }
+    body.push(abi::label(&keep));
+    if let Some((address, index)) = track {
+        body.extend([
+            abi::compare_immediate(address, "0"),
+            abi::branch_eq(&untracked),
+            abi::compare_registers(r.v23, index),
+            abi::branch_ne(&untracked),
+            abi::store_u64(r.v24, address, 0),
+            abi::label(&untracked),
+        ]);
+    }
+    body.extend([
+        abi::add_immediate(r.v24, r.v24, 1),
+        abi::label(&skip),
+        abi::add_immediate(r.v23, r.v23, 1),
+        abi::branch(&top),
+        abi::label(&end),
+        abi::store_u64(r.v24, r.v20, COLLECTION_OFFSET_COUNT),
+        abi::move_immediate(r.v9, "Integer", "0"),
+        abi::store_u32(r.v9, r.v20, COLLECTION_OFFSET_MAP_STATE),
+    ]);
+    body
+}
+
+/// `_mfb_rt_map_settle(map) -> map` (bug-760 B1): make the `Map`/`Set` in `x0`
+/// hold no tombstones, and return the (unmoved) block pointer. A no-op — three instructions — when its dead count is 0, which is
+/// every map but one an in-place removal left tombstones in; otherwise one
+/// [`compact_tombstones`] pass. The block does not move and nothing is
+/// allocated, so a caller's pointer to it stays valid.
+///
+/// This is what keeps tombstones invisible: every read of a `Map`/`Set` binding
+/// other than a tombstone-aware one (`len`, a hash lookup, an in-place update)
+/// calls it first (`CodeBuilder::emit_map_settle`), so no other reader — copy,
+/// iteration, equality, `toString`, a callee, a thread — ever sees a map whose
+/// dead count is not 0. Its cost is the entries, paid only after removals left
+/// tombstones, and then by a reader that walks the entries anyway.
+pub(crate) fn lower_map_settle_helper() -> CodeFunction {
+    let symbol = MAP_SETTLE_SYMBOL;
+    let r = &Regs::mint();
+    let done = format!("{symbol}_done");
+    let mut body = vec![
+        abi::label("entry"),
+        abi::move_register(r.v20, abi::c_arg(0)),
+        abi::load_u32(r.v9, r.v20, COLLECTION_OFFSET_MAP_STATE),
+        abi::shift_right_immediate(r.v9, r.v9, MAP_DEAD_ENTRIES_SHIFT),
+        abi::compare_immediate(r.v9, "0"),
+        abi::branch_eq(&done),
+    ];
+    body.extend(compact_tombstones(r, &format!("{symbol}_compact"), None));
+    body.extend([
+        abi::label(&done),
+        abi::move_register(abi::mfb_return(0), r.v20),
+        abi::return_(),
+    ]);
+    helper(symbol, "runtime.mapSettle", body)
+}
+
+/// `_mfb_rt_map_retire(map, index)` (bug-760 B1): finish removing entry `index`
+/// of the `Map`/`Set` in `x0`, whose bucket the caller has already deleted
+/// (`_mfb_rt_map_bucket_delete`) and whose flag it has set to `REMOVED`.
+///
+/// * The last entry is truncated: `count` drops past it and past any tombstones
+///   directly before it (each was counted once when it was made, so the walk is
+///   paid for). Removing from the back therefore leaves no tombstone at all —
+///   bug-732's back-removal cost.
+/// * Any other entry stays as a tombstone: the dead count goes up by one and
+///   nothing moves, so removing the oldest key of a FIFO costs O(1).
+/// * Once the tombstones outnumber the live entries (`2 * dead > count`), or the
+///   24-bit field is full, [`compact_tombstones`] drops them all. At least as many
+///   removals as there are live entries separate two compactions, so each
+///   removal pays O(1) amortized for them — and the dead entries (and their dead
+///   bytes, which the reclaim then counts) never exceed the live ones.
+pub(crate) fn lower_map_retire_helper() -> CodeFunction {
+    let symbol = MAP_RETIRE_SYMBOL;
+    let r = &Regs::mint();
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let l = |name: &str| format!("{symbol}_{name}");
+    let mut body = vec![
+        abi::label("entry"),
+        abi::move_register(r.v20, abi::c_arg(0)),
+        abi::move_register(r.v21, abi::c_arg(1)),
+        abi::load_u64(r.v27, r.v20, COLLECTION_OFFSET_COUNT),
+        abi::load_u32(r.v9, r.v20, COLLECTION_OFFSET_MAP_STATE),
+        abi::shift_right_immediate(r.v25, r.v9, MAP_DEAD_ENTRIES_SHIFT), // dead
+        abi::move_immediate(r.v6, "Integer", "255"),
+        abi::and_registers(r.v26, r.v9, r.v6), // the ready byte
+        abi::add_immediate(r.v22, r.v21, 1),
+        abi::compare_registers(r.v22, r.v27),
+        abi::branch_ne(&l("tomb")),
+        // --- The last entry: truncate it and the tombstones before it. ---
+        abi::move_register(r.v27, r.v21),
+        abi::label(&l("trim")),
+        abi::compare_immediate(r.v27, "0"),
+        abi::branch_eq(&l("store")),
+        abi::compare_immediate(r.v25, "0"),
+        abi::branch_eq(&l("store")),
+        abi::subtract_immediate(r.v22, r.v27, 1),
+        abi::move_immediate(r.v16, "Integer", &entry_size),
+        abi::multiply_registers(r.v13, r.v22, r.v16),
+        abi::add_registers(r.v13, r.v13, r.v20),
+        abi::add_immediate(r.v13, r.v13, COLLECTION_HEADER_SIZE),
+        abi::load_u8(r.v9, r.v13, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::compare_immediate(r.v9, &COLLECTION_ENTRY_FLAG_REMOVED.to_string()),
+        abi::branch_ne(&l("store")),
+        abi::move_register(r.v27, r.v22),
+        abi::subtract_immediate(r.v25, r.v25, 1),
+        abi::branch(&l("trim")),
+        abi::label(&l("store")),
+        abi::store_u64(r.v27, r.v20, COLLECTION_OFFSET_COUNT),
+        abi::branch(&l("state")),
+        // --- Any other entry: one more tombstone, compacting when they win. ---
+        abi::label(&l("tomb")),
+        abi::add_immediate(r.v25, r.v25, 1),
+        abi::add_registers(r.v6, r.v25, r.v25),
+        abi::compare_registers(r.v6, r.v27),
+        abi::branch_hi(&l("compact")),
+        abi::move_immediate(r.v6, "Integer", &MAP_DEAD_ENTRIES_MAX.to_string()),
+        abi::compare_registers(r.v25, r.v6),
+        abi::branch_lo(&l("state")),
+        abi::label(&l("compact")),
+    ];
+    body.extend(compact_tombstones(r, &l("compact"), None));
+    body.extend([
+        abi::branch(&l("done")),
+        abi::label(&l("state")),
+        abi::shift_left_immediate(r.v25, r.v25, MAP_DEAD_ENTRIES_SHIFT),
+        abi::or_registers(r.v25, r.v25, r.v26),
+        abi::store_u32(r.v25, r.v20, COLLECTION_OFFSET_MAP_STATE),
+        abi::label(&l("done")),
+        abi::return_(),
+    ]);
+    helper(symbol, "runtime.mapRetire", body)
+}
+
 /// `cursor = align(cursor, alignment)` for a runtime power-of-two `alignment`:
 /// `(cursor + alignment - 1) & -alignment`. Clobbers `%v3`.
 fn align_up(r: &Regs, cursor: VirtualRegister, alignment: VirtualRegister) -> Vec<CodeInstruction> {
@@ -507,6 +688,13 @@ const OUT_OF_SEQUENCE_MARK: usize = COLLECTION_ENTRY_OFFSET_FLAGS + 1;
 /// plus O(r log r) for `r` relocated values — is paid for by the removals and
 /// relocations that made the dead bytes. Every verbatim grow therefore starts
 /// with at most as many dead bytes as live ones.
+///
+/// bug-760 B1: it first drops the map's tombstones ([`compact_tombstones`]),
+/// returning `1` for that alone — a grow must never copy a tombstone into a block
+/// whose fresh header says there are none, and the entries they free may be all
+/// the room the caller needed. That moves entries, so a caller holding an entry
+/// index across the call (a `set` whose value outgrew its slot) passes the
+/// index's address as a fourth argument (`0` for none) and gets it rewritten.
 pub(crate) fn lower_map_reclaim_helper() -> CodeFunction {
     let symbol = MAP_RECLAIM_SYMBOL;
     let r = &Regs::mint();
@@ -516,6 +704,25 @@ pub(crate) fn lower_map_reclaim_helper() -> CodeFunction {
         abi::move_register(r.v20, abi::c_arg(0)), // map
         abi::move_register(r.v21, abi::c_arg(1)), // key alignment
         abi::move_register(r.v22, abi::c_arg(2)), // value alignment
+        abi::move_register(r.v46, abi::c_arg(3)), // a tracked entry index's address, or 0
+        // bug-760 B1: drop the tombstones first — their entries are room the
+        // grow need not buy, and their payloads are dead bytes the walk below
+        // must not count as live. Doing so is progress (`1`) on its own.
+        abi::move_immediate(r.v37, "Integer", "0"),
+        abi::load_u32(r.v9, r.v20, COLLECTION_OFFSET_MAP_STATE),
+        abi::shift_right_immediate(r.v9, r.v9, MAP_DEAD_ENTRIES_SHIFT),
+        abi::compare_immediate(r.v9, "0"),
+        abi::branch_eq(&l("settled")),
+        abi::move_immediate(r.v47, "Integer", "0"),
+        abi::compare_immediate(r.v46, "0"),
+        abi::branch_eq(&l("untracked")),
+        abi::load_u64(r.v47, r.v46, 0),
+        abi::label(&l("untracked")),
+    ];
+    b.extend(compact_tombstones(r, &l("settle"), Some((r.v46, r.v47))));
+    b.extend([
+        abi::move_immediate(r.v37, "Integer", "1"),
+        abi::label(&l("settled")),
         abi::load_u64(r.v23, r.v20, COLLECTION_OFFSET_COUNT),
         abi::load_u64(r.v14, r.v20, COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate(r.v16, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
@@ -532,7 +739,7 @@ pub(crate) fn lower_map_reclaim_helper() -> CodeFunction {
         abi::label(&l("walk")),
         abi::compare_registers(r.v25, r.v23),
         abi::branch_ge(&l("walked")),
-    ];
+    ]);
     b.extend(entry_address(r, r.v26, r.v25));
     b.extend(align_up(r, r.v24, r.v21));
     b.extend([
@@ -729,8 +936,8 @@ pub(crate) fn lower_map_reclaim_helper() -> CodeFunction {
         abi::store_u64(r.v29, r.v20, COLLECTION_OFFSET_DATA_LENGTH),
         abi::move_immediate(r.v37, "Integer", "1"),
         abi::branch(&l("clear")),
+        // Nothing packed: `%v37` says whether the tombstones were dropped.
         abi::label(&l("none")),
-        abi::move_immediate(r.v37, "Integer", "0"),
         // --- Clear the transient marks (the walk may have stopped early). ---
         abi::label(&l("clear")),
         abi::move_immediate(r.v25, "Integer", "0"),

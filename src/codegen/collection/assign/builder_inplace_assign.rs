@@ -196,7 +196,8 @@ impl CodeBuilder<'_> {
         let key = self.materialize_value(key)?;
         let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
-        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type)?;
+        // bug-760 B1: a binding's map may keep tombstones (its reads settle it).
+        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type, true)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -778,11 +779,13 @@ impl CodeBuilder<'_> {
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_set_remove_item", 8);
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        // bug-760 B1: a binding's set may keep tombstones (its reads settle it).
         self.lower_map_remove_key_in_place(
             target.dest.block_slot(),
             item_slot,
             &set_type,
             &element_type,
+            true,
         )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
@@ -1344,7 +1347,9 @@ impl CodeBuilder<'_> {
         // lowering the key can itself call `_mfb_arena_alloc`, and the address is
         // never held across an allocation.
         let map_slot = self.open_inplace_inlined_subblock(&dest)?;
-        self.lower_map_remove_key_in_place(map_slot, key_slot, map_type, key_type)?;
+        // bug-760 B1: never a tombstone in a field — record copies and comparisons
+        // read the sub-block without settling it.
+        self.lower_map_remove_key_in_place(map_slot, key_slot, map_type, key_type, false)?;
         // `O4`.
         self.close_inplace_dest(&dest)?;
         self.forget_field_owner_constant(site, &target.dest);
@@ -1413,7 +1418,8 @@ impl CodeBuilder<'_> {
         );
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
         let set_slot = self.open_inplace_inlined_subblock(&dest)?;
-        self.lower_map_remove_key_in_place(set_slot, item_slot, set_type, element_type)?;
+        // bug-760 B1: never a tombstone in a field (see `lower_field_remove_key`).
+        self.lower_map_remove_key_in_place(set_slot, item_slot, set_type, element_type, false)?;
         // `O4`.
         self.close_inplace_dest(&dest)?;
         self.forget_field_owner_constant(site, &target.dest);

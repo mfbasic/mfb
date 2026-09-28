@@ -135,8 +135,9 @@ pub(crate) fn lower_environ(
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate(&scratch, "Byte", "1"),
         abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::move_immediate(&scratch, "Byte", "0"),
-        abi::store_u8(&scratch, &collection, COLLECTION_OFFSET_BUCKETS_READY),
+        // Index not ready, no tombstones (bug-760 B1): the whole state word.
+        abi::move_immediate(&scratch, "Integer", "0"),
+        abi::store_u32(&scratch, &collection, COLLECTION_OFFSET_MAP_STATE),
         abi::store_u64(&count, &collection, COLLECTION_OFFSET_COUNT),
         abi::store_u64(&count, &collection, COLLECTION_OFFSET_CAPACITY),
         abi::store_u64(&data_bytes, &collection, COLLECTION_OFFSET_DATA_LENGTH),

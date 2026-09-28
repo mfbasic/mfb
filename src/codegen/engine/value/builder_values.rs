@@ -102,6 +102,10 @@ impl CodeBuilder<'_> {
         // `Nothing` function's `RETURN`). Taken here so every operand frame below is
         // a value position.
         let value_discarded = std::mem::take(&mut self.value_discarded_armed);
+        // bug-760 B1: whether THIS frame's consumer reads a `Map`/`Set` binding
+        // tombstone-aware (`len`, a hash lookup). Taken here so it covers exactly
+        // this frame.
+        let settle_exempt = std::mem::take(&mut self.map_settle_exempt_armed);
         // Track the source location of the node being lowered so that any error
         // freshly created while lowering it (overflow, divide-by-zero, helper
         // failure, conversion failure) stamps a real `ErrorLoc`. The save/restore
@@ -151,6 +155,23 @@ impl CodeBuilder<'_> {
             )
         });
         let result = self.lower_value_inner(value);
+        // bug-760 B1: a `Map`/`Set` read out of a binding may hold tombstones (an
+        // in-place removal leaves them there); every consumer but a
+        // tombstone-aware one gets the block settled first, so no copy, iteration,
+        // comparison, callee or thread ever sees one. A no-op check when the dead
+        // count is 0.
+        let result = match result {
+            Ok(result)
+                if !settle_exempt
+                    && matches!(value, NirValue::Local(_) | NirValue::Global { .. })
+                    && crate::codegen::collection::map::map_mutate::is_map_or_set_type(
+                        &result.type_,
+                    ) =>
+            {
+                Ok(self.emit_map_settle_value(result))
+            }
+            other => other,
+        };
         if let Some(previous) = previous_wanted {
             self.closure_temp_wanted = previous;
         }
@@ -3323,6 +3344,15 @@ impl CodeBuilder<'_> {
                 )));
             }
         }
+        // bug-760 B1: a hash lookup finds only live entries — a tombstone has no
+        // bucket, and the lazy index build skips it; a key type that scans instead
+        // never holds tombstones (`lower_map_remove_key_in_place`). So its map
+        // operand is read as it is, and a lookup loop over a map that removals
+        // keep leaving tombstones in does not settle it every time.
+        self.map_settle_exempt_armed = matches!(
+            target,
+            "collections.get" | "collections.getOr" | "collections.hasKey" | "collections.contains"
+        );
         let arg_values = match self.lower_abi_inline_args(args) {
             Ok(values) => values,
             Err(err) => return Some(Err(err)),

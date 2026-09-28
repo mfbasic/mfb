@@ -176,8 +176,18 @@ impl CodeBuilder<'_> {
             self.emit(abi::multiply_registers(&entry, &index, &entry));
             self.emit(abi::add_registers(&entry, &entry, &base));
             self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
+            // bug-760 B1: a tombstone's value was freed when it was removed.
+            let flags = self.temporary_vreg();
+            let dead = self.label("mclear_drop_dead");
+            self.emit(abi::load_u8(&flags, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
+            self.emit(abi::compare_immediate(
+                &flags,
+                &COLLECTION_ENTRY_FLAG_REMOVED.to_string(),
+            ));
+            self.emit(abi::branch_eq(&dead));
             self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
             self.emit_drop_entry_value(map_slot, entry_slot, value_type.as_ref().unwrap())?;
+            self.emit(abi::label(&dead));
             let index = self.temporary_vreg();
             self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
             self.emit(abi::add_immediate(&index, &index, 1));
@@ -194,8 +204,9 @@ impl CodeBuilder<'_> {
             &base,
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
-        self.emit(abi::move_immediate(&zero, "Byte", "0"));
-        self.emit(abi::store_u8(&zero, &base, COLLECTION_OFFSET_BUCKETS_READY));
+        // Index not ready and — bug-760 B1 — no tombstones left: the whole word.
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u32(&zero, &base, COLLECTION_OFFSET_MAP_STATE));
         Ok(())
     }
 
@@ -270,7 +281,7 @@ impl CodeBuilder<'_> {
         // newDataCapacity = max(step(dataCapacity), dataLength + extraBytes).
         // bug-733: first reclaim dead bytes, and retry the room check.
         self.emit(abi::label(&grow));
-        self.emit_map_reclaim_before_grow(map_slot, map_type, &retry)?;
+        self.emit_map_reclaim_before_grow(map_slot, map_type, &retry, None)?;
         self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
         self.emit_geometric_step(

@@ -28,8 +28,8 @@ CollectionHeader
   U8 valueType
   U8 flagsVersion
   U8 bucketsReady    ; Map hash index built? 0 = no (rebuild lazily), 1 = yes
-  U8[3] reserved
-  U64 count          ; logical live item count
+  U24 deadEntries    ; Map/Set tombstones inside count (0 for List); see Map Hash Index
+  U64 count          ; lookup entries in use (live + deadEntries)
   U64 capacity       ; lookup entry capacity
   U64 dataLength     ; used bytes in data region
   U64 dataCapacity   ; allocated bytes in data region
@@ -139,7 +139,14 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
   and `0` otherwise; it is `0` on every fresh, copied, or grown map and set to `1`
   the first time the index is probed (see *Map Hash Index*). It is unused (`0`)
   for a `List`.
-- `count` is the number of live logical entries.
+- `deadEntries` (bytes 5..7, read as the `U32` at offset 4 shifted right by 8)
+  is the number of **tombstones** among a `Map`/`Set`'s first `count` entries —
+  entries an in-place removal flagged `REMOVED` and left in place (see *Map Hash
+  Index*, "Tombstones"). Every header construction writes the whole `U32` at
+  offset 4 as `0`. It is `0` for a `List`.
+  [[src/codegen/error/constants/error_constants.rs:COLLECTION_OFFSET_MAP_STATE]]
+- `count` is the number of lookup entries in use. For a `List` every one is live;
+  for a `Map`/`Set` the length is `count - deadEntries`.
 - `capacity` is the number of lookup entries allocated. It may exceed `count`:
   the spare slots are working-buffer headroom (see *Capacity Headroom*). For a
   kind-2 list no entries are allocated, and `capacity` is the number of element
@@ -240,9 +247,39 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   index built: it deletes each removed entry's bucket by **backward-shift
   deletion** — every later slot of the probe run moves back into the gap unless
   its key's home slot lies cyclically between the gap and that slot, so no
-  tombstone is needed and every surviving key stays reachable — and, as the later
-  entries slide down, renumbers each moved entry's bucket to its new index.
+  bucket tombstone is needed and every surviving key stays reachable. What
+  happens to the removed **entry** depends on where the map lives:
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_bucket_delete_helper]]
+- **Tombstones (bug-760 B1).** For a probe-eligible key type at a binding — a
+  local, a module-level global or a by-reference capture — the removed entry
+  stays where it is, flagged `COLLECTION_ENTRY_FLAG_REMOVED`, and `deadEntries`
+  counts it; nothing moves, so the removal costs the lookup plus O(1)
+  (`_mfb_rt_map_retire`). The last entry is truncated instead, together with any
+  tombstones directly before it. Once the tombstones outnumber the live entries
+  (`2 * deadEntries > count`, or the 24-bit field is full) one pass drops them
+  all, sliding the live entries down in order with no hashing, and marks the
+  index not ready (every live entry's index changed; the next probe rebuilds it).
+  At least as many removals as there are live entries separate two such passes,
+  so a removal costs O(1) amortized wherever its key sits.
+  [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_retire_helper]]
+  A tombstone is visible only to the consumers written for it: a hash lookup
+  (`get`, `getOr`, `hasKey`, a `Set`'s `contains` — a tombstone has no bucket and
+  the lazy index build skips it), `len`/`isEmpty` (`count - deadEntries`), the
+  in-place updates of that binding, the dead-byte reclaim (which drops the
+  tombstones before it walks the entries), and the owner's graph drop (which skips
+  them — their values were freed at the removal). **Every other read of a `Map`
+  or `Set` binding settles it first**: `lower_value` of a map-typed `Local` or
+  `Global` calls `_mfb_rt_map_settle` when `deadEntries != 0`, which runs the same
+  in-place pass. So a copy, an iteration, `keys`/`values`/`toList`, a callee's
+  parameter, a `RETURN`, a thread transfer or any other reader sees a map with no
+  tombstones, and pays the pass only when removals left some — a reader that walks
+  every entry anyway. A record or `STATE` field's map, and a key type that the
+  entry scan serves, never hold one: their removals still slide the later entries
+  down with their buckets renumbered, because record-level copies and comparisons
+  read the field's sub-block without settling it, and a scan would match a
+  tombstone's key.
+  [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_settle_helper]]
+  [[src/codegen/collection/map/map_mutate.rs:emit_map_settle_value]]
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_compact_from_helper]]
 
 The data region packs every **flat** payload directly, addressed by the lookup
@@ -654,14 +691,19 @@ read `byteLength` bytes and hand on the tight form.
     removed payload's bytes are retracted over when they are the data tail and
     become dead bytes otherwise.
     [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at_in_place]]
-  - `removeKey` and a `Set`'s `remove` cost the lookup plus the entries after the
-    removed one, which slide down with their buckets renumbered; the hash index
-    stays built.
+  - `removeKey` and a `Set`'s `remove` on a local, global or by-reference
+    binding cost the lookup plus O(1) amortized: the entry becomes a tombstone,
+    or is truncated at the back, and the tombstones are dropped in one pass once
+    they outnumber the live entries (see *Map Hash Index*, "Tombstones"). At a
+    record or `STATE` field, and for a key type without a hash probe, they cost
+    the lookup plus the entries after the removed one, which slide down with their
+    buckets renumbered. The hash index stays built either way.
     [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
-  - `difference(x, t)` looks each element of `t` up in `x` and drops the hits in
-    one pass from the first of them: it costs `t`'s elements plus the entries of
-    `x` after the first hit. `symmetricDifference(x, t)` is the same pass, then
-    appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_difference_assign]]
+  - `difference(x, t)` looks each element of `t` up in `x` and retires each hit as
+    `remove` does: it costs `t`'s elements. At a field, or without a hash probe,
+    it drops the hits in one pass from the first of them instead, costing `t`'s
+    elements plus the entries of `x` after the first hit.
+    `symmetricDifference(x, t)` is the same pass, then appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_difference_assign]]
     [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
   - A `String` window costs the bytes it gives up plus the bytes it moves: none
     move when the window already starts at the block start. `trimEnd` and the
@@ -915,10 +957,10 @@ with a linear-scan fallback for any non-probe key type). Missing removed keys ar
 ignored. In-place `set` (insert into spare headroom, or value overwrite) is
 described under [`set`](#set) above. The copying `removeKey` builds a tight
 buffer and leaves `bucketsReady = 0` for a lazy rebuild; the in-place one (a
-self-update) deletes the entry and keeps the index built (see *Self-updates*,
-"Cost", and *Map Hash Index*). The removed key and value bytes stay behind in the
-data region as dead bytes until the map's next grow reclaims them (see
-*Compaction*).
+self-update) deletes the entry — a tombstone at a binding — and keeps the index
+built (see *Self-updates*, "Cost", and *Map Hash Index*). The removed key and
+value bytes stay behind in the data region as dead bytes until the map's next
+grow reclaims them (see *Compaction*).
 
 ## Compaction
 
@@ -969,7 +1011,12 @@ A `Map`/`Set`'s dead key and value bytes are reclaimed the same way: every
 in-place grow of a map or set — a `set`/`add` that needs a new entry or data
 room, a `set` whose value outgrew its slot, and the one-time reserve of a batch
 update (`union`, `symmetricDifference`, `merge`) — first calls
-`_mfb_rt_map_reclaim`. When `dataLength > 2 * live` it slides the
+`_mfb_rt_map_reclaim`. That first drops the map's tombstones, if any, and
+reports progress for that alone: a grow writes a fresh header whose
+`deadEntries` is `0`, so it must never copy a tombstone, and the freed entries
+may be all the room it needed. A `set` whose value outgrew its slot holds its
+entry's index across the call, so it passes the index's address and gets it
+rewritten. Then, when `dataLength > 2 * live`, it slides the
 live keys and values, each aligned as the entry writer aligns it, down to the
 front of the data region in place, rewrites their offsets, and the grow's room
 check is retried. It allocates nothing and cannot fail. The block, its capacity

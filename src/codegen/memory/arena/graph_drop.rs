@@ -368,8 +368,16 @@ impl CodeBuilder<'_> {
             return Ok(true);
         }
         if typed_is_collection_type(type_) {
+            // bug-760 B1: a map's tombstones were dropped when they were removed.
+            let skip_tombstones =
+                crate::codegen::collection::map::map_mutate::is_map_or_set_type(type_);
             for (payload_type, key_payload) in self.collection_payload_edges(type_)? {
-                self.emit_graph_drop_collection_payload(pointer_slot, &payload_type, key_payload)?;
+                self.emit_graph_drop_collection_payload(
+                    pointer_slot,
+                    &payload_type,
+                    key_payload,
+                    skip_tombstones,
+                )?;
             }
             return Ok(true);
         }
@@ -478,6 +486,7 @@ impl CodeBuilder<'_> {
         block_slot: usize,
         payload_type: &ParameterType,
         key_payload: bool,
+        skip_tombstones: bool,
     ) -> Result<(), String> {
         let sp = abi::stack_pointer();
         let index_slot = self.allocate_stack_object("graph_drop_collection_index", 8);
@@ -512,6 +521,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&entry, &index, &scratch));
         self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
         self.emit(abi::add_registers(&entry, &block, &entry));
+        // bug-760 B1: a `Map`/`Set` binding dropped with tombstones in it — their
+        // values were freed by the removal that made them.
+        let next_label = skip_tombstones.then(|| self.label("graph_drop_collection_next"));
+        if let Some(next_label) = &next_label {
+            let flags = self.temporary_vreg();
+            self.emit(abi::load_u8(&flags, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
+            self.emit(abi::compare_immediate(
+                &flags,
+                &COLLECTION_ENTRY_FLAG_REMOVED.to_string(),
+            ));
+            self.emit(abi::branch_eq(next_label));
+        }
         // Kind-0 stride, as the copy's walk: only a block with an entry table gets here.
         let data = self.temporary_vreg();
         self.emit_collection_data_pointer_for(&data, &block, &ParameterType::named(""));
@@ -536,6 +557,9 @@ impl CodeBuilder<'_> {
                 self.emit_graph_drop_union_edges(payload_type, &base)?;
             }
             None => {}
+        }
+        if let Some(next_label) = &next_label {
+            self.emit(abi::label(next_label));
         }
         let index = self.temporary_vreg();
         self.emit(abi::load_u64(&index, sp, index_slot));

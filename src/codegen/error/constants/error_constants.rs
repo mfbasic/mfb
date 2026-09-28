@@ -1378,9 +1378,14 @@ pub(crate) const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
 pub(crate) const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
 pub(crate) const COLLECTION_ENTRY_FLAG_USED: usize = 1;
-/// bug-732: a `Map`/`Set` entry an in-place removal has claimed. Transient: it
-/// is written only between a removal marking the entry and the same statement's
-/// `_mfb_rt_map_compact_from` dropping it, so no value ever holds one.
+/// bug-732: a `Map`/`Set` entry an in-place removal has claimed. bug-760 B1: it
+/// is also a **tombstone** — an in-place `removeKey`/`remove`/`difference` on a
+/// `Map`/`Set` held directly by a local or global binding leaves the entry in
+/// place, flagged, with no bucket in the hash index, and counts it in the
+/// header's dead-entry field ([`COLLECTION_OFFSET_MAP_STATE`]). Only the
+/// tombstone-aware consumers ever see one: every other read of the binding
+/// settles the block first (`_mfb_rt_map_settle`), so no other reader holds a
+/// map with `dead != 0`.
 pub(crate) const COLLECTION_ENTRY_FLAG_REMOVED: usize = 2;
 
 // Map hash index (plan-02 Phase 6). A `Map` reserves a bucket array of
@@ -1395,6 +1400,23 @@ pub(crate) const COLLECTION_ENTRY_FLAG_REMOVED: usize = 2;
 // `set` stays O(n). Lists never probe; their bucket region is empty (`2*0`-sized
 // for a tight list is 0, and the field stays 0).
 pub(crate) const COLLECTION_OFFSET_BUCKETS_READY: usize = 4;
+/// bug-760 B1: the `u32` at header offset 4 of a `Map`/`Set`. Its low byte is
+/// [`COLLECTION_OFFSET_BUCKETS_READY`]; its upper 24 bits (bytes 5..7, read as
+/// `u32 >> MAP_DEAD_ENTRIES_SHIFT`) count the **tombstones**
+/// ([`COLLECTION_ENTRY_FLAG_REMOVED`] entries) inside `count`. `count` is the
+/// number of entries in the entry array, live or dead; the map's length is
+/// `count - dead`. Every header CONSTRUCTION writes the whole word as 0 (index
+/// not ready, no tombstones); an index invalidation of a live map writes only
+/// the ready byte. Runtime-private: nothing outside the in-place map code and
+/// `len` reads the dead count, because nothing else ever sees a map whose dead
+/// count is not 0 (see [`MAP_SETTLE_SYMBOL`]).
+pub(crate) const COLLECTION_OFFSET_MAP_STATE: usize = 4;
+/// bug-760 B1: shift of the dead-entry count within [`COLLECTION_OFFSET_MAP_STATE`].
+pub(crate) const MAP_DEAD_ENTRIES_SHIFT: u8 = 8;
+/// bug-760 B1: the most tombstones the 24-bit field holds; a removal that would
+/// reach it compacts instead (a map this size compacts at `dead > live` long
+/// before, unless it holds more than 16M live entries).
+pub(crate) const MAP_DEAD_ENTRIES_MAX: usize = 0xFF_FFFF;
 pub(crate) const MAP_BUCKET_SIZE: usize = 8;
 pub(crate) const MAP_BUILD_BUCKETS_SYMBOL: &str = "_mfb_rt_map_build_buckets";
 pub(crate) const MAP_BUCKET_PUT_SYMBOL: &str = "_mfb_rt_map_bucket_put";
@@ -1407,6 +1429,15 @@ pub(crate) const MAP_COMPACT_FROM_SYMBOL: &str = "_mfb_rt_map_compact_from";
 /// bug-733: pack a map's live key/value payloads in place when its dead bytes
 /// outnumber them (`map`, `keyAlign`, `valueAlign`) -> 0 nothing done, 1 repacked.
 pub(crate) const MAP_RECLAIM_SYMBOL: &str = "_mfb_rt_map_reclaim";
+/// bug-760 B1: retire entry `index` of a `Map`/`Set` whose bucket is already
+/// deleted and whose flag is already `REMOVED` (`map`, `index`): truncate it when
+/// it is the last entry (with any tombstones before it), else count it as a
+/// tombstone, compacting once the tombstones outnumber the live entries.
+pub(crate) const MAP_RETIRE_SYMBOL: &str = "_mfb_rt_map_retire";
+/// bug-760 B1: drop every tombstone of a `Map`/`Set` (`map`), sliding the live
+/// entries down in order; a no-op when its dead count is 0. The block does not
+/// move. The hash index is marked not ready (rebuilt by the next probe).
+pub(crate) const MAP_SETTLE_SYMBOL: &str = "_mfb_rt_map_settle";
 /// plan-118-C: the shared two-operand `String` concatenation. Takes the two
 /// operand block pointers, returns the new block pointer, or **0** when the
 /// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the

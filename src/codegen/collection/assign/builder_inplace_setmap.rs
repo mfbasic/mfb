@@ -656,6 +656,11 @@ impl CodeBuilder<'_> {
         if !alias {
             let other = self.lower_other_collection(&target.args[1], &set_type, "intersection")?;
             let dest = self.inplace_collection_slot(&opened)?;
+            // bug-760 B1: every entry of `s` is marked and compacted — drop its
+            // tombstones first (a field's set holds none).
+            if !target.dest.is_field() {
+                self.emit_map_settle_slot(dest);
+            }
             let marks_size = self.emit_map_counts(&[dest]);
             let mut sizes = vec![marks_size];
             let area_size = self.emit_borrow_area_size(dest, Payload::Key, &element_type);
@@ -710,8 +715,12 @@ impl CodeBuilder<'_> {
                 Some(size) => Some(self.emit_scratch_areas(&[size])?[0]),
                 None => None,
             };
-            let from_slot = self.emit_claim_members(dest, other, &element_type, key_area, None)?;
-            self.emit_compact_claimed(dest, from_slot);
+            let tombstone = !target.dest.is_field() && Self::map_key_probe_eligible(&element_type);
+            let from_slot =
+                self.emit_claim_members(dest, other, &element_type, key_area, None, tombstone)?;
+            if !tombstone {
+                self.emit_compact_claimed(dest, from_slot);
+            }
         }
         self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
@@ -724,6 +733,11 @@ impl CodeBuilder<'_> {
     /// — or `dest`'s count when nothing was claimed. When `absent_marks_slot` is
     /// given, mark byte `j` records whether element `j` of the probe set was
     /// absent from `dest` (1) or claimed (0). Costs the probe set's elements.
+    ///
+    /// bug-760 B1: with `tombstone`, each claim is retired at once
+    /// (`emit_map_retire`) — a tombstone, or a truncation at the back — exactly as
+    /// an in-place `remove` retires its entry, so no compaction follows and the
+    /// call costs the probe set's elements whatever entries of `dest` they hit.
     fn emit_claim_members(
         &mut self,
         dest_slot: usize,
@@ -731,6 +745,7 @@ impl CodeBuilder<'_> {
         element_type: &ParameterType,
         key_area: Option<usize>,
         absent_marks_slot: Option<usize>,
+        tombstone: bool,
     ) -> Result<usize, String> {
         let from_slot = self.allocate_stack_object("inplace_claim_from", 8);
         let base = self.temporary_vreg();
@@ -760,6 +775,9 @@ impl CodeBuilder<'_> {
             self.emit_store_mark(marks, index_slot, &zero);
         }
         self.emit_map_mark_removed(dest_slot, found);
+        if tombstone {
+            self.emit_map_retire(dest_slot, found);
+        }
         let lowest = self.label("inplace_claim_lowest");
         let from = self.temporary_vreg();
         let index = self.temporary_vreg();
@@ -832,9 +850,18 @@ impl CodeBuilder<'_> {
             let key_area = areas.get(1).copied();
             let (entries, bytes) = self.emit_map_batch_room(other, None);
             self.emit_map_reserve(dest, entries, bytes, &set_type, grow)?;
-            let from_slot =
-                self.emit_claim_members(dest, other, &element_type, key_area, Some(marks_t))?;
-            self.emit_compact_claimed(dest, from_slot);
+            let tombstone = !target.dest.is_field() && Self::map_key_probe_eligible(&element_type);
+            let from_slot = self.emit_claim_members(
+                dest,
+                other,
+                &element_type,
+                key_area,
+                Some(marks_t),
+                tombstone,
+            )?;
+            if !tombstone {
+                self.emit_compact_claimed(dest, from_slot);
+            }
             self.emit_add_all(
                 dest,
                 other,
@@ -1010,6 +1037,11 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
         let dest = self.inplace_collection_slot(&opened)?;
+        // bug-760 B1: `f` runs for every entry — drop the tombstones first (a
+        // field's map holds none).
+        if !target.dest.is_field() {
+            self.emit_map_settle_slot(dest);
+        }
         let is_string = value_type == ParameterType::String;
         // Results: one word per entry.
         let need_slot = self.allocate_stack_object("inplace_mapvalues_need", 8);

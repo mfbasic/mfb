@@ -151,15 +151,16 @@ impl CodeBuilder<'_> {
             collection,
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
-        // Mark the map hash index not-ready (built lazily on first probe); a no-op
-        // field for lists. Every collection built THROUGH this helper resets it
-        // here — but note the field-by-field header writers that bypass this helper
-        // (list-only paths, where the field is a no-op) do not.
-        self.emit(abi::move_immediate(&scratch22, "Byte", "0"));
-        self.emit(abi::store_u8(
+        // Mark the map hash index not-ready (built lazily on first probe) and, in
+        // the same word, zero the map's tombstone count (bug-760 B1: a fresh block
+        // holds none); a no-op field for lists. Every collection built THROUGH this
+        // helper resets it here — but note the field-by-field header writers that
+        // bypass this helper (list-only paths, where the field is a no-op) do not.
+        self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
+        self.emit(abi::store_u32(
             &scratch22,
             collection,
-            COLLECTION_OFFSET_BUCKETS_READY,
+            COLLECTION_OFFSET_MAP_STATE,
         ));
         self.emit(abi::store_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
