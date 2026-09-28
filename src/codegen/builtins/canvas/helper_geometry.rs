@@ -864,7 +864,8 @@ FUNC __canvas_appendGradientTail(base AS List OF Float, paint AS Paint) AS List 
 END FUNC
 
 FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
-  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
+  LET font AS Integer = canvas::fontHandle(t.font)
+  LET b AS List OF Byte = __canvas_fontBlob(font)
   IF len(b) = 0 THEN
     RETURN []
   END IF
@@ -873,8 +874,11 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     RETURN []
   END IF
   LET scale AS Float = t.size / toFloat(upem)
-  LET cps AS List OF Integer = encoding::utf32Encode(t.text)
-  LET chars AS Integer = len(cps)
+  ' Shaped once, before pass one. The run is a plain local list of glyph ids and
+  ' advances, and it holds no cache index, so the eviction pass one can trigger -- which
+  ' renumbers entries, see below -- cannot make it stale.
+  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
+  LET chars AS Integer = len(shaped) / 3
 
   ' Pass one rasterises, recording each entry in the GLOBAL pin list rather than in a
   ' local. A run being built is not yet in the geometry cache, so the pin scan cannot
@@ -887,7 +891,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   __CANVAS_GLYPH_PINS = []
   MUT c AS Integer = 0
   WHILE c < chars
-    LET gid AS Integer = __canvas_glyphIndex(b, collections::getOr(cps, c, 0))
+    LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
     ' Rasterise here, at cache-fill time, not at draw time. The draw path owns a live
     ' 2.3 MB surface local and `collections::set` is in-place only while nothing else
     ' allocates underneath it, so every allocation belongs on this side of the seam --
@@ -898,7 +902,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     ' `append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))` appends to whichever list
     ' the argument evaluation had already resolved, which is the one eviction just
     ' replaced.
-    LET entry AS Integer = __canvas_glyphEntry(b, canvas::fontHandle(t.font), gid, t.size, scale)
+    LET entry AS Integer = __canvas_glyphEntry(b, font, gid, t.size, scale)
     __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
     c = c + 1
   END WHILE
@@ -908,18 +912,20 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   MUT pen AS Float = t.x
   c = 0
   WHILE c < chars
-    LET gid AS Integer = __canvas_glyphIndex(b, collections::getOr(cps, c, 0))
     run = collections::append(run, toFloat(collections::getOr(__CANVAS_GLYPH_PINS, c, 0 - 1)))
     run = collections::append(run, toFloat(toInt(pen + 0.5)))
     run = collections::append(run, toFloat(toInt(t.y + 0.5)))
-    pen = pen + toFloat(__canvas_glyphAdvance(b, gid)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
   RETURN run
 END FUNC
 
+' A `Text` names one font, so every triple of its shaped run has font index 0 and `b`
+' is the file its outlines come from.
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
-  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
+  LET font AS Integer = canvas::fontHandle(t.font)
+  LET b AS List OF Byte = __canvas_fontBlob(font)
   IF len(b) = 0 THEN
     RETURN []
   END IF
@@ -928,13 +934,15 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
     RETURN []
   END IF
   LET scale AS Float = t.size / toFloat(upem)
+  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
   MUT edges AS List OF Float = []
   MUT pen AS Float = t.x
-  FOR EACH cp IN encoding::utf32Encode(t.text)
-    LET gid AS Integer = __canvas_glyphIndex(b, cp)
-    edges = __canvas_glyphEdges(b, gid, scale, pen, t.y, edges)
-    pen = pen + toFloat(__canvas_glyphAdvance(b, gid)) * scale
-  NEXT
+  MUT c AS Integer = 0
+  WHILE c * 3 < len(shaped)
+    edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, t.y, edges)
+    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    c = c + 1
+  END WHILE
   RETURN edges
 END FUNC
 
@@ -1450,12 +1458,12 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
     RETURN []
   END IF
   LET scale AS Float = t.size / toFloat(upem)
-  LET cps AS List OF Integer = encoding::utf32Encode(t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
   MUT run AS List OF Float = []
   MUT pen AS Float = t.x
   MUT c AS Integer = 0
-  WHILE c < len(cps)
-    LET gid AS Integer = __canvas_glyphIndex(b, collections::getOr(cps, c, 0))
+  WHILE c * 3 < len(shaped)
+    LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
     MUT entry AS Integer = 0 - 2
     IF offset >= 0 THEN
       LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + c * 3, 0.0 - 2.0))
@@ -1466,7 +1474,7 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
     run = collections::append(run, toFloat(entry))
     run = collections::append(run, toFloat(toInt(pen + 0.5)))
     run = collections::append(run, toFloat(toInt(t.y + 0.5)))
-    pen = pen + toFloat(__canvas_glyphAdvance(b, gid)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
   RETURN run

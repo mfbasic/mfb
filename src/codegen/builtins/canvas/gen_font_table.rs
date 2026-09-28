@@ -323,14 +323,20 @@ pub(crate) fn lower_font_registered(
 
 /// `canvas::fontBlobUnchecked(id) AS List OF Byte` — an owned copy of the font file.
 ///
-/// It copies, for the reason `canvas::fontBytes` does: the returned value binds to an
-/// ordinary `LET`, and that binding's scope-drop reclaims it — so returning the table's
-/// own block would hand the *next* caller a block the previous one freed and the arena
-/// filled with noise. Measured there, not reasoned (exit 139 on the second call).
+/// **It copies, and the first version of this read did not.** Returning the font's own
+/// block as a read-only alias is the obvious optimisation — a font file is hundreds of
+/// kilobytes, and `measureText` runs per string per frame, so copying makes a read cost
+/// the font's size rather than the string's length. It is also wrong: the returned value
+/// binds to an ordinary `LET`, and that binding's scope-drop reclaims it, so the
+/// *second* call on the same font reads a block the first call freed. Measured, not
+/// reasoned: in the retired `canvas::fontBytes` (bug-756 replaced it with this read), the
+/// first `measureText` printed correct metrics and the next one segfaulted (exit 139).
 ///
-/// The copy is paid once per geometry-cache **miss**, not per glyph: the caller reads
-/// every glyph of a string out of one copy, and the cache means a string is only walked
-/// again when it changes.
+/// So the cost is real and paid deliberately. What removes it is not an alias but not
+/// reading the file at all: plan-162-A's parse-once face index answers glyphs, advances
+/// and metrics by handle. Until then `__canvas_shapeRun` binds one copy per font per run,
+/// and the draw paths pay it once per geometry-cache **miss**, not per glyph or frame:
+/// the cache means a string is only shaped again when it changes.
 ///
 /// `Unchecked` because it must be called with a handle `canvas::fontRegistered` just
 /// said yes to; on any other it would copy from a null pointer.

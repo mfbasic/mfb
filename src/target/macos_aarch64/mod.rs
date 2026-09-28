@@ -95,7 +95,7 @@ impl NativeBackend for Backend {
                 "canvas.systemFontTable",
                 "canvas.destroyFont",
                 "canvas.fontHandle",
-                "canvas.fontBytes",
+                "canvas.fontOpenHandle",
                 "canvas.measureText",
                 "canvas.fontRegistered",
                 "canvas.fontBlobUnchecked",
