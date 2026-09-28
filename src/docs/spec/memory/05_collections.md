@@ -1018,8 +1018,9 @@ may be all the room it needed. A `set` whose value outgrew its slot holds its
 entry's index across the call, so it passes the index's address and gets it
 rewritten. Then, when `dataLength > 2 * live`, it slides the
 live keys and values, each aligned as the entry writer aligns it, down to the
-front of the data region in place, rewrites their offsets, and the grow's room
-check is retried. It allocates nothing and cannot fail. The block, its capacity
+front of the data region in place — eight bytes at a time, a payload already in
+place not at all — rewrites their offsets, and the grow's room check is
+retried. It allocates nothing and cannot fail. The block, its capacity
 and its data base stay where they are. Moving in place needs the payloads
 visited in increasing offset: keys are always in entry order, and a value is too
 unless a `set` moved it to the data tail when it outgrew its slot. Such values

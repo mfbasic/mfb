@@ -611,9 +611,13 @@ fn sift_down(r: &Regs, labels: &str) -> Vec<CodeInstruction> {
 /// Move one payload down to the aligned `cursor` (`%v29`) and repoint its entry
 /// field: the entry is at `entry`, its offset/length fields at `off_field` /
 /// `len_field`, its alignment in `alignment`. The destination never passes the
-/// source (payloads are visited in increasing source offset), so a forward byte
-/// copy is safe on the overlap. A zero-length payload moves nothing and takes the
-/// unaligned cursor. Clobbers `%v3`, `%v6`–`%v8`.
+/// source (payloads are visited in increasing source offset), so a forward copy
+/// is safe on the overlap — bug-760 B2: eight bytes at a time, then a byte tail
+/// (each word is read before any byte at or past it is written, since
+/// `destination <= source`), the same unaligned word loop
+/// `emit_block_copy_advance` runs over every data region. A payload already at
+/// its destination is not copied at all. A zero-length payload moves nothing and
+/// takes the unaligned cursor. Clobbers `%v3`, `%v6`–`%v8`.
 fn move_unit(
     r: &Regs,
     labels: &str,
@@ -623,6 +627,7 @@ fn move_unit(
     alignment: VirtualRegister,
 ) -> Vec<CodeInstruction> {
     let empty = format!("{labels}_empty");
+    let words = format!("{labels}_words");
     let copy = format!("{labels}_copy");
     let done = format!("{labels}_done");
     let mut out = vec![
@@ -637,6 +642,17 @@ fn move_unit(
         abi::add_registers(r.v6, r.v28, r.v6),  // source
         abi::add_registers(r.v8, r.v28, r.v29), // destination
         abi::add_registers(r.v29, r.v29, r.v7),
+        abi::compare_registers(r.v6, r.v8),
+        abi::branch_eq(&done),
+        abi::label(&words),
+        abi::compare_immediate(r.v7, "8"),
+        abi::branch_lo(&copy),
+        abi::load_u64(r.v3, r.v6, 0),
+        abi::store_u64(r.v3, r.v8, 0),
+        abi::add_immediate(r.v6, r.v6, 8),
+        abi::add_immediate(r.v8, r.v8, 8),
+        abi::subtract_immediate(r.v7, r.v7, 8),
+        abi::branch(&words),
         abi::label(&copy),
         abi::compare_immediate(r.v7, "0"),
         abi::branch_eq(&done),
