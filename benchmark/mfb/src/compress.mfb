@@ -1,0 +1,64 @@
+' CRC-32 benchmark (compress:: package). Group `compress`.
+'
+' compress::crc32 is the CRC-32 (the checksum gzip, zip and PNG store) written in
+' MFBASIC with no system library. The C peer calls system zlib's crc32() and the
+' Python peer zlib.crc32 — each language's standard means of doing the job; the
+' CRC is a fixed function of the bytes, so the checksum matches bit-for-bit.
+'
+' Input: a deterministic ~128 KB word-salad text (16-word vocabulary, LCG-chosen,
+' space/newline separated), built once, untimed, identically in every language.
+'
+' Rows:
+'   crc32    64x crc32 of the input; checksum = sum of the 64 CRCs
+'
+' The deflate/inflate/gzip round-trip rows are not in the group: at -O3,
+' compress::deflate (and so gzipEncode) aborts with 7-705-0001 "List or string
+' index/range is outside valid bounds" on any input (-O1/-O2 are correct and
+' interoperate with zlib), which would abort the whole -O3 suite run. The
+' encoder rows need a compressor to build their input, so they wait on that fix.
+IMPORT io
+IMPORT compress
+IMPORT collections
+IMPORT datetime
+IMPORT strings
+
+' Deterministic text: LCG x = (x*1103515245 + 12345) MOD 2^31 picks word
+' (x/65536) MOD 16; the separator is "\n" when (x/1024) MOD 13 = 0, else " ".
+' Stops once at least `target` bytes are produced (shared with the C/Python
+' mirrors).
+FUNC compressInput(target AS Integer) AS List OF Byte
+  LET words AS List OF String = ["the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "compress", "deflate", "window", "huffman", "literal", "length", "distance", "block"]
+  MUT parts AS List OF String = []
+  MUT total AS Integer = 0
+  MUT x AS Integer = 12345
+  WHILE total < target
+    x = (x * 1103515245 + 12345) MOD 2147483648
+    LET w AS String = collections::get(words, (x / 65536) MOD 16)
+    MUT sep AS String = " "
+    IF (x / 1024) MOD 13 = 0 THEN
+      sep = "\n"
+    END IF
+    parts = collections::append(parts, w & sep)
+    total = total + len(w) + 1
+  END WHILE
+  RETURN strings::toBytes(strings::join(parts, ""))
+END FUNC
+
+' ---- compress crc32: 64x CRC-32 of the input --------------------------------
+FUNC test_compress_crc32(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET x AS List OF Byte = compressInput(131072)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 1 TO 64
+      acc = acc + compress::crc32(x)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("test_compress_crc32 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("compress", "crc32", times))
+END FUNC

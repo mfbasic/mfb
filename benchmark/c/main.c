@@ -27,6 +27,7 @@
 #include "bigintbench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
+#include "compressbench.h"
 #include "convertbench.h"
 #include "cryptobench.h"
 #include "datetimebench.h"
@@ -766,6 +767,8 @@ int main(int argc, char **argv) {
   run_convert_group();
 
   run_bigint_group();
+
+  run_compress_group();
 
   test_primes();
 

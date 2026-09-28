@@ -17,6 +17,7 @@ import arenabench
 import bigintbench
 import bitsbench
 import churnbench
+import compressbench
 import cryptobench
 import csv
 import datetimebench
@@ -875,6 +876,9 @@ def main():
 
     # bigint group (P1 big:: coverage — pidigits/factorial/modpow/gcd)
     bigintbench.run_all(RUN, now_ns, record)
+
+    # compress group (P1 compress:: coverage — crc32)
+    compressbench.run_all(RUN, now_ns, record)
 
     test_primes()
 
