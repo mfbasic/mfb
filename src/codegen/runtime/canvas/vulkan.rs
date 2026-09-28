@@ -1444,7 +1444,7 @@ fn emit_vulkan_descriptors(
         off_type_index,
         off_type_bits,
         off_out,
-        &[MEMORY_HOST_VISIBLE_COHERENT],
+        &READBACK_MEMORY_CANDIDATES,
         GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
         "vkBindBufferMemory",
         GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
@@ -1577,7 +1577,7 @@ fn emit_vulkan_descriptors(
         off_type_index,
         off_type_bits,
         off_out,
-        &[MEMORY_HOST_VISIBLE_COHERENT],
+        &READBACK_MEMORY_CANDIDATES,
         GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
         "vkBindBufferMemory",
         GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
@@ -2472,8 +2472,13 @@ const MEMORY_HOST_VISIBLE_COHERENT: &str = "6";
 /// ~200 ms a frame for a 900x640 surface on an Intel UHD 630 (box 206), against a
 /// cached type the same driver also offers. Coherent, so no invalidate is needed.
 const MEMORY_HOST_READBACK_CACHED: &str = "14";
-/// The readback buffer's memory-type candidates, in preference order: cached if the
-/// device has it, else the plain coherent type every Vulkan device must offer.
+/// The memory-type candidates for every buffer the CPU writes or reads through a
+/// persistent map — the readback buffer, the shared edge/band/gradient/picture
+/// buffer and the item buffer — in preference order: cached if the device has it,
+/// else the plain coherent type every Vulkan device must offer. The shared buffer is
+/// also READ by the CPU (the band-index builder reads back the edges it just wrote),
+/// which on write-combined memory cost 100 x 300-point polygons 62 -> 27 ms a frame
+/// and 10 x 4,000-point polygons 81 -> 35 ms on box 206.
 const READBACK_MEMORY_CANDIDATES: [&str; 2] =
     [MEMORY_HOST_READBACK_CACHED, MEMORY_HOST_VISIBLE_COHERENT];
 /// `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` — the one buffer is re-recorded
