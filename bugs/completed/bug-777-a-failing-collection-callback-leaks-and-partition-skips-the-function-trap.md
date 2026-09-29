@@ -5,9 +5,9 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety (unbounded leak), plus Correctness (the error bypasses the function-level `TRAP`)
 
-Status: Open
-Regression Test: `tests/runtime/rt_callback_failure_frees.rs` (to be added, Phase 1); a `partition` case added to
-`tests/runtime/rt_callback_failure_reaches_trap.rs` (Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_callback_failure_frees.rs`; `partition` cases in
+`tests/runtime/rt_callback_failure_reaches_trap.rs`
 
 A user callback passed to a native collection lowering can fail (`FAIL`, or any raise inside it). The error must then
 leave the lowering the way any failed call does: every block the lowering owns is freed, the enclosing function's own
@@ -33,6 +33,34 @@ Output is correct in every leak case, which makes the leaks silent.
 `arena.0.live_bytes` at program exit is **0** for a program that retries the failing call N times, at every N, whether
 the call is trapped by an inline `TRAP` or propagates to a function-level `TRAP` one or more frames up. And a failing
 `partition` predicate runs the enclosing function's `TRAP`, exactly as `filter` does.
+
+## STATUS: FIXED (merged from `worktree-B-777`)
+
+`gen_flow.rs:emit_callback_failure_exit` now takes the member's owned blocks **and**
+its loop item, freeing them in one register spill; every native callback site passes
+its item, and `partition` routes both working lists and the item through it (its
+private bare-`ret` arm is gone). Deviations from the design below, all measured with
+the new test:
+
+- **`reduce` also frees its accumulator.** The old comment held the in-flight item and
+  accumulator "may still alias" the reducer's inputs; a *failed* reducer produced no
+  result, the item is this iteration's fresh block, and the accumulator is exactly what
+  the previous iteration committed with its ownership in `acc_owned_slot`. A
+  `String`-accumulator case (not in the original matrix) leaked 150 blocks per 50
+  failing calls before and 0 after.
+- **The in-place `transform`/`sortBy` rows leaked under an inline `TRAP`** (the doc
+  had measured them only under a function-level `TRAP`): a `TRAP`-wrapped assignment
+  does not take the in-place arm, it lowers through the copying `transform`/`sortBy`,
+  so those rows are fixed by the copying sites. `sortBy`'s String-element leak was
+  likewise its key pass through the fixed path.
+- **Found while writing the test: bug-780** (`bugs/completed/bug-780-*.md`) — every
+  `FAIL` leaked the enclosing statements' pending temporaries, so every callback shaped
+  `IF s = longKey() THEN FAIL …` leaked 64 B per failure at *every* site, including
+  the guards. Fixed on the same branch; it also removed a real leak in the `audio`
+  package's `#audio_mmlParse` error paths.
+
+Commits: `21b26924e` (RED tests), `35df7364f` (bug-780), `d381eb637` (fix),
+`a3d8c35f0` (73 `.ncodesum` goldens, localized to failure-path frees), `1d4ca7c8b` (fmt).
 
 References:
 
@@ -255,36 +283,36 @@ alive for the append. The failure-branch free keeps the hot path unchanged.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `partition` (Integer, and a String variant) to `CASES` in `tests/runtime/rt_callback_failure_reaches_trap.rs`.
+- [x] Add `partition` (Integer, and a String variant) to `CASES` in `tests/runtime/rt_callback_failure_reaches_trap.rs`.
       It fails today (no `handler:` line).
-- [ ] Add `tests/runtime/rt_callback_failure_frees.rs`, modeled on
+- [x] Add `tests/runtime/rt_callback_failure_frees.rs`, modeled on
       `tests/runtime/rt_list_element_record_borrow.rs::bounded` / `assert_no_leak` (`alloc - free` and `live_bytes`
       from a `--debug` run at N and 2N). One case per **Fixed here** site, with a 45-byte failing element, both with an
       inline `TRAP` and under a caller's function-level `TRAP`, and with an owned local in the failing frame. Each case
       requires `live_bytes == 0`. It fails today at the measured sizes.
-- [ ] Keep the unaffected sites in the same test as guards (they pass today).
+- [x] Keep the unaffected sites in the same test as guards (they pass today).
 
 Acceptance: the new cases fail for exactly the documented reasons; the guards pass.
-Commit: —
+Commit: `21b26924e`
 
 ### Phase 2 — the fix
 
-- [ ] `gen_flow.rs:emit_callback_failure_exit` gains the item cleanup; the eight sites pass `item_slot`.
-- [ ] `func_partition.rs`: route through the shared helper (both lists and the item).
+- [x] `gen_flow.rs:emit_callback_failure_exit` gains the item cleanup; the eight sites pass `item_slot`.
+- [x] `func_partition.rs`: route through the shared helper (both lists and the item).
 
 Acceptance: Phase 1 tests pass; `hof-callback-failure-rt`, `partition-native-trap-rt`, `rt_inplace_failure_atomic.rs`
 and `rt_scope_drop_leaks.rs` pass unchanged.
-Commit: —
+Commit: `d381eb637` (and `35df7364f`, bug-780)
 
 ### Phase 3 — full validation
 
-- [ ] Codegen/`.ncode` goldens may shift only on the failure branches of the listed lowerings. Localize any other diff to
+- [x] Codegen/`.ncode` goldens may shift only on the failure branches of the listed lowerings. Localize any other diff to
       one fixture before accepting it (AGENTS.md).
-- [ ] Re-run the leak matrix harness: all zeros. Re-run the §1 program.
-- [ ] Full suite.
+- [x] Re-run the leak matrix harness: all zeros. Re-run the §1 program.
+- [x] Full suite.
 
 Acceptance: full suite green; the harness and §1 behave as in the Goal.
-Commit: —
+Commit: `a3d8c35f0`, `1d4ca7c8b`
 
 ## Validation Plan
 
