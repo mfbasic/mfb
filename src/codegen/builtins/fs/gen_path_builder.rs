@@ -779,6 +779,28 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
         self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
+        if matches!(out, StringOut::Block) {
+            // A `String` block is `byteLength + 9` bytes and is freed at that size
+            // (`mfb spec memory heap-values`), but the working buffer above was
+            // sized for the input (`length + 10`) and the output is usually
+            // shorter: freed at the output's size, the difference was lost to the
+            // arena on every call. Hand back an exact copy and free the working
+            // buffer at the size it was allocated with.
+            let exact = self.copy_flat_block(&ParameterType::String, &scratch9)?;
+            let exact_slot = self.spill_to_slot("fs_path_normalize_exact", &exact);
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+            self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+            self.emit(abi::add_immediate(abi::c_arg(1), &scratch10, 10));
+            self.emit(abi::load_u64(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                result_slot,
+            ));
+            self.emit_arena_free_call();
+            let exact = self.temporary_vreg();
+            self.emit(abi::load_u64(&exact, abi::stack_pointer(), exact_slot));
+            self.emit(abi::store_u64(&exact, abi::stack_pointer(), result_slot));
+        }
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         if matches!(out, StringOut::Block) {
@@ -889,6 +911,10 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
     let copy_done = format!("{symbol}_copy_done");
     let done = format!("{symbol}_done");
 
+    let length_next = format!("{symbol}_length_next");
+    let length_add = format!("{symbol}_length_add");
+    let length_absolute = format!("{symbol}_length_absolute");
+
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
     let mut vregs = Vregs::new();
     let parts = vregs.next();
@@ -898,25 +924,59 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
     let index = vregs.next();
     let entry = vregs.next();
     let part_len = vregs.next();
+    let part_base = vregs.next();
+    let part_byte = vregs.next();
+    let last = vregs.next();
+    let parts_data = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&parts, abi::return_register()),
-        // Pass 1: upper-bound length = sum(component lengths) + count separators.
+        // Pass 1: the EXACT joined length, by pass 2's own rules — a `String`
+        // block is `byteLength + 9` bytes and is freed at that size (`mfb spec
+        // memory heap-values`), so an upper bound would free short. `total` is
+        // pass 2's `cursor - out_base`, `last` the byte before the cursor (the
+        // last byte of the latest copied component: a separator is always
+        // followed by a non-empty one).
         abi::load_u64(&count, &parts, COLLECTION_OFFSET_COUNT),
+        abi::load_u64(&parts_data, &parts, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&part_byte, "Integer", &entry_size),
+        abi::multiply_registers(&parts_data, &parts_data, &part_byte),
+        abi::add_registers(&parts_data, &parts_data, &parts),
+        abi::add_immediate(&parts_data, &parts_data, COLLECTION_HEADER_SIZE),
         abi::move_immediate(&total, "Integer", "0"),
+        abi::move_immediate(&last, "Integer", "0"),
         abi::move_immediate(&index, "Integer", "0"),
         abi::add_immediate(&entry, &parts, COLLECTION_HEADER_SIZE),
         abi::label(&length_loop),
         abi::compare_registers(&index, &count),
         abi::branch_ge(&length_done),
         abi::load_u64(&part_len, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::compare_immediate(&part_len, "0"),
+        abi::branch_eq(&length_next),
+        abi::load_u64(&part_base, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers(&part_base, &parts_data, &part_base),
+        abi::load_u8(&part_byte, &part_base, 0),
+        abi::compare_immediate(&part_byte, SEP),
+        abi::branch_eq(&length_absolute),
+        abi::compare_immediate(&total, "0"),
+        abi::branch_eq(&length_add),
+        abi::compare_immediate(&last, SEP),
+        abi::branch_eq(&length_add),
+        abi::add_immediate(&total, &total, 1),
+        abi::branch(&length_add),
+        abi::label(&length_absolute),
+        abi::move_immediate(&total, "Integer", "0"),
+        abi::label(&length_add),
         abi::add_registers(&total, &total, &part_len),
+        abi::add_registers(&part_base, &part_base, &part_len),
+        abi::subtract_immediate(&part_base, &part_base, 1),
+        abi::load_u8(&last, &part_base, 0),
+        abi::label(&length_next),
         abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE),
         abi::add_immediate(&index, &index, 1),
         abi::branch(&length_loop),
         abi::label(&length_done),
-        abi::add_registers(abi::return_register(), &total, &count),
-        abi::add_immediate(abi::return_register(), abi::return_register(), 9),
+        abi::add_immediate(abi::return_register(), &total, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
