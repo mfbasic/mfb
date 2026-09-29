@@ -88,6 +88,51 @@ pub(crate) enum EscapingValue {
     InSlot(usize),
 }
 
+/// How a function body reads one of its parameters as a VALUE (bug-767 C).
+#[derive(Default)]
+struct ParameterValueUses {
+    /// `(callee, position)` for each read that is a whole call argument.
+    forwards: Vec<(String, usize)>,
+    /// A read that is anything else — stored, returned, captured, an operand.
+    escapes: bool,
+}
+
+/// Classify every `Local(name)` read in `body`: a direct argument of a
+/// `Call`/`CallResult` is a forward to that callee's position; any other read
+/// escapes. An invoke through the parameter (`f(x)`) is a call TARGET, a
+/// `String`, not a read, so it is neither.
+fn parameter_value_uses(body: &[NirOp], name: &str) -> ParameterValueUses {
+    use crate::target::shared::nir::visit::{walk_value, NirVisitor};
+    struct Uses<'a> {
+        name: &'a str,
+        out: ParameterValueUses,
+    }
+    impl NirVisitor for Uses<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(local) if local == self.name => self.out.escapes = true,
+                NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
+                    for (position, arg) in args.iter().enumerate() {
+                        match arg {
+                            NirValue::Local(local) if local == self.name => {
+                                self.out.forwards.push((target.clone(), position));
+                            }
+                            other => self.visit_value(other),
+                        }
+                    }
+                }
+                other => walk_value(self, other),
+            }
+        }
+    }
+    let mut uses = Uses {
+        name,
+        out: ParameterValueUses::default(),
+    };
+    uses.visit_ops(body);
+    uses.out
+}
+
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // bug-592: plan-86 E's borrow flag belongs to exactly one frame — the
@@ -283,18 +328,48 @@ impl CodeBuilder<'_> {
     /// declined by both arms — the target names a binding, not a function — which
     /// is right: nothing here can see what the invoked function does with it.
     fn argument_position_is_nonretaining_callback(&self, target: &str, index: usize) -> bool {
-        if let Some(function) = self.functions.get(target) {
-            let Some(param) = function.params.get(index) else {
-                return false;
-            };
-            if !matches!(param.type_, ParameterType::Func(_, _, false)) {
-                return false;
-            }
-            let mut used = std::collections::HashSet::new();
-            crate::codegen::engine::function::collect_value_used_locals(&function.body, &mut used);
-            return !used.contains(&param.name);
+        self.nonretaining_callback_at(target, index, 0)
+    }
+
+    /// [`Self::argument_position_is_nonretaining_callback`], `depth` frames down a
+    /// chain of forwards.
+    ///
+    /// bug-767 C: a parameter that is only **forwarded** — passed on, whole, as a
+    /// call argument — is as dead after the call as one never read, provided every
+    /// position it is forwarded to is itself non-retaining. The monomorphised
+    /// `__collections_sortBy` body hands `keyFn` straight to
+    /// `collections::transform(value, keyFn)`; reading that forward as an escape
+    /// kept every capturing `LAMBDA` passed to a copying `sortBy` alive — 2 blocks
+    /// (32 B) leaked per call — while `transform` itself freed it. Any other value
+    /// use (stored, returned, captured, compared) still declines, and so does a
+    /// forward whose target cannot be proven, or a chain deeper than
+    /// `FORWARD_DEPTH` (a recursive forward): the fail-closed direction.
+    fn nonretaining_callback_at(&self, target: &str, index: usize, depth: usize) -> bool {
+        const FORWARD_DEPTH: usize = 4;
+        let Some(function) = self.functions.get(target) else {
+            return crate::codegen::registry::synchronous_callback_parameter(target, index);
+        };
+        let Some(param) = function.params.get(index) else {
+            return false;
+        };
+        if !matches!(param.type_, ParameterType::Func(_, _, false)) {
+            return false;
         }
-        crate::codegen::registry::synchronous_callback_parameter(target, index)
+        let mut used = std::collections::HashSet::new();
+        crate::codegen::engine::function::collect_value_used_locals(&function.body, &mut used);
+        if !used.contains(&param.name) {
+            return true;
+        }
+        if depth >= FORWARD_DEPTH {
+            return false;
+        }
+        let uses = parameter_value_uses(&function.body, &param.name);
+        !uses.escapes
+            && !uses.forwards.is_empty()
+            && uses
+                .forwards
+                .iter()
+                .all(|(next, position)| self.nonretaining_callback_at(next, *position, depth + 1))
     }
 
     /// bug-572: free the capturing `LAMBDA`s this call was allowed to free, once

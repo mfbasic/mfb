@@ -301,6 +301,47 @@ END FUNC
     assert_eq!((alloc, live), (free, 0), "bug-767: a failing keyFn leaked");
 }
 
+/// Sub-issue C: a capturing `LAMBDA` passed as `sortBy`'s `keyFn` is freed when
+/// the call returns, as it is for `transform`. The monomorphised `.mfb` body
+/// forwards `keyFn` to `collections::transform`, and the closure-free check read
+/// that forward as an escape: 2 blocks (32 B) leaked per call. A user function
+/// that forwards its callback the same way is covered by the same rule. (A
+/// closure *stored* in a record is bug-781.)
+#[test]
+fn a_capturing_key_fn_is_freed_after_the_call() {
+    let source = "\
+IMPORT io
+IMPORT collections
+
+FUNC scaleAll(xs AS List OF Float, f AS FUNC(Float) AS Float) AS List OF Float
+  RETURN collections::transform(xs, f)
+END FUNC
+
+FUNC main() AS Integer
+  LET xs AS List OF Float = [3.0, 1.0, 2.0]
+  LET ys AS List OF Integer = [3, 1, 2]
+  MUT n AS Integer = 0
+  FOR k = 1 TO 10
+    LET factor AS Float = toFloat(k)
+    LET m AS Integer = k
+    LET s AS List OF Float = collections::sortBy(xs, LAMBDA(v AS Float) -> v * factor)
+    LET t AS List OF Integer = collections::sortBy(ys, LAMBDA(v AS Integer) -> v * m)
+    LET u AS List OF Float = scaleAll(xs, LAMBDA(v AS Float) -> v * factor)
+    n = n + len(s) + len(t) + len(u)
+  NEXT
+  io::print(toString(n))
+  RETURN 0
+END FUNC
+";
+    let (text, alloc, free, live) = run("b767_capturing_key", source);
+    assert_eq!(text, "90\n");
+    assert_eq!(
+        (alloc, live),
+        (free, 0),
+        "bug-767 C: a capturing LAMBDA passed to sortBy (or forwarded to transform) leaked"
+    );
+}
+
 /// Sub-issue B: every lowering calls `keyFn` once for a one-element list, as
 /// `mfb man collections sortBy` documents.
 #[test]
