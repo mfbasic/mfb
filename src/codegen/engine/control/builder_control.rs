@@ -486,6 +486,212 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-766 B: a scratch-copy binding's value — `element` is the borrowed
+    /// element its `get` returned — copied into the binding's record-temp region
+    /// (`size` bytes at `offset`) at once, before anything else runs, so it is a
+    /// copy exactly as `materialize_owned_element`'s block would be. The region is
+    /// the binding's value; no block is allocated and nothing is freed.
+    fn copy_into_record_temp(
+        &mut self,
+        element: ValueResult,
+        offset: usize,
+        size: usize,
+    ) -> Result<ValueResult, String> {
+        let element_slot = self.allocate_stack_object("rec_temp_source", 8);
+        self.emit(abi::store_u64(
+            &element.location,
+            abi::stack_pointer(),
+            element_slot,
+        ));
+        // The reservation may call the arena: the element pointer waits in its slot.
+        let region = self.emit_record_temp_region(offset)?;
+        let source = self.allocate_register();
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), element_slot));
+        self.emit_copy_record_words(&region, &source, size);
+        Ok(ValueResult {
+            origin: None,
+            type_: element.type_,
+            location: Operand::from(region),
+            text: element.text,
+        })
+    }
+
+    /// bug-766 B: lower the item of a `set`/`append` self-update arm. A `WITH` of a
+    /// fixed-size record type that fits the function's `WITH`-item region is built
+    /// there (`lower_with_update_in_record_temp`): the arm copies the item into
+    /// the container before it lowers anything else, and frees nothing it did not
+    /// allocate, so the region is dead once the arm has run. Anything else is
+    /// `lower_value_stored`.
+    pub(crate) fn lower_self_update_item(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        if let NirValue::WithUpdate { type_, .. } = value {
+            let fits = self.record_temps.slot.is_some()
+                && self.record_temps.with_item.is_some_and(|(_, region)| {
+                    self.fixed_record_size(type_)
+                        .is_some_and(|size| size <= region)
+                });
+            if fits {
+                self.record_temps.with_item_armed = Some(value as *const NirValue as usize);
+            }
+        }
+        let result = self.lower_value_stored(value);
+        self.record_temps.with_item_armed = None;
+        result
+    }
+
+    /// bug-766 B: when `value` is a constructor of `type_` and `type_` is a record
+    /// of scalar fields only (8 bytes each, at `8 × index`), lower each argument
+    /// as the constructor does — stored-field lowering, the `Float` observation
+    /// boundary, materialized — and spill it; `Some(slots)` in field order.
+    /// `None`, having emitted nothing, for any other value.
+    fn spill_scalar_record_literal(
+        &mut self,
+        value: &NirValue,
+        type_: &ParameterType,
+    ) -> Result<Option<Vec<usize>>, String> {
+        let NirValue::Constructor {
+            type_: constructed,
+            args,
+        } = value
+        else {
+            return Ok(None);
+        };
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
+            return Ok(None);
+        };
+        if constructed != type_
+            || args.len() != fields.len()
+            || fields.iter().any(|(_, field)| {
+                self.record_field_is_inlined(field) || self.record_field_is_pointer(field)
+            })
+        {
+            return Ok(None);
+        }
+        let mut slots = Vec::with_capacity(args.len());
+        for arg in args {
+            let lowered = self.lower_value_stored_field(arg)?;
+            // Observation boundary: a `Float` record field must be finite (plan-17).
+            self.observe_float(arg, &lowered)?;
+            let lowered = self.materialize_value(lowered)?;
+            let slot = self.allocate_stack_object("rec_temp_literal_field", 8);
+            self.emit(abi::store_u64(
+                &lowered.location,
+                abi::stack_pointer(),
+                slot,
+            ));
+            slots.push(slot);
+        }
+        Ok(Some(slots))
+    }
+
+    /// bug-766 B: `WITH target { … }` of the fixed-size record `type_`, built in the
+    /// record-temp scratch's `WITH`-item region instead of a fresh block.
+    ///
+    /// The order is `lower_with_update`'s: the target, then every update value in
+    /// source order, each spilled — all before the first byte of the region is
+    /// written, so a failing value writes nothing. Then the target's bytes are
+    /// copied into the region and the updated fields stored over them
+    /// (`emit_field_stores`, as `try_inplace_scalar_fields` stores into an owner).
+    /// No value can alias the region (nothing names it), so a borrowed overwrite
+    /// source — possibly a field of the target itself — is copied where it lies.
+    pub(crate) fn lower_with_update_in_record_temp(
+        &mut self,
+        type_: &ParameterType,
+        target: &NirValue,
+        updates: &[NirRecordUpdate],
+    ) -> Result<ValueResult, String> {
+        let (offset, region_size) = self
+            .record_temps
+            .with_item
+            .ok_or("native record-temp WITH: the function has no WITH-item region")?;
+        let size = self
+            .fixed_record_size(type_)
+            .filter(|size| *size <= region_size)
+            .ok_or_else(|| format!("native record-temp WITH: '{type_}' does not fit"))?;
+        let fields = self
+            .type_model
+            .record_fields
+            .get(type_)
+            .cloned()
+            .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
+        let target_value = self.lower_value(target)?;
+        let target_slot = self.allocate_stack_object("rec_temp_with_target", 8);
+        self.emit(abi::store_u64(
+            &target_value.location,
+            abi::stack_pointer(),
+            target_slot,
+        ));
+        let mut stores = Vec::with_capacity(updates.len());
+        let mut overwrites = Vec::new();
+        for update in updates {
+            let Some(index) = fields
+                .iter()
+                .position(|(field_name, _)| field_name == &update.field)
+            else {
+                return Err(format!(
+                    "native code WITH update references unknown field '{}'",
+                    update.field
+                ));
+            };
+            let field_type = fields[index].1.clone();
+            if self.record_field_is_inlined(&field_type) {
+                // A literal of an all-scalar record (`vector::Float3[…]`) is
+                // written field by field into the sub-block: its values are
+                // lowered, observed and spilled exactly as the constructor lowers
+                // them, but no block is built for them to be copied out of.
+                if let Some(lanes) = self.spill_scalar_record_literal(&update.value, &field_type)? {
+                    overwrites.push((index, field_type, FieldOverwrite::Lanes(lanes)));
+                    continue;
+                }
+                // Fixed-size, as the whole record is: lanes, or a block to copy.
+                let spilled = self.spill_field_overwrite(&update.value, &field_type, false)?;
+                overwrites.push((index, field_type, spilled));
+                continue;
+            }
+            let value = self.lower_value(&update.value)?;
+            // Observation boundary: a `Float` field updated via WITH must be
+            // finite (plan-17).
+            self.observe_float(&update.value, &value)?;
+            let value = self.materialize_value(value)?;
+            let slot = self.allocate_stack_object("rec_temp_with_value", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            stores.push((index, slot));
+        }
+        let region = self.emit_record_temp_region(offset)?;
+        let region_slot = self.allocate_stack_object("rec_temp_with_region", 8);
+        self.emit(abi::store_u64(&region, abi::stack_pointer(), region_slot));
+        let source = self.allocate_register();
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), target_slot));
+        self.emit_copy_record_words(&region, &source, size);
+        self.emit_field_stores(&abi::Reg::from(&region), &stores, &overwrites, None);
+        // An owned overwrite source (a fresh block) is freed after every copy.
+        for (_, field_type, spilled) in overwrites {
+            if let FieldOverwrite::Block {
+                slot, owned: true, ..
+            } = spilled
+            {
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: field_type,
+                    stack_offset: slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
+            }
+        }
+        let result = self.allocate_register();
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), region_slot));
+        Ok(ValueResult {
+            origin: None,
+            type_: type_.clone(),
+            location: Operand::from(result),
+            text: format!("with {}", target_value.text),
+        })
+    }
+
     /// bug-766 D: whether field `index` of `record_type` may take the
     /// [`FieldStoreKind::Replace`] store over `owner`'s block.
     ///
@@ -1078,6 +1284,7 @@ impl CodeBuilder<'_> {
         }
         self.borrow_get_locals = names;
         self.element_updates = updates;
+        self.install_scratch_copies(borrow_gets.scratch);
     }
 
     /// bug-689: `p = WITH p { … }` on an element-bound `p` — `p`'s slot holds the
@@ -1667,7 +1874,12 @@ impl CodeBuilder<'_> {
                         // non-String type — so it is neither copied nor freed here
                         // (the container owns the element). String `get` returns an
                         // OWNED fresh block, so it is excluded and keeps its copy+free.
-                        let is_borrow_get = self.borrow_get_locals.contains(name)
+                        // bug-766 B: a scratch copy lowers its `get` as the same
+                        // borrow, copies the element into its record-temp region
+                        // at once, and owns no block either.
+                        let scratch_copy = self.record_temps.bindings.get(name).copied();
+                        let is_borrow_get = (self.borrow_get_locals.contains(name)
+                            || scratch_copy.is_some())
                             && self.is_freeable_flat_value(type_)
                             && !matches!(type_, ParameterType::String);
                         // plan-134-G: a recursive value's owner frees its graph — except a
@@ -1865,7 +2077,13 @@ impl CodeBuilder<'_> {
                                 let r = self.lower_value(value);
                                 self.borrow_get_armed = false;
                                 self.borrow_get_result = false;
-                                r?
+                                let r = r?;
+                                match scratch_copy {
+                                    Some((offset, size)) => {
+                                        self.copy_into_record_temp(r, offset, size)?
+                                    }
+                                    None => r,
+                                }
                             } else {
                                 self.lower_value_owned(value)?
                             };

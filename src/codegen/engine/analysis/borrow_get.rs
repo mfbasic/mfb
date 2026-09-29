@@ -59,6 +59,15 @@
 //!   an `ELSE` whose every arm ends in a write-back of the same slot (an arm may
 //!   itself end in such an `IF`); each arm is checked with the per-block rule,
 //!   and the condition like a window statement.
+//!
+//! A **scratch copy** (bug-766 B) is a `get` binding that is none of the above
+//! but never escapes: every read is a field read or the target of a `WITH` that
+//! is the item of a `set`/`append` — both of which copy what they read. It must
+//! still be a copy (the container may be written while it is live: `bj` of an
+//! n-body pair step must not see the write to slot `i` when `i = j`), but a copy
+//! that nothing can observe outliving its binding. The builder places it in the
+//! function's record-temp scratch instead of a fresh arena block when its type is
+//! a fixed-size record (`CodeBuilder::install_borrow_gets`).
 
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirOp, NirValue};
@@ -184,6 +193,23 @@ pub(crate) struct BorrowGets {
     pub(crate) pinned: HashSet<String>,
     /// The element-bound subset, by binding name.
     pub(crate) elements: HashMap<String, ElementBinding>,
+    /// bug-766 B: the `get` bindings (not in `names`) that are still copies but
+    /// never escape — read only through fields or as the target of a `WITH`
+    /// that is a `set`/`append` item — with their declared type.
+    pub(crate) scratch: HashMap<String, ParameterType>,
+}
+
+/// bug-766 B: the item of a `set(c, k, item)` / `append(c, item)` call — the
+/// operand those builtins copy into the container, or `None` for any other value.
+pub(crate) fn copied_item(value: &NirValue) -> Option<&NirValue> {
+    match value {
+        NirValue::Call { target, args, .. } => match (builtin(target), args.len()) {
+            (Some("set"), 3) => Some(&args[2]),
+            (Some("append"), 2) => Some(&args[1]),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// `op as *const NirOp as usize` — the same identity `last_use::op_key` uses.
@@ -840,6 +866,11 @@ pub(crate) fn collect_borrow_gets(
         // `aggcopy`) deletes the `$matchN = e` temp, leaving `MATCH e` and
         // `UnionExtract(e)`; these are then `e`'s own borrow-transparent reads.
         case_extract_binds: HashMap<String, usize>,
+        // bug-766 B: reads of a local as the target of a `WITH` that is a
+        // `set`/`append` item (`copied_item`) — a read the item's copy consumes.
+        item_with_targets: HashMap<String, usize>,
+        // bug-766 B: the declared type of every `get` (not `getOr`) bind of a name.
+        get_bind_types: HashMap<String, Vec<ParameterType>>,
     }
     impl NirVisitor for Collector {
         fn visit_op(&mut self, op: &NirOp) {
@@ -858,6 +889,12 @@ pub(crate) fn collect_borrow_gets(
                                         Some(NirValue::Local(d)) => Some(d.clone()),
                                         _ => None,
                                     };
+                                    if kind == "get" {
+                                        self.get_bind_types
+                                            .entry(name.clone())
+                                            .or_default()
+                                            .push(type_.clone());
+                                    }
                                     self.gets.insert(
                                         name.clone(),
                                         GetBind {
@@ -924,6 +961,13 @@ pub(crate) fn collect_borrow_gets(
                         *self.union_extract_reads.entry(name.clone()).or_insert(0) += 1;
                     }
                 }
+                NirValue::Call { .. } => {
+                    if let Some(NirValue::WithUpdate { target, .. }) = copied_item(value) {
+                        if let NirValue::Local(name) = target.as_ref() {
+                            *self.item_with_targets.entry(name.clone()).or_insert(0) += 1;
+                        }
+                    }
+                }
                 _ => {}
             }
             walk_value(self, value);
@@ -940,6 +984,8 @@ pub(crate) fn collect_borrow_gets(
         scrutinee_reads: HashMap::new(),
         union_extract_reads: HashMap::new(),
         case_extract_binds: HashMap::new(),
+        item_with_targets: HashMap::new(),
+        get_bind_types: HashMap::new(),
     };
     c.visit_ops(ops);
     let count = |map: &HashMap<String, usize>, n: &str| map.get(n).copied().unwrap_or(0);
@@ -1109,6 +1155,32 @@ pub(crate) fn collect_borrow_gets(
                 other_sites: sites.collect(),
             },
         );
+    }
+    // bug-766 B: a copy nothing can see outlive its binding. Every bind of the
+    // name is a `get` of one type (sibling scopes may each bind it — a local is
+    // never redeclared in a nested one, so their lifetimes are disjoint), never
+    // reassigned, address-taken or captured by reference, and every read a field
+    // read or the target of a `WITH` whose result a `set`/`append` copies — so no
+    // read hands the binding's block to anything that keeps it. `getOr` is left
+    // alone: on a miss its value is the default, whose lifetime is its own.
+    for e in c.gets.keys() {
+        let with_items = count(&c.item_with_targets, e);
+        let types = c.get_bind_types.get(e).map(Vec::as_slice).unwrap_or(&[]);
+        let Some(type_) = types.first() else {
+            continue;
+        };
+        if out.names.contains(e)
+            || types.len() != count(&c.bind_counts, e)
+            || types.iter().any(|other| other != type_)
+            || assigned(e)
+            || address_taken.contains(e)
+            || c.by_ref_captures.contains(e)
+            || reads(e) == 0
+            || reads(e) != members(e) + with_items
+        {
+            continue;
+        }
+        out.scratch.insert(e.clone(), type_.clone());
     }
     // A match temp `$matchN = Local(e)` that copies a get-borrow `e` also borrows
     // (aliases `e`), so the container element flows into `MATCH` with zero copies.
@@ -1385,6 +1457,55 @@ END FUNC
              xs = collections::set(xs, 0, WITH p { age := 7 })\n  RETURN p.age\nEND FUNC\n",
         );
         assert!(got.elements.is_empty() && !got.names.contains("p"));
+    }
+
+    /// bug-766 B: the n-body pair step — two elements live across a write to the
+    /// container, each read only through fields and as a `set` item's `WITH`
+    /// target. Neither can alias its slot (`pi` is read after its write-back,
+    /// `pj`'s slot is written first), so both stay copies, of the scratch kind.
+    #[test]
+    fn two_elements_live_across_a_write_are_scratch_copies() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET pi AS P = collections::get(xs, i)\n    LET pj AS P = collections::get(xs, 1 - i)\n    \
+             xs = collections::set(xs, i, WITH pi { age := pi.age + pj.age })\n    \
+             xs = collections::set(xs, 1 - i, WITH pj { age := pj.age - pi.age })\n  NEXT\n  \
+             RETURN len(xs)\nEND FUNC\n",
+        );
+        assert!(!got.names.contains("pi") && !got.names.contains("pj"));
+        assert!(got.scratch.contains_key("pi") && got.scratch.contains_key("pj"));
+    }
+
+    /// bug-766 B: any read that could keep the binding's block — passed whole,
+    /// bound to another name, returned, a `WITH` that is not a copied item — or a
+    /// `getOr` leaves it an ordinary owned copy.
+    #[test]
+    fn an_escaping_or_get_or_binding_is_no_scratch_copy() {
+        for (tail, why) in [
+            ("RETURN f(pi) + pj.age", "passed whole"),
+            (
+                "MUT q AS P = pi\n  q = WITH q { age := 1 }\n  RETURN q.age + pj.age",
+                "bound to another name",
+            ),
+            (
+                "LET q AS P = WITH pi { age := 1 }\n  RETURN q.age + pj.age",
+                "a WITH bound to a name",
+            ),
+        ] {
+            let got = classify(&format!(
+                "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+                 LET pi AS P = collections::get(xs, 0)\n  LET pj AS P = collections::get(xs, 1)\n  \
+                 xs = collections::set(xs, 1, WITH pj {{ age := pi.age }})\n  {tail}\nEND FUNC\n"
+            ));
+            assert!(!got.scratch.contains_key("pi"), "pi {why}");
+        }
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET d AS P = P[age := 0, trail := []]\n  \
+             LET pi AS P = collections::getOr(xs, 0, d)\n  \
+             xs = collections::set(xs, 0, WITH pi { age := 1 })\n  RETURN pi.age\nEND FUNC\n",
+        );
+        assert!(!got.scratch.contains_key("pi"), "a getOr binding");
     }
 
     #[test]

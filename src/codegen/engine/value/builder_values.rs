@@ -207,6 +207,13 @@ impl CodeBuilder<'_> {
             std::mem::replace(&mut self.closure_temp_arguments, arguments)
         });
         let result = self.lower_value_inner(value);
+        // bug-766 B: a `WITH` item built in the record-temp scratch is no block of
+        // its own — nothing may free it.
+        let placed_in_record_temp = self
+            .record_temps
+            .placed
+            .take_if(|node| *node == value as *const NirValue as usize)
+            .is_some();
         // bug-768: whether THIS frame read a record field or a `STATE` payload
         // (`lower_field_access_of`). Taken here, on every frame's exit, so an
         // operand's read never leaks into its consumer's frame.
@@ -288,7 +295,9 @@ impl CodeBuilder<'_> {
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             let fresh_string = fresh_string.is_some_and(|block| block == result.location);
-            self.register_pending_temp(value, result, fresh_string);
+            if !placed_in_record_temp {
+                self.register_pending_temp(value, result, fresh_string);
+            }
         }
         // bug-496: if THIS value is such an operand of the enclosing node, hand
         // its consumer a statement-scope deep copy instead of the live pointer.
@@ -3225,7 +3234,18 @@ impl CodeBuilder<'_> {
                 type_,
                 target,
                 updates,
-            } => self.lower_with_update(&type_, target, updates),
+            } => {
+                // bug-766 B: the item a `set`/`append` self-update copies, built in
+                // the record-temp scratch.
+                let node = value as *const NirValue as usize;
+                if self.record_temps.with_item_armed == Some(node) {
+                    self.record_temps.with_item_armed = None;
+                    let result = self.lower_with_update_in_record_temp(type_, target, updates)?;
+                    self.record_temps.placed = Some(node);
+                    return Ok(result);
+                }
+                self.lower_with_update(&type_, target, updates)
+            }
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) =

@@ -53,7 +53,8 @@ impl CodeBuilder<'_> {
         if target.dest.is_field() {
             return self.lower_field_append(site, &target, false, &list_type, &element_type);
         }
-        let item = self.lower_value_stored(&target.args[1])?;
+        // bug-766 B: a fixed-size `WITH` item is built in the record-temp scratch.
+        let item = self.lower_self_update_item(&target.args[1])?;
         // Observation boundary: an in-place appended `Float` must be finite
         // (plan-17).
         self.observe_float(&target.args[1], &item)?;
@@ -313,7 +314,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 index_slot,
             ));
-            let item = self.lower_value_stored(&args[2])?;
+            // bug-766 B: a fixed-size `WITH` item is built in the record-temp scratch.
+            let item = self.lower_self_update_item(&args[2])?;
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
@@ -363,7 +365,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 key_slot,
             ));
-            let val = self.lower_value_stored(&args[2])?;
+            // bug-766 B: a fixed-size `WITH` value is built in the record-temp scratch.
+            let val = self.lower_self_update_item(&args[2])?;
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;

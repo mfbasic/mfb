@@ -170,6 +170,9 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) borrow_get_locals: HashSet<String>,
     /// bug-689: the element-bound `get → WITH → set` updates of this function.
     pub(crate) element_updates: ElementUpdates,
+    /// bug-766 B: this function's record-temp scratch and the fixed-size record
+    /// temporaries placed in it (`install_record_temps`).
+    pub(crate) record_temps: RecordTemps,
     /// plan-86 E: true inside the `lower_value` frame of the ONE borrowed `get`
     /// node (a `borrow_get_locals` binding's initializer), so
     /// `materialize_owned_element` returns the aliasing borrow instead of copying
@@ -689,6 +692,7 @@ impl<'a> CodeBuilder<'a> {
             value_used_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),
             element_updates: ElementUpdates::default(),
+            record_temps: RecordTemps::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
             map_settle_exempt_armed: false,
@@ -784,6 +788,44 @@ pub(crate) struct ElementUpdates {
     pub(crate) field_owner: Option<String>,
     /// Counter for the hidden bindings of single-expression updates.
     pub(crate) hidden: usize,
+}
+
+/// bug-766 B: the fixed-size record temporaries of the function being lowered
+/// that live in its record-temp scratch rather than in an arena block of their
+/// own, and that scratch. `mfb spec memory collections`, "Self-updates": "State
+/// an operation needs per element lives in a per-function scratch block".
+///
+/// The scratch is a `List OF Integer` block like the self-update scratch
+/// (`emit_reserve_scratch_block`), reserved at the first placement and freed at
+/// every exit. It is a block of its own, not the self-update scratch: that one is
+/// freed and reallocated whenever an arm needs more room than it has (and a
+/// copying `sort` — an expression — can do that while a temporary is live), and a
+/// temporary's binding holds an address into its block. This one is only ever
+/// asked for `size` bytes, so after the first reservation it never moves.
+///
+/// Each temporary has a region of its own at a fixed offset, so two live at once
+/// never overlap; a region is rewritten only by the next evaluation of its own
+/// site, after which nothing reads the previous value (see `install_record_temps`).
+/// Every activation — a recursive call, a lambda call — has its own frame slot
+/// and so its own block: no scratch is shared.
+#[derive(Default)]
+pub(crate) struct RecordTemps {
+    /// The frame slot holding the block (0 until the first reservation).
+    pub(crate) slot: Option<usize>,
+    /// The bytes every reservation asks for: the sum of the regions.
+    pub(crate) size: usize,
+    /// The scratch-copy `get` bindings (`analysis::borrow_get::BorrowGets::scratch`
+    /// of a fixed-size record type) → `(offset, size)` of their region.
+    pub(crate) bindings: HashMap<String, (usize, usize)>,
+    /// The region of the `WITH` item a `set`/`append` self-update copies, shared
+    /// by every such statement: `(offset, size)`.
+    pub(crate) with_item: Option<(usize, usize)>,
+    /// The address of the `WITH` node a self-update arm is about to lower as its
+    /// item (`lower_self_update_item`); only that node's own lowering takes it.
+    pub(crate) with_item_armed: Option<usize>,
+    /// The address of a `WITH` node just built in the scratch; its `lower_value`
+    /// frame takes it and registers no statement temp for the region.
+    pub(crate) placed: Option<usize>,
 }
 
 #[derive(Clone)]

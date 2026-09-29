@@ -917,6 +917,7 @@ pub(crate) fn lower_function(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
+        record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         map_settle_exempt_armed: false,
@@ -1132,6 +1133,8 @@ pub(crate) fn lower_function(
         )
     };
     builder.install_borrow_gets(borrow_gets);
+    // bug-766 B: the fixed-size record temporaries kept in the record-temp scratch.
+    builder.install_record_temps(&function.body);
     // plan-116-J: what each local holds, for the consuming-parameter deactivation. A
     // whole-function pre-pass rather than an incremental map built during lowering, so
     // it does not depend on the order the builder happens to reach the ops in.
@@ -1489,6 +1492,7 @@ pub(crate) fn lower_abi_function_helper(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
+        record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         map_settle_exempt_armed: false,
@@ -1676,6 +1680,7 @@ pub(crate) fn lower_thread_copy_function(
         value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
+        record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
         map_settle_exempt_armed: false,
