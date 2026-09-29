@@ -6,7 +6,7 @@ Severity: HIGH — the default `-O1` build lost up to 7.5× on float/Fixed loops
 hundreds-× on one collection pattern, silently (every checksum still matches)
 Class: Other (performance regression)
 
-Status: Open
+Status: Fixed
 Regression Test: `tests/runtime/rt_regalloc_levels_agree.rs` (split path), `tests/codegen/codegen_forwarded_field_fast_path.rs` (A), `tests/runtime/rt_map_fifo_removal_flat.rs` (B1), `tests/runtime/rt_map_list_value_grow_cost.rs` (B2), `tests/codegen/codegen_regalloc_eviction.rs` (C, D)
 
 A full `./benchmark/run.sh 10` at `9c1ea5568` (logs `benchmark/*-20260928-055319.log`,
@@ -35,6 +35,29 @@ introduced the regression (plan-149 place forwarding, bug-732's index-kept remov
 bug-733's bounded churn, plan-161-B's promotion). The two `Fixed`
 checksum/timing shifts from the bug-615/bug-659/bug-654 accuracy fixes are
 **intended** and are not part of this bug (see C, "not a regression").
+
+## STATUS: FIXED (merged from `worktree-B-760`)
+
+Every regression row is back within 1.25× of its 2026-09-03 `min` at -O1, -O2 and
+-O3, checksums unchanged, and mfb as a whole is 16–22% faster than the regressed
+baseline (geomean 0.777 / 0.838 / 0.804, C and Python 1.00). What shipped:
+
+- **A** — one shared place predicate (`engine/value/reeval.rs`) for the
+  `groupBy`/`sortBy` fast-path gates, so a forwarded field keeps the native path.
+- **B1** — removal leaves a tombstone, compacted lazily; readers settle first.
+  (Also fixed: a value-grow `set` held a stale entry index across a reclaim.)
+- **B2** — **deviation:** word-at-a-time reclaim copies, no header dead-byte counter
+  (the tombstone count took the free header bytes; the time was in the byte copy).
+- **C/D** — loop-weighted spill choice, booked reload scratch, lifetime holes, a
+  skipped just-stored reload.
+- **Found and fixed along the way** (not regressions of this bug): a riscv64
+  float compare-and-branch bool in `t0` clobbered by an FP restore
+  (`74ed4b89a`), and a **latent -O2 live-range split defect on main** — the split
+  copy could sit on a path the tail's uses do not all pass through (`3261e977d`);
+  the benchmark's cross-level check caught it once the allocator made it fire.
+- Six benchmark rows (three -O1 `distinct`, -O2 `sum`/`hasKey`/`forEach`) read
+  1.27–1.49× the regressed baseline in the full run but match the pre-fix compiler
+  standalone; all are at or below their 2026-09-03 times (see the baseline README).
 
 References:
 
@@ -500,15 +523,22 @@ Commit: `0a110ee0e`, `ada9aeddb` (A); `8f069dc0f` (B1); `ec04785ab` (B2);
 
 ### Phase 3 — regenerate + full validation
 
-- [ ] Regenerate goldens the codegen changes shift (ncode/`.ncodesum`, artifact gate);
-      diff and confirm deltas are only the intended allocation/lowering changes.
-- [ ] Full suite (`.ai/compiler.md` Hard Completion Gate).
-- [ ] `./benchmark/run.sh 10`: every row in the table within the Goal bound, 0 checksum
-      mismatches; re-baseline `benchmark/baseline/` and drop the "includes bug-760"
-      note from its README.
+- [x] Regenerated the native goldens the fixes shift: `artifact-gate all` on the fork
+      point is 0 diffs; the branch flagged 166 (157 `.ncodesum`, 7 `.ncode`, 2 `.mir`
+      — no ast/ir/nir/nplan/nobj), localized by per-function diff to allocation and
+      the map lowering only (no call added or removed outside the intended settle /
+      REMOVED-skip), regenerated exactly as the gate builds them (`c3154b7b9`, again
+      after the allocator follow-up `b5d45ad14`). The split fix moved none.
+- [x] Full suite: `cargo test --no-fail-fast` exit 0, 268 test binaries ok, 0
+      failed, its artifact gate 0 diffs over 2200 goldens.
+- [x] `scripts/test-accept.sh` at -O1 and `MFB_OPT=3`: 1581 fixtures each, all pass.
+- [x] `./benchmark/run.sh 10` (`20260928-201348`): 515 keys, 0 mismatched, every
+      key equal across mfb -O1/-O2/-O3; 0 bug-760 rows over 1.25× their 2026-09-03
+      `min` at any level; re-baselined (`ebdfc6c88`) and the "includes bug-760"
+      note dropped.
 
 Acceptance: full suite green; benchmark Goal met.
-Commit: —
+Commit: `c3154b7b9`, `b5d45ad14` (goldens); `ebdfc6c88` (baseline).
 
 ## Validation Plan
 
