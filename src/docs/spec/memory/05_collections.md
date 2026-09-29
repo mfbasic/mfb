@@ -608,6 +608,15 @@ threaded through a helper without copying:
 - `RETURN WITH r { f := g(r.f, …) }` updates the field inside `r`'s own block and
   moves `r` out, which is the same mutation for a record accumulator.
   [[src/codegen/engine/control/builder_exits.rs:try_returned_field_self_update]]
+- `RETURN WITH r { … }` whose every update is a field `r = WITH r { … }` would
+  store in `r`'s own block — a scalar, a pointer field, a fixed-size inlined
+  record, or the last variable-width inlined field (replaced in place when its
+  16-byte granule is unchanged, else `r` is rebuilt) — stores those fields and
+  moves `r` out. Every new value is computed before the first store, so a failing
+  one leaves `r` as it was. Inside an owned-parameter variant this is what makes
+  `w = step(w, …)` over a record of scalars cost no allocation per call.
+  [[src/codegen/engine/control/builder_exits.rs:try_returned_field_store]]
+  [[src/codegen/engine/analysis/handover.rs:returned_field_store_local]]
 
 A `String` is the exception at a `RETURN`: its block must be tight to leave the
 frame it was grown in, so a `String` returned from a helper is copied to its exact
