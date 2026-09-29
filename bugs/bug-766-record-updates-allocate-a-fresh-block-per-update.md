@@ -5,7 +5,7 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Other (performance — per-update allocate/copy/free where the element-update and hand-over contracts promise none)
 
-Status: Open
+Status: Fixed (A, B, C, E; D for same-granule replacement — the size-changing case awaits an owner decision)
 Regression Test: `tests/runtime/rt_record_update_forms.rs` (to be added, Phase 1); new unit cases in
 `src/codegen/engine/analysis/borrow_get.rs` and `src/codegen/engine/analysis/handover.rs` (Phase 1)
 
@@ -37,6 +37,54 @@ the next operation byte-copies and frees":
 count, exactly what the MUT spelling measures today), for a helper-threaded record accumulator zero per call when the
 record's byte size does not change, and for `transform` over records one block per call (the result list) instead of
 one per element.
+
+## STATUS: FIXED except D's size-changing case (merged from `worktree-B-766`)
+
+Measured by `tests/runtime/rt_record_update_forms.rs` (REPS 50 vs 100, `--debug`), every
+case prints what its allocation-free contrast prints and leaks nothing:
+
+| Mechanism | Before | After |
+|---|---|---|
+| A1–A5 (fused `WITH` item, LET-bound `WITH`, flat record, IF-arm write-backs, Map value) | 2 allocs/update | 0 |
+| B (`nbody` pair step; `vector::Float3` fields) | 50 / 60 per rep | 0 / 0 |
+| C (helper `RETURN WITH p { … }`) | 1 / call | 0 |
+| D (same-granule `String` last-field replacement) | 1 / update | 0 |
+| E (`transform` with a single-`WITH` record callback) | 1 / element | 0 (1 / call: the result list) |
+
+Benchmark shapes (agents' measurements): `nbody_rec` 40 → 0 allocs/step, ~108 → ~52 ms;
+`nbody_vec` 85 → 10 allocs/step, ~214 → ~83 ms (the remaining 10 are bug-783).
+
+- **A** — `borrow_get.rs` recognises the fused, LET-temporary and IF-arm write-backs
+  (`ElementBinding::other_sites`); `builder_control.rs` dispatches them.
+- **B** — **deviation:** fixed-size non-escaping record temporaries live in a second
+  per-function arena scratch block (the *record-temp scratch*), not the self-update
+  scratch itself, because the self-update scratch can be regrown (moved) by a copying
+  `sort` inside a temporary's live range. Same reservation code
+  (`emit_reserve_scratch_block`), reserved once per call, freed on every exit; still arena
+  memory, so within `mfb spec memory arenas`. `set`/`append` of a `WITH` item build the
+  record in scratch then copy it in (one extra copy vs the design's direct build).
+- **C** — `handover.rs:consuming_use` accepts `RETURN WITH p { <in-block fields> }`; the
+  owned variant updates `p`'s block in place (`try_inplace_scalar_fields`) and moves it
+  out. Also removed `handover.rs`'s file-level `#![allow(dead_code)]` (AGENTS.md).
+- **D** — `try_inplace_scalar_fields` replaces a record's last inlined `String`/record
+  field in place when its 16-byte granule is unchanged; a size change keeps the rebuild
+  (1 alloc + 1 free), awaiting the Open Decision. STATE owners are refused
+  (`rt_res_state_inplace_mutation::string_state_field_still_rebuilds`, bug-424).
+  `field_kinds.tsv`: 144 `rebuild:size-varies` rows the harness reported now in place
+  were flipped to `arm` (36 kinds × S4/S5/S9/S10), with proof in `b309807ec`.
+- **E** — `func_transform.rs` evaluates a literal/direct single-`WITH` record callback into
+  the accumulator.
+
+**Not fixed:** `record nested` stays 3 allocs/update — `stepWide(h.inner, …)` passes a
+field read, which no caller hands over, so no owned variant applies (a further
+mechanism; not in this bug's Fix Design). `record wide`'s alternating tag crosses a
+granule, so it stays 1/call until D's size-change decision.
+
+**Found and fixed here:** a capturing `LAMBDA` passed to a callback leaked 32 B when the
+callback failed and the error left through a function `TRAP` or a return
+(`39088aa62`, test `rt_capturing_callback_failure_frees`); `09_closures.md` corrected.
+**Found and filed:** bug-782 (a failing `set` on a copied list field leaks the copy),
+bug-783 (`vector::Float3` literals no longer register-native).
 
 References:
 
@@ -352,67 +400,67 @@ Expected output shifts: `.ncode` of every program containing one of these spelli
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_record_update_forms.rs`, modeled on `tests/runtime/rt_list_element_record_borrow.rs`
+- [x] Add `tests/runtime/rt_record_update_forms.rs`, modeled on `tests/runtime/rt_list_element_record_borrow.rs`
       (build with `--debug`, run the loop `REPS` and `2 * REPS` times, require `alloc_calls` unchanged, `alloc_calls =
       free_calls`, `live_bytes 0`): one case per row of the Goal table (A1–A5, B `nbody_rec`/`nbody_vec` at 2 steps
       vs 4, C `notag`, D same-size `tag`, E `transform`), each also printing its values beside the MUT/copying
       spelling. Confirm every case except the contrasts fails today.
-- [ ] Unit cases in `borrow_get.rs` beside `get_with_set_on_the_same_slot_is_element_bound`:
+- [x] Unit cases in `borrow_get.rs` beside `get_with_set_on_the_same_slot_is_element_bound`:
       `a_with_over_the_binding_as_the_set_item_is_element_bound`, `a_let_bound_with_before_its_set_is_element_bound`,
       `write_backs_in_both_if_arms_are_element_bound`; and negatives — an `IF` with a write-back in one arm only, a
       read of `p` after the `WITH`-item `set`, a write to `xs` between the bind and the `set`.
-- [ ] Unit case in `handover.rs` beside `consumable_params_follows_the_hand_derived_table`:
+- [x] Unit case in `handover.rs` beside `consumable_params_follows_the_hand_derived_table`:
       `RETURN WITH p { n := p.n + 1 }` makes `p` consumable; `RETURN WITH p { n := q.n }` plus a later read does not.
-- [ ] Audit the latent HOF sites (Blast Radius) with one measured allocs/element each; write the verdicts here.
+- [x] Audit the latent HOF sites (Blast Radius) with one measured allocs/element each; write the verdicts here.
 
 Acceptance: the new runtime cases fail for the documented reason (allocation count grows with REPS); the value
 comparisons pass; the audit list is complete.
-Commit: —
+Commit: see STATUS
 
 ### Phase 2 — mechanism A
 
-- [ ] `borrow_get.rs`: the three spellings above; element routes unchanged.
+- [x] `borrow_get.rs`: the three spellings above; element routes unchanged.
 
 Acceptance: A1–A5 cases green; `rec_set` probe ≤ 0.5 ms at -O1 (measured contrast 0.30 ms); bug-689's tests green.
-Commit: —
+Commit: see STATUS
 
 ### Phase 3 — mechanism B (after the Open Decision on storage)
 
-- [ ] Flat fixed-size non-escaping record temporaries in function-reserved storage; `set(xs, i, WITH e {…})` built
+- [x] Flat fixed-size non-escaping record temporaries in function-reserved storage; `set(xs, i, WITH e {…})` built
       in the slot.
 
 Acceptance: `nbody_rec`/`nbody_vec` cases green (0 allocs/step); output checksum `-169079859` unchanged.
-Commit: —
+Commit: see STATUS
 
 ### Phase 4 — mechanism C
 
-- [ ] `handover.rs` consuming use + owned-variant lowering.
+- [x] `handover.rs` consuming use + owned-variant lowering.
 
 Acceptance: `notag` case green; `tests/runtime/rt_owned_argument.rs` and the `rt_inplace_self_update` matrix green.
-Commit: —
+Commit: see STATUS
 
 ### Phase 5 — mechanism D
 
-- [ ] Same-rounded-size inlined field replacement in place.
+- [x] Same-rounded-size inlined field replacement in place (the size-changing replacement still rebuilds — Open Decision).
 
 Acceptance: D case green; a size-changing replacement still frees the exact walked size (live_bytes 0).
-Commit: —
+Commit: see STATUS
 
 ### Phase 6 — mechanism E
 
-- [ ] Direct build of a single-expression record callback result into `transform`'s accumulator.
+- [x] Direct build of a single-expression record callback result into `transform`'s accumulator.
 
 Acceptance: E case green; `tests/runtime/rt_transform_block_result_frees.rs` green.
-Commit: —
+Commit: see STATUS
 
 ### Phase 7 — regenerate expected outputs + full validation
 
-- [ ] Regenerate the `.ncode` goldens the change shifts; confirm by inspecting one fixture per mechanism that the
+- [x] Regenerate the `.ncode` goldens the change shifts; confirm by inspecting one fixture per mechanism that the
       delta is only removed alloc/copy/free sequences.
-- [ ] Full suite (`.ai/testing-gates.md`); re-run the benchmark rows in the header table.
+- [x] Full suite (`.ai/testing-gates.md`); re-run the benchmark rows in the header table.
 
 Acceptance: full suite green; the benchmark rows meet the Goal table.
-Commit: —
+Commit: see STATUS
 
 ## Validation Plan
 

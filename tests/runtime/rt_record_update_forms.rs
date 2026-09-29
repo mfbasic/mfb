@@ -226,7 +226,10 @@ fn run(name: &str, source: &str) -> (String, u64, u64, u64) {
     let _ = std::fs::remove_dir_all(&project);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let report = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(out.status.success(), "{name}: program failed:\n{text}\n{report}");
+    assert!(
+        out.status.success(),
+        "{name}: program failed:\n{text}\n{report}"
+    );
     let sum = |key: &str| -> u64 {
         report
             .lines()
@@ -252,18 +255,24 @@ fn a_record_update_allocates_nothing_per_update() {
             &format!("b766_{name}_contrast"),
             &program(setup, contrast, result, REPS),
         );
-        let (got, alloc, free, live) =
-            run(&format!("b766_{name}_1"), &program(setup, body, result, REPS));
+        let (got, alloc, free, live) = run(
+            &format!("b766_{name}_1"),
+            &program(setup, body, result, REPS),
+        );
         let (_, alloc2, free2, live2) = run(
             &format!("b766_{name}_2"),
             &program(setup, body, result, 2 * REPS),
         );
         if got != want {
-            failures.push(format!("{name}: printed {got:?}, the contrast spelling {want:?}"));
+            failures.push(format!(
+                "{name}: printed {got:?}, the contrast spelling {want:?}"
+            ));
             continue;
         }
         if alloc != free || live != 0 || alloc2 != free2 || live2 != 0 {
-            failures.push(format!("{name}: leaked ({alloc}/{free}/{live} B, {alloc2}/{free2}/{live2} B)"));
+            failures.push(format!(
+                "{name}: leaked ({alloc}/{free}/{live} B, {alloc2}/{free2}/{live2} B)"
+            ));
             continue;
         }
         // An update allocates nothing per rep. A `transform` returns a new list
