@@ -1,7 +1,7 @@
 //! A failing callback inside a collections builtin reaches the function's `TRAP`.
 //!
-//! `collections::filter`, `transform`, `forEach`, `reduce`, `sortBy`, `mapValues`
-//! and `findLastIndex` call a user function per element. When that function fails
+//! `collections::filter`, `transform`, `forEach`, `reduce`, `sortBy`, `mapValues`,
+//! `findLastIndex` and `partition` call a user function per element. When that function fails
 //! and the call carries no inline `TRAP`, the error must travel like any other
 //! failed call (`mfb man errors`, "Function-level TRAP": the function-level
 //! `TRAP(e)` "traps every error from the body"), freeing the scope on the way.
@@ -55,6 +55,13 @@ FUNC visitFailOnThree(n AS Integer) AS Nothing
     FAIL error(77050002, \"three\")
   END IF
 END FUNC
+
+FUNC strFailOnThree(s AS String) AS Boolean
+  IF s = \"3\" THEN
+    FAIL error(77050002, \"three\")
+  END IF
+  RETURN len(s) > 0
+END FUNC
 ";
 
 /// Each member's failing call, as the initializer of a `LET` (or a bare statement
@@ -87,6 +94,16 @@ const CASES: &[(&str, &str)] = &[
         // reach the failing 3.
         "LET r AS Integer = collections::findLastIndex(xs, noneUntilThree)",
     ),
+    // bug-777: `partition` kept a private copy of the pre-fix bare `ret` when no
+    // inline-`TRAP` capture was active, so its failure skipped this handler.
+    (
+        "partition",
+        "LET r AS Partition OF Integer = collections::partition(xs, failOnThree)",
+    ),
+    (
+        "partition_string",
+        "LET r AS Partition OF String = collections::partition(ss, strFailOnThree)",
+    ),
 ];
 
 fn program(statement: &str) -> String {
@@ -95,6 +112,7 @@ fn program(statement: &str) -> String {
 FUNC run() AS Integer
   LET xs AS List OF Integer = [1, 2, 3, 4]
   LET m AS Map OF String TO Integer = Map OF String TO Integer {{ \"a\" := 3 }}
+  LET ss AS List OF String = [\"1\", \"2\", \"3\", \"4\"]
   {statement}
   io::print(\"not reached\")
   RETURN 0

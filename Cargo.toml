@@ -544,6 +544,14 @@ name = "rt_callback_failure_reaches_trap"
 path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
 
 [[test]]
+name = "rt_callback_failure_frees"
+path = "tests/runtime/rt_callback_failure_frees.rs"
+
+[[test]]
+name = "rt_fail_frees_enclosing_temps"
+path = "tests/runtime/rt_fail_frees_enclosing_temps.rs"
+
+[[test]]
 name = "rt_inplace_failure_atomic"
 path = "tests/runtime/rt_inplace_failure_atomic.rs"
 
