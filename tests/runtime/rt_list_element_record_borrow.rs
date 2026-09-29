@@ -644,3 +644,103 @@ END FUNC
     );
     assert_no_leak("failing_update", (alloc, free, live), true);
 }
+
+/// bug-776: an expression-tree node fetched with `get` and read only as a `MATCH`
+/// scrutinee and through that match's variant bindings. `mfb spec memory
+/// collections` §`get` makes it a borrow. At -O1+ plan-149's place forwarding
+/// deletes the `$match0 = e` temp the classifier keyed on, so every call copied
+/// the element (6 allocations at -O0, 1006 at -O1 for 1000 calls).
+const EXPR: &str = "\
+IMPORT io
+IMPORT collections
+
+TYPE Num
+  value AS Integer
+  tags AS List OF Integer
+END TYPE
+
+TYPE Add
+  left AS Integer
+  right AS Integer
+END TYPE
+
+UNION Expr
+  Num
+  Add
+END UNION
+
+FUNC evalAt(nodes AS List OF Expr, i AS Integer) AS Integer
+  LET e AS Expr = collections::get(nodes, i)
+  MATCH e
+    CASE Num(n)
+      RETURN n.value + len(n.tags)
+    CASE Add(a)
+      RETURN a.left + a.right
+  END MATCH
+  RETURN 0
+END FUNC
+";
+
+#[test]
+fn a_binding_read_only_through_a_match_of_a_union_element_is_bounded() {
+    let program = |reps: i64| {
+        format!(
+            "{EXPR}
+FUNC main() AS Integer
+  LET nodes AS List OF Expr = [Num[value := 3, tags := [1, 2]], Add[left := 1, right := 2]]
+  MUT n AS Integer = 0
+  FOR k = 1 TO {reps}
+    n = n + evalAt(nodes, k MOD 2)
+  NEXT
+  io::print(toString(n))
+  RETURN 0
+END FUNC
+"
+        )
+    };
+    let (lines, alloc, free, live) = run("union_match_1", &program(500));
+    let (lines2, alloc2, free2, live2) = run("union_match_2", &program(1000));
+    assert_eq!(lines, vec![(250 * 5 + 250 * 3).to_string()]);
+    assert_eq!(lines2, vec![(500 * 5 + 500 * 3).to_string()]);
+    assert_no_leak("union_match at 500", (alloc, free, live), false);
+    assert_no_leak("union_match at 1000", (alloc2, free2, live2), false);
+    assert_eq!(
+        alloc, alloc2,
+        "bug-776: allocations grew with the call count ({alloc} at 500, {alloc2} at 1000) — \
+         a union element fetched by `get` and only MATCHed is copied per call"
+    );
+}
+
+/// The negative: a variant binding that escapes (appended to another list) while
+/// the container is then overwritten keeps its own copy.
+#[test]
+fn a_match_extract_that_escapes_is_a_copy() {
+    let source = format!(
+        "{EXPR}
+FUNC main() AS Integer
+  MUT nodes AS List OF Expr = [Num[value := 3, tags := [1, 2]], Add[left := 1, right := 2]]
+  MUT kept AS List OF Num = []
+  FOR i = 0 TO 1
+    LET e AS Expr = collections::get(nodes, i)
+    MATCH e
+      CASE Num(n)
+        kept = collections::append(kept, n)
+      CASE Add(a)
+        kept = collections::append(kept, Num[value := a.left, tags := []])
+    END MATCH
+    LET repl AS Expr = Add[left := 40, right := 2]
+    nodes = collections::set(nodes, i, repl)
+  NEXT
+  MUT total AS Integer = 0
+  FOR EACH k IN kept
+    total = total + k.value + len(k.tags)
+  NEXT
+  io::print(toString(total) & \" \" & toString(evalAt(nodes, 0)))
+  RETURN 0
+END FUNC
+"
+    );
+    let (lines, alloc, free, live) = run("union_match_escape", &source);
+    assert_eq!(lines, vec!["6 42"]);
+    assert_eq!((alloc, live), (free, 0));
+}

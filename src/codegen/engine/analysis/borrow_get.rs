@@ -934,6 +934,56 @@ END FUNC
         collect_borrow_gets(&main.body, &address_taken, &|_, _| false)
     }
 
+    /// bug-776: plan-149's place forwarding deletes the `$match0 = e` temp the
+    /// IR's `MATCH` desugar introduces, so the classifier sees `MATCH e` and
+    /// `UnionExtract(e)` directly. `e` is still read only as the match's
+    /// scrutinee and its variant bindings, so it must stay a pinned borrow.
+    #[test]
+    fn a_directly_matched_binding_after_place_forwarding_is_pinned() {
+        use crate::optimizer::{with_opt_level, OptLevel};
+        let body = "TYPE Num\n  value AS Integer\nEND TYPE\n\
+             TYPE Add\n  left AS Integer\n  right AS Integer\nEND TYPE\n\
+             UNION Expr\n  Num\n  Add\nEND UNION\n\
+             FUNC main() AS Integer\n  LET xs AS List OF Expr = [Num[3], Add[1, 2]]\n  \
+             LET e AS Expr = collections::get(xs, 1)\n  MATCH e\n    CASE Num(n)\n      \
+             RETURN n.value\n    CASE Add(a)\n      RETURN a.left + a.right\n  END MATCH\n  \
+             RETURN 0\nEND FUNC\n";
+        let mut module = with_opt_level(OptLevel(0), || lower(body));
+        with_opt_level(OptLevel(1), || crate::optimizer::opt1::placefwd::forward(&mut module));
+        let main = function(&module, "main");
+        struct MatchTemp(bool);
+        impl NirVisitor for MatchTemp {
+            fn visit_op(&mut self, op: &NirOp) {
+                if let NirOp::Bind { name, .. } = op {
+                    self.0 |= name.starts_with("$match");
+                }
+                walk_op(self, op);
+            }
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Local(name) = value {
+                    self.0 |= name.starts_with("$match");
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut temp = MatchTemp(false);
+        temp.visit_ops(&main.body);
+        assert!(!temp.0, "the probe needs the forwarded form: the `$match` temp must be gone");
+        let mut address_taken = HashSet::new();
+        crate::codegen::engine::function::function_lowering::collect_address_taken_locals(
+            &main.body,
+            &mut address_taken,
+        );
+        let got = collect_borrow_gets(&main.body, &address_taken, &|_, _| false);
+        assert!(
+            got.names.contains("e") && got.pinned.contains("e"),
+            "a get binding read only through MATCH and its variant bindings is a pinned \
+             borrow after place forwarding; got names {:?} pinned {:?}",
+            got.names,
+            got.pinned
+        );
+    }
+
     #[test]
     fn a_field_read_binding_over_an_immutable_list_is_pinned() {
         let got = classify(
