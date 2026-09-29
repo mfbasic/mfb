@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/trap/inline-trap-call-free-operator-chain-invalid
+   7 |   LET i AS Integer = 5
+   8 |   ' 1. a nested multiply-add, bound by LET.
+   9 |   LET a AS Integer = i * 2 + 3 TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:9 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
+  11 |   END TRAP
+  12 |   ' 2. a division under an addition, bound by LET.
+  13 |   LET b AS Integer = i / 2 + 1 TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:13 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
+  15 |   END TRAP
+  16 |   ' 3. a negated product.
+  17 |   LET c AS Integer = -(i * 2) TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:17 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
+  20 |   ' 4. the assignment form.
+  21 |   MUT d AS Integer = 0
+  22 |   d = (i * 2) + 3 TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:22 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
+[exit 1]

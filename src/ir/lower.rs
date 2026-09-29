@@ -1800,7 +1800,19 @@ fn lower_inline_trap(
     // bug-457: lift the fallible calls nested inside the scrutinee. With none to
     // lift this is a no-op and the lowering below is byte-for-byte the one that
     // shipped before.
-    let hoists = hoist_trap_calls(&mut root, locals, context);
+    //
+    // bug-779: only a scrutinee that contains a runtime call is lifted at all. The
+    // lift also takes nested raising *operators* (bug-471), and a lifted operator
+    // is a `Checked` bind that `ir::verify` reads as a fallible scrutinee — so a
+    // call-free `i * 2 + 3` used to slip past `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
+    // while `i * 2`, with nothing nested to lift, was rejected. Rule 11: a raising
+    // operator widens what a TRAP covers, not what may be one. Left unlifted, the
+    // call-free scrutinee reaches the verifier as the bare bind it reports on.
+    let hoists = if scrutinee_has_runtime_call(&root) {
+        hoist_trap_calls(&mut root, locals, context)
+    } else {
+        Vec::new()
+    };
 
     // Whether the scrutinee's own outermost node still gets a `Result` check.
     // With nothing lifted it always does, including when it is not a call —
@@ -2291,6 +2303,20 @@ pub(super) fn is_short_circuit_operator(op: BinaryOp) -> bool {
 /// so a side-effecting infallible call left behind would move *after* a fallible
 /// call it used to precede. Calls past the last fallible one need no such care
 /// and stay in the expression.
+/// Whether an inline-`TRAP` scrutinee contains a runtime call anywhere in it —
+/// the thing `mfb spec language error-model` rule 11 requires. A package
+/// constant is a `Call` in the IR but not a runtime call. A lambda's body is not
+/// part of the scrutinee (`visit_value` visits only its captures).
+fn scrutinee_has_runtime_call(root: &IrValue) -> bool {
+    let mut found = false;
+    crate::ir::value::visit_value(root, &mut |value| {
+        if let IrValue::Call { target, .. } | IrValue::CallResult { target, .. } = value {
+            found |= !builtins::is_package_constant(target);
+        }
+    });
+    found
+}
+
 fn hoist_trap_calls(
     root: &mut IrValue,
     locals: &mut HashMap<String, ParameterType>,
