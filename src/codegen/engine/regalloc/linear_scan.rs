@@ -281,6 +281,38 @@ pub(crate) fn run(
     let mut spilled: Vec<u32> = Vec::new();
     let mut coalesced = 0u64;
     let splitting = crate::optimizer::level_enabled(2);
+    // A split is positional: the rewrite inserts the head-to-tail copy before
+    // stream index `m + 1`, and every later instruction reads the tail. That is
+    // only a valid program when the copy runs on every path from the head to the
+    // tail's uses — i.e. when the value's whole interval is one straight-line
+    // stretch: no label after its start (nothing jumps into it) and no branch
+    // before its end (nothing leaves it and comes back past the copy). Without
+    // this, the head register's first clobber was often the error-builder call
+    // on a raise path (`b.ne ok; …; fmov d8, d1; bl _mfb_make_error_result`),
+    // so the copy ran only when raising and the normal path read a stale tail
+    // register (bug-760: `math simd`'s accumulator at -O2/-O3). `flow_breaks[i]`
+    // counts the labels at indices `<= i` plus the terminators at indices `< i`,
+    // so `flow_breaks[e] == flow_breaks[s]` says exactly: no label in `(s, e]`
+    // and no terminator in `[s, e)`.
+    let flow_breaks: Vec<u32> = if splitting {
+        let mut counts = Vec::with_capacity(n);
+        let mut running = 0u32;
+        let mut terminator_before = false;
+        for instruction in &instructions {
+            if terminator_before {
+                running += 1;
+            }
+            if instruction.op == CodeOp::Label {
+                running += 1;
+            }
+            counts.push(running);
+            terminator_before = analysis::is_block_terminator(instruction.op);
+        }
+        counts
+    } else {
+        Vec::new()
+    };
+    let straight_line = |s: usize, e: usize| -> bool { flow_breaks[e] == flow_breaks[s] };
     // A split value's tail range: `(first instruction of the tail, physical)`.
     // The head range stays in `assignment`, so every consumer that is not
     // index-aware keeps seeing a single, valid home.
@@ -405,15 +437,13 @@ pub(crate) fn run(
                 // the rewrite inserts at the boundary. That keeps the value in
                 // registers where the unsplit scan would have spilled it to
                 // memory for its entire life.
-                let split = splitting
+                let split = (splitting && straight_line(s, e))
                     .then(|| {
                         allocatable.iter().find_map(|&(first_name, first)| {
-                            // Splitting is positional (one boundary copy at one
-                            // point of the stream) and is NOT refined by lifetime
-                            // holes: the head register must have no holder at
-                            // all, and the tail is checked over the whole span
-                            // `[m + 1, e]`. Letting the head borrow a holder's
-                            // hole changed `nbody`'s result at -O2.
+                            // The head register must have no holder at all,
+                            // and the tail is checked over the whole span
+                            // `[m + 1, e]` (see `straight_line` for why a
+                            // split is positional).
                             if (active_mask & (1u64 << first)) != 0 {
                                 return None;
                             }

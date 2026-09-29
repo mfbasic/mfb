@@ -771,3 +771,71 @@ fn eviction_around_rv64_compare_branch_restores_on_both_edges() {
         }
     }
 }
+
+/// bug-760: Level-2 live-range splitting is positional — the head-to-tail copy
+/// is inserted before one stream index and every later instruction reads the
+/// tail — so it must never split a value whose interval crosses control flow.
+///
+/// `v0` is defined, then an always-taken `rv.br` skips a raise block (a call
+/// that never returns to the value) and the normal path stores `v0`. With the
+/// pool cut to `t3` and `s1`, neither fits the whole interval (`s1` is busy
+/// early, `t3` late), and `t3`'s first clobber is the raise-path call, so an
+/// unguarded split put the `mov s1, t3` copy on the raise path and the normal
+/// path stored `s1`'s stale 7 instead of 5 (`math simd` at -O2/-O3).
+#[test]
+fn live_range_split_never_crosses_control_flow() {
+    use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
+    let int = |dst: &str, value: &str| {
+        CodeInstruction::new("mov_imm")
+            .physical_field("dst", dst)
+            .field("type", "Integer")
+            .field("value", value)
+    };
+    let store = |src: &str, offset: &str| {
+        CodeInstruction::new("str_u64")
+            .physical_field("src", src)
+            .physical_field("base", "sp")
+            .field("offset", offset)
+    };
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        int("s1", "7"),
+        int(&vreg_name(0), "5"),
+        store("s1", "1008"),
+        CodeInstruction::new("rv.br")
+            .physical_field("lhs", "zero")
+            .physical_field("rhs", "zero")
+            .field("cond", "eq")
+            .field("target", "ok"),
+        CodeInstruction::new("bl").field("target", "_mfb_make_error_result"),
+        CodeInstruction::new("ret"),
+        CodeInstruction::new("label").field("name", "ok"),
+        int("t3", "1"),
+        store(&vreg_name(0), "1000"),
+        store("t3", "1016"),
+        CodeInstruction::new("ret"),
+    ];
+    // Everything but `t3` (caller-saved) and `s1` (callee-saved) held out.
+    let reserved = ["t4", "t5", "t6", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+    crate::optimizer::with_opt_level(crate::optimizer::OptLevel(2), || {
+        allocate(&mut instructions, &Riscv64RegisterModel, 64, &reserved);
+    });
+    let listing: Vec<String> = instructions
+        .iter()
+        .map(|i| {
+            let fields: Vec<String> = i
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{k}={}", v.render()))
+                .collect();
+            format!("{} {}", i.op.mnemonic(), fields.join(" "))
+        })
+        .collect();
+    let mem = run_allocated_rv64(&instructions);
+    assert_eq!(
+        mem.get(&1000),
+        Some(&5),
+        "the normal path must store v0's value, not a stale split tail:\n{}",
+        listing.join("\n")
+    );
+}
