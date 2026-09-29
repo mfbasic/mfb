@@ -3,7 +3,8 @@
 //! already does.
 //!
 //! Each case runs its update loop `REPS` and `2 × REPS` times under `--debug`:
-//! the allocation count must not grow with the repeat count, nothing may leak,
+//! an update allocates nothing per rep (a `transform` exactly one per rep: its
+//! result is a new list by value semantics), nothing may leak,
 //! and the case must print what its **contrast** — the same update in a spelling
 //! the compiler already serves without allocating (the `MUT p = get` / `p = WITH p`
 //! / `set(xs, i, p)` form, or an inline `WITH`) — prints. Before the fix every
@@ -265,11 +266,17 @@ fn a_record_update_allocates_nothing_per_update() {
             failures.push(format!("{name}: leaked ({alloc}/{free}/{live} B, {alloc2}/{free2}/{live2} B)"));
             continue;
         }
-        if alloc2 != alloc {
+        // An update allocates nothing per rep. A `transform` returns a new list
+        // (value semantics), so its rep owes exactly that one block and nothing per
+        // element.
+        let allowed = if name.starts_with("E_") { 1 } else { 0 };
+        let growth = alloc2.saturating_sub(alloc);
+        if growth > allowed * u64::from(REPS) {
             failures.push(format!(
-                "{name}: {alloc} allocations at {REPS} reps, {alloc2} at {} — {} per rep",
+                "{name}: {alloc} allocations at {REPS} reps, {alloc2} at {} — {} per rep \
+                 ({allowed} allowed)",
                 2 * REPS,
-                (alloc2 - alloc) / u64::from(REPS)
+                growth / u64::from(REPS)
             ));
         }
     }
