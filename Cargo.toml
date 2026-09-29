@@ -935,6 +935,10 @@ name = "rt_regalloc_levels_agree"
 path = "tests/runtime/rt_regalloc_levels_agree.rs"
 
 [[test]]
+name = "rt_sortby_copying_native"
+path = "tests/runtime/rt_sortby_copying_native.rs"
+
+[[test]]
 name = "rt_list_take_drop_in_place"
 path = "tests/runtime/rt_list_take_drop_in_place.rs"
 
