@@ -398,6 +398,12 @@ pub(crate) struct CodeBuilder<'a> {
     /// holds at least one capturing `LAMBDA` in a provably non-retaining callback
     /// position. Save/restore (nestable), like `raw_result_capture`.
     pub(crate) closure_temp_wanted: bool,
+    /// The capturing `LAMBDA`s written directly in the argument list of the call
+    /// `closure_temp_wanted` was set for — each node's address, and whether the
+    /// call may free it (`freeable_closure_arguments`). Save/restore with it.
+    /// The `NirValue::Closure` arm reads its own entry into
+    /// [`PendingClosure::freed_on_error`].
+    pub(crate) closure_temp_arguments: Vec<(usize, bool)>,
     /// bug-536 shape B: the location of a `String` block this builder has just
     /// **provably freshly allocated** — set by the shared String producers
     /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
@@ -723,6 +729,7 @@ impl<'a> CodeBuilder<'a> {
             pending_temp_frees: Vec::new(),
             pending_closure_temps: Vec::new(),
             closure_temp_wanted: false,
+            closure_temp_arguments: Vec::new(),
             fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
@@ -1056,6 +1063,11 @@ pub(crate) struct PendingTemp {
 pub(crate) struct PendingClosure {
     pub(crate) slot: usize,
     pub(crate) captures: Vec<ParameterType>,
+    /// This closure is a direct argument its call may free, so an error exit
+    /// taken while it is pending — the call's own failure, or a later argument's
+    /// — frees it too ([`CodeBuilder::emit_pending_closure_frees_on_error`]):
+    /// the success-path drain never runs on that path.
+    pub(crate) freed_on_error: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]

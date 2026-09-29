@@ -132,9 +132,10 @@ impl CodeBuilder<'_> {
     /// and a callee's error is its own block.
     pub(crate) fn emit_call_error_exit(&mut self) -> Result<(), String> {
         let destination = self.error_exit_destination();
-        if !self.pending_temp_frees.is_empty() {
+        if !self.pending_temp_frees.is_empty() || self.has_pending_closure_frees_on_error() {
             self.store_pending_current_result();
             self.emit_pending_temp_frees_in_place()?;
+            self.emit_pending_closure_frees_on_error()?;
             self.load_pending_result_registers();
         }
         self.emit_current_result_exit(destination)
@@ -163,6 +164,7 @@ impl CodeBuilder<'_> {
         }
         self.store_pending_current_result();
         self.emit_pending_temp_frees_in_place()?;
+        self.emit_pending_closure_frees_on_error()?;
         let cleanups = self.active_cleanups.clone();
         let previous_escaping = self.escaping_value_slot;
         // Same identity skip as `emit_current_result_exit`'s `Return` arm, so a pad

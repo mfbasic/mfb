@@ -199,6 +199,13 @@ impl CodeBuilder<'_> {
                 freeable_closure_args.iter().any(|eligible| *eligible),
             )
         });
+        let previous_arguments = owns_closure_drain.then(|| {
+            let arguments = Self::closure_argument_addresses(value)
+                .into_iter()
+                .zip(freeable_closure_args.iter().copied())
+                .collect();
+            std::mem::replace(&mut self.closure_temp_arguments, arguments)
+        });
         let result = self.lower_value_inner(value);
         // bug-768: whether THIS frame read a record field or a `STATE` payload
         // (`lower_field_access_of`). Taken here, on every frame's exit, so an
@@ -240,6 +247,9 @@ impl CodeBuilder<'_> {
         };
         if let Some(previous) = previous_wanted {
             self.closure_temp_wanted = previous;
+        }
+        if let Some(previous) = previous_arguments {
+            self.closure_temp_arguments = previous;
         }
         let result = if owns_closure_drain {
             self.free_call_closure_temps(result, closure_mark, &freeable_closure_args)?
@@ -303,6 +313,56 @@ impl CodeBuilder<'_> {
     /// closure argument whose position is not provably a non-retaining callback.
     /// `false` is the pre-fix behaviour (the closure leaks), so every unrecognised
     /// shape keeps leaking rather than freeing a block someone still holds.
+    /// The address of each capturing `LAMBDA` written directly in `value`'s
+    /// argument list, in the order [`Self::freeable_closure_arguments`] answers
+    /// for them. The `NirValue::Closure` arm finds its own entry by address, so a
+    /// closure nested anywhere else (a list-literal element) matches none.
+    fn closure_argument_addresses(value: &NirValue) -> Vec<usize> {
+        let (NirValue::Call { args, .. } | NirValue::CallResult { args, .. }) = value else {
+            return Vec::new();
+        };
+        args.iter()
+            .filter(|arg| matches!(arg, NirValue::Closure { captures, .. } if !captures.is_empty()))
+            .map(|arg| arg as *const NirValue as usize)
+            .collect()
+    }
+
+    /// Free, on an error exit, every pending capturing `LAMBDA` whose call may
+    /// free it (`PendingClosure::freed_on_error`). Every such closure was built
+    /// before the exit runs — it registers only once built, and leaves the list
+    /// when its call's drain runs — and the exit never reaches that drain.
+    /// Before this, a failing callback leaked its capturing `LAMBDA`'s
+    /// environment: 32 B per failing `transform(xs, LAMBDA(it) -> … k …)`.
+    ///
+    /// The caller has parked the result registers: each drop is three
+    /// `arena_free` calls.
+    pub(crate) fn emit_pending_closure_frees_on_error(&mut self) -> Result<(), String> {
+        let doomed: Vec<PendingClosure> = self
+            .pending_closure_temps
+            .iter()
+            .filter(|closure| closure.freed_on_error)
+            .cloned()
+            .collect();
+        for closure in doomed.iter().rev() {
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: ParameterType::Nothing,
+                stack_offset: closure.slot,
+                closure_captures: Some(closure.captures.clone()),
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Whether [`Self::emit_pending_closure_frees_on_error`] frees anything.
+    pub(crate) fn has_pending_closure_frees_on_error(&self) -> bool {
+        self.pending_closure_temps
+            .iter()
+            .any(|closure| closure.freed_on_error)
+    }
+
     fn freeable_closure_arguments(&self, value: &NirValue) -> Vec<bool> {
         let (target, args) = match value {
             NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
@@ -2296,9 +2356,15 @@ impl CodeBuilder<'_> {
                         abi::stack_pointer(),
                         slot,
                     ));
+                    let address = value as *const NirValue as usize;
+                    let freed_on_error = self
+                        .closure_temp_arguments
+                        .iter()
+                        .any(|(argument, freeable)| *argument == address && *freeable);
                     self.pending_closure_temps.push(PendingClosure {
                         slot,
                         captures: capture_types,
+                        freed_on_error,
                     });
                 }
                 Ok(ValueResult {

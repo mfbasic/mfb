@@ -131,6 +131,17 @@ block on scope drop and never the closure objects it references. This makes stor
 sound (no dangling pointer, no double free) at the cost of not reclaiming an
 individual closure before arena teardown.
 
+One exception reclaims a closure individually: a capturing `LAMBDA` written
+directly as an argument in a callback position the callee provably never stores,
+forwards or returns (a non-retaining `FUNC` parameter of a user function, or the
+callback of a native `collections` member) is freed — object, environment and the
+environment's owned capture copies — by the call it was built for, once that call
+has returned (bug-572). [[src/codegen/engine/value/builder_values.rs:argument_position_is_nonretaining_callback]] [[src/codegen/engine/value/builder_values.rs:free_call_closure_temps]]
+The same closure is freed on every error exit taken after it was built and before
+that drain — the callee's failure or a later argument's — since such an exit never
+reaches the drain. [[src/codegen/engine/value/builder_values.rs:emit_pending_closure_frees_on_error]]
+An inline `TRAP` on the call joins the success path first, so the drain covers it.
+
 Because each *evaluation* of a capturing `Closure` allocates a fresh 16-byte object
 plus its environment, repeatedly **creating** capturing closures inside a loop
 accumulates arena memory for the loop's lifetime. A non-capturing `FunctionRef`
