@@ -2483,7 +2483,11 @@ impl CodeBuilder<'_> {
                         self.emit_program_exit_value(code)?;
                     }
                     NirOp::Fail { error } => {
-                        self.emit_error_value_exit(error, self.error_exit_destination())?;
+                        self.emit_error_value_exit(
+                            error,
+                            self.error_exit_destination(),
+                            temp_watermark,
+                        )?;
                     }
                     NirOp::If {
                         condition,

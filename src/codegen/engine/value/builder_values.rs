@@ -691,6 +691,21 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// [`Self::emit_pending_temp_frees_in_place`] for the temps below `depth` only:
+    /// the enclosing statements' temps, which a `FAIL` jumps past (bug-780). The
+    /// `FAIL`'s own temps sit above `depth` and are the catcher's to adopt.
+    pub(crate) fn emit_pending_temp_frees_in_place_below(
+        &mut self,
+        depth: usize,
+    ) -> Result<(), String> {
+        let depth = depth.min(self.pending_temp_frees.len());
+        let temps = self.pending_temp_frees[..depth].to_vec();
+        for temp in temps.iter().rev() {
+            self.emit_pending_temp_free(temp)?;
+        }
+        Ok(())
+    }
+
     fn emit_pending_temp_free(&mut self, temp: &PendingTemp) -> Result<(), String> {
         if temp.shallow {
             return self.emit_shallow_block_free(&temp.type_, temp.slot);

@@ -302,10 +302,19 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// The exit of a `FAIL`. `enclosing_temps` is the pending-temp depth at the
+    /// `FAIL` statement's start: the temps below it belong to the statements that
+    /// enclose the `FAIL` (an `IF` condition's `longKey()` in
+    /// `IF s = longKey() THEN FAIL …`), are freed at those statements' ends, and the
+    /// `FAIL` jumps past every one of them — so it frees them here, as a failing
+    /// call's exit does (`emit_call_error_exit`). The temps above it are the
+    /// `FAIL`'s own and are the catcher's to adopt (`TransferTemps::AdoptedByTheCatcher`).
+    /// bug-780: leaving them leaked the condition's block on every failure.
     pub(crate) fn emit_error_value_exit(
         &mut self,
         error: &NirValue,
         destination: ExitDestination,
+        enclosing_temps: usize,
     ) -> Result<(), String> {
         // See `emit_current_result_exit`: a trap route keeps the function-level
         // locals' owned arena values live for the handler, freeing only the rest.
@@ -315,11 +324,16 @@ impl CodeBuilder<'_> {
         };
         if cleanups.is_empty() {
             return match destination {
-                ExitDestination::Return => self.emit_direct_error_return(error),
-                ExitDestination::Trap => self.emit_direct_error_route_to_trap(error),
+                ExitDestination::Return => self.emit_direct_error_return(error, enclosing_temps),
+                ExitDestination::Trap => {
+                    self.emit_direct_error_route_to_trap(error, enclosing_temps)
+                }
             };
         }
         self.store_pending_error_from_value(error)?;
+        // The error is parked in the pending result slots, so the frees below may
+        // clobber every result register; `load_pending_result_registers` restores them.
+        self.emit_pending_temp_frees_in_place_below(enclosing_temps)?;
         self.emit_cleanups(&cleanups)?;
         self.load_pending_result_registers();
         match destination {

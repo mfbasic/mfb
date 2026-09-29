@@ -1148,7 +1148,12 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(crate) fn emit_direct_error_return(&mut self, error: &NirValue) -> Result<(), String> {
+    /// `enclosing_temps`: see [`Self::emit_error_value_exit`] (bug-780).
+    pub(crate) fn emit_direct_error_return(
+        &mut self,
+        error: &NirValue,
+        enclosing_temps: usize,
+    ) -> Result<(), String> {
         // A fresh Error block (e.g. `FAIL error(...)`) is a standalone owned block
         // that the FAIL's control transfer CLEARS (not frees) from the pending-temp
         // set, so it is safe to park it in the current-error slot and let whoever
@@ -1165,6 +1170,9 @@ impl CodeBuilder<'_> {
                 error.type_
             ));
         }
+        // bug-780: the enclosing statements' temps, freed while the error is still
+        // a vreg (the allocator keeps it across the frees' calls).
+        self.emit_pending_temp_frees_in_place_below(enclosing_temps)?;
         let code_register = self.allocate_register();
         let message_register = self.allocate_register();
         let source_register = self.allocate_register();
@@ -1194,9 +1202,11 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// `enclosing_temps`: see [`Self::emit_error_value_exit`] (bug-780).
     pub(crate) fn emit_direct_error_route_to_trap(
         &mut self,
         error: &NirValue,
+        enclosing_temps: usize,
     ) -> Result<(), String> {
         let error = self.lower_value(error)?;
         if !error.type_.is_named("Error") {
@@ -1205,6 +1215,7 @@ impl CodeBuilder<'_> {
                 error.type_
             ));
         }
+        self.emit_pending_temp_frees_in_place_below(enclosing_temps)?;
         // Pinned trap-local slot from `TrapState` (see `route_current_result_to_trap`):
         // an inline `TRAP(e)` rebinds the shared name `e`, so `self.locals[name]`
         // is not a reliable source for the function-level trap slot (bug-148).
