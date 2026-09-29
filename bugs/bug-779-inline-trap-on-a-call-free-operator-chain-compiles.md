@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (a program the spec rejects is accepted)
 
-Status: Open
-Regression Test: `tests/syntax/**` fixture (to be added, Phase 1) — see Phases
+Status: Fixed
+Regression Test: `tests/syntax/trap/inline-trap-call-free-operator-chain-invalid`
 
 `mfb spec language error-model` rule 11 rejects an inline `TRAP` whose scrutinee has
 no runtime call anywhere in it (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`): "A raising
@@ -21,6 +21,17 @@ guarding only operators, which is exactly the shape the rule forbids.
 contains no runtime call — however many raising operators it nests — is rejected with
 `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`; every scrutinee that contains a call keeps its
 current lowering (bug-457 check chain, bug-471 operator coverage) unchanged.
+
+## STATUS: FIXED (merged from `worktree-B-779`, fix `9f6965ebc`)
+
+`lower_inline_trap` lifts nested fallible nodes only when the scrutinee contains a
+runtime call (`scrutinee_has_runtime_call`: a `Call`/`CallResult` that is not a
+package constant, lambda bodies excluded); a call-free scrutinee reaches the verifier
+as the bare bind `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` reports on. As designed; no
+deviation. The new fixture (LET ×3, assignment, bare statement) is RED on the pre-fix
+compiler (all five forms build silently) and green now with five diagnostics. `expectTrap` is unaffected —
+`ir/shape.rs` checks it on the HIR (`testing-assert-invalid`). Gates: artifact gate
+0 diffs (no existing golden moved), acceptance 1582/1582, full suite 270 ok.
 
 References:
 
@@ -112,27 +123,27 @@ fixtures.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] `tests/syntax/**` invalid fixtures (sibling of the existing
+- [x] `tests/syntax/**` invalid fixtures (sibling of the existing
       `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` fixtures — find them with
       `grep -rl REQUIRES_FALLIBLE tests/syntax`) for `LET`, assignment and bare
       statement forms of `i * 2 + 3`, `i / 2 + 1`, `-(i * 2)`; RED (they compile today).
-- [ ] Check `expectTrap(i * 2 + 3)`.
+- [x] Check `expectTrap(i * 2 + 3)` — unaffected (HIR-level rule in `ir/shape.rs`).
 
 Acceptance: fixtures fail for the documented reason.
-Commit: —
+Commit: `9f6965ebc`
 
 ### Phase 2 — the fix
 
-- [ ] `lower_inline_trap`: no operator hoisting when the scrutinee has no call.
+- [x] `lower_inline_trap`: no operator hoisting when the scrutinee has no call.
 
 Acceptance: new fixtures report the diagnostic; bug-457/bug-471 fixtures unchanged.
-Commit: —
+Commit: `9f6965ebc`
 
 ### Phase 3 — full validation
 
-- [ ] `scripts/test-accept.sh`, `scripts/artifact-gate.sh all`, full `cargo test`.
+- [x] `scripts/test-accept.sh`, `scripts/artifact-gate.sh all`, full `cargo test`.
 
-Commit: —
+Commit: `9f6965ebc` (no golden moved)
 
 ## Validation Plan
 

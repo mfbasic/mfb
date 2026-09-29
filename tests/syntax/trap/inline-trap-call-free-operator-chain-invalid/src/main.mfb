@@ -22,5 +22,9 @@ FUNC main AS Integer
   d = (i * 2) + 3 TRAP(e)
     RECOVER 0
   END TRAP
+  ' 5. the bare-statement form.
+  i * 2 + 3 TRAP(e)
+    RECOVER 0
+  END TRAP
   RETURN a + b + c + d
 END FUNC

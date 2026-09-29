@@ -23,4 +23,10 @@ tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:17 e
      | ^
 tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:22 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
                Inline TRAP requires a call to trap; this expression is not a call.
+  24 |   END TRAP
+  25 |   ' 5. the bare-statement form.
+  26 |   i * 2 + 3 TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-call-free-operator-chain-invalid/src/main.mfb:26 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a call to trap; this expression is not a call.
 [exit 1]
