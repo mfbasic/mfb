@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (performance regression; no wrong output observed)
 
-Status: Open
-Regression Test: tests/runtime/rt_list_element_record_borrow.rs (new case `a_binding_read_only_through_a_match_of_a_union_element_is_bounded`), plus a unit test in `src/codegen/engine/analysis/borrow_get.rs`
+Status: Fixed
+Regression Test: `tests/runtime/rt_list_element_record_borrow.rs` (`a_binding_read_only_through_a_match_of_a_union_element_is_bounded`, `a_match_extract_that_escapes_is_a_copy`), unit test `borrow_get::tests::a_directly_matched_binding_after_place_forwarding_is_pinned`
 
 Take `LET e AS SomeUnion = collections::get(xs, i)` where `e` is read only as a `MATCH`
 scrutinee and through that match's variant extracts. By `mfb spec memory collections`
@@ -25,6 +25,29 @@ for a 15-item class. That regex cost is tracked in bug-773.
 `get` + `MATCH` borrow classification is the same as at -O0. The R1 program below makes
 **6** allocations at -O0, -O1, -O2 and -O3. Its output is unchanged, and it ends with
 `live_bytes 0` and `double_free_skips 0`.
+
+## STATUS: FIXED (merged from `worktree-B-776`)
+
+`collect_borrow_gets` now records, per local, the `UnionExtract`s that are the direct
+value of a `Bind` at the top of a case body of a `MATCH` over that same local
+(`case_extract_binds`) — exactly the variant bindings the `$match`-temp allowance
+already accepted — and the read-only sum counts them. Any other `UnionExtract(e)`
+stays an unexplained read, so an escaping extract still copies. This is the Fix
+Design's restricted form, not the bare `+ extract(e)` term. R1 is 6 allocations at
+-O0/-O1/-O2/-O3 (the pre-plan-149 -O3 `aggcopy` variant is fixed by the same change);
+output `3000`, `live_bytes 0`.
+
+Audit verdicts: `last_use.rs` MATCH views — **clear**: a view bound from a call whose
+case alias moves a field out (`/tmp/r776lu`, `RETURN c.items`) is 4501 allocations at
+-O0 and 3501 at -O1/-O3 on both the pre-fix and fixed compilers (forwarding *helps*
+there), output and `live_bytes` identical. `handover.rs` / `module_analysis.rs` —
+unaffected (no key on a temp name; the artifact gate moved no function outside the
+regex helpers). Golden delta: only `byte-identity/regex` (5 targets); per function,
+4 of 188 changed — `#regex_simpleMatchAt` 518 → 218 instructions, its
+`_mfb_arena_alloc`/`_mfb_arena_free` gone; `#regex_run`, `#regex_run$own8`,
+`#regex_flatten` smaller by the same copy.
+
+Commits: `b61525f75` (RED), `4d3723997` (fix), `1c3dd2cac` (goldens), `b92112361` (fmt).
 
 References:
 
@@ -324,47 +347,47 @@ Rejected alternatives:
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_list_element_record_borrow.rs`: add
+- [x] `tests/runtime/rt_list_element_record_borrow.rs`: add
       `a_binding_read_only_through_a_match_of_a_union_element_is_bounded`, modeled on
       `a_binding_read_only_through_fields_of_an_immutable_list_is_bounded`, using `bounded()`
       (REPS vs 2×REPS allocation counts equal) with R1's `evalAt` body. The default
       `mfb build` is -O1, so it is RED today. Add an `-O3` variant if `run()` can pass `-O`.
-- [ ] Add a negative case: `a_match_extract_that_escapes_is_a_copy`, where a variant binding
+- [x] Add a negative case: `a_match_extract_that_escapes_is_a_copy`, where a variant binding
       is appended to another list and then the container is modified. Its output must equal
       the -O0 output. GREEN today; it must stay green.
-- [ ] Unit test in `borrow_get.rs` `mod tests`:
+- [x] Unit test in `borrow_get.rs` `mod tests`:
       `a_directly_matched_binding_after_place_forwarding_is_pinned`. Lower at `OptLevel(0)`,
       apply `placefwd::forward` under `with_opt_level(OptLevel(1), …)`, and assert
       `names`/`pinned` contain `e`. RED today; the probe above is the template.
-- [ ] Audit: a `last_use` MATCH-view probe (field moved out of an alias) at -O0 vs -O1, and
+- [x] Audit: a `last_use` MATCH-view probe (field moved out of an alias) at -O0 vs -O1, and
       the `handover.rs`/`module_analysis.rs` confirmation; write verdicts into Blast Radius.
 
 Acceptance: the new bounded test and unit test fail for the documented reason; the negative
 test passes; the audit is complete.
-Commit: —
+Commit: `b61525f75`
 
 ### Phase 2 — the fix
 
-- [ ] `borrow_get.rs:collect_borrow_gets`: the direct-scrutinee extract allowance (Fix Design),
+- [x] `borrow_get.rs:collect_borrow_gets`: the direct-scrutinee extract allowance (Fix Design),
       restricted to the match's own variant bindings.
-- [ ] Fix the `last_use.rs` views the same way if the audit finds a regression (else record
+- [x] Fix the `last_use.rs` views the same way if the audit finds a regression (else record
       the "clear" verdict).
-- [ ] Update the module comment in `borrow_get.rs` to describe the forwarded form.
+- [x] Update the module comment in `borrow_get.rs` to describe the forwarded form.
 
 Acceptance: the Phase 1 tests pass; R1 = 6 at every level; the `get-borrow-match-rt` stdout
 is unchanged; all `rt_list_element_record_borrow.rs` and `rt_recursive_value_*` tests pass.
-Commit: —
+Commit: `4d3723997`
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Run the full suite first. `.ncode`/NIR goldens of functions with `get` + `MATCH` (the
+- [x] Run the full suite first. `.ncode`/NIR goldens of functions with `get` + `MATCH` (the
       regex helper bodies, any fixture that has the shape) lose one alloc/copy/free
       sequence. Inspect one fixture per class, and accept only that delta.
-- [ ] Re-run bug-773's R3/R4 probes and record the numbers there.
-- [ ] Benchmark: re-baseline only as its own commit after the suite is green.
+- [x] Re-run bug-773's R3/R4 probes and record the numbers there (R4 at -O1: 435/1002/2821 µs → 275/283/309 µs).
+- [ ] Benchmark: **deferred** — one re-baseline after the next few bug fixes land, as its own commit (not run for this bug alone).
 
 Acceptance: full suite green; the golden deltas are exactly the removed copies.
-Commit: —
+Commit: `1c3dd2cac`, `b92112361`
 
 ## Validation Plan
 

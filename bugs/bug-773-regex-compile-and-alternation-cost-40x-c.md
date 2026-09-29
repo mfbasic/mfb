@@ -216,6 +216,8 @@ Cause 1). One character class adds ~815 allocations (the ASCII bitset, Root Caus
 
 At -O1 the per-position cost of a one-class pattern grows with its item count (`zzz…` × 1 350: `[o]` 435 µs, `[cdbfo]` 1 007 µs, `[abcdefghijklmno]` 2 822 µs; at -O0 491 / 575 / 629 µs). That is bug-776's per-visit leaf copy, not a regex cost; it is excluded from this doc's goals.
 
+**After bug-776's fix** (`/tmp/dbE-items`, min of 30, same host): -O1 `[o]` 275 µs, `[cdbfo]` 283 µs, `[abcdefghijklmno]` 309 µs; -O0 478 / 498 / 551 µs. The item-count growth at -O1 is gone; the remaining per-position cost is this doc's.
+
 | Environment | config | Result |
 | --- | --- | --- |
 | macos-aarch64 (this machine) | -O0 / -O1 / -O2 / -O3 | compile/scan costs ✗ |
