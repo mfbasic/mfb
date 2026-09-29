@@ -552,7 +552,8 @@ lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
 The result is an owned value (`mfb spec language memory-semantics` §14.6): an
 element held inline — a record, a data union, a nested collection — is copied
-into a fresh arena block, and an element whose type reaches a type cycle is
+into a fresh arena block (or, for a scratch copy below, into the function's
+record-temp scratch), and an element whose type reaches a type cycle is
 deep-copied. [[src/codegen/memory/owned.rs:materialize_owned_element]]
 
 The copy is skipped — the result is the address of the element inside the
@@ -584,6 +585,38 @@ The binding registers no scope-drop free: the container owns the element.
 A `String` element is always copied — its `get` builds the `String` block, so
 there is no element block to point at — and so is a `getOr` over a default
 the statement built (on a miss the result would be that temporary).
+
+A copy that cannot be skipped is still not always a block of its own. The
+function's **record-temp scratch** is one arena block per activation, shaped like
+the self-update scratch, reserved at its first use and freed at every exit;
+each value below has a region of its own in it, at an offset fixed at compile
+time, so two live at once never overlap. The block is only ever asked for the
+sum of its regions, so it never moves while a binding holds an address into it
+— which is why it is not the self-update scratch, which is freed and
+reallocated when an arm needs more room. It holds, for a record whose byte size
+is fixed at compile time (every field a scalar or such a record, `vector::Float3`
+or a record of `Float`s):
+
+- **A scratch copy.** A `get` (not `getOr`) binding, every bind of the name a
+  `get` of the same type, never reassigned, address-taken or captured by
+  reference, whose every read is a field access or the target of a `WITH` that
+  is the item of a `set`/`append`. Its `get` borrows the element and copies it
+  into the region at once, so it is a copy exactly as the block would be: the
+  two elements of an n-body pair step stay independent (`bj` never sees the
+  write to slot `i`, even when `i = j`), and neither allocates.
+  [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+- **The `WITH` item of `x = set(x, k, WITH e { … })` or
+  `x = append(x, WITH e { … })`.** The target and every update value are
+  evaluated first, in source order; only then are `e`'s bytes copied into the
+  region and the updated fields stored over them — a literal of an all-scalar
+  record (`vector::Float3[…]`) field by field, with no block of its own — and
+  the arm copies the region into the container. A failing update value writes
+  nothing, and `e` may be the element being replaced.
+  [[src/codegen/engine/control/builder_control.rs:lower_with_update_in_record_temp]]
+
+A region is rewritten only by the next evaluation of its own site, after which
+nothing reads the previous value; a recursive call or a callback has a block of
+its own. [[src/codegen/collection/assign/self_update.rs:install_record_temps]]
 
 ### Self-updates
 
