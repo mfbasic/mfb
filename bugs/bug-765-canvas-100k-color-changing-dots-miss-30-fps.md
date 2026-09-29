@@ -1,4 +1,4 @@
-# bug-763: Canvas renders 100,000 color-changing dots at 3 PPS / 4 FPS instead of 30
+# bug-765: Canvas renders 100,000 color-changing dots at 3 PPS / 4 FPS instead of 30
 
 Last updated: 2026-09-28
 Effort: huge (>3d)
