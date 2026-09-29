@@ -633,7 +633,7 @@ r#"' Stable bottom-up merge sort keyed by keyFn. keyFn is evaluated exactly once
 ' parallel and is stable on equal keys.
 FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
   LET n AS Integer = len(value)
-  IF n < 2 THEN
+  IF n = 0 THEN
     RETURN value
   END IF
   MUT items AS List OF T = value

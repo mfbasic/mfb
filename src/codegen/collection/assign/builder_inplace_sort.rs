@@ -549,9 +549,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
-        // One element: nothing to reorder, but the generic body still returns
-        // without calling keyFn; so does this.
-        self.emit(abi::compare_immediate(&count, "2"));
+        // Only an empty list skips: `keyFn` is called once for a one-element list
+        // (`mfb man collections sortBy`), as every other lowering does (bug-767 B)
+        // — the one-element merge and permutation are no-ops.
+        self.emit(abi::compare_immediate(&count, "1"));
         self.emit(abi::branch_lt(&skip));
         let (areas, temp_slot) = self.emit_sort_scratch(count_slot, 3, &element_type)?;
         let (keys_slot, perm_slot, pingpong_slot) = (areas[0], areas[1], areas[2]);
