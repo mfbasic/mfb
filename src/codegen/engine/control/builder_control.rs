@@ -741,10 +741,12 @@ impl CodeBuilder<'_> {
                 names.remove(&name);
                 continue;
             }
-            if let Some(update) = binding.update {
-                updates.updates.insert(update, name.clone());
+            for (update, write_back) in binding.sites() {
+                if let Some(update) = update {
+                    updates.updates.insert(update, name.clone());
+                }
+                updates.write_backs.extend(write_back);
             }
-            updates.write_backs.extend(binding.write_back);
             updates.bindings.insert(name, binding);
         }
         self.borrow_get_locals = names;
@@ -763,7 +765,19 @@ impl CodeBuilder<'_> {
     /// resizing the payload if it must). The write-back that follows is lowered as
     /// nothing either way, and `p` is dead after it, so its slot is never read
     /// again once the payload may have moved.
-    fn lower_element_update(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
+    ///
+    /// bug-766: `site` is the update statement's `op_key` (`None` for a
+    /// single-expression update); it may be `LET u = WITH p { … }` (`u` is never
+    /// bound — its one read is the write-back) or the fused
+    /// `xs = set(xs, i, WITH p { … })`, whose `WITH` is the update and which is
+    /// its own write-back.
+    fn lower_element_update(
+        &mut self,
+        name: &str,
+        site: Option<usize>,
+        value: &NirValue,
+    ) -> Result<(), String> {
+        let value = crate::codegen::engine::analysis::borrow_get::element_update_with(value);
         let binding = self
             .element_updates
             .bindings
@@ -811,7 +825,7 @@ impl CodeBuilder<'_> {
         if in_place? {
             return Ok(());
         }
-        let write_back = binding.write_back_op(value.clone());
+        let write_back = binding.write_back_op(site, value.clone());
         self.lower_ops(std::slice::from_ref(&write_back))
     }
 
@@ -893,9 +907,10 @@ impl CodeBuilder<'_> {
                 template: op.clone(),
                 update: None,
                 write_back: None,
+                other_sites: Vec::new(),
             },
         );
-        let result = self.lower_element_update(&hidden, &rewritten);
+        let result = self.lower_element_update(&hidden, None, &rewritten);
         self.element_updates.bindings.remove(&hidden);
         self.locals.remove(&hidden);
         result.map(|()| true)
@@ -1212,6 +1227,15 @@ impl CodeBuilder<'_> {
                         type_,
                         value,
                     } => {
+                        // bug-766: `LET u = WITH p { … }` standing for an
+                        // element-bound `p`'s update — `u` is never bound: its one
+                        // read is the write-back, lowered as nothing.
+                        let key = crate::codegen::engine::analysis::last_use::op_key(op);
+                        if let (Some(element), Some(value)) =
+                            (self.element_updates.updates.get(&key).cloned(), value)
+                        {
+                            return self.lower_element_update(&element, Some(key), value);
+                        }
                         let stack_offset = self.allocate_stack_object(name, 8);
                         // A non-escaping `MUT` by-ref capture: the env slot holds a
                         // pointer to the parent binding's slot, so this binding is a
@@ -1769,13 +1793,16 @@ impl CodeBuilder<'_> {
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
                         // bug-689: an element-bound write-back — the element already
-                        // holds the value it writes — and the single-expression update.
-                        if self
-                            .element_updates
-                            .write_backs
-                            .contains(&crate::codegen::engine::analysis::last_use::op_key(op))
-                        {
+                        // holds the value it writes — and the single-expression update;
+                        // bug-766: a fused element update is its own write-back.
+                        let key = crate::codegen::engine::analysis::last_use::op_key(op);
+                        if self.element_updates.write_backs.contains(&key) {
                             return Ok(());
+                        }
+                        if let (Some(element), Some(value)) =
+                            (self.element_updates.updates.get(&key).cloned(), value)
+                        {
+                            return self.lower_element_update(&element, Some(key), value);
                         }
                         if let Some(value) = value {
                             if self.try_single_expression_element_update(op, value)? {
@@ -1954,7 +1981,7 @@ impl CodeBuilder<'_> {
                             return Ok(());
                         }
                         if let Some(element) = self.element_updates.updates.get(&key).cloned() {
-                            return self.lower_element_update(&element, value);
+                            return self.lower_element_update(&element, Some(key), value);
                         }
                         if self.try_single_expression_element_update(op, value)? {
                             return Ok(());

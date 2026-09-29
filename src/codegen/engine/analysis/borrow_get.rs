@@ -45,6 +45,20 @@
 //! S1 leaves both `p` and the element unchanged (the field routes are failure
 //! atomic). The lowering refuses every route that would grow the element's block
 //! (`CodeBuilder::element_field_owner`).
+//!
+//! bug-766 admits three more spellings of the same S1+W pair, each held to the
+//! same rules:
+//!
+//! * **fused** — `xs = set(xs, i, WITH p { … })`: S1 and W are one statement (the
+//!   reads of `p` in the `WITH` are S1's), so adjacency holds trivially, and `p`
+//!   may be a `LET`. The statement is the update and has no separate write-back.
+//! * **through a temporary** — `LET u = WITH p { … }` then `xs = set(xs, i, u)`,
+//!   `u` bound once, never reassigned and read only there: the bind is S1 under a
+//!   new name, and `u` is never materialised.
+//! * **in every arm of an `IF`** — the statement after the window is an `IF` with
+//!   an `ELSE` whose every arm ends in a write-back of the same slot (an arm may
+//!   itself end in such an `IF`); each arm is checked with the per-block rule,
+//!   and the condition like a window statement.
 
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirOp, NirValue};
@@ -89,18 +103,37 @@ pub(crate) struct ElementBinding {
     /// The write-back statement `container = set(container, index, …)` as the
     /// source wrote it, for the copying fallback.
     pub(crate) template: NirOp,
-    /// `p = WITH p { … }` immediately before the write-back, if any (`op_key`).
+    /// The S1 statement (`op_key`): `p = WITH p { … }` or `LET u = WITH p { … }`
+    /// immediately before the write-back, or a fused write-back itself; `None`
+    /// when the element is written back unchanged.
     pub(crate) update: Option<usize>,
-    /// `container = set(container, index, p)` (`op_key`); `None` for a
-    /// single-expression update, which is its own write-back.
+    /// `container = set(container, index, p)` or `(…, u)` (`op_key`); `None` for
+    /// a single-expression or fused update, which is its own write-back.
+    pub(crate) write_back: Option<usize>,
+    /// bug-766: the sites in the other arms, when the write-back is in every arm
+    /// of an `IF` (the fields above are the first arm's).
+    pub(crate) other_sites: Vec<ElementSite>,
+}
+
+/// One update/write-back site of an [`ElementBinding`] — see its fields.
+#[derive(Clone)]
+pub(crate) struct ElementSite {
+    pub(crate) template: NirOp,
+    pub(crate) update: Option<usize>,
     pub(crate) write_back: Option<usize>,
 }
 
 impl ElementBinding {
-    /// `container = set(container, index, item)` — the statement an element
-    /// update stands for, lowered as written when no in-place route serves it.
-    pub(crate) fn write_back_op(&self, item: NirValue) -> NirOp {
-        let mut op = self.template.clone();
+    /// `container = set(container, index, item)` — the statement the update
+    /// `update` (`op_key`; `None` for a single-expression update) stands for,
+    /// lowered as written when no in-place route serves it.
+    pub(crate) fn write_back_op(&self, update: Option<usize>, item: NirValue) -> NirOp {
+        let template = self
+            .other_sites
+            .iter()
+            .find(|site| update.is_some() && site.update == update)
+            .map_or(&self.template, |site| &site.template);
+        let mut op = template.clone();
         let value = match &mut op {
             NirOp::Assign { value, .. } => value,
             NirOp::StoreGlobal {
@@ -112,6 +145,32 @@ impl ElementBinding {
             args[2] = item;
         }
         op
+    }
+
+    /// Every site's `(update, write_back)`: the first, then [`Self::other_sites`].
+    pub(crate) fn sites(&self) -> impl Iterator<Item = (Option<usize>, Option<usize>)> + '_ {
+        std::iter::once((self.update, self.write_back)).chain(
+            self.other_sites
+                .iter()
+                .map(|site| (site.update, site.write_back)),
+        )
+    }
+}
+
+/// The `WITH` an element update statement registered in
+/// [`ElementBinding::update`] applies: the statement's own value for
+/// `p = WITH p { … }` / `LET u = WITH p { … }`, the item of a fused
+/// `container = set(container, i, WITH p { … })`.
+pub(crate) fn element_update_with(value: &NirValue) -> &NirValue {
+    match value {
+        NirValue::Call { target, args, .. }
+            if builtin(target) == Some("set")
+                && args.len() == 3
+                && matches!(args[2], NirValue::WithUpdate { .. }) =>
+        {
+            &args[2]
+        }
+        _ => value,
     }
 }
 
@@ -219,13 +278,12 @@ fn index_locals(value: &NirValue, out: &mut HashSet<String>) {
     }
 }
 
-/// `container = set(container, index, Local(item))` — the write-back of an
-/// element-bound `item`: `Some(index)` when `op` has that shape.
-fn write_back_index<'o>(
+/// `container = set(container, index, item)`: `Some((index, item))` when `op`
+/// has that shape.
+fn write_back_of<'o>(
     op: &'o NirOp,
     container: &ContainerRef,
-    item: &str,
-) -> Option<&'o NirValue> {
+) -> Option<(&'o NirValue, &'o NirValue)> {
     let value = match (op, container) {
         (NirOp::Assign { name, value }, ContainerRef::Local(c)) if name == c => value,
         (
@@ -244,7 +302,13 @@ fn write_back_index<'o>(
     if builtin(target) != Some("set") || args.len() != 3 || !container.is(&args[0]) {
         return None;
     }
-    matches!(&args[2], NirValue::Local(p) if p == item).then_some(&args[1])
+    Some((&args[1], &args[2]))
+}
+
+/// `WITH item { … }` — a `WITH` over the local `item`.
+fn is_with_over(value: &NirValue, item: &str) -> bool {
+    matches!(value, NirValue::WithUpdate { target, .. }
+        if matches!(target.as_ref(), NirValue::Local(t) if t == item))
 }
 
 /// Every op list in `ops`, depth-first: the top level and each nested body.
@@ -581,6 +645,164 @@ pub(crate) fn bind_single_expression_element(
     })
 }
 
+/// The element-bound rules for one `get` binding `e` (see the module doc).
+struct SiteCheck<'a> {
+    e: &'a str,
+    container: &'a ContainerRef,
+    index: &'a NirValue,
+    /// The locals `index` reads.
+    index_names: &'a HashSet<String>,
+    /// Whether a local may stand for S1's result: see the through-a-temporary
+    /// spelling.
+    single_use: &'a dyn Fn(&str) -> bool,
+    global_written: &'a dyn Fn(&[NirOp], &str) -> bool,
+}
+
+/// The sites [`SiteCheck::segment`] accepted, with the reads of `e` and the
+/// `e = WITH e { … }` statements they account for.
+#[derive(Default)]
+struct SiteTally {
+    sites: Vec<ElementSite>,
+    reads: usize,
+    reassignments: usize,
+}
+
+impl SiteCheck<'_> {
+    /// `op` writes the container, or is an `IF` with an `ELSE` whose every arm
+    /// ends in such a statement.
+    fn is_terminal(&self, op: &NirOp) -> bool {
+        match op {
+            NirOp::If {
+                then_body,
+                else_body,
+                ..
+            } => [then_body, else_body]
+                .iter()
+                .all(|arm| arm.last().is_some_and(|last| self.is_terminal(last))),
+            _ => write_back_of(op, self.container).is_some(),
+        }
+    }
+
+    /// Nothing `ops` runs writes the container or a local of the index.
+    fn holds_still(&self, ops: &[NirOp]) -> bool {
+        !writes_any(ops, self.index_names)
+            && container_untouched(ops, self.container, self.global_written)
+    }
+
+    /// `ops[start..w]` is a window, and `ops[w]` writes `e` back to its slot — or is
+    /// an `IF` each of whose arms is such a segment. Records the accepted sites
+    /// and the reads of `e` they account for into `tally`.
+    fn segment(&self, ops: &[NirOp], start: usize, w: usize, tally: &mut SiteTally) -> bool {
+        let this = HashSet::from([self.e.to_string()]);
+        if let NirOp::If {
+            condition,
+            then_body,
+            else_body,
+        } = &ops[w]
+        {
+            // The window and the condition run before either arm: field reads of
+            // `e` only, and nothing that writes the container or the index.
+            let before = &ops[start..w];
+            let condition = [NirOp::Eval {
+                value: condition.clone(),
+            }];
+            let window = reads_in(before, &this);
+            let tested = reads_in(&condition, &this);
+            if window.all != window.member
+                || tested.all != tested.member
+                || !self.holds_still(before)
+                || !self.holds_still(&condition)
+            {
+                return false;
+            }
+            tally.reads += window.all + tested.all;
+            return [then_body, else_body]
+                .iter()
+                .all(|arm| !arm.is_empty() && self.segment(arm, 0, arm.len() - 1, tally));
+        }
+        let Some((index, item)) = write_back_of(&ops[w], self.container) else {
+            return false;
+        };
+        if !same_index(index, self.index) {
+            return false;
+        }
+        let key = |j: usize| op_key(&ops[j]);
+        // S1 (the statement holding `WITH e { … }`, if any) and the site.
+        let (s1, site) = match item {
+            // `e = WITH e { … }` (optional) / `xs = set(xs, i, e)`.
+            NirValue::Local(p) if p == self.e => {
+                let s1 = (w > start).then(|| w - 1).filter(|&j| {
+                    matches!(&ops[j], NirOp::Assign { name, value }
+                        if name == self.e && is_with_over(value, self.e))
+                });
+                tally.reads += 1;
+                tally.reassignments += usize::from(s1.is_some());
+                (
+                    s1,
+                    ElementSite {
+                        template: ops[w].clone(),
+                        update: s1.map(key),
+                        write_back: Some(key(w)),
+                    },
+                )
+            }
+            // `LET u = WITH e { … }` / `xs = set(xs, i, u)`.
+            NirValue::Local(u) => {
+                let bound = (w > start).then(|| w - 1).filter(|&j| {
+                    matches!(&ops[j], NirOp::Bind { name, value: Some(value), .. }
+                        if name == u && is_with_over(value, self.e))
+                });
+                let Some(s1) = bound.filter(|_| (self.single_use)(u)) else {
+                    return false;
+                };
+                (
+                    Some(s1),
+                    ElementSite {
+                        template: ops[w].clone(),
+                        update: Some(key(s1)),
+                        write_back: Some(key(w)),
+                    },
+                )
+            }
+            // Fused: `xs = set(xs, i, WITH e { … })`. The window below stops
+            // before W, so W's own update values are checked here.
+            with if is_with_over(with, self.e) => {
+                if !self.holds_still(&[NirOp::Eval {
+                    value: with.clone(),
+                }]) {
+                    return false;
+                }
+                (
+                    Some(w),
+                    ElementSite {
+                        template: ops[w].clone(),
+                        update: Some(key(w)),
+                        write_back: None,
+                    },
+                )
+            }
+            _ => return false,
+        };
+        // In S1 `e` is read through fields and once as the WITH's target.
+        if let Some(s1) = s1 {
+            let update = reads_in(std::slice::from_ref(&ops[s1]), &this);
+            if update.with_target != 1 || update.all != update.member + update.with_target {
+                return false;
+            }
+            tally.reads += update.all;
+        }
+        // Before S1, only through fields; and nothing before W writes the
+        // container or a local of the index.
+        let window = reads_in(&ops[start..s1.unwrap_or(w)], &this);
+        if window.all != window.member || !self.holds_still(&ops[start..w]) {
+            return false;
+        }
+        tally.reads += window.all;
+        tally.sites.push(site);
+        true
+    }
+}
+
 /// See the module doc. `global_written(ops, g)` answers whether running `ops` can
 /// reach a `StoreGlobal` of `g`; a caller that cannot answer may say `false`
 /// ONLY if it uses the result solely to exclude names (the answer then describes
@@ -834,62 +1056,57 @@ pub(crate) fn collect_borrow_gets(
         let Some(&(block, k)) = sites.get(e.as_str()) else {
             continue;
         };
-        let Some(w) = (k + 1..block.len())
-            .find(|&j| write_back_index(&block[j], &get.container, e).is_some())
-        else {
-            continue;
-        };
-        if !write_back_index(&block[w], &get.container, e)
-            .is_some_and(|index| same_index(index, &get.index))
-        {
-            continue;
-        }
-        // S1: `e = WITH e { … }` right before the write-back.
-        let update = (w > k + 1)
-            .then(|| &block[w - 1])
-            .filter(|op| {
-                matches!(op, NirOp::Assign { name, value: NirValue::WithUpdate { target, .. } }
-                    if name == e && matches!(target.as_ref(), NirValue::Local(t) if t == e))
-            })
-            .map(|_| w - 1);
-        let reads_end = update.unwrap_or(w);
-        let this = HashSet::from([e.clone()]);
-        let window = &block[k + 1..reads_end];
-        let window_reads = reads_in(window, &this);
-        let update_reads = match update {
-            Some(s1) => reads_in(std::slice::from_ref(&block[s1]), &this),
-            None => Reads::default(),
-        };
-        // `e` is read only through fields before S1; in S1 through fields and as the
-        // WITH's target; at W once, as the item; and nowhere else.
-        let reassignments = count(&c.assign_counts, e);
-        if window_reads.all != window_reads.member
-            || update_reads.all != update_reads.member + update_reads.with_target
-            || update.is_some_and(|_| update_reads.with_target != 1)
-            || reassignments != usize::from(update.is_some())
-            || reads(e) != window_reads.all + update_reads.all + 1
-        {
-            continue;
-        }
-        // Nothing before W — the bind included (see the read-only window) — writes
-        // the container, or any local of the index.
-        let before_w = &block[k..w];
         let mut index_names = HashSet::new();
         index_locals(&get.index, &mut index_names);
-        if index_names.iter().any(|n| address_taken.contains(n))
-            || writes_any(before_w, &index_names)
-            || !container_untouched(before_w, &get.container, global_written)
+        if index_names.iter().any(|n| address_taken.contains(n)) {
+            continue;
+        }
+        // bug-766: `u` of `LET u = WITH e { … }` / `set(xs, i, u)` — bound once,
+        // never reassigned or captured by reference, read only by the `set`.
+        let single_use = |u: &str| {
+            count(&c.bind_counts, u) == 1
+                && !assigned(u)
+                && !address_taken.contains(u)
+                && !c.by_ref_captures.contains(u)
+                && reads(u) == 1
+        };
+        let check = SiteCheck {
+            e,
+            container: &get.container,
+            index: &get.index,
+            index_names: &index_names,
+            single_use: &single_use,
+            global_written,
+        };
+        // The first statement after the bind that writes the container (or is an
+        // `IF` every arm of which ends by writing it). The window before it runs
+        // from the bind itself (see the read-only window).
+        let Some(w) = (k + 1..block.len()).find(|&j| check.is_terminal(&block[j])) else {
+            continue;
+        };
+        let mut tally = SiteTally::default();
+        // `e` is read only through fields outside its S1s and write-backs, is
+        // reassigned only by its S1s, and nothing between the bind and each W
+        // writes the container or a local of the index.
+        if !check.segment(block, k, w, &mut tally)
+            || count(&c.assign_counts, e) != tally.reassignments
+            || reads(e) != tally.reads
         {
             continue;
         }
+        let mut sites = tally.sites.into_iter();
+        let Some(first) = sites.next() else {
+            continue;
+        };
         out.names.insert(e.clone());
         out.elements.insert(
             e.clone(),
             ElementBinding {
                 type_: get.type_.clone(),
-                template: block[w].clone(),
-                update: update.map(|s1| op_key(&block[s1])),
-                write_back: Some(op_key(&block[w])),
+                template: first.template,
+                update: first.update,
+                write_back: first.write_back,
+                other_sites: sites.collect(),
             },
         );
     }
@@ -1090,6 +1307,112 @@ END FUNC
         let binding = got.elements.get("p").expect("p is element-bound");
         assert!(binding.update.is_some() && binding.write_back.is_some());
         assert!(got.names.contains("p"));
+    }
+
+    /// bug-766: `set(xs, i, WITH p { … })` is the S1+W pair in one statement.
+    #[test]
+    fn a_with_over_the_binding_as_the_set_item_is_element_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET p AS P = collections::get(xs, i)\n    LET n AS Integer = p.age\n    \
+             xs = collections::set(xs, i, WITH p { age := n + p.age })\n  NEXT\n  \
+             RETURN len(xs)\nEND FUNC\n",
+        );
+        let binding = got.elements.get("p").expect("p is element-bound");
+        // The fused statement is the update and its own write-back.
+        assert!(binding.update.is_some() && binding.write_back.is_none());
+        assert!(binding.other_sites.is_empty() && got.names.contains("p"));
+    }
+
+    /// bug-766: `LET u = WITH p { … }` / `set(xs, i, u)` — `u` is S1's result.
+    #[test]
+    fn a_let_bound_with_before_its_set_is_element_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET p AS P = collections::get(xs, i)\n    LET u AS P = WITH p { age := p.age + 1 }\n    \
+             xs = collections::set(xs, i, u)\n  NEXT\n  RETURN len(xs)\nEND FUNC\n",
+        );
+        let binding = got.elements.get("p").expect("p is element-bound");
+        assert!(binding.update.is_some() && binding.write_back.is_some());
+        // `u` read again is a second use of S1's result: no element binding.
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET p AS P = collections::get(xs, 0)\n  LET u AS P = WITH p { age := p.age + 1 }\n  \
+             xs = collections::set(xs, 0, u)\n  RETURN u.age\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty());
+    }
+
+    /// bug-766: a write-back in every arm of an `IF`, each arm its own site.
+    #[test]
+    fn write_backs_in_both_if_arms_are_element_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET p AS P = collections::get(xs, i)\n    IF p.age > 1 THEN\n      \
+             xs = collections::set(xs, i, WITH p { age := p.age + 1 })\n    ELSE\n      \
+             LET n AS Integer = p.age * 2\n      LET u AS P = WITH p { age := n }\n      \
+             xs = collections::set(xs, i, u)\n    END IF\n  NEXT\n  RETURN len(xs)\nEND FUNC\n",
+        );
+        let binding = got.elements.get("p").expect("p is element-bound");
+        assert_eq!(binding.sites().count(), 2);
+        assert!(binding.sites().all(|(update, _)| update.is_some()));
+    }
+
+    #[test]
+    fn a_write_back_in_one_if_arm_only_is_not_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET p AS P = collections::get(xs, i)\n    IF p.age > 1 THEN\n      \
+             xs = collections::set(xs, i, WITH p { age := p.age + 1 })\n    ELSE\n      \
+             io::print(toString(p.age))\n    END IF\n  NEXT\n  RETURN len(xs)\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty() && !got.names.contains("p"));
+        // No ELSE at all.
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  FOR i = 0 TO 1\n    \
+             LET p AS P = collections::get(xs, i)\n    IF p.age > 1 THEN\n      \
+             xs = collections::set(xs, i, WITH p { age := p.age + 1 })\n    END IF\n  NEXT\n  \
+             RETURN len(xs)\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty() && !got.names.contains("p"));
+    }
+
+    #[test]
+    fn a_read_of_the_binding_after_a_with_item_set_is_not_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET p AS P = collections::get(xs, 0)\n  \
+             xs = collections::set(xs, 0, WITH p { age := 7 })\n  RETURN p.age\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty() && !got.names.contains("p"));
+    }
+
+    #[test]
+    fn a_write_to_the_container_between_the_bind_and_the_set_is_not_bound() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET p AS P = collections::get(xs, 0)\n  \
+             xs = collections::append(xs, P[age := 9, trail := []])\n  \
+             xs = collections::set(xs, 0, WITH p { age := p.age + 1 })\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty() && !got.names.contains("p"));
+        // Nor inside an arm before its write-back.
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET p AS P = collections::get(xs, 0)\n  IF p.age > 1 THEN\n    \
+             xs = collections::set(xs, 0, WITH p { age := 1 })\n  ELSE\n    \
+             xs = collections::append(xs, P[age := 9, trail := []])\n    \
+             xs = collections::set(xs, 0, WITH p { age := 2 })\n  END IF\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty() && !got.names.contains("p"));
+        // Nor by the update's own values.
+        let got = classify(
+            "FUNC g(ys AS List OF P) AS Integer\n  RETURN len(ys)\nEND FUNC\n\
+             FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  \
+             LET p AS P = collections::get(xs, 0)\n  \
+             xs = collections::set(xs, 0, WITH p { age := g(xs) })\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(got.elements.is_empty());
     }
 
     #[test]
