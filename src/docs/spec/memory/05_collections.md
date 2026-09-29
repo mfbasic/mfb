@@ -856,7 +856,16 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites run in place:
 the sort is a stable in-place O(n²)-comparison / O(1)-swap pass over a copy of the
-argument (the argument itself is never modified).
+argument (the argument itself is never modified). That body is now only the
+fallback: a copying `sort`/`sortBy` whose shape the 8-byte word merge declines
+(any record element, a `Float`/`Byte`/`Scalar` element, any key type the word merge
+does not take) copies the argument once — a tight copy, or the graph copy for a
+type-cycle element — and sorts that copy with the self-update arm's stable
+index-permutation merge, so it costs what `MUT s = xs` / `s = sortBy(s, keyFn)`
+costs (bug-767). The source body stays for a function that cannot take the
+self-update scratch.
+[[src/codegen/collection/assign/builder_inplace_sort.rs:lower_copying_sort_by]]
+[[src/codegen/collection/assign/builder_inplace_sort.rs:lower_copying_sort]]
 
 ### `insert`
 

@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (performance) + Correctness (sub-issue B: observable `keyFn` call count differs by lowering)
 
-Status: Open
-Regression Test: `tests/runtime/rt_sortby_copying_native.rs` (to be added, Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_sortby_copying_native.rs`
 
 The copying form of `collections::sortBy` — the result bound to a new name, the source left intact, which is how
 `elem rec_sortby` and most programs call it — has a native lowering only for **8-byte fixed-width items with
@@ -35,6 +35,34 @@ while the generic body and the in-place arm call it zero times. The man page (`m
 "`keyFn` is not called for an empty list and is called once for a one-element list". The same program therefore
 observes a different number of `keyFn` calls depending on the element/key types. After the fix, every lowering
 calls `keyFn` exactly as the Open Decision settles (recommended: as the man page says).
+
+## STATUS: FIXED (merged from `worktree-B-767`)
+
+- **A** — a copying `sort`/`sortBy` whose shape the 8-byte word merge declines copies
+  `value` once (tight copy, graph copy for a type-cycle element, or a fresh temp
+  adopted) and sorts it with the self-update arm's index-permutation merge, extracted
+  into `emit_sort_buffer`/`emit_sort_by_buffer` (the self-update arms' `.ncode` stayed
+  byte-identical: 52 dumps at -O0..-O3 compared). `prescan_self_update_scratch`
+  reserves the scratch for such calls. Allocations now **equal** the self-update
+  spelling in every case (bound was +4); `rec_sortby` 23.2 → 1.19 ms per 20 sorts,
+  `flt_sort` shape 16.8 → 5.1 ms. **Deviation:** the `.mfb` instantiation is still
+  emitted (unreferenced), as it already is for the native Integer path, so Phase 3's
+  "the instantiation disappears" does not hold as written.
+- **B** — owner decision per the Open Decision's recommendation (the documented
+  behaviour stands): every lowering calls `keyFn` once for a one-element list; the
+  generic body and the in-place arm now skip only an empty list. No man/spec change.
+- **C (found here)** — a capturing `LAMBDA` passed as `keyFn` to a copying `sortBy`
+  leaked 2 blocks per call (pre-existing): the closure-free check counted the
+  monomorphised body's forward of `keyFn` to `transform` as retention. A parameter
+  that is only forwarded whole to non-retaining positions is now non-retaining
+  (`builder_values.rs:nonretaining_callback_at`, recursive, fail-closed); this also
+  fixes a user `FUNC` that forwards its callback to `transform`.
+- **Found, filed separately:** bug-781 — a capturing closure stored in a record field
+  leaks when the record is dropped (pre-existing).
+
+Commits: `2947a600e` (RED), `a5f61af3b` (B), `f85feb69d` + `9ace53924` (A),
+`dbc27321e` (C), `f59220903` (bug-781 filed), `a85cf3f4c` (goldens: B's guard in 7
+`.ir` + the cover's `#collections_sortBy$Integer$Integer`), `a73684bec` (fmt).
 
 References:
 
@@ -232,39 +260,39 @@ allocation but keeps n·log n payload copies and the whole-list copies per pass 
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_sortby_copying_native.rs`, modeled on `tests/runtime/rt_inplace_sort.rs` (print the
+- [x] Add `tests/runtime/rt_sortby_copying_native.rs`, modeled on `tests/runtime/rt_inplace_sort.rs` (print the
       copying result beside the self-update result for the same input) plus the bounded-allocation shape of
       `tests/runtime/rt_list_element_record_borrow.rs` (`--debug`, n and 2n, allocations must not scale with
       n·log n). Cases: record element × {`Float`, `Integer`, `String`} key; fixed-width record; `Float` `sort`;
       ties (stability); a failing `keyFn` (no list, `alloc_calls = free_calls`); a type-cycle element; n = 0, 1, 2.
       Confirm the allocation assertions fail today and the value comparisons pass.
-- [ ] Add the n = 1 `keyFn`-count case for all three lowerings (it fails today on whichever side the decision
+- [x] Add the n = 1 `keyFn`-count case for all three lowerings (it fails today on whichever side the decision
       picks).
-- [ ] Record each Blast Radius verdict here after re-running its probe.
+- [x] Record each Blast Radius verdict here after re-running its probe.
 
 Acceptance: the new allocation cases fail for the documented reason; the value cases pass; B's case fails.
-Commit: —
+Commit: `2947a600e`
 
 ### Phase 2 — the fix
 
-- [ ] Steps 1–3 of the Fix Design (`builder_inplace_sort.rs`, `func_sort_by.rs`, `func_sort.rs`, `self_update.rs`).
-- [ ] Step 4 (B) after the Open Decision.
+- [x] Steps 1–3 of the Fix Design (`builder_inplace_sort.rs`, `func_sort_by.rs`, `func_sort.rs`, `self_update.rs`).
+- [x] Step 4 (B) after the Open Decision.
 
 Acceptance: Phase 1 cases green; the self-update arms' `.ncode` for `tests/runtime/rt_inplace_sort.rs`'s program is
 byte-identical to before step 1; `rec_sortby` probe ≤ 100 µs/sort.
-Commit: —
+Commit: `a5f61af3b`, `f85feb69d`, `9ace53924`, `dbc27321e`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate the `.ncode` goldens that hold a copying `sort`/`sortBy`; inspect one per shape — the delta must be
+- [x] Regenerate the `.ncode` goldens that hold a copying `sort`/`sortBy`; inspect one per shape — the delta must be
       the removed `__collections_sortBy`/`__collections_sort` instantiation and the added scratch/permutation code.
-- [ ] Full suite; re-run `elem rec_sortby`, `elem flt_sort`, `list sortBy` and every `sortBy` row in the logs.
-- [ ] Sync `mfb man collections sortBy` only if B's decision changes the documented behaviour; sync
+- [x] Full suite; re-run `elem rec_sortby`, `elem flt_sort`, `list sortBy` and every `sortBy` row in the logs.
+- [x] Sync `mfb man collections sortBy` only if B's decision changes the documented behaviour; sync
       `mfb spec memory collections` (the copying `sort`/`sortBy` now share the self-update arm's algorithm) and
       `.ai/collections.md`.
 
 Acceptance: full suite green; the rows meet the Goal.
-Commit: —
+Commit: `a85cf3f4c`, `a73684bec` (spec sync in the archive commit)
 
 ## Validation Plan
 
