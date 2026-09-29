@@ -4,16 +4,6 @@ Last updated: 2026-09-27
 Effort: x-large (1d–3d)
 Depends on: plan-163-A (see Prerequisites)
 
-**Split required before implementation.** This letter is x-large, and the write-plan
-split rule needs medium/large units. It was written as one letter because it was asked
-for as one. Before Phase 1 starts, split it along the phase boundaries below:
-
-1. B: caps on `Paint`, Square cap, joins (Phases 1–4).
-2. C: dashes (Phases 5–6).
-
-The docs phase goes with whichever letter lands last. Phase numbering here is the
-implementation order either way.
-
 SVG strokes are styled by `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`,
 `stroke-dasharray` and `stroke-dashoffset`. Canvas has a per-item `cap` on `Line`,
 `Arc` and `PolyLine` only, with `Butt`/`Round` but no `Square`. It has no join choice:
@@ -63,7 +53,6 @@ References:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-163-A complete and archived | `ls planning/completed/plan-163-A-*` → match | NOT MET (2026-09-27: A is not started) |
-| This letter has been split into B and C per the note above | `ls planning/plan-163-C-*` → match | NOT MET |
 
 Everything below is written against the world where A has landed:
 `Polygon.contours`, `Polygon.rule`, header slot 21 = rule, and item word `arc.y` = rule
