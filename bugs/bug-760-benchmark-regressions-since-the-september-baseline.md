@@ -423,15 +423,52 @@ Commit: `802c29611` (tests)
 
 ### Phase 2 — the fixes (one commit per sub-issue)
 
-- [ ] A: shared re-evaluation-safe place predicate used by `group_by_fast_path` and
-      `sort_by_fast_path` (and any audit hit).
-- [ ] B1: tombstone / linear-pass compaction in `compact_from` paths.
-- [ ] B2: O(1) reclaim trigger with a header dead-byte counter; word copies.
-- [ ] C: spill-choice + scratch reservation in `linear_scan.rs:run`.
-- [ ] D: covered by C; plus fix or prove `promote`'s "never worse" doc claim.
+- [x] A: `engine/value/reeval.rs:is_reevaluation_safe` (moved out of the vector
+      package) is the one place predicate; `group_by_fast_path` and
+      `sort_by_fast_path` call it, so a `MemberAccess` chain rooted at a
+      Local/Global/LocalRef (not a call) takes the native path. Audit: all four
+      `Local`-only sites **unaffected** — `owned_param_bind_moves` (ownership move,
+      not re-evaluation; the LET is gone before it sees a field), 
+      `mark_vector_escaping_value` (already `MemberAccess`-aware),
+      `owns_field_iterable` (the field-rooted branch takes over by design),
+      `gen_math.rs` (`MemberAccess` and `Local` arms identical).
+- [x] B1: tombstone + lazy compaction. A removal at a probed binding deletes the
+      bucket and flags the entry `REMOVED`; `_mfb_rt_map_retire` truncates a
+      trailing run (bug-732's back-removal win) or counts the tombstone (24-bit
+      count in bytes 5..7 of `COLLECTION_OFFSET_MAP_STATE`) and compacts once
+      `2*dead > count`. Readers never see a tombstone: `lower_value` settles every
+      Map/Set Local/Global read (`_mfb_rt_map_settle`) except `len`/`isEmpty`
+      (`count - dead`) and the probing `get`/`getOr`/`hasKey`/`contains`. Record/
+      STATE fields and non-probed key types keep bug-732's slide. **Found and fixed
+      in the same change:** a value-grow `set` held its entry index across a
+      reclaim that now drops tombstones; the reclaim takes the index's address and
+      rewrites it. Settle-clobber audit (184 `lower_value` callers, a
+      register-poisoning build over the full acceptance suite at -O0/-O1, probes on
+      aarch64/riscv64/x86-64): no site holds a physical register or flags across a
+      settle.
+- [x] B2: **deviation** — the reclaim copies payloads a word at a time and skips
+      in-place ones, but there is **no** header dead-byte counter: B1's tombstone
+      count took the only free header bytes, and the O(count) trigger walk runs only
+      at a grow that already copies O(count); the time was in the byte copy
+      (measured). Gate ×2.14 → ×0.85.
+- [x] C: `linear_scan.rs:run` — loop-weighted spill cost (8^depth, ≤ 3, over
+      interval length); a newcomer that finds no register evicts the cheapest
+      legal active holder if it is cheaper, else spills itself; every access of a
+      spilled vreg is booked as a one-instruction scratch interval colored during
+      the scan (spilling the cheapest non-user holder if none is free); a
+      spilled-to-itself copy is dropped. -O0 unchanged. Also fixed: at -O2 a split
+      interval was marked in its head register for its whole life and its tail
+      register never (latent, found by reading). Doc: `.ai/codegen-invariants.md`,
+      spec `architecture/06_native.md`.
+- [x] D: covered by C; `promote.rs`'s false "never worse" claim replaced.
+- [x] Found while measuring C (not a regression of this bug): riscv64
+      `select.rs:float_branch` kept the compare bool in `t0`, which an FP restore
+      with a large `sp` offset overwrites (`nbody` -O1 raised a spurious overflow on
+      box 2229). Now `t1`; unit test `float_compare_branch_keeps_its_bool_out_of_t0`.
 
 Acceptance: Phase 1 tests pass; contrast cases unchanged; Non-goals intact.
-Commit: —
+Commit: `0a110ee0e`, `ada9aeddb` (A); `8f069dc0f` (B1); `ec04785ab` (B2);
+`8af918c88`, `69abdc711` (C/D); `74ed4b89a` (riscv64); `b53f08e27` (fmt).
 
 ### Phase 3 — regenerate + full validation
 
