@@ -927,6 +927,10 @@ name = "rt_map_fifo_removal_flat"
 path = "tests/runtime/rt_map_fifo_removal_flat.rs"
 
 [[test]]
+name = "rt_field_map_fifo_removal_flat"
+path = "tests/runtime/rt_field_map_fifo_removal_flat.rs"
+
+[[test]]
 name = "rt_map_list_value_grow_cost"
 path = "tests/runtime/rt_map_list_value_grow_cost.rs"
 
