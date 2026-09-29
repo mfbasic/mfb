@@ -112,6 +112,13 @@ FUNC accFail(total AS Integer, s AS String) AS Integer
   RETURN total + len(s)
 END FUNC
 
+FUNC concatFail(total AS String, s AS String) AS String
+  IF s = longKey() THEN
+    FAIL error(77050002, \"boom\")
+  END IF
+  RETURN total & s
+END FUNC
+
 FUNC eachFail(s AS String) AS Nothing
   IF s = longKey() THEN
     FAIL error(77050002, \"boom\")
@@ -150,6 +157,12 @@ const CASES: &[(&str, &str)] = &[
     (
         "reduce",
         "LET r AS Integer = collections::reduce(xs, 0, accFail)",
+    ),
+    (
+        // The accumulator built over the first ten elements is the loop's own
+        // block when the reducer fails; it leaked with the item.
+        "reduce_string_accumulator",
+        "LET r AS String = collections::reduce(xs, \"\", concatFail)",
     ),
     (
         "reduceRight",

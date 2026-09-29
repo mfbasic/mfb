@@ -300,7 +300,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok));
         // A failing predicate: `x` has not been touched; route the error.
-        self.emit_callback_failure_exit(None)?;
+        self.emit_callback_failure_exit(&[], Some((item_slot, &element_type)))?;
         self.emit(abi::label(&ok));
         // Take the verdict out of the result register before anything else can
         // be colored onto it.

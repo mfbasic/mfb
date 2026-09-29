@@ -206,7 +206,10 @@ pub(crate) fn lower_transform(
     // A failing callback: free the partial output list (a private, uniquely-
     // owned buffer) before routing the raw error to the inline-TRAP capture
     // point (plan-26-B); non-trapped, this is the same auto-propagating return.
-    builder.emit_callback_failure_exit(Some((output_slot, output_list_type.clone())))?;
+    builder.emit_callback_failure_exit(
+        &[(output_slot, output_list_type.clone())],
+        Some((free_slot, &element_type)),
+    )?;
     builder.emit(abi::label(&ok_label));
 
     let item_slot = builder.allocate_stack_object("transform_item", 8);

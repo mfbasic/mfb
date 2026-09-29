@@ -495,16 +495,52 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        // Failure path (bug-307 / plan-26-B): pass `None` (no cleanup). The
-        // success path below reclaims the superseded item and accumulator via
-        // runtime aliasing checks, but on a *failing* iteration the current item
-        // and accumulator may still alias the reducer's live inputs or the
-        // non-owned seed, and the ownership bookkeeping has not yet been committed
-        // for this iteration — so freeing here could double-free or free a
-        // borrowed block after the handler recovers. Leaking the at-most-one
-        // in-flight item/accumulator on the rare error path is the safe choice;
-        // the hot success path is where the reclamation matters (plan-86-B).
-        self.emit_callback_failure_exit(None)?;
+        // Failure path (bug-777). A failed reducer produced no result, so nothing
+        // can alias this iteration's blocks: the item is the fresh `String` block
+        // `load_collection_loop_item` materialized for this call alone, and the
+        // accumulator is exactly what the previous iteration committed, with its
+        // ownership in `acc_owned_slot` (0 for the caller's seed, which is never
+        // this loop's to free). Free both — every failing call leaked them before.
+        if let (Some(item_slot), Some(acc_owned_slot)) = (item_slot, acc_owned_slot) {
+            let regs = [
+                RESULT_TAG_REGISTER,
+                RESULT_VALUE_REGISTER,
+                RESULT_ERROR_MESSAGE_REGISTER,
+                RESULT_ERROR_SOURCE_REGISTER,
+            ];
+            let saved: Vec<usize> = regs
+                .iter()
+                .map(|_| self.allocate_stack_object("reduce_fail_result", 8))
+                .collect();
+            for (reg, slot) in regs.iter().zip(&saved) {
+                self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
+            }
+            self.free_collection_loop_item(item_slot, &element_type)?;
+            if initial.type_ == ParameterType::String || acc_is_block {
+                let owned = self.temporary_vreg();
+                let acc_not_owned = self.label("reduce_fail_acc_not_owned");
+                self.emit(abi::load_u64(&owned, abi::stack_pointer(), acc_owned_slot));
+                self.emit(abi::compare_immediate(&owned, "0"));
+                self.emit(abi::branch_eq(&acc_not_owned));
+                if initial.type_ == ParameterType::String {
+                    self.free_collection_loop_item(accumulator_slot, &ParameterType::String)?;
+                } else {
+                    self.emit_owned_value_drop(&OwnedValueCleanup {
+                        type_: initial.type_.clone(),
+                        stack_offset: accumulator_slot,
+                        closure_captures: None,
+                        capacity_slot: None,
+                        loop_alias_slot: None,
+                        result_wrapper: None,
+                    })?;
+                }
+                self.emit(abi::label(&acc_not_owned));
+            }
+            for (reg, slot) in regs.iter().zip(&saved) {
+                self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
+            }
+        }
+        self.emit_callback_failure_exit(&[], None)?;
         self.emit(abi::label(&ok_label));
         if manages_owned {
             // Slots are all `Some` under `manages_owned`.

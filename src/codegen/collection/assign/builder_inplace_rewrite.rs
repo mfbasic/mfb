@@ -500,7 +500,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
             }
         }
-        self.emit_callback_failure_exit(None)?;
+        self.emit_callback_failure_exit(&[], None)?;
         self.emit(abi::label(&ok));
         let produced = self.temporary_vreg();
         self.emit(abi::move_register(&produced, RESULT_VALUE_REGISTER));

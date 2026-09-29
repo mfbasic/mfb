@@ -163,7 +163,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&ok_label));
         // Predicate failed: no output list to reclaim (at most the in-flight
         // materialized item leaks, matching filter/reduce's failure path).
-        self.emit_callback_failure_exit(None)?;
+        self.emit_callback_failure_exit(&[], Some((item_slot, &element_type)))?;
         self.emit(abi::label(&ok_label));
         // Test the predicate boolean BEFORE freeing the item: `free_collection_loop_item`
         // calls `_mfb_arena_free` (a `bl`), which clobbers the caller-saved

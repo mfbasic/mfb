@@ -134,48 +134,18 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        // A failing predicate: free BOTH partial output lists before routing the
-        // raw error to the inline-TRAP capture point (plan-26-B). `emit_owned_value_drop`
-        // clobbers caller-saved regs, so the four raw-result registers are spilled
-        // across the two drops and reloaded before the branch.
-        match self.raw_result_capture_label() {
-            None => self.emit(abi::return_()),
-            Some(capture) => {
-                let regs = [
-                    RESULT_TAG_REGISTER,
-                    RESULT_VALUE_REGISTER,
-                    RESULT_ERROR_MESSAGE_REGISTER,
-                    RESULT_ERROR_SOURCE_REGISTER,
-                ];
-                let save: Vec<usize> = regs
-                    .iter()
-                    .map(|_| self.allocate_stack_object("partition_fail_result", 8))
-                    .collect();
-                for (reg, slot) in regs.iter().zip(&save) {
-                    self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
-                }
-                self.emit_owned_value_drop(&OwnedValueCleanup {
-                    type_: collection.type_.clone(),
-                    stack_offset: matched_slot,
-                    closure_captures: None,
-                    capacity_slot: None,
-                    loop_alias_slot: None,
-                    result_wrapper: None,
-                })?;
-                self.emit_owned_value_drop(&OwnedValueCleanup {
-                    type_: collection.type_.clone(),
-                    stack_offset: unmatched_slot,
-                    closure_captures: None,
-                    capacity_slot: None,
-                    loop_alias_slot: None,
-                    result_wrapper: None,
-                })?;
-                for (reg, slot) in regs.iter().zip(&save) {
-                    self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
-                }
-                self.emit(abi::branch(&capture));
-            }
-        }
+        // A failing predicate: free both partial output lists and the element copy,
+        // then leave like any failed call. This used to be partition's own copy of
+        // the pre-plan-142-B exit — a bare `ret` when no inline-TRAP capture was
+        // active, which skipped the enclosing function's TRAP and leaked both lists,
+        // the item and that function's locals (bug-777).
+        self.emit_callback_failure_exit(
+            &[
+                (matched_slot, collection.type_.clone()),
+                (unmatched_slot, collection.type_.clone()),
+            ],
+            Some((item_slot, element_type)),
+        )?;
         self.emit(abi::label(&ok_label));
         self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
         self.emit(abi::branch_eq(&to_unmatched));

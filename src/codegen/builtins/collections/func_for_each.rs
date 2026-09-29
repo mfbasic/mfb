@@ -237,7 +237,7 @@ pub(crate) fn lower_for_each(
     builder.emit(abi::branch_eq(&ok_label));
     // A failing callback: forEach owns no accumulator, so no cleanup — under
     // an inline TRAP the raw error routes to the capture point (plan-26-B).
-    builder.emit_callback_failure_exit(None)?;
+    builder.emit_callback_failure_exit(&[], Some((free_slot, &element_type)))?;
     builder.emit(abi::label(&ok_label));
     // bug-307: the callback took the item by value and retains nothing, so the
     // freshly materialized String block is dead here.

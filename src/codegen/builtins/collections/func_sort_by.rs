@@ -210,7 +210,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&k_ok));
             // keyFn failed: free the partial keys buffer, propagate the raw error.
-            self.emit_callback_failure_exit(Some((keys_slot, keys_type.clone())))?;
+            self.emit_callback_failure_exit(&[(keys_slot, keys_type.clone())], None)?;
             self.emit(abi::label(&k_ok));
             // keys[i] = RESULT_VALUE_REGISTER.
             self.emit(abi::load_u64(&addr, abi::stack_pointer(), keys_slot));

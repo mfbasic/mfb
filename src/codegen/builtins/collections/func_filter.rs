@@ -197,7 +197,10 @@ pub(crate) fn lower_filter(
     builder.emit(abi::branch_eq(&ok_label));
     // A failing predicate: free the partial output list before routing the raw
     // error to the inline-TRAP capture point (plan-26-B).
-    builder.emit_callback_failure_exit(Some((output_slot, collection.type_.clone())))?;
+    builder.emit_callback_failure_exit(
+        &[(output_slot, collection.type_.clone())],
+        Some((item_slot, &element_type)),
+    )?;
     builder.emit(abi::label(&ok_label));
     builder.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
     builder.emit(abi::branch_ne(&keep_label));

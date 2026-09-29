@@ -34,11 +34,20 @@ impl CodeBuilder<'_> {
     /// The second case used to be a bare `ret`: the function's `TRAP` never ran,
     /// its locals were never freed, and the partial result leaked
     /// (`tests/runtime/rt_callback_failure_reaches_trap.rs`).
+    ///
+    /// `item` is the loop item the member materialized to pass to the callback:
+    /// a `String` element is a fresh block (`load_collection_loop_item`) that the
+    /// success path frees after use, so the failure path must free it too — every
+    /// failing call leaked it until bug-777. A fixed-width item owns nothing and
+    /// adds no code. Every owned block goes in one register spill, because
+    /// `arena_free` clobbers the four result registers.
     pub(crate) fn emit_callback_failure_exit(
         &mut self,
-        cleanup: Option<(usize, ParameterType)>,
+        cleanups: &[(usize, ParameterType)],
+        item: Option<(usize, &ParameterType)>,
     ) -> Result<(), String> {
-        if let Some((block_slot, type_)) = cleanup {
+        let item = item.filter(|(_, element)| **element == ParameterType::String);
+        if !cleanups.is_empty() || item.is_some() {
             let regs = [
                 RESULT_TAG_REGISTER,
                 RESULT_VALUE_REGISTER,
@@ -52,14 +61,19 @@ impl CodeBuilder<'_> {
             for (reg, slot) in regs.iter().zip(&slots) {
                 self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
             }
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: type_.clone(),
-                stack_offset: block_slot,
-                closure_captures: None,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
+            if let Some((item_slot, element)) = item {
+                self.free_collection_loop_item(item_slot, element)?;
+            }
+            for (block_slot, type_) in cleanups {
+                self.emit_owned_value_drop(&OwnedValueCleanup {
+                    type_: type_.clone(),
+                    stack_offset: *block_slot,
+                    closure_captures: None,
+                    capacity_slot: None,
+                    loop_alias_slot: None,
+                    result_wrapper: None,
+                })?;
+            }
             for (reg, slot) in regs.iter().zip(&slots) {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
             }
