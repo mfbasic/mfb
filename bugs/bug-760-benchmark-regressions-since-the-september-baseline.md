@@ -461,6 +461,20 @@ Commit: `802c29611` (tests)
       register never (latent, found by reading). Doc: `.ai/codegen-invariants.md`,
       spec `architecture/06_native.md`.
 - [x] D: covered by C; `promote.rs`'s false "never worse" claim replaced.
+- [x] C follow-up (the first allocator cut regressed rows the fix did not target —
+      found by the full benchmark, not the RED test): string-list `prepend`/`insert`
+      ×4 at -O1 (×2.2–3 at -O2/-O3), `dispatch union` ×1.35, `getOr`/`hasKey`
+      ×1.3. Cause 1: the inline collection lowerings reuse one vreg across several
+      disjoint loops; one first-to-last span made it look long and cold, so the
+      cost-based choice spilled it inside the shift loop (`prep` 20 → 52 instrs,
+      0 → 24 sp accesses). Fix: `analysis.rs` records each vreg's live runs
+      (lifetime holes); at level ≥ 1 non-overlapping runs share a register and the
+      reload-scratch picker uses the runs (spill priority still divides by the full
+      span — live length cost nbody -O2 8.6 → 9.4 ms). Cause 2: a reload that is
+      the very next use of a just-stored value into the same register was left on
+      the hot path (the -O1 store→load peephole only forwards to a *different*
+      register); the allocator now skips it when the register is still free.
+      Every listed row back to ≤ the pre-C compiler at -O1/-O2/-O3.
 - [x] Found while measuring C (not a regression of this bug): riscv64
       `select.rs:float_branch` kept the compare bool in `t0`, which an FP restore
       with a large `sp` offset overwrites (`nbody` -O1 raised a spurious overflow on
@@ -468,7 +482,7 @@ Commit: `802c29611` (tests)
 
 Acceptance: Phase 1 tests pass; contrast cases unchanged; Non-goals intact.
 Commit: `0a110ee0e`, `ada9aeddb` (A); `8f069dc0f` (B1); `ec04785ab` (B2);
-`8af918c88`, `69abdc711` (C/D); `74ed4b89a` (riscv64); `b53f08e27` (fmt).
+`8af918c88`, `69abdc711`, `8c44bc7bc` (C/D); `74ed4b89a` (riscv64); `b53f08e27` (fmt).
 
 ### Phase 3 — regenerate + full validation
 
@@ -491,6 +505,14 @@ Commit: —
   `.ai/codegen-invariants.md` (spill choice), `mfb spec` collections *Cost* if the
   removal cost statement changes.
 - Full suite: per `.ai/compiler.md`.
+
+## Open Questions
+
+- Letting -O2 live-range **splitting** use the new lifetime holes changed `nbody`'s
+  checksum (-0.169079919 vs -0.169079859), so the shipped change keeps splitting on
+  the old span. Unexplained: it may be a latent defect in the split path that
+  lifetime holes merely expose. Not shipped, so no program is affected; worth a
+  bug of its own if anyone extends splitting.
 
 ## Open Decisions
 
