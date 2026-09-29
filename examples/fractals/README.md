@@ -1,9 +1,9 @@
 # fractals
 
-A 25,000-dot flight through five fractals: a Mandelbulb, a Julia set, a
-Menger sponge, a quaternion Julia set, and an Apollonian gasket. The camera
-flies into each point cloud, eases back while the dots morph into the next
-fractal, and repeats forever.
+A 50,000-dot zoom through five fractals: a Mandelbulb, a Julia set, a Menger
+sponge, a quaternion Julia set, and an Apollonian gasket. The dots form a fixed
+250 by 200 picture grid. They never move; only their colours change as the
+sampled view zooms deeper into each fractal and fades into the next one.
 
 ## Build and run
 
@@ -23,17 +23,16 @@ It opens fullscreen. **Esc** quits; there are no other controls.
 
 ## How the point clouds are made
 
-- **Mandelbulb** — points that survive ten iterations of the order-eight
-  spherical power map.
-- **Julia set** — a backward orbit of `z² + (-0.835 - 0.2321i)`, lifted into a
-  thin rippled sheet so the camera can pass through it.
-- **Menger sponge** — the chaos game over the twenty retained subcubes.
-- **Quaternion Julia** — points in the `w = 0` slice that survive twelve
-  iterations of `q² + (-0.2 + 0.7i)`.
-- **Apollonian gasket** — points on circles obtained by repeatedly reflecting
-  one member of a Descartes quadruple; the circles are given a slight depth
-  ripple for the flight.
+- **Mandelbulb** — the `z = 0` plane through the order-eight spherical power
+  map.
+- **Julia set** — escape-time colours for `z² + (-0.835 - 0.2321i)`.
+- **Menger sponge** — the `z = 0` slice, whose base-three removal rule produces
+  the familiar carpet.
+- **Quaternion Julia** — the `w = 0, z = 0` plane through
+  `q² + (-0.2 + 0.7i)`.
+- **Apollonian gasket** — the limit bands of a repeated circle-inversion
+  system.
 
-The scene list is allocated once. Every frame replaces its 25,000 circle
-slots, sorts them back-to-front, presents the scene, and waits for the next
-drawn frame—the same high-volume Canvas pattern used by the `sorts` example.
+The scene list is allocated once. Every frame replaces only the colours of its
+50,000 fixed circle slots, presents the picture, and waits for the next drawn
+frame—the same high-volume Canvas pattern used by the `sorts` example.

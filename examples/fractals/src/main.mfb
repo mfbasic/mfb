@@ -1,12 +1,12 @@
-' fractals - a 25,000-dot flight through five fractals.
+' fractals - five fractals seen through a fixed 50,000-dot picture grid.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
 '   mfb build examples/fractals
 '   open examples/fractals/build/fractals.app          (macOS)
 '   ./examples/fractals/build/fractals.AppImage        (Linux)
 '
-' Esc quits. The camera flies into each fractal for eleven seconds, then eases
-' back while all 25,000 dots morph into the next one.
+' Esc quits. The dots never move: a 250 by 200 grid stays fixed while its
+' colours sample an ever-smaller window into each fractal.
 
 IMPORT app
 IMPORT canvas
@@ -17,50 +17,33 @@ IMPORT errorCode
 IMPORT io
 IMPORT math
 
-LET DOT_COUNT AS Integer = 25000
-LET FLY_NANOS AS Integer = 11000000000
-LET MORPH_NANOS AS Integer = 4000000000
-LET CYCLE_NANOS AS Integer = FLY_NANOS + MORPH_NANOS
-LET BACKGROUND AS color::Color = color::rgb(3, 5, 12)
-LET GOLDEN AS Float = 2.399963229728653
+LET DOT_COLUMNS AS Integer = 250
+LET DOT_ROWS AS Integer = 200
+LET DOT_COUNT AS Integer = DOT_COLUMNS * DOT_ROWS
+LET VIEW_NANOS AS Integer = 12000000000
+LET FADE_NANOS AS Integer = 2000000000
+LET BACKGROUND AS color::Color = color::rgb(2, 4, 10)
 
-TYPE Point3
-  x AS Float
-  y AS Float
-  z AS Float
+TYPE Sample
+  value AS Float
+  inside AS Boolean
 END TYPE
 
-TYPE Projected
-  x AS Float
-  y AS Float
-  depth AS Float
-  id AS Integer
+TYPE Rgb
+  r AS Integer
+  g AS Integer
+  b AS Integer
 END TYPE
 
 ENUM Fractal
   Mandelbulb, Julia, Menger, QuaternionJulia, Apollonian
 END ENUM
 
-MUT mandelbulb AS List OF Point3 = []
-MUT julia AS List OF Point3 = []
-MUT menger AS List OF Point3 = []
-MUT quaternionJulia AS List OF Point3 = []
-MUT apollonian AS List OF Point3 = []
-MUT projected AS List OF Projected = []
 MUT scene AS List OF canvas::DrawItem = []
-
-FUNC randomFloat(lo AS Float, hi AS Float) AS Float
-  LET unit AS Float = toFloat(math::rand(0, 1000000)) / 1000000.0
-  RETURN lo + (hi - lo) * unit
-END FUNC
 
 FUNC smoothstep(t AS Float) AS Float
   LET c AS Float = math::clamp(t, 0.0, 1.0)
   RETURN c * c * (3.0 - 2.0 * c)
-END FUNC
-
-FUNC mix(a AS Float, b AS Float, t AS Float) AS Float
-  RETURN a + (b - a) * t
 END FUNC
 
 FUNC fractalAt(index AS Integer) AS Fractal
@@ -75,124 +58,76 @@ END FUNC
 
 FUNC fractalName(f AS Fractal) AS String
   MATCH f
-    CASE Fractal.Mandelbulb : RETURN "MANDELBULB"
+    CASE Fractal.Mandelbulb : RETURN "MANDELBULB / 2D SLICE"
     CASE Fractal.Julia : RETURN "JULIA SET"
-    CASE Fractal.Menger : RETURN "MENGER SPONGE"
-    CASE Fractal.QuaternionJulia : RETURN "QUATERNION JULIA"
+    CASE Fractal.Menger : RETURN "MENGER SPONGE / 2D SLICE"
+    CASE Fractal.QuaternionJulia : RETURN "QUATERNION JULIA / 2D SLICE"
     CASE Fractal.Apollonian : RETURN "APOLLONIAN GASKET"
   END MATCH
 END FUNC
 
-FUNC pointAt(f AS Fractal, i AS Integer) AS Point3
-  MATCH f
-    CASE Fractal.Mandelbulb : RETURN collections::get(mandelbulb, i)
-    CASE Fractal.Julia : RETURN collections::get(julia, i)
-    CASE Fractal.Menger : RETURN collections::get(menger, i)
-    CASE Fractal.QuaternionJulia : RETURN collections::get(quaternionJulia, i)
-    CASE Fractal.Apollonian : RETURN collections::get(apollonian, i)
-  END MATCH
-END FUNC
-
-' The order-eight Mandelbulb escape test.
-FUNC inMandelbulb(cx AS Float, cy AS Float, cz AS Float) AS Boolean
+' An order-eight Mandelbulb intersected by the z = 0 plane.
+FUNC mandelbulbSample(cx AS Float, cy AS Float) AS Sample
   MUT x AS Float = 0.0
   MUT y AS Float = 0.0
   MUT z AS Float = 0.0
-  FOR iteration = 0 TO 9
-    LET r AS Float = math::sqrt(x * x + y * y + z * z)
-    IF r > 2.0 THEN RETURN FALSE
+  FOR iteration = 0 TO 5
+    LET radius AS Float = math::sqrt(x * x + y * y + z * z)
+    IF radius > 2.0 THEN RETURN Sample[toFloat(iteration) / 6.0, FALSE]
     MUT theta AS Float = 0.0
     MUT phi AS Float = 0.0
-    IF r > 0.0 THEN
-      theta = math::acos(math::clamp(z / r, -1.0, 1.0))
+    IF radius > 0.0 THEN
+      theta = math::acos(math::clamp(z / radius, -1.0, 1.0))
       phi = math::atan2(y, x)
     END IF
-    LET power AS Float = math::pow(r, 8.0)
+    LET power AS Float = math::pow(radius, 8.0)
     LET ring AS Float = power * math::sin(theta * 8.0)
     x = ring * math::cos(phi * 8.0) + cx
     y = ring * math::sin(phi * 8.0) + cy
-    z = power * math::cos(theta * 8.0) + cz
+    z = power * math::cos(theta * 8.0)
   NEXT
-  RETURN TRUE
+  RETURN Sample[1.0, TRUE]
 END FUNC
 
-FUNC makeMandelbulb AS List OF Point3
-  MUT points AS List OF Point3 = collections::repeat([], Point3[0.0, 0.0, 0.0], DOT_COUNT)
-  MUT found AS Integer = 0
-  DO WHILE found < DOT_COUNT
-    LET x AS Float = randomFloat(-1.2, 1.2)
-    LET y AS Float = randomFloat(-1.2, 1.2)
-    LET z AS Float = randomFloat(-1.2, 1.2)
-    IF inMandelbulb(x, y, z) THEN
-      points = collections::set(points, found, Point3[x, y, z])
-      found = found + 1
-    END IF
-  LOOP
-  RETURN points
-END FUNC
-
-' Backward iteration lands directly on the boundary of z^2 + c.
-FUNC makeJulia AS List OF Point3
-  MUT points AS List OF Point3 = collections::repeat([], Point3[0.0, 0.0, 0.0], DOT_COUNT)
-  MUT x AS Float = 0.0
-  MUT y AS Float = 0.0
-  FOR i = -30 TO DOT_COUNT - 1
-    LET a AS Float = x + 0.835
-    LET b AS Float = y + 0.2321
-    LET magnitude AS Float = math::sqrt(a * a + b * b)
-    MUT nx AS Float = math::sqrt(math::max(0.0, (magnitude + a) / 2.0))
-    MUT ny AS Float = math::sqrt(math::max(0.0, (magnitude - a) / 2.0))
-    IF b < 0.0 THEN ny = 0.0 - ny
-    IF math::rand(0, 1) = 0 THEN
-      nx = 0.0 - nx
-      ny = 0.0 - ny
-    END IF
+' The complex Julia set z^2 + (-0.835 - 0.2321i).
+FUNC juliaSample(x0 AS Float, y0 AS Float) AS Sample
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  FOR iteration = 0 TO 19
+    IF x * x + y * y > 4.0 THEN RETURN Sample[toFloat(iteration) / 20.0, FALSE]
+    LET nx AS Float = x * x - y * y - 0.835
+    y = 2.0 * x * y - 0.2321
     x = nx
-    y = ny
-    IF i >= 0 THEN
-      LET depth AS Float = 0.16 * math::sin(toFloat(i) * GOLDEN) + 0.06 * math::sin(x * 9.0)
-      points = collections::set(points, i, Point3[x * 0.82, y * 0.82, depth])
-    END IF
   NEXT
-  RETURN points
+  RETURN Sample[1.0, TRUE]
 END FUNC
 
-' Chaos game over the twenty subcubes left by each Menger subdivision.
-FUNC makeMenger AS List OF Point3
-  MUT points AS List OF Point3 = collections::repeat([], Point3[0.0, 0.0, 0.0], DOT_COUNT)
-  MUT x AS Float = 0.0
-  MUT y AS Float = 0.0
-  MUT z AS Float = 0.0
-  FOR i = -30 TO DOT_COUNT - 1
-    MUT dx AS Integer = 0
-    MUT dy AS Integer = 0
-    MUT dz AS Integer = 0
-    MUT zeros AS Integer = 3
-    DO WHILE zeros > 1
-      dx = math::rand(-1, 1)
-      dy = math::rand(-1, 1)
-      dz = math::rand(-1, 1)
-      zeros = 0
-      IF dx = 0 THEN zeros = zeros + 1
-      IF dy = 0 THEN zeros = zeros + 1
-      IF dz = 0 THEN zeros = zeros + 1
-    LOOP
-    x = x / 3.0 + toFloat(dx) * 2.0 / 3.0
-    y = y / 3.0 + toFloat(dy) * 2.0 / 3.0
-    z = z / 3.0 + toFloat(dz) * 2.0 / 3.0
-    IF i >= 0 THEN points = collections::set(points, i, Point3[x, y, z])
+' The z = 0 Menger slice is the familiar carpet: a point is removed whenever
+' both of its current base-three digits are the middle digit.
+FUNC mengerSample(x0 AS Float, y0 AS Float) AS Sample
+  IF x0 < 0.0 OR x0 > 1.0 OR y0 < 0.0 OR y0 > 1.0 THEN RETURN Sample[0.0, FALSE]
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  FOR level = 0 TO 9
+    x = x * 3.0
+    y = y * 3.0
+    LET dx AS Integer = math::floor(x)
+    LET dy AS Integer = math::floor(y)
+    IF dx = 1 AND dy = 1 THEN RETURN Sample[toFloat(level) / 10.0, FALSE]
+    x = x - toFloat(dx)
+    y = y - toFloat(dy)
   NEXT
-  RETURN points
+  RETURN Sample[1.0, TRUE]
 END FUNC
 
-' A three-dimensional slice (w = 0) of q^2 + (-0.2 + 0.7i).
-FUNC inQuaternionJulia(ca AS Float, cb AS Float, cc AS Float) AS Boolean
-  MUT a AS Float = ca
-  MUT b AS Float = cb
-  MUT c AS Float = cc
+' The w = 0, z = 0 plane through q^2 + (-0.2 + 0.7i).
+FUNC quaternionSample(a0 AS Float, b0 AS Float) AS Sample
+  MUT a AS Float = a0
+  MUT b AS Float = b0
+  MUT c AS Float = 0.0
   MUT d AS Float = 0.0
-  FOR iteration = 0 TO 11
-    IF a * a + b * b + c * c + d * d > 4.0 THEN RETURN FALSE
+  FOR iteration = 0 TO 13
+    IF a * a + b * b + c * c + d * d > 4.0 THEN RETURN Sample[toFloat(iteration) / 14.0, FALSE]
     LET na AS Float = a * a - b * b - c * c - d * d - 0.2
     LET nb AS Float = 2.0 * a * b + 0.7
     LET nc AS Float = 2.0 * a * c
@@ -202,155 +137,101 @@ FUNC inQuaternionJulia(ca AS Float, cb AS Float, cc AS Float) AS Boolean
     c = nc
     d = nd
   NEXT
-  RETURN TRUE
+  RETURN Sample[1.0, TRUE]
 END FUNC
 
-FUNC makeQuaternionJulia AS List OF Point3
-  MUT points AS List OF Point3 = collections::repeat([], Point3[0.0, 0.0, 0.0], DOT_COUNT)
-  MUT found AS Integer = 0
-  DO WHILE found < DOT_COUNT
-    LET x AS Float = randomFloat(-1.35, 1.35)
-    LET y AS Float = randomFloat(-1.35, 1.35)
-    LET z AS Float = randomFloat(-1.35, 1.35)
-    IF inQuaternionJulia(x, y, z) THEN
-      points = collections::set(points, found, Point3[x, y, z])
-      found = found + 1
-    END IF
-  LOOP
-  RETURN points
-END FUNC
-
-' Reflect one circle in a Descartes quadruple at every step. Every reflected
-' circle is tangent to the other three, so the resulting circumferences trace
-' the Apollonian gasket rather than merely imitating its triangular outline.
-FUNC makeApollonian AS List OF Point3
-  MUT points AS List OF Point3 = collections::repeat([], Point3[0.0, 0.0, 0.0], DOT_COUNT)
-  LET root3 AS Float = math::sqrt(3.0)
-  LET innerRadius AS Float = root3 / (2.0 + root3)
-  LET innerK AS Float = 1.0 / innerRadius
-  LET centerDistance AS Float = 1.0 - innerRadius
-
-  FOR i = 0 TO DOT_COUNT - 1
-    MUT k0 AS Float = -1.0
-    MUT k1 AS Float = innerK
-    MUT k2 AS Float = innerK
-    MUT k3 AS Float = innerK
-    MUT x0 AS Float = 0.0
-    MUT y0 AS Float = 0.0
-    MUT x1 AS Float = centerDistance
-    MUT y1 AS Float = 0.0
-    MUT x2 AS Float = centerDistance * math::cos(2.0 * math::pi / 3.0)
-    MUT y2 AS Float = centerDistance * math::sin(2.0 * math::pi / 3.0)
-    MUT x3 AS Float = centerDistance * math::cos(4.0 * math::pi / 3.0)
-    MUT y3 AS Float = centerDistance * math::sin(4.0 * math::pi / 3.0)
-    MUT last AS Integer = i MOD 4
-    MUT code AS Integer = i
-
-    FOR depth = 0 TO 8
-      LET choice AS Integer = code MOD 3
-      code = code / 3 + i / 7 + depth
-      MUT pick AS Integer = choice
-      IF pick >= last THEN pick = pick + 1
-
-      LET sumK AS Float = k0 + k1 + k2 + k3
-      LET sumX AS Float = k0 * x0 + k1 * x1 + k2 * x2 + k3 * x3
-      LET sumY AS Float = k0 * y0 + k1 * y1 + k2 * y2 + k3 * y3
-      IF pick = 0 THEN
-        LET nk AS Float = 2.0 * sumK - 3.0 * k0
-        x0 = (2.0 * sumX - 3.0 * k0 * x0) / nk
-        y0 = (2.0 * sumY - 3.0 * k0 * y0) / nk
-        k0 = nk
-      ELSEIF pick = 1 THEN
-        LET nk AS Float = 2.0 * sumK - 3.0 * k1
-        x1 = (2.0 * sumX - 3.0 * k1 * x1) / nk
-        y1 = (2.0 * sumY - 3.0 * k1 * y1) / nk
-        k1 = nk
-      ELSEIF pick = 2 THEN
-        LET nk AS Float = 2.0 * sumK - 3.0 * k2
-        x2 = (2.0 * sumX - 3.0 * k2 * x2) / nk
-        y2 = (2.0 * sumY - 3.0 * k2 * y2) / nk
-        k2 = nk
-      ELSE
-        LET nk AS Float = 2.0 * sumK - 3.0 * k3
-        x3 = (2.0 * sumX - 3.0 * k3 * x3) / nk
-        y3 = (2.0 * sumY - 3.0 * k3 * y3) / nk
-        k3 = nk
-      END IF
-      last = pick
-    NEXT
-
-    MUT k AS Float = k0
-    MUT cx AS Float = x0
-    MUT cy AS Float = y0
-    IF last = 1 THEN
-      k = k1
-      cx = x1
-      cy = y1
-    ELSEIF last = 2 THEN
-      k = k2
-      cx = x2
-      cy = y2
-    ELSEIF last = 3 THEN
-      k = k3
-      cx = x3
-      cy = y3
-    END IF
-    LET radius AS Float = math::abs(1.0 / k)
-    LET angle AS Float = toFloat(i) * GOLDEN
-    LET px AS Float = cx + radius * math::cos(angle)
-    LET py AS Float = cy + radius * math::sin(angle)
-    LET pz AS Float = 0.20 * math::sin(angle * 0.37 + radius * 40.0)
-    points = collections::set(points, i, Point3[px, py, pz])
+' Repeated circle inversions render the limit set of an Apollonian inversion
+' system. The closest approach to an inversion circle supplies the fine bands.
+FUNC apollonianSample(x0 AS Float, y0 AS Float) AS Sample
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  MUT scale AS Float = 1.0
+  MUT nearest AS Float = 10.0
+  MUT last AS Integer = 0
+  FOR iteration = 0 TO 10
+    x = x - 2.0 * math::floor((x + 1.0) / 2.0)
+    y = y - 2.0 * math::floor((y + 1.0) / 2.0)
+    LET radius2 AS Float = x * x + y * y
+    IF radius2 < 0.000001 THEN RETURN Sample[1.0, TRUE]
+    LET edge AS Float = math::abs(math::sqrt(radius2) - 0.72) / scale
+    nearest = math::min(nearest, edge)
+    LET inversion AS Float = 1.32 / radius2
+    x = x * inversion
+    y = y * inversion
+    scale = scale * math::abs(inversion)
+    last = iteration
   NEXT
-  RETURN points
+  LET glow AS Float = math::clamp(1.0 - nearest * 55.0, 0.0, 1.0)
+  RETURN Sample[math::max(glow, toFloat(last) / 32.0), glow > 0.42]
 END FUNC
 
-FUNC rotate(p AS Point3, ax AS Float, ay AS Float, az AS Float) AS Point3
-  LET y1 AS Float = p.y * math::cos(ax) - p.z * math::sin(ax)
-  LET z1 AS Float = p.y * math::sin(ax) + p.z * math::cos(ax)
-  LET x2 AS Float = p.x * math::cos(ay) + z1 * math::sin(ay)
-  LET z2 AS Float = z1 * math::cos(ay) - p.x * math::sin(ay)
-  LET x3 AS Float = x2 * math::cos(az) - y1 * math::sin(az)
-  LET y3 AS Float = x2 * math::sin(az) + y1 * math::cos(az)
-  RETURN Point3[x3, y3, z2]
-END FUNC
-
-FUNC farthestFirst(p AS Projected) AS Float
-  RETURN 0.0 - p.depth
+FUNC sampleAt(f AS Fractal, u AS Float, v AS Float, zoom AS Float) AS Sample
+  MUT centreX AS Float = 0.0
+  MUT centreY AS Float = 0.0
+  MUT span AS Float = 2.7
+  MATCH f
+    CASE Fractal.Mandelbulb
+      centreX = 0.47
+      centreY = 0.0
+      span = 2.5
+    CASE Fractal.Julia
+      centreX = -0.11
+      centreY = 0.655
+      span = 3.0
+    CASE Fractal.Menger
+      centreX = 0.3332
+      centreY = 0.3334
+      span = 1.18
+    CASE Fractal.QuaternionJulia
+      centreX = -0.08
+      centreY = 0.63
+      span = 2.8
+    CASE Fractal.Apollonian
+      centreX = 0.31
+      centreY = 0.17
+      span = 3.2
+  END MATCH
+  LET x AS Float = centreX + u * span / zoom
+  LET y AS Float = centreY + v * span / zoom
+  MATCH f
+    CASE Fractal.Mandelbulb : RETURN mandelbulbSample(x, y)
+    CASE Fractal.Julia : RETURN juliaSample(x, y)
+    CASE Fractal.Menger : RETURN mengerSample(x, y)
+    CASE Fractal.QuaternionJulia : RETURN quaternionSample(x, y)
+    CASE Fractal.Apollonian : RETURN apollonianSample(x, y)
+  END MATCH
 END FUNC
 
 FUNC channel(v AS Float) AS Integer
   RETURN math::clamp(math::floor(v), 0, 255)
 END FUNC
 
-FUNC dotColor(f AS Fractal, p AS Point3, light AS Float) AS color::Color
-  LET t AS Float = math::clamp((p.y + 1.3) / 2.6, 0.0, 1.0)
-  MUT r AS Float = 0.0
-  MUT g AS Float = 0.0
-  MUT b AS Float = 0.0
+FUNC palette(f AS Fractal, s AS Sample, phase AS Float) AS Rgb
+  IF s.inside THEN
+    MATCH f
+      CASE Fractal.Mandelbulb : RETURN Rgb[42, 18, 10]
+      CASE Fractal.Julia : RETURN Rgb[34, 12, 48]
+      CASE Fractal.Menger : RETURN Rgb[10, 45, 26]
+      CASE Fractal.QuaternionJulia : RETURN Rgb[14, 25, 54]
+      CASE Fractal.Apollonian : RETURN Rgb[54, 34, 10]
+    END MATCH
+  END IF
+
+  LET shifted AS Float = s.value * 6.0 + phase * 0.08
+  LET band AS Float = shifted - toFloat(math::floor(shifted))
+  LET low AS Float = 35.0 + 90.0 * band
+  LET high AS Float = 105.0 + 150.0 * band
   MATCH f
-    CASE Fractal.Mandelbulb
-      r = mix(255.0, 68.0, t)
-      g = mix(80.0, 210.0, t)
-      b = mix(30.0, 255.0, t)
-    CASE Fractal.Julia
-      r = mix(255.0, 90.0, t)
-      g = mix(40.0, 80.0, t)
-      b = mix(180.0, 255.0, t)
-    CASE Fractal.Menger
-      r = mix(255.0, 70.0, t)
-      g = mix(170.0, 255.0, t)
-      b = mix(35.0, 150.0, t)
-    CASE Fractal.QuaternionJulia
-      r = mix(50.0, 210.0, t)
-      g = mix(120.0, 55.0, t)
-      b = mix(255.0, 255.0, t)
-    CASE Fractal.Apollonian
-      r = mix(255.0, 255.0, t)
-      g = mix(75.0, 225.0, t)
-      b = mix(35.0, 90.0, t)
+    CASE Fractal.Mandelbulb : RETURN Rgb[channel(high), channel(low * 0.65), channel(low * 0.25)]
+    CASE Fractal.Julia : RETURN Rgb[channel(high), channel(low * 0.4), channel(115.0 + 140.0 * (1.0 - band))]
+    CASE Fractal.Menger : RETURN Rgb[channel(low * 0.35), channel(high), channel(low)]
+    CASE Fractal.QuaternionJulia : RETURN Rgb[channel(low * 0.45), channel(low), channel(high)]
+    CASE Fractal.Apollonian : RETURN Rgb[channel(high), channel(low), channel(low * 0.25)]
   END MATCH
-  RETURN color::rgb(channel(r * light), channel(g * light), channel(b * light))
+END FUNC
+
+FUNC mixRgb(a AS Rgb, b AS Rgb, t AS Float) AS Rgb
+  RETURN Rgb[channel(toFloat(a.r) + toFloat(b.r - a.r) * t), channel(toFloat(a.g) + toFloat(b.g - a.g) * t), channel(toFloat(a.b) + toFloat(b.b - a.b) * t)]
 END FUNC
 
 FUNC quitPressed AS Boolean
@@ -373,20 +254,10 @@ FUNC main AS Integer
   app::setFullscreen(TRUE)
   app::setMode(app::Mode.Canvas)
   app::setTitle("Fractals")
-  math::seed(20260928)
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  mandelbulb = makeMandelbulb()
-  julia = makeJulia()
-  menger = makeMenger()
-  quaternionJulia = makeQuaternionJulia()
-  apollonian = makeApollonian()
-
-  LET emptyProjection AS Projected = Projected[0.0, 0.0, 1000.0, 0]
-  projected = collections::repeat(projected, emptyProjection, DOT_COUNT)
-  LET emptyItem AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
-  scene = collections::repeat(scene, emptyItem, DOT_COUNT + 4)
-
+  LET empty AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  scene = collections::repeat(scene, empty, DOT_COUNT + 4)
   MUT size AS canvas::Size = canvas::getSize()
   LET started AS Integer = datetime::monotonicNanos()
 
@@ -394,73 +265,48 @@ FUNC main AS Integer
     IF canvas::didResize() THEN size = canvas::getSize()
     LET width AS Float = toFloat(size.width)
     LET height AS Float = toFloat(size.height)
-    LET cx AS Float = width / 2.0
-    LET cy AS Float = height / 2.0
-    LET scale AS Float = math::min(width, height) * 0.42
-    LET dotSize AS Float = math::max(1.15, scale * 0.014 * math::sqrt(500.0 / toFloat(DOT_COUNT)))
+    LET cellW AS Float = width / toFloat(DOT_COLUMNS)
+    LET cellH AS Float = height / toFloat(DOT_ROWS)
+    LET radius AS Float = math::min(cellW, cellH) * 0.39
+    LET aspect AS Float = width / height
 
     LET elapsed AS Integer = datetime::monotonicNanos() - started
-    LET cycle AS Integer = elapsed / CYCLE_NANOS
-    LET localNanos AS Integer = elapsed MOD CYCLE_NANOS
+    LET cycle AS Integer = elapsed / VIEW_NANOS
+    LET localNanos AS Integer = elapsed MOD VIEW_NANOS
     LET current AS Fractal = fractalAt(cycle)
     LET following AS Fractal = fractalAt(cycle + 1)
-    MUT morph AS Float = 0.0
-    MUT cameraZ AS Float = -3.0
-    IF localNanos < FLY_NANOS THEN
-      LET flight AS Float = smoothstep(toFloat(localNanos) / toFloat(FLY_NANOS))
-      cameraZ = mix(-3.0, 1.35, flight)
-    ELSE
-      morph = smoothstep(toFloat(localNanos - FLY_NANOS) / toFloat(MORPH_NANOS))
-      cameraZ = mix(1.35, -3.0, morph)
+    LET progress AS Float = toFloat(localNanos) / toFloat(VIEW_NANOS)
+    LET zoom AS Float = math::pow(2.0, progress * 9.0)
+    LET phase AS Float = toFloat(elapsed) / 3000000000.0
+    MUT fade AS Float = 0.0
+    IF localNanos > VIEW_NANOS - FADE_NANOS THEN
+      fade = smoothstep(toFloat(localNanos - (VIEW_NANOS - FADE_NANOS)) / toFloat(FADE_NANOS))
     END IF
-
-    LET seconds AS Float = toFloat(elapsed) / 1000000000.0
-    LET ax AS Float = 0.18 * math::sin(seconds * 0.31)
-    LET ay AS Float = seconds * 0.16
-    LET az AS Float = 0.10 * math::sin(seconds * 0.23)
-    LET cameraX AS Float = 0.17 * math::sin(seconds * 0.47)
-    LET cameraY AS Float = 0.12 * math::sin(seconds * 0.39)
-
-    FOR i = 0 TO DOT_COUNT - 1
-      LET a AS Point3 = pointAt(current, i)
-      LET b AS Point3 = pointAt(following, i)
-      LET world AS Point3 = Point3[mix(a.x, b.x, morph), mix(a.y, b.y, morph), mix(a.z, b.z, morph)]
-      LET p AS Point3 = rotate(world, ax, ay, az)
-      LET depth AS Float = p.z - cameraZ
-      MUT sx AS Float = -100.0
-      MUT sy AS Float = -100.0
-      IF depth > 0.08 THEN
-        LET perspective AS Float = 1.15 / depth
-        sx = cx + (p.x - cameraX) * scale * perspective
-        sy = cy + (p.y - cameraY) * scale * perspective
-      END IF
-      projected = collections::set(projected, i, Projected[sx, sy, depth, i])
-    NEXT
-    projected = collections::sortBy(projected, farthestFirst)
 
     LET back AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
-      LET p AS Projected = collections::get(projected, i)
-      LET source AS Point3 = pointAt(current, p.id)
-      MUT radius AS Float = 0.1
-      MUT light AS Float = 0.0
-      IF p.depth > 0.08 THEN
-        LET perspective AS Float = 1.15 / p.depth
-        radius = dotSize * math::min(perspective, 3.0)
-        light = math::clamp(1.20 - p.depth * 0.13, 0.25, 1.0)
+      LET column AS Integer = i MOD DOT_COLUMNS
+      LET row AS Integer = i / DOT_COLUMNS
+      LET u AS Float = (toFloat(column) + 0.5) / toFloat(DOT_COLUMNS) - 0.5
+      LET v AS Float = (toFloat(row) + 0.5) / toFloat(DOT_ROWS) - 0.5
+      LET a AS Rgb = palette(current, sampleAt(current, u * aspect, v, zoom), phase)
+      MUT shown AS Rgb = a
+      IF fade > 0.0 THEN
+        LET b AS Rgb = palette(following, sampleAt(following, u * aspect, v, 1.0), phase)
+        shown = mixRgb(a, b, fade)
       END IF
-      LET dot AS canvas::DrawItem = canvas::Circle[x := p.x, y := p.y, radius := radius, paint := canvas::fill(dotColor(current, source, light))]
+      LET dot AS canvas::DrawItem = canvas::Circle[x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH, radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b))]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 
-    LET stats AS canvas::FrameStats = canvas::getFrameStats()
     MUT title AS String = fractalName(current)
-    IF morph > 0.0 THEN title = title & "  >  " & fractalName(following)
-    scene = collections::set(scene, DOT_COUNT + 1, textItem(face, 24.0, 42.0, 24.0, title, color::rgb(225, 235, 255)))
-    scene = collections::set(scene, DOT_COUNT + 2, textItem(face, 24.0, 68.0, 14.0, "25,000 DOTS  /  FLY-THROUGH", color::rgb(105, 125, 155)))
-    LET rate AS String = "PPS " & toString(math::floor(stats.pps + 0.5)) & "   FPS " & toString(math::floor(stats.fps + 0.5))
-    scene = collections::set(scene, DOT_COUNT + 3, textItem(face, 24.0, height - 24.0, 13.0, rate, color::rgb(70, 85, 110)))
+    IF fade > 0.0 THEN title = title & "  >  " & fractalName(following)
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    scene = collections::set(scene, DOT_COUNT + 1, textItem(face, 24.0, 40.0, 22.0, title, color::rgb(235, 240, 255)))
+    scene = collections::set(scene, DOT_COUNT + 2, textItem(face, 24.0, 65.0, 13.0, "250 x 200 DOTS  /  COLOUR-ONLY ZOOM", color::rgb(105, 125, 155)))
+    LET status AS String = "ZOOM " & toString(math::floor(zoom)) & "x   PPS " & toString(math::floor(stats.pps + 0.5)) & "   FPS " & toString(math::floor(stats.fps + 0.5))
+    scene = collections::set(scene, DOT_COUNT + 3, textItem(face, 24.0, height - 24.0, 13.0, status, color::rgb(255, 255, 255)))
 
     canvas::present(scene)
     canvas::waitFrame()
