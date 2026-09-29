@@ -1525,12 +1525,13 @@ impl CodeBuilder<'_> {
     ///   tombstones outnumber the live entries: O(1) amortized plus the lookup,
     ///   wherever the key sits, so removing the oldest key of a FIFO no longer
     ///   moves every entry. Only for a probe-eligible key type (a scanned key type
-    ///   would match a tombstone's key) at a binding whose every other read settles
-    ///   (`lower_value`'s map settle): a local, a global or a by-reference capture.
-    /// * otherwise (a record or `STATE` field, whose sub-block is read by record
-    ///   copies and comparisons that do not settle; or a scanned key type) — the
-    ///   later entries slide down one slot with their buckets renumbered
-    ///   (`_mfb_rt_map_compact_from`), leaving no tombstone.
+    ///   would match a tombstone's key) at a place whose every other read settles
+    ///   (`lower_value`'s map settle): a local, a global or a by-reference capture,
+    ///   and (bug-768) a record or `STATE` field, whose field reads and whole-owner
+    ///   reads settle the sub-block (`emit_tombstone_holder_settle`).
+    /// * otherwise (a scanned key type) — the later entries slide down one slot
+    ///   with their buckets renumbered (`_mfb_rt_map_compact_from`), leaving no
+    ///   tombstone.
     ///
     /// Either way insertion order is kept and the index stays built, and the
     /// removed key and value bytes stay behind in the data region as dead slack —

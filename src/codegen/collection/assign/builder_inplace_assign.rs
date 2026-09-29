@@ -1347,9 +1347,10 @@ impl CodeBuilder<'_> {
         // lowering the key can itself call `_mfb_arena_alloc`, and the address is
         // never held across an allocation.
         let map_slot = self.open_inplace_inlined_subblock(&dest)?;
-        // bug-760 B1: never a tombstone in a field — record copies and comparisons
-        // read the sub-block without settling it.
-        self.lower_map_remove_key_in_place(map_slot, key_slot, map_type, key_type, false)?;
+        // bug-768: a tombstone, as at a binding — every read of the field, and of
+        // its owner as a whole value, settles the sub-block first
+        // (`CodeBuilder::emit_tombstone_holder_settle`).
+        self.lower_map_remove_key_in_place(map_slot, key_slot, map_type, key_type, true)?;
         // `O4`.
         self.close_inplace_dest(&dest)?;
         self.forget_field_owner_constant(site, &target.dest);
@@ -1418,8 +1419,8 @@ impl CodeBuilder<'_> {
         );
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
         let set_slot = self.open_inplace_inlined_subblock(&dest)?;
-        // bug-760 B1: never a tombstone in a field (see `lower_field_remove_key`).
-        self.lower_map_remove_key_in_place(set_slot, item_slot, set_type, element_type, false)?;
+        // bug-768: a tombstone, as at a binding (see `lower_field_remove_key`).
+        self.lower_map_remove_key_in_place(set_slot, item_slot, set_type, element_type, true)?;
         // `O4`.
         self.close_inplace_dest(&dest)?;
         self.forget_field_owner_constant(site, &target.dest);

@@ -657,10 +657,8 @@ impl CodeBuilder<'_> {
             let other = self.lower_other_collection(&target.args[1], &set_type, "intersection")?;
             let dest = self.inplace_collection_slot(&opened)?;
             // bug-760 B1: every entry of `s` is marked and compacted — drop its
-            // tombstones first (a field's set holds none).
-            if !target.dest.is_field() {
-                self.emit_map_settle_slot(dest);
-            }
+            // tombstones first (bug-768: a field's set may hold them too).
+            self.emit_map_settle_slot(dest);
             let marks_size = self.emit_map_counts(&[dest]);
             let mut sizes = vec![marks_size];
             let area_size = self.emit_borrow_area_size(dest, Payload::Key, &element_type);
@@ -715,7 +713,7 @@ impl CodeBuilder<'_> {
                 Some(size) => Some(self.emit_scratch_areas(&[size])?[0]),
                 None => None,
             };
-            let tombstone = !target.dest.is_field() && Self::map_key_probe_eligible(&element_type);
+            let tombstone = Self::map_key_probe_eligible(&element_type);
             let from_slot =
                 self.emit_claim_members(dest, other, &element_type, key_area, None, tombstone)?;
             if !tombstone {
@@ -850,7 +848,7 @@ impl CodeBuilder<'_> {
             let key_area = areas.get(1).copied();
             let (entries, bytes) = self.emit_map_batch_room(other, None);
             self.emit_map_reserve(dest, entries, bytes, &set_type, grow)?;
-            let tombstone = !target.dest.is_field() && Self::map_key_probe_eligible(&element_type);
+            let tombstone = Self::map_key_probe_eligible(&element_type);
             let from_slot = self.emit_claim_members(
                 dest,
                 other,
@@ -1037,11 +1035,9 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
         let dest = self.inplace_collection_slot(&opened)?;
-        // bug-760 B1: `f` runs for every entry — drop the tombstones first (a
-        // field's map holds none).
-        if !target.dest.is_field() {
-            self.emit_map_settle_slot(dest);
-        }
+        // bug-760 B1: `f` runs for every entry — drop the tombstones first
+        // (bug-768: a field's map may hold them too).
+        self.emit_map_settle_slot(dest);
         let is_string = value_type == ParameterType::String;
         // Results: one word per entry.
         let need_slot = self.allocate_stack_object("inplace_mapvalues_need", 8);
