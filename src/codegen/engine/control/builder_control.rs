@@ -76,6 +76,21 @@ enum FieldStoreKind {
     Pointer(ParameterType),
     /// A fixed-size inlined record: its bytes are copied over the sub-block.
     Overwrite(ParameterType),
+    /// bug-766 D: a variable-width inlined `String` / record that is the owner's
+    /// LAST inlined sub-block (`replace_field_admitted`). Its new bytes go over
+    /// the old span when the owner's walked size rounds to the same 16-byte
+    /// granule as before; otherwise the owner is rebuilt at its new walked size.
+    Replace(ParameterType),
+}
+
+/// bug-766 D: the replaced last sub-block's new value, spilled before any store.
+struct FieldReplace {
+    /// The field's index in the owner record.
+    index: usize,
+    /// The new value's block pointer (a `String` block or a flat record).
+    slot: usize,
+    /// The new value's byte size (`len + 9`, or the record's walked size).
+    size_slot: usize,
 }
 
 /// plan-145-F: a fixed-size inlined field's new value, spilled before any store.
@@ -175,8 +190,18 @@ impl CodeBuilder<'_> {
     ///   statement's temp, or a copy of a borrowed source — it may be a view into
     ///   this very owner), copied, and freed.
     ///
-    /// Any other inlined field (a collection, a `String`, a record whose size
-    /// depends on its value) declines to the field seam or the rebuild.
+    /// * (bug-766 D) the owner's LAST inlined field, when it is a `String` or a
+    ///   record whose size depends on its value (`replace_field_admitted`). A
+    ///   record carries no size word — every free and copy walks it — and its
+    ///   last inlined sub-block ends the walk, so replacing that sub-block changes
+    ///   nothing but the walked size. The decision is taken at run time: when the
+    ///   old and new walked sizes round to the same 16-byte arena granule, the new
+    ///   bytes are written over the old span (the block's chunk is exactly what
+    ///   every later walk frees); otherwise the owner is rebuilt — a fresh block of
+    ///   the new walked size, the old one freed at its own walked size.
+    ///
+    /// Any other inlined field (a collection, a variable-width field that is not
+    /// the last) declines to the field seam or the rebuild.
     ///
     /// Every new value is computed first, in source order (matching `WITH`, so a
     /// field that reads another field's old value sees it), spilled, and only then
@@ -213,10 +238,15 @@ impl CodeBuilder<'_> {
                 return Ok(false);
             };
             let kind = if self.record_field_is_inlined(field_type) {
-                if !self.record_field_is_inlined_fixed(field_type) {
+                if self.record_field_is_inlined_fixed(field_type) {
+                    FieldStoreKind::Overwrite(field_type.clone())
+                } else if path.is_empty()
+                    && self.replace_field_admitted(owner, &type_, &fields, index)
+                {
+                    FieldStoreKind::Replace(field_type.clone())
+                } else {
                     return Ok(false);
                 }
-                FieldStoreKind::Overwrite(field_type.clone())
             } else if self.record_field_is_pointer(field_type) {
                 FieldStoreKind::Pointer(field_type.clone())
             } else {
@@ -269,6 +299,7 @@ impl CodeBuilder<'_> {
         // slot; then store them into the existing block.
         let mut stores = Vec::with_capacity(updates.len());
         let mut overwrites = Vec::new();
+        let mut replace: Option<FieldReplace> = None;
         // plan-145-F: a borrowed overwrite source must be snapshotted only when
         // another store of this `WITH` could change it first.
         let snapshot = indices
@@ -287,6 +318,31 @@ impl CodeBuilder<'_> {
                     let spilled =
                         self.spill_field_overwrite(&update.value, &field_type, snapshot)?;
                     overwrites.push((index, field_type, spilled));
+                    continue;
+                }
+                FieldStoreKind::Replace(field_type) => {
+                    // The new value is only READ (its bytes copied into the owner),
+                    // so a fresh one stays the statement's temp and a borrowed one
+                    // is left where it lies. Its size is taken now, while the
+                    // source is intact. It never overlaps the span it replaces
+                    // except as that same span (a record cannot inline its own
+                    // type, and every other sub-block ends before it), and the
+                    // copy is forward, so `WITH w { tag := w.tag }` copies in place.
+                    let lowered = self.lower_value(&update.value)?;
+                    let lowered = self.materialize_value(lowered)?;
+                    let slot = self.allocate_stack_object("record_field_replace", 8);
+                    self.emit(abi::store_u64(
+                        &lowered.location,
+                        abi::stack_pointer(),
+                        slot,
+                    ));
+                    let size_slot = self.allocate_stack_object("record_field_replace_size", 8);
+                    self.emit_inlined_block_size_from_ptr_slot(&field_type, slot, size_slot)?;
+                    replace = Some(FieldReplace {
+                        index,
+                        slot,
+                        size_slot,
+                    });
                     continue;
                 }
             };
@@ -333,41 +389,25 @@ impl CodeBuilder<'_> {
                 result_wrapper: None,
             })?;
         }
-        // One load of the block pointer serves every store: nothing below moves it.
-        let block = self.emit_field_record_block(owner, &path)?;
-        for (index, slot, _) in stores {
-            let value = self.allocate_register();
-            self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
-            self.emit(abi::store_u64(&value, &block, 8 * index));
-        }
-        // plan-145-F: the fixed-size overwrites. The copy loop calls nothing, so
-        // the block pointer loaded above is still live; each owned source is freed
-        // only after every copy (a later one may not read it, but the frees call
-        // the arena, which clobbers the block register).
-        for (index, _, spilled) in &overwrites {
-            let sub = self.allocate_register();
-            self.emit(abi::load_u64(&sub, &block, 8 * index));
-            self.emit(abi::add_registers(&sub, &block, &sub));
-            match spilled {
-                FieldOverwrite::Lanes(lanes) => {
-                    for (lane, slot) in lanes.iter().enumerate() {
-                        let value = self.allocate_register();
-                        self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
-                        self.emit(abi::store_u64(&value, &sub, 8 * lane));
-                    }
-                }
-                FieldOverwrite::Block {
-                    slot, size_slot, ..
-                } => {
-                    let src = self.allocate_register();
-                    let len = self.allocate_register();
-                    let scratch = self.allocate_register();
-                    self.emit(abi::load_u64(&src, abi::stack_pointer(), *slot));
-                    self.emit(abi::load_u64(&len, abi::stack_pointer(), *size_slot));
-                    self.emit_block_copy_advance(&sub, &src, &len, &scratch, "field_overwrite");
-                }
+        let stores: Vec<(usize, usize)> = stores
+            .iter()
+            .map(|(index, slot, _)| (*index, *slot))
+            .collect();
+        match &replace {
+            None => {
+                // One load of the block pointer serves every store: nothing below
+                // moves it.
+                let block = self.emit_field_record_block(owner, &path)?;
+                self.emit_field_stores(&block, &stores, &overwrites, None);
+            }
+            // bug-766 D (`path` is empty: `replace_field_admitted` asked).
+            Some(replace) => {
+                self.emit_field_replace_or_rebuild(owner, &type_, &stores, &overwrites, replace)?
             }
         }
+        // Each owned overwrite source is freed only after every copy (a later one
+        // may not read it, but the frees call the arena, which clobbers the block
+        // register).
         for (_, field_type, spilled) in overwrites {
             if let FieldOverwrite::Block {
                 slot, owned: true, ..
@@ -389,6 +429,293 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(true)
+    }
+
+    /// The stores of [`Self::try_inplace_scalar_fields`] into the record at
+    /// `block`: every scalar slot, then (plan-145-F) every fixed-size overwrite,
+    /// then (bug-766 D) the replaced last sub-block at the offset in `replace`'s
+    /// second member. Nothing here calls out, so `block` stays live throughout.
+    fn emit_field_stores(
+        &mut self,
+        block: &abi::Reg,
+        stores: &[(usize, usize)],
+        overwrites: &[(usize, ParameterType, FieldOverwrite)],
+        replace: Option<(&FieldReplace, usize)>,
+    ) {
+        for (index, slot) in stores {
+            let value = self.allocate_register();
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
+            self.emit(abi::store_u64(&value, block, 8 * index));
+        }
+        // plan-145-F: the fixed-size overwrites.
+        for (index, _, spilled) in overwrites {
+            let sub = self.allocate_register();
+            self.emit(abi::load_u64(&sub, block, 8 * index));
+            self.emit(abi::add_registers(&sub, block, &sub));
+            match spilled {
+                FieldOverwrite::Lanes(lanes) => {
+                    for (lane, slot) in lanes.iter().enumerate() {
+                        let value = self.allocate_register();
+                        self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
+                        self.emit(abi::store_u64(&value, &sub, 8 * lane));
+                    }
+                }
+                FieldOverwrite::Block {
+                    slot, size_slot, ..
+                } => {
+                    let src = self.allocate_register();
+                    let len = self.allocate_register();
+                    let scratch = self.allocate_register();
+                    self.emit(abi::load_u64(&src, abi::stack_pointer(), *slot));
+                    self.emit(abi::load_u64(&len, abi::stack_pointer(), *size_slot));
+                    self.emit_block_copy_advance(&sub, &src, &len, &scratch, "field_overwrite");
+                }
+            }
+        }
+        // bug-766 D: the new last sub-block, at the field's (unchanged) offset.
+        if let Some((replace, offset_slot)) = replace {
+            let dst = self.allocate_register();
+            let src = self.allocate_register();
+            let len = self.allocate_register();
+            let scratch = self.allocate_register();
+            self.emit(abi::load_u64(&dst, abi::stack_pointer(), offset_slot));
+            self.emit(abi::add_registers(&dst, block, &dst));
+            self.emit(abi::load_u64(&src, abi::stack_pointer(), replace.slot));
+            self.emit(abi::load_u64(&len, abi::stack_pointer(), replace.size_slot));
+            self.emit_block_copy_advance(&dst, &src, &len, &scratch, "field_replace");
+        }
+    }
+
+    /// bug-766 D: whether field `index` of `record_type` may take the
+    /// [`FieldStoreKind::Replace`] store over `owner`'s block.
+    ///
+    /// * It is a `String` or a (non-fixed) record, and no field after it is
+    ///   inlined — its sub-block ends the block, so the size walk
+    ///   (`emit_record_block_size_to_slot`: `offset + size` of the last present
+    ///   inlined field) is `offset + newSize` afterwards and nothing moves.
+    /// * The owner is a flat, pointer-free record (`is_freeable_flat_value`): a
+    ///   single `arena_free` of its walked size is its whole drop, so a rebuild is
+    ///   a byte copy and a free, with no pointee to transfer. `Error` is not taken:
+    ///   its last inlined field (`source`) may be absent (offset 0, bug-371).
+    /// * The owner's block is an arena chunk of its own that this statement may
+    ///   free and repoint — the conditions the copying reassignment frees the
+    ///   displaced block under. Never an element-bound owner (a span of a list's
+    ///   data region, bug-689), a `TRAP`-owned `Mixed` binding (bug-648), or an
+    ///   owner a live `FOR EACH` walks an alias into (bug-430), and never a
+    ///   `RES … STATE` payload (bug-424's non-goal keeps its whole-record replace).
+    fn replace_field_admitted(
+        &self,
+        owner: FieldContainer<'_>,
+        record_type: &ParameterType,
+        fields: &[(String, ParameterType)],
+        index: usize,
+    ) -> bool {
+        let field_type = &fields[index].1;
+        let variable = *field_type == ParameterType::String
+            || (self.type_model.record_fields.contains_key(field_type)
+                && !typed_is_collection_type(field_type));
+        if !variable
+            || fields
+                .iter()
+                .skip(index + 1)
+                .any(|(_, later)| self.record_field_is_inlined(later))
+            || !self.is_freeable_flat_value(record_type)
+            || record_type.is_named("Error")
+        {
+            return false;
+        }
+        let walked = |name: &str| {
+            self.for_each_iterable_locals.iter().any(|n| n == name)
+                || self
+                    .for_each_iterable_record_fields
+                    .iter()
+                    .any(|(base, _)| base == name)
+        };
+        match owner {
+            FieldContainer::Record { local } => {
+                self.element_updates.field_owner.as_deref() != Some(local)
+                    && !self.element_updates.bindings.contains_key(local)
+                    && !self.trap_owner_flags.contains_key(local)
+                    && !walked(local)
+            }
+            // A `STATE` payload keeps the whole-record replace for an inlined
+            // variable-width field: `string_state_field_still_rebuilds` (bug-424's
+            // non-goal) pins it.
+            FieldContainer::State { .. } => false,
+            FieldContainer::Global { name } => !walked(name),
+        }
+    }
+
+    /// bug-766 D: the stores of a `WITH` that replaces its owner's last inlined
+    /// sub-block, every new value already spilled.
+    ///
+    /// `offset` is the sub-block's stored offset; the owner's walked size is
+    /// `offset + oldSize` before and `offset + newSize` after
+    /// (`replace_field_admitted`). When both round up to the same 16-byte arena
+    /// granule — the size `arena_alloc` handed out and `arena_free` normalizes
+    /// every free to (`mfb spec memory arenas`) — the new bytes go over the old
+    /// span in place: every later walk of the block frees the chunk it lives in.
+    /// Otherwise the owner is rebuilt exactly as the copying `WITH` would build
+    /// it: a fresh block of the new walked size (allocated before anything is
+    /// written, so `ErrOutOfMemory` leaves the owner unchanged) takes the old
+    /// block's bytes up to `offset` (the slots and every earlier sub-block, whose
+    /// offsets are block-relative), then the stores; the old block is freed at its
+    /// own walked size and the owner repointed.
+    fn emit_field_replace_or_rebuild(
+        &mut self,
+        owner: FieldContainer<'_>,
+        record_type: &ParameterType,
+        stores: &[(usize, usize)],
+        overwrites: &[(usize, ParameterType, FieldOverwrite)],
+        replace: &FieldReplace,
+    ) -> Result<(), String> {
+        let field_type = self
+            .type_model
+            .record_fields
+            .get(record_type)
+            .and_then(|fields| fields.get(replace.index))
+            .map(|(_, field_type)| field_type.clone())
+            .ok_or_else(|| format!("native field replace: no field {}", replace.index))?;
+        let old_slot = self.allocate_stack_object("record_replace_old", 8);
+        let offset_slot = self.allocate_stack_object("record_replace_offset", 8);
+        let old_sub_slot = self.allocate_stack_object("record_replace_old_sub", 8);
+        let old_size_slot = self.allocate_stack_object("record_replace_old_size", 8);
+        let new_size_slot = self.allocate_stack_object("record_replace_new_size", 8);
+        let block = self.emit_field_owner_block(owner)?;
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), old_slot));
+        let offset = self.allocate_register();
+        self.emit(abi::load_u64(&offset, &block, 8 * replace.index));
+        self.emit(abi::store_u64(&offset, abi::stack_pointer(), offset_slot));
+        let sub = self.allocate_register();
+        self.emit(abi::add_registers(&sub, &block, &offset));
+        self.emit(abi::store_u64(&sub, abi::stack_pointer(), old_sub_slot));
+        self.emit_inlined_block_size_from_ptr_slot(&field_type, old_sub_slot, old_size_slot)?;
+        // The two walked sizes, then each rounded to the granule.
+        let old_size = self.allocate_register();
+        let new_size = self.allocate_register();
+        let offset = self.allocate_register();
+        let scratch = self.allocate_register();
+        self.emit(abi::load_u64(&offset, abi::stack_pointer(), offset_slot));
+        self.emit(abi::load_u64(
+            &old_size,
+            abi::stack_pointer(),
+            old_size_slot,
+        ));
+        self.emit(abi::add_registers(&old_size, &old_size, &offset));
+        self.emit(abi::load_u64(
+            &new_size,
+            abi::stack_pointer(),
+            replace.size_slot,
+        ));
+        self.emit(abi::add_registers(&new_size, &new_size, &offset));
+        self.emit(abi::store_u64(
+            &new_size,
+            abi::stack_pointer(),
+            new_size_slot,
+        ));
+        self.emit_align_offset_register(&old_size, 16, &scratch);
+        self.emit_align_offset_register(&new_size, 16, &scratch);
+        let rebuild = self.label("record_replace_rebuild");
+        let done = self.label("record_replace_done");
+        self.emit(abi::compare_registers(&old_size, &new_size));
+        self.emit(abi::branch_ne(&rebuild));
+        // Same granule: in place.
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), old_slot));
+        self.emit_field_stores(
+            &abi::Reg::from(&block),
+            stores,
+            overwrites,
+            Some((replace, offset_slot)),
+        );
+        self.emit(abi::branch(&done));
+        // A different granule: the rebuild.
+        self.emit(abi::label(&rebuild));
+        let new_slot = self.allocate_stack_object("record_replace_new", 8);
+        let alloc_ok = self.label("record_replace_alloc_ok");
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            new_size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            new_slot,
+        ));
+        let dst = self.allocate_register();
+        let src = self.allocate_register();
+        let len = self.allocate_register();
+        self.emit(abi::load_u64(&dst, abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), old_slot));
+        self.emit(abi::load_u64(&len, abi::stack_pointer(), offset_slot));
+        self.emit_copy_bytes(&dst, &src, &len, "record_replace_prefix");
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), new_slot));
+        self.emit_field_stores(
+            &abi::Reg::from(&block),
+            stores,
+            overwrites,
+            Some((replace, offset_slot)),
+        );
+        // Every source has been read; free the displaced block at its walked size
+        // (it is untouched, so the walk is its allocation's), then repoint.
+        self.emit_owned_value_drop(&OwnedValueCleanup {
+            type_: record_type.clone(),
+            stack_offset: old_slot,
+            closure_captures: None,
+            capacity_slot: None,
+            loop_alias_slot: None,
+            result_wrapper: None,
+        })?;
+        self.emit_field_owner_install(owner, new_slot)?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// bug-766 D: store the block pointer in `slot` as `owner`'s block — the
+    /// inverse of [`Self::emit_field_owner_block`]: a record local's slot (a
+    /// by-ref capture's through the parent slot's address) or the global's slot.
+    /// A `STATE` payload is never admitted (`replace_field_admitted`).
+    fn emit_field_owner_install(
+        &mut self,
+        owner: FieldContainer<'_>,
+        slot: usize,
+    ) -> Result<(), String> {
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), slot));
+        match owner {
+            FieldContainer::Record { local } => {
+                let local = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("native code field store unknown local '{local}'"))?;
+                let (local_slot, by_ref) = (local.stack_offset, local.by_ref);
+                if by_ref {
+                    let parent = self.allocate_register();
+                    self.emit(abi::load_u64(&parent, abi::stack_pointer(), local_slot));
+                    self.emit(abi::store_u64(&block, &parent, 0));
+                } else {
+                    self.emit(abi::store_u64(&block, abi::stack_pointer(), local_slot));
+                }
+            }
+            FieldContainer::State { resource } => {
+                return Err(format!(
+                    "native field replace: '{resource}'.state is never a replace owner \
+                     (replace_field_admitted)"
+                ));
+            }
+            FieldContainer::Global { name } => {
+                let address = self.load_global_address(name)?;
+                self.emit(abi::store_u64(&block, address, 0));
+            }
+        }
+        Ok(())
     }
 
     /// plan-145-F: evaluate a fixed-size inlined field's new value and spill it —
