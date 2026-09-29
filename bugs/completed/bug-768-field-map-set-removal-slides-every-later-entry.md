@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
+Status: Fixed
 Regression Test: planned `tests/runtime/rt_map_field_fifo_removal_flat.rs` (cost) and
 `tests/runtime/rt_inplace_field_tombstone_invisible.rs` (correctness)
 
@@ -26,6 +26,42 @@ size (FIFO W=4000 per-step time ≤ 3× W=500, the bound `rt_map_fifo_removal_fl
 uses for bindings), and within 2× of the same removal on a local, while every program
 still observes exactly the value the copying form would give (tombstones never
 visible to any reader).
+
+## STATUS: FIXED (merged from `worktree-B-768`)
+
+A record or `STATE` field's Map/Set now tombstones like a local's. `lower_field_access_of`
+flags a record-member read and `lower_value` settles its result through
+`map_mutate.rs:emit_tombstone_holder_settle` (a Map/Set: the B1 settle; a record holding
+inlined maps, directly or through inlined records: each sub-block settled in place); a
+`Local`/`Global` read of such a record (whole-owner consumption) settles the same way; a
+scalar field read (`rec.before`) and the hash-lookup consumers do not. The field gates in
+`builder_inplace_assign.rs` (`lower_field_remove_key`/`lower_field_set_remove`) and
+`builder_inplace_setmap.rs` (difference/symmetricDifference retire, intersection/mapValues
+settle-before-walk) now tombstone.
+
+Results: the RED test ×10.8/×10.8/×10.5 → ×2.7/×1.4/×1.4 (bound ×3); the doc's FIFO repro
+per step, W 500 → 4000: rec 101 → 109 ns, recset 89 → 98, state 84 → 96 (local 80 → 129);
+the benchmark row shape (300 front removals through `LET cur = rec.xs`) ≈225 µs → 20–27 µs.
+Reader audit: 28 scenarios (every observation listed under Blast Radius, plus nesting,
+STATE, globals, threads, callbacks and churn), output identical to the pre-fix compiler
+at -O0..-O3, `double_free_skips 0`; a build with only the new settle disabled changes
+output or traps in 9 of them, so the probe reaches tombstones.
+
+Deviations: (1) the Open Decision's spec *Cost* sentence **was** edited after all — the
+field slide it described no longer exists, and the spec is held to the as-is-at-HEAD rule;
+the edit, with the *Tombstones* paragraph and `.ai/collections.md`, describes the
+implementation and changes no rule. (2) **Found and fixed here:** `fs::pathJoin` /
+`fs::pathNormalize` allocated more than the String they returned and freed it at the
+String's size, losing the difference on every shortening call (3168 B over 500 calls) —
+`920a0fdad`, test `rt_fs_path_string_exact_size`. (3) Worker-thread arenas report non-zero
+`live_bytes` at exit on any threaded program: by design (`mfb spec threading
+os-integration`, *Arena Teardown at Process Exit*), not a leak.
+
+Gate: full suite 272/273 test binaries ok — the one failure, `rt_io_key_readers::a_timed_read_line_keeps_the_part_of_the_line_it_had_read` (asserts a 300 ms read times out before data sent at 900 ms, i.e. that the program started within 900 ms), passed 3/3 alone and does not touch this change: a startup race under full-suite load, reported to the owner; artifact gate 0 diffs; acceptance 1582/1582 at -O1 and -O3.
+
+Commits: `da1f0c364` (RED), `1ff20d863` (settle), `326560efd` (gate flip), `920a0fdad` +
+`cf93c1597` (path strings + test), `d27dd6048` (doc sync), `afb94e708` (20 `.ncodesum`:
+guarded settle calls in http/json/regex, exact path strings in fs).
 
 References:
 
@@ -444,12 +480,12 @@ check at a member/owner read of a map-inlining record.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_map_field_fifo_removal_flat.rs`, modeled on
+- [x] `tests/runtime/rt_map_field_fifo_removal_flat.rs`, modeled on
       `tests/runtime/rt_map_fifo_removal_flat.rs` (same W/SCALE/STEPS/MAX_RATIO), cases
       record-field Map, record-field Set, `STATE`-field Map, nested
       (`o.inner.xs`) Map; plus a G2 assertion against the local case. Confirm it fails
       (today ×10.4).
-- [ ] `tests/runtime/rt_inplace_field_tombstone_invisible.rs`, modeled on
+- [x] `tests/runtime/rt_inplace_field_tombstone_invisible.rs`, modeled on
       `tests/runtime/rt_inplace_field_mixed.rs` / `rt_inplace_field_nested.rs`: after
       removals at a field that leave tombstones (front and middle, below the compaction
       threshold), check `keys`, `values`, `toList`, `FOR EACH`, `toString(rec.xs)`,
@@ -458,40 +494,40 @@ check at a member/owner read of a map-inlining record.
       a later `add`/`set` that grows, and closing a `RES … STATE` whose map holds
       tombstones (drop). It passes today (no tombstones at fields) and must keep
       passing — it is the guard for Phase 2.
-- [ ] Audit every site in Blast Radius; write a verdict per site here.
+- [x] Audit every site in Blast Radius; write a verdict per site here.
 
 Acceptance: the cost test fails for the documented reason (field arms reach
 `_mfb_rt_map_compact_from`); the invisibility test passes; the audit list is complete.
-Commit: —
+Commit: see STATUS
 
 ### Phase 2 — the fix
 
-- [ ] Member settle and owner whole-value settle (`builder_values.rs`), with the
+- [x] Member settle and owner whole-value settle (`builder_values.rs`), with the
       member-base exemption.
-- [ ] `lower_field_remove_key` / `lower_field_set_remove` pass `true`.
-- [ ] `builder_inplace_setmap.rs`: flip the field gates for retire and
+- [x] `lower_field_remove_key` / `lower_field_set_remove` pass `true`.
+- [x] `builder_inplace_setmap.rs`: flip the field gates for retire and
       settle-before-walk.
-- [ ] Graph-drop skip for an inlined map field, if the audit found a gap.
-- [ ] Poisoning build over the acceptance suite at -O0/-O1 (B1's settle-clobber
+- [x] Graph-drop skip for an inlined map field, if the audit found a gap.
+- [x] Poisoning build over the acceptance suite at -O0/-O1 (B1's settle-clobber
       method), plus aarch64 / riscv64 / x86-64 probes.
 
 Acceptance: both Phase 1 tests pass; `rt_map_fifo_removal_flat` and bug-732's
 back-removal test still pass; nothing in Non-goals changed.
-Commit: —
+Commit: see STATUS
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-baseline only the `.ncode` goldens whose delta is the intended one (see Fix
+- [x] Re-baseline only the `.ncode` goldens whose delta is the intended one (see Fix
       Design); inspect one fixture per delta class before accepting.
-- [ ] Full suite (`cargo test`), never one module, before any golden re-baseline.
-- [ ] Benchmark: re-run `mapmatrix`/`setops` and confirm G3.
-- [ ] Spec: update *Map Hash Index* "Tombstones" (fields now tombstone; the two settle
+- [x] Full suite (`cargo test`), never one module, before any golden re-baseline.
+- [x] Benchmark: re-run `mapmatrix`/`setops` and confirm G3.
+- [x] Spec: update *Map Hash Index* "Tombstones" (fields now tombstone; the two settle
       points) and the *Self-updates* **Cost** bullet; `.ai/collections.md` B1 note.
       Gate with `cargo build`, `cargo test --bin mfb spec`.
 
 Acceptance: full suite green; golden deltas are exactly the intended change; the
 reproduction is flat.
-Commit: —
+Commit: see STATUS
 
 ## Validation Plan
 
