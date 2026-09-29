@@ -128,7 +128,10 @@ fn run(name: &str, source: &str) -> (String, u64, u64, u64) {
     let _ = std::fs::remove_dir_all(&project);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let report = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(out.status.success(), "{name}: program failed:\n{text}\n{report}");
+    assert!(
+        out.status.success(),
+        "{name}: program failed:\n{text}\n{report}"
+    );
     let sum = |key: &str| -> u64 {
         report
             .lines()

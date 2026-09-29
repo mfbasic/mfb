@@ -175,17 +175,20 @@ const CASES: &[(&str, &str)] = &[
     ),
     ("inplace_filter", "ys = collections::filter(ys, predFail)"),
     // Guards: measured 0 before the fix.
-    ("inplace_transform", "ys = collections::transform(ys, mapFail)"),
+    (
+        "inplace_transform",
+        "ys = collections::transform(ys, mapFail)",
+    ),
     ("inplace_sortBy", "ys = collections::sortBy(ys, keyFail)"),
     (
         "mapValues",
         "LET r AS Map OF Integer TO String = collections::mapValues(m, mapFail)",
     ),
-    ("inplace_mapValues", "mm = collections::mapValues(mm, mapFail)"),
     (
-        "any",
-        "LET r AS Boolean = collections::any(xs, predFail)",
+        "inplace_mapValues",
+        "mm = collections::mapValues(mm, mapFail)",
     ),
+    ("any", "LET r AS Boolean = collections::any(xs, predFail)"),
     (
         "all",
         "LET r AS Boolean = collections::all(xs, predFailTrue)",
