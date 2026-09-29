@@ -612,6 +612,12 @@ pub(crate) fn collect_borrow_gets(
         // read-only variant bindings (`n = UnionExtract($matchN)`), part of
         // consuming the scrutinee, not an escape.
         union_extract_reads: HashMap<String, usize>,
+        // bug-776: the `UnionExtract`s that ARE a MATCH's own variant bindings —
+        // the direct value of a `Bind` at the top of a case body of a `MATCH`
+        // over the same local. Place forwarding (plan-149, and Level-3
+        // `aggcopy`) deletes the `$matchN = e` temp, leaving `MATCH e` and
+        // `UnionExtract(e)`; these are then `e`'s own borrow-transparent reads.
+        case_extract_binds: HashMap<String, usize>,
     }
     impl NirVisitor for Collector {
         fn visit_op(&mut self, op: &NirOp) {
@@ -660,9 +666,23 @@ pub(crate) fn collect_borrow_gets(
                 }
                 NirOp::Match {
                     value: NirValue::Local(scrut),
-                    ..
+                    cases,
                 } => {
                     *self.scrutinee_reads.entry(scrut.clone()).or_insert(0) += 1;
+                    for case in cases {
+                        for op in &case.body {
+                            if let NirOp::Bind {
+                                value: Some(NirValue::UnionExtract { value, .. }),
+                                ..
+                            } = op
+                            {
+                                if matches!(value.as_ref(), NirValue::Local(l) if l == scrut) {
+                                    *self.case_extract_binds.entry(scrut.clone()).or_insert(0) +=
+                                        1;
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -698,6 +718,7 @@ pub(crate) fn collect_borrow_gets(
         member_reads: HashMap::new(),
         scrutinee_reads: HashMap::new(),
         union_extract_reads: HashMap::new(),
+        case_extract_binds: HashMap::new(),
     };
     c.visit_ops(ops);
     let count = |map: &HashMap<String, usize>, n: &str| map.get(n).copied().unwrap_or(0);
@@ -758,10 +779,15 @@ pub(crate) fn collect_borrow_gets(
             continue;
         }
         let temps = match_temps_of.get(e.as_str()).cloned().unwrap_or_default();
-        // Every read is borrow-transparent: a field read, a MATCH scrutinee, or the
-        // value of a match temp's copy-bind.
-        let read_only =
-            !assigned(e) && reads(e) >= 1 && reads(e) == members(e) + scrut(e) + temps.len();
+        // Every read is borrow-transparent: a field read, a MATCH scrutinee, the
+        // value of a match temp's copy-bind, or — once forwarding has removed that
+        // temp (bug-776) — one of `e`'s own MATCH's variant bindings. Only extracts
+        // in that exact position count; any other `UnionExtract(e)` stays an
+        // unexplained read, so `e` copies as before.
+        let own_case_extracts = count(&c.case_extract_binds, e);
+        let read_only = !assigned(e)
+            && reads(e) >= 1
+            && reads(e) == members(e) + scrut(e) + own_case_extracts + temps.len();
         if read_only {
             // plan-86 E: an immutable local container (and, for `getOr`, an
             // immutable local default — on a miss the binding IS the default, and a
