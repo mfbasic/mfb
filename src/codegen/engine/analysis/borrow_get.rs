@@ -677,8 +677,7 @@ pub(crate) fn collect_borrow_gets(
                             } = op
                             {
                                 if matches!(value.as_ref(), NirValue::Local(l) if l == scrut) {
-                                    *self.case_extract_binds.entry(scrut.clone()).or_insert(0) +=
-                                        1;
+                                    *self.case_extract_binds.entry(scrut.clone()).or_insert(0) += 1;
                                 }
                             }
                         }
@@ -975,7 +974,9 @@ END FUNC
              RETURN n.value\n    CASE Add(a)\n      RETURN a.left + a.right\n  END MATCH\n  \
              RETURN 0\nEND FUNC\n";
         let mut module = with_opt_level(OptLevel(0), || lower(body));
-        with_opt_level(OptLevel(1), || crate::optimizer::opt1::placefwd::forward(&mut module));
+        with_opt_level(OptLevel(1), || {
+            crate::optimizer::opt1::placefwd::forward(&mut module)
+        });
         let main = function(&module, "main");
         struct MatchTemp(bool);
         impl NirVisitor for MatchTemp {
@@ -994,7 +995,10 @@ END FUNC
         }
         let mut temp = MatchTemp(false);
         temp.visit_ops(&main.body);
-        assert!(!temp.0, "the probe needs the forwarded form: the `$match` temp must be gone");
+        assert!(
+            !temp.0,
+            "the probe needs the forwarded form: the `$match` temp must be gone"
+        );
         let mut address_taken = HashSet::new();
         crate::codegen::engine::function::function_lowering::collect_address_taken_locals(
             &main.body,
