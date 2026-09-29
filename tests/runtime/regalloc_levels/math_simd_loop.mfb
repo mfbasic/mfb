@@ -1,0 +1,47 @@
+' bug-760: benchmark/mfb/src/math.mfb test_math_simd's loop, one run. The three
+' `toFloat(collections::sum(<Integer list>))` terms among sixteen Float terms put
+' enough pressure on the allocator that a wrong register share at -O2/-O3 dropped
+' exactly those three terms (1544 + 2568 + 2056 per rep).
+IMPORT io
+IMPORT math
+IMPORT collections
+
+FUNC mathRangeFloat(n AS Integer, lo AS Float, span AS Float) AS List OF Float
+  MUT xs AS List OF Float = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, lo + toFloat(i) / toFloat(n) * span)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC main() AS Integer
+  LET unit AS List OF Float = mathRangeFloat(1024, -0.9, 1.8)
+  LET pos AS List OF Float = mathRangeFloat(1024, 0.01, 4.0)
+  LET big AS List OF Float = mathRangeFloat(1024, -1000.0, 2000.0)
+  LET expo AS List OF Float = mathRangeFloat(1024, -2.0, 4.0)
+  LET lo AS List OF Float = mathRangeFloat(1024, -5.0, 10.0)
+  MUT acc AS Float = 0.0
+  FOR rep = 0 TO 199
+    acc = acc + collections::sum(math::abs(big))
+    acc = acc + toFloat(collections::sum(math::floor(pos)))
+    acc = acc + toFloat(collections::sum(math::ceil(pos)))
+    acc = acc + toFloat(collections::sum(math::round(pos)))
+    acc = acc + collections::sum(math::min(big, lo))
+    acc = acc + collections::sum(math::max(big, lo))
+    acc = acc + collections::sum(math::clamp(big, -1.0, 1.0))
+    acc = acc + collections::sum(math::sqrt(pos))
+    acc = acc + collections::sum(math::log(pos))
+    acc = acc + collections::sum(math::log10(pos))
+    acc = acc + collections::sum(math::exp(expo))
+    acc = acc + collections::sum(math::sin(unit))
+    acc = acc + collections::sum(math::cos(unit))
+    acc = acc + collections::sum(math::tan(unit))
+    acc = acc + collections::sum(math::atan(unit))
+    acc = acc + collections::sum(math::asin(unit))
+    acc = acc + collections::sum(math::acos(unit))
+    acc = acc + collections::sum(math::pow(pos, expo))
+    acc = acc + collections::sum(math::atan2(unit, pos))
+  NEXT
+  io::print(toString(acc, toByte(3)))
+  RETURN 0
+END FUNC

@@ -923,6 +923,10 @@ name = "rt_map_list_value_grow_cost"
 path = "tests/runtime/rt_map_list_value_grow_cost.rs"
 
 [[test]]
+name = "rt_regalloc_levels_agree"
+path = "tests/runtime/rt_regalloc_levels_agree.rs"
+
+[[test]]
 name = "rt_list_take_drop_in_place"
 path = "tests/runtime/rt_list_take_drop_in_place.rs"
 
