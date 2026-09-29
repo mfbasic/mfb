@@ -592,6 +592,10 @@ name = "rt_list_element_record_borrow"
 path = "tests/runtime/rt_list_element_record_borrow.rs"
 
 [[test]]
+name = "rt_record_update_forms"
+path = "tests/runtime/rt_record_update_forms.rs"
+
+[[test]]
 name = "rt_transform_block_result_frees"
 path = "tests/runtime/rt_transform_block_result_frees.rs"
 
