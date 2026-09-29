@@ -7,7 +7,7 @@ hundreds-× on one collection pattern, silently (every checksum still matches)
 Class: Other (performance regression)
 
 Status: Open
-Regression Test: `tests/codegen/codegen_forwarded_field_fast_path.rs` (A), `tests/runtime/rt_map_fifo_removal_flat.rs` (B1), `tests/runtime/rt_map_list_value_grow_cost.rs` (B2), `tests/codegen/codegen_regalloc_eviction.rs` (C, D)
+Regression Test: `tests/runtime/rt_regalloc_levels_agree.rs` (split path), `tests/codegen/codegen_forwarded_field_fast_path.rs` (A), `tests/runtime/rt_map_fifo_removal_flat.rs` (B1), `tests/runtime/rt_map_list_value_grow_cost.rs` (B2), `tests/codegen/codegen_regalloc_eviction.rs` (C, D)
 
 A full `./benchmark/run.sh 10` at `9c1ea5568` (logs `benchmark/*-20260928-055319.log`,
 now the committed baseline, `af442d65a`) against the previous baseline (`3ccc68297`,
@@ -475,6 +475,20 @@ Commit: `802c29611` (tests)
       the hot path (the -O1 store→load peephole only forwards to a *different*
       register); the allocator now skips it when the register is still free.
       Every listed row back to ≤ the pre-C compiler at -O1/-O2/-O3.
+- [x] Found by the benchmark's cross-level check after that follow-up, and **latent
+      on main before this bug**: -O2 live-range splitting (`linear_scan.rs:run`)
+      moved a split vreg into its tail register at `m + 1` without checking that the
+      copy runs on every path to the tail's uses — `first_free_until` puts `m` just
+      before the head's first clobber, even a raise-path call, so the copy could
+      sit inside a raise block the normal path jumps over (`b.ne
+      float_result_finite_71; … fmov_d_from_d d8, d1; bl _mfb_make_error_result`)
+      and the tail read a stale register. The follow-up's looser tail rule made it
+      fire: `math simd` printed 109802161.957 at -O2/-O3 (111035761.957 at
+      -O0/-O1, C, Python) — the three `toFloat(sum(Integer list))` terms dropped.
+      Fix: split only a straight-line interval (no label after its start, no branch
+      before its end). RED test `tests/runtime/rt_regalloc_levels_agree.rs`
+      (`9fead99f4`) + unit test `live_range_split_never_crosses_control_flow`. The
+      earlier "splitting with holes changed nbody's checksum" was the same defect.
 - [x] Found while measuring C (not a regression of this bug): riscv64
       `select.rs:float_branch` kept the compare bool in `t0`, which an FP restore
       with a large `sp` offset overwrites (`nbody` -O1 raised a spurious overflow on
@@ -482,7 +496,7 @@ Commit: `802c29611` (tests)
 
 Acceptance: Phase 1 tests pass; contrast cases unchanged; Non-goals intact.
 Commit: `0a110ee0e`, `ada9aeddb` (A); `8f069dc0f` (B1); `ec04785ab` (B2);
-`8af918c88`, `69abdc711`, `8c44bc7bc` (C/D); `74ed4b89a` (riscv64); `b53f08e27` (fmt).
+`8af918c88`, `69abdc711`, `8c44bc7bc`, `3261e977d` (C/D); `74ed4b89a` (riscv64); `b53f08e27` (fmt).
 
 ### Phase 3 — regenerate + full validation
 
@@ -508,11 +522,8 @@ Commit: —
 
 ## Open Questions
 
-- Letting -O2 live-range **splitting** use the new lifetime holes changed `nbody`'s
-  checksum (-0.169079919 vs -0.169079859), so the shipped change keeps splitting on
-  the old span. Unexplained: it may be a latent defect in the split path that
-  lifetime holes merely expose. Not shipped, so no program is affected; worth a
-  bug of its own if anyone extends splitting.
+- Resolved: the "splitting with holes changed nbody's checksum" question was the
+  latent split-path defect fixed in `3261e977d` (see Phase 2).
 
 ## Open Decisions
 
