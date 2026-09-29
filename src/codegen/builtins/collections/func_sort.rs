@@ -2,6 +2,7 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::builder_inplace_sort::sort_word_path_accepts;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::typed_list_element_type;
@@ -9,21 +10,24 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Native fast path for `#collections_sort$T` (String or signed 8-byte
-/// fixed-width, 1 arg): an index-permutation merge. Float and everything else
-/// decline (`Ok(None)`). Free fn.
+/// Native fast path for `#collections_sort$T` (1 arg). String and signed 8-byte
+/// elements take the index merge with a gather (`sort_word_path_accepts`); every
+/// other ordered element (`Float`, `Byte`, `Scalar`) copies `value` once and runs
+/// the in-place arm's merge on the copy (bug-767, `lower_copying_sort`) when the
+/// function has the self-update scratch. Anything else declines (`Ok(None)`) to
+/// the `.mfb` body. Free fn.
 pub(crate) fn sort_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
 ) -> Result<Option<ValueResult>, String> {
-    let Some(t) = target.strip_prefix("#collections_sort$") else {
+    if !target.starts_with("#collections_sort$") || args.len() != 1 {
         return Ok(None);
-    };
-    if matches!(t, "String" | "Integer" | "Fixed" | "Money") && args.len() == 1 {
+    }
+    if sort_word_path_accepts(target, args) {
         return builder.lower_collection_sort_call(args).map(Some);
     }
-    Ok(None)
+    builder.lower_copying_sort(args)
 }
 
 impl CodeBuilder<'_> {

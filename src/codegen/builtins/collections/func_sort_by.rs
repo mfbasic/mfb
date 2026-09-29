@@ -2,48 +2,32 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::builder_inplace_sort::sort_by_word_path_accepts;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
-use crate::codegen::engine::value::reeval::is_reevaluation_safe;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Native fast path for `#collections_sortBy$T$U`: 8-byte fixed-width items and
-/// signed 8-byte keys (String items allowed when the source is re-eval-safe).
-/// Other shapes decline (`Ok(None)`). Free fn.
+/// Native fast path for `#collections_sortBy$T$U`. The word merge
+/// (`lower_collection_sortby_call`) takes the shapes `sort_by_word_path_accepts`
+/// names; every other shape (a record element, a `Float`/`Byte`/`String`/`Scalar`
+/// key) copies `value` once and runs the in-place arm's index merge on the copy
+/// (bug-767, `lower_copying_sort_by`) when the function has the self-update
+/// scratch. Anything else declines (`Ok(None)`) to the `.mfb` body. Free fn.
 pub(crate) fn sort_by_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
 ) -> Result<Option<ValueResult>, String> {
-    let Some(params) = target.strip_prefix("#collections_sortBy$") else {
-        return Ok(None);
-    };
-    if args.len() != 2 {
+    if !target.starts_with("#collections_sortBy$") || args.len() != 2 {
         return Ok(None);
     }
-    let mut parts = params.split('$');
-    let item = parts.next().unwrap_or("");
-    let key_ok = parts
-        .next()
-        .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
-        .unwrap_or(false);
-    // bug-760 A: accept a `MemberAccess` place (a forwarded record/STATE field
-    // read), not only a bare `Local` — see `is_reevaluation_safe` doc comment.
-    let source_reeval_safe = is_reevaluation_safe(&args[0]);
-    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
-    // the NIR carries; parsed once here, at the symbol boundary.
-    let item = ParameterType::declared(item);
-    let item_ok = matches!(
-        item,
-        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money
-    ) || (item == ParameterType::String && source_reeval_safe);
-    if item_ok && key_ok {
+    if sort_by_word_path_accepts(target, args) {
         return builder.lower_collection_sortby_call(args).map(Some);
     }
-    Ok(None)
+    builder.lower_copying_sort_by(args)
 }
 
 impl CodeBuilder<'_> {

@@ -21,6 +21,9 @@
 //! way of building a [`SelfUpdateSite`]: every arm is automatically an arm at every
 //! site, and no arm is written per site.
 
+use crate::codegen::collection::assign::builder_inplace_sort::{
+    sort_by_word_path_accepts, sort_word_path_accepts,
+};
 use crate::codegen::collection::assign::inplace_dest::InPlaceDest;
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
@@ -852,6 +855,40 @@ fn ops_create_scratch_closure(builder: &CodeBuilder<'_>, ops: &[NirOp]) -> bool 
     finder.found
 }
 
+/// bug-767 A: whether `ops` hold a copying `collections::sort`/`sortBy` call that
+/// the word-merge fast paths decline — the shapes `lower_copying_sort{,_by}`
+/// serve by sorting a copy with the in-place arm's merge, which keeps its index
+/// buffers in the self-update scratch. Only this function's own scratch: the
+/// predicate is not part of `function_needs_scratch`, so no closure borrows a
+/// creator's scratch for it (a `keyFn` cannot hold a self-update — only a
+/// `forEach` lambda mutates a capture — so the merge never shares the block).
+fn ops_hold_copying_sort(ops: &[NirOp]) -> bool {
+    struct Finder {
+        found: bool,
+    }
+    impl NirVisitor for Finder {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } =
+                value
+            {
+                let copying_sort = (target.starts_with("#collections_sortBy$")
+                    && args.len() == 2
+                    && !sort_by_word_path_accepts(target, args))
+                    || (target.starts_with("#collections_sort$")
+                        && args.len() == 1
+                        && !sort_word_path_accepts(target, args));
+                if copying_sort {
+                    self.found = true;
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut finder = Finder { found: false };
+    finder.visit_ops(ops);
+    finder.found
+}
+
 /// Whether a self-update of `target` has an arm that keeps state in the
 /// function's self-update scratch.
 fn target_needs_self_update_scratch(target: &str) -> bool {
@@ -958,6 +995,7 @@ impl CodeBuilder<'_> {
         }
         if !ops_hold_self_update(ops, &target_needs_self_update_scratch)
             && !ops_create_scratch_closure(self, ops)
+            && !ops_hold_copying_sort(ops)
         {
             return;
         }

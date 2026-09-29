@@ -22,6 +22,7 @@ use crate::codegen::collection::layout::{kind2_payload_size, list_entry_stride};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
+use crate::codegen::engine::value::reeval::is_reevaluation_safe;
 use crate::codegen::error::constants::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -63,6 +64,48 @@ fn is_ordered(type_: &ParameterType) -> bool {
             | ParameterType::Byte
             | ParameterType::String
     ) || type_.is_named("Scalar")
+}
+
+/// Whether the word merge (`lower_collection_sortby_call`) takes the copying
+/// `#collections_sortBy$T$U` call with these arguments: 8-byte fixed-width items
+/// and signed 8-byte keys (String items allowed when the source is re-eval-safe).
+/// The one gate the fast path and the scratch prescan
+/// (`self_update.rs:ops_hold_copying_sort`) both ask.
+pub(crate) fn sort_by_word_path_accepts(target: &str, args: &[NirValue]) -> bool {
+    let Some(params) = target.strip_prefix("#collections_sortBy$") else {
+        return false;
+    };
+    if args.len() != 2 {
+        return false;
+    }
+    let mut parts = params.split('$');
+    let item = parts.next().unwrap_or("");
+    let key_ok = parts
+        .next()
+        .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
+        .unwrap_or(false);
+    // bug-760 A: accept a `MemberAccess` place (a forwarded record/STATE field
+    // read), not only a bare `Local` — see `is_reevaluation_safe` doc comment.
+    let source_reeval_safe = is_reevaluation_safe(&args[0]);
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
+    let item = ParameterType::declared(item);
+    let item_ok = matches!(
+        item,
+        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money
+    ) || (item == ParameterType::String && source_reeval_safe);
+    item_ok && key_ok
+}
+
+/// Whether the index merge (`lower_collection_sort_call`) takes the copying
+/// `#collections_sort$T` call: a `String` or signed 8-byte element. The one gate
+/// the fast path and the scratch prescan (`self_update.rs:ops_hold_copying_sort`)
+/// both ask.
+pub(crate) fn sort_word_path_accepts(target: &str, args: &[NirValue]) -> bool {
+    target
+        .strip_prefix("#collections_sort$")
+        .is_some_and(|t| matches!(t, "String" | "Integer" | "Fixed" | "Money"))
+        && args.len() == 1
 }
 
 const HIDDEN_RIGHT: &str = "$su_sort_right";
@@ -707,6 +750,145 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::label(&skip));
         Ok(())
+    }
+
+    /// bug-767 A: the list type of a copying `sort`/`sortBy`'s `value` when this
+    /// function can serve the call with the in-place merge on a copy — it has the
+    /// self-update scratch, and `value` is either a fresh block (owned outright
+    /// once claimed) or a source this frame can copy: a flat block, or a graph
+    /// (`needs_graph_copy`), exactly the copies `MUT s = xs` makes. `None` emits
+    /// nothing, and the call keeps the `.mfb` body.
+    fn copying_sort_source_type(&self, value: &NirValue) -> Option<ParameterType> {
+        self.self_update_scratch?;
+        let list_type = self.static_item_type(value)?;
+        typed_list_element_type(&list_type)?;
+        let copyable = !self.value_needs_owning_copy(value)
+            || self.is_freeable_flat_value(&list_type)
+            || self.needs_graph_copy(&list_type);
+        copyable.then_some(list_type)
+    }
+
+    /// Lower `value` into a fresh slot as the independent list the copying sort
+    /// returns: an aliasing source is copied (a flat copy, or the graph copy for a
+    /// type-cycle element), a fresh block is claimed from the statement-scope
+    /// temps. Nothing else holds the slot's block, so it is sorted in place.
+    fn lower_copying_sort_source(
+        &mut self,
+        value: &NirValue,
+        list_type: &ParameterType,
+    ) -> Result<usize, String> {
+        let lowered = self.lower_value(value)?;
+        if lowered.type_ != *list_type {
+            return Err(format!(
+                "native copying sort: value lowered as {}, expected {list_type}",
+                lowered.type_
+            ));
+        }
+        let owned = if !self.value_needs_owning_copy(value) {
+            self.claim_pending_temp(&lowered);
+            lowered.location
+        } else if self.is_freeable_flat_value(list_type) {
+            Operand::from(self.copy_flat_block(list_type, &lowered.location)?)
+        } else {
+            Operand::from(self.copy_value_to_current_arena(list_type, &lowered.location)?)
+        };
+        let slot = self.allocate_stack_object("copying_sort_value", 8);
+        self.emit(abi::store_u64(&owned, abi::stack_pointer(), slot));
+        Ok(slot)
+    }
+
+    fn copying_sort_result(
+        &mut self,
+        slot: usize,
+        list_type: ParameterType,
+        text: &str,
+    ) -> ValueResult {
+        let result = self.allocate_register();
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
+        ValueResult {
+            origin: None,
+            type_: list_type,
+            location: Operand::from(result),
+            text: text.to_string(),
+        }
+    }
+
+    /// bug-767 A: `collections::sort(value)` as a copy — the one copy of `value`
+    /// the call owes, then the self-update arm's merge (`emit_sort_buffer`) on it.
+    /// `Ok(None)`, having emitted nothing, when the function cannot serve it.
+    pub(crate) fn lower_copying_sort(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<Option<ValueResult>, String> {
+        let Some(list_type) = self.copying_sort_source_type(&args[0]) else {
+            return Ok(None);
+        };
+        let element_type = typed_list_element_type(&list_type)
+            .cloned()
+            .expect("checked by copying_sort_source_type");
+        if !is_ordered(&element_type) {
+            return Ok(None);
+        }
+        let slot = self.lower_copying_sort_source(&args[0], &list_type)?;
+        self.emit_sort_buffer(slot, &element_type)?;
+        Ok(Some(self.copying_sort_result(
+            slot,
+            list_type.clone(),
+            &format!("sort({list_type})"),
+        )))
+    }
+
+    /// bug-767 A: `collections::sortBy(value, keyFn)` as a copy — `value` copied
+    /// first, then `keyFn` evaluated (argument order), then the self-update arm's
+    /// keys pass, merge and permutation (`emit_sort_by_buffer`) on the copy. A
+    /// failing `keyFn` frees the copy with the keys and propagates, as the arm
+    /// does. `Ok(None)`, having emitted nothing, when the function cannot serve it.
+    pub(crate) fn lower_copying_sort_by(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<Option<ValueResult>, String> {
+        let Some(list_type) = self.copying_sort_source_type(&args[0]) else {
+            return Ok(None);
+        };
+        let element_type = typed_list_element_type(&list_type)
+            .cloned()
+            .expect("checked by copying_sort_source_type");
+        let Some(key_type) = self
+            .static_item_type(&args[1])
+            .and_then(|action| typed_callable_return_type(&action).cloned())
+        else {
+            return Ok(None);
+        };
+        if !is_ordered(&key_type) {
+            return Ok(None);
+        }
+        let slot = self.lower_copying_sort_source(&args[0], &list_type)?;
+        let action = self.lower_value(&args[1])?;
+        if typed_callable_return_type(&action.type_) != Some(&key_type) {
+            return Err(format!(
+                "native copying sortBy: keyFn lowered as {}, expected a function returning {key_type}",
+                action.type_
+            ));
+        }
+        self.require_direct_callable("sortBy", &action)?;
+        let action_slot = self.allocate_stack_object("copying_sortby_action", 8);
+        self.emit(abi::store_u64(
+            &action.location,
+            abi::stack_pointer(),
+            action_slot,
+        ));
+        self.emit_sort_by_buffer(
+            slot,
+            action_slot,
+            &element_type,
+            &key_type,
+            &[(slot, list_type.clone())],
+        )?;
+        Ok(Some(self.copying_sort_result(
+            slot,
+            list_type.clone(),
+            &format!("sortBy({list_type})"),
+        )))
     }
 
     /// Free the first `count` parked `String` words of the array at `words_slot`;
