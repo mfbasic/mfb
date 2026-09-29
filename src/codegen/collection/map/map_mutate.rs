@@ -46,6 +46,104 @@ pub(crate) fn is_map_or_set_type(type_: &ParameterType) -> bool {
         || crate::codegen::engine::types::typed_set_element_type(type_).is_some()
 }
 
+/// bug-768: whether a `Map`/`Set` of `type_` can hold tombstones at all — only
+/// a key (element) type with a hash probe ever leaves one
+/// (`lower_map_remove_key_in_place` ANDs its `tombstone` with
+/// `map_key_probe_eligible`; a scan would match a dead key).
+pub(crate) fn map_or_set_may_tombstone(type_: &ParameterType) -> bool {
+    typed_map_type_parts(type_)
+        .map(|(key, _)| key)
+        .or_else(|| crate::codegen::engine::types::typed_set_element_type(type_))
+        .is_some_and(CodeBuilder::map_key_probe_eligible)
+}
+
+impl CodeBuilder<'_> {
+    /// bug-768: the field-index paths from a block of record `record_type` to
+    /// every inlined `Map`/`Set` field that can hold tombstones, through inlined
+    /// record fields only — exactly the places an in-place field removal reaches
+    /// (`InPlaceDest::Inlined { field_index, path }`). A pointer field is never an
+    /// in-place field destination, and an inlined union or collection is copied
+    /// in whole from a value that was settled when it was read.
+    pub(crate) fn tombstone_field_paths(&self, record_type: &ParameterType) -> Vec<Vec<usize>> {
+        let mut out = Vec::new();
+        self.collect_tombstone_field_paths(record_type, &mut Vec::new(), &mut out);
+        out
+    }
+
+    fn collect_tombstone_field_paths(
+        &self,
+        record_type: &ParameterType,
+        path: &mut Vec<usize>,
+        out: &mut Vec<Vec<usize>>,
+    ) {
+        let Some(fields) = self.type_model.record_fields.get(record_type) else {
+            return;
+        };
+        for (index, (_, field_type)) in fields.iter().enumerate() {
+            // An inlined record is memcpy-copyable, so it cannot contain itself:
+            // the walk ends.
+            if !self.record_field_is_inlined(field_type) {
+                continue;
+            }
+            path.push(index);
+            if map_or_set_may_tombstone(field_type) {
+                out.push(path.clone());
+            } else {
+                self.collect_tombstone_field_paths(field_type, path, out);
+            }
+            path.pop();
+        }
+    }
+
+    /// bug-768: settle `value` — a `Map`/`Set`, or a record (a record local or
+    /// global, a record field, a `STATE` payload) whose inlined fields may hold
+    /// tombstones — before a consumer that is not tombstone-aware sees it. A map
+    /// or set is settled as a binding is ([`Self::emit_map_settle_value`]); a
+    /// record has each sub-block on [`Self::tombstone_field_paths`] settled in
+    /// place, each a dead-count check when it holds none. Nothing moves, so the
+    /// record's stored offsets and size stay valid. Any other value is returned
+    /// untouched, emitting nothing.
+    pub(crate) fn emit_tombstone_holder_settle(&mut self, value: ValueResult) -> ValueResult {
+        if map_or_set_may_tombstone(&value.type_) {
+            return self.emit_map_settle_value(value);
+        }
+        if !self.type_model.record_fields.contains_key(&value.type_) {
+            return value;
+        }
+        let paths = self.tombstone_field_paths(&value.type_);
+        if paths.is_empty() {
+            return value;
+        }
+        let base = self.temporary_vreg();
+        let skip = self.label("record_settle_skip");
+        self.emit(abi::move_register(&base, &value.location));
+        self.emit(abi::compare_immediate(&base, "0"));
+        self.emit(abi::branch_eq(&skip));
+        for path in paths {
+            let sub_block = self.temporary_vreg();
+            self.emit(abi::move_register(&sub_block, &base));
+            for index in path {
+                // An inlined field's slot holds its offset from the start of the
+                // record that declares it (`lower_field_access_of`).
+                let offset = self.temporary_vreg();
+                self.emit(abi::load_u64(&offset, &sub_block, 8 * index));
+                self.emit(abi::add_registers(&sub_block, &sub_block, &offset));
+            }
+            self.emit_map_settle_value(ValueResult {
+                origin: None,
+                type_: ParameterType::Nothing,
+                location: Operand::from(sub_block),
+                text: String::new(),
+            });
+        }
+        self.emit(abi::label(&skip));
+        ValueResult {
+            location: Operand::from(base),
+            ..value
+        }
+    }
+}
+
 impl CodeBuilder<'_> {
     /// bug-760 B1: settle the `Map`/`Set` block `value` (read out of a binding)
     /// before a consumer that is not tombstone-aware sees it: when its dead count

@@ -200,11 +200,25 @@ impl CodeBuilder<'_> {
             )
         });
         let result = self.lower_value_inner(value);
+        // bug-768: whether THIS frame read a record field or a `STATE` payload
+        // (`lower_field_access_of`). Taken here, on every frame's exit, so an
+        // operand's read never leaks into its consumer's frame.
+        let record_member = std::mem::take(&mut self.record_member_read);
         // bug-760 B1: a `Map`/`Set` read out of a binding may hold tombstones (an
         // in-place removal leaves them there); every consumer but a
         // tombstone-aware one gets the block settled first, so no copy, iteration,
         // comparison, callee or thread ever sees one. A no-op check when the dead
         // count is 0.
+        //
+        // bug-768: an in-place removal at a record or `STATE` field leaves them in
+        // the owner's inlined sub-block, so the same rule covers the two routes by
+        // which that sub-block reaches a consumer: the field read itself
+        // (`rec.xs`, `f.state.xs`, `o.inner.xs`, `o.inner`, `f.state`) and the
+        // owner read whole (`LET r2 = rec`, an argument, a `RETURN`, `toString`,
+        // a comparison, a store, a thread transfer). The owner read that is only
+        // the base of a field read (`rec.before`) is exempt
+        // (`lower_field_access_of` arms `map_settle_exempt_armed` for it), so a
+        // sibling-field read never pays a settle.
         let result = match result {
             Ok(result)
                 if !settle_exempt
@@ -214,6 +228,13 @@ impl CodeBuilder<'_> {
                     ) =>
             {
                 Ok(self.emit_map_settle_value(result))
+            }
+            Ok(result)
+                if !settle_exempt
+                    && (record_member
+                        || matches!(value, NirValue::Local(_) | NirValue::Global { .. })) =>
+            {
+                Ok(self.emit_tombstone_holder_settle(result))
             }
             other => other,
         };

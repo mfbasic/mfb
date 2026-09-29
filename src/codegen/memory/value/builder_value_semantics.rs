@@ -600,6 +600,10 @@ impl CodeBuilder<'_> {
         let target_value = if borrow {
             self.lower_borrowed_chain_base(target)?
         } else {
+            // bug-768: the owner is read only to address one of its fields, so its
+            // inlined maps are not settled here — the field read settles what it
+            // yields, and a scalar sibling (`rec.before`) needs nothing.
+            self.map_settle_exempt_armed = true;
             self.lower_value(target)?
         };
         // plan-01-vector: a field read of a register-native vector is a direct lane
@@ -619,6 +623,8 @@ impl CodeBuilder<'_> {
                     self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
                 let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
+                // bug-768: a `STATE` payload's inlined maps may hold tombstones.
+                self.record_member_read = true;
                 return Ok(ValueResult {
                     origin: None,
                     type_: state_type.clone(),
@@ -670,6 +676,9 @@ impl CodeBuilder<'_> {
                 // rule for both keeps the two positions from drifting, which is
                 // the same reasoning §4.1 gives.
                 let field_type = typed_strip_res_marker(field_type).clone();
+                // bug-768: a record field (or an inlined record) may hold
+                // tombstones an in-place field removal left.
+                self.record_member_read = true;
                 (index, field_type, 0, inline_string)
             } else if let Some(fields) = self
                 .type_model

@@ -193,6 +193,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// read in that frame then skips the settle every other read of a map binding
     /// runs (`CodeBuilder::emit_map_settle_value`).
     pub(crate) map_settle_exempt_armed: bool,
+    /// bug-768: set by `lower_field_access_of` when the field it just read is a
+    /// record field or a `STATE` payload — the owners whose inlined `Map`/`Set`
+    /// sub-blocks an in-place field removal can leave tombstones in. Taken by the
+    /// `lower_value` frame the read returns to, which then settles the result
+    /// (`CodeBuilder::emit_tombstone_holder_settle`); every frame takes it on exit,
+    /// so an inner frame's read never reaches an outer one.
+    pub(crate) record_member_read: bool,
     /// bug-744: set by a position that discards its value — an `Eval` statement, or
     /// a `RETURN` from a `Nothing` function, whose result register is never read —
     /// immediately before it lowers that value; consumed by the very next
@@ -679,6 +686,7 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_result: false,
             borrow_get_armed: false,
             map_settle_exempt_armed: false,
+            record_member_read: false,
             value_discarded_armed: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
