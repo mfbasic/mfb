@@ -1,0 +1,319 @@
+' fractals-image - five fractals rendered through a reusable RGBA image.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/fractals-image
+'   open examples/fractals-image/build/fractals-image.app          (macOS)
+'   ./examples/fractals-image/build/fractals-image.AppImage        (Linux)
+'
+' Esc quits. A 250 by 200 image samples an ever-smaller window into each
+' fractal; its pixels are updated in place and stretched to fill the window.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT errorCode
+IMPORT io
+IMPORT math
+
+LET IMAGE_WIDTH AS Integer = 250
+LET IMAGE_HEIGHT AS Integer = 200
+LET PIXEL_COUNT AS Integer = IMAGE_WIDTH * IMAGE_HEIGHT
+LET VIEW_NANOS AS Integer = 12000000000
+LET FADE_NANOS AS Integer = 2000000000
+LET BACKGROUND AS color::Color = color::rgb(2, 4, 10)
+
+TYPE Sample
+  value AS Float
+  inside AS Boolean
+END TYPE
+
+TYPE Rgb
+  r AS Integer
+  g AS Integer
+  b AS Integer
+END TYPE
+
+ENUM Fractal
+  Mandelbulb, Julia, Menger, QuaternionJulia, Apollonian
+END ENUM
+
+MUT scene AS List OF canvas::DrawItem = []
+
+FUNC smoothstep(t AS Float) AS Float
+  LET c AS Float = math::clamp(t, 0.0, 1.0)
+  RETURN c * c * (3.0 - 2.0 * c)
+END FUNC
+
+FUNC fractalAt(index AS Integer) AS Fractal
+  MATCH index MOD 5
+    CASE 0 : RETURN Fractal.Mandelbulb
+    CASE 1 : RETURN Fractal.Julia
+    CASE 2 : RETURN Fractal.Menger
+    CASE 3 : RETURN Fractal.QuaternionJulia
+    CASE ELSE : RETURN Fractal.Apollonian
+  END MATCH
+END FUNC
+
+FUNC fractalName(f AS Fractal) AS String
+  MATCH f
+    CASE Fractal.Mandelbulb : RETURN "MANDELBULB / 2D SLICE"
+    CASE Fractal.Julia : RETURN "JULIA SET"
+    CASE Fractal.Menger : RETURN "MENGER SPONGE / 2D SLICE"
+    CASE Fractal.QuaternionJulia : RETURN "QUATERNION JULIA / 2D SLICE"
+    CASE Fractal.Apollonian : RETURN "APOLLONIAN GASKET"
+  END MATCH
+END FUNC
+
+' An order-eight Mandelbulb intersected by the z = 0 plane.
+FUNC mandelbulbSample(cx AS Float, cy AS Float) AS Sample
+  MUT x AS Float = 0.0
+  MUT y AS Float = 0.0
+  MUT z AS Float = 0.0
+  FOR iteration = 0 TO 5
+    LET radius AS Float = math::sqrt(x * x + y * y + z * z)
+    IF radius > 2.0 THEN RETURN Sample[toFloat(iteration) / 6.0, FALSE]
+    MUT theta AS Float = 0.0
+    MUT phi AS Float = 0.0
+    IF radius > 0.0 THEN
+      theta = math::acos(math::clamp(z / radius, -1.0, 1.0))
+      phi = math::atan2(y, x)
+    END IF
+    LET power AS Float = math::pow(radius, 8.0)
+    LET ring AS Float = power * math::sin(theta * 8.0)
+    x = ring * math::cos(phi * 8.0) + cx
+    y = ring * math::sin(phi * 8.0) + cy
+    z = power * math::cos(theta * 8.0)
+  NEXT
+  RETURN Sample[1.0, TRUE]
+END FUNC
+
+' The complex Julia set z^2 + (-0.835 - 0.2321i).
+FUNC juliaSample(x0 AS Float, y0 AS Float) AS Sample
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  FOR iteration = 0 TO 19
+    IF x * x + y * y > 4.0 THEN RETURN Sample[toFloat(iteration) / 20.0, FALSE]
+    LET nx AS Float = x * x - y * y - 0.835
+    y = 2.0 * x * y - 0.2321
+    x = nx
+  NEXT
+  RETURN Sample[1.0, TRUE]
+END FUNC
+
+' The z = 0 Menger slice is the familiar carpet: a point is removed whenever
+' both of its current base-three digits are the middle digit.
+FUNC mengerSample(x0 AS Float, y0 AS Float) AS Sample
+  IF x0 < 0.0 OR x0 > 1.0 OR y0 < 0.0 OR y0 > 1.0 THEN RETURN Sample[0.0, FALSE]
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  FOR level = 0 TO 9
+    x = x * 3.0
+    y = y * 3.0
+    LET dx AS Integer = math::floor(x)
+    LET dy AS Integer = math::floor(y)
+    IF dx = 1 AND dy = 1 THEN RETURN Sample[toFloat(level) / 10.0, FALSE]
+    x = x - toFloat(dx)
+    y = y - toFloat(dy)
+  NEXT
+  RETURN Sample[1.0, TRUE]
+END FUNC
+
+' The w = 0, z = 0 plane through q^2 + (-0.2 + 0.7i).
+FUNC quaternionSample(a0 AS Float, b0 AS Float) AS Sample
+  MUT a AS Float = a0
+  MUT b AS Float = b0
+  MUT c AS Float = 0.0
+  MUT d AS Float = 0.0
+  FOR iteration = 0 TO 13
+    IF a * a + b * b + c * c + d * d > 4.0 THEN RETURN Sample[toFloat(iteration) / 14.0, FALSE]
+    LET na AS Float = a * a - b * b - c * c - d * d - 0.2
+    LET nb AS Float = 2.0 * a * b + 0.7
+    LET nc AS Float = 2.0 * a * c
+    LET nd AS Float = 2.0 * a * d
+    a = na
+    b = nb
+    c = nc
+    d = nd
+  NEXT
+  RETURN Sample[1.0, TRUE]
+END FUNC
+
+' Repeated circle inversions render the limit set of an Apollonian inversion
+' system. The closest approach to an inversion circle supplies the fine bands.
+FUNC apollonianSample(x0 AS Float, y0 AS Float) AS Sample
+  MUT x AS Float = x0
+  MUT y AS Float = y0
+  MUT scale AS Float = 1.0
+  MUT nearest AS Float = 10.0
+  MUT last AS Integer = 0
+  FOR iteration = 0 TO 10
+    x = x - 2.0 * math::floor((x + 1.0) / 2.0)
+    y = y - 2.0 * math::floor((y + 1.0) / 2.0)
+    LET radius2 AS Float = x * x + y * y
+    IF radius2 < 0.000001 THEN RETURN Sample[1.0, TRUE]
+    LET edge AS Float = math::abs(math::sqrt(radius2) - 0.72) / scale
+    nearest = math::min(nearest, edge)
+    LET inversion AS Float = 1.32 / radius2
+    x = x * inversion
+    y = y * inversion
+    scale = scale * math::abs(inversion)
+    last = iteration
+  NEXT
+  LET glow AS Float = math::clamp(1.0 - nearest * 55.0, 0.0, 1.0)
+  RETURN Sample[math::max(glow, toFloat(last) / 32.0), glow > 0.42]
+END FUNC
+
+FUNC sampleAt(f AS Fractal, u AS Float, v AS Float, zoom AS Float) AS Sample
+  MUT centreX AS Float = 0.0
+  MUT centreY AS Float = 0.0
+  MUT span AS Float = 2.7
+  MATCH f
+    CASE Fractal.Mandelbulb
+      centreX = 0.47
+      centreY = 0.0
+      span = 2.5
+    CASE Fractal.Julia
+      centreX = -0.11
+      centreY = 0.655
+      span = 3.0
+    CASE Fractal.Menger
+      centreX = 0.3332
+      centreY = 0.3334
+      span = 1.18
+    CASE Fractal.QuaternionJulia
+      centreX = -0.08
+      centreY = 0.63
+      span = 2.8
+    CASE Fractal.Apollonian
+      centreX = 0.31
+      centreY = 0.17
+      span = 3.2
+  END MATCH
+  LET x AS Float = centreX + u * span / zoom
+  LET y AS Float = centreY + v * span / zoom
+  MATCH f
+    CASE Fractal.Mandelbulb : RETURN mandelbulbSample(x, y)
+    CASE Fractal.Julia : RETURN juliaSample(x, y)
+    CASE Fractal.Menger : RETURN mengerSample(x, y)
+    CASE Fractal.QuaternionJulia : RETURN quaternionSample(x, y)
+    CASE Fractal.Apollonian : RETURN apollonianSample(x, y)
+  END MATCH
+END FUNC
+
+FUNC channel(v AS Float) AS Integer
+  RETURN math::clamp(math::floor(v), 0, 255)
+END FUNC
+
+FUNC palette(f AS Fractal, s AS Sample, phase AS Float) AS Rgb
+  IF s.inside THEN
+    MATCH f
+      CASE Fractal.Mandelbulb : RETURN Rgb[42, 18, 10]
+      CASE Fractal.Julia : RETURN Rgb[34, 12, 48]
+      CASE Fractal.Menger : RETURN Rgb[10, 45, 26]
+      CASE Fractal.QuaternionJulia : RETURN Rgb[14, 25, 54]
+      CASE Fractal.Apollonian : RETURN Rgb[54, 34, 10]
+    END MATCH
+  END IF
+
+  LET shifted AS Float = s.value * 6.0 + phase * 0.08
+  LET band AS Float = shifted - toFloat(math::floor(shifted))
+  LET low AS Float = 35.0 + 90.0 * band
+  LET high AS Float = 105.0 + 150.0 * band
+  MATCH f
+    CASE Fractal.Mandelbulb : RETURN Rgb[channel(high), channel(low * 0.65), channel(low * 0.25)]
+    CASE Fractal.Julia : RETURN Rgb[channel(high), channel(low * 0.4), channel(115.0 + 140.0 * (1.0 - band))]
+    CASE Fractal.Menger : RETURN Rgb[channel(low * 0.35), channel(high), channel(low)]
+    CASE Fractal.QuaternionJulia : RETURN Rgb[channel(low * 0.45), channel(low), channel(high)]
+    CASE Fractal.Apollonian : RETURN Rgb[channel(high), channel(low), channel(low * 0.25)]
+  END MATCH
+END FUNC
+
+FUNC mixRgb(a AS Rgb, b AS Rgb, t AS Float) AS Rgb
+  RETURN Rgb[channel(toFloat(a.r) + toFloat(b.r - a.r) * t), channel(toFloat(a.g) + toFloat(b.g - a.g) * t), channel(toFloat(a.b) + toFloat(b.b - a.b) * t)]
+END FUNC
+
+FUNC quitPressed AS Boolean
+  DO WHILE TRUE
+    LET k AS io::Key = io::readKey(0) TRAP(e)
+      IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+      IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+      PROPAGATE
+    END TRAP
+    IF k.event <> io::KeyEvent.Release AND k.key = io::KeyName.Escape THEN RETURN TRUE
+  LOOP
+  RETURN FALSE
+END FUNC
+
+FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c)]
+END FUNC
+
+FUNC main AS Integer
+  app::setFullscreen(TRUE)
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Fractals / Image Buffer")
+
+  RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
+  LET empty AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  scene = collections::repeat(scene, empty, 4)
+  MUT pixels AS List OF Byte = []
+  pixels = collections::repeat(pixels, toByte(255), PIXEL_COUNT * 4)
+  RES picture AS canvas::Image = canvas::createImage(IMAGE_WIDTH, IMAGE_HEIGHT, pixels)
+  MUT size AS canvas::Size = canvas::getSize()
+  LET started AS Integer = datetime::monotonicNanos()
+
+  DO WHILE NOT quitPressed()
+    IF canvas::didResize() THEN size = canvas::getSize()
+    LET width AS Float = toFloat(size.width)
+    LET height AS Float = toFloat(size.height)
+    LET aspect AS Float = width / height
+
+    LET elapsed AS Integer = datetime::monotonicNanos() - started
+    LET cycle AS Integer = elapsed / VIEW_NANOS
+    LET localNanos AS Integer = elapsed MOD VIEW_NANOS
+    LET current AS Fractal = fractalAt(cycle)
+    LET following AS Fractal = fractalAt(cycle + 1)
+    LET progress AS Float = toFloat(localNanos) / toFloat(VIEW_NANOS)
+    LET zoom AS Float = math::pow(2.0, progress * 9.0)
+    LET phase AS Float = toFloat(elapsed) / 3000000000.0
+    MUT fade AS Float = 0.0
+    IF localNanos > VIEW_NANOS - FADE_NANOS THEN
+      fade = smoothstep(toFloat(localNanos - (VIEW_NANOS - FADE_NANOS)) / toFloat(FADE_NANOS))
+    END IF
+
+    FOR i = 0 TO PIXEL_COUNT - 1
+      LET column AS Integer = i MOD IMAGE_WIDTH
+      LET row AS Integer = i / IMAGE_WIDTH
+      LET u AS Float = (toFloat(column) + 0.5) / toFloat(IMAGE_WIDTH) - 0.5
+      LET v AS Float = (toFloat(row) + 0.5) / toFloat(IMAGE_HEIGHT) - 0.5
+      LET a AS Rgb = palette(current, sampleAt(current, u * aspect, v, zoom), phase)
+      MUT shown AS Rgb = a
+      IF fade > 0.0 THEN
+        LET b AS Rgb = palette(following, sampleAt(following, u * aspect, v, 1.0), phase)
+        shown = mixRgb(a, b, fade)
+      END IF
+      LET offset AS Integer = i * 4
+      pixels = collections::set(pixels, offset, toByte(shown.r))
+      pixels = collections::set(pixels, offset + 1, toByte(shown.g))
+      pixels = collections::set(pixels, offset + 2, toByte(shown.b))
+    NEXT
+
+    canvas::setBytes(picture, pixels)
+    LET imageItem AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := width, h := height, image := picture, paint := canvas::fill(color::rgb(255, 255, 255))]
+    scene = collections::set(scene, 0, imageItem)
+
+    MUT title AS String = fractalName(current)
+    IF fade > 0.0 THEN title = title & "  >  " & fractalName(following)
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    scene = collections::set(scene, 1, textItem(face, 24.0, 40.0, 22.0, title, color::rgb(235, 240, 255)))
+    scene = collections::set(scene, 2, textItem(face, 24.0, 65.0, 13.0, "250 x 200 RGBA IMAGE  /  COLOUR-ONLY ZOOM", color::rgb(105, 125, 155)))
+    LET status AS String = "ZOOM " & toString(math::floor(zoom)) & "x   PPS " & toString(math::floor(stats.pps + 0.5)) & "   FPS " & toString(math::floor(stats.fps + 0.5))
+    scene = collections::set(scene, 3, textItem(face, 24.0, height - 24.0, 13.0, status, color::rgb(255, 255, 255)))
+
+    canvas::present(scene)
+    canvas::waitFrame()
+  LOOP
+  RETURN 0
+END FUNC
