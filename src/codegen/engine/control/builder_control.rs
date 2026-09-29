@@ -209,7 +209,7 @@ impl CodeBuilder<'_> {
     /// goes through the resource record's shared STATE pointer, visible to the
     /// owner and every alias (§15), and `G25` applies. A record: `G1` declines a
     /// by-ref capture (plan-145-H). Returns `true` when handled in place.
-    fn try_inplace_scalar_fields(
+    pub(crate) fn try_inplace_scalar_fields(
         &mut self,
         owner: FieldContainer<'_>,
         value: &NirValue,

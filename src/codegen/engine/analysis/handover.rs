@@ -15,20 +15,13 @@
 //!   consume rather than merely read, which is what decides whether a variant is
 //!   worth emitting at all.
 //!
-//! **Nothing reads either set yet.** Like `collect_last_use_moves` before plan-134's
-//! letters D and E, this lands with no consumer, so emitted code is byte-identical.
+//! Letter D consumes both: `lower_function` hands a function's approved sites to
+//! the builder (`Builder::handover`), and the variant demand closure in
+//! `builder/mod.rs:variant_demand` asks for one `<base>$own<mask>` lowering per demanded mask.
 //!
 //! **Fail closed.** Refusing a hand-over costs a copy; licensing a wrong one hands a
 //! callee a block the caller still reads. Every condition below is therefore a
 //! refusal, and anything unrecognised refuses.
-
-// plan-147-C lands this analysis with NO production caller, on purpose: letter D is
-// what reads the sets, and keeping the two apart is what makes this letter's output
-// byte-identical by construction (the same staging plan-134-C used for
-// `collect_last_use_moves`). Everything here is exercised by the unit table below.
-// **Letter D removes this attribute** when it wires the consumers up; if it is still
-// here once D has landed, something D was supposed to call is going uncalled.
-#![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};
 
@@ -105,13 +98,6 @@ impl HandOverArgs {
         self.sites.get(&(op, call))
     }
 
-    /// Whether argument `index` of the call whose [`call_key`] is `call`, inside the
-    /// op whose [`op_key`] is `op`, may be handed to the callee.
-    pub(crate) fn may_hand_over(&self, op: usize, call: usize, index: usize) -> bool {
-        self.site(op, call)
-            .is_some_and(|site| index < 64 && site.mask & (1u64 << index) != 0)
-    }
-
     /// The `(callee, mask)` pairs this function's sites ask an owned variant for.
     pub(crate) fn demanded_variants(&self) -> HashSet<(String, u64)> {
         self.sites
@@ -125,12 +111,9 @@ impl HandOverArgs {
         self.param_binds.contains(&op)
     }
 
-    /// How many such binds there are, for the tests.
-    pub(crate) fn param_bind_count(&self) -> usize {
-        self.param_binds.len()
-    }
-
-    /// How many arguments are approved in total, for the census and the tests.
+    /// How many arguments are approved in total. Test-only: the unit table below
+    /// counts approvals through it; no lowering needs a total.
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.sites
             .values()
@@ -527,7 +510,7 @@ pub(crate) fn consumable_params(function: &NirFunction, model: &TypeModel) -> Pa
             continue;
         }
         // P3: some path ends the parameter's life with a consuming use.
-        if consuming_use(function, &live, &param.name) {
+        if consuming_use(function, model, &live, &param.name) {
             consumable.insert(param.name.clone());
         }
     }
@@ -581,9 +564,11 @@ fn is_captured_or_address_taken(function: &NirFunction, name: &str) -> bool {
 /// P3: whether any op ends `name`'s life by consuming it — `RETURN OP(name, …)`
 /// (letter B's site S11), `RETURN name` (`plan_returned_move`'s move), or
 /// plan-147-E's `MUT y = name` / `LET y = name`, which moves the block into the new
-/// binding instead of copying it.
+/// binding instead of copying it, and bug-766 C's `RETURN WITH name { … }` over
+/// fields stored in `name`'s own block ([`returned_field_store_local`]).
 fn consuming_use(
     function: &NirFunction,
+    model: &TypeModel,
     live: &crate::codegen::engine::analysis::last_use::LiveOut<'_>,
     name: &str,
 ) -> bool {
@@ -607,10 +592,16 @@ fn consuming_use(
         // …) }`) — so the "read exactly once" question below is the wrong one to ask
         // of it. Both reads belong to the one statement that consumes `r`, which is
         // what the shape itself guarantees; the liveness check still applies.
+        //
+        // bug-766 C: `RETURN WITH r { <fields stored in r's own block> }` reads its
+        // owner as often as its update values name it, for the same reason, and is
+        // consumed the same way — the owned variant stores the new values into `r`'s
+        // block (`try_inplace_scalar_fields`) and then moves that block out.
         let field_form =
             crate::codegen::collection::assign::self_update::returned_field_self_update_local(
                 value,
-            ) == Some(name);
+            ) == Some(name)
+                || returned_field_store_local(model, value) == Some(name);
         let consumes = field_form
             || match value {
                 NirValue::Local(local) => local == name,
@@ -637,6 +628,85 @@ fn consuming_use(
         return true;
     }
     false
+}
+
+/// bug-766 C: the owner local of a `RETURN WITH r { … }` whose every update is a
+/// field the in-place field store (`try_inplace_scalar_fields`) writes into `r`'s
+/// own block — the non-collection twin of plan-147-F's
+/// `returned_field_self_update_local`.
+///
+/// Admitted, per update: a scalar slot, a pointer slot, an inlined record of fixed
+/// size (plan-145-F), and the record's LAST inlined sub-block when it is a `String`
+/// or a record of value-dependent size (bug-766 D — replaced in place when its
+/// 16-byte granule is unchanged, else the owner is rebuilt). Anything else — an
+/// inlined collection, a variable-width field that is not the last — answers
+/// `None`, since the lowering would rebuild the record anyway.
+///
+/// This mirrors the lowering's classification from the type model alone. It
+/// decides only whether an owned variant is worth emitting; if the lowering
+/// declines at a site the lowering asks more of (the owner's freeability, an
+/// `Error` record), the variant builds a fresh block and frees the parameter —
+/// the base lowering's cost, never a wrong answer.
+fn returned_field_store_local<'v>(model: &TypeModel, value: &'v NirValue) -> Option<&'v str> {
+    use crate::codegen::collection::layout::record_field_is_inlined;
+    use crate::codegen::engine::types::typed_is_collection_type;
+    let NirValue::WithUpdate {
+        type_,
+        target,
+        updates,
+    } = value
+    else {
+        return None;
+    };
+    let NirValue::Local(name) = target.as_ref() else {
+        return None;
+    };
+    let fields = model.record_fields.get(type_)?;
+    if updates.is_empty() {
+        return None;
+    }
+    for update in updates {
+        let index = fields
+            .iter()
+            .position(|(field, _)| *field == update.field)?;
+        let field_type = &fields[index].1;
+        if !record_field_is_inlined(model, field_type) {
+            // A scalar or a pointer slot: stored (a pointer's old pointee dropped)
+            // in the owner's block.
+            continue;
+        }
+        if inlined_fixed(model, field_type) {
+            continue;
+        }
+        let variable = *field_type == ParameterType::String
+            || (model.record_fields.contains_key(field_type)
+                && !typed_is_collection_type(field_type));
+        let last = !fields[index + 1..]
+            .iter()
+            .any(|(_, later)| record_field_is_inlined(model, later));
+        if !(variable && last) {
+            return None;
+        }
+    }
+    Some(name.as_str())
+}
+
+/// `record_field_is_inlined_fixed` over the type model: an inlined record whose
+/// every field is a scalar slot or itself such a record, so any value of the type
+/// fills exactly its sub-block.
+fn inlined_fixed(model: &TypeModel, type_: &ParameterType) -> bool {
+    use crate::codegen::collection::layout::{record_field_is_inlined, record_field_is_pointer};
+    use crate::codegen::engine::types::typed_is_collection_type;
+    let Some(fields) = model.record_fields.get(type_) else {
+        return false;
+    };
+    fields.iter().all(|(_, field)| {
+        if record_field_is_inlined(model, field) {
+            !typed_is_collection_type(field) && inlined_fixed(model, field)
+        } else {
+            !record_field_is_pointer(model, field)
+        }
+    })
 }
 
 /// Every op of `function`, at any depth. Hand-written for the same reason as
@@ -1177,5 +1247,53 @@ END FUNC",
         assert_eq!(consumable_of(&source, "consume"), vec!["xs".to_string()]);
         assert_eq!(consumable_of(&source, "peek"), Vec::<String>::new());
         assert_eq!(consumable_of(&source, "pair"), vec!["a".to_string()]);
+    }
+
+    /// bug-766 C: `RETURN WITH p { … }` over fields stored in `p`'s own block is a
+    /// consuming use — the owned variant stores into the handed-over block and moves
+    /// it out — but only when the `RETURN` is `p`'s last read.
+    #[test]
+    fn a_returned_with_over_scalar_fields_consumes_its_owner() {
+        let source = probe(
+            "TYPE R
+  n AS Integer
+  tag AS String
+END TYPE
+
+FUNC bump(p AS R) AS R
+  RETURN WITH p { n := p.n + 1 }
+END FUNC
+
+FUNC copyN(p AS R, q AS R) AS R
+  RETURN WITH p { n := q.n }
+END FUNC
+
+FUNC retag(p AS R, t AS String) AS R
+  RETURN WITH p { n := p.n + 1, tag := t }
+END FUNC
+
+FUNC readLater(p AS R, q AS R) AS Integer
+  LET y AS R = WITH p { n := q.n }
+  RETURN y.n + p.n
+END FUNC
+
+FUNC trapReads(p AS R, q AS R) AS R
+  RETURN WITH p { n := q.n }
+TRAP(e)
+  RETURN p
+END TRAP
+END FUNC",
+        );
+        assert_eq!(consumable_of(&source, "bump"), vec!["p".to_string()]);
+        // `q` is only read, so only `p` is consumed.
+        assert_eq!(consumable_of(&source, "copyN"), vec!["p".to_string()]);
+        // bug-766 D: the last inlined `String` field is stored in the owner's block
+        // too (in place when its granule is unchanged).
+        assert_eq!(consumable_of(&source, "retag"), vec!["p".to_string()]);
+        // A `WITH p` that is not the return, with a later read of `p`: nothing is
+        // consumed.
+        assert_eq!(consumable_of(&source, "readLater"), Vec::<String>::new());
+        // A handler reads `p` after the `RETURN WITH` may have failed (row S3).
+        assert_eq!(consumable_of(&source, "trapReads"), Vec::<String>::new());
     }
 }

@@ -625,6 +625,22 @@ impl CodeBuilder<'_> {
         self.try_inplace_self_update(&site, update)
     }
 
+    /// bug-766 C: run `RETURN WITH r { … }`'s field stores against `r`'s own block.
+    ///
+    /// `r` must be a binding whose block the return may move out
+    /// (`returned_move_admits`: it owns the block, is not by-ref, not a `FOR EACH`
+    /// iterable, not address-taken) — so nothing else can observe the stores, and
+    /// the function exits right after them. `try_inplace_scalar_fields` evaluates
+    /// every new value before its first write, so a failing value leaves `r` as
+    /// it was (and a function-level `TRAP` that reads it sees the old value).
+    /// `false` = nothing was emitted and the copying `WITH` stands.
+    fn try_returned_field_store(&mut self, name: &str, value: &NirValue) -> Result<bool, String> {
+        if !self.returned_move_admits(name) {
+            return Ok(false);
+        }
+        self.try_inplace_scalar_fields(FieldContainer::Record { local: name }, value)
+    }
+
     /// plan-147-B (site S11): run `RETURN f(x, …)`'s arm against `x`'s own block.
     ///
     /// `true` = an arm fired and `x`'s slot now holds the result, so the caller
@@ -780,6 +796,22 @@ impl CodeBuilder<'_> {
                 if self.try_returned_field_self_update(&name, value)? {
                     let moved = NirValue::Local(name);
                     return self.emit_return_exit(Some(&moved), interior_temp_watermark);
+                }
+            }
+            // bug-766 C: `RETURN WITH r { … }` whose updates are fields stored in
+            // `r`'s own block — scalars, pointers, fixed-size inlined records, and
+            // (bug-766 D) the last variable-width inlined field. The same
+            // reduction: store the new values into `r`'s block exactly as
+            // `r = WITH r { … }` does, then return `r` by the ordinary move. Inside
+            // an owned variant this is what makes `RETURN WITH p { … }` consume the
+            // handed-over parameter (`handover::returned_field_store_local`).
+            if let NirValue::WithUpdate { target, .. } = value {
+                if let NirValue::Local(name) = target.as_ref() {
+                    let name = name.to_string();
+                    if self.try_returned_field_store(&name, value)? {
+                        let moved = NirValue::Local(name);
+                        return self.emit_return_exit(Some(&moved), interior_temp_watermark);
+                    }
                 }
             }
         }
