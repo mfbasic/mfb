@@ -460,41 +460,7 @@ impl CodeBuilder<'_> {
         }
         let dest = self.open_inplace_dest(&resolved.dest)?;
         let buffer_slot = self.inplace_collection_slot(&dest)?;
-        let count_slot = self.allocate_stack_object("inplace_sort_count", 8);
-        let base = self.temporary_vreg();
-        let count = self.temporary_vreg();
-        let skip = self.label("inplace_sort_skip");
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
-        self.emit(abi::compare_immediate(&count, "2"));
-        self.emit(abi::branch_lt(&skip));
-        let (areas, temp_slot) = self.emit_sort_scratch(count_slot, 2, &element_type)?;
-        let (perm_slot, pingpong_slot) = (areas[0], areas[1]);
-        self.emit_identity_permutation(perm_slot, count_slot);
-        let compare = match &element_type {
-            ParameterType::String => SortCompare::StringElements {
-                coll_slot: buffer_slot,
-            },
-            ParameterType::Integer | ParameterType::Fixed | ParameterType::Money => {
-                let values_slot = self.allocate_stack_object("inplace_sort_lanes", 8);
-                let base = self.temporary_vreg();
-                self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
-                self.emit_collection_data_pointer_for(&base, &base, &element_type);
-                self.emit(abi::store_u64(&base, abi::stack_pointer(), values_slot));
-                SortCompare::SignedWords { values_slot }
-            }
-            other => SortCompare::Operator {
-                values: OperatorValues::Lanes {
-                    coll_slot: buffer_slot,
-                },
-                value_type: other.clone(),
-            },
-        };
-        let sorted_slot =
-            self.emit_index_merge_sort(count_slot, perm_slot, pingpong_slot, &compare)?;
-        self.lower_list_permute_in_place(buffer_slot, sorted_slot, temp_slot, &element_type);
-        self.emit(abi::label(&skip));
+        self.emit_sort_buffer(buffer_slot, &element_type)?;
         self.close_field_dest(&resolved.dest, &dest)?;
         if let Some(local) = self.locals.get_mut(site.name) {
             local.constant = None;
@@ -541,6 +507,77 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
         let buffer_slot = self.inplace_collection_slot(&dest)?;
+        self.emit_sort_by_buffer(buffer_slot, action_slot, &element_type, &key_type, &[])?;
+        self.close_field_dest(&resolved.dest, &dest)?;
+        if let Some(local) = self.locals.get_mut(site.name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// Sort the owned list whose block pointer is in `buffer_slot` in place with
+    /// `sort`'s stable merge (the element type must be ordered, `is_ordered`).
+    /// Shared by the self-update arm and the copying lowering (bug-767), which
+    /// runs it on its own copy of `value`. Needs the self-update scratch.
+    pub(crate) fn emit_sort_buffer(
+        &mut self,
+        buffer_slot: usize,
+        element_type: &ParameterType,
+    ) -> Result<(), String> {
+        let element_type = element_type.clone();
+        let count_slot = self.allocate_stack_object("inplace_sort_count", 8);
+        let base = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let skip = self.label("inplace_sort_skip");
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
+        self.emit(abi::compare_immediate(&count, "2"));
+        self.emit(abi::branch_lt(&skip));
+        let (areas, temp_slot) = self.emit_sort_scratch(count_slot, 2, &element_type)?;
+        let (perm_slot, pingpong_slot) = (areas[0], areas[1]);
+        self.emit_identity_permutation(perm_slot, count_slot);
+        let compare = match &element_type {
+            ParameterType::String => SortCompare::StringElements {
+                coll_slot: buffer_slot,
+            },
+            ParameterType::Integer | ParameterType::Fixed | ParameterType::Money => {
+                let values_slot = self.allocate_stack_object("inplace_sort_lanes", 8);
+                let base = self.temporary_vreg();
+                self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+                self.emit_collection_data_pointer_for(&base, &base, &element_type);
+                self.emit(abi::store_u64(&base, abi::stack_pointer(), values_slot));
+                SortCompare::SignedWords { values_slot }
+            }
+            other => SortCompare::Operator {
+                values: OperatorValues::Lanes {
+                    coll_slot: buffer_slot,
+                },
+                value_type: other.clone(),
+            },
+        };
+        let sorted_slot =
+            self.emit_index_merge_sort(count_slot, perm_slot, pingpong_slot, &compare)?;
+        self.lower_list_permute_in_place(buffer_slot, sorted_slot, temp_slot, &element_type);
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// Sort the owned list whose block pointer is in `buffer_slot` in place by the
+    /// keys the direct callable in `action_slot` (returning `key_type`) computes:
+    /// every key first, then the merge, then the permutation. A failing `keyFn`
+    /// frees what the pass holds plus each `fail_frees` block, then routes the
+    /// error. Shared by the self-update arm and the copying lowering (bug-767).
+    /// Needs the self-update scratch.
+    pub(crate) fn emit_sort_by_buffer(
+        &mut self,
+        buffer_slot: usize,
+        action_slot: usize,
+        element_type: &ParameterType,
+        key_type: &ParameterType,
+        fail_frees: &[(usize, ParameterType)],
+    ) -> Result<(), String> {
+        let (element_type, key_type) = (element_type.clone(), key_type.clone());
         let string_keys = key_type == ParameterType::String;
         let count_slot = self.allocate_stack_object("inplace_sortby_count", 8);
         let base = self.temporary_vreg();
@@ -614,7 +651,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
             }
         }
-        self.emit_callback_failure_exit(&[], None)?;
+        self.emit_callback_failure_exit(fail_frees, None)?;
         self.emit(abi::label(&ok));
         let produced = self.temporary_vreg();
         self.emit(abi::move_register(&produced, RESULT_VALUE_REGISTER));
@@ -669,11 +706,7 @@ impl CodeBuilder<'_> {
             self.emit_free_parked_strings(keys_slot, all_slot, key_slot)?;
         }
         self.emit(abi::label(&skip));
-        self.close_field_dest(&resolved.dest, &dest)?;
-        if let Some(local) = self.locals.get_mut(site.name) {
-            local.constant = None;
-        }
-        Ok(true)
+        Ok(())
     }
 
     /// Free the first `count` parked `String` words of the array at `words_slot`;
