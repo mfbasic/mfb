@@ -139,12 +139,48 @@ END FUNC
 
 /// `(name, builder, list type, copying sort expression over `src`, fold)`.
 const CASES: &[(&str, &str, &str, &str, &str)] = &[
-    ("record_float_key", "items", "List OF Item", "collections::sortBy(SRC, byScore)", "foldItems"),
-    ("record_integer_key", "items", "List OF Item", "collections::sortBy(SRC, byId)", "foldItems"),
-    ("record_string_key", "items", "List OF Item", "collections::sortBy(SRC, byName)", "foldItems"),
-    ("fixed_width_record", "bodies", "List OF Body", "collections::sortBy(SRC, byVx)", "foldBodies"),
-    ("float_sort", "floats", "List OF Float", "collections::sort(SRC)", "foldFloats"),
-    ("type_cycle_element", "trees", "List OF Tree", "collections::sortBy(SRC, byTreeId)", "foldTrees"),
+    (
+        "record_float_key",
+        "items",
+        "List OF Item",
+        "collections::sortBy(SRC, byScore)",
+        "foldItems",
+    ),
+    (
+        "record_integer_key",
+        "items",
+        "List OF Item",
+        "collections::sortBy(SRC, byId)",
+        "foldItems",
+    ),
+    (
+        "record_string_key",
+        "items",
+        "List OF Item",
+        "collections::sortBy(SRC, byName)",
+        "foldItems",
+    ),
+    (
+        "fixed_width_record",
+        "bodies",
+        "List OF Body",
+        "collections::sortBy(SRC, byVx)",
+        "foldBodies",
+    ),
+    (
+        "float_sort",
+        "floats",
+        "List OF Float",
+        "collections::sort(SRC)",
+        "foldFloats",
+    ),
+    (
+        "type_cycle_element",
+        "trees",
+        "List OF Tree",
+        "collections::sortBy(SRC, byTreeId)",
+        "foldTrees",
+    ),
 ];
 
 fn program(builder: &str, list_type: &str, sort: &str, fold: &str, copying: bool) -> String {
@@ -168,7 +204,10 @@ FUNC main() AS Integer
   RETURN 0
 END FUNC
 ",
-        sorted.replace("  LET s", "    LET s").replace("  MUT s", "    MUT s").replace("  s = ", "    s = ")
+        sorted
+            .replace("  LET s", "    LET s")
+            .replace("  MUT s", "    MUT s")
+            .replace("  s = ", "    s = ")
     )
 }
 
