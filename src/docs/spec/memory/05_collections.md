@@ -273,13 +273,17 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   in-place pass. So a copy, an iteration, `keys`/`values`/`toList`, a callee's
   parameter, a `RETURN`, a thread transfer or any other reader sees a map with no
   tombstones, and pays the pass only when removals left some — a reader that walks
-  every entry anyway. A record or `STATE` field's map, and a key type that the
-  entry scan serves, never hold one: their removals still slide the later entries
-  down with their buckets renumbered, because record-level copies and comparisons
-  read the field's sub-block without settling it, and a scan would match a
+  every entry anyway. A record or `STATE` field's map tombstones the same way
+  (bug-768): a read of the field settles it, and a read of the owner as a whole
+  value — a copy, a callee's argument, a `RETURN`, a store, a thread transfer —
+  settles every map the owner holds inline, in place, before the record's bytes
+  are read; a scalar field read (`rec.before`) and the hash-lookup consumers above
+  do not settle. A key type that the entry scan serves never holds a tombstone:
+  its removals still slide the later entries down, because a scan would match a
   tombstone's key.
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_settle_helper]]
   [[src/codegen/collection/map/map_mutate.rs:emit_map_settle_value]]
+  [[src/codegen/collection/map/map_mutate.rs:emit_tombstone_holder_settle]]
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_compact_from_helper]]
 
 The data region packs every **flat** payload directly, addressed by the lookup
@@ -692,17 +696,17 @@ read `byteLength` bytes and hand on the tight form.
     become dead bytes otherwise.
     [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at_in_place]]
   - `removeKey` and a `Set`'s `remove` on a local, global or by-reference
-    binding cost the lookup plus O(1) amortized: the entry becomes a tombstone,
-    or is truncated at the back, and the tombstones are dropped in one pass once
-    they outnumber the live entries (see *Map Hash Index*, "Tombstones"). At a
-    record or `STATE` field, and for a key type without a hash probe, they cost
-    the lookup plus the entries after the removed one, which slide down with their
-    buckets renumbered. The hash index stays built either way.
+    binding, or on a record or `STATE` field, cost the lookup plus O(1)
+    amortized: the entry becomes a tombstone, or is truncated at the back, and
+    the tombstones are dropped in one pass once they outnumber the live entries
+    (see *Map Hash Index*, "Tombstones"). For a key type without a hash probe they
+    cost the lookup plus the entries after the removed one, which slide down with
+    their buckets renumbered. The hash index stays built either way.
     [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
   - `difference(x, t)` looks each element of `t` up in `x` and retires each hit as
-    `remove` does: it costs `t`'s elements. At a field, or without a hash probe,
-    it drops the hits in one pass from the first of them instead, costing `t`'s
-    elements plus the entries of `x` after the first hit.
+    `remove` does: it costs `t`'s elements, at a binding or a field alike. Without
+    a hash probe it drops the hits in one pass from the first of them instead,
+    costing `t`'s elements plus the entries of `x` after the first hit.
     `symmetricDifference(x, t)` is the same pass, then appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_difference_assign]]
     [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
   - A `String` window costs the bytes it gives up plus the bytes it moves: none
