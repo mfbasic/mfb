@@ -353,11 +353,15 @@ active value whose spill priority is lower than its own, and that value spills
 instead. Priority is a value's accesses, each weighted `8^loop depth` (depth =
 the CFG back edges spanning the instruction, capped at 3), divided by its
 interval length — so a long-lived value touched rarely (a promoted local) goes
-to memory before a loop temporary. Every access of a spilled value is then
-scheduled as a one-instruction interval that must also get a register; when
-none is free, the lowest-priority value live across that instruction and not
-named by it spills to make room. At `-O0` the value being colored always spills.
-[[src/codegen/engine/regalloc/linear_scan.rs:SpillCosts]]
+to memory before a loop temporary. At the same levels a value occupies its
+register only over its busy runs, not the span from first to last mention:
+two values whose runs never meet may share a register, which matters because
+the lowering reuses one virtual register across separate loops. Every access
+of a spilled value is then scheduled as a one-instruction interval that must
+also get a register; when none is free, the lowest-priority value busy at that
+instruction and not named by it spills to make room. At `-O0` a value holds its
+register over its whole span and the value being colored always spills.
+[[src/codegen/engine/regalloc/linear_scan.rs:SpillCosts]] [[src/codegen/engine/regalloc/analysis.rs:Liveness]]
 A spilled value is reloaded into a free scratch register
 at each use; when every allocatable register is live there, the allocator
 **evicts** one the instruction does not name — saving it to an evict slot before

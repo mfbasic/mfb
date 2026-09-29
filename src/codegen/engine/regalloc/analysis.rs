@@ -624,6 +624,15 @@ pub(crate) struct Liveness {
     /// Level-1 "Stack slot promotion" row's companion; `linear_scan` reads it
     /// only when that row is on).
     pub(crate) vreg_live_across_clobber: U32Map<PhysMask>,
+    /// Virtual register index -> its busy instructions as maximal runs
+    /// `[a, b]`, ascending and disjoint, inside `vreg_interval`'s hull. The gaps
+    /// are lifetime holes: the value is neither live nor defined there, so
+    /// another value may hold the same register (the lowering reuses one vreg
+    /// for several unrelated loops, whose hull spans everything between them).
+    /// Two values whose runs never meet cannot clobber each other: a value live
+    /// out of an instruction is live into it or defined by it, so it is busy
+    /// there.
+    pub(crate) vreg_ranges: U32Map<Vec<(usize, usize)>>,
 }
 
 /// Occupancy bitset over physical registers `x0`–`x30` (31 < 64 bits).
@@ -839,6 +848,7 @@ pub(crate) fn analyze(
         .collect();
     let mut vreg_live_across_clobber: U32Map<PhysMask> = U32Map::default();
     let mut vreg_interval: U32Map<(usize, usize)> = U32Map::default();
+    let mut vreg_ranges: U32Map<Vec<(usize, usize)>> = U32Map::default();
     for block in &blocks {
         let mut live: U32Set = U32Set::default();
         for &s in &block.succ {
@@ -867,6 +877,14 @@ pub(crate) fn analyze(
                 let entry = vreg_interval.entry(v).or_insert((i, i));
                 entry.0 = entry.0.min(i);
                 entry.1 = entry.1.max(i);
+                // Instructions are walked backwards within a block, so a run
+                // grows downward; a new block starts a new run (merged below).
+                let runs = vreg_ranges.entry(v).or_default();
+                match runs.last_mut() {
+                    Some(run) if run.0 == i => {}
+                    Some(run) if run.0 == i + 1 => run.0 = i,
+                    _ => runs.push((i, i)),
+                }
             };
             for &id in &live {
                 note(id);
@@ -877,11 +895,24 @@ pub(crate) fn analyze(
         }
     }
 
+    for runs in vreg_ranges.values_mut() {
+        runs.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
+        for &(a, b) in runs.iter() {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 + 1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        *runs = merged;
+    }
+
     Liveness {
         vreg_interval,
         phys_busy_at,
         call_clobber,
         vreg_live_across_clobber,
+        vreg_ranges,
     }
 }
 
