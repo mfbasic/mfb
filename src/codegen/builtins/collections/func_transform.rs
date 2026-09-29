@@ -1,6 +1,7 @@
 //! `collections::transform` — descriptor entry + target-generic lowering (plan-96).
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
@@ -8,7 +9,9 @@ use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
+use crate::target::shared::nir::{source_file_id, NirOp, NirSourceLoc, NirValue};
 use crate::types::ParameterType;
 const INTO_TRANSFORM: &str =
     "Map every element of a list through a function and collect the results";
@@ -183,6 +186,7 @@ pub(crate) fn lower_transform(
         &element_type,
     );
 
+    let inline = inline_record_callback(builder, &action, &element_type, &output_type);
     let loop_label = builder.label("transform_call_loop");
     let ok_label = builder.label("transform_call_ok");
     let done = builder.label("transform_call_done");
@@ -198,6 +202,27 @@ pub(crate) fn lower_transform(
     // bug-307: stash before the callback (calls clobber caller-saved registers).
     let free_slot = builder.allocate_stack_object("transform_item_free", 8);
     builder.emit(abi::store_u64(&item, abi::stack_pointer(), free_slot));
+    if let Some(inline) = &inline {
+        // bug-766 E: the callback's body is evaluated here, into the accumulator.
+        emit_inline_record_callback(
+            builder,
+            inline,
+            free_slot,
+            output_slot,
+            &output_list_type,
+            &element_type,
+        )?;
+        builder.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
+        builder.emit(abi::label(&done));
+        let result = builder.allocate_register();
+        builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
+        return Ok(ValueResult {
+            origin: None,
+            type_: output_list_type.clone(),
+            location: Operand::from(result),
+            text: format!("transform({}, {})", collection.type_, action.text),
+        });
+    }
     builder.emit(abi::move_register(&abi::argument_register(0)?, &item));
     builder.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
     builder.emit_direct_callable_branch(&scratch17);
@@ -280,4 +305,318 @@ pub(crate) fn lower_transform(
         location: Operand::from(result),
         text: format!("transform({}, {})", collection.type_, action.text),
     })
+}
+
+/// bug-766 E: a `transform` callback whose body the loop evaluates itself.
+///
+/// The callback is a literal `LAMBDA` or a direct `FUNC` reference whose whole
+/// body is `RETURN param` or `RETURN WITH param { f := e, … }`, every `f` a scalar
+/// field and every `e` a scalar expression over `param`'s scalar fields,
+/// constants, globals and by-value captures — no call, no `String`, no block.
+/// Called, such a callback builds its result as a fresh arena block that the
+/// loop byte-copies into the accumulator and frees (`free_callback_result`): one
+/// allocation per element. Evaluated here, the element is appended to the
+/// accumulator straight from the source (the copy `WITH` makes) and the new
+/// field values are stored over the appended copy's slots — the source element
+/// is never written, and nothing is allocated per element.
+struct InlineRecordCallback {
+    /// The fresh builder local `param` is renamed to; bound to the loop item.
+    local: String,
+    /// `(field index, new value)` in source order, the value already rewritten
+    /// into this frame (`param` → `local`, each capture → its captured value).
+    updates: Vec<(usize, NirValue)>,
+}
+
+/// The [`InlineRecordCallback`] for `action`, or `None` when the call path must
+/// run it. `element_type` must equal `output_type` (the callback returns its
+/// parameter, updated or not) and be a record laid out with lookup entries.
+fn inline_record_callback(
+    builder: &CodeBuilder,
+    action: &ValueResult,
+    element_type: &ParameterType,
+    output_type: &ParameterType,
+) -> Option<InlineRecordCallback> {
+    if element_type != output_type || list_entry_stride(element_type) == 0 {
+        return None;
+    }
+    let fields = builder.type_model.record_fields.get(element_type)?.clone();
+    let (name, captures): (&str, &[NirValue]) = match action.origin.as_ref()? {
+        NirValue::FunctionRef { name, .. } => (name, &[]),
+        NirValue::Closure { name, captures, .. } => (name, captures),
+        _ => return None,
+    };
+    let function = *builder.functions.get(name)?;
+    if function.isolated || function.params.len() != 1 {
+        return None;
+    }
+    let param = &function.params[0];
+    if param.type_ != *element_type {
+        return None;
+    }
+    // A capturing `LAMBDA`'s body opens by binding each capture to a local
+    // (`Bind k = Capture 0`); that prologue reads the environment and nothing
+    // else, so it is dropped here and each such local read as its capture.
+    let [prologue @ .., NirOp::Return { value: Some(body) }] = function.body.as_slice() else {
+        return None;
+    };
+    let mut bound = Vec::with_capacity(prologue.len());
+    for op in prologue {
+        let NirOp::Bind {
+            mutable: false,
+            name,
+            value: Some(value @ NirValue::Capture { by_ref: false, .. }),
+            ..
+        } = op
+        else {
+            return None;
+        };
+        bound.push((name.clone(), value.clone()));
+    }
+    // An error the body raises names the file the body was written in: a `FUNC`
+    // from another file stamps its nodes with that file (as leaf inlining does).
+    let file = if function.file == builder.current_file {
+        0
+    } else {
+        source_file_id(&function.file)
+    };
+    // `$` is not an identifier character, so no program local shares the name;
+    // no update value can hold a second `transform`, so one name serves every site.
+    let local = "$transform_inline_item".to_string();
+    let rewrite = InlineRewrite {
+        builder,
+        param: &param.name,
+        local: &local,
+        fields: &fields,
+        captures,
+        bound: &bound,
+        file,
+    };
+    let updates = match body {
+        NirValue::Local(name) if *name == param.name => Vec::new(),
+        NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } if type_ == element_type
+            && matches!(target.as_ref(), NirValue::Local(name) if *name == param.name) =>
+        {
+            let mut rewritten = Vec::with_capacity(updates.len());
+            for update in updates {
+                let index = fields
+                    .iter()
+                    .position(|(field, _)| *field == update.field)?;
+                if !rewrite.scalar_field(&fields[index].1) {
+                    return None;
+                }
+                rewritten.push((index, rewrite.value(&update.value)?));
+            }
+            rewritten
+        }
+        _ => return None,
+    };
+    Some(InlineRecordCallback { local, updates })
+}
+
+/// Rewrites a callback body's value into the calling frame, refusing (`None`)
+/// every node whose lowering could allocate, call, or fail other than through an
+/// inline raise (which `raw_result_capture` intercepts).
+struct InlineRewrite<'r, 'b> {
+    builder: &'r CodeBuilder<'b>,
+    param: &'r str,
+    local: &'r str,
+    fields: &'r [(String, ParameterType)],
+    captures: &'r [NirValue],
+    /// The body's capture-prologue locals, each with the `Capture` it binds.
+    bound: &'r [(String, NirValue)],
+    file: u32,
+}
+
+impl InlineRewrite<'_, '_> {
+    fn scalar_type(type_: &ParameterType) -> bool {
+        matches!(
+            type_,
+            ParameterType::Integer
+                | ParameterType::Float
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::Boolean
+                | ParameterType::Byte
+        )
+    }
+
+    /// A field stored in its own slot as a scalar value.
+    fn scalar_field(&self, type_: &ParameterType) -> bool {
+        Self::scalar_type(type_)
+            && !self.builder.record_field_is_inlined(type_)
+            && !self.builder.record_field_is_pointer(type_)
+    }
+
+    fn loc(&self, loc: NirSourceLoc) -> NirSourceLoc {
+        if loc.file == 0 {
+            NirSourceLoc {
+                file: self.file,
+                ..loc
+            }
+        } else {
+            loc
+        }
+    }
+
+    fn value(&self, value: &NirValue) -> Option<NirValue> {
+        match value {
+            NirValue::Const { type_, .. } | NirValue::Global { type_, .. }
+                if Self::scalar_type(type_) =>
+            {
+                Some(value.clone())
+            }
+            NirValue::Capture {
+                index,
+                type_,
+                by_ref: false,
+            } if Self::scalar_type(type_) => match self.captures.get(*index)? {
+                // The captured value, read where the closure read it: the calling
+                // frame, which nothing between the capture and this loop writes.
+                captured @ (NirValue::Local(_)
+                | NirValue::Const { .. }
+                | NirValue::Global { .. }
+                | NirValue::Capture { by_ref: false, .. }) => Some(captured.clone()),
+                _ => None,
+            },
+            NirValue::Local(name) if name != self.param => {
+                let (_, capture) = self.bound.iter().find(|(local, _)| local == name)?;
+                self.value(capture)
+            }
+            NirValue::MemberAccess { target, member } => match target.as_ref() {
+                NirValue::Local(name) if name == self.param => {
+                    let (_, type_) = self.fields.iter().find(|(field, _)| field == member)?;
+                    self.scalar_field(type_).then(|| NirValue::MemberAccess {
+                        target: Box::new(NirValue::Local(self.local.to_string())),
+                        member: member.clone(),
+                    })
+                }
+                _ => None,
+            },
+            NirValue::Binary {
+                op,
+                left,
+                right,
+                loc,
+            } if *op != BinaryOp::Concat => Some(NirValue::Binary {
+                op: *op,
+                left: Box::new(self.value(left)?),
+                right: Box::new(self.value(right)?),
+                loc: self.loc(*loc),
+            }),
+            NirValue::Unary { op, operand, loc } if *op != UnaryOp::SizeOf => {
+                Some(NirValue::Unary {
+                    op: *op,
+                    operand: Box::new(self.value(operand)?),
+                    loc: self.loc(*loc),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// One element of the [`InlineRecordCallback`] loop: evaluate every new field
+/// value against the loop item (source order, before anything is written — as
+/// `WITH` does), append the item to the accumulator, then store the values over
+/// the appended copy's field slots.
+///
+/// A value that raises joins the member's callback-failure exit exactly as a
+/// failing call would: the partial accumulator is freed and the error routed to
+/// the inline `TRAP` or the function's exit. The item is an alias into the
+/// source list (a record element owns no fresh block), so it has nothing to free.
+fn emit_inline_record_callback(
+    builder: &mut CodeBuilder,
+    inline: &InlineRecordCallback,
+    item_slot: usize,
+    output_slot: usize,
+    output_list_type: &ParameterType,
+    element_type: &ParameterType,
+) -> Result<(), String> {
+    let mut stores = Vec::with_capacity(inline.updates.len());
+    if !inline.updates.is_empty() {
+        let failed = builder.label("transform_inline_failed");
+        let evaluated = builder.label("transform_inline_evaluated");
+        let shadowed = builder.locals.insert(
+            inline.local.clone(),
+            LocalValue {
+                type_: element_type.clone(),
+                stack_offset: item_slot,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        let previous_capture = builder.raw_result_capture.replace(failed.clone());
+        let lowered = evaluate_inline_updates(builder, &inline.updates, &mut stores);
+        builder.raw_result_capture = previous_capture;
+        match shadowed {
+            Some(previous) => builder.locals.insert(inline.local.clone(), previous),
+            None => builder.locals.remove(&inline.local),
+        };
+        lowered?;
+        builder.emit(abi::branch(&evaluated));
+        builder.emit(abi::label(&failed));
+        builder.emit_callback_failure_exit(&[(output_slot, output_list_type.clone())], None)?;
+        builder.emit(abi::label(&evaluated));
+    }
+    builder.lower_list_append_in_place(output_slot, item_slot, output_list_type, element_type)?;
+    if stores.is_empty() {
+        return Ok(());
+    }
+    // The appended copy is the accumulator's last element: its lookup entry
+    // holds the payload's offset into the data region. The append may have moved
+    // the buffer, so everything is read back from `output_slot`.
+    let buffer = builder.allocate_register();
+    let index = builder.allocate_register();
+    let stride = builder.allocate_register();
+    let entry = builder.allocate_register();
+    let offset = builder.allocate_register();
+    let element = builder.allocate_register();
+    builder.emit(abi::load_u64(&buffer, abi::stack_pointer(), output_slot));
+    builder.emit(abi::load_u64(&index, &buffer, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::subtract_immediate(&index, &index, 1));
+    builder.emit(abi::move_immediate(
+        &stride,
+        "Integer",
+        &list_entry_stride(element_type).to_string(),
+    ));
+    builder.emit(abi::multiply_registers(&entry, &index, &stride));
+    builder.emit(abi::add_registers(&entry, &entry, &buffer));
+    builder.emit(abi::load_u64(
+        &offset,
+        &entry,
+        COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+    ));
+    builder.emit_collection_data_pointer_for(&element, &buffer, element_type);
+    builder.emit(abi::add_registers(&element, &element, &offset));
+    for (field, slot) in stores {
+        let value = builder.allocate_register();
+        builder.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
+        builder.emit(abi::store_u64(&value, &element, 8 * field));
+    }
+    Ok(())
+}
+
+/// Lower each update value (observed like a `WITH` field, plan-17) and spill it.
+fn evaluate_inline_updates(
+    builder: &mut CodeBuilder,
+    updates: &[(usize, NirValue)],
+    stores: &mut Vec<(usize, usize)>,
+) -> Result<(), String> {
+    for (field, value) in updates {
+        let lowered = builder.lower_value(value)?;
+        builder.observe_float(value, &lowered)?;
+        let lowered = builder.materialize_value(lowered)?;
+        let slot = builder.allocate_stack_object("transform_inline_field", 8);
+        builder.emit(abi::store_u64(
+            &lowered.location,
+            abi::stack_pointer(),
+            slot,
+        ));
+        stores.push((*field, slot));
+    }
+    Ok(())
 }
