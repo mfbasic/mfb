@@ -752,10 +752,24 @@ lies in its owner's block; the owner is not rebuilt.
   last inlined field; elsewhere the statement is rebuilt. An operation that only
   shrinks or rewrites at the same width runs at any field.
   [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
-- **Rebuilt by design.** A field whose size depends on its value — a `String`, a
-  collection updated by an operation with no in-place form, a record holding a
-  `String`, a collection or a data union — is rebuilt: its new value's size is
-  known only after it is built.
+- **A variable-size last field keeps the block when its granule does.** A `WITH`
+  that replaces a `String` or variable-size record field — alone or beside
+  scalar and fixed-size fields — that is the last inlined field of a flat,
+  pointer-free owner decides at run time. A record has no size word: every free
+  and copy walks it, and the walk ends at the last inlined sub-block (`./mfb spec
+  memory heap-values`). When the owner's walked size before and after the update rounds up to
+  the same 16-byte arena granule, the new bytes are written over the old
+  sub-block and the chunk `arena_alloc` handed out is still exactly the one every
+  later walk frees. Otherwise the owner is rebuilt: a fresh block of the new
+  walked size, the old one freed at its own walked size. An element-bound owner, a
+  `RES … STATE` payload, a nested path, an `Error`, and an owner a live `FOR EACH`
+  walks are always rebuilt.
+  [[src/codegen/engine/control/builder_control.rs:replace_field_admitted]]
+  [[src/codegen/engine/control/builder_control.rs:emit_field_replace_or_rebuild]]
+- **Rebuilt by design.** Any other field whose size depends on its value — a
+  `String` or variable-size record that is not the last inlined field, a
+  collection updated by an operation with no in-place form, a data union — is
+  rebuilt: its new value's size is known only after it is built.
   [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
 - **A copy of the field feeds the same site at the default level.**
   `LET cur = r.f` followed by `r = WITH r { f := op(cur, …) }` (or
