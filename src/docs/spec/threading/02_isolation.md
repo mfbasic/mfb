@@ -1,7 +1,8 @@
 # Isolation
 
 `ISOLATED` means the worker is callable from a separate runtime thread without
-capturing current stack locals, closures, or current-package private state.
+capturing the caller's stack locals or sharing the caller's instance of
+package state. Private globals remain accessible through the worker's own arena.
 
 An `ISOLATED` declaration must itself be a top-level `FUNC` — not a lambda, a
 closure or a local function. It is **independent of visibility**:
@@ -10,7 +11,7 @@ enforces the declaration form at declaration time, reporting
 `ISOLATED function `<name>` must be a top-level FUNC declaration.` for a
 violation. That is a separate check from the call-site one in `thread::start`,
 which requires only that the entry name an `ISOLATED FUNC`; neither check
-considers where the entry is reached from. [[src/ir/shape.rs:check_builtin_call]]
+considers where the entry is reached from. [[src/ir/verify/mod.rs:collect_diagnostics_with]] [[src/ir/shape.rs:thread_start_entry_valid]]
 
 An isolated worker may still call:
 
@@ -21,13 +22,15 @@ An isolated worker may still call:
 
 Package-level and module-level globals are **per-thread**, not shared. A worker
 runs on its own arena, and the writable globals region lives in that arena, so
-each worker gets its own copy initialized from the same declarations the main
-thread runs — a global reads its declared value in a worker exactly as it does
-outside one. A worker's write to a `MUT` global is therefore visible only within
+each worker reruns the same global initializer as the main thread. This is a
+fresh evaluation of each declaration, not a snapshot of the parent's values; an
+initializer that reads external state can therefore produce a different value.
+A worker's write to a `MUT` global is therefore visible only within
 that worker; the parent's copy is untouched, and values cross the boundary only
 through the queues. The same applies to a native `LINK` binding's resolved
 function pointers, which occupy slots in that region and are resolved per worker.
 `./mfb spec threading thread-runtime-helpers` owns the mechanism.
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 The worker must not depend on the parent stack frame. Values passed to a thread
 or through thread queues are transferred by the runtime representation rules for

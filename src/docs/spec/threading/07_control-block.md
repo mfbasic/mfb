@@ -53,7 +53,11 @@ then stores no result, since nothing can read it.
 
 Both thread types are resource records (`RESOURCE_RECORD_SIZE`, the layout every
 built-in resource shares): `TAG` at 0, `HANDLE` at 8 — the control block —
-`CLOSED` at 16, `STATE` at 24 (unused; 0).
+`CLOSED` at 16, and the optional `STATE` pointer at 24. Start initializes
+`STATE` to zero; a stateful binding or worker parameter default-builds its own
+payload. Parent and worker state types and payloads are independent.
+[[src/codegen/engine/function/function_lowering.rs:lower_function]]
+See `./mfb spec language threads` for the view-state contract.
 
 - The **parent view** (`Thread`, tag `RESOURCE_TAG_THREAD`) is allocated by
   `thread::start` in the calling thread's arena, before anything else, and
@@ -69,12 +73,16 @@ built-in resource shares): `TAG` at 0, `HANDLE` at 8 — the control block —
   argument. It has no close op: it lives exactly as long as the worker's
   reference.
 
-Every thread op receives a view and reaches the block through
+Handle-based channel and parent lifecycle operations reach the block through
 `emit_control_block_of`, which answers `ErrResourceClosed` for a null or closed
 view, and `ErrResourceMoved` for a `Thread` view that `thread::transfer` handed to
 another thread, before touching the block. The closed default an inline `TRAP` binds on the
 error path of `thread::start` is a closed resource record with the thread tag and
 a zero `HANDLE`, so no op ever reaches a block through it.
+`thread::isCancelled` instead reads the pinned current-thread register; the
+no-argument stdin subscription operations use the calling arena.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_is_cancelled_helper]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_stdin_subscription_helper]]
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_THREAD]]
 [[src/codegen/runtime/thread/control_block.rs:emit_control_block_of]]
 [[src/codegen/resource/mod.rs:builtin_resource_close_function]]
@@ -107,11 +115,11 @@ nothing either thread reads lives in the other thread's arena.
 A copy into it runs under the block lock with the pinned arena register pointed at
 the block arena for the length of one call, and restored afterwards
 (`emit_with_arena`). The call is to a **per-type copy function**
-(`_mfb_rt_thread_copy_value_<type>`: `copy_value_to_current_arena` of that type,
+(`_mfb_rt_thread_copy_value_<type>_<hash>`: `copy_value_to_current_arena` of that type,
 returning a tagged result) whose address the call site passes to the helper; a
 value that crosses as its word (a scalar or an enum member) has address 0 and is
 stored as is. A matching **per-type drop function**
-(`_mfb_rt_thread_drop_value_<type>`) frees a value in whatever arena is current: a
+(`_mfb_rt_thread_drop_value_<type>_<hash>`) frees a value in whatever arena is current: a
 flat block or a graph through the ordinary owned-value drop, and a resource record
 (with its `STATE` block) after closing its handle if the record is still open. A
 value of any other shape (a resource-carrying union or collection) is left to the
