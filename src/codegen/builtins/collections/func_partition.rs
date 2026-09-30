@@ -3,6 +3,7 @@
 //! do not reformat.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
@@ -32,26 +33,44 @@ pub(crate) fn partition_fast_path(
 }
 
 impl CodeBuilder<'_> {
-    /// plan-64 D4 / plan-86 A2: native `collections::partition` for **8-byte
-    /// fixed-width elements** (Integer/Float/Fixed/Money) and for **String**.
-    /// Splits the source into `matched`/`unmatched` in a single predicate pass —
-    /// exactly like the `.mfb` `__collections_partition`, but without the
-    /// per-element `collections::get` copy and indirect-append churn — then builds
-    /// the `Partition OF T` record by inlining both flat lists once (the same
-    /// `emit_build_inlined_record` the interpreted `Partition[matched, unmatched]`
-    /// constructor uses, so the record bytes are constructed identically). String
-    /// items are read through `load_collection_loop_item` (materializes an owned
-    /// block), written through `lower_list_append_in_place` (copies the bytes into
-    /// the destination data region), and the materialized item is freed after the
-    /// append (plan-86 A2, mirroring `filter`). Scalar/Byte elements fall through to
-    /// the `.mfb` version at the dispatch gate.
+    /// plan-64 D4 / plan-86 A2 / bug-771 A: native `collections::partition` for
+    /// **8-byte fixed-width elements** (Integer/Float/Fixed/Money) and for
+    /// **String**. Scalar/Byte elements fall through to the `.mfb` version at the
+    /// dispatch gate.
+    ///
+    /// Two passes over the source, and the `Partition OF T` record allocated once
+    /// at its exact shrink-to-fit size (`mfb spec memory collections`, *Capacity
+    /// Headroom and Growth*: embedding is shrink-to-fit):
+    ///
+    /// 1. **Predicate pass.** `predicate` is called exactly once per element, in
+    ///    index order, with no short-circuit. Each answer is recorded as one byte
+    ///    in a private flags scratch, and the matched count (and, for String, the
+    ///    matched payload bytes) is accumulated.
+    /// 2. **Build.** The record is `8 * 2` offset slots, then the `matched` list
+    ///    and the `unmatched` list, each a tight block (`capacity == count`,
+    ///    `dataCapacity == dataLength`) — the layout `emit_build_inlined_record`
+    ///    produces from two tight lists, sub-blocks 8-aligned, no tail padding —
+    ///    so every reader and `emit_record_block_size_to_slot` see an ordinary
+    ///    record.
+    /// 3. **Copy pass.** Each element's entry (kind 0) and payload bytes are
+    ///    copied straight from the source block into its side, in index order.
+    ///
+    /// A String element is handed to `predicate` in ONE argument block reused for
+    /// every element (sized for the longest element by a length pre-scan), not a
+    /// fresh block per element: a packed String payload has no `[len]` header in
+    /// the data region, so it cannot be passed in place, and the callee receives
+    /// its argument by value without taking ownership (the pre-bug-771 lowering
+    /// freed each per-element block right after the call). The block is freed
+    /// after the pass, and on the failure exit.
+    ///
+    /// Before bug-771 both sides were reserved at the full source size, each String
+    /// was materialized and freed per element, and the record copied both reserved
+    /// lists headroom included — about 4x the result's bytes per call.
     pub(crate) fn lower_collection_partition_call(
         &mut self,
         args: &[NirValue],
         element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        let scratch9 = self.temporary_vreg();
-        let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
         if typed_list_element_type(&collection.type_).cloned().as_ref() != Some(element_type) {
             return Err(format!(
@@ -87,113 +106,644 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
 
-        // Two subset outputs, each pre-sized to the source so neither append
-        // regrows (a partition is a full split — |matched| + |unmatched| == |src|).
-        let matched = self.lower_reserved_list(&collection.type_, collection_slot)?;
-        let matched_slot = self.allocate_stack_object("partition_matched", 8);
-        self.emit(abi::store_u64(
-            &matched.location,
-            abi::stack_pointer(),
-            matched_slot,
-        ));
-        let unmatched = self.lower_reserved_list(&collection.type_, collection_slot)?;
-        let unmatched_slot = self.allocate_stack_object("partition_unmatched", 8);
-        self.emit(abi::store_u64(
-            &unmatched.location,
-            abi::stack_pointer(),
-            unmatched_slot,
-        ));
+        // The mangled monomorph key (`Partition$Integer`) the `record_fields`
+        // table holds — a NAME built from the element's spelling, then read back
+        // as the nominal it denotes (NIR-mangled `Partition$<T>`, NOT the surface
+        // `Partition OF <T>`).
+        let record_type = ParameterType::named(&format!("Partition${element_type}"));
+        let fields = self
+            .type_model
+            .record_fields
+            .get(&record_type)
+            .cloned()
+            .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
+        let field_names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
+        if field_names != ["matched", "unmatched"]
+            || fields
+                .iter()
+                .any(|(_, ft)| *ft != collection.type_ || !self.record_field_is_inlined(ft))
+        {
+            return Err(format!(
+                "native partition expects '{record_type}' = {{matched, unmatched}} of inlined {}",
+                collection.type_
+            ));
+        }
+        let layout = CollectionTypeLayout::from_type(&collection.type_).ok_or_else(|| {
+            format!(
+                "native code collection type '{}' is not supported",
+                collection.type_
+            )
+        })?;
+        let is_string = *element_type == ParameterType::String;
+        match (is_string, kind2_payload_size(element_type)) {
+            (true, None) | (false, Some(8)) => {}
+            _ => {
+                return Err(format!(
+                    "native partition covers String and 8-byte fixed-width elements, got {element_type}"
+                ))
+            }
+        }
+        // Entry stride of a list of `element_type`: 40 for String, 0 for kind 2.
+        let stride = list_entry_stride(element_type);
+        let fixed = 8 * fields.len();
 
+        let count_slot = self.allocate_stack_object("partition_count", 8);
+        let flags_slot = self.allocate_stack_object("partition_flags", 8);
+        let flags_size_slot = self.allocate_stack_object("partition_flags_size", 8);
+        let arg_slot = self.allocate_stack_object("partition_arg", 8);
+        let arg_size_slot = self.allocate_stack_object("partition_arg_size", 8);
+        let total_data_slot = self.allocate_stack_object("partition_total_data", 8);
+        let index_slot = self.allocate_stack_object("partition_index", 8);
+        let matched_count_slot = self.allocate_stack_object("partition_matched_count", 8);
+        let matched_data_slot = self.allocate_stack_object("partition_matched_data", 8);
         let cursor_slot = self.allocate_stack_object("partition_cursor", 8);
         let remaining_slot = self.allocate_stack_object("partition_remaining", 8);
-        let item_slot = self.allocate_stack_object("partition_item", 8);
+        let source_data_slot = self.allocate_stack_object("partition_source_data", 8);
+        let record_slot = self.allocate_stack_object("partition_record", 8);
+        let unmatched_offset_slot = self.allocate_stack_object("partition_unmatched_off", 8);
+        let record_size_slot = self.allocate_stack_object("partition_record_size", 8);
+
+        // n, and the source data base (capacity-based: the source may carry
+        // headroom). The source block is not written while the call runs.
+        let coll = self.temporary_vreg();
+        let n = self.temporary_vreg();
+        let base = self.temporary_vreg();
+        self.emit(abi::load_u64(&coll, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(&n, &coll, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&n, abi::stack_pointer(), count_slot));
+        self.emit_collection_data_pointer_for(&base, &coll, element_type);
+        self.emit(abi::store_u64(
+            &base,
+            abi::stack_pointer(),
+            source_data_slot,
+        ));
+
+        // Flags scratch: one byte per element (+8 so an empty source still asks
+        // for a non-empty block).
+        let flags_ok = self.label("partition_flags_alloc_ok");
+        let size = self.temporary_vreg();
+        self.emit(abi::load_u64(&size, abi::stack_pointer(), count_slot));
+        self.emit(abi::add_immediate(&size, &size, 8));
+        self.emit(abi::store_u64(&size, abi::stack_pointer(), flags_size_slot));
+        self.emit(abi::move_register(abi::c_arg(0), &size));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&flags_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&flags_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            flags_slot,
+        ));
+
+        if is_string {
+            // Length pre-scan: the longest element sizes the reused argument
+            // block; the total live payload bytes give `unmatched`'s data length
+            // as `total - matched` after the predicate pass.
+            let scan_loop = self.label("partition_scan_loop");
+            let scan_done = self.label("partition_scan_done");
+            let not_longer = self.label("partition_scan_not_longer");
+            let zero = self.temporary_vreg();
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), total_data_slot));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), arg_size_slot));
+            self.initialize_collection_loop_slots(
+                collection_slot,
+                cursor_slot,
+                remaining_slot,
+                element_type,
+            );
+            self.emit(abi::label(&scan_loop));
+            let remaining = self.temporary_vreg();
+            self.emit(abi::load_u64(
+                &remaining,
+                abi::stack_pointer(),
+                remaining_slot,
+            ));
+            self.emit(abi::compare_immediate(&remaining, "0"));
+            self.emit(abi::branch_eq(&scan_done));
+            let entry = self.temporary_vreg();
+            let length = self.temporary_vreg();
+            let acc = self.temporary_vreg();
+            self.emit(abi::load_u64(&entry, abi::stack_pointer(), cursor_slot));
+            self.emit(abi::load_u64(
+                &length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::load_u64(&acc, abi::stack_pointer(), total_data_slot));
+            self.emit(abi::add_registers(&acc, &acc, &length));
+            self.emit(abi::store_u64(&acc, abi::stack_pointer(), total_data_slot));
+            self.emit(abi::load_u64(&acc, abi::stack_pointer(), arg_size_slot));
+            self.emit(abi::compare_registers(&length, &acc));
+            self.emit(abi::branch_ls(&not_longer));
+            self.emit(abi::store_u64(&length, abi::stack_pointer(), arg_size_slot));
+            self.emit(abi::label(&not_longer));
+            self.advance_collection_loop(cursor_slot, remaining_slot, &scan_loop, element_type);
+            self.emit(abi::label(&scan_done));
+
+            // The argument block: `[u64 len][bytes][nul]` for the longest element.
+            let arg_ok = self.label("partition_arg_alloc_ok");
+            let arg_size = self.temporary_vreg();
+            self.emit(abi::load_u64(
+                &arg_size,
+                abi::stack_pointer(),
+                arg_size_slot,
+            ));
+            self.emit(abi::add_immediate(&arg_size, &arg_size, 9));
+            self.emit(abi::store_u64(
+                &arg_size,
+                abi::stack_pointer(),
+                arg_size_slot,
+            ));
+            self.emit(abi::move_register(abi::c_arg(0), &arg_size));
+            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            self.emit_arena_alloc_call();
+            self.emit(abi::branch_eq(&arg_ok));
+            self.free_partition_scratch(flags_slot, flags_size_slot);
+            self.raise_error_bare("ErrOutOfMemory")?;
+            self.emit(abi::label(&arg_ok));
+            self.emit(abi::store_u64(
+                abi::mfb_return(1),
+                abi::stack_pointer(),
+                arg_slot,
+            ));
+        }
+
+        // Pass 1: the predicate, once per element, in index order.
+        let zero = self.temporary_vreg();
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u64(&zero, abi::stack_pointer(), index_slot));
+        self.emit(abi::store_u64(
+            &zero,
+            abi::stack_pointer(),
+            matched_count_slot,
+        ));
+        self.emit(abi::store_u64(
+            &zero,
+            abi::stack_pointer(),
+            matched_data_slot,
+        ));
         self.initialize_collection_loop_slots(
             collection_slot,
             cursor_slot,
             remaining_slot,
             element_type,
         );
-
         let loop_label = self.label("partition_loop");
         let ok_label = self.label("partition_ok");
         let to_unmatched = self.label("partition_unmatched");
-        let after_append = self.label("partition_after_append");
-        let done = self.label("partition_done");
+        let after_flag = self.label("partition_after_flag");
+        let pass_done = self.label("partition_done");
         self.emit(abi::label(&loop_label));
+        let remaining = self.temporary_vreg();
         self.emit(abi::load_u64(
-            &scratch9,
+            &remaining,
             abi::stack_pointer(),
             remaining_slot,
         ));
-        self.emit(abi::compare_immediate(&scratch9, "0"));
-        self.emit(abi::branch_eq(&done));
-        let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
-        self.emit(abi::store_u64(&item, abi::stack_pointer(), item_slot));
+        self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_eq(&pass_done));
+        let item = if is_string {
+            // Fill the reused argument block with this element: length word,
+            // bytes, NUL — the image `emit_materialize_string_from_bytes` builds.
+            let entry = self.temporary_vreg();
+            let length = self.temporary_vreg();
+            let src = self.temporary_vreg();
+            let dst = self.temporary_vreg();
+            let word = self.temporary_vreg();
+            let offset = self.temporary_vreg();
+            self.emit(abi::load_u64(&entry, abi::stack_pointer(), cursor_slot));
+            self.emit(abi::load_u64(
+                &offset,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::load_u64(&src, abi::stack_pointer(), source_data_slot));
+            self.emit(abi::add_registers(&src, &src, &offset));
+            self.emit(abi::load_u64(&dst, abi::stack_pointer(), arg_slot));
+            self.emit(abi::store_u64(&length, &dst, 0));
+            self.emit(abi::add_immediate(&dst, &dst, 8));
+            self.emit_block_copy_advance(&dst, &src, &length, &word, "partition_arg_copy");
+            self.emit(abi::move_immediate(&word, "Integer", "0"));
+            self.emit(abi::store_u8(&word, &dst, 0));
+            let item = self.temporary_vreg();
+            self.emit(abi::load_u64(&item, abi::stack_pointer(), arg_slot));
+            item
+        } else {
+            self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?
+        };
         self.emit(abi::move_register(&abi::argument_register(0)?, &item));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), action_slot));
-        self.emit_direct_callable_branch(&scratch17);
+        let callable = self.temporary_vreg();
+        self.emit(abi::load_u64(&callable, abi::stack_pointer(), action_slot));
+        self.emit_direct_callable_branch(&callable);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        // A failing predicate: free both partial output lists and the element copy,
-        // then leave like any failed call. This used to be partition's own copy of
-        // the pre-plan-142-B exit — a bare `ret` when no inline-TRAP capture was
-        // active, which skipped the enclosing function's TRAP and leaked both lists,
-        // the item and that function's locals (bug-777).
-        self.emit_callback_failure_exit(
-            &[
-                (matched_slot, collection.type_.clone()),
-                (unmatched_slot, collection.type_.clone()),
-            ],
-            Some((item_slot, element_type)),
-        )?;
+        // A failing predicate: nothing of the result exists yet, so the only live
+        // blocks are the flags scratch and (String) the argument block. Free them
+        // with the callee's four result registers spilled (`arena_free` clobbers
+        // them), then leave through the shared callback-failure exit — the inline
+        // TRAP capture point, else the enclosing function's error exit (bug-777).
+        {
+            let regs = [
+                RESULT_TAG_REGISTER,
+                RESULT_VALUE_REGISTER,
+                RESULT_ERROR_MESSAGE_REGISTER,
+                RESULT_ERROR_SOURCE_REGISTER,
+            ];
+            let slots: Vec<usize> = regs
+                .iter()
+                .map(|_| self.allocate_stack_object("partition_fail_result", 8))
+                .collect();
+            for (reg, slot) in regs.iter().zip(&slots) {
+                self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
+            }
+            if is_string {
+                self.free_partition_scratch(arg_slot, arg_size_slot);
+            }
+            self.free_partition_scratch(flags_slot, flags_size_slot);
+            for (reg, slot) in regs.iter().zip(&slots) {
+                self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
+            }
+            self.emit_callback_failure_exit(&[], None)?;
+        }
         self.emit(abi::label(&ok_label));
+        // Test the Boolean before anything else touches a register.
         self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
         self.emit(abi::branch_eq(&to_unmatched));
-        self.lower_list_append_in_place(matched_slot, item_slot, &collection.type_, &element_type)?;
-        self.emit(abi::branch(&after_append));
+        {
+            let flags = self.temporary_vreg();
+            let index = self.temporary_vreg();
+            let one = self.temporary_vreg();
+            let acc = self.temporary_vreg();
+            self.emit(abi::load_u64(&flags, abi::stack_pointer(), flags_slot));
+            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            self.emit(abi::add_registers(&flags, &flags, &index));
+            self.emit(abi::move_immediate(&one, "Integer", "1"));
+            self.emit(abi::store_u8(&one, &flags, 0));
+            self.emit(abi::load_u64(
+                &acc,
+                abi::stack_pointer(),
+                matched_count_slot,
+            ));
+            self.emit(abi::add_immediate(&acc, &acc, 1));
+            self.emit(abi::store_u64(
+                &acc,
+                abi::stack_pointer(),
+                matched_count_slot,
+            ));
+            if is_string {
+                let entry = self.temporary_vreg();
+                let length = self.temporary_vreg();
+                self.emit(abi::load_u64(&entry, abi::stack_pointer(), cursor_slot));
+                self.emit(abi::load_u64(
+                    &length,
+                    &entry,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+                self.emit(abi::load_u64(&acc, abi::stack_pointer(), matched_data_slot));
+                self.emit(abi::add_registers(&acc, &acc, &length));
+                self.emit(abi::store_u64(
+                    &acc,
+                    abi::stack_pointer(),
+                    matched_data_slot,
+                ));
+            }
+            self.emit(abi::branch(&after_flag));
+        }
         self.emit(abi::label(&to_unmatched));
-        self.lower_list_append_in_place(
-            unmatched_slot,
-            item_slot,
-            &collection.type_,
-            element_type,
-        )?;
-        self.emit(abi::label(&after_append));
-        // bug-307 (plan-86 A2): freed after the append on purpose, mirroring
-        // `lower_collection_filter_call`. `lower_list_append_in_place` COPIES the
-        // String's bytes into the destination's packed data region rather than
-        // storing the pointer, so the materialized source block is dead on both the
-        // matched and unmatched paths — which is why the free sits at `after_append`,
-        // covering both. A no-op for fixed-width elements (they materialize nothing).
-        // `item_slot` already holds the pointer (stored before the predicate call),
-        // so it survives both appends.
-        self.free_collection_loop_item(item_slot, element_type)?;
+        {
+            let flags = self.temporary_vreg();
+            let index = self.temporary_vreg();
+            let zero = self.temporary_vreg();
+            self.emit(abi::load_u64(&flags, abi::stack_pointer(), flags_slot));
+            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            self.emit(abi::add_registers(&flags, &flags, &index));
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u8(&zero, &flags, 0));
+        }
+        self.emit(abi::label(&after_flag));
+        {
+            let index = self.temporary_vreg();
+            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            self.emit(abi::add_immediate(&index, &index, 1));
+            self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
+        }
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, element_type);
-        self.emit(abi::label(&done));
+        self.emit(abi::label(&pass_done));
+        if is_string {
+            self.free_partition_scratch(arg_slot, arg_size_slot);
+        }
 
-        // Build `Partition OF T` = {matched, unmatched} by inlining both flat lists,
-        // then free the two now-consumed intermediate blocks (the record owns byte
-        // copies). `free_intermediate_collection` spills the record pointer across
-        // each `arena_free`.
-        // The monomorphized generic record is NIR-mangled `Partition$<T>` (the same
-        // key `record_fields` holds and the interpreted `Partition[...]` constructor
-        // looks up), NOT the surface `Partition OF <T>`.
-        // The mangled monomorph key (`Partition$Integer`) the `record_fields`
-        // table holds — a NAME built from the element's spelling, then read back
-        // as the nominal it denotes.
-        let record_type = ParameterType::named(&format!("Partition${element_type}"));
-        let record_reg =
-            self.emit_build_inlined_record(&record_type, &[matched_slot, unmatched_slot])?;
-        let record = ValueResult {
+        // Sizes. matched: HEADER + cm*stride + dm; unmatched: HEADER + cu*stride +
+        // du, where cu = n - cm and (String) du = total - dm, (kind 2) d = c*8.
+        let unmatched_count_slot = self.allocate_stack_object("partition_unmatched_count", 8);
+        let unmatched_data_slot = self.allocate_stack_object("partition_unmatched_data", 8);
+        {
+            let n = self.temporary_vreg();
+            let cm = self.temporary_vreg();
+            let cu = self.temporary_vreg();
+            self.emit(abi::load_u64(&n, abi::stack_pointer(), count_slot));
+            self.emit(abi::load_u64(&cm, abi::stack_pointer(), matched_count_slot));
+            self.emit(abi::subtract_registers(&cu, &n, &cm));
+            self.emit(abi::store_u64(
+                &cu,
+                abi::stack_pointer(),
+                unmatched_count_slot,
+            ));
+            let dm = self.temporary_vreg();
+            let du = self.temporary_vreg();
+            if is_string {
+                let total = self.temporary_vreg();
+                self.emit(abi::load_u64(&dm, abi::stack_pointer(), matched_data_slot));
+                self.emit(abi::load_u64(&total, abi::stack_pointer(), total_data_slot));
+                self.emit(abi::subtract_registers(&du, &total, &dm));
+            } else {
+                self.emit(abi::shift_left_immediate(&dm, &cm, 3));
+                self.emit(abi::shift_left_immediate(&du, &cu, 3));
+                self.emit(abi::store_u64(&dm, abi::stack_pointer(), matched_data_slot));
+            }
+            self.emit(abi::store_u64(
+                &du,
+                abi::stack_pointer(),
+                unmatched_data_slot,
+            ));
+        }
+        // Record size: fixed slots, matched block, 8-aligned unmatched block.
+        {
+            let off = self.temporary_vreg();
+            let tmp = self.temporary_vreg();
+            let mask = self.temporary_vreg();
+            self.emit_partition_list_size(&off, matched_count_slot, matched_data_slot, stride);
+            self.emit(abi::add_immediate(&off, &off, fixed + 7));
+            self.emit(abi::move_immediate(&mask, "Integer", &(!7u64).to_string()));
+            self.emit(abi::and_registers(&off, &off, &mask));
+            self.emit(abi::store_u64(
+                &off,
+                abi::stack_pointer(),
+                unmatched_offset_slot,
+            ));
+            self.emit_partition_list_size(&tmp, unmatched_count_slot, unmatched_data_slot, stride);
+            self.emit(abi::add_registers(&off, &off, &tmp));
+            self.emit(abi::store_u64(&off, abi::stack_pointer(), record_size_slot));
+        }
+        let record_ok = self.label("partition_record_alloc_ok");
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            record_size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&record_ok));
+        self.free_partition_scratch(flags_slot, flags_size_slot);
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&record_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            record_slot,
+        ));
+
+        // Offset slots + the two tight headers, and each side's write cursors.
+        let matched_entry_slot = self.allocate_stack_object("partition_m_entry", 8);
+        let matched_base_slot = self.allocate_stack_object("partition_m_base", 8);
+        let matched_write_slot = self.allocate_stack_object("partition_m_write", 8);
+        let unmatched_entry_slot = self.allocate_stack_object("partition_u_entry", 8);
+        let unmatched_base_slot = self.allocate_stack_object("partition_u_base", 8);
+        let unmatched_write_slot = self.allocate_stack_object("partition_u_write", 8);
+        {
+            let record = self.temporary_vreg();
+            let off = self.temporary_vreg();
+            self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
+            self.emit(abi::move_immediate(&off, "Integer", &fixed.to_string()));
+            self.emit(abi::store_u64(&off, &record, 0));
+            self.emit(abi::load_u64(
+                &off,
+                abi::stack_pointer(),
+                unmatched_offset_slot,
+            ));
+            self.emit(abi::store_u64(&off, &record, 8));
+        }
+        for (offset_source, count, data, entry_slot, base_slot, write_slot) in [
+            (
+                None,
+                matched_count_slot,
+                matched_data_slot,
+                matched_entry_slot,
+                matched_base_slot,
+                matched_write_slot,
+            ),
+            (
+                Some(unmatched_offset_slot),
+                unmatched_count_slot,
+                unmatched_data_slot,
+                unmatched_entry_slot,
+                unmatched_base_slot,
+                unmatched_write_slot,
+            ),
+        ] {
+            let block = self.temporary_vreg();
+            let off = self.temporary_vreg();
+            let count_reg = self.temporary_vreg();
+            let data_reg = self.temporary_vreg();
+            self.emit(abi::load_u64(&block, abi::stack_pointer(), record_slot));
+            match offset_source {
+                None => self.emit(abi::add_immediate(&block, &block, fixed)),
+                Some(slot) => {
+                    self.emit(abi::load_u64(&off, abi::stack_pointer(), slot));
+                    self.emit(abi::add_registers(&block, &block, &off));
+                }
+            }
+            self.emit(abi::load_u64(&count_reg, abi::stack_pointer(), count));
+            self.emit(abi::load_u64(&data_reg, abi::stack_pointer(), data));
+            self.emit_write_list_header_from_registers(&layout, &block, &count_reg, &data_reg);
+            let entry = self.temporary_vreg();
+            self.emit(abi::add_immediate(&entry, &block, COLLECTION_HEADER_SIZE));
+            self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
+            let data_base = self.temporary_vreg();
+            self.emit_collection_data_pointer_for(&data_base, &block, element_type);
+            self.emit(abi::store_u64(&data_base, abi::stack_pointer(), base_slot));
+            self.emit(abi::store_u64(&data_base, abi::stack_pointer(), write_slot));
+        }
+
+        // Pass 2: copy each element from the source into its side, index order.
+        let copy_loop = self.label("partition_copy_loop");
+        let copy_unmatched = self.label("partition_copy_unmatched");
+        let copy_next = self.label("partition_copy_next");
+        let copy_done = self.label("partition_copy_done");
+        {
+            let zero = self.temporary_vreg();
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), index_slot));
+        }
+        self.initialize_collection_loop_slots(
+            collection_slot,
+            cursor_slot,
+            remaining_slot,
+            element_type,
+        );
+        self.emit(abi::label(&copy_loop));
+        {
+            let remaining = self.temporary_vreg();
+            let flags = self.temporary_vreg();
+            let index = self.temporary_vreg();
+            let flag = self.temporary_vreg();
+            self.emit(abi::load_u64(
+                &remaining,
+                abi::stack_pointer(),
+                remaining_slot,
+            ));
+            self.emit(abi::compare_immediate(&remaining, "0"));
+            self.emit(abi::branch_eq(&copy_done));
+            self.emit(abi::load_u64(&flags, abi::stack_pointer(), flags_slot));
+            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            self.emit(abi::add_registers(&flags, &flags, &index));
+            self.emit(abi::load_u8(&flag, &flags, 0));
+            self.emit(abi::compare_immediate(&flag, "0"));
+            self.emit(abi::branch_eq(&copy_unmatched));
+        }
+        self.emit_partition_copy_element(
+            is_string,
+            cursor_slot,
+            source_data_slot,
+            matched_entry_slot,
+            matched_base_slot,
+            matched_write_slot,
+        );
+        self.emit(abi::branch(&copy_next));
+        self.emit(abi::label(&copy_unmatched));
+        self.emit_partition_copy_element(
+            is_string,
+            cursor_slot,
+            source_data_slot,
+            unmatched_entry_slot,
+            unmatched_base_slot,
+            unmatched_write_slot,
+        );
+        self.emit(abi::label(&copy_next));
+        {
+            let index = self.temporary_vreg();
+            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+            self.emit(abi::add_immediate(&index, &index, 1));
+            self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
+        }
+        self.advance_collection_loop(cursor_slot, remaining_slot, &copy_loop, element_type);
+        self.emit(abi::label(&copy_done));
+        self.free_partition_scratch(flags_slot, flags_size_slot);
+
+        let record_reg = self.allocate_register();
+        self.emit(abi::load_u64(
+            &record_reg,
+            abi::stack_pointer(),
+            record_slot,
+        ));
+        Ok(ValueResult {
             origin: None,
-            type_: record_type.clone(),
+            type_: record_type,
             location: Operand::from(record_reg),
             text: format!("partition({}, {})", collection.type_, action.text),
-        };
-        let record = self.free_intermediate_collection(matched_slot, &collection.type_, record)?;
-        let record =
-            self.free_intermediate_collection(unmatched_slot, &collection.type_, record)?;
-        Ok(record)
+        })
+    }
+
+    /// `out = HEADER + count*stride + dataLength` — the byte size of a tight list
+    /// block (`capacity == count`, `dataCapacity == dataLength`), the size
+    /// `emit_flat_block_size` reads back from its header.
+    fn emit_partition_list_size(
+        &mut self,
+        out: &VirtualRegister,
+        count_slot: usize,
+        data_slot: usize,
+        stride: usize,
+    ) {
+        let tmp = self.temporary_vreg();
+        let data = self.temporary_vreg();
+        self.emit(abi::load_u64(out, abi::stack_pointer(), count_slot));
+        self.emit(abi::move_immediate(&tmp, "Integer", &stride.to_string()));
+        self.emit(abi::multiply_registers(out, out, &tmp));
+        self.emit(abi::add_immediate(out, out, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&data, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(out, out, &data));
+    }
+
+    /// Copy the source element at the loop cursor to one side of the partition.
+    ///
+    /// String (kind 0): the 40-byte entry verbatim, its value offset rewritten to
+    /// the side's running data offset, then the payload bytes (String payloads are
+    /// 1-aligned, packed in entry order). Kind 2: the 8-byte payload at the
+    /// cursor's byte offset to the side's next slot.
+    fn emit_partition_copy_element(
+        &mut self,
+        is_string: bool,
+        cursor_slot: usize,
+        source_data_slot: usize,
+        entry_slot: usize,
+        base_slot: usize,
+        write_slot: usize,
+    ) {
+        let cursor = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let word = self.temporary_vreg();
+        self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), source_data_slot));
+        self.emit(abi::load_u64(&dst, abi::stack_pointer(), write_slot));
+        if !is_string {
+            self.emit(abi::add_registers(&src, &src, &cursor));
+            self.emit(abi::load_u64(&word, &src, 0));
+            self.emit(abi::store_u64(&word, &dst, 0));
+            self.emit(abi::add_immediate(&dst, &dst, 8));
+            self.emit(abi::store_u64(&dst, abi::stack_pointer(), write_slot));
+            return;
+        }
+        let entry = self.temporary_vreg();
+        let rel = self.temporary_vreg();
+        let length = self.temporary_vreg();
+        self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
+        for word_offset in (0..COLLECTION_ENTRY_SIZE).step_by(8) {
+            self.emit(abi::load_u64(&word, &cursor, word_offset));
+            self.emit(abi::store_u64(&word, &entry, word_offset));
+        }
+        self.emit(abi::load_u64(&rel, abi::stack_pointer(), base_slot));
+        self.emit(abi::subtract_registers(&rel, &dst, &rel));
+        self.emit(abi::store_u64(
+            &rel,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
+        self.emit(abi::load_u64(
+            &rel,
+            &cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers(&src, &src, &rel));
+        self.emit(abi::load_u64(
+            &length,
+            &cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_block_copy_advance(&dst, &src, &length, &word, "partition_copy_bytes");
+        self.emit(abi::store_u64(&dst, abi::stack_pointer(), write_slot));
+    }
+
+    /// `arena_free` the private scratch block in `ptr_slot`, its size in
+    /// `size_slot`. Clobbers every caller-saved register.
+    fn free_partition_scratch(&mut self, ptr_slot: usize, size_slot: usize) {
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit_arena_free_call();
     }
 }
 
