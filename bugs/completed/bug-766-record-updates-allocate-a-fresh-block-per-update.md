@@ -5,7 +5,7 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Other (performance — per-update allocate/copy/free where the element-update and hand-over contracts promise none)
 
-Status: Fixed (A, B, C, E; D for same-granule replacement — the size-changing case awaits an owner decision)
+Status: Fixed (A, B, C, E; D for same-granule replacement — a size change keeps the rebuild by owner decision; `record nested` split to bug-784)
 Regression Test: `tests/runtime/rt_record_update_forms.rs` (to be added, Phase 1); new unit cases in
 `src/codegen/engine/analysis/borrow_get.rs` and `src/codegen/engine/analysis/handover.rs` (Phase 1)
 
@@ -38,7 +38,7 @@ count, exactly what the MUT spelling measures today), for a helper-threaded reco
 record's byte size does not change, and for `transform` over records one block per call (the result list) instead of
 one per element.
 
-## STATUS: FIXED except D's size-changing case (merged from `worktree-B-766`)
+## STATUS: FIXED (merged from `worktree-B-766`, `e5b2c933a`)
 
 Measured by `tests/runtime/rt_record_update_forms.rs` (REPS 50 vs 100, `--debug`), every
 case prints what its allocation-free contrast prints and leaks nothing:
@@ -75,10 +75,15 @@ Benchmark shapes (agents' measurements): `nbody_rec` 40 → 0 allocs/step, ~108 
 - **E** — `func_transform.rs` evaluates a literal/direct single-`WITH` record callback into
   the accumulator.
 
-**Not fixed:** `record nested` stays 3 allocs/update — `stepWide(h.inner, …)` passes a
-field read, which no caller hands over, so no owned variant applies (a further
-mechanism; not in this bug's Fix Design). `record wide`'s alternating tag crosses a
-granule, so it stays 1/call until D's size-change decision.
+**Owner decision (2026-09-29): a size-changing replacement keeps the rebuild.** No
+realloc and no capacity field, so `record wide`'s alternating tag, which crosses a
+granule, stays 1 alloc/call by design.
+
+**Split out:** `record nested` is 2 allocs/update after this bug (not 3 — measured by
+`bash /tmp/b784-measure.sh`, N = 100 000 vs 200 000: 200 407 vs 400 407). The two
+sources are the new inner record built from a field read (`stepWide(h.inner, …)`) and
+the replacement of a non-last inlined record field in the write-back. Neither is in
+this bug's Fix Design; filed as bug-784.
 
 **Found and fixed here:** a capturing `LAMBDA` passed to a callback leaked 32 B when the
 callback failed and the error left through a function `TRAP` or a return
@@ -441,7 +446,7 @@ Commit: see STATUS
 
 ### Phase 5 — mechanism D
 
-- [x] Same-rounded-size inlined field replacement in place (the size-changing replacement still rebuilds — Open Decision).
+- [x] Same-rounded-size inlined field replacement in place (the size-changing replacement still rebuilds — owner decision 2026-09-29).
 
 Acceptance: D case green; a size-changing replacement still frees the exact walked size (live_bytes 0).
 Commit: see STATUS
@@ -490,7 +495,7 @@ Commit: see STATUS
   change every call): in-place needs either an arena realloc on the owner (1 call, amortised by headroom — but a
   record block has no capacity field, and adding one is a layout change) or a capacity shadow like plan-146's for
   `String` locals. Recommended: realloc-in-place only when the rounded size shrinks or the next chunk is free; else
-  keep the rebuild — `record wide` then stays ≤ 1 alloc/call. Needs owner decision before Phase 5 goes further.
+  keep the rebuild — `record wide` then stays ≤ 1 alloc/call. **Decided 2026-09-29: keep the rebuild.**
 - **E's scope** — the literal-callback fast path (recommended) vs an internal "return into caller buffer" variant
   per record-returning function (plan-147's `$own<mask>` precedent: an internal symbol, base ABI unchanged).
 
