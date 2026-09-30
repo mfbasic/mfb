@@ -9,16 +9,19 @@ Internal symbols are generated during native lowering. The conventions:
 _mfb_fn_<name>               user (and merged package) functions
 _mfb_ifn_<name>              compiler-internal functions (sigil-stripped names)
 _mfb_global_<project>_<name> program globals
-__mfb_init_globals_<project> the global initializer routine
+__mfb_init_globals_<project> global initializer NIR name (encoded via function_symbol)
 _mfb_rt_<helper>_<call>      runtime helpers (e.g. _mfb_rt_io_io_print)
 _mfb_linker_init             the native LINK load-time initializer
 _mfb_linker_<alias>_<name>   native LINK marshaling thunks
 _main                        the program entry symbol
 ```
 [[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]]
+[[src/target/shared/nir/symbols.rs:function_symbol]]
+[[src/target/shared/nir/symbols.rs:global_initializer_name]]
 
-`symbol_fragment` rewrites any character that is not ASCII alphanumeric or `_`
-to `_`, so symbol names are always valid identifiers.
+`symbol_fragment` preserves ASCII alphanumeric bytes and escapes every other
+UTF-8 byte, including `_`, as `_XX` with uppercase hexadecimal digits. For
+example, `a_b` becomes `a_5Fb`; separators and literal underscores stay distinct.
 [[src/target/shared/nir/symbols.rs:symbol_fragment]] Merged package exports use
 the same `_mfb_fn_…` namespace as ordinary functions (their per-package identity
 is folded into the name during the merge), *not* a distinct package-symbol
@@ -29,7 +32,7 @@ Symbols fall into three classes for the linker:
 - Internal text symbols — functions, runtime helpers, `LINK` thunks.
 - Internal data symbols — string constants, runtime data, the main arena global,
   `LINK` library/symbol C strings.
-- External import symbols — platform-library functions resolved at load time.
+- External import symbols — platform-library functions or data resolved at load time.
 
 ## Relocation kinds and bindings
 
@@ -39,7 +42,7 @@ an optional `library`. The aarch64 backends support three kinds:
 ```text
 branch26    26-bit B/BL immediate, for calls
 page21      ADRP page address (PC-relative, 4 KiB granule)
-pageoff12   12-bit offset within a page, for ADD/LDR/STR
+pageoff12   page offset: ADD for internal data, scaled LDR for an external GOT slot
 ```
 [[src/arch/image.rs:EncodedRelocation]]
 
@@ -64,7 +67,9 @@ through a register and carry no relocation.
 ## Import stubs and the GOT
 
 External function calls do not branch directly to the dynamic symbol. The linker
-appends a 12-byte (3-instruction) stub per imported function:
+appends a 12-byte stub per encoded import on ELF and Mach-O, including
+data-kind imports whose stubs are unused. PE emits thunks only for function-kind
+imports. On AArch64 a stub contains:
 
 ```text
 adrp x16, <GOT page>
@@ -72,37 +77,48 @@ ldr  x16, [x16, <GOT offset>]
 br   x16
 ```
 
-Each distinct imported symbol gets one 8-byte GOT slot, zero-filled in the file
+Each encoded import record gets an 8-byte GOT slot, zero-filled in the file
 and bound by the dynamic loader at load time. `branch26` external relocations are
 patched to reach the stub; `page21`/`pageoff12` external relocations are patched
-to reach the GOT slot directly.
+to reach the GOT slot directly. x86-64 uses a RIP-relative jump stub and RISC-V
+an `auipc`/`ld`/`jalr` stub; Windows uses an IAT slot instead of an ELF/Mach-O GOT.
+[[src/os/linux/link/mod.rs:emit_import_stub]]
+[[src/os/macos/link/mod.rs:append_import_stubs]]
+[[src/os/windows/link/mod.rs:append_thunks]]
 
 ## Encoded import and initializer capabilities
 
 `EncodedImport` carries, besides `library` and
 `symbol`:
 
-- `kind`: `ImportKind::Function` (called through a stub) or `ImportKind::Data`
-  (addressed only through the GOT). The kind lets the linker lay out stubs and
-  GOT slots deterministically without scanning relocations.
+- `kind`: `ImportKind::Function` or `ImportKind::Data`. ELF uses it for the
+  dynamic symbol type and loader relocation kind; PE uses it to omit thunks
+  for data imports. ELF/Mach-O still reserve a stub for every import record.
 - `version`: an optional symbol version (e.g. `GLIBC_2.17`). `None` emits an
   unversioned reference. Ignored on Mach-O, which binds by dylib ordinal.
 
 [[src/arch/image.rs:EncodedImport]] [[src/arch/image.rs:ImportKind]]
 
-`EncodedImage` also carries `initializers`: internal text symbols that must run,
-in order, before the program entry — materialized as ELF `DT_INIT_ARRAY` /
-Mach-O `__mod_init_func` (`S_MOD_INIT_FUNC_POINTERS`).
+`EncodedImage::initializers` lists internal text symbols for initialization.
+Mach-O emits a dyld-run `__mod_init_func` array. The dynamic ELF writer emits
+`DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ` and relative relocations for its pointers;
+invocation depends on C-runtime startup, so a raw custom entry does not run this
+array merely because it is present. The static ELF and PE writers do not consume
+`initializers`. PE also does not consume ELF symbol versions.
+[[src/os/macos/link/mod.rs:encode_executable_bytes]]
+[[src/os/linux/link/elf.rs:build]]
+[[src/os/linux/link/tests.rs:writes_init_array_glibc_elf]]
+[[src/os/linux/link/mod.rs:encode_executable_bytes]]
+[[src/os/windows/link/mod.rs:write_executable]]
 
-The linkers fully implement `ImportKind::Data`, symbol versioning, and the
-initializer array, but the encode path emits every import as
-`Function`/unversioned and leaves `initializers` empty: the built-in surface is
-function-only, and the native `LINK` initializer is called from the entry
-bootstrap rather than through the initializer array. The `Data`/versioning/
-initializer capabilities are exercised by the linker tests — symbol
-versioning is intended for versioned exports such as OpenSSL 3's
-`OPENSSL_3.0.0` (see `linux-aarch64`), and `ImportKind::Data` for data globals
-(`tls`, app-mode).
+The shared encoder emits every import as `Function` with `version: None`,
+including macOS app globals addressed through external data relocations, and
+leaves `initializers` empty. Relocation binding controls whether a reference
+addresses a stub or a slot. Native `LINK`
+initialization is an explicit bootstrap call. Data-kind and versioned imports
+are supported linker inputs, not classifications produced by this encoder.
+[[src/arch/encode_plan.rs:encode_plan]]
+[[src/os/link_encode.rs:patch_aarch64_reloc]]
 
 ## See Also
 

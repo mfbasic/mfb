@@ -10,7 +10,8 @@ surfaces as a `Result::Err(String)` that aborts the build.
 The structural gate (see `object-plan`) fails the build before any bytes are
 encoded when:
 
-- the planned target/container/status is wrong, the entry symbol `_main` is
+- the planned target/container/status is wrong, the model entry symbol (`_main` on macOS/Linux,
+  `_start` on Windows) is
   missing from the defined symbols, or a defined symbol (or, on macOS, a dylib)
   is duplicated;
 - a relocation's source is not a defined symbol, or its target is neither
@@ -18,9 +19,13 @@ encoded when:
 - (macOS) the `__TEXT,__text` section is absent, two non-empty sections overlap
   in their file ranges, or a code unit has no operations.
 
+[[src/os/macos/object.rs:validate]] [[src/os/linux/object.rs:validate]]
+[[src/os/windows/object.rs:validate]]
+
 ## Encode and link
 
-The encoder fails when an image has no entry symbol. The platform linkers fail
+The shared encoder fails when a code plan has no entry symbol or a function
+has duplicate labels. [[src/arch/encode_plan.rs:encode_plan]] The platform linkers fail
 when:
 
 - an internal symbol (the entry, an initializer, or a relocation target) does not
@@ -40,6 +45,16 @@ when:
 - a file write or permission change fails.
 
 [[src/os/macos/link/mod.rs:patch_relocations]] [[src/os/linux/link/mod.rs:patch_relocations]]
+[[src/os/windows/link/mod.rs:patch_relocations]]
+
+Initializer-symbol checks apply to Mach-O and dynamic ELF; static ELF and PE
+do not consume the initializer list. Relocation patchers also reject offsets
+outside the text buffer and displacements outside the encoding's range. Windows
+reports missing imports as `windows linker cannot bind external call/data`; its
+format-specific checks are listed in `windows-x86_64`.
+[[src/os/link_encode.rs:patch_aarch64_reloc]]
+[[src/os/linux/link/mod.rs:riscv_hi_lo]]
+[[src/os/windows/link/mod.rs:write_rel32]]
 
 A required package export or ABI dependency that cannot be resolved fails earlier,
 during the package merge into IR (see `package-linking`), not in the linker —

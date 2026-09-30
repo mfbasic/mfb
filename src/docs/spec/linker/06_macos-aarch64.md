@@ -9,7 +9,7 @@ build/<project>.out
 ```
 
 App-mode builds (`mfb build --app`) emit a `.app` bundle (see below). The Mach-O
-bytes are identical in both cases.
+writer is shared; console and app builds supply different entry/bootstrap code.
 
 ## Container layout
 
@@ -33,7 +33,7 @@ a writable global plane (the main arena pointer and `LINK`/`term` global slots
 live here). `__DATA_CONST` holds the GOT, the `__mod_init_func` pointer array,
 and the read-only `__const` block; it is present when the image has imports,
 initializers, **or read-only constants**. That third disjunct means any program
-with a string literal gets one (bug-187).
+with a string literal gets one.
 [[src/os/macos/link/macho.rs:needs_data_const]] The `__MFB`
 segment is present only when the build carries executable signing metadata.
 
@@ -48,8 +48,8 @@ includes `LC_SEGMENT_64` for each emitted segment, `LC_LOAD_DYLINKER`
 
 - one `LC_LOAD_DYLIB` per imported library,
 - one `LC_RPATH` per vendor search path, so a bare-filename `dlopen` of a
-  vendored library resolves from the output bundle. Absent — keeping those
-  binaries byte-identical — for a build that vendors nothing,
+  vendored library resolves from the configured output directory. Absent for a
+  build that vendors nothing,
 - and **one of two mutually exclusive fixup encodings**: `LC_DYLD_INFO_ONLY`
   (rebase/bind/export opcode streams) when a `__DATA_CONST` is present, or else
   `LC_DYLD_CHAINED_FIXUPS` (`0x80000034`) plus `LC_DYLD_EXPORTS_TRIE`
@@ -79,6 +79,10 @@ Network         /System/Library/Frameworks/Network.framework/Network
 AudioToolbox    /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
 CoreAudio       /System/Library/Frameworks/CoreAudio.framework/CoreAudio
 CoreFoundation  /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
+CoreGraphics    /System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics
+CoreText        /System/Library/Frameworks/CoreText.framework/Versions/A/CoreText
+Metal           /System/Library/Frameworks/Metal.framework/Versions/A/Metal
+QuartzCore      /System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore
 AppKit          /System/Library/Frameworks/AppKit.framework/AppKit
 Foundation      /System/Library/Frameworks/Foundation.framework/Foundation
 libobjc         /usr/lib/libobjc.A.dylib
@@ -88,12 +92,13 @@ libz            /usr/lib/libz.1.dylib
 
 Console builds draw their POSIX/pthread surface from `libSystem` using
 Darwin C ABI symbol names (leading underscore: `_write`, `_read`, `_open`,
-`_close`, `_pthread_create`, …). `tls::` adds no library import at all: its
-backend resolves Network.framework (and, server-side, Security.framework +
-CoreFoundation) through `dlopen`/`dlsym` at load time, so only `_dlopen`,
-`_dlsym` and `___error` are statically imported. [[src/target/macos_aarch64/plan.rs:runtime_imports]] There is no math
+`_close`, `_pthread_create`, …). `tls::` resolves Network.framework and its
+server-side Security/CoreFoundation dependencies through `dlopen`/`dlsym` at
+runtime. Its static imports come from libSystem: `_dlopen`, `_dlsym`,
+`___error`, `_calloc`, and `_free`; `tls::listen` also selects file-reading
+operations, and endpoint-address queries select `_inet_ntop`. [[src/target/macos_aarch64/plan.rs:runtime_imports]] There is no math
 import surface — `pow`/`sin`/`cos` and the rest are in-tree kernels.
-App-mode builds add `AppKit`/`Foundation`/`libobjc` for the toolkit bootstrap. A
+App-mode builds add the toolkit imports described in `import-selection`. A
 library name outside this set is a linker error. Threading uses libSystem pthread
 creation (see `mfb spec threading`); raw Mach thread creation is not the worker
 ABI.
@@ -110,8 +115,9 @@ ad-hoc code signature, even for a static, import-free image. The
 - one page hash per 4096-byte page of the unsigned image (note: the
   CodeDirectory page size is 4096, distinct from the 16 KiB Mach-O page size).
 
-The image is encoded once unsigned to compute the hashes, then re-encoded with
-the signature in place. [[src/os/macos/link/commands.rs:code_signature]]
+The image is encoded once with a zero signature-size field to determine the
+signature length, then encoded again with that length in its load command. The
+final signature is computed over the second unsigned image and appended. [[src/os/macos/link/commands.rs:code_signature]]
 
 This ad-hoc signature is distinct from the optional `__MFB,.mfbsign` segment, which
 carries MFBASIC's own executable signing metadata when the build supplies it. On
@@ -134,12 +140,11 @@ build/<project>.app/
     Frameworks/<name>...       (vendored native libraries; only when the build vendors any)
 ```
 
-The bundle lands in the project's `build/` directory alongside every other build
-artifact.
+The bundle lands in the project's `build/` directory.
 
 `Contents/Frameworks/` is the platform-standard location for a bundle's private
 shared libraries, and is created **only** when the build resolves a `vendor`
-native-library locator — an empty `Frameworks/` in every bundle would be noise.
+native-library locator.
 The bundled executable then carries `LC_RPATH @executable_path/../Frameworks`; see
 `./mfb spec language native-libraries`.
 
@@ -156,8 +161,7 @@ threading os-integration.
 
 `CFBundleShortVersionString` (the release version users see) and `CFBundleVersion`
 (the build version) both carry the manifest's required `version` field verbatim.
-Both keys are mandatory: App Store upload validation (`altool`) rejects a bundle
-missing either one, and Launch Services reports an unversioned app. The manifest
+The writer emits both keys. The manifest
 validates `version` as a required non-empty string
 (`./mfb spec tooling project-manifest`), so app mode always has one to publish;
 the backend rejects an app build with no version rather than inventing a default.
@@ -177,7 +181,7 @@ canvas. `image`/`icns` are compiler build-time dependencies only.
 
 ### Bundle generation contract
 
-The bundle writer recreates the directory tree under the project's `build/`
+The bundle writer creates the directory tree under the project's `build/`
 directory: `build/<project>.app/Contents/MacOS` is created with one
 `create_dir_all` (so the intermediate `build` and `Contents` directories are
 materialized too). The Mach-O is encoded by
@@ -187,13 +191,13 @@ so the executable written to `Contents/MacOS/<project>` is byte-identical to the
 console output for the same image — only the on-disk layout, the `Info.plist`,
 and the `Resources/AppIcon.icns` sidecar differ.
 
-That invariant is **qualified for a build that vendors native libraries**: the two
-shapes load their dylibs from genuinely different places
-(`build/vendor/` vs `Contents/Frameworks/`), so they carry different `LC_RPATH`
-strings and differ by exactly that one load command. Identical bytes would mean
-one of them is wrong. For every build that vendors nothing — which is every
-project that does not use a `vendor` locator — the unqualified invariant holds:
-no `LC_RPATH` is emitted at all and the two are byte-identical.
+Byte identity applies only when both writers receive the same project name and
+encoded image. Actual app and console builds have different bootstrap code.
+Vendored libraries also select different `rpaths`: `@executable_path/vendor`
+for console output and `@executable_path/../Frameworks` for a bundle. Those paths
+change load commands and the code signature; a non-vendoring build has no
+`LC_RPATH`.
+[[src/target/macos_aarch64/mod.rs:write_executable]]
 
 The executable file is then
 chmod'd to `0o755` (the `Info.plist` and `AppIcon.icns` are written with default

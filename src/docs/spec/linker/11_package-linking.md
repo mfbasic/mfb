@@ -25,13 +25,16 @@ The merge happens in the package-merge step of native lowering:
 [[src/target/shared/nir/lower.rs:merge_packages]]
 
 Package functions are therefore ordinary merged functions by the time the linker
-runs. A package-to-package call is an internal `branch26` to an `_mfb_fn_…`
+runs. A package-to-package call uses an internal call relocation (`branch26` on
+AArch64, `call_pc32` on x86-64, `riscv_call` on RISC-V) to its merged function
 symbol, resolved through package identity rather than any raw binary-representation
 function id — the linker never assumes package-local function ids are globally
 unique.
 
-The only true NIR imports are native `LINK` thunks and platform symbols (see
-`import-selection`); package exports are not among them.
+NIR imports route native `LINK` calls to internal thunks. Platform-library
+imports are collected separately during native planning (see `import-selection`);
+merged package exports are not imports.
+[[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 ## Native LINK thunks and the per-program initializer
 
@@ -39,8 +42,12 @@ Native `LINK` bindings (declared in `language native-libraries`) are wired at th
 NIR/symbol level by two backend-defined internal symbols rather than by external
 linkage.
 
-* `_mfb_linker_init` is the per-program load-time initializer: it runs
-  `dlopen`/`dlsym` to resolve every linked native symbol before `main`.
+* `_mfb_linker_init` is the per-program native-library initializer: it runs
+  `dlopen`/`dlsym` on POSIX or `LoadLibraryExA`/`GetProcAddress` on Windows
+  to resolve linked native symbols before the language entry. It is called
+  explicitly by startup, not registered with the OS loader.
+  [[src/codegen/link/thunk/link_thunk.rs:emit_link_support]]
+  [[src/target/win_x86_64/code.rs:emit_lib_open]]
 * The per-function thunk producer emits one marshaling thunk per `LINK`
   function, named `_mfb_linker_<alias>_<name>` (each `alias`/`name` component is
   escaped so **every** byte that is not `[A-Za-z0-9]` — including `_` itself —

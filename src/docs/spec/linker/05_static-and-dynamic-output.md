@@ -1,16 +1,21 @@
 # Static Versus Dynamic Output
 
-Each linker chooses between a static and a dynamic encoding based on whether the
-encoded image has imports.
+Linux selects a static or dynamic ELF encoder according to whether the image
+has imports. Mach-O and PE use one container writer each, adding import metadata
+when imports are present.
+[[src/os/linux/link/mod.rs:encode_executable_bytes]]
+[[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
+[[src/os/windows/link/mod.rs:write_executable]]
 
 ## No imports — static image
 
-If an image has no imports, the linker emits a simpler executable with only
-internal text and data and no dynamic-loading metadata:
+Without imports, each format omits its library-import metadata:
 
 - macOS: `encode_unsigned_mach_o` still emits `__PAGEZERO`/`__TEXT`/`__LINKEDIT`
   and a (possibly empty) symbol table, with no `LC_LOAD_DYLIB`, no
-  `__DATA_CONST`/GOT, and no dyld bind/rebase opcodes.
+  GOT, and no dyld bind opcodes. Read-only constants or initializers can still
+  require `__DATA_CONST`; initializers require rebase opcodes. `LC_LOAD_DYLINKER`
+  remains present even without imports.
 - Linux: `encode_static_elf` (AArch64/RISC-V) and `encode_static_elf_x86` each emit
   two `PT_LOAD`s — text (R+X) and a writable data segment — with no `PT_INTERP` and
   no `.dynamic` section. Data begins at `align(TEXT_FILE_OFFSET + text.len(),
@@ -18,46 +23,55 @@ internal text and data and no dynamic-loading metadata:
   against, and is writable because the entry stores `_mfb_rt_main_arena` into it.
   [[src/os/linux/link/elf.rs:encode_static_elf]]
 
-A static image needs nothing from a dynamic loader, but on macOS it is still
+- Windows: the PE writer omits `.idata`, import thunks, and the Import/IAT
+  directory entries, while retaining `.reloc` and `.mfbnote`.
+
+The static ELF has no interpreter. An import-free Mach-O still names dyld and is
 ad-hoc code-signed (see `macos-aarch64`). Like every emitted executable it also
 carries the `MFBasic\0` provenance marker, which is independent of imports (see
 `provenance-marker`).
 
 ## Imports present — dynamic image
 
-If imports are present, the linker emits the full dynamic-loading metadata:
+For ELF and Mach-O, imports require:
 
 - a dynamic dependency record per distinct imported library
   (`LC_LOAD_DYLIB` / `DT_NEEDED`),
 - dynamic symbol and string tables covering every imported symbol,
 - relocations that let the loader fill GOT entries
-  (Mach-O bind opcodes / ELF `R_AARCH64_JUMP_SLOT` and `R_AARCH64_GLOB_DAT`),
-- one import stub per imported function for generated code to branch to,
+  (Mach-O bind opcodes / ISA-specific ELF jump-slot and data relocations),
+- one import stub per encoded import record for generated calls to branch to,
 - on Linux, the interpreter (`PT_INTERP`) and a `PT_DYNAMIC` segment.
+
+Windows instead emits DLL import descriptors, name tables, ILTs, and IATs in
+`.idata`, with a thunk for each function import (see `windows-x86_64`).
 
 ## Initializers
 
-Independently of imports, if the image carries `initializers` they are emitted as
-a run-before-entry pointer array: Mach-O `__mod_init_func`
-(`S_MOD_INIT_FUNC_POINTERS`, rebased by dyld) or ELF `.init_array`
-(`DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ`). On macOS this forces a `__DATA_CONST`
-segment even when there are no imports. The encode path leaves `initializers`
-empty (see `symbols-and-relocations`).
+Mach-O emits `__mod_init_func` whenever `initializers` is non-empty, forcing a
+`__DATA_CONST` segment even without imports. Dynamic ELF emits the corresponding
+array and dynamic tags; static ELF and PE do not. The normal encoder leaves this
+list empty. The format-specific execution contract is in
+./mfb spec linker symbols-and-relocations.
 
-## App-mode entry-bootstrap divergences
+## Entry imports and build modes
 
-The entry-import set the platform plan emits depends on the build mode, not only
-on the program's own imports. In console mode the macOS plan adds `_signal` to
-install the SIGINT/SIGTERM handlers; in app mode (`MacApp`) that import is
-omitted, because the bundle relies on its window-driven finish path rather than
-console signal handlers. The always-present entry imports (`_exit`,
-`_getentropy`, `_clock_gettime` for the memory-fill RNG seed) are unchanged
-across modes. [[src/target/macos_aarch64/plan.rs:entry_imports]]
+macOS imports `_signal` in both console and app mode. Console startup installs
+SIGINT/SIGTERM handlers; both modes ignore SIGPIPE process-wide. Linux likewise
+imports `signal` in both modes. macOS entry also imports `_exit`, `_getentropy`,
+and `_clock_gettime`; Linux's entry-import policy depends on its ISA's raw-syscall
+support, as described in `import-selection`.
+[[src/target/macos_aarch64/plan.rs:entry_imports]]
+[[src/target/linux_common/plan.rs:entry_imports]]
+[[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
-Build modes are also platform-exclusive: the macOS backend rejects a `LinuxApp`
-build mode with an internal error, and the Linux backend rejects `MacApp` with a
-"Linux native targets do not support the … build mode" error. The CLI selects the build mode from the target OS, so neither cross
-combination is expected to reach a backend. [[src/target/macos_aarch64/mod.rs:write_executable]]
+Each backend validates its build mode: macOS accepts console/MacApp, Windows
+console/WindowsApp, Linux aarch64/x86-64 console/LinuxApp, and RISC-V console only.
+[[src/target/macos_aarch64/mod.rs:write_executable]]
+[[src/target/win_x86_64/mod.rs:lower_validated_module]]
+[[src/target/linux_aarch64/mod.rs:write_executable]]
+[[src/target/linux_x86_64/mod.rs:write_executable]]
+[[src/target/linux_riscv64/mod.rs:lower_validated_module]]
 
 ## No silent omission
 
@@ -69,4 +83,4 @@ linker or codegen error, never a zero address or a placeholder (see
 ## See Also
 
 * ./mfb spec app macos-runtime — the window-driven finish path and AppKit
-  bootstrap that make app mode omit the console `_signal` import.
+  bootstrap.

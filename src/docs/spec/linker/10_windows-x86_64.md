@@ -18,16 +18,18 @@ byte-identical output. [[src/os/windows/link/mod.rs:write_executable]]
 
 ## Container layout
 
-The image is a fixed-base PE32+ with no relocation table. Constants: image base
+The image is an ASLR-capable PE32+. Constants: preferred image base
 `IMAGE_BASE = 0x0001_4000_0000` (`link.exe`'s default x64 EXE base), section
 alignment `0x1000` (4 KiB), file alignment `0x200` (512 bytes).
 [[src/os/windows/link/pe.rs:IMAGE_BASE]]
 
-Because the base is fixed, `IMAGE_FILE_RELOCS_STRIPPED` is set in the COFF
-characteristics and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE` is left **clear** —
-there is no `.reloc` section and the loader must map the image at `IMAGE_BASE`, so
-every RVA the linker computes is a final virtual address. This is the PE analog of
-the static ELF's `ET_EXEC` at a fixed base; unlike Linux, no ASLR variant ships.
+`IMAGE_FILE_RELOCS_STRIPPED` is clear; `DYNAMIC_BASE` and `HIGH_ENTROPY_VA`
+are set. The loader may choose a different base. RVAs are relative to that base,
+not final virtual addresses. The unconditional `.reloc` table contains a 12-byte
+block for the `.text` page with two `IMAGE_REL_BASED_ABSOLUTE` padding entries.
+The linker patches only RIP-relative references, so it supplies no `DIR64`
+fixups to `build_reloc`.
+[[src/os/windows/link/pe.rs:build_reloc]]
 [[src/os/windows/link/pe.rs:write_image]]
 
 The file opens with a 64-byte `IMAGE_DOS_HEADER` plus a conventional 64-byte DOS
@@ -40,8 +42,7 @@ follow, then the section table, then each section body at its
 
 The COFF header is `Machine = 0x8664` (AMD64), `TimeDateStamp = 0` (determinism),
 `SizeOfOptionalHeader = 240` (`0xF0`, asserted at emit), and
-`Characteristics = 0x0023` (`EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE |
-RELOCS_STRIPPED`).
+`Characteristics = 0x0022` (`EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE`).
 
 The PE32+ optional header (`Magic = 0x020B`) carries:
 
@@ -51,24 +52,30 @@ ImageBase            0x0001_4000_0000
 SectionAlignment     0x1000     FileAlignment        0x200
 MajorSubsystemVersion 6         MajorOperatingSystemVersion 6
 Subsystem            3 (WINDOWS_CUI console) / 2 (WINDOWS_GUI app mode)
-DllCharacteristics   0x8100 (NX_COMPAT | TERMINAL_SERVER_AWARE; DYNAMIC_BASE clear)
+DllCharacteristics   0x8160 (HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE)
 SizeOfStackReserve   0x0080_0000 (8 MiB)   SizeOfStackCommit 0x0010_0000 (1 MiB)
 SizeOfHeapReserve    0x0010_0000           SizeOfHeapCommit  0x0000_1000
 CheckSum             0 (determinism)       NumberOfRvaAndSizes 16
 ```
 
-The 8 MiB stack reserve matches the worker-thread stacks; committing a full 1 MiB
-up front (rather than the usual single guard page) means a function with a large
-frame never skips the stack guard page, so this codegen emits no inline `__chkstk`
-probe. Two derivation identities hold: `SizeOfHeaders == align(header_bytes,
-0x200)` and `SizeOfImage == align(last_rva + last_vsize, 0x1000)`. Of the 16 data
-directories only `[1]` Import and `[12]` IAT are non-zero (`[2]` Resource is
-non-zero in app mode); `[5]` Base Relocation stays zero.
+The main stack reserves 8 MiB and initially commits 1 MiB. Windows frame
+allocation probes frames larger than 4096 bytes page by page: subtract 4096,
+store zero at the new stack pointer, then allocate any remainder. It does not
+rely on the initial commit to make arbitrary large frames safe.
+[[src/arch/x86_64/backend.rs:stack_probe_page_bytes]]
+[[src/codegen/engine/util/vreg_frame.rs:push_frame_allocation]]
+
+Two derivation identities hold: `SizeOfHeaders == align(header_bytes,
+0x200)` and `SizeOfImage == align(last_rva + last_vsize, 0x1000)`.
+Data directory `[5]` Base Relocation is always present; `[1]` Import and `[12]`
+IAT are present with imports, and `[2]` Resource is present in app mode. The
+remaining directories are zero.
 [[src/os/windows/link/pe.rs:write_image]]
 
 ## Sections
 
-Sections are emitted in file order, zero-length sections omitted, each with its
+Sections are emitted in the order below. Optional empty data/import sections
+are omitted; `.text`, `.reloc`, and `.mfbnote` are always present. Each has its
 COFF characteristics word:
 
 ```text
@@ -77,17 +84,19 @@ COFF characteristics word:
 .data   0xC000_0040  INITIALIZED_DATA | READ | WRITE program constants + main-arena global
 .idata  0xC000_0040  INITIALIZED_DATA | READ | WRITE import tables (the loader writes the IAT)
 .rsrc   0x4000_0040  INITIALIZED_DATA | READ        app-mode resources (GUI builds only)
+.reloc  0x4200_0040  INITIALIZED_DATA | DISCARDABLE | READ base relocation block (always)
 .mfbnote 0x4000_0040 INITIALIZED_DATA | READ        MFBasic provenance marker (always)
 .mfbsign 0x4000_0040 INITIALIZED_DATA | READ        executable signing metadata (only if signing_metadata)
 ```
 
 `.rdata` and `.data` come from one `image.data` blob split at `rodata_size`; they
-are laid out contiguously so a data symbol's RVA is the same whichever partition
-it lands in, and one `data_base_rva` serves both. A program with only writable
+are laid out contiguously, so `data_base_rva + symbol.offset` resolves symbols
+in either partition. When both partitions exist, the writer asserts that
+`rodata_size` ends at the writable section's RVA. A program with only writable
 data emits `.data` and no `.rdata`, and vice versa.
 
-`.mfbnote` is the sole **unconditional** section: it is placed last (after `.rsrc`
-when present) and carries the `MFBasic\0` owner plus the shared 16-byte descriptor
+`.mfbnote` follows `.reloc` and carries the `MFBasic\0` owner plus the
+shared 16-byte descriptor
 so every `.exe` is identifiable as MFBASIC-produced. It has no data-directory
 entry. See **./mfb spec linker provenance-marker**.
 
@@ -149,7 +158,8 @@ the `±2 GiB` reach, is a hard link error (see **Failure rules**).
 
 User `LINK` bindings are **not** ordinary imports (see **Import selection** — they
 are a runtime `dlopen`-style load, not an `.idata` entry, so a missing library is
-a catchable runtime error rather than a load-time start failure). Windows has no
+a startup error handled by the generated entry rather than an OS-loader error).
+[[src/codegen/link/thunk/link_thunk.rs:lower_link_initializer]] Windows has no
 `dlopen`, so `_mfb_linker_init` uses the Win32 loader: `LoadLibraryExA` in place
 of `dlopen`, `GetProcAddress` in place of `dlsym`. These come from `kernel32.dll`
 (plus `shlwapi.dll` for `PathRemoveFileSpecA`) as ordinary `.idata` imports,
@@ -164,8 +174,7 @@ than through an image tag. The initializer builds the absolute path
 own dependencies resolve from the exe-relative `build/vendor/` directory. A
 `system` locator is loaded by bare name (`LoadLibraryExA(name, NULL, 0)`, default
 search). The scratch buffer and the `\vendor\` string are emitted only for a build
-that vendors at least one library; a non-vendoring build is byte-identical to one
-predating the feature. See `./mfb spec language native-libraries` for the
+that vendors at least one library. See `./mfb spec language native-libraries` for the
 cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_lib_open]]
 
 ## Determinism
@@ -178,12 +187,14 @@ stable. Encoding the same `EncodedImage` twice yields identical bytes.
 
 ## App mode
 
-`mfb build --app` sets the GUI flag, which changes exactly two things versus a
-console build: the PE `Subsystem` becomes `WINDOWS_GUI` (2) so the loader does not
+For a given encoded image, the PE writer's GUI flag changes the subsystem and
+resource section: the PE `Subsystem` becomes `WINDOWS_GUI` (2) so the loader does not
 attach a console, and a `.rsrc` section is emitted carrying the DPI-awareness
 manifest (always), plus the app icon and version info when the build supplies them
 (data directory `[2]` Resource points at it). A console build emits no `.rsrc` and
-is byte-identical to a build with no app resources. The `.exe` is a single file in
+has no resource-directory entry. Actual app builds also supply a Win32
+bootstrap and toolkit imports. [[src/target/win_x86_64/plan.rs:app_mode_imports]]
+The `.exe` is a single file in
 both modes — there is no `.app`/AppImage bundle equivalent on Windows.
 [[src/os/windows/link/rsrc.rs:build_rsrc]]
 

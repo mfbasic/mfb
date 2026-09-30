@@ -3,7 +3,7 @@
 Native executable output flows through a fixed sequence of stages, each with a
 concrete in-compiler type. The target backend owns the pipeline; the linker is
 its final target-specific stage.
-[[src/target/macos_aarch64/]] [[src/target/linux_aarch64/]] [[src/target/linux_x86_64/]] [[src/target/linux_riscv64/]] [[src/os/macos/]] [[src/os/linux/]]
+[[src/target/macos_aarch64/]] [[src/target/linux_aarch64/]] [[src/target/linux_x86_64/]] [[src/target/linux_riscv64/]] [[src/target/win_x86_64/]] [[src/os/macos/]] [[src/os/linux/]] [[src/os/windows/]]
 
 ```text
 IrProject                                                language IR
@@ -24,16 +24,23 @@ The backend's executable writer runs the stages in order:
 1. The lowering stage lowers `IrProject` to a `NirModule`. Installed packages
    are decoded and merged here, not linked later (see `package-linking`).
 2. The NIR and capability validation stages reject NIR the backend cannot lower.
-3. The planning stage produces the `NativePlan`: the set of functions, data
-   objects, calls, and platform imports with their final symbol names.
+3. The planning stage produces the `NativePlan`: function operations, calls,
+   runtime/LINK symbols, and platform imports. Code lowering constructs the
+   concrete data objects in `NativeCodePlan`.
+   [[src/target/shared/plan/mod.rs:NativePlan]]
+   [[src/codegen/engine/types/types.rs:NativeCodePlan]]
 4. The plan's own validation then the platform object-plan validation run the
    structural checks (the object-plan gate).
 5. The code-lowering stage produces the `NativeCodePlan`: concrete native
    instructions per function plus relocation requests. A code-plan validation
-   follows.
+   follows. AArch64 and RISC-V then relax out-of-range local branches before
+   encoding. [[src/arch/aarch64/encode/relax.rs:relax_conditional_branches]]
+   [[src/arch/riscv64/encode/relax.rs:relax_rv64_branches]]
 6. The encoder assembles the `EncodedImage`: encoded `text` and `data` byte
    vectors, internal `symbols`, `relocations`, the import table, the entry
-   symbol, an `initializers` list, and optional `signing_metadata`.
+   symbol, an `initializers` list, the `rodata_size` boundary within `data`, optional
+   `signing_metadata`, and vendor search paths (`rpaths`).
+   [[src/arch/image.rs:EncodedImage]]
 7. The backend attaches executable signing metadata and calls the platform
    linker (or the app-bundle / per-flavor variants). A signed build's metadata
    carries the one-off signing key too, and every linker seals the blob's
@@ -47,10 +54,15 @@ The backend's executable writer runs the stages in order:
 The linker takes an `EncodedImage` and:
 
 - patches every relocation once final virtual addresses are known,
-- generates import stubs and the GOT for external symbols,
-- emits the container format (Mach-O or ELF) with the segments, load
+- generates import stubs and GOT slots (IAT slots on Windows) for external symbols,
+- emits the container format (Mach-O, ELF, or PE32+) with the segments, load
   commands/program headers, and dynamic-loading metadata the image requires,
-- writes the file to disk and marks it executable (mode `0o755`).
+- writes the file to disk. Mach-O and ELF writers set mode `0o755` on Unix
+  hosts; the Windows writer writes the `.exe` without changing permissions.
+
+[[src/os/macos/link/mod.rs:write_executable_file]]
+[[src/os/linux/link/mod.rs:write_executable]]
+[[src/os/windows/mod.rs:write_linked_executable]]
 
 The linker does not decide semantic language behavior. It only materializes the
 symbols, imports, relocations, and initializers requested by earlier native
@@ -61,6 +73,7 @@ The entry symbol of every encoded image is `_main`; the language entry routine
 is reached from there. App-mode builds repurpose `_main` as a toolkit bootstrap
 that spawns a worker thread running the language entry (see the platform
 topics).
+[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 ## See Also
 

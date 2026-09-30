@@ -30,10 +30,9 @@ page size `0x1000` (4 KiB). The ELF header is **`EM_RISCV` (machine 243)**
 (aarch64 is 183, x86-64 is 62), entry = `text_vmaddr + entry_offset`.
 [[src/os/linux/link/elf.rs:e_machine]]
 
-Two container shapes ship, and they differ in exactly this. A **dynamic** image
-(any imports — every real program) is `ET_DYN`: a position-independent executable
+A **dynamic** image (any imports) is `ET_DYN`: a position-independent executable
 at link base `DYN_IMAGE_BASE = 0`, which the loader maps at a random slide, so
-ASLR applies (bug-186). Only the **static**, import-less path keeps `ET_EXEC` at
+ASLR applies. Only the **static**, import-less path keeps `ET_EXEC` at
 image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 RISC-V additionally uses the ELF header's `e_flags` to declare its float ABI: a
@@ -44,8 +43,8 @@ must be set; x86-64 and aarch64 leave `e_flags` zero.
 
 A dynamic image (imports present, `encode_dynamic_elf`) has the **same program
 headers** as the other Linux targets — eight, or nine with a read-only constant
-partition (see `linux-aarch64` for the list, including `PT_GNU_RELRO`). Only the machine field, `e_flags`,
-and the interpreter string branch on arch.
+partition (see `linux-aarch64` for the list, including `PT_GNU_RELRO`). The machine field, `e_flags`, and interpreter are ISA-specific;
+relocation types and stub instructions also vary by ISA.
 
 The **static** image carries **two** `PT_LOAD`s — a text segment (R+X) and a
 separate page-aligned **writable** data segment (R+W) — because the program entry
@@ -104,7 +103,7 @@ dynamic tags are **identical to aarch64** (`DT_NEEDED` per distinct library,
 `./mfb spec linker symbols-and-relocations`; the only arch-specific values are the
 relocation-type constants. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
-Each imported function gets a **12-byte** import stub and an 8-byte GOT slot, with a
+Each encoded import gets a **12-byte** import stub and an 8-byte GOT slot, with a
 dynamic relocation in `.rela` binding that slot. RISC-V has **no dedicated
 `GLOB_DAT`**: an imported data global's GOT slot is bound with an absolute
 **`R_RISCV_64` (2)**, and an imported function's slot with **`R_RISCV_JUMP_SLOT`
@@ -119,8 +118,7 @@ ld    t3, %pcrel_lo(got_slot)(t3) ; load the bound address
 jalr  x0, 0(t3)                 ; tail-jump, no link
 ```
 
-It is padded to the fixed 12-byte per-stub slot so the surrounding layout math is
-arch-independent. [[src/os/linux/link/mod.rs:emit_import_stub]]
+Those three instructions occupy the fixed 12-byte stub slot. [[src/os/linux/link/mod.rs:emit_import_stub]]
 
 Symbol versioning (`.gnu.version`/`.gnu.version_r`) is emitted the same way as the
 other Linux targets when an import carries a `version`; the encode path emits all
@@ -155,7 +153,10 @@ Because a lo12 completes the low 12 bits of the **paired `auipc`'s** displacemen
 the linker computes it from that `auipc`'s address, not from `offset - 4`: the two
 halves need not be adjacent, since the register allocator may spill `rd` between
 them under pressure. The lo12's base is the nearest *preceding* hi relocation to the
-same target. [[src/os/linux/link/mod.rs:paired_auipc_offset]]
+same target and corresponding hi kind. A `HiRelocIndex` stores sorted hi
+offsets keyed by `(kind, target)` and locates the nearest strictly preceding
+offset; a missing partner is a linker error.
+[[src/os/linux/link/mod.rs:paired_auipc_offset]]
 
 ## glibc flavor
 
@@ -189,7 +190,8 @@ App mode (`mfb build --app`) is **rejected** for this target: the GTK4 toolkit
 bootstrap has not been ported to rv64, so `supports_app_mode()` is false and the CLI
 refuses `--app`. The app-only code paths (the GTK entry, the `__libc_start_main`
 trampoline, the toolkit rodata) hard-stop rather than emit aarch64-convention code.
-A build mode other than console — or the internal Linux-app mode — is rejected with
+Every build mode other than console, including the internal Linux-app mode,
+is rejected with
 `Linux riscv64 native targets do not support the … build mode`.
 [[src/target/linux_riscv64/mod.rs:supports_app_mode]] [[src/target/linux_riscv64/mod.rs:lower_validated_module]]
 

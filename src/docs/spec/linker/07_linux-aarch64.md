@@ -22,10 +22,9 @@ independently from the same NIR, because the sonames it imports differ.
 Constants: text file offset `0x1000`, page size `0x1000` (4 KiB). The ELF header
 is `EM_AARCH64`, entry = `text_vmaddr + entry_offset`.
 
-Two container shapes ship, and they differ in exactly this. A **dynamic** image
-(any imports — every real program) is `ET_DYN`: a position-independent executable
+A **dynamic** image (any imports) is `ET_DYN`: a position-independent executable
 at link base `DYN_IMAGE_BASE = 0`, which the loader maps at a random slide, so
-ASLR applies (bug-186). Only the **static**, import-less path keeps `ET_EXEC` at
+ASLR applies. Only the **static**, import-less path keeps `ET_EXEC` at
 image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 A dynamic image (imports present, `encode_dynamic_elf`) has eight program
@@ -46,8 +45,7 @@ PT_NOTE       the MFBasic provenance marker
 `PT_GNU_RELRO` covers the page-aligned dynamic payload — the GOT and `.dynamic` —
 and is page-disjoint from the still-writable arena global below it. Paired with
 `DF_BIND_NOW`, which resolves every relocation before `main`, it means the GOT is
-read-only for the whole life of the program rather than a writable
-control-flow-hijack target. [[src/os/linux/link/elf.rs:PT_GNU_RELRO]]
+read-only after startup relocation. [[src/os/linux/link/elf.rs:PT_GNU_RELRO]]
 
 A static image (no imports, `encode_static_elf`) has four: two `PT_LOAD`s — text
 (R+X) and a writable data segment page-aligned to the `data_vmaddr` the
@@ -62,7 +60,11 @@ arch; see `provenance-marker`.
 
 For a dynamic image the linker builds `.dynstr`, `.dynsym` (entry 0 is the null
 symbol), a SysV `.hash` table, `.rela`, and `.got`, then a `.dynamic` section
-carrying at least:
+carrying the tags below. These names identify regions of the dynamic payload;
+the writer emits no ELF section-header table unless signing metadata is present.
+The signing table names only `.mfbsign` and `.shstrtab`.
+[[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+[[src/os/linux/link/elf.rs:append_elf_signing_section]]
 
 The `.hash` table is one bucket over every imported symbol: `nbucket=1`,
 `nchain=imports+1`, `bucket[0]=1`, then the chain — `chain[0]=0` for the null
@@ -85,7 +87,7 @@ tag **29**, not `DT_RPATH` (15); it is emitted only for a build that vendors a
 native library, and unlike `DT_RPATH` it *can* be overridden by
 `LD_LIBRARY_PATH`. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
-Each imported function gets a 12-byte stub and an 8-byte GOT slot, with a
+Each encoded import gets a 12-byte stub and an 8-byte GOT slot, with a
 relocation in `.rela`: `R_AARCH64_JUMP_SLOT` for `ImportKind::Function`,
 `R_AARCH64_GLOB_DAT` for `ImportKind::Data` (addend always 0). External
 `branch26` relocations are resolved to the stub; external `page21`/`pageoff12`
@@ -97,16 +99,19 @@ to the GOT slot. The linker emits one `DT_NEEDED` per distinct imported library.
 When any import carries a `version`, the linker additionally emits `.gnu.version`
 (`DT_VERSYM`) and `.gnu.version_r` (`DT_VERNEED`/`DT_VERNEEDNUM`): one `Verneed`
 per library, one `Vernaux` per distinct `(library, version)` pair, with version
-indices starting at 2 (1 = unversioned global). This is intended for versioned
-exports such as OpenSSL 3's `OPENSSL_3.0.0`. The encode path emits all imports
-unversioned, so a console/app build produces no `.gnu.version*` sections; the
-versioning path is exercised by the linker tests (validated against the glibc
-`GLIBC_2.17` aarch64 baseline). [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+indices starting at 2 (1 = unversioned global). The shared encode path emits all
+imports unversioned, so ordinary console/app builds produce no version tables.
+[[src/arch/encode_plan.rs:encode_plan]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 ## Initializers
 
-If the image carries `initializers`, the linker resolves each to its absolute
-text address and emits a `.init_array` plus `DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ`.
+For a dynamic image with `initializers`, the linker resolves each to a text
+address and emits an initialization array plus `DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ`.
+Each pointer has an ISA-specific `R_*_RELATIVE` relocation so the loader applies
+the PIE slide. Array invocation requires the C-runtime startup path; the raw
+console entry does not invoke it. Static ELF does not emit the array.
+[[src/os/linux/link/elf.rs:build]]
+[[src/os/linux/link/tests.rs:writes_init_array_glibc_elf]]
 For a normal custom-entry MFBASIC binary the entry runs `_mfb_linker_init`
 itself, so `initializers` is empty and no `.init_array` is produced.
 
