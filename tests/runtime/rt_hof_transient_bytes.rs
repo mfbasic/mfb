@@ -241,3 +241,94 @@ fn partition_and_group_by_allocate_about_their_result() {
         failures.join("\n  ")
     );
 }
+
+/// A failing `valFn` frees the finished `keys` projection. `groupBy` runs `keyFn`
+/// over the whole list, then `valFn`; the second transform's failure exit freed
+/// only its own output, so under a function-level `TRAP` the `keys` list leaked
+/// (8,048 B per failing call over 1,000 Integers), found while fixing bug-771.
+#[test]
+fn a_failing_value_callback_frees_the_key_projection() {
+    let source = "IMPORT io
+IMPORT collections
+
+FUNC mod5(n AS Integer) AS Integer
+  RETURN n MOD 5
+END FUNC
+FUNC valOrBoom(n AS Integer) AS Integer
+  IF n = 700 THEN FAIL error(77050003, \"val boom\")
+  RETURN n * 2
+END FUNC
+FUNC sValOrBoom(n AS Integer) AS String
+  IF n = 700 THEN FAIL error(77050004, \"sval boom\")
+  RETURN \"v\" & toString(n)
+END FUNC
+FUNC fnVal(xs AS List OF Integer) AS Integer
+  LET m AS Map OF Integer TO List OF Integer = collections::groupBy(xs, mod5, valOrBoom)
+  RETURN len(m)
+  TRAP(err)
+    RETURN -1
+  END TRAP
+END FUNC
+FUNC fnSVal(xs AS List OF Integer) AS Integer
+  LET m AS Map OF Integer TO List OF String = collections::groupBy(xs, mod5, sValOrBoom)
+  RETURN len(m)
+  TRAP(err)
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO 999
+    xs = collections::append(xs, i)
+  NEXT
+  MUT acc AS Integer = 0
+  FOR k = 1 TO 20
+    acc = acc + fnVal(xs) + fnSVal(xs)
+    LET b AS Integer = len(collections::groupBy(xs, mod5, valOrBoom)) TRAP(e)
+      RECOVER -1
+    END TRAP
+    acc = acc + b
+  NEXT
+  io::print(toString(acc))
+  RETURN 0
+END FUNC
+";
+    let project = common::temp_project("hofbytes_groupby_valfn_fail", source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("--debug")
+        .arg(&project)
+        .output()
+        .expect("run mfb build");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "build failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exe = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Wrote executable to "))
+        .expect("an executable")
+        .to_string();
+    let out = Command::new(&exe).output().expect("run the program");
+    let _ = std::fs::remove_dir_all(&project);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let report = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(text, "-60\n", "{report}");
+    let counter = |key: &str| -> u64 {
+        report
+            .lines()
+            .find_map(|line| line.strip_prefix(key))
+            .and_then(|n| n.trim().parse::<u64>().ok())
+            .unwrap_or_else(|| panic!("no {key} in\n{report}"))
+    };
+    assert_eq!(counter("arena.0.double_free_skips "), 0, "{report}");
+    assert_eq!(
+        counter("arena.0.alloc_calls "),
+        counter("arena.0.free_calls "),
+        "a failing valFn leaked (live_bytes {})",
+        counter("arena.0.live_bytes ")
+    );
+}

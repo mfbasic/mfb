@@ -142,17 +142,33 @@ impl CodeBuilder<'_> {
         ));
         let vals_collection = self.lower_value(&args[0])?;
         let vals_fn = self.lower_value(&args[2])?;
+        // A failing `valFn` leaves the finished `keys` list behind: the transform's
+        // failure exit frees only its own output. Capture that exit here, free
+        // `keys`, then leave through the same shared exit (bug-771; the leak was
+        // 8,048 B per failing call under a function-level TRAP).
+        let vals_failed = self.label("gb_vals_failed");
+        let vals_done = self.label("gb_vals_done");
+        let previous_capture = self.raw_result_capture.replace(vals_failed.clone());
         let vals = crate::codegen::builtins::collections::func_transform::lower_transform(
             self,
             &[vals_collection, vals_fn],
             &ctx,
-        )?;
+        );
+        self.raw_result_capture = previous_capture;
+        let vals = vals?;
         let vals_slot = self.allocate_stack_object("gb_vals", 8);
         self.emit(abi::store_u64(
             &vals.location,
             abi::stack_pointer(),
             vals_slot,
         ));
+        self.emit(abi::branch(&vals_done));
+        self.emit(abi::label(&vals_failed));
+        self.emit_callback_failure_exit(
+            &[(keys_slot, ParameterType::list_of(key_type.clone()))],
+            None,
+        )?;
+        self.emit(abi::label(&vals_done));
 
         let n_slot = self.allocate_stack_object("gb_n", 8);
         let ts_slot = self.allocate_stack_object("gb_ts", 8);
