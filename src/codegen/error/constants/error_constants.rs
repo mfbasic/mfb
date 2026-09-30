@@ -1130,8 +1130,8 @@ pub(crate) const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
 /// its own stream drawn from the parent's generator.
 pub(crate) const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
 /// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
-/// Used to scrub freed chunks and poison freshly mapped blocks. Clobbers
-/// x0, x1, x9–x16.
+/// Used to scrub freed chunks and poison freshly mapped blocks. A leaf,
+/// vreg-allocated: it clobbers caller-saved registers only.
 pub(crate) const ARENA_FILL_RANDOM_SYMBOL: &str = "_mfb_arena_fill_random";
 /// Seed the fill RNG at `[x0 + ARENA_FILL_RNG_*]` from the 64-bit seed in `x1`,
 /// using the same canonical PCG64 seeding dance as the language RNG.
