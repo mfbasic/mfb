@@ -233,11 +233,17 @@ END FUNC
     let (text_b, report_b) = run_program("b770_agg_4000", &program(4_000), true);
     assert_eq!(text_a, "2063616\n", "agg(2000) checksum");
     assert_eq!(text_b, "8127488\n", "agg(4000) checksum");
-    let per_iteration = (count(&report_b) - count(&report_a)) as f64 / 2_000.0;
+    // Two allocations per iteration (the owned copy and the `LET empty = []`
+    // literal), plus the map's own amortized data-region grows as its stored lists
+    // lengthen — the bug's goal budgets 15 of those over 2,000 iterations
+    // (`agg(2000)` <= 4,015 allocations).
+    let added = count(&report_b) - count(&report_a);
     assert!(
-        per_iteration <= 2.0,
-        "bug-770 C: the `getOr` -> `append` -> `set` bucket update made {per_iteration:.2} \
-         arena allocations per iteration (bound 2): the owned copy `append` grows is tight"
+        added <= 2 * 2_000 + 15,
+        "bug-770 C: 2,000 more `getOr` -> `append` -> `set` bucket updates made {added} more \
+         arena allocations ({:.3} per iteration; bound 2 per iteration plus 15 map grows): \
+         the owned copy `append` grows is tight",
+        added as f64 / 2_000.0
     );
 }
 
