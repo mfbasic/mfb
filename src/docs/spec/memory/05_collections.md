@@ -116,7 +116,7 @@ read. [[src/codegen/error/constants/error_constants.rs:COLLECTION_KIND_SET]]
 Because a set is map-shaped it carries buckets exactly as a map does — the
 bucket region is shared through `collection_has_buckets`, which is true for both
 kind 1 and kind 3 — so membership (`collections::contains` on a `Set`) is an
-O(1)-average FNV-1a probe of the element key for a probe-eligible element type
+O(1)-average hash probe of the element key for a probe-eligible element type
 (`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, `String`) and a linear scan over
 the live lookup entries otherwise, with the index built lazily on first use and
 `bucketsReady` set exactly as for a map.
@@ -226,10 +226,39 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
 
 - **Size and addressing.** `Buckets` has `2 * capacity` `U64` slots (load factor
   ≤ 0.5), based at `header + capacity*entryStride + dataCapacity`. Each slot holds
-  `entryIndex + 1`, or `0` for empty. A key maps to a bucket by
-  `FNV-1a(keyBytes) mod (2*capacity)` with linear probing; equality is the
-  byte-wise comparison over `keyLength` bytes — identical to the linear scan, so
-  `Float` keys still compare bitwise (`+0.0`≠`-0.0`, `NaN`=`NaN`).
+  `entryIndex + 1`, or `0` for empty. A key's home slot is a pure function of its
+  stored key bytes, chosen by their **length** (bug-770), and linear probing
+  walks on from it:
+  - **8 bytes** (an `Integer`, `Float` or `Fixed` key, and a `String` key that
+    happens to be 8 bytes long): the bytes read as one little-endian word `k`,
+    home = `umulh(k * 0x9E3779B97F4A7C15, 2*capacity)` — a multiplicative
+    (Fibonacci) hash whose high bits are reduced onto the slots by a
+    multiply-high, with no division. An arithmetic progression of keys spreads
+    evenly instead of piling into one residue class. The word is loaded whole
+    only from an 8-aligned address (a fixed-width key always is); an unaligned
+    `String` key's word is assembled from its bytes.
+    [[src/codegen/collection/map/map_hash.rs:word_home_slot]]
+    [[src/codegen/collection/map/map_hash.rs:load_key_word]]
+  - **Any other length** (a `String`, a 1-byte `Byte`/`Boolean` key):
+    `FNV-1a(keyBytes) mod (2*capacity)`.
+    [[src/codegen/collection/map/map_hash.rs:fnv_home_slot]]
+
+  Every site that reads or writes the index — the inline probe, the runtime
+  probe, the lazy rebuild, the incremental insert and the backward-shift delete
+  with its renumbering — computes the home slot from this one definition, so
+  they cannot disagree; a site that did would leave a present key unreachable.
+  [[src/codegen/collection/map/map_hash.rs:home_slot_of_key_bytes]]
+  Equality is the byte-wise comparison over `keyLength` bytes — identical to the
+  linear scan (the inline probe compares an 8-byte key as one word, which is the
+  same test), so `Float` keys still compare bitwise (`+0.0`≠`-0.0`, `NaN`=`NaN`)
+  and a `Fixed` compares by bit pattern.
+- **The probe.** When the index is built, a lookup is inline at the call site:
+  it computes the home slot and walks the linear-probe run itself, comparing each
+  candidate's key, until a match or an empty slot. Only an unbuilt index
+  (`bucketsReady = 0`) — and a `String` key of exactly 8 bytes — goes to
+  `_mfb_rt_map_probe`, which builds the index first. On a hit the probe yields
+  both the entry's address and its index.
+  [[src/codegen/builtins/collections/gen_map.rs:emit_map_probe_into]]
 - **Derived, lazy, and recomputed — never authoritative.** The entries + data are
   the source of truth; the buckets are rebuildable from them. `bucketsReady` is
   `0` on every fresh allocation (and a fresh allocation's bucket bytes are
@@ -239,10 +268,17 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   `bucketsReady = 0`, so the receiver recomputes against its own capacity — no
   stale offsets, deterministic across the boundary.
 - **Incremental maintenance.** In-place `set` inserts a new key into the buckets
-  in O(1) when they are already built (`_mfb_rt_map_bucket_put`) and invalidates
-  (`bucketsReady = 0`) when a capacity grow moves/resizes the region, so building a
-  map with repeated `set` stays O(n). An in-place value overwrite or value-grow
-  leaves keys/indices unchanged and so leaves the index valid. An in-place removal
+  in O(1) when they are already built and invalidates (`bucketsReady = 0`) when a
+  capacity grow moves/resizes the region, so building a map with repeated `set`
+  stays O(n). The insert reuses the empty slot that ended the `set`'s own probe
+  run — exactly where re-hashing the key would put it — which stays valid because
+  every event between the probe and the write that could move the block or its
+  entries (a grow's fresh header, a reclaim that repacks or drops tombstones)
+  clears `bucketsReady`; only when the probe did not walk a built index does it
+  call `_mfb_rt_map_bucket_put`, which hashes the key again.
+  [[src/codegen/collection/map/map_mutate.rs:lower_map_set_in_place]]
+  An in-place value overwrite or value-grow leaves keys/indices unchanged and so
+  leaves the index valid. An in-place removal
   (`removeKey`, a `Set`'s `remove`, `difference`, `symmetricDifference`) keeps the
   index built: it deletes each removed entry's bucket by **backward-shift
   deletion** — every later slot of the probe run moves back into the gap unless
@@ -555,7 +591,7 @@ reads `LookupEntry[index]`, then reads the payload at `Data + valueOffset` with
 `valueLength`. An out-of-range or negative index fails with `ErrIndexOutOfRange`.
 
 For a `Map`, `collections::get(value, key)` looks the key up through the *Map
-Hash Index* — an O(1)-average FNV-1a bucket probe that lazily builds the index on
+Hash Index* — an O(1)-average bucket probe that lazily builds the index on
 first use — then reads the matching entry's payload at `Data + valueOffset`;
 missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 (`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, i.e. all valid map key
@@ -931,7 +967,7 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
   *Capacity Headroom and Growth* — entries and data copied verbatim against the
   capacity-based base)
   when full. Insertion order is preserved, and the new key is folded into the hash
-  index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
+  index per *Map Hash Index* (into the probe's empty end slot when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
   [[src/codegen/collection/map/map_mutate.rs:lower_map_set_in_place]]
 
@@ -1045,7 +1081,7 @@ count)`. `Map` and `Set` have no overload.
 ### Map Updates
 
 For `Map`, setting or removing keys updates lookup entries and packed key/value
-payloads. Key lookup goes through the *Map Hash Index* (O(1)-average FNV-1a probe,
+payloads. Key lookup goes through the *Map Hash Index* (O(1)-average hash probe,
 with a linear-scan fallback for any non-probe key type). Missing removed keys are
 ignored. In-place `set` (insert into spare headroom, or value overwrite) is
 described under [`set`](#set) above. The copying `removeKey` builds a tight
