@@ -197,7 +197,7 @@ const COLLECTIONS_RAISES_NOTHING: &[(&str, &str)] = &[
     ),
     (
         "_mfb_rt_map_probe",
-        "FNV-1a bucket lookup; pure computation, no allocation",
+        "hash-index bucket lookup; pure computation, no allocation",
     ),
     (
         "_mfb_rt_map_bucket_put",

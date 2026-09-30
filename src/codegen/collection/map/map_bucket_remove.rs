@@ -2,7 +2,7 @@
 //!
 //! A map's lookup entries are insertion-ordered, and its hash index (the
 //! `Buckets` region, `2 * capacity` slots of `entryIndex + 1`, linear probing,
-//! FNV-1a over the key bytes) addresses them by index. Removing an entry used to
+//! each key's home slot from `map_hash`) addresses them by index. Removing an entry used to
 //! shift the later entries down and mark the whole index not-ready, so the next
 //! probe rebuilt it in O(count): a `set`/`removeKey` loop was O(n²). These two
 //! runtime helpers keep the index current instead, at a cost proportional to the
@@ -30,6 +30,7 @@
 //! helpers are no-ops on the index when `bucketsReady` is 0; it is then rebuilt on
 //! the next probe as before. Neither allocates or calls.
 
+use crate::codegen::collection::map::map_hash::{home_slot_of_key_bytes, KeyHashRegs};
 use crate::codegen::engine::operand::VirtualRegister;
 use crate::codegen::engine::types::{CodeFunction, CodeInstruction};
 use crate::codegen::engine::util::*;
@@ -64,8 +65,8 @@ register_bank!(
     v45, v46, v47,
 );
 
-/// `dataBase` (`%v11`), `bucketBase` (`%v12`), `bucketCount` (`%v10`) and the
-/// FNV prime (`%v8`) of the map in `%v20`.
+/// `dataBase` (`%v11`), `bucketBase` (`%v12`) and `bucketCount` (`%v10`) of the
+/// map in `%v20`.
 fn index_geometry(r: &Regs) -> Vec<CodeInstruction> {
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
     vec![
@@ -77,18 +78,16 @@ fn index_geometry(r: &Regs) -> Vec<CodeInstruction> {
         abi::load_u64(r.v15, r.v20, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(r.v12, r.v11, r.v15),
         abi::shift_left_immediate(r.v10, r.v14, 1),
-        abi::move_immediate(r.v8, "Integer", FNV1A_PRIME),
     ]
 }
 
-/// The home slot (`%v4`) of entry `index`'s key: `FNV-1a(key) mod bucketCount`,
-/// exactly as `_mfb_rt_map_build_buckets` computes it. Clobbers `%v3`, `%v5`,
-/// `%v6`, `%v14`–`%v17`.
+/// The home slot (`%v4`) of entry `index`'s key, exactly as
+/// `_mfb_rt_map_build_buckets` computes it — both splice in
+/// [`home_slot_of_key_bytes`] (bug-770). Clobbers `%v3`, `%v5`, `%v6`,
+/// `%v14`–`%v17`.
 fn home_slot(r: &Regs, labels: &str, index: VirtualRegister) -> Vec<CodeInstruction> {
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
-    let hloop = format!("{labels}_hloop");
-    let hdone = format!("{labels}_hdone");
-    vec![
+    let mut out = vec![
         abi::move_immediate(r.v16, "Integer", &entry_size),
         abi::multiply_registers(r.v14, index, r.v16),
         abi::add_registers(r.v14, r.v14, r.v20),
@@ -96,22 +95,21 @@ fn home_slot(r: &Regs, labels: &str, index: VirtualRegister) -> Vec<CodeInstruct
         abi::load_u64(r.v15, r.v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers(r.v15, r.v11, r.v15),
         abi::load_u64(r.v17, r.v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate(r.v16, "Integer", FNV1A_BASIS),
-        abi::move_register(r.v5, r.v15),
-        abi::move_register(r.v6, r.v17),
-        abi::label(&hloop),
-        abi::compare_immediate(r.v6, "0"),
-        abi::branch_eq(&hdone),
-        abi::load_u8(r.v3, r.v5, 0),
-        abi::exclusive_or_registers(r.v16, r.v16, r.v3),
-        abi::multiply_registers(r.v16, r.v16, r.v8),
-        abi::add_immediate(r.v5, r.v5, 1),
-        abi::subtract_immediate(r.v6, r.v6, 1),
-        abi::branch(&hloop),
-        abi::label(&hdone),
-        abi::unsigned_divide_registers(r.v4, r.v16, r.v10),
-        abi::multiply_subtract_registers(r.v4, r.v4, r.v10, r.v16),
-    ]
+    ];
+    out.extend(home_slot_of_key_bytes(
+        &format!("{labels}_hash"),
+        &KeyHashRegs {
+            key_ptr: r.v15,
+            key_len: r.v17,
+            bucket_count: r.v10,
+            slot: r.v4,
+            hash: r.v16,
+            byte: r.v3,
+            cursor: r.v5,
+            remaining: r.v6,
+        },
+    ));
+    out
 }
 
 /// `slot = slot + 1`, wrapping to 0 at `bucketCount` (`%v10`).

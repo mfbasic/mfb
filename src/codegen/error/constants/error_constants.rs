@@ -1356,7 +1356,7 @@ pub(crate) const COLLECTION_KIND_MAP: usize = 1;
 /// `tests/rt-behavior/collections/list-order-invariant-rt`.
 pub(crate) const COLLECTION_KIND_LIST_FIXED: usize = 2;
 /// A `Set OF T` (plan-63): a Map-shaped block (LookupEntry array + data region +
-/// FNV-1a bucket index) whose entries are key-only — each element is stored as a
+/// hash bucket index) whose entries are key-only — each element is stored as a
 /// key with `valueType = COLLECTION_TYPE_NONE` and `valueLength = 0`. Like every
 /// other `kind` byte this is written for self-description only; dispatch is
 /// static, so tagging a Set `3` branches no generated code (it does select the
@@ -1391,13 +1391,15 @@ pub(crate) const COLLECTION_ENTRY_FLAG_REMOVED: usize = 2;
 // Map hash index (plan-02 Phase 6). A `Map` reserves a bucket array of
 // `2*capacity` u64 entries **after** the data region (so the capacity-based data
 // base is unchanged); each bucket holds `entryIndex + 1` (0 = empty) addressed by
-// FNV-1a(key) mod bucketCount with linear probing. The bucket region is derived
-// metadata: a 1-byte "ready" flag in the header's free padding (offset 4) is 0 on
-// every fresh/copied/grown map and set to 1 once `_mfb_rt_map_build_buckets` fills
-// it lazily on the first probe — so copy/transfer just reserve space + mark
-// not-ready and the next probe recomputes, with no stale offsets. `set` maintains
-// the index incrementally (`_mfb_rt_map_bucket_put`) so building a map via repeated
-// `set` stays O(n). Lists never probe; their bucket region is empty (`2*0`-sized
+// the key's home slot (bug-770: a word hash for an 8-byte key, FNV-1a mod
+// bucketCount otherwise — `collection::map::map_hash`) with linear probing. The
+// bucket region is derived metadata: a 1-byte "ready" flag in the header's free
+// padding (offset 4) is 0 on every fresh/copied/grown map and set to 1 once
+// `_mfb_rt_map_build_buckets` fills it lazily on the first probe — so
+// copy/transfer just reserve space + mark not-ready and the next probe
+// recomputes, with no stale offsets. `set` maintains the index incrementally (the
+// probe's empty end slot, else `_mfb_rt_map_bucket_put`) so building a map via
+// repeated `set` stays O(n). Lists never probe; their bucket region is empty (`2*0`-sized
 // for a tight list is 0, and the field stays 0).
 pub(crate) const COLLECTION_OFFSET_BUCKETS_READY: usize = 4;
 /// bug-760 B1: the `u32` at header offset 4 of a `Map`/`Set`. Its low byte is
@@ -1507,9 +1509,13 @@ pub(crate) const DROP_OWNED_STRING_CAP_SYMBOL: &str = "_mfb_rt_drop_owned_string
 /// region (`Map`/`Set`, never `List`). Those two are the only things the flat
 /// size formula varies on.
 pub(crate) const DROP_OWNED_COLLECTION_SYMBOL: &str = "_mfb_rt_drop_owned_collection";
-/// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
+/// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash of a key
+/// that is not 8 bytes long (`collection::map::map_hash::fnv_home_slot`).
 pub(crate) const FNV1A_BASIS: &str = "14695981039346656037";
 pub(crate) const FNV1A_PRIME: &str = "1099511628211";
+/// bug-770: the multiplier of the 8-byte key's word hash, `0x9E3779B97F4A7C15`
+/// (2^64 / golden ratio, odd) in decimal (`map_hash::word_home_slot`).
+pub(crate) const MAP_KEY_WORD_MULTIPLIER: &str = "11400714819323198485";
 
 // Geometric growth shape for the append grow path (plan-01 §5): start small,
 // double until a taper threshold, then ×1.5. Lookup slots and data bytes grow

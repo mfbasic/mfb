@@ -20,7 +20,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    /// The shared Map/Set membership test: probe the FNV-1a bucket index for a
+    /// The shared Map/Set membership test: probe the hash bucket index for a
     /// probe-eligible key type, else linear-scan the entry keys, yielding a
     /// `Boolean`. Both `collections::hasKey` (Map) and the Set overload of
     /// `collections::contains` (plan-63-B) lower through here — a Set's element is

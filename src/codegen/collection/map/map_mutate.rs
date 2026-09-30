@@ -427,38 +427,22 @@ impl CodeBuilder<'_> {
         // `found_handle`, or branch to `not_found`. The probe also lazily builds the
         // bucket index, so a build-via-`set` loop stays O(n). ---
         let found_handle = self.label("mapset_found_handle");
-        if Self::map_key_probe_eligible(key_type) {
-            let entry_slot = self.emit_map_probe(map_slot, key_slot, key_type, &not_found)?;
-            // emit_map_probe already stored the entry address; record the index too
-            // (x0 held it before the entry-address math, so recompute it from the
-            // entry address: index = (entry - map - HEADER) / ENTRY).
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), entry_slot));
-            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), map_slot));
-            self.emit(abi::subtract_registers(&scratch9, &scratch9, &scratch10));
-            self.emit(abi::subtract_immediate(
-                &scratch9,
-                &scratch9,
-                COLLECTION_HEADER_SIZE,
-            ));
-            self.emit(abi::move_immediate(
-                &scratch16,
-                "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
-            ));
-            self.emit(abi::unsigned_divide_registers(
-                &scratch9, &scratch9, &scratch16,
-            ));
-            self.emit(abi::store_u64(
-                &scratch9,
-                abi::stack_pointer(),
-                found_index_slot,
-            ));
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), entry_slot));
-            self.emit(abi::store_u64(
-                &scratch9,
-                abi::stack_pointer(),
+        // bug-770 B.2: a probe-eligible key's miss leaves the empty bucket that
+        // ended its probe run here, for the insert below (0 = not known).
+        let miss_bucket_slot = Self::map_key_probe_eligible(key_type)
+            .then(|| self.allocate_stack_object("mapset_miss_bucket", 8));
+        if let Some(miss_bucket_slot) = miss_bucket_slot {
+            // bug-770 B.4: the probe yields the entry's index as well as its
+            // address, so a hit needs no division by the entry size.
+            self.emit_map_probe_into(
+                map_slot,
+                key_slot,
+                key_type,
+                &not_found,
                 found_entry_slot,
-            ));
+                Some(found_index_slot),
+                Some(miss_bucket_slot),
+            )?;
             self.emit(abi::branch(&found_handle));
         } else {
             self.reset_temporary_registers();
@@ -1288,6 +1272,26 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
+        // bug-770 B.2: the index is still ready, so nothing since the probe moved
+        // the block or its entries (a grow's fresh header and a reclaim that
+        // repacks or drops tombstones all clear the flag) — the empty bucket that
+        // ended the probe run is still empty and is where a re-hash would put the
+        // key. Store `newIndex + 1` (= the new count) there. Unknown (0) only when
+        // the probe did not walk the index; then `_mfb_rt_map_bucket_put` hashes.
+        if let Some(miss_bucket_slot) = miss_bucket_slot {
+            let put_call = self.label("mapset_put_call");
+            self.emit(abi::load_u64(
+                &scratch10,
+                abi::stack_pointer(),
+                miss_bucket_slot,
+            ));
+            self.emit(abi::compare_immediate(&scratch10, "0"));
+            self.emit(abi::branch_eq(&put_call));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::store_u64(&scratch9, &scratch10, 0));
+            self.emit(abi::branch(&skip_put));
+            self.emit(abi::label(&put_call));
+        }
         self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(
             abi::c_arg(1),
@@ -1390,26 +1394,17 @@ impl CodeBuilder<'_> {
     ) -> Result<usize, String> {
         let index_slot = self.allocate_stack_object("map_find_index", 8);
         if Self::map_key_probe_eligible(key_type) {
-            let entry_slot = self.emit_map_probe(map_slot, key_slot, key_type, not_found)?;
-            // index = (entry - (map + HEADER)) / ENTRY_SIZE.
-            let entry = self.temporary_vreg();
-            let base = self.temporary_vreg();
-            let size = self.temporary_vreg();
-            self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
-            self.emit(abi::subtract_registers(&entry, &entry, &base));
-            self.emit(abi::subtract_immediate(
-                &entry,
-                &entry,
-                COLLECTION_HEADER_SIZE,
-            ));
-            self.emit(abi::move_immediate(
-                &size,
-                "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
-            ));
-            self.emit(abi::unsigned_divide_registers(&entry, &entry, &size));
-            self.emit(abi::store_u64(&entry, abi::stack_pointer(), index_slot));
+            // bug-770 B.4: the probe yields the index (no division by ENTRY_SIZE).
+            let entry_slot = self.allocate_stack_object("map_find_entry", 8);
+            self.emit_map_probe_into(
+                map_slot,
+                key_slot,
+                key_type,
+                not_found,
+                entry_slot,
+                Some(index_slot),
+                None,
+            )?;
             return Ok(index_slot);
         }
         let map = self.temporary_vreg();

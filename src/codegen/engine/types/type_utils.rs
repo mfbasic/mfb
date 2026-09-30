@@ -529,7 +529,7 @@ pub(crate) fn typed_map_entry_type_parts(
     }
 }
 
-/// Whether a collection block of `type_` carries the FNV-1a hash bucket region
+/// Whether a collection block of `type_` carries the hash bucket region
 /// past its data region — true for `Map` and `Set` (both probe by key/element),
 /// false for every `List` representation. This is the single predicate every
 /// sizing / copy / free / reserve site consults instead of an inline

@@ -26,6 +26,7 @@ use crate::target::shared::runtime;
 // rather than reveal the dependency structure — the one legitimate `use x::*;`
 // here. Keep it a glob on purpose.
 use crate::codegen::builtins::math::*;
+use crate::codegen::collection::map::map_hash::{home_slot_of_key_bytes, KeyHashRegs};
 use crate::codegen::collection::sort::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
@@ -3708,10 +3709,11 @@ pub(crate) fn external_branch(
     })
 }
 
-/// Build the FNV-1a hash buckets for the `Map` whose pointer is in `x0`
+/// Build the hash buckets for the `Map` whose pointer is in `x0`
 /// (plan-02 Phase 6). Zeroes the `2*capacity`-entry bucket array that sits past
 /// the data region, then for each lookup entry hashes its key bytes
-/// (`dataBase + keyOffset`, `keyLength`) and open-addresses `entryIndex + 1` into
+/// (`dataBase + keyOffset`, `keyLength`; `map_hash::home_slot_of_key_bytes`) and
+/// open-addresses `entryIndex + 1` into
 /// the first empty bucket, finally setting the header "ready" flag. Preserves
 /// `x0`/`x1`/`x2` (so it is safe to call from the probe); uses `x3`–`x17` scratch;
 /// makes no calls. A `count == 0` map fills nothing.
@@ -3723,8 +3725,7 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
     let eloop = format!("{symbol}_eloop");
     let edone = format!("{symbol}_edone");
     let enext = format!("{symbol}_enext");
-    let hloop = format!("{symbol}_hloop");
-    let hdone = format!("{symbol}_hdone");
+    let hash = format!("{symbol}_hash");
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
@@ -3734,7 +3735,6 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
     let v5 = vregs.next();
     let v6 = vregs.next();
     let v7 = vregs.next();
-    let v8 = vregs.next();
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -3762,28 +3762,29 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::load_u64(&v15, &v18, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(&v12, &v11, &v15),
         abi::shift_left_immediate(&v10, &v14, 1), // bucketCount = 2*capacity
-        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
-        // Zero the bucket array.
-        abi::move_immediate(&v13, "Integer", "0"),
+        // Zero the bucket array, two slots a turn (bucketCount = 2*capacity is
+        // even): its whole cost when the entries are few, and an index is rebuilt
+        // after every grow and every tombstone compaction (bug-770).
+        abi::move_register(&v7, &v12),
+        abi::shift_left_immediate(&v13, &v10, 3),
+        abi::add_registers(&v13, &v12, &v13), // end of the bucket array
         abi::label(&zloop),
-        abi::compare_registers(&v13, &v10),
-        abi::branch_ge(&zdone),
-        abi::shift_left_immediate(&v7, &v13, 3),
-        abi::add_registers(&v7, &v12, &v7),
-        abi::move_immediate(&v6, "Integer", "0"),
-        abi::store_u64(&v6, &v7, 0),
-        abi::add_immediate(&v13, &v13, 1),
+        abi::compare_registers(&v7, &v13),
+        abi::branch_eq(&zdone), // the array is a whole number of turns
+        abi::store_u64(abi::ZERO, &v7, 0),
+        abi::store_u64(abi::ZERO, &v7, 8),
+        abi::add_immediate(&v7, &v7, 16),
         abi::branch(&zloop),
         abi::label(&zdone),
-        // For each entry: hash its key, open-address its index+1.
+        // For each entry: hash its key, open-address its index+1. `v14` walks the
+        // entries (bug-770: an add per entry, not a multiply).
         abi::move_immediate(&v13, "Integer", "0"),
+        abi::add_immediate(&v14, &v18, COLLECTION_HEADER_SIZE),
+        abi::subtract_immediate(&v14, &v14, COLLECTION_ENTRY_SIZE),
         abi::label(&eloop),
+        abi::add_immediate(&v14, &v14, COLLECTION_ENTRY_SIZE), // entry addr
         abi::compare_registers(&v13, &v9),
         abi::branch_ge(&edone),
-        abi::move_immediate(&v16, "Integer", &entry_size),
-        abi::multiply_registers(&v14, &v13, &v16),
-        abi::add_registers(&v14, &v14, &v18),
-        abi::add_immediate(&v14, &v14, COLLECTION_HEADER_SIZE), // entry addr
         // bug-760 B1: a tombstone has no bucket.
         abi::load_u8(&v3, &v14, COLLECTION_ENTRY_OFFSET_FLAGS),
         abi::compare_immediate(&v3, &COLLECTION_ENTRY_FLAG_REMOVED.to_string()),
@@ -3791,22 +3792,22 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers(&v15, &v11, &v15), // keyPtr
         abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
-        abi::move_immediate(&v16, "Integer", FNV1A_BASIS), // h
-        abi::move_register(&v5, &v15),
-        abi::move_register(&v6, &v17),
-        abi::label(&hloop),
-        abi::compare_immediate(&v6, "0"),
-        abi::branch_eq(&hdone),
-        abi::load_u8(&v3, &v5, 0),
-        abi::exclusive_or_registers(&v16, &v16, &v3),
-        abi::multiply_registers(&v16, &v16, &v8),
-        abi::add_immediate(&v5, &v5, 1),
-        abi::subtract_immediate(&v6, &v6, 1),
-        abi::branch(&hloop),
-        abi::label(&hdone),
-        // slot = h mod bucketCount.
-        abi::unsigned_divide_registers(&v4, &v16, &v10),
-        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
+    ];
+    // slot (v4) = the key's home slot (bug-770: the one shared definition).
+    instructions.extend(home_slot_of_key_bytes(
+        &hash,
+        &KeyHashRegs {
+            key_ptr: v15,
+            key_len: v17,
+            bucket_count: v10,
+            slot: v4,
+            hash: v16,
+            byte: v3,
+            cursor: v5,
+            remaining: v6,
+        },
+    ));
+    instructions.extend([
         abi::label(&ploop),
         abi::shift_left_immediate(&v7, &v4, 3),
         abi::add_registers(&v7, &v12, &v7),
@@ -3829,7 +3830,7 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::move_immediate(&v6, "Integer", "1"),
         abi::store_u8(&v6, &v18, COLLECTION_OFFSET_BUCKETS_READY),
         abi::return_(),
-    ];
+    ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.mapBuildBuckets".to_string(),
@@ -3852,8 +3853,7 @@ pub(crate) fn lower_map_build_buckets_helper() -> CodeFunction {
 pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
     let symbol = MAP_BUCKET_PUT_SYMBOL;
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
-    let hloop = format!("{symbol}_hloop");
-    let hdone = format!("{symbol}_hdone");
+    let hash = format!("{symbol}_hash");
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
@@ -3863,7 +3863,6 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
     let v5 = vregs.next();
     let v6 = vregs.next();
     let v7 = vregs.next();
-    let v8 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
     let v12 = vregs.next();
@@ -3887,7 +3886,6 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(&v12, &v11, &v15),     // bucketBase
         abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
-        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
         // entry addr = map + HEADER + index*ENTRY.
         abi::move_immediate(&v16, "Integer", &entry_size),
         abi::multiply_registers(&v14, &v21, &v16),
@@ -3896,21 +3894,22 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::load_u64(&v15, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers(&v15, &v11, &v15),
         abi::load_u64(&v17, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
-        abi::move_register(&v5, &v15),
-        abi::move_register(&v6, &v17),
-        abi::label(&hloop),
-        abi::compare_immediate(&v6, "0"),
-        abi::branch_eq(&hdone),
-        abi::load_u8(&v3, &v5, 0),
-        abi::exclusive_or_registers(&v16, &v16, &v3),
-        abi::multiply_registers(&v16, &v16, &v8),
-        abi::add_immediate(&v5, &v5, 1),
-        abi::subtract_immediate(&v6, &v6, 1),
-        abi::branch(&hloop),
-        abi::label(&hdone),
-        abi::unsigned_divide_registers(&v4, &v16, &v10),
-        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16),
+    ];
+    // slot (v4) = the key's home slot (bug-770: the one shared definition).
+    instructions.extend(home_slot_of_key_bytes(
+        &hash,
+        &KeyHashRegs {
+            key_ptr: v15,
+            key_len: v17,
+            bucket_count: v10,
+            slot: v4,
+            hash: v16,
+            byte: v3,
+            cursor: v5,
+            remaining: v6,
+        },
+    ));
+    instructions.extend([
         abi::label(&ploop),
         abi::shift_left_immediate(&v7, &v4, 3),
         abi::add_registers(&v7, &v12, &v7),
@@ -3927,7 +3926,7 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::add_immediate(&v6, &v21, 1),
         abi::store_u64(&v6, &v7, 0),
         abi::return_(),
-    ];
+    ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.mapBucketPut".to_string(),
@@ -4091,8 +4090,7 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
     let ready = format!("{symbol}_ready");
     let notfound = format!("{symbol}_notfound");
-    let hloop = format!("{symbol}_hloop");
-    let hdone = format!("{symbol}_hdone");
+    let hash = format!("{symbol}_hash");
     let ploop = format!("{symbol}_ploop");
     let pnext = format!("{symbol}_pnext");
     let nowrap = format!("{symbol}_nowrap");
@@ -4105,7 +4103,6 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let v5 = vregs.next();
     let v6 = vregs.next();
     let v7 = vregs.next();
-    let v8 = vregs.next();
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -4145,23 +4142,23 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
         abi::load_u64(&v15, &v20, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(&v12, &v11, &v15),     // bucketBase
         abi::shift_left_immediate(&v10, &v14, 1), // bucketCount
-        abi::move_immediate(&v8, "Integer", FNV1A_PRIME),
-        // Hash the query key (x1/x2).
-        abi::move_immediate(&v16, "Integer", FNV1A_BASIS),
-        abi::move_register(&v5, &v21),
-        abi::move_register(&v6, &v22),
-        abi::label(&hloop),
-        abi::compare_immediate(&v6, "0"),
-        abi::branch_eq(&hdone),
-        abi::load_u8(&v3, &v5, 0),
-        abi::exclusive_or_registers(&v16, &v16, &v3),
-        abi::multiply_registers(&v16, &v16, &v8),
-        abi::add_immediate(&v5, &v5, 1),
-        abi::subtract_immediate(&v6, &v6, 1),
-        abi::branch(&hloop),
-        abi::label(&hdone),
-        abi::unsigned_divide_registers(&v4, &v16, &v10),
-        abi::multiply_subtract_registers(&v4, &v4, &v10, &v16), // slot
+    ];
+    // slot (v4) = the query key's (x1/x2) home slot (bug-770: the one shared
+    // definition).
+    instructions.extend(home_slot_of_key_bytes(
+        &hash,
+        &KeyHashRegs {
+            key_ptr: v21,
+            key_len: v22,
+            bucket_count: v10,
+            slot: v4,
+            hash: v16,
+            byte: v3,
+            cursor: v5,
+            remaining: v6,
+        },
+    ));
+    instructions.extend([
         abi::label(&ploop),
         abi::shift_left_immediate(&v7, &v4, 3),
         abi::add_registers(&v7, &v12, &v7),
@@ -4206,7 +4203,7 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
         abi::subtract_immediate(abi::mfb_return(0), abi::mfb_return(0), 1), // -1
         abi::label(&done),
         abi::return_(),
-    ];
+    ]);
     let relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: MAP_BUILD_BUCKETS_SYMBOL.to_string(),
