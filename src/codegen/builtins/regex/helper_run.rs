@@ -58,19 +58,38 @@ r#"' A pending choice point: `kind` 1 = the next option `i` of the Alt op `alt`,
 ' scalars consumed). `cont`, `pos` and the capture snapshot are what every kind resumes
 ' with. An iteration pushes at most one choice point: it is recorded (`push*`) where the
 ' engine decides it and pushed at the end of the iteration, when the captures are still
-' the ones it was decided with.
-FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start AS Integer, caps0 AS List OF Integer, ctx AS __regex_Ctx) AS __regex_Result
+' the ones it was decided with. A continuation frame is recorded (`frame*`) the same way
+' and written at the end of the iteration: an iteration pushes at most one frame, and
+' nothing reads a frame in the iteration that pushes it.
+'
+' bug-773: one call runs the whole search -- every start position from `from` up, in
+' order, the first match winning -- so the tables are built once per search and reset,
+' not rebuilt, at each start: `frameTop` goes back to the root's capture frame,
+' `pending` is already 0 when a start has failed, and `caps` is refilled. A start
+' position whose scalar cannot begin a match is skipped past a fixed first literal
+' (`firstCp` >= 0, plan-77 R5).
+FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, from AS Integer, ctx AS __regex_Ctx) AS __regex_Result
+  LET firstCp AS Integer = prog.firstCp
   MUT frames AS List OF Integer = [2, 0, 0, 0, -1]
+  MUT frameTop AS Integer = 1
+  MUT frameTag AS Integer = 0
+  MUT frameA AS Integer = 0
+  MUT frameB AS Integer = 0
+  MUT frameC AS Integer = 0
+  MUT frameBelow AS Integer = 0
   MUT choices AS List OF Integer = []
   MUT snaps AS List OF Integer = []
   MUT pending AS Integer = 0
   MUT isNode AS Boolean = TRUE
   MUT node AS Integer = prog.start
   MUT cont AS Integer = 0
-  MUT pos AS Integer = start
-  MUT caps AS List OF Integer = caps0
-  LET capsLen AS Integer = len(caps0)
-  MUT failing AS Boolean = FALSE
+  MUT pos AS Integer = from
+  MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
+  LET capsLen AS Integer = len(caps)
+  ' The search begins as a failed attempt at `from - 1`, so the first iteration moves
+  ' to the first start position exactly as every later failure moves to the next.
+  MUT s AS Integer = from - 1
+  MUT failing AS Boolean = TRUE
   MUT repPending AS Boolean = FALSE
   MUT repCount AS Integer = 0
   MUT rep AS Integer = prog.start
@@ -83,10 +102,30 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
   MUT pushCount AS Integer = 0
   MUT pushP AS Integer = 0
   WHILE TRUE
-    IF failing THEN
-      IF pending = 0 THEN
+    IF failing AND pending = 0 THEN
+      s = s + 1
+      IF firstCp >= 0 THEN
+        WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
+          s = s + 1
+        END WHILE
+      END IF
+      IF s > ctx.n THEN
         RETURN __regex_fail()
       END IF
+      frameTop = 1
+      MUT c0 AS Integer = 0
+      WHILE c0 < capsLen
+        caps = collections::set(caps, c0, -1)
+        c0 = c0 + 1
+      END WHILE
+      caps = collections::set(caps, 0, s)
+      node = prog.start
+      cont = 0
+      pos = s
+      isNode = TRUE
+      failing = FALSE
+    END IF
+    IF failing THEN
       pending = pending - 1
       LET top AS Integer = 8 * pending
       LET ck AS Integer = collections::get(choices, top)
@@ -121,13 +160,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
         isNode = FALSE
         failing = FALSE
       ELSEIF ck = 3 THEN
-        LET repFrame AS Integer = len(frames) / 5
-        frames = collections::append(frames, 3)
-        frames = collections::append(frames, cRep)
-        frames = collections::append(frames, cCount + 1)
-        frames = collections::append(frames, pos)
-        frames = collections::append(frames, cont)
-        cont = repFrame
+        frameTag = 3
+        frameA = cRep
+        frameB = cCount + 1
+        frameC = pos
+        frameBelow = cont
+        cont = frameTop
         node = collections::get(prog.opA, cRep)
         isNode = TRUE
         failing = FALSE
@@ -184,13 +222,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
             failing = TRUE
         END MATCH
       ELSEIF kind = 3 THEN
-        LET seqFrame AS Integer = len(frames) / 5
-        frames = collections::append(frames, 1)
-        frames = collections::append(frames, node)
-        frames = collections::append(frames, 0)
-        frames = collections::append(frames, 0)
-        frames = collections::append(frames, cont)
-        cont = seqFrame
+        frameTag = 1
+        frameA = node
+        frameB = 0
+        frameC = 0
+        frameBelow = cont
+        cont = frameTop
         isNode = FALSE
       ELSEIF kind = 4 THEN
         LET optCount AS Integer = collections::get(prog.opB, node)
@@ -216,13 +253,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
       ELSE
         LET slot AS Integer = collections::get(prog.opB, node)
         caps = collections::set(caps, 2 * slot, pos)
-        LET capFrame AS Integer = len(frames) / 5
-        frames = collections::append(frames, 2)
-        frames = collections::append(frames, slot)
-        frames = collections::append(frames, 0)
-        frames = collections::append(frames, 0)
-        frames = collections::append(frames, cont)
-        cont = capFrame
+        frameTag = 2
+        frameA = slot
+        frameB = 0
+        frameC = 0
+        frameBelow = cont
+        cont = frameTop
         node = collections::get(prog.opA, node)
       END IF
     ELSE
@@ -239,13 +275,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
           cont = below
         ELSE
           node = collections::get(prog.kids, collections::get(prog.opA, fa) + fb)
-          LET stepFrame AS Integer = len(frames) / 5
-          frames = collections::append(frames, 1)
-          frames = collections::append(frames, fa)
-          frames = collections::append(frames, fb + 1)
-          frames = collections::append(frames, 0)
-          frames = collections::append(frames, below)
-          cont = stepFrame
+          frameTag = 1
+          frameA = fa
+          frameB = fb + 1
+          frameC = 0
+          frameBelow = below
+          cont = frameTop
           isNode = TRUE
         END IF
       ELSEIF tag = 2 THEN
@@ -315,13 +350,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
             pushCount = 0
             pushP = 0
           END IF
-          LET greedyFrame AS Integer = len(frames) / 5
-          frames = collections::append(frames, 3)
-          frames = collections::append(frames, rep)
-          frames = collections::append(frames, repCount + 1)
-          frames = collections::append(frames, pos)
-          frames = collections::append(frames, cont)
-          cont = greedyFrame
+          frameTag = 3
+          frameA = rep
+          frameB = repCount + 1
+          frameC = pos
+          frameBelow = cont
+          cont = frameTop
           node = child
           isNode = TRUE
         ELSEIF mustMore THEN
@@ -344,13 +378,12 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
           END IF
           isNode = FALSE
         ELSEIF canMore THEN
-          LET lazyFrame AS Integer = len(frames) / 5
-          frames = collections::append(frames, 3)
-          frames = collections::append(frames, rep)
-          frames = collections::append(frames, repCount + 1)
-          frames = collections::append(frames, pos)
-          frames = collections::append(frames, cont)
-          cont = lazyFrame
+          frameTag = 3
+          frameA = rep
+          frameB = repCount + 1
+          frameC = pos
+          frameBelow = cont
+          cont = frameTop
           node = child
           isNode = TRUE
         ELSE
@@ -394,6 +427,24 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, start 
       END IF
       pending = pending + 1
       pushKind = 0
+    END IF
+    IF frameTag > 0 THEN
+      LET frameAt AS Integer = 5 * frameTop
+      IF frameAt < len(frames) THEN
+        frames = collections::set(frames, frameAt, frameTag)
+        frames = collections::set(frames, frameAt + 1, frameA)
+        frames = collections::set(frames, frameAt + 2, frameB)
+        frames = collections::set(frames, frameAt + 3, frameC)
+        frames = collections::set(frames, frameAt + 4, frameBelow)
+      ELSE
+        frames = collections::append(frames, frameTag)
+        frames = collections::append(frames, frameA)
+        frames = collections::append(frames, frameB)
+        frames = collections::append(frames, frameC)
+        frames = collections::append(frames, frameBelow)
+      END IF
+      frameTop = frameTop + 1
+      frameTag = 0
     END IF
   END WHILE
   RETURN __regex_fail()

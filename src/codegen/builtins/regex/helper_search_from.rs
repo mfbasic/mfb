@@ -12,23 +12,10 @@ r#"FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS 
   ' bug-315: one budget per search, not per start offset -- the scan over start
   ' positions is itself part of the work an adversarial pattern multiplies.
   __regex_steps = 0
-  ' plan-77 R5: if the pattern must begin with a fixed literal code point, skip
-  ' start offsets that cannot match it instead of running the full engine at each.
-  LET firstCp AS Integer = prog.firstCp
-  MUT s AS Integer = from
-  WHILE s <= ctx.n
-    IF firstCp >= 0 THEN
-      WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
-        s = s + 1
-      END WHILE
-    END IF
-    LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
-    IF r.ok THEN
-      RETURN r
-    END IF
-    s = s + 1
-  END WHILE
-  RETURN __regex_fail()
+  ' bug-773: __regex_run scans the start positions itself, skipping those that cannot
+  ' begin a match (plan-77 R5's fixed first literal, or the first-scalar set), so one
+  ' set of engine tables serves the whole search.
+  RETURN __regex_run(prog, prog.leaves, from, ctx)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
