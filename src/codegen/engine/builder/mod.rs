@@ -190,6 +190,21 @@ pub(crate) struct CodeBuilder<'a> {
     /// initializer; consumed by the very next `lower_value` frame, which is that
     /// initializer's own node.
     pub(crate) borrow_get_armed: bool,
+    /// bug-770 C: the `MUT x = get/getOr(…)` binds (by `op_key`) whose next
+    /// statement is `x = append(x, item)`, with that item
+    /// (`analysis::append_headroom`). Their owned copy is made with growth
+    /// headroom, so the append writes into it instead of reallocating.
+    pub(crate) append_headroom_binds:
+        crate::codegen::engine::analysis::append_headroom::AppendHeadroomBinds,
+    /// bug-770 C: true inside the `lower_value` frame of the ONE `get`/`getOr`
+    /// node an approved `append_headroom_binds` bind lowers, so
+    /// `materialize_owned_element` copies a `List` with headroom instead of tight.
+    /// Scoped exactly like [`Self::borrow_get_result`]: taken from
+    /// [`Self::headroom_copy_armed`] on entry and cleared for every operand frame.
+    pub(crate) headroom_copy_result: bool,
+    /// bug-770 C: set by the `Bind` arm immediately before it lowers an approved
+    /// initializer; consumed by the very next `lower_value` frame.
+    pub(crate) headroom_copy_armed: bool,
     /// bug-760 B1: set by a tombstone-aware consumer of a `Map`/`Set` (`len`, a
     /// hash lookup) immediately before it lowers that operand. `lower_value` takes
     /// it on entry — so it covers exactly the next frame — and a `Local`/`Global`
@@ -695,6 +710,9 @@ impl<'a> CodeBuilder<'a> {
             record_temps: RecordTemps::default(),
             borrow_get_result: false,
             borrow_get_armed: false,
+            append_headroom_binds: Default::default(),
+            headroom_copy_result: false,
+            headroom_copy_armed: false,
             map_settle_exempt_armed: false,
             record_member_read: false,
             value_discarded_armed: false,

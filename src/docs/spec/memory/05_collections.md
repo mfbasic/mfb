@@ -348,6 +348,18 @@ Headroom is a property of a **mutable working buffer, never of a value**:
   and `dataCapacity == dataLength`, so headroom never leaks into a snapshot or
   across a thread boundary, and the "one contiguous `memcpy`" property holds over
   the used prefix.
+- One copy is a working buffer, not a value: a `List` that `get`/`getOr` binds
+  to a `MUT` local whose very next statement is the in-place self-update
+  `x = collections::append(x, item)` of a single element. That copy is made with
+  the headroom the append's grow would give it — `capacity = step(count)`, and
+  `dataCapacity = capacity × width` for a fixed-width element or
+  `step(dataLength)` otherwise — so the append writes into the spare slot and the
+  copy and the grow are one allocation. It is still an independent copy, and after
+  the append the block has the shape the tight copy plus the grow would have
+  produced. Any other statement after the bind (the append under an `IF`, an
+  intervening read, a bulk append) keeps the tight copy.
+  [[src/codegen/engine/analysis/append_headroom.rs:collect_append_headroom_binds]]
+  [[src/codegen/collection/layout/builder_collection_layout.rs:copy_list_with_append_headroom]]
 
 ### Payload Order
 
@@ -554,7 +566,9 @@ The result is an owned value (`mfb spec language memory-semantics` §14.6): an
 element held inline — a record, a data union, a nested collection — is copied
 into a fresh arena block (or, for a scratch copy below, into the function's
 record-temp scratch), and an element whose type reaches a type cycle is
-deep-copied. [[src/codegen/memory/owned.rs:materialize_owned_element]]
+deep-copied. [[src/codegen/memory/owned.rs:materialize_owned_element]] A `List`
+copy bound to a `MUT` local that the next statement appends to in place carries
+growth headroom (see *Capacity Headroom and Growth*).
 
 The copy is skipped — the result is the address of the element inside the
 container — when no program can tell the two apart. For a record or data-union

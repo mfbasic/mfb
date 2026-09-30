@@ -143,6 +143,11 @@ impl CodeBuilder<'_> {
             &mut self.borrow_get_result,
             std::mem::take(&mut self.borrow_get_armed),
         );
+        // bug-770 C: the headroom-copy flag is scoped to one frame the same way.
+        let headroom_saved = std::mem::replace(
+            &mut self.headroom_copy_result,
+            std::mem::take(&mut self.headroom_copy_armed),
+        );
         // bug-744: whether THIS frame's value is discarded (an `Eval` statement, a
         // `Nothing` function's `RETURN`). Taken here so every operand frame below is
         // a value position.
@@ -311,6 +316,7 @@ impl CodeBuilder<'_> {
             }
         }
         self.borrow_get_result = borrow_saved;
+        self.headroom_copy_result = headroom_saved;
         result
     }
 

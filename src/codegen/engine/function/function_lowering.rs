@@ -920,6 +920,9 @@ pub(crate) fn lower_function(
         record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
+        append_headroom_binds: Default::default(),
+        headroom_copy_result: false,
+        headroom_copy_armed: false,
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,
@@ -1133,6 +1136,12 @@ pub(crate) fn lower_function(
         )
     };
     builder.install_borrow_gets(borrow_gets);
+    // bug-770 C: `MUT x = get/getOr(…)` binds whose next statement appends to `x`
+    // in place get their owned copy with growth headroom.
+    builder.append_headroom_binds =
+        crate::codegen::engine::analysis::append_headroom::collect_append_headroom_binds(
+            &function.body,
+        );
     // bug-766 B: the fixed-size record temporaries kept in the record-temp scratch.
     builder.install_record_temps(&function.body);
     // plan-116-J: what each local holds, for the consuming-parameter deactivation. A
@@ -1495,6 +1504,9 @@ pub(crate) fn lower_abi_function_helper(
         record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
+        append_headroom_binds: Default::default(),
+        headroom_copy_result: false,
+        headroom_copy_armed: false,
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,
@@ -1683,6 +1695,9 @@ pub(crate) fn lower_thread_copy_function(
         record_temps: Default::default(),
         borrow_get_result: false,
         borrow_get_armed: false,
+        append_headroom_binds: Default::default(),
+        headroom_copy_result: false,
+        headroom_copy_armed: false,
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,

@@ -621,6 +621,180 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
+    /// bug-770 C: the copy of a `List` that is about to be appended to in place —
+    /// a working buffer, not a value. Same entries and data as
+    /// [`Self::copy_collection_tight`], but the block reserves the headroom
+    /// `lower_list_append_in_place`'s grow would give the tight copy:
+    /// `capacity = step(count)`, and `dataCapacity = capacity × width` for a
+    /// fixed-width element (bug-621) or `step(dataLength)` otherwise. The append
+    /// then writes into the spare slot instead of reallocating, so the copy and the
+    /// grow are one allocation and one copy. Only the `get`/`getOr` → `MUT` →
+    /// `append` self-update shape asks for it (`analysis::append_headroom`); every
+    /// other copy of a value stays tight. Returns the destination pointer in a fresh
+    /// register.
+    pub(crate) fn copy_list_with_append_headroom(
+        &mut self,
+        type_: &ParameterType,
+        source: impl Into<abi::Reg>,
+    ) -> Result<VirtualRegister, String> {
+        let element = typed_list_element_type(type_)
+            .cloned()
+            .ok_or_else(|| format!("append-headroom copy of a non-List type '{type_}'"))?;
+        let stride = list_entry_stride(&element);
+        let layout = CollectionTypeLayout::from_type(type_)
+            .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
+        let count = self.temporary_vreg();
+        let data_len = self.temporary_vreg();
+        let capacity = self.temporary_vreg();
+        let data_cap = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let product = self.temporary_vreg();
+        let cursor_dst = self.temporary_vreg();
+        let cursor_src = self.temporary_vreg();
+        let span = self.temporary_vreg();
+        let word = self.temporary_vreg();
+        let source_slot = self.allocate_stack_object("headroom_copy_source", 8);
+        let result_slot = self.allocate_stack_object("headroom_copy_result", 8);
+        let cap_slot = self.allocate_stack_object("headroom_copy_cap", 8);
+        let dcap_slot = self.allocate_stack_object("headroom_copy_dcap", 8);
+        let alloc_ok = self.label("headroom_copy_alloc_ok");
+        let overflow = self.label("headroom_copy_size_overflow");
+        let dcap_keep = self.label("headroom_copy_dcap_keep");
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+
+        // capacity = step(count).
+        let src = self.temporary_vreg();
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&count, &src, COLLECTION_OFFSET_COUNT));
+        self.emit_geometric_step(
+            &count,
+            &capacity,
+            &scratch,
+            COLLECTION_GROW_LOOKUP_INIT,
+            COLLECTION_GROW_LOOKUP_TAPER,
+            "headroom_copy_cap",
+        );
+        self.emit(abi::store_u64(&capacity, abi::stack_pointer(), cap_slot));
+        // dataCapacity = max(capacity × width, dataLength) for a fixed-width
+        // element, max(step(dataLength), dataLength) otherwise.
+        self.emit(abi::load_u64(
+            &data_len,
+            &src,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        match list_element_is_fixed_width(&element) {
+            Some(width) => {
+                self.emit_fixed_width_data_capacity(
+                    &capacity, &data_cap, &scratch, width, &overflow,
+                );
+            }
+            None => {
+                self.emit_geometric_step(
+                    &data_len,
+                    &data_cap,
+                    &scratch,
+                    COLLECTION_GROW_DATA_INIT,
+                    COLLECTION_GROW_DATA_TAPER,
+                    "headroom_copy_dcap",
+                );
+            }
+        }
+        self.emit(abi::compare_registers(&data_cap, &data_len));
+        self.emit(abi::branch_hi(&dcap_keep));
+        self.emit(abi::branch_eq(&dcap_keep));
+        self.emit(abi::move_register(&data_cap, &data_len));
+        self.emit(abi::label(&dcap_keep));
+        self.emit(abi::store_u64(&data_cap, abi::stack_pointer(), dcap_slot));
+
+        // alloc size = HEADER + capacity * ENTRY + dataCapacity (checked).
+        self.emit(abi::load_u64(&capacity, abi::stack_pointer(), cap_slot));
+        self.emit(abi::move_immediate(
+            &scratch,
+            "Integer",
+            &stride.to_string(),
+        ));
+        self.emit_checked_size_multiply(&product, &capacity, &scratch, &overflow);
+        self.emit_checked_size_add_immediate(
+            abi::c_arg(0),
+            &product,
+            COLLECTION_HEADER_SIZE,
+            &overflow,
+        );
+        self.emit(abi::load_u64(&data_cap, abi::stack_pointer(), dcap_slot));
+        self.emit_checked_size_add(abi::c_arg(0), abi::c_arg(0), &data_cap, &overflow);
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&overflow));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            result_slot,
+        ));
+
+        // Header: the source's count / dataLength, the headroom capacities.
+        let dst = self.temporary_vreg();
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&count, &src, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &data_len,
+            &src,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(&capacity, abi::stack_pointer(), cap_slot));
+        self.emit(abi::load_u64(&data_cap, abi::stack_pointer(), dcap_slot));
+        self.emit(abi::load_u64(&dst, abi::stack_pointer(), result_slot));
+        self.emit_write_collection_header_full(
+            &layout, &dst, &count, &capacity, &data_len, &data_cap,
+        );
+
+        // Copy the live lookup entries verbatim (count * ENTRY bytes).
+        if stride != 0 {
+            self.emit(abi::load_u64(&dst, abi::stack_pointer(), result_slot));
+            self.emit(abi::add_immediate(
+                &cursor_dst,
+                &dst,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+            self.emit(abi::add_immediate(
+                &cursor_src,
+                &src,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::load_u64(&count, &src, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::move_immediate(
+                &scratch,
+                "Integer",
+                &stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&span, &count, &scratch));
+            self.emit_block_copy_advance(
+                &cursor_dst,
+                &cursor_src,
+                &span,
+                &word,
+                "headroom_copy_entries",
+            );
+        }
+
+        // Copy the data region verbatim (dataLength bytes); both bases are
+        // capacity-derived.
+        self.emit(abi::load_u64(&dst, abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer_for(&cursor_dst, &dst, &element);
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+        self.emit_collection_data_pointer_for(&cursor_src, &src, &element);
+        self.emit(abi::load_u64(&span, &src, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance(&cursor_dst, &cursor_src, &span, &word, "headroom_copy_data");
+
+        let result = self.allocate_register();
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
     /// True when `field_type` occupies a record slot as a pointer to a separate
     /// allocation (nested record/union/collection/`Result`/`Error`). These stay
     /// pointers in Phase 2 (later phases inline them).

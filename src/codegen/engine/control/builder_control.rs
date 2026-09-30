@@ -1253,6 +1253,27 @@ impl CodeBuilder<'_> {
         field_owner_is(target, container)
     }
 
+    /// bug-770 C: whether this `Bind` gets its `get`/`getOr` copy with growth
+    /// headroom. `analysis::append_headroom` approved the shape (a `MUT` `List`
+    /// bound from `get`/`getOr`, the next statement `x = append(x, item)`); this
+    /// adds the gates only the builder can answer, failing closed on each: the item
+    /// is a single element (not a bulk `append(x, list)`), the element is flat —
+    /// the `copy_flat_block` branch of `materialize_owned_element`, not a graph
+    /// copy — and the local is not address-taken.
+    fn append_headroom_bind(&self, op: &NirOp, name: &str, type_: &ParameterType) -> bool {
+        let key = crate::codegen::engine::analysis::last_use::op_key(op);
+        let Some(item) = self.append_headroom_binds.get(&key) else {
+            return false;
+        };
+        let Some(element) = crate::codegen::engine::types::typed_list_element_type(type_) else {
+            return false;
+        };
+        !self.address_taken_locals.contains(name)
+            && self.is_freeable_flat_value(type_)
+            && !self.needs_graph_copy(type_)
+            && self.static_operand_type(item).as_ref() == Some(element)
+    }
+
     /// plan-86 E, bug-689: take the function's `get` borrows. An element-bound
     /// binding is kept only for an element this lowering really aliases — a record
     /// the `Bind` arm borrows (`is_borrow_get`: freeable-flat, not a `String`) and
@@ -2084,6 +2105,14 @@ impl CodeBuilder<'_> {
                                     }
                                     None => r,
                                 }
+                            } else if self.append_headroom_bind(op, name, type_) {
+                                // bug-770 C: ARM, like the borrow above — only the
+                                // `get`/`getOr` node's own frame copies with headroom.
+                                self.headroom_copy_armed = true;
+                                let r = self.lower_value_owned(value);
+                                self.headroom_copy_armed = false;
+                                self.headroom_copy_result = false;
+                                r?
                             } else {
                                 self.lower_value_owned(value)?
                             };

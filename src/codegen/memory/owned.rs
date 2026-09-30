@@ -65,7 +65,16 @@ impl CodeBuilder<'_> {
             });
         }
         if self.is_freeable_flat_value(&result.type_) && result.type_ != ParameterType::String {
-            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+            // bug-770 C: the `Bind` arm armed this frame because the binding's
+            // next statement appends to it in place (`analysis::append_headroom`):
+            // still an independent copy, but a working buffer with the headroom the
+            // append would otherwise reallocate to get.
+            let copied =
+                if self.headroom_copy_result && matches!(result.type_, ParameterType::ListOf(_)) {
+                    self.copy_list_with_append_headroom(&result.type_, &result.location)?
+                } else {
+                    self.copy_flat_block(&result.type_, &result.location)?
+                };
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
