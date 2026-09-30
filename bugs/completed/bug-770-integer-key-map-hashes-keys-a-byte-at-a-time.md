@@ -120,8 +120,21 @@ hierarchy. The ratio form still fails the pre-fix compiler (spread ×2.23).
 
 **Checked, not a bug:** the part C agent reported from code reading that `set` might store a list into a map with its spare capacity, against the rule that stored values are exact-size. Measured with a map in a global (`--debug` `arena.0.live_bytes` at exit): storing a 1,000-append list gives 8,512 B, the same as storing an exact-size `LET t = b` copy (8,512). The listagg loop run straight on the global gives 96,304 B, again the same as the `t` variant (96,304). So the stored value is exact-size either way.
 
-**Rows.** `map intkey` 0.939 → 0.339 ms (target ≤ 0.35, met; agent measurement
-before bug-769 merged).
+**Rows** (`python3 /tmp/b770-bench.py 10`: the benchmark with `main` reduced to the three
+rows, loaded host, medians in ms; checksums identical). The "before" compiler also predates
+bug-769's faster fill, so this is both bugs together.
+
+| row | before | after | doc target |
+|---|---:|---:|---:|
+| `map lookup` | 3.731 | 1.171 | 0.90 (dropped by owner decision) |
+| `map intkey` | 1.211 | 0.415 | 0.35 (0.339 in the agent's quieter run) |
+| `map listagg` | 0.535 | 0.459 | 0.30 |
+
+`listagg` stays above its 0.30 target, which Python's copy-per-iteration sets. What
+remains is the `set` value relocation and the `LET empty = []` literal (an Open
+Decision, out of scope). Its allocation goal (≤ 2 per iteration) is met.
+
+Gate: full suite 280 ok, artifact-gate 0 diffs, acceptance 1582 at -O1 and -O3.
 
 References:
 
