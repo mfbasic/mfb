@@ -564,6 +564,10 @@ name = "rt_hof_transient_bytes"
 path = "tests/runtime/rt_hof_transient_bytes.rs"
 
 [[test]]
+name = "rt_map_integer_key_probe_cost"
+path = "tests/runtime/rt_map_integer_key_probe_cost.rs"
+
+[[test]]
 name = "rt_fail_frees_enclosing_temps"
 path = "tests/runtime/rt_fail_frees_enclosing_temps.rs"
 
