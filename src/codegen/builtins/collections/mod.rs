@@ -164,6 +164,14 @@ prints:
 /// `synthetic_files`): the source must be present at parse time — before
 /// monomorphization instantiates the generics — so it is injected by the
 /// [`augmented_project`] pass `parse_project` runs.
+/// The type a monomorph suffix of a `#collections_<member>$T…` runtime target
+/// names. The suffix is a NAME the NIR carries in the call's symbol; the native
+/// fast paths that select on it parse it here, at that one symbol boundary,
+/// rather than each at its own site (plan-111 `declared_sites`).
+pub(crate) fn monomorph_suffix_type(suffix: &str) -> crate::types::ParameterType {
+    crate::types::ParameterType::declared(suffix)
+}
+
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("collections", INTRO, COLLECTIONS_DESC);
 

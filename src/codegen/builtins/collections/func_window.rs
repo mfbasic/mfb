@@ -31,7 +31,7 @@ pub(crate) fn window_fast_path(
     };
     // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
     // the NIR carries; parsed once here, at the symbol boundary.
-    let element = ParameterType::declared(t);
+    let element = crate::codegen::builtins::collections::monomorph_suffix_type(t);
     let elem_ok = matches!(
         element,
         ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money

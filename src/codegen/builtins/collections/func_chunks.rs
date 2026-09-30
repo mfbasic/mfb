@@ -25,7 +25,7 @@ pub(crate) fn chunks_fast_path(
             if matches!(type_, ParameterType::Integer) {
                 if let Ok(sz) = value.parse::<i64>() {
                     if sz >= 1 {
-                        if ParameterType::declared(t) == ParameterType::String {
+                        if crate::codegen::builtins::collections::monomorph_suffix_type(t) == ParameterType::String {
                             return builder
                                 .lower_collection_chunks_string_call(args, sz)
                                 .map(Some);

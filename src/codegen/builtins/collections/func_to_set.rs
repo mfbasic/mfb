@@ -46,7 +46,7 @@ pub(crate) fn to_set_fast_path(
     }
     // `t` is the monomorph suffix of a `#collections_toSet$T` runtime target -- a
     // NAME the NIR carries, parsed once here at the symbol boundary.
-    let element_type = ParameterType::declared(t);
+    let element_type = crate::codegen::builtins::collections::monomorph_suffix_type(t);
     if to_set_native_width(&element_type).is_none() {
         return Ok(None);
     }

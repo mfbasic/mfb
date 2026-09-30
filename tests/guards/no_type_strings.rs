@@ -952,7 +952,12 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // and `add_package_type_export` take the package's own names and qualify
     // them), so seven `declared` calls that each turned a `.mfp` spelling into a
     // table key are now one shared conversion.
-    ("declared_sites", "codegen", 45),
+    //
+    // 45 -> 38: bug-769 routes the collections native fast paths' monomorph-suffix
+    // parse (`groupBy` ×4, `partition`, `chunks`, `findLastIndex`, `window`, and
+    // the new `toSet`) through one `collections::monomorph_suffix_type`, so nine
+    // sites of the same symbol-boundary conversion are now one.
+    ("declared_sites", "codegen", 38),
     // 47 -> 48: `ir::verify` seeds an imported package's exported record layouts
     // so a rule about an imported record's FIELDS -- comparability -- has a table
     // to read (without them `Map OF pkg::Box TO V` was accepted for a `Box`

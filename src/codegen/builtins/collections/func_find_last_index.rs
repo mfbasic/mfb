@@ -29,7 +29,7 @@ pub(crate) fn find_last_index_fast_path(
     };
     // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
     // the NIR carries; parsed once here, at the symbol boundary.
-    if !(ParameterType::declared(t) == ParameterType::String && args.len() == 3) {
+    if !(crate::codegen::builtins::collections::monomorph_suffix_type(t) == ParameterType::String && args.len() == 3) {
         return Ok(None);
     }
     builder

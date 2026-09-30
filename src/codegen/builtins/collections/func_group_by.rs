@@ -33,7 +33,7 @@ pub(crate) fn group_by_fast_path(
     // types (see the `kt`/`vt` bind below, which parses the same three).
     let supported = |part: &str| {
         matches!(
-            ParameterType::declared(part),
+            crate::codegen::builtins::collections::monomorph_suffix_type(part),
             ParameterType::Integer
                 | ParameterType::Float
                 | ParameterType::Fixed
@@ -43,7 +43,7 @@ pub(crate) fn group_by_fast_path(
     };
     let ok = parts.len() == 3
         && supported(parts[0])
-        && ParameterType::declared(parts[1]) == ParameterType::Integer
+        && crate::codegen::builtins::collections::monomorph_suffix_type(parts[1]) == ParameterType::Integer
         && supported(parts[2])
         && reeval_safe;
     if !ok {
@@ -52,8 +52,8 @@ pub(crate) fn group_by_fast_path(
     // The `$K$V` suffixes of a `#collections_groupBy$K$V` runtime target: NAMES
     // the NIR carries, parsed once here at the symbol boundary.
     let (kt, vt) = (
-        ParameterType::declared(parts[1]),
-        ParameterType::declared(parts[2]),
+        crate::codegen::builtins::collections::monomorph_suffix_type(parts[1]),
+        crate::codegen::builtins::collections::monomorph_suffix_type(parts[2]),
     );
     builder
         .lower_collection_group_by_call(args, &kt, &vt)
