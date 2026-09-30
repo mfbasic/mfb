@@ -488,6 +488,16 @@ impl CodeBuilder<'_> {
         // The tail-entry identity test is `claim_pending_temp`'s own: the outermost
         // node's temp is the most recently registered, so a match on its location
         // is precise.
+        //
+        // bug-783: a register-native vector has no block yet, so it registered no
+        // temp. Its materialized block is fresh and registered as one, so claim it
+        // the same way — otherwise the exit copies it a second time and frees the
+        // first (two allocations for one returned vector).
+        if Self::is_vector_native(&lowered) {
+            let block = self.vector_value_as_block(lowered)?;
+            self.claim_pending_temp(&block);
+            return Ok((block, true));
+        }
         if self
             .pending_temp_frees
             .last()

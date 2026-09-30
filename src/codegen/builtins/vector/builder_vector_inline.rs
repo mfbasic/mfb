@@ -45,16 +45,18 @@ pub(crate) const VECTOR_NATIVE_MARKER: &str = "%%vecnative:";
 /// stored as 8 bytes — so every `<Elem>N` type is register-native. Only the *op
 /// inlining* is Float-only (Fixed/Integer ops keep their FUNC bodies).
 pub(crate) fn vector_field_count(type_: &ParameterType) -> Option<usize> {
-    // The nine shapes are declared nominals (`Float3`, `Integer2`, …), so this
+    // The nine shapes are declared nominals (`vector.Float3`, …), so this
     // is a nominal identification, not a re-parse of a grammar: a non-`Named`
     // type is not a vector and answers `None` through the wildcard.
     let ParameterType::Named(name) = type_ else {
         return None;
     };
+    // The builtin's identity is package-qualified (`vector.Float3`); a bare
+    // `Float3` is a user's own type and must not be taken for it (bug-783).
     match name.resolve() {
-        "Float2" | "Fixed2" | "Integer2" => Some(2),
-        "Float3" | "Fixed3" | "Integer3" => Some(3),
-        "Float4" | "Fixed4" | "Integer4" => Some(4),
+        "vector.Float2" | "vector.Fixed2" | "vector.Integer2" => Some(2),
+        "vector.Float3" | "vector.Fixed3" | "vector.Integer3" => Some(3),
+        "vector.Float4" | "vector.Fixed4" | "vector.Integer4" => Some(4),
         _ => None,
     }
 }
@@ -71,36 +73,36 @@ fn vector_field_index(member: &str) -> Option<usize> {
 }
 
 /// The nine register-native vector shapes: the `_<element><dim>` target suffix,
-/// its constructor type name, its field names, and its element type. plan-39 C1
+/// its package-qualified constructor type name, its field names, and its element type. plan-39 C1
 /// extends inlining from the Float shapes to the Fixed/Integer shapes for the
 /// pure-arithmetic ops (see `vector_op_inlinable`).
 const VECTOR_SHAPES: &[(&str, &str, &[&str], ParameterType)] = &[
-    ("_float2", "Float2", &["x", "y"], ParameterType::Float),
-    ("_float3", "Float3", &["x", "y", "z"], ParameterType::Float),
+    ("_float2", "vector.Float2", &["x", "y"], ParameterType::Float),
+    ("_float3", "vector.Float3", &["x", "y", "z"], ParameterType::Float),
     (
         "_float4",
-        "Float4",
+        "vector.Float4",
         &["x", "y", "z", "w"],
         ParameterType::Float,
     ),
-    ("_fixed2", "Fixed2", &["x", "y"], ParameterType::Fixed),
-    ("_fixed3", "Fixed3", &["x", "y", "z"], ParameterType::Fixed),
+    ("_fixed2", "vector.Fixed2", &["x", "y"], ParameterType::Fixed),
+    ("_fixed3", "vector.Fixed3", &["x", "y", "z"], ParameterType::Fixed),
     (
         "_fixed4",
-        "Fixed4",
+        "vector.Fixed4",
         &["x", "y", "z", "w"],
         ParameterType::Fixed,
     ),
-    ("_integer2", "Integer2", &["x", "y"], ParameterType::Integer),
+    ("_integer2", "vector.Integer2", &["x", "y"], ParameterType::Integer),
     (
         "_integer3",
-        "Integer3",
+        "vector.Integer3",
         &["x", "y", "z"],
         ParameterType::Integer,
     ),
     (
         "_integer4",
-        "Integer4",
+        "vector.Integer4",
         &["x", "y", "z", "w"],
         ParameterType::Integer,
     ),

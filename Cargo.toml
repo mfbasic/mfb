@@ -556,6 +556,10 @@ name = "rt_failing_list_update_frees"
 path = "tests/runtime/rt_failing_list_update_frees.rs"
 
 [[test]]
+name = "rt_vector_register_native"
+path = "tests/runtime/rt_vector_register_native.rs"
+
+[[test]]
 name = "rt_fail_frees_enclosing_temps"
 path = "tests/runtime/rt_fail_frees_enclosing_temps.rs"
 
