@@ -322,6 +322,11 @@ stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG word
 (no syscall per fill); `arena_free` calls it after the coalescing insert (over
 the freed payload past the FreeNode words — see `arena_free` above), and
 `arena_alloc` calls it on a freshly mapped block's usable region before first use.
+It writes four words per loop iteration by PCG64 jump-ahead — word *j* is the
+carried state advanced *j* steps in one 128-bit multiply-add, so the four
+multiplies are independent — and single-steps the remaining `count mod 4` words;
+the words and the state left at offsets 16/24 are exactly those of the one-step
+stream. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_arena_fill_random]]
 A `--debug` build counts both kinds of fill for each arena in the debug report:
 `arena.<n>.fill_grow_calls`/`.fill_grow_bytes` for fresh blocks and
 `arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks (see
