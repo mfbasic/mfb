@@ -379,6 +379,10 @@ Headroom is a property of a **mutable working buffer, never of a value**:
 - Literals and known-size builders (`transform`/`filter` outputs aside) allocate
   exactly (`capacity == count`, `dataCapacity == dataLength`) — no headroom where
   the final size is known up front.
+- A builder whose input only bounds its result allocates once at that bound:
+  native `toSet` (fixed-width elements) reserves `capacity = len(value)`, so a
+  list with duplicates leaves `count < capacity` in the result.
+  [[src/codegen/builtins/collections/func_to_set.rs:to_set_fast_path]]
 - Copying a collection value (pass-by-value, binding, embedding, thread
   transfer) is **shrink-to-fit**: the copy is re-tightened to `capacity == count`
   and `dataCapacity == dataLength`, so headroom never leaks into a snapshot or

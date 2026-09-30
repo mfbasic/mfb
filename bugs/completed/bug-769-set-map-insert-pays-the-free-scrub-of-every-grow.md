@@ -5,9 +5,9 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
-Regression Test: planned `tests/runtime/rt_set_insert_cost.rs`, planned
-`#[cfg(test)]` stream-identity test in `src/codegen/builtins/math/gen_rng_pcg64.rs`
+Status: Fixed
+Regression Test: `tests/runtime/rt_set_insert_cost.rs`; `#[cfg(test)]` stream-identity tests in
+`src/codegen/builtins/math/gen_rng_pcg64.rs`
 
 `collections::toSet` over a 300-element `List OF Integer` costs ~97 ns per element
 (`set (Fixed) toSet` 0.583 ms for 20 × 300 elements). C -O0 builds the same set in
@@ -29,6 +29,75 @@ freed payload byte is re-randomized, in debug and release) but writes the same P
 stream faster. Checkable: at N = 300, `toSet` per element is ≤ 4× a probe-hit `add`
 per element in the same run (today 7.9×), and the fill emits the identical PCG64 word
 sequence.
+
+## STATUS: FIXED (G1 `99c80478a`, G2 `a2d04434c` + spec; suffix helper `d3e30a5a5`; goldens `00d11c51b`)
+
+**G1: native `toSet` allocates once.** Covers the fixed-width elements (Boolean, Byte,
+Scalar, Integer, Float, Fixed, Money). String elements keep the `.mfb` path: passing a
+packed String to the insert would need a per-element block or a reused scratch block,
+which breaks "1 allocation per call". Allocations per call go from 9 (distinct) and 7
+(with duplicates) to 1. The result is allocated at `capacity = len(value)` and filled
+by the existing `lower_map_set_in_place`, whose grow arm is never taken.
+
+**Deviation: the result's capacity with duplicates.** A distinct list gives a tight
+result; the `.mfb` body left up to 2× headroom. A list with duplicates keeps
+`capacity = len(value)`: the upper-bounded-builder shape. `mfb spec memory
+collections` *Capacity Headroom and Growth* now says so in one bullet, since the
+growth shape is "an implementation tuning detail, not an observable contract".
+
+**`mapValues`.** Already allocates once per call (`map_values_fast_path`), so the
+doc's claim is stale. It stays in the test as a guard.
+
+**G2: 4 PCG64 words per iteration by jump-ahead, the identical stream.** Each word
+j = 1..4 comes from the carried state with compile-time constants (M^j and I·Σ M^i).
+The constants are hoisted out of the loop, and the old single step handles
+`count mod 4`. `emit_pcg_step` and `math::rand` are untouched. K = 4 on every
+architecture; on x86-64 (4 allocatable GPRs) K = 4 still measured fastest on real
+hardware.
+
+Stream-identity evidence:
+
+- Unit tests: the constants, and a branch-for-branch model against the single-step
+  stream for 0–64 bytes, 4096 words and odd sizes, 5 seeds.
+- The helper's real machine code emulated (unicorn) for all five targets, old and new
+  compiler: every word and the final state match a PCG64 model.
+- An lldb run with the state pinned: old and new binaries give the identical sha256
+  over 280 fills.
+- The `--debug` counters are identical.
+
+Throughput (addFresh, 300 inserts, macOS aarch64): 101.7 → 64.9 ns/insert. The fill's
+share of `sample` top-of-stack fell from 65–67% to 49–50%. G2's ≤ 45% was a guess
+target and was missed; the combined G3 bound is met.
+
+**G3.** `toSet` per element is ×1.63 a probe-hit `add` (bound ×4; ×8.59 before).
+
+**Benchmark** (`python3 /tmp/b769-bench.py 10`: the benchmark with `main` reduced to these
+rows, pre-fix vs fixed, same host, loaded; medians in ms; checksums identical):
+
+| row | before | after |
+|---|---:|---:|
+| `set (Fixed) toSet` | 1.171 | 0.274 |
+| `set (Record-Fixed) toSet` | 1.012 | 0.534 |
+| `set (State-Fixed) toSet` | 0.834 | 0.453 |
+| `set (Fixed) add` | 0.045 | 0.018 |
+| `map (Fixed/Record/State/key-Fixed) set` | 0.050–0.071 | 0.016–0.021 |
+
+All three Fixed `toSet` rows take the native path (no `_mfb_ifn_collections_5FtoSet`
+call in their `.ncode`). The String rows keep the `.mfb` body.
+
+Gate: full suite 279 ok, artifact-gate 0 diffs, acceptance 1582 at -O1 and -O3.
+
+**Found along the way.**
+
+- `no_type_strings` caught `toSet`'s new `ParameterType::declared(<suffix>)`. Instead
+  of raising the budget, nine collections fast-path suffix parses now share
+  `collections::monomorph_suffix_type`, and `declared_sites` codegen tightened
+  45 → 38.
+- Not a bug, recorded for later: on aarch64 `add_carry` with `carry_out = xzr` still
+  emits `cset xzr, cs`, a dead instruction on the fill's per-word critical path.
+  Removing it changes the encoder's size table and two pinned encoder tests
+  (`encodes_umulh_add_carry_and_rorv`, `add_carry_and_sub_borrow_sizes`), so it is a
+  separate change.
 
 References:
 
@@ -416,26 +485,26 @@ lowering replaces the call to `_mfb_ifn_collections_5FtoSet_*` / `…mapValues�
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_set_insert_cost.rs`, modeled on
+- [x] `tests/runtime/rt_set_insert_cost.rs`, modeled on
       `tests/runtime/rt_map_fifo_removal_flat.rs` (in-process timing, best of N, a
       ratio bound rather than an absolute time): `toSet` per element at N = 300 ≤ 4×
       probe-hit `add` per element. Also a `--debug` allocation-count case modeled on
       `tests/runtime/rt_debug_arena.rs` (G1: one allocation per `toSet`). Confirm both
       fail today (7.9×; 9 allocations).
-- [ ] `#[cfg(test)]` in `gen_rng_pcg64.rs`: the jump-ahead constants equal
+- [x] `#[cfg(test)]` in `gen_rng_pcg64.rs`: the jump-ahead constants equal
       `Mʲ`, `I·Σ Mⁱ` computed with `u128`. A reference model of the unrolled loop over
       lengths 0..=64 bytes plus 4096 words produces the single-step sequence (passes
       trivially today; it is the Phase 2 guard).
-- [ ] Record the `mapValues` / set-algebra verdicts above as final.
+- [x] Record the `mapValues` / set-algebra verdicts above as final.
 
 Acceptance: the cost and allocation tests fail for the documented reasons.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] `lower_arena_fill_random`: K-way jump-ahead, constants hoisted. Verify on
+- [x] `lower_arena_fill_random`: K-way jump-ahead, constants hoisted. Verify on
       aarch64, x86-64 (SysV and Win64) and riscv64 (`.ai/arch-abi.md`).
-- [ ] Native presized `toSet`; the same for `mapValues`.
+- [x] Native presized `toSet`; the same for `mapValues`.
 
 Acceptance: Phase 1 tests pass; `/tmp/dbB-addprof` fill share ≤ 45% of samples; the
 fill stream is identical; nothing in Non-goals changed.
@@ -443,12 +512,12 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-baseline only the goldens whose delta is the fill helper body or the
+- [x] Re-baseline only the goldens whose delta is the fill helper body or the
       `toSet` / `mapValues` call site. Inspect one fixture per class first.
-- [ ] Full suite (`cargo test`) before any golden re-baseline.
-- [ ] Benchmark `setops` / `mapmatrix` rows (G4), and a whole-suite geomean as a
+- [x] Full suite (`cargo test`) before any golden re-baseline.
+- [x] Benchmark `setops` / `mapmatrix` rows (G4), and a whole-suite geomean as a
       side-effect check of G2.
-- [ ] Spec sync: *Entropy Fill* may gain one sentence ("emitted K words per iteration,
+- [x] Spec sync: *Entropy Fill* may gain one sentence ("emitted K words per iteration,
       same stream"). `mfb spec` for `toSet`'s lowering if the collections spec lists
       native builders. Gate: `cargo build`, `cargo test --bin mfb spec`.
 

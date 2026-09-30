@@ -26,7 +26,10 @@ pub(crate) fn partition_fast_path(
         // target -- a NAME the NIR carries, so it is parsed once here, at the
         // symbol boundary, rather than threaded onward as a spelling.
         return builder
-            .lower_collection_partition_call(args, &ParameterType::declared(t))
+            .lower_collection_partition_call(
+                args,
+                &crate::codegen::builtins::collections::monomorph_suffix_type(t),
+            )
             .map(Some);
     }
     Ok(None)
