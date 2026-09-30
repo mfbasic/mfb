@@ -153,6 +153,10 @@ pub(crate) fn lower_insert(
     }
     // Materialize a `d`-native float before the payload spill (plan-01).
     let item = builder.materialize_value(item)?;
+    // bug-782: range-check before the item is wrapped in a singleton list —
+    // `lower_list_insert_collection` checks only after, and its raise path
+    // cannot free the singleton.
+    builder.emit_list_index_range_check(list_slot, index_slot, true, "collections.insert")?;
     let (insert_slot, materialized) =
         builder.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
     let result = builder.lower_list_insert_collection(

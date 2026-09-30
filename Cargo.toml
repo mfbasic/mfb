@@ -552,6 +552,10 @@ name = "rt_capturing_callback_failure_frees"
 path = "tests/runtime/rt_capturing_callback_failure_frees.rs"
 
 [[test]]
+name = "rt_failing_list_update_frees"
+path = "tests/runtime/rt_failing_list_update_frees.rs"
+
+[[test]]
 name = "rt_fail_frees_enclosing_temps"
 path = "tests/runtime/rt_fail_frees_enclosing_temps.rs"
 

@@ -31,6 +31,44 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
+    /// Raise `ErrIndexOutOfRange` (as `function_id`) unless `0 <= index < count`
+    /// — `<= count` when `allow_end` — for the list in `list_slot`. A member
+    /// whose own range check sits after an allocation (a copy, a singleton) runs
+    /// this first, so the failing call leaves with nothing allocated (bug-782;
+    /// bug-147.5 reordered `set`'s `removeAt` path for the same reason).
+    pub(crate) fn emit_list_index_range_check(
+        &mut self,
+        list_slot: usize,
+        index_slot: usize,
+        allow_end: bool,
+        function_id: &str,
+    ) -> Result<(), String> {
+        let list = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let non_negative = self.label("list_index_non_negative");
+        let invalid = self.label("list_index_invalid");
+        let valid = self.label("list_index_valid");
+        self.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(&count, &list, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate(&index, "0"));
+        self.emit(abi::branch_ge(&non_negative));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&non_negative));
+        self.emit(abi::compare_registers(&index, &count));
+        if allow_end {
+            self.emit(abi::branch_gt(&invalid));
+        } else {
+            self.emit(abi::branch_ge(&invalid));
+        }
+        self.emit(abi::branch(&valid));
+        self.emit(abi::label(&invalid));
+        self.raise_error(function_id, "ErrIndexOutOfRange")?;
+        self.emit(abi::label(&valid));
+        Ok(())
+    }
+
     /// Shared body of `append`/`prepend`: insert a single item at one end of a
     /// list. The two differ only in the insertion index (`count` for append, `0`
     /// for prepend), prepend's reject-a-list-argument guard, and the slot/error

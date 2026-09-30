@@ -211,7 +211,11 @@ pub(crate) fn lower_set(
         // range-checks the index itself, so the bounds behavior below is
         // preserved. Cheaper too: one allocation and one block copy replace
         // two of each.
+        //
+        // bug-782: range-check before the copy. `lower_list_set_in_place` checks
+        // too, but only after the copy exists, and its raise path cannot free it.
         if list_element_is_fixed_width(&element_type).is_some() {
+            builder.emit_list_index_range_check(list_slot, index_slot, false, "collections.set")?;
             let item_slot = builder.allocate_stack_object("set_value_item", 8);
             builder.emit(abi::store_u64(
                 &item.location,
