@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (performance: O(n) transient bytes with a constant of 4–15×)
 
-Status: Open
-Regression Test: `tests/runtime/rt_hof_transient_bytes.rs` (to be added, Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_hof_transient_bytes.rs`
 
 The native lowerings of `collections::partition` and `collections::groupBy` return correct results. But each call
 allocates, fills, copies and frees several temporary blocks, each as large as the input list or larger, and
@@ -52,6 +52,70 @@ acceptance criteria.
 
 The callback-failure leak and the skipped-`TRAP` defect found during this investigation are tracked separately in
 `bugs/bug-777-a-failing-collection-callback-leaks-and-partition-skips-the-function-trap.md`.
+
+## STATUS: FIXED (`d66a1d12c` partition, `c0f08ee26` groupBy, `c9ce929a0` valFn-failure leak)
+
+Measured by `rt_hof_transient_bytes`: `--debug` `arena.0.alloc_bytes`, N vs 2N calls, less
+a checksum-only control. The checksums are identical to the pre-fix compiler.
+
+| call | before | after | target |
+|---|---:|---:|---:|
+| `partition(List OF String n=1000)` | 191,760 B | 45,024 B | ≤ 60,000 |
+| `partition(List OF Integer n=1000)` | 32,192 B | 9,104 B | ≤ 18,000 |
+| `groupBy(String 2000 → 4 keys)` | 738,864 B | 307,808 B | ≤ 330,000 |
+| `groupBy(Integer 10000 → 7 keys)` | 1,237,840 B | 241,376 B | ≤ 400,000 |
+
+Ratios from the agents' runs of the Failing Reproduction (host loaded, so ratios only):
+
+- partition String ≈ 1.01× `filter` keep-990 (target ≤ 1.3×).
+- groupBy String 1.41–1.46× and Integer 1.37–1.39× its two transforms (target ≤ 1.5×).
+
+**Benchmark** (`python3 /tmp/b771-bench.py 10`: the benchmark with `main` reduced to these
+rows, pre-fix vs fixed compiler, same host, back to back). Medians in ms; every checksum is
+identical.
+
+| row | before | after |
+|---|---:|---:|
+| `list (Dynamic) partition` | 12.658 | 5.631 |
+| `list (Record-Dynamic) partition` | 12.556 | 4.650 |
+| `list (State-Dynamic) partition` | 12.630 | 4.581 |
+| `list (Dynamic) groupby` | 0.335 | 0.146 |
+| `list (Record-Dynamic) groupby` | 0.277 | 0.128 |
+| `list (State-Dynamic) groupby` | 0.260 | 0.131 |
+| `pipeline groupagg` | 47.651 | 17.448 |
+
+The Fixed rows improved too: partition 4.409/2.799/2.712 → 2.783/1.544/1.451, and
+groupby 0.285/0.124/0.123 → 0.100/0.040/0.039. Gate: full suite 278 ok, artifact-gate
+0 diffs, acceptance 1582 at -O1 and -O3.
+
+**Deviations from the Fix Design.**
+
+- **Partition predicate argument.** The in-place borrow is impossible for String: a packed
+  String payload has no `[len]` header in the data region, and the `get` borrow rules
+  exclude String for the same reason. A fresh block per element would have cost ~61 KB,
+  over budget. Instead, one `[len][bytes][nul]` argument block, sized by a length
+  pre-scan, is refilled for each element. This is sound because a callee never owns its
+  argument (the old lowering freed each per-element block right after the call).
+- **Partition flags.** 1 byte per element, not 8.
+- **GroupBy map (Open Decision).** The recommended presized-`set` form measured
+  396,880 B/call on the String case, over budget. So the buckets are laid straight into
+  the map, at the offsets a `set` into an empty map would give. The hash index is left
+  unbuilt (`bucketsReady` 0), as for a map literal. The probe checked the result map
+  against the pre-fix compiler: iteration, `set`, `removeKey`, `hasKey`, `get`, 201
+  further sets, and 5,000 distinct keys (to force table growth).
+
+**Found and fixed here.** A failing `valFn` under a function-level `TRAP` leaked the
+finished `keys` projection: 8,048 B per call over 1,000 Integers. The second transform's
+failure exit freed only its own output. `groupBy` now captures that exit, frees `keys`,
+and leaves through `emit_callback_failure_exit`. Test:
+`rt_hof_transient_bytes::a_failing_value_callback_frees_the_key_projection`. It is RED
+on the pre-fix compiler: 321,920 B live after 40 failing calls.
+
+**Test corrected with proof.**
+`codegen_string_return_freshness::group_by_owns_the_string_value_its_callback_returns`
+expected two more String frees for `V = String`. One of them was the old bucket loop's
+per-element materialisation, which no longer exists. The correction is `+2 → +1`, with
+the 4-point proof in its commit.
 
 References:
 
@@ -379,7 +443,7 @@ callbacks is forbidden by Non-goals. (3) Sorting keys, as the C peer does, would
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_hof_transient_bytes.rs`, modeled on
+- [x] Add `tests/runtime/rt_hof_transient_bytes.rs`, modeled on
       `tests/runtime/rt_debug_arena.rs::fill_counters_match_known_allocations`: build each operation's single-loop program
       with `--debug` at N and 2N calls, and assert `delta(alloc_bytes)/N` against the target table (partition String
       ≤ 60,000, partition Integer ≤ 18,000, groupBy String 2000→4 ≤ 330,000, groupBy Integer 10000→7 ≤ 400,000).
@@ -391,9 +455,9 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] `func_partition.rs`: implement the two-pass, exact-size partition (Fix Design). Its predicate-failure branch must
+- [x] `func_partition.rs`: implement the two-pass, exact-size partition (Fix Design). Its predicate-failure branch must
       use `emit_callback_failure_exit` with the item cleanup that bug-777 adds. If bug-777 has not landed, land it first.
-- [ ] `func_group_by.rs`: implement the grown distinct-key table, the counting pass, exact buckets, and the presized map.
+- [x] `func_group_by.rs`: implement the grown distinct-key table, the counting pass, exact buckets, and the presized map.
 
 Acceptance: the Phase 1 tests pass; `hof-callback-failure-rt`, `partition-native-trap-rt`,
 `groupby-string-value-native-rt`, `callback-string-return-identity-rt` and `bug752-res-element-callbacks-rt` still pass
@@ -402,16 +466,16 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Any `.ncode`/codegen golden that captures these two lowerings shifts only inside `lower_collection_partition_call` /
+- [x] Any `.ncode`/codegen golden that captures these two lowerings shifts only inside `lower_collection_partition_call` /
       `lower_collection_group_by_call` / the failure exits. Localize any other diff to one fixture before accepting it
       (AGENTS.md).
-- [ ] Re-run the Failing Reproduction and check the two ratio targets (partition ≤ 1.3× filter keep-990; groupBy ≤ 1.5× two
+- [x] Re-run the Failing Reproduction and check the two ratio targets (partition ≤ 1.3× filter keep-990; groupBy ≤ 1.5× two
       transforms).
-- [ ] `./benchmark/run.sh 10` (or `--run 10` of the list/pipeline groups). The seven rows improve, all checksums still cross-
+- [x] `./benchmark/run.sh 10` (or `--run 10` of the list/pipeline groups). The seven rows improve, all checksums still cross-
       validate against C and Python, and no other row regresses beyond noise.
-- [ ] Update `.ai/collections.md` ("Big exception — groupBy") and the `mfb spec memory collections` text, if any
+- [x] Update `.ai/collections.md` ("Big exception — groupBy") and the `mfb spec memory collections` text, if any
       describes the partition/groupBy build shape.
-- [ ] Full suite.
+- [x] Full suite.
 
 Acceptance: full suite green; golden deltas are only the intended lowering; the benchmark checksums are unchanged.
 Commit: —
