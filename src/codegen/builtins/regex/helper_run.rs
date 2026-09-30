@@ -30,9 +30,10 @@
 //! - `frames`, five integers per continuation frame — tag (1 sequence: `a` = the Concat
 //!   op, `b` = the next part; 2 capture close: `a` = the slot; 3 repeat: `a` = the Repeat
 //!   op, `b` = its iteration count, `c` = the position the iteration started at) and the
-//!   frame below (-1 = done). Frames are never rewritten, so a choice point that saved a
-//!   frame index resumes exactly that continuation. They grow with the steps of one
-//!   search, which the step budgets bound.
+//!   frame below (-1 = done). Frames are never rewritten while a start position runs,
+//!   so a choice point that saved a frame index resumes exactly that continuation; the
+//!   next start position (reached only with no choice point pending) starts the table
+//!   over. They grow with the steps of one start position, which the step budgets bound.
 //! - `choices`, eight integers per pending choice point — kind, `alt`, `rep`, `cont`,
 //!   `pos`, `i`, `count`, `p` — and `snaps`, its capture list. Popping lowers `pending`
 //!   and a push overwrites the slot above, so both tables stop growing at the deepest
