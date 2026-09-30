@@ -43,7 +43,8 @@ pub(crate) fn group_by_fast_path(
     };
     let ok = parts.len() == 3
         && supported(parts[0])
-        && crate::codegen::builtins::collections::monomorph_suffix_type(parts[1]) == ParameterType::Integer
+        && crate::codegen::builtins::collections::monomorph_suffix_type(parts[1])
+            == ParameterType::Integer
         && supported(parts[2])
         && reeval_safe;
     if !ok {

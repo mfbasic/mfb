@@ -126,14 +126,24 @@ fn to_set_and_map_values_allocate_their_result_once() {
     };
     let mut failures = Vec::new();
     for (name, setup, call) in ALLOC_CASES {
-        let (text_a, a) = run_program(&format!("b769_{name}_10"), &alloc_program(setup, call, 10), true);
-        let (text_b, b) = run_program(&format!("b769_{name}_20"), &alloc_program(setup, call, 20), true);
+        let (text_a, a) = run_program(
+            &format!("b769_{name}_10"),
+            &alloc_program(setup, call, 10),
+            true,
+        );
+        let (text_b, b) = run_program(
+            &format!("b769_{name}_20"),
+            &alloc_program(setup, call, 20),
+            true,
+        );
         let (sum_a, sum_b): (u64, u64) = (
             text_a.trim().parse().expect("a checksum"),
             text_b.trim().parse().expect("a checksum"),
         );
         if sum_b != 2 * sum_a {
-            failures.push(format!("{name}: checksums {sum_a} / {sum_b} are not per-call"));
+            failures.push(format!(
+                "{name}: checksums {sum_a} / {sum_b} are not per-call"
+            ));
             continue;
         }
         let per_call = (count(&b) - count(&a)) as f64 / 10.0;
@@ -143,7 +153,11 @@ fn to_set_and_map_values_allocate_their_result_once() {
             ));
         }
     }
-    assert!(failures.is_empty(), "bug-769 G1:\n  {}", failures.join("\n  "));
+    assert!(
+        failures.is_empty(),
+        "bug-769 G1:\n  {}",
+        failures.join("\n  ")
+    );
 }
 
 #[test]
