@@ -77,23 +77,48 @@ fn vector_field_index(member: &str) -> Option<usize> {
 /// extends inlining from the Float shapes to the Fixed/Integer shapes for the
 /// pure-arithmetic ops (see `vector_op_inlinable`).
 const VECTOR_SHAPES: &[(&str, &str, &[&str], ParameterType)] = &[
-    ("_float2", "vector.Float2", &["x", "y"], ParameterType::Float),
-    ("_float3", "vector.Float3", &["x", "y", "z"], ParameterType::Float),
+    (
+        "_float2",
+        "vector.Float2",
+        &["x", "y"],
+        ParameterType::Float,
+    ),
+    (
+        "_float3",
+        "vector.Float3",
+        &["x", "y", "z"],
+        ParameterType::Float,
+    ),
     (
         "_float4",
         "vector.Float4",
         &["x", "y", "z", "w"],
         ParameterType::Float,
     ),
-    ("_fixed2", "vector.Fixed2", &["x", "y"], ParameterType::Fixed),
-    ("_fixed3", "vector.Fixed3", &["x", "y", "z"], ParameterType::Fixed),
+    (
+        "_fixed2",
+        "vector.Fixed2",
+        &["x", "y"],
+        ParameterType::Fixed,
+    ),
+    (
+        "_fixed3",
+        "vector.Fixed3",
+        &["x", "y", "z"],
+        ParameterType::Fixed,
+    ),
     (
         "_fixed4",
         "vector.Fixed4",
         &["x", "y", "z", "w"],
         ParameterType::Fixed,
     ),
-    ("_integer2", "vector.Integer2", &["x", "y"], ParameterType::Integer),
+    (
+        "_integer2",
+        "vector.Integer2",
+        &["x", "y"],
+        ParameterType::Integer,
+    ),
     (
         "_integer3",
         "vector.Integer3",
