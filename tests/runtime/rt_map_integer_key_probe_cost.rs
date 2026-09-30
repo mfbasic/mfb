@@ -10,6 +10,8 @@
 //! `getOr`'s owned copy was tight, so the `append` right after it always
 //! reallocated.
 //!
+//! The build bound is today's cost with margin (owner decision); see its test.
+//!
 //! The cost tests time, in-process, a `Map` against a same-binary `List`
 //! control (best of five), so the bound holds on a loaded host. Each program
 //! also folds its results into a checksum the test compares.
@@ -164,7 +166,9 @@ fn an_integer_key_lookup_costs_within_2_5x_a_list_get() {
         );
         ratios.push(ratio);
         if ratio > 2.5 {
-            failures.push(format!("n={n}: map get ×{ratio:.2} a list get (bound ×2.5)"));
+            failures.push(format!(
+                "n={n}: map get ×{ratio:.2} a list get (bound ×2.5)"
+            ));
         }
     }
     let max = ratios.iter().cloned().fold(f64::MIN, f64::max);
@@ -178,15 +182,15 @@ fn an_integer_key_lookup_costs_within_2_5x_a_list_get() {
     assert!(failures.is_empty(), "bug-770:\n  {}", failures.join("\n  "));
 }
 
-/// Open: needs an owner decision (bug-770 "Open Decisions"). Measured after
-/// bug-769's faster fill: a new-key `set` is 74.7 ns/insert against 8.4 for a
-/// list append (×8.9); with the free-path scrub disabled in a throwaway build it
-/// is 30.5 against 5.9 (×5.2). So the ×3.5 bound — derived from a C model that
-/// never scrubs — is out of reach under the spec'd scrub, and even without it
-/// under the shared ×1.5 lookup growth taper.
+/// The bound is today's cost with margin, by owner decision (2026-09-30, bug-770
+/// "accept today's cost"). The doc's original ×3.5 came from a C model that
+/// never scrubs freed memory; measured here after bug-769's faster fill, this
+/// test reads ×6.26–8.51 over six runs on a loaded host (pre-fix
+/// ×10.53–11.85), so the bound is ×9. Even with the spec'd free-path scrub
+/// disabled in a throwaway build the ratio is ×5.2 — the shared ×1.5 lookup
+/// growth taper's copies and index rebuilds.
 #[test]
-#[ignore = "bug-770 build bound: owner decision pending (entropy scrub / growth taper), see the bug doc"]
-fn building_an_integer_key_map_costs_within_3_5x_list_appends() {
+fn building_an_integer_key_map_costs_within_9x_list_appends() {
     let rows = timings();
     let (n, map_set, _, list_append, _) = *rows.last().expect("a row");
     let ratio = map_set / list_append;
@@ -196,9 +200,9 @@ fn building_an_integer_key_map_costs_within_3_5x_list_appends() {
         list_append / n as f64
     );
     assert!(
-        ratio <= 3.5,
+        ratio <= 9.0,
         "bug-770: building a {n}-key `Map OF Integer TO Integer` by `set` took ×{ratio:.2} the \
-         same number of `List` appends (bound ×3.5)"
+         same number of `List` appends (bound ×9)"
     );
 }
 

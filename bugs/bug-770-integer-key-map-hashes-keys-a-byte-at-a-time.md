@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (performance)
 
-Status: Open
-Regression Test: tests/runtime/rt_map_integer_key_probe_cost.rs (to add, Phase 1)
+Status: Fixed (the build bound reset to today's cost by owner decision)
+Regression Test: `tests/runtime/rt_map_integer_key_probe_cost.rs`
 
 The benchmark's Integer-keyed `Map` rows run at 24–28× C `-O0` (grade D, all
 flagged RED). mfb is 1.1–1.8× slower than Python on the same rows.
@@ -73,6 +73,55 @@ in-process against same-binary controls, and on the rows:
    is grade C, not A. The reason is that **the C peer does less work**: it
    pre-sizes its table outside the timed region, and `listagg` uses no map at
    all (§Goal).
+
+## STATUS: FIXED (merged from `worktree-B-770`; the build bound per owner decision)
+
+Measured by `rt_map_integer_key_probe_cost` (in-process, best of 5, same-binary
+controls, loaded host):
+
+| goal | before | after | bound |
+|---|---|---|---|
+| Integer-key `get` ÷ `List` `get`, n = 2k/3k/5k/20k | ×4.89 / ×7.62 / ×8.92 / ×4.00 | ×1.50 / ×1.50 / ×1.60 / ×1.68 | ≤ ×2.5 |
+| that ratio's spread across n | ×2.23 | ×1.12 | ≤ ×1.5 |
+| new-key `set` ÷ `List` append, n = 20k | ×10.53–11.85 | ×6.26–8.51 (six runs) | **≤ ×9 (owner decision)** |
+| `getOr` → `append` → `set` allocations per iteration | 3.001 | 2.001 | ≤ 2 + 15 map grows / 2,000 |
+
+`every_hash_site_agrees_across_grows_and_removals` is green before and after. It was
+also run on riscv64 hardware (box 2229): 64 checks, 0 wrong.
+
+**What changed.**
+
+- **A/A′.** One shared home-slot definition, `collection::map::map_hash`, dispatched
+  on the key's byte length. An 8-byte key uses `umulh(k * 0x9E3779B97F4A7C15,
+  2*capacity)`; any other length keeps FNV-1a. It is used at all five index sites
+  (`grep FNV1A_ src` now hits only `map_hash.rs` and the constants file). An
+  unaligned 8-byte String key is assembled from bytes, never loaded as one word
+  (riscv64).
+- **B.** The inline probe walks the run itself. A `set` miss writes the probe's end
+  slot, and a hit takes the probe's index (no `udiv`).
+- **C.** A `get`/`getOr` → `MUT` bind whose next statement is `x = append(x, …)` gets
+  its owned copy with growth headroom (`analysis::append_headroom`,
+  `copy_list_with_append_headroom`). It fails closed, and every stored value stays
+  tight.
+
+**Deviation: the build bound.** The doc's ×3.5 came from a C model that never
+scrubs freed memory. Measured standalone after bug-769's faster fill, a new-key
+`set` costs 74.7 ns against 8.4 for a `List` append (×8.9). With the spec'd
+free-path scrub disabled in a throwaway build it is 30.5 ns against 5.9 (×5.2).
+That remainder is the shared ×1.5 growth taper's copies and index rebuilds.
+
+Owner decision (2026-09-30): "Accept today's cost". The bound is ×9: the test's own
+×6.26–8.51 over six runs with margin, still failing the pre-fix ×10.53–11.85. The `map lookup`
+row target (≤ 0.90 ms) is therefore not a goal any more. The taper stays ×1.5.
+
+**Flatness judged on the ratio.** At n = 20,000 the `List` control's own `get` rises
+too (4.0 → 6.5–7.2 ns), so the absolute map `get` there measures the memory
+hierarchy. The ratio form still fails the pre-fix compiler (spread ×2.23).
+
+**Checked, not a bug:** the part C agent reported from code reading that `set` might store a list into a map with its spare capacity, against the rule that stored values are exact-size. Measured with a map in a global (`--debug` `arena.0.live_bytes` at exit): storing a 1,000-append list gives 8,512 B, the same as storing an exact-size `LET t = b` copy (8,512). The listagg loop run straight on the global gives 96,304 B, again the same as the `t` variant (96,304). So the stored value is exact-size either way.
+
+**Rows.** `map intkey` 0.939 → 0.339 ms (target ≤ 0.35, met; agent measurement
+before bug-769 merged).
 
 References:
 
@@ -637,7 +686,7 @@ inline still leaves about 12–14 ns per hit.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_map_integer_key_probe_cost.rs`, modeled on
+- [x] Add `tests/runtime/rt_map_integer_key_probe_cost.rs`, modeled on
       `tests/runtime/rt_map_list_value_grow_cost.rs`: one in-process program,
       best of 5, with same-binary controls and a checksum line.
       - `an_integer_key_lookup_costs_within_2_5x_a_list_get`: R2's program at
@@ -660,7 +709,7 @@ inline still leaves about 12–14 ns per hit.
         Assert against a `List`-scan oracle. This is the guard for the
         all-sites-agree invariant. Model it on
         `rt_map_fifo_removal_flat.rs`'s checksum.
-- [ ] Record the Blast-Radius verdicts above; re-run the FNV grep to prove the
+- [x] Record the Blast-Radius verdicts above; re-run the FNV grep to prove the
       list is complete.
 
 Acceptance: the three cost tests fail for the documented reasons; the
@@ -669,18 +718,18 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] A/A′: add the length-8 word hash plus `umulh` reduction and the `u64`
+- [x] A/A′: add the length-8 word hash plus `umulh` reduction and the `u64`
       compare to all five hash sites together (`gen_map.rs:emit_map_probe`, the
       three helpers in `builder/mod.rs`, `map_bucket_remove.rs:home_slot`). Put
       the hash in one shared emitter so the sites cannot drift.
-- [ ] A′/B.1: make `emit_map_probe` walk the linear-probe run inline; keep the
+- [x] A′/B.1: make `emit_map_probe` walk the linear-probe run inline; keep the
       helper for `bucketsReady == 0`.
-- [ ] B.2 / B.4: make a `set` miss insert at the probe's end slot (no
+- [x] B.2 / B.4: make a `set` miss insert at the probe's end slot (no
       `bucket_put` re-hash when no grow happened), and make a `set` hit use the
       probe's index (no `udiv` by 40).
-- [ ] C: `get`/`getOr` → `MUT` binding that is `append`-self-updated gets a
+- [x] C: `get`/`getOr` → `MUT` binding that is `append`-self-updated gets a
       headroom copy (`copy_collection_with_capacity`); stored values stay tight.
-- [ ] Update `mfb spec memory collections` *Map Hash Index* (hash description and
+- [x] Update `mfb spec memory collections` *Map Hash Index* (hash description and
       the `[[…]]` citations) and `.ai/collections.md` (a lesson line: fixed-width
       keys word-hash, and all five sites must agree).
 
@@ -692,14 +741,14 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Codegen goldens / `.ncode` snapshots that contain the map probe will shift.
+- [x] Codegen goldens / `.ncode` snapshots that contain the map probe will shift.
       This is expected **only** in the map/set probe, helper and `set`/`getOr`-copy
       sequences. Inspect one fixture per shifted family before accepting it
       (AGENTS.md: an unexpected diff is a bug-hunt trigger).
-- [ ] Run the full suite (`cargo test`, plus `scripts/` gates per
+- [x] Run the full suite (`cargo test`, plus `scripts/` gates per
       `.ai/testing-gates.md`), and `cargo test --bin mfb spec` for the spec
       edit.
-- [ ] Re-run R1–R3 and the benchmark map group, then `./benchmark/rank.py`.
+- [x] Re-run R1–R3 and the benchmark map group, then `./benchmark/rank.py`.
       Confirm the row targets and that no other row regressed (String-key rows
       especially).
 
@@ -729,7 +778,8 @@ Commit: —
   keys. Measure; don't infer.
 - Lookup growth taper (×1.5 above 1,024, shared with `List`): leave it alone
   unless the build bound fails after A/B. Changing it trades memory, and it is
-  shared.
+  shared. **Decided 2026-09-30: accept today's cost; the taper stays, and the build
+  bound is ×9.**
 - `LET empty AS List OF Integer = []` allocates on every iteration (15 ns). A
   shared static empty block would need a no-free sentinel in the drop contract.
   That is a memory-model question, so it is **out of scope**; listed only so it
