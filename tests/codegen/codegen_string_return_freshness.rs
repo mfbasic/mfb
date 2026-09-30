@@ -486,25 +486,23 @@ fn group_by_owns_the_string_value_its_callback_returns() {
     );
     let string_frees = loop_item_frees(&string_value, "_mfb_fn_main");
     let integer_frees = loop_item_frees(&integer_value, "_mfb_fn_main");
-    // TWO more, and the decomposition is the point. With `V = String` the fast
-    // path owns the projected value twice over:
+    // ONE more: with `V = String` the fast path owns the block `valFn` RETURNED,
+    // freed by the `transform` that produced the values list — this fix. With
+    // `V = Integer` it does not exist, and both `keyFn` transforms contribute
+    // their `String` ARGUMENT free either way. Pre-fix the delta was 0.
     //
-    //   * the block `valFn` RETURNED, freed by the `transform` that produced the
-    //     values list — this fix;
-    //   * the block the bucket loop materialises out of that list and copies into
-    //     the bucket, freed by `func_group_by.rs`'s own
-    //     `free_collection_loop_item(val_slot, value_type)` — pre-existing.
-    //
-    // With `V = Integer` neither exists, and both `keyFn` transforms contribute
-    // their `String` ARGUMENT free either way. Pre-fix the delta was 1: the bucket
-    // free alone.
+    // (Until bug-771 the delta was 2: the bucket loop also materialised each
+    // value out of that list and freed it after copying it into the bucket.
+    // bug-771 copies the bytes straight from the values entry into the bucket,
+    // so that block and its free no longer exist; a `--debug` run of this shape
+    // over 100 Strings × 50 calls ends with alloc_calls = free_calls, 0 live
+    // bytes and 0 double-free skips.)
     assert_eq!(
         string_frees,
-        integer_frees + 2,
+        integer_frees + 1,
         "`collections::groupBy` must free the `String` value its `valFn` returns \
-         AND the one it materialises into the bucket (String value {string_frees}, \
-         Integer value {integer_frees}); `keyFn` is the identical `Integer` \
-         projection in both, so nothing else differs"
+         (String value {string_frees}, Integer value {integer_frees}); `keyFn` is \
+         the identical `Integer` projection in both, so nothing else differs"
     );
 }
 
