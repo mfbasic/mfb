@@ -308,6 +308,19 @@ register class differs. (`MOD`/`^` run
 dedicated scalar kernels — their FP working set is allocator-placed virtual
 registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native.)
 
+The nine `vector::` shapes (`vector.Float2` … `vector.Integer4`, matched by their
+package-qualified identity — a bare `Float3` is a user type) are
+**register-native** the same way. A constructor keeps one scalar value per lane
+and no block, and a field read returns the lane. An inlined op (`scale`, `dot`,
+`cross`, `length`, `distance`, `lerp`, `normalize`, over re-evaluation-safe
+operands) builds its result from lanes. The N×8-byte block is built only at a
+storage boundary: a binding the analysis could not keep in lanes, a
+collection/record store, a call argument, or a return. A returned vector's block
+is claimed as the function's result, so it is built once and not copied.
+[[src/codegen/builtins/vector/builder_vector_inline.rs:vector_field_count]]
+[[src/codegen/builtins/vector/builder_vector_inline.rs:vector_value_as_block]]
+[[src/codegen/engine/control/builder_exits.rs:lower_returned_value]]
+
 A single-use `Float` `a*b±c` chain is **fused** into one single-rounded fused
 multiply-add before register allocation: `a*b+c`→`fmadd_d`,
 `a*b-c`→`fmsub_d`, `c-a*b`→`fnmsub_d`. The rewrite is decided on the neutral MIR
