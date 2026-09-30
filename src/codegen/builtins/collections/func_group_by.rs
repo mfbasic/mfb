@@ -60,11 +60,52 @@ pub(crate) fn group_by_fast_path(
         .map(Some)
 }
 
+/// bug-771 B: the distinct-key table starts at this many slots and doubles by
+/// rehash whenever an insert would push the load past 1/2, so its size is
+/// O(distinct keys), not O(elements).
+const GB_TABLE_INIT: usize = 16;
+/// One per-bucket record in the table block: the key, the element count (reused
+/// as the fill cursor), the String payload bytes (reused as the data cursor),
+/// and the bucket block — 32 bytes, so `id << GB_REC_SHIFT` is its offset.
+const GB_REC_SHIFT: u8 = 5;
+/// Bytes of table block per slot: a key word, an occupancy word, and half a
+/// 32-byte record (load ≤ 1/2 caps the records at `slots / 2`).
+const GB_TABLE_SLOT_SHIFT: u8 = 5;
+const GB_REC_KEY: usize = 0;
+const GB_REC_COUNT: usize = 8;
+const GB_REC_DATA: usize = 16;
+const GB_REC_BLOCK: usize = 24;
+/// Fibonacci-hashing multiplier (2^64 / golden ratio). The table's slot order is
+/// private scratch — bucket order comes from the record array (first
+/// appearance), so the hash never reaches a program.
+const GB_HASH_MUL: u64 = 0x9E37_79B9_7F4A_7C15;
+/// The key payload width: `group_by_fast_path` admits only an Integer key.
+const GB_KEY_WIDTH: usize = 8;
+
 impl CodeBuilder<'_> {
-    /// plan-64 D1: native `collections::groupBy` (8-byte fixed-width T/V, Integer
-    /// key, re-eval-safe `value`). Grows each bucket as a top-level list keyed via
-    /// an inline open-addressing hash table (no O(bucket²) get-copy), then
-    /// materializes the `Map OF K TO List OF V` once. Else `.mfb`.
+    /// plan-64 D1 / bug-771 B: native `collections::groupBy` (Integer key,
+    /// fixed-width or String V, re-eval-safe `value`). Else `.mfb`.
+    ///
+    /// The two projections run exactly as the `.mfb` body runs them (`keyFn`
+    /// over the whole list, then `valFn` over the whole list). Then:
+    ///
+    /// 1. one pass over `keys` interns each key in an open-addressing table
+    ///    sized by the DISTINCT keys (grown by rehash), records per bucket its
+    ///    key, element count and (String V) payload bytes in first-appearance
+    ///    order, and overwrites `keys[i]` — private scratch, dead after this pass
+    ///    — with element `i`'s bucket id;
+    /// 2. the result map is allocated once at its exact size and laid out
+    ///    directly: entry `b` (first-appearance order) holds key `b` and, as its
+    ///    value, bucket `b`'s tight block (`capacity == count`,
+    ///    `dataCapacity == dataLength`) at the offsets a `set` into an empty map
+    ///    would choose; the hash index is left unbuilt (`bucketsReady` 0), as for
+    ///    a map literal, and the first probe builds it;
+    /// 3. one pass over `vals` in index order copies each value (a word, or a
+    ///    String's payload bytes straight from its `vals` entry) into its
+    ///    bucket's block inside the map.
+    ///
+    /// So a call allocates the two projections, an O(distinct-keys) table and
+    /// the result — no bucket block, no regrow, no per-element String.
     pub(crate) fn lower_collection_group_by_call(
         &mut self,
         args: &[NirValue],
@@ -73,13 +114,15 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let list_v = ParameterType::list_of(value_type.clone());
         let map_type = ParameterType::map_of(key_type.clone(), list_v.clone());
-        let int_layout =
-            CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::Integer))
-                .ok_or_else(|| "groupBy: int layout".to_string())?;
         let _k_layout = CollectionTypeLayout::from_type(&ParameterType::list_of(key_type.clone()))
             .ok_or_else(|| "groupBy: key layout".to_string())?;
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
+        let map_layout = CollectionTypeLayout::from_type(&map_type)
+            .ok_or_else(|| "groupBy: map layout".to_string())?;
+        let is_string = *value_type == ParameterType::String;
+        let key_align = self.collection_payload_alignment(key_type);
+        let value_align = self.collection_payload_alignment(&list_v);
         let ctx = self.inline_abi_ctx();
         // `lower_transform` is a pre-lowered `abi_inline` body, so pass it pre-lowered
         // `ValueResult` args (the collection is re-lowered for each transform, exactly
@@ -113,345 +156,414 @@ impl CodeBuilder<'_> {
 
         let n_slot = self.allocate_stack_object("gb_n", 8);
         let ts_slot = self.allocate_stack_object("gb_ts", 8);
-        let mask_slot = self.allocate_stack_object("gb_mask", 8);
+        let tbl_slot = self.allocate_stack_object("gb_tbl", 8);
         let nb_slot = self.allocate_stack_object("gb_nb", 8);
-        let hk_slot = self.allocate_stack_object("gb_hk", 8);
-        let ho_slot = self.allocate_stack_object("gb_ho", 8);
-        let bp_slot = self.allocate_stack_object("gb_bp", 8);
-        let ko_slot = self.allocate_stack_object("gb_ko", 8);
-        let result_slot = self.allocate_stack_object("gb_result", 8);
         let i_slot = self.allocate_stack_object("gb_i", 8);
-        let slot_save = self.allocate_stack_object("gb_slotsave", 8);
-        let bidx_slot = self.allocate_stack_object("gb_bidx", 8);
-        let bucket_slot = self.allocate_stack_object("gb_bucket", 8);
-        let val_slot = self.allocate_stack_object("gb_val", 8);
-        let key_slot = self.allocate_stack_object("gb_key", 8);
         let r = self.temporary_vreg();
         let t = self.temporary_vreg();
-        let ovf = self.label("gb_ovf");
-        // n
+
+        // n = len(keys)
         self.emit(abi::load_u64(&r, abi::stack_pointer(), keys_slot));
         self.emit(abi::load_u64(&r, &r, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&r, abi::stack_pointer(), n_slot));
-        // tableSize = smallest pow2 >= 2n (>=2); mask = ts-1
-        let ts = self.temporary_vreg();
-        let two_n = self.temporary_vreg();
-        self.emit(abi::add_registers(&two_n, &r, &r));
-        self.emit(abi::move_immediate(&ts, "Integer", "2"));
-        let ts_loop = self.label("gb_ts_loop");
-        let ts_done = self.label("gb_ts_done");
-        self.emit(abi::label(&ts_loop));
-        self.emit(abi::compare_registers(&ts, &two_n));
-        self.emit(abi::branch_ge(&ts_done));
-        self.emit(abi::add_registers(&ts, &ts, &ts));
-        self.emit(abi::branch(&ts_loop));
-        self.emit(abi::label(&ts_done));
-        self.emit(abi::store_u64(&ts, abi::stack_pointer(), ts_slot));
-        self.emit(abi::subtract_immediate(&t, &ts, 1));
-        self.emit(abi::store_u64(&t, abi::stack_pointer(), mask_slot));
 
-        // Allocate the four kind-2 List OF Integer scratch buffers.
-        let after_alloc = self.label("gb_after_alloc");
-        for (cap_slot, dst_slot) in [
-            (ts_slot, hk_slot),
-            (ts_slot, ho_slot),
-            (n_slot, bp_slot),
-            (n_slot, ko_slot),
-        ] {
-            self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
-            self.emit(abi::shift_left_immediate(abi::return_register(), &r, 3));
-            self.emit_checked_size_add_immediate(
-                abi::return_register(),
-                abi::return_register(),
-                COLLECTION_HEADER_SIZE,
-                &ovf,
-            );
-            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-            self.emit_arena_alloc_call();
-            let ok = self.label("gb_scratch_ok");
-            self.emit(abi::branch_eq(&ok));
-            self.raise_error_bare("ErrOutOfMemory")?;
-            self.emit(abi::label(&ok));
-            self.emit(abi::store_u64(
-                abi::mfb_return(1),
-                abi::stack_pointer(),
-                dst_slot,
-            ));
-            self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
-            let dl = self.temporary_vreg();
-            self.emit(abi::shift_left_immediate(&dl, &r, 3));
-            self.emit(abi::load_u64(&t, abi::stack_pointer(), dst_slot));
-            self.emit_write_list_header_from_registers(&int_layout, &t, &r, &dl);
-        }
-        self.emit(abi::branch(&after_alloc));
-        self.emit(abi::label(&ovf));
-        self.emit_error_code_return(
-            crate::codegen::registry::runtime_error("ErrOutOfMemory")
-                .expect("errorCode name")
-                .0,
-            crate::codegen::registry::runtime_error("ErrOutOfMemory")
-                .expect("errorCode name")
-                .1,
-        )?;
-        self.emit(abi::label(&after_alloc));
-        // Zero hashOcc data.
-        let zp = self.temporary_vreg();
-        let zj = self.temporary_vreg();
-        let zloop = self.label("gb_zloop");
-        let zdone = self.label("gb_zdone");
-        self.emit(abi::load_u64(&zp, abi::stack_pointer(), ho_slot));
-        self.emit(abi::add_immediate(&zp, &zp, COLLECTION_HEADER_SIZE));
-        self.emit(abi::move_immediate(&zj, "Integer", "0"));
-        self.emit(abi::load_u64(&ts, abi::stack_pointer(), ts_slot));
-        self.emit(abi::label(&zloop));
-        self.emit(abi::compare_registers(&zj, &ts));
-        self.emit(abi::branch_ge(&zdone));
-        self.emit(abi::store_u64(abi::ZERO, &zp, 0));
-        self.emit(abi::add_immediate(&zp, &zp, 8));
-        self.emit(abi::add_immediate(&zj, &zj, 1));
-        self.emit(abi::branch(&zloop));
-        self.emit(abi::label(&zdone));
+        // --- 1. the distinct-key table ---
+        self.emit(abi::move_immediate(
+            &r,
+            "Integer",
+            &GB_TABLE_INIT.to_string(),
+        ));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), ts_slot));
+        self.gb_alloc_table(ts_slot, tbl_slot)?;
         self.emit(abi::move_immediate(&r, "Integer", "0"));
         self.emit(abi::store_u64(&r, abi::stack_pointer(), nb_slot));
         self.emit(abi::store_u64(&r, abi::stack_pointer(), i_slot));
 
-        // --- element loop ---
         let key = self.temporary_vreg();
         let slot = self.temporary_vreg();
         let occ = self.temporary_vreg();
         let mask = self.temporary_vreg();
-        let base = self.temporary_vreg();
+        let tsz = self.temporary_vreg();
+        let tbl = self.temporary_vreg();
+        let ho = self.temporary_vreg();
+        let recs = self.temporary_vreg();
         let addr = self.temporary_vreg();
         let p = self.temporary_vreg();
+        let i = self.temporary_vreg();
+        let n = self.temporary_vreg();
+        let kp = self.temporary_vreg();
+        let vp = self.temporary_vreg();
+        let nbv = self.temporary_vreg();
+        let id = self.temporary_vreg();
+        let el_reload = self.label("gb_el_reload");
         let el_loop = self.label("gb_el_loop");
         let el_done = self.label("gb_el_done");
         let probe = self.label("gb_probe");
         let found = self.label("gb_found");
         let insert = self.label("gb_insert");
-        let el_next = self.label("gb_el_next");
-        self.emit(abi::label(&el_loop));
-        self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
-        self.emit(abi::load_u64(&t, abi::stack_pointer(), n_slot));
-        self.emit(abi::compare_registers(&r, &t));
-        self.emit(abi::branch_ge(&el_done));
-        // key = keys[i]; val = vals[i]
-        self.emit(abi::shift_left_immediate(&t, &r, 3));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), keys_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&key, &addr, 0));
-        self.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
-        if *value_type == ParameterType::String {
-            // vals[i] is a kind-0 String entry: materialize a fresh owned String
-            // block (freed at el_next after it is copied into the bucket). `i` is
-            // reloaded from i_slot because the fixed-width path's registers are not
-            // used here.
-            let idx = self.temporary_vreg();
-            let voff = self.temporary_vreg();
-            let vlen = self.temporary_vreg();
-            let eoff = self.temporary_vreg();
-            let entry = self.temporary_vreg();
-            let vptr = self.temporary_vreg();
-            self.emit(abi::load_u64(&idx, abi::stack_pointer(), i_slot));
-            self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
-            self.emit_element_value_offset(
-                &voff,
-                &vlen,
-                &vptr,
-                &idx,
-                &eoff,
-                &entry,
-                &ParameterType::String,
-            );
-            self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
-            let materialized =
-                self.emit_load_collection_payload(&ParameterType::String, &vptr, &voff, &vlen)?;
-            self.emit(abi::store_u64(
-                &materialized,
-                abi::stack_pointer(),
-                val_slot,
-            ));
-        } else {
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), vals_slot));
-            self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-            self.emit(abi::add_registers(&addr, &base, &t));
-            self.emit(abi::load_u64(&p, &addr, 0));
-            self.emit(abi::store_u64(&p, abi::stack_pointer(), val_slot));
+        let tally = self.label("gb_tally");
+        let grow = self.label("gb_grow");
+        // The loop holds everything in registers; the only call in it is the
+        // (rare, out-of-line) grow, which spills `i`/`nb` and re-enters here.
+        self.emit(abi::label(&el_reload));
+        self.emit(abi::load_u64(&i, abi::stack_pointer(), i_slot));
+        self.emit(abi::load_u64(&nbv, abi::stack_pointer(), nb_slot));
+        self.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+        self.emit(abi::load_u64(&kp, abi::stack_pointer(), keys_slot));
+        self.emit(abi::add_immediate(&kp, &kp, COLLECTION_HEADER_SIZE));
+        if is_string {
+            self.emit(abi::load_u64(&vp, abi::stack_pointer(), vals_slot));
         }
-        // probe: slot = key & mask
-        self.emit(abi::load_u64(&mask, abi::stack_pointer(), mask_slot));
-        self.emit(abi::and_registers(&slot, &key, &mask));
+        self.emit(abi::load_u64(&tsz, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&tbl, abi::stack_pointer(), tbl_slot));
+        self.emit(abi::subtract_immediate(&mask, &tsz, 1));
+        self.emit(abi::shift_left_immediate(&ho, &tsz, 3));
+        self.emit(abi::add_registers(&ho, &ho, &tbl));
+        self.emit(abi::shift_left_immediate(&recs, &tsz, 4));
+        self.emit(abi::add_registers(&recs, &recs, &tbl));
+        self.emit(abi::label(&el_loop));
+        self.emit(abi::compare_registers(&i, &n));
+        self.emit(abi::branch_ge(&el_done));
+        // key = keys[i]
+        self.emit(abi::shift_left_immediate(&t, &i, 3));
+        self.emit(abi::add_registers(&addr, &kp, &t));
+        self.emit(abi::load_u64(&key, &addr, 0));
+        self.gb_home_slot(&slot, &key, &mask, &t);
         self.emit(abi::label(&probe));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), ho_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
         self.emit(abi::shift_left_immediate(&t, &slot, 3));
-        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::add_registers(&addr, &ho, &t));
         self.emit(abi::load_u64(&occ, &addr, 0));
         self.emit(abi::compare_immediate(&occ, "0"));
         self.emit(abi::branch_eq(&insert));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), hk_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::add_registers(&addr, &tbl, &t));
         self.emit(abi::load_u64(&p, &addr, 0));
         self.emit(abi::compare_registers(&p, &key));
         self.emit(abi::branch_eq(&found));
         self.emit(abi::add_immediate(&slot, &slot, 1));
         self.emit(abi::and_registers(&slot, &slot, &mask));
         self.emit(abi::branch(&probe));
-        // found: bidx = occ-1; append val to bucketPtrs[bidx] (spill bidx across call)
+        // found: bucket id = occ - 1
         self.emit(abi::label(&found));
-        self.emit(abi::subtract_immediate(&p, &occ, 1));
-        self.emit(abi::store_u64(&p, abi::stack_pointer(), bidx_slot));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::shift_left_immediate(&t, &p, 3));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&p, &addr, 0));
-        self.emit(abi::store_u64(&p, abi::stack_pointer(), bucket_slot));
-        self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, &value_type)?;
-        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(&t, abi::stack_pointer(), bidx_slot));
-        self.emit(abi::shift_left_immediate(&t, &t, 3));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::store_u64(&p, &addr, 0));
-        self.emit(abi::branch(&el_next));
-        // insert: new 1-element bucket; register in arrays + hash (spill slot across alloc)
+        self.emit(abi::subtract_immediate(&id, &occ, 1));
+        self.emit(abi::branch(&tally));
+        // insert: grow first if one more key would exceed load 1/2; else claim
+        // the slot and open record `nb` (count 0, data 0, no block yet).
         self.emit(abi::label(&insert));
-        self.emit(abi::store_u64(&slot, abi::stack_pointer(), slot_save));
-        if *value_type == ParameterType::String {
-            // A String bucket is a kind-0 `List OF String`: build an empty growable
-            // list and append the materialized value (String-correct byte copy),
-            // instead of the fixed-width `HEADER+8` word store.
-            let bucket = self.lower_empty_collection(&list_v)?;
-            self.emit(abi::store_u64(
-                &bucket.location,
-                abi::stack_pointer(),
-                bucket_slot,
-            ));
-            self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, &value_type)?;
-        } else {
-            self.emit(abi::move_immediate(
-                abi::return_register(),
-                "Integer",
-                &(COLLECTION_HEADER_SIZE + 8).to_string(),
-            ));
-            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-            self.emit_arena_alloc_call();
-            let ins_ok = self.label("gb_ins_ok");
-            self.emit(abi::branch_eq(&ins_ok));
-            self.raise_error_bare("ErrOutOfMemory")?;
-            self.emit(abi::label(&ins_ok));
-            self.emit(abi::store_u64(
-                abi::mfb_return(1),
-                abi::stack_pointer(),
-                bucket_slot,
-            ));
-            // bucket header: count=cap=1, dataLen=dataCap=8; store val at +HEADER
-            self.emit(abi::move_immediate(&r, "Integer", "1"));
-            self.emit(abi::move_immediate(&t, "Integer", "8"));
-            self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
-            self.emit_write_list_header_from_registers(&v_layout, &p, &r, &t);
-            self.emit(abi::load_u64(&t, abi::stack_pointer(), val_slot));
-            self.emit(abi::store_u64(&t, &p, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(&p, &nbv, 1));
+        self.emit(abi::shift_left_immediate(&p, &p, 1));
+        self.emit(abi::compare_registers(&p, &tsz));
+        self.emit(abi::branch_hi(&grow));
+        self.emit(abi::add_registers(&addr, &tbl, &t));
+        self.emit(abi::store_u64(&key, &addr, 0));
+        self.emit(abi::add_immediate(&p, &nbv, 1));
+        self.emit(abi::add_registers(&addr, &ho, &t));
+        self.emit(abi::store_u64(&p, &addr, 0));
+        self.emit(abi::move_register(&id, &nbv));
+        self.emit(abi::move_register(&nbv, &p));
+        self.emit(abi::shift_left_immediate(&t, &id, GB_REC_SHIFT));
+        self.emit(abi::add_registers(&addr, &recs, &t));
+        self.emit(abi::store_u64(&key, &addr, GB_REC_KEY));
+        self.emit(abi::store_u64(abi::ZERO, &addr, GB_REC_COUNT));
+        self.emit(abi::store_u64(abi::ZERO, &addr, GB_REC_DATA));
+        self.emit(abi::store_u64(abi::ZERO, &addr, GB_REC_BLOCK));
+        // tally: count the element (and its String bytes) into its bucket and
+        // leave the bucket id in keys[i].
+        self.emit(abi::label(&tally));
+        self.emit(abi::shift_left_immediate(&t, &id, GB_REC_SHIFT));
+        self.emit(abi::add_registers(&addr, &recs, &t));
+        self.emit(abi::load_u64(&p, &addr, GB_REC_COUNT));
+        self.emit(abi::add_immediate(&p, &p, 1));
+        self.emit(abi::store_u64(&p, &addr, GB_REC_COUNT));
+        if is_string {
+            let voff = self.temporary_vreg();
+            let vlen = self.temporary_vreg();
+            let eoff = self.temporary_vreg();
+            let entry = self.temporary_vreg();
+            self.emit_element_value_offset(
+                &voff,
+                &vlen,
+                &vp,
+                &i,
+                &eoff,
+                &entry,
+                &ParameterType::String,
+            );
+            self.emit(abi::load_u64(&p, &addr, GB_REC_DATA));
+            self.emit(abi::add_registers(&p, &p, &vlen));
+            self.emit(abi::store_u64(&p, &addr, GB_REC_DATA));
         }
-        // nb = load; bucketPtrs[nb]=bucket; keyOrder[nb]=key; hashKeys[slot]=key; hashOcc[slot]=nb+1
-        self.emit(abi::load_u64(&r, abi::stack_pointer(), nb_slot)); // nb
-        self.emit(abi::shift_left_immediate(&t, &r, 3));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
-        self.emit(abi::store_u64(&p, &addr, 0));
-        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), ko_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::store_u64(&key, &addr, 0));
-        self.emit(abi::load_u64(&slot, abi::stack_pointer(), slot_save));
-        self.emit(abi::shift_left_immediate(&t, &slot, 3));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), hk_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::store_u64(&key, &addr, 0));
-        self.emit(abi::add_immediate(&p, &r, 1)); // nb+1
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), ho_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::store_u64(&p, &addr, 0));
-        self.emit(abi::add_immediate(&r, &r, 1));
-        self.emit(abi::store_u64(&r, abi::stack_pointer(), nb_slot));
-        self.emit(abi::label(&el_next));
-        // Release the materialized String value — the found/insert append both COPY
-        // its bytes into the bucket, so it is dead here (no-op for fixed-width).
-        self.free_collection_loop_item(val_slot, value_type)?;
-        self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
-        self.emit(abi::add_immediate(&r, &r, 1));
-        self.emit(abi::store_u64(&r, abi::stack_pointer(), i_slot));
+        self.emit(abi::shift_left_immediate(&t, &i, 3));
+        self.emit(abi::add_registers(&addr, &kp, &t));
+        self.emit(abi::store_u64(&id, &addr, 0));
+        self.emit(abi::add_immediate(&i, &i, 1));
         self.emit(abi::branch(&el_loop));
+        // grow (out of line): double the table, rehash the records in bucket
+        // order, then probe the pending key (`i` unchanged) again.
+        self.emit(abi::label(&grow));
+        self.emit(abi::store_u64(&i, abi::stack_pointer(), i_slot));
+        self.emit(abi::store_u64(&nbv, abi::stack_pointer(), nb_slot));
+        self.gb_grow_table(ts_slot, tbl_slot, nb_slot)?;
+        self.emit(abi::branch(&el_reload));
         self.emit(abi::label(&el_done));
+        self.emit(abi::store_u64(&nbv, abi::stack_pointer(), nb_slot));
 
-        // --- final map: result = {}; for b: set(result, keyOrder[b], bucketPtrs[b]); free bucket ---
-        let empty = self.lower_map_literal(&map_type, &[])?;
+        // --- 2. the result map, laid out once ---
+        // Each bucket is a tight `List OF V` block (`capacity == count`,
+        // `dataCapacity == dataLength`) inlined as its map value, so the map is
+        // sized exactly: `nb` entries, and per bucket, in first-appearance order,
+        // the key aligned to `key_align` then the block aligned to `value_align`
+        // — the offsets a `set` of each bucket into an empty map would give.
+        let dsum_slot = self.allocate_stack_object("gb_dsum", 8);
+        let result_slot = self.allocate_stack_object("gb_result", 8);
+        let size = self.temporary_vreg();
+        let dl = self.temporary_vreg();
+        let cnt = self.temporary_vreg();
+        let d = self.temporary_vreg();
+        let align_scratch = self.temporary_vreg();
+        let b = self.temporary_vreg();
+        let nb = self.temporary_vreg();
+        // 2a: the data region's length (no calls in this loop).
+        let sz_loop = self.label("gb_sz_loop");
+        let sz_done = self.label("gb_sz_done");
+        self.emit(abi::move_immediate(&d, "Integer", "0"));
+        self.emit(abi::move_immediate(&b, "Integer", "0"));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), nb_slot));
+        self.emit(abi::load_u64(&tsz, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&tbl, abi::stack_pointer(), tbl_slot));
+        self.emit(abi::label(&sz_loop));
+        self.emit(abi::compare_registers(&b, &nb));
+        self.emit(abi::branch_ge(&sz_done));
+        self.gb_record_address(&addr, &tbl, &tsz, &b, &t);
+        self.gb_bucket_size(&size, &dl, &cnt, &addr, &t, is_string);
+        self.emit_align_offset_register(&d, key_align, &align_scratch);
+        self.emit(abi::add_immediate(&d, &d, GB_KEY_WIDTH));
+        self.emit_align_offset_register(&d, value_align, &align_scratch);
+        self.emit(abi::add_registers(&d, &d, &size));
+        self.emit(abi::add_immediate(&b, &b, 1));
+        self.emit(abi::branch(&sz_loop));
+        self.emit(abi::label(&sz_done));
+        self.emit(abi::store_u64(&d, abi::stack_pointer(), dsum_slot));
+        // alloc = HEADER + nb * ENTRY + dataLength + the 2*nb-word bucket region
+        let map_ok = self.label("gb_map_ok");
+        self.emit(abi::move_immediate(
+            &t,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&size, &nb, &t));
+        self.emit(abi::add_immediate(&size, &size, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&size, &size, &d));
+        self.emit_reserve_map_buckets(true, &nb, &size, &t);
+        self.emit(abi::move_register(abi::return_register(), &size));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&map_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&map_ok));
         self.emit(abi::store_u64(
-            &empty.location,
+            abi::mfb_return(1),
             abi::stack_pointer(),
             result_slot,
         ));
-        let b_slot = self.allocate_stack_object("gb_b", 8);
-        self.emit(abi::move_immediate(&r, "Integer", "0"));
-        self.emit(abi::store_u64(&r, abi::stack_pointer(), b_slot));
-        let fm_loop = self.label("gb_fm_loop");
-        let fm_done = self.label("gb_fm_done");
-        self.emit(abi::label(&fm_loop));
-        self.emit(abi::load_u64(&r, abi::stack_pointer(), b_slot));
-        self.emit(abi::load_u64(&t, abi::stack_pointer(), nb_slot));
-        self.emit(abi::compare_registers(&r, &t));
-        self.emit(abi::branch_ge(&fm_done));
-        self.emit(abi::shift_left_immediate(&t, &r, 3));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), ko_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&p, &addr, 0));
-        self.emit(abi::store_u64(&p, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
-        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers(&addr, &base, &t));
-        self.emit(abi::load_u64(&p, &addr, 0));
-        self.emit(abi::store_u64(&p, abi::stack_pointer(), bucket_slot));
-        let set = self.lower_map_set_in_place(
-            result_slot,
-            key_slot,
-            bucket_slot,
-            &map_type,
-            key_type,
-            &list_v,
-            None,
-        )?;
-        self.emit(abi::store_u64(
-            &set.location,
-            abi::stack_pointer(),
-            result_slot,
+        // Header: count == capacity == nb, dataLength == dataCapacity; the hash
+        // index is not built (bucketsReady 0) — the first probe builds it, as
+        // for a map literal.
+        let map = self.temporary_vreg();
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), nb_slot));
+        self.emit(abi::load_u64(&d, abi::stack_pointer(), dsum_slot));
+        self.emit_write_collection_header_full(&map_layout, &map, &nb, &nb, &d, &d);
+        // 2b: entries, keys and bucket headers (no calls in this loop).
+        let lay_loop = self.label("gb_lay_loop");
+        let lay_done = self.label("gb_lay_done");
+        let base = self.temporary_vreg();
+        let entry = self.temporary_vreg();
+        let ko = self.temporary_vreg();
+        let sub = self.temporary_vreg();
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), nb_slot));
+        self.emit(abi::load_u64(&tsz, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&tbl, abi::stack_pointer(), tbl_slot));
+        self.emit_collection_data_pointer_for(&base, &map, &ParameterType::named(""));
+        self.emit(abi::add_immediate(&entry, &map, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&d, "Integer", "0"));
+        self.emit(abi::move_immediate(&b, "Integer", "0"));
+        self.emit(abi::label(&lay_loop));
+        self.emit(abi::compare_registers(&b, &nb));
+        self.emit(abi::branch_ge(&lay_done));
+        self.gb_record_address(&addr, &tbl, &tsz, &b, &t);
+        self.gb_bucket_size(&size, &dl, &cnt, &addr, &t, is_string);
+        // key payload at koff = align(d, key_align)
+        self.emit(abi::move_register(&ko, &d));
+        self.emit_align_offset_register(&ko, key_align, &align_scratch);
+        self.emit(abi::load_u64(&p, &addr, GB_REC_KEY));
+        self.emit(abi::add_registers(&t, &base, &ko));
+        self.emit(abi::store_u64(&p, &t, 0));
+        // bucket block at voff = align(koff + 8, value_align)
+        self.emit(abi::add_immediate(&d, &ko, GB_KEY_WIDTH));
+        self.emit_align_offset_register(&d, value_align, &align_scratch);
+        // entry b: used, key at koff, value = the whole bucket block at voff
+        self.emit(abi::move_immediate(
+            &t,
+            "Integer",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        // free the now-copied bucket
-        let keep = ValueResult {
-            origin: None,
-            type_: map_type.clone(),
-            location: {
-                let z = self.allocate_register();
-                self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
-                Operand::from(z)
-            },
-            text: String::new(),
-        };
-        self.free_intermediate_collection(bucket_slot, &list_v, keep)?;
-        self.emit(abi::load_u64(&r, abi::stack_pointer(), b_slot));
-        self.emit(abi::add_immediate(&r, &r, 1));
-        self.emit(abi::store_u64(&r, abi::stack_pointer(), b_slot));
-        self.emit(abi::branch(&fm_loop));
-        self.emit(abi::label(&fm_done));
-        // free the six scratch buffers (thread result through)
+        self.emit(abi::store_u64(&t, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u64(
+            &ko,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::move_immediate(
+            &t,
+            "Integer",
+            &GB_KEY_WIDTH.to_string(),
+        ));
+        self.emit(abi::store_u64(
+            &t,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &d,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            &size,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(&sub, &base, &d));
+        self.emit_write_list_header_from_registers(&v_layout, &sub, &cnt, &dl);
+        // record: block = the sub-block; count and data become fill cursors
+        self.emit(abi::store_u64(&sub, &addr, GB_REC_BLOCK));
+        self.emit(abi::store_u64(abi::ZERO, &addr, GB_REC_COUNT));
+        self.emit(abi::store_u64(abi::ZERO, &addr, GB_REC_DATA));
+        self.emit(abi::add_registers(&d, &d, &size));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&b, &b, 1));
+        self.emit(abi::branch(&lay_loop));
+        self.emit(abi::label(&lay_done));
+
+        // --- 3. fill the buckets in index order (no calls in this loop) ---
+        let f_loop = self.label("gb_fill_loop");
+        let f_done = self.label("gb_fill_done");
+        let bucket = self.temporary_vreg();
+        let j = self.temporary_vreg();
+        self.emit(abi::move_immediate(&i, "Integer", "0"));
+        self.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+        self.emit(abi::load_u64(&kp, abi::stack_pointer(), keys_slot));
+        self.emit(abi::add_immediate(&kp, &kp, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&vp, abi::stack_pointer(), vals_slot));
+        self.emit(abi::load_u64(&tsz, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&tbl, abi::stack_pointer(), tbl_slot));
+        self.emit(abi::shift_left_immediate(&recs, &tsz, 4));
+        self.emit(abi::add_registers(&recs, &recs, &tbl));
+        // String V: the source payloads are addressed from the `vals` data base.
+        let vdb = self.temporary_vreg();
+        if is_string {
+            self.emit_collection_data_pointer_for(&vdb, &vp, &ParameterType::String);
+        } else {
+            self.emit(abi::add_immediate(&vp, &vp, COLLECTION_HEADER_SIZE));
+        }
+        self.emit(abi::label(&f_loop));
+        self.emit(abi::compare_registers(&i, &n));
+        self.emit(abi::branch_ge(&f_done));
+        // id = keys[i]; rec = record(id)
+        self.emit(abi::shift_left_immediate(&t, &i, 3));
+        self.emit(abi::add_registers(&addr, &kp, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::shift_left_immediate(&p, &p, GB_REC_SHIFT));
+        self.emit(abi::add_registers(&addr, &recs, &p));
+        self.emit(abi::load_u64(&bucket, &addr, GB_REC_BLOCK));
+        self.emit(abi::load_u64(&j, &addr, GB_REC_COUNT));
+        self.emit(abi::add_immediate(&p, &j, 1));
+        self.emit(abi::store_u64(&p, &addr, GB_REC_COUNT));
+        if is_string {
+            let voff = self.temporary_vreg();
+            let vlen = self.temporary_vreg();
+            let eoff = self.temporary_vreg();
+            let entry = self.temporary_vreg();
+            let src = self.temporary_vreg();
+            let dst = self.temporary_vreg();
+            let d = self.temporary_vreg();
+            self.emit_element_value_offset(
+                &voff,
+                &vlen,
+                &vp,
+                &i,
+                &eoff,
+                &entry,
+                &ParameterType::String,
+            );
+            self.emit(abi::load_u64(&d, &addr, GB_REC_DATA));
+            self.emit(abi::add_registers(&p, &d, &vlen));
+            self.emit(abi::store_u64(&p, &addr, GB_REC_DATA));
+            // bucket entry j: used, no key, value at the data cursor.
+            self.emit(abi::move_immediate(
+                &t,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&entry, &j, &t));
+            self.emit(abi::add_registers(&entry, &entry, &bucket));
+            self.emit(abi::move_immediate(
+                &t,
+                "Integer",
+                &COLLECTION_ENTRY_FLAG_USED.to_string(),
+            ));
+            self.emit(abi::store_u64(
+                &t,
+                &entry,
+                COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                &entry,
+                COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                &entry,
+                COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::store_u64(
+                &d,
+                &entry,
+                COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &vlen,
+                &entry,
+                COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            // payload bytes: vals data base + voff -> bucket data base + d
+            self.emit(abi::add_registers(&src, &vdb, &voff));
+            self.emit_collection_data_pointer_for(&dst, &bucket, &ParameterType::String);
+            self.emit(abi::add_registers(&dst, &dst, &d));
+            self.emit_copy_bytes(&dst, &src, &vlen, "gb_fill_str");
+        } else {
+            self.emit(abi::shift_left_immediate(&t, &i, 3));
+            self.emit(abi::add_registers(&addr, &vp, &t));
+            self.emit(abi::load_u64(&p, &addr, 0));
+            self.emit(abi::shift_left_immediate(&t, &j, 3));
+            self.emit(abi::add_registers(&addr, &bucket, &t));
+            self.emit(abi::store_u64(&p, &addr, COLLECTION_HEADER_SIZE));
+        }
+        self.emit(abi::add_immediate(&i, &i, 1));
+        self.emit(abi::branch(&f_loop));
+        self.emit(abi::label(&f_done));
+
+        // free the table block, then the two projections (thread result through)
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), ts_slot));
+        self.emit(abi::shift_left_immediate(
+            abi::c_arg(1),
+            &r,
+            GB_TABLE_SLOT_SHIFT,
+        ));
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), tbl_slot));
+        self.emit_arena_free_call();
         let mut threaded = ValueResult {
             origin: None,
             type_: map_type.clone(),
@@ -465,10 +577,6 @@ impl CodeBuilder<'_> {
         for (s, ty) in [
             (keys_slot, ParameterType::list_of(key_type.clone())),
             (vals_slot, list_v.clone()),
-            (hk_slot, ParameterType::list_of(ParameterType::Integer)),
-            (ho_slot, ParameterType::list_of(ParameterType::Integer)),
-            (bp_slot, ParameterType::list_of(ParameterType::Integer)),
-            (ko_slot, ParameterType::list_of(ParameterType::Integer)),
         ] {
             threaded = self.free_intermediate_collection(s, &ty, threaded)?;
         }
@@ -478,6 +586,206 @@ impl CodeBuilder<'_> {
             location: threaded.location,
             text: "groupBy".to_string(),
         })
+    }
+
+    /// A bucket's tight block size into `size`, its data length into `dl` and its
+    /// element count into `cnt`, from the record at `rec`: kind 2 (fixed-width V)
+    /// is `HEADER + count * 8`; kind 0 (String V) is `HEADER + count * ENTRY +
+    /// payload bytes`.
+    fn gb_bucket_size(
+        &mut self,
+        size: &VirtualRegister,
+        dl: &VirtualRegister,
+        cnt: &VirtualRegister,
+        rec: &VirtualRegister,
+        scratch: &VirtualRegister,
+        is_string: bool,
+    ) {
+        self.emit(abi::load_u64(cnt, rec, GB_REC_COUNT));
+        if is_string {
+            self.emit(abi::load_u64(dl, rec, GB_REC_DATA));
+            self.emit(abi::move_immediate(
+                scratch,
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::multiply_registers(size, cnt, scratch));
+            self.emit(abi::add_registers(size, size, dl));
+        } else {
+            self.emit(abi::shift_left_immediate(dl, cnt, 3));
+            self.emit(abi::move_register(size, dl));
+        }
+        self.emit(abi::add_immediate(size, size, COLLECTION_HEADER_SIZE));
+    }
+
+    /// `out = home slot of key` in a table with `mask = slots - 1`: a Fibonacci
+    /// multiply folded high-into-low, so keys differing only in high bits (or
+    /// sharing low zero bits, e.g. multiples of 1024) still spread.
+    fn gb_home_slot(
+        &mut self,
+        out: &VirtualRegister,
+        key: &VirtualRegister,
+        mask: &VirtualRegister,
+        scratch: &VirtualRegister,
+    ) {
+        self.emit(abi::move_immediate(
+            scratch,
+            "Integer",
+            &GB_HASH_MUL.to_string(),
+        ));
+        self.emit(abi::multiply_registers(out, key, scratch));
+        self.emit(abi::shift_right_immediate(scratch, out, 32));
+        self.emit(abi::exclusive_or_registers(out, out, scratch));
+        self.emit(abi::and_registers(out, out, mask));
+    }
+
+    /// `out = &record[id]` in a table block of `slots` slots: the records follow
+    /// the `slots`-word key array and the `slots`-word occupancy array.
+    fn gb_record_address(
+        &mut self,
+        out: &VirtualRegister,
+        tbl: &VirtualRegister,
+        slots: &VirtualRegister,
+        id: &VirtualRegister,
+        scratch: &VirtualRegister,
+    ) {
+        self.emit(abi::shift_left_immediate(out, slots, 4));
+        self.emit(abi::add_registers(out, out, tbl));
+        self.emit(abi::shift_left_immediate(scratch, id, GB_REC_SHIFT));
+        self.emit(abi::add_registers(out, out, scratch));
+    }
+
+    /// Allocate a table block for the slot count in `ts_slot` into `dst_slot`:
+    /// `slots` key words, `slots` occupancy words (zeroed: 0 = empty, else bucket
+    /// id + 1), and `slots / 2` records — `32 * slots` bytes. Load stays ≤ 1/2, so
+    /// the records never outnumber `slots / 2`.
+    fn gb_alloc_table(&mut self, ts_slot: usize, dst_slot: usize) -> Result<(), String> {
+        let r = self.temporary_vreg();
+        let ok = self.label("gb_tbl_ok");
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), ts_slot));
+        self.emit(abi::shift_left_immediate(
+            abi::return_register(),
+            &r,
+            GB_TABLE_SLOT_SHIFT,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            dst_slot,
+        ));
+        let zp = self.temporary_vreg();
+        let zj = self.temporary_vreg();
+        let ts = self.temporary_vreg();
+        let zloop = self.label("gb_zloop");
+        let zdone = self.label("gb_zdone");
+        self.emit(abi::load_u64(&ts, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&zp, abi::stack_pointer(), dst_slot));
+        self.emit(abi::shift_left_immediate(&zj, &ts, 3));
+        self.emit(abi::add_registers(&zp, &zp, &zj));
+        self.emit(abi::move_immediate(&zj, "Integer", "0"));
+        self.emit(abi::label(&zloop));
+        self.emit(abi::compare_registers(&zj, &ts));
+        self.emit(abi::branch_ge(&zdone));
+        self.emit(abi::store_u64(abi::ZERO, &zp, 0));
+        self.emit(abi::add_immediate(&zp, &zp, 8));
+        self.emit(abi::add_immediate(&zj, &zj, 1));
+        self.emit(abi::branch(&zloop));
+        self.emit(abi::label(&zdone));
+        Ok(())
+    }
+
+    /// Double the table: allocate a block of twice the slots, copy the `nb`
+    /// records in bucket order and re-insert each record's key (occupancy = its
+    /// id + 1), free the old block, and publish the new one.
+    fn gb_grow_table(
+        &mut self,
+        ts_slot: usize,
+        tbl_slot: usize,
+        nb_slot: usize,
+    ) -> Result<(), String> {
+        let nts_slot = self.allocate_stack_object("gb_nts", 8);
+        let ntbl_slot = self.allocate_stack_object("gb_ntbl", 8);
+        let r = self.temporary_vreg();
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), ts_slot));
+        self.emit(abi::shift_left_immediate(&r, &r, 1));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), nts_slot));
+        self.gb_alloc_table(nts_slot, ntbl_slot)?;
+
+        let b = self.temporary_vreg();
+        let nb = self.temporary_vreg();
+        let old = self.temporary_vreg();
+        let new = self.temporary_vreg();
+        let ots = self.temporary_vreg();
+        let nts = self.temporary_vreg();
+        let mask = self.temporary_vreg();
+        let ho = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let key = self.temporary_vreg();
+        let slot = self.temporary_vreg();
+        let w = self.temporary_vreg();
+        let t = self.temporary_vreg();
+        let rh_loop = self.label("gb_rh_loop");
+        let rh_probe = self.label("gb_rh_probe");
+        let rh_put = self.label("gb_rh_put");
+        let rh_done = self.label("gb_rh_done");
+        self.emit(abi::load_u64(&old, abi::stack_pointer(), tbl_slot));
+        self.emit(abi::load_u64(&new, abi::stack_pointer(), ntbl_slot));
+        self.emit(abi::load_u64(&ots, abi::stack_pointer(), ts_slot));
+        self.emit(abi::load_u64(&nts, abi::stack_pointer(), nts_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), nb_slot));
+        self.emit(abi::subtract_immediate(&mask, &nts, 1));
+        self.emit(abi::shift_left_immediate(&ho, &nts, 3));
+        self.emit(abi::add_registers(&ho, &ho, &new));
+        self.emit(abi::move_immediate(&b, "Integer", "0"));
+        self.emit(abi::label(&rh_loop));
+        self.emit(abi::compare_registers(&b, &nb));
+        self.emit(abi::branch_ge(&rh_done));
+        self.gb_record_address(&src, &old, &ots, &b, &t);
+        self.gb_record_address(&dst, &new, &nts, &b, &t);
+        for off in [GB_REC_KEY, GB_REC_COUNT, GB_REC_DATA, GB_REC_BLOCK] {
+            self.emit(abi::load_u64(&w, &src, off));
+            self.emit(abi::store_u64(&w, &dst, off));
+        }
+        self.emit(abi::load_u64(&key, &src, GB_REC_KEY));
+        self.gb_home_slot(&slot, &key, &mask, &t);
+        self.emit(abi::label(&rh_probe));
+        self.emit(abi::shift_left_immediate(&t, &slot, 3));
+        self.emit(abi::add_registers(&w, &ho, &t));
+        self.emit(abi::load_u64(&w, &w, 0));
+        self.emit(abi::compare_immediate(&w, "0"));
+        self.emit(abi::branch_eq(&rh_put));
+        self.emit(abi::add_immediate(&slot, &slot, 1));
+        self.emit(abi::and_registers(&slot, &slot, &mask));
+        self.emit(abi::branch(&rh_probe));
+        self.emit(abi::label(&rh_put));
+        self.emit(abi::add_registers(&w, &new, &t));
+        self.emit(abi::store_u64(&key, &w, 0));
+        self.emit(abi::add_immediate(&w, &b, 1));
+        self.emit(abi::add_registers(&t, &ho, &t));
+        self.emit(abi::store_u64(&w, &t, 0));
+        self.emit(abi::add_immediate(&b, &b, 1));
+        self.emit(abi::branch(&rh_loop));
+        self.emit(abi::label(&rh_done));
+        // free the old block (32 * old slots bytes), then publish
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), ts_slot));
+        self.emit(abi::shift_left_immediate(
+            abi::c_arg(1),
+            &r,
+            GB_TABLE_SLOT_SHIFT,
+        ));
+        self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), tbl_slot));
+        self.emit_arena_free_call();
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), ntbl_slot));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), tbl_slot));
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), nts_slot));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), ts_slot));
+        Ok(())
     }
 }
 
