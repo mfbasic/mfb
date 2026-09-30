@@ -16,7 +16,16 @@ r#"FUNC __regex_compile(pattern AS String) AS __regex_Program
   IF parsed.nxt <> len(pat) THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN __regex_flatten(parsed.node, parsed.groups, parsed.names)
+  MUT prog AS __regex_Program = __regex_flatten(parsed.node, parsed.groups, parsed.names)
+  ' bug-773: no fixed first literal -- attach the first-scalar set, if the program has
+  ' one, after `kids`; `firstCp` = -2 - (its offset) = 128 - len(setKids).
+  IF prog.firstCp < 0 THEN
+    LET setKids AS List OF Integer = __regex_firstSetKids(prog.kinds, prog.opA, prog.opB, prog.opC, prog.kids, prog.leaves, prog.start)
+    IF len(setKids) > 0 THEN
+      prog = WITH prog { kids := setKids, firstCp := 128 - len(setKids) }
+    END IF
+  END IF
+  RETURN prog
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

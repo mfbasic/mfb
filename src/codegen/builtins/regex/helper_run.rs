@@ -66,10 +66,20 @@ r#"' A pending choice point: `kind` 1 = the next option `i` of the Alt op `alt`,
 ' order, the first match winning -- so the tables are built once per search and reset,
 ' not rebuilt, at each start: `frameTop` goes back to the root's capture frame,
 ' `pending` is already 0 when a start has failed, and `caps` is refilled. A start
-' position whose scalar cannot begin a match is skipped past a fixed first literal
-' (`firstCp` >= 0, plan-77 R5).
+' position whose scalar cannot begin a match is skipped: past a fixed first literal
+' (`firstCp` >= 0, plan-77 R5), or outside the first-scalar set `__regex_compile`
+' attaches (`firstCp` <= -2, see __regex_firstSetKids), where the skip charges both
+' budgets the node visits the failed attempt would have made.
 FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, from AS Integer, ctx AS __regex_Ctx) AS __regex_Result
   LET firstCp AS Integer = prog.firstCp
+  MUT setAt AS Integer = -1
+  MUT setNonAscii AS Boolean = FALSE
+  MUT rejectCost AS Integer = 0
+  IF firstCp <= -2 THEN
+    setAt = -2 - firstCp
+    setNonAscii = collections::get(prog.kids, setAt + 128) <> 0
+    rejectCost = collections::get(prog.kids, setAt + 129)
+  END IF
   MUT frames AS List OF Integer = [2, 0, 0, 0, -1]
   MUT frameTop AS Integer = 1
   MUT frameTag AS Integer = 0
@@ -107,6 +117,24 @@ FUNC __regex_run(prog AS __regex_Program, leaves AS List OF __regex_Leaf, from A
       IF firstCp >= 0 THEN
         WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
           s = s + 1
+        END WHILE
+      ELSEIF setAt >= 0 THEN
+        MUT skipping AS Boolean = TRUE
+        WHILE skipping AND s < ctx.n
+          LET sc AS Integer = collections::get(ctx.cps, s)
+          MUT may AS Boolean = setNonAscii
+          IF sc < 128 THEN
+            may = collections::get(prog.kids, setAt + sc) <> 0
+          END IF
+          ' A skip that would cross a budget runs the attempt instead, which fails the
+          ' call with the same error the attempt always raised there.
+          IF may OR __regex_steps + rejectCost > __REGEX_STEP_BUDGET OR __regex_callSteps + rejectCost > __regex_callBudget THEN
+            skipping = FALSE
+          ELSE
+            __regex_steps = __regex_steps + rejectCost
+            __regex_callSteps = __regex_callSteps + rejectCost
+            s = s + 1
+          END IF
         END WHILE
       END IF
       IF s > ctx.n THEN

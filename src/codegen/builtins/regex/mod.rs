@@ -31,6 +31,7 @@ mod helper_class_match_one;
 mod helper_compile;
 mod helper_expand;
 mod helper_fail;
+mod helper_first_set;
 mod helper_flatten;
 mod helper_init_caps;
 mod helper_is_ascii_punct;
@@ -1055,6 +1056,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_parse_concat::register(&mut pkg);
     helper_parse_alt::register(&mut pkg);
     helper_flatten::register(&mut pkg);
+    helper_first_set::register(&mut pkg);
     helper_compile::register(&mut pkg);
     helper_all_digits::register(&mut pkg);
     helper_lookup_num::register(&mut pkg);
