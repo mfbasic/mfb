@@ -897,6 +897,14 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
   payload is written at the new tail. Kind-2 (fixed-width) lists never change
   size. An out-of-range index fails with `ErrIndexOutOfRange`, like the value
   path.
+
+  The value path checks the index against the argument before it allocates, so
+  a failing call leaves nothing behind (bug-782). A fixed-width element takes a
+  tight copy (`copy_collection_tight`) and overwrites in place on the copy,
+  after `emit_list_index_range_check`. Any other element runs `removeAt` then
+  `insert`, and `removeAt` checks before it allocates.
+  [[src/codegen/builtins/collections/func_set.rs:lower_set]]
+  [[src/codegen/builtins/collections/gen_mutate.rs:emit_list_index_range_check]]
 - **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
   `get` (linear-scan fallback for non-probe key types), which also lazily builds
   the bucket index so a build-via-`set` loop stays O(n). A hit whose new
@@ -936,8 +944,10 @@ the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
 dataLength`). When the source list's dead bytes outnumber its live ones, only its
 live payloads are copied, packed in entry order (see *Compaction*). No existing
-entry is shifted in place. The inserted argument is first normalized to a
-singleton list. (A self-update `x = insert(x, …)` is the in-place form, under
+entry is shifted in place. The index is range-checked (`0 <= index <= count`,
+`ErrIndexOutOfRange`) before the inserted argument is normalized to a
+singleton list, so a failing call allocates nothing (bug-782).
+[[src/codegen/builtins/collections/func_insert.rs:lower_insert]] (A self-update `x = insert(x, …)` is the in-place form, under
 *Self-updates*.)
 
 ### `removeAt`
