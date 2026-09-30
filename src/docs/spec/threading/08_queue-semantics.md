@@ -31,7 +31,8 @@ concurrently.
 No thread allocates in another thread's arena — an arena's free-list pop is
 unsynchronized. Every value that crosses is deep-copied into the thread's **block
 arena** (`./mfb spec threading control-block`), which belongs to neither thread and
-is only ever touched under the block lock:
+serializes allocations and drops under the block lock. Reads of retained
+messages for call-site materialization happen after the helper unlocks:
 
 - **Send** (`thread.send`/`emit`/`transferResource`/`emitResource`): the call site
   passes the sender's value and its type's copy and drop functions. The write helper
@@ -55,13 +56,13 @@ the source record `moved|closed`, so the sender's binding cannot act on a handle
 that has left. Because the copy happens only when the enqueue is certain, the flag
 is set exactly when the transfer succeeds.
 
-Timeouts differ between the writing side (`thread::send`, `thread::transfer`) and
-the reading side (`thread::receive`, `thread::accept`).
+## Timeouts
 
 All four waits obey the language **timeout convention** (see
 `./mfb spec language builtin-functions` → "Timeout convention"): **omitting**
 `timeoutMs` blocks unboundedly, `0` is one immediate attempt, a positive value
-waits up to that many milliseconds, and a negative value is `ErrInvalidArgument`.
+waits up to that many milliseconds. Negative values are `ErrInvalidArgument`
+except for the runtime's reserved `i64::MIN` sentinel described below.
 
 For `thread::send` and `thread::transfer` (producing calls), omitting `timeoutMs`
 **blocks** until the destination queue has space or it/the thread closes; `0`
@@ -73,42 +74,37 @@ timeout waits up to that many milliseconds then fails with `ErrTimeout`.
 call waits until a message/resource arrives, the queue is closed, or the worker is
 cancelled. Supplying `timeoutMs` requires a value `>= 0`: `0` is one immediate
 attempt (fails with `ErrTimeout` when the still-open queue is empty) and a positive
-value waits up to that many milliseconds (`ErrTimeout` on expiry). A negative
-explicit `timeoutMs` is rejected with `ErrInvalidArgument` — to wait indefinitely,
-omit the argument. A blocking read that observes cancellation of the worker fails
+value waits up to that many milliseconds (`ErrTimeout` on expiry). The
+source-level spelling for an indefinite wait is to omit the argument. An empty worker-side read that observes cancellation fails
 with `ErrInterrupted`; a blocking parent read wakes with `ErrNotFound` when the
 worker completes or closes its outbound queue, so it never waits forever —
 `ErrNotFound` marks a *terminally* empty queue, distinct from an unmet deadline's
 `ErrTimeout`. (Internally the no-timeout form is lowered by padding the missing
 `timeoutMs` with the unbounded block sentinel, `i64::MIN`; each queue helper waits
-indefinitely on exactly that value and rejects every other negative timeout, so no
-explicit value can request the indefinite wait.)
+indefinitely on exactly that value and rejects every other negative timeout.
+The helper receives no argument-presence flag, so an explicitly supplied
+`i64::MIN` also takes the indefinite path.)
+[[src/codegen/engine/value/builder_values.rs:lower_runtime_helper_call]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
-For `thread::send` and `thread::transfer`, ownership transfer is atomic with
-enqueue success:
+## Copy and move semantics
 
-- If enqueue succeeds, the destination side owns the value immediately. While the
-  value is queued, the destination queue owns its block-arena copy.
-- If enqueue fails because the queue is full, closed, cancelled, timed out, or
-  the timeout is invalid, ownership is not transferred and the sender still owns
-  the value.
-- Code may attach an inline `TRAP` to `thread::send(...)`/`thread::transfer(...)`
-  to separate the success path, where the sent/transferred binding is moved, from
-  the error handler, where it remains owned by the sender and can be released. The
-  compiler treats the argument at index 1 of `thread.start`, `thread.send`, and
-  `thread.transfer` as a move (`ExprMode::Transfer`). Any holder of a resource
-  pointer may transfer it — a resource is owned by the outermost scope that touches
-  it (§15.6) — and the transfer is tracked as a move, so a later use of the
-  transferred name is a use-after-move. The sender's record is flagged `moved`, so
-  an operation that still reaches it — through an alias the move rules do not
-  track, such as a `RES` parameter — reports `ErrResourceMoved` rather than acting
-  on a handle that has left.
-  [[src/ir/verify/resources.rs:check_resource_moves]]
+`thread::start` and data-plane `thread::send` retain the caller's original
+value. The block arena owns the copy placed on the queue. `thread::transfer`
+instead moves a resource: on success the source record is marked moved/closed;
+on failure it remains the sender's. An inline `TRAP` can therefore use the
+resource on the failure path. A subsequent operation through a moved alias
+reports `ErrResourceMoved`.
+[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:claim_moved_thread_arg_temp]]
+[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 
-Receiving a non-copyable value moves it out of the queue into the receiver's
-binding. Receiving a copyable value may copy or move according to the normal
-representation rules. In all cases, a heap-backed received value is materialized
-in storage valid for the receiving thread before user code observes it.
+A read materializes the returned value in the receiver's arena. For a resource,
+this copies the record and its `STATE` and marks the queued record moved/closed;
+it does not duplicate ownership of the OS handle.
+[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+
+## Cancellation and readiness
 
 Cancellation is cooperative:
 
@@ -119,19 +115,26 @@ Cancellation is cooperative:
   `ErrInterrupted` when cancellation is requested for their worker thread.
 - The runtime does not forcibly kill the worker as normal cancellation behavior.
 
-Cancellation points are built-in operations whose implementations can safely
-return an error without abandoning partially moved values or held runtime locks.
-The runtime cancellation points are indefinitely blocking or timed waits
-in the worker-side channel ops — `thread::receive`, `thread::send`,
-`thread::accept`, and `thread::transfer` on a `ThreadWorker`. If cancellation is
-already requested before a worker enters one of these operations, the operation
-fails immediately with `ErrInterrupted`. If cancellation is requested while the
-operation is blocked, the runtime wakes the wait and the operation fails with
-`ErrInterrupted`. Other blocking built-ins that are implemented as
-runtime-managed waits, such as terminal input, blocking file reads, or network
-waits, must use the same cooperative error-return model when cancellation
-integration is provided.
-Normal `TRAP` and auto-propagation behavior then runs in the worker.
+Queue writes check cancellation before enqueueing, even when space is available.
+Queue reads check occupancy first: a queued message or resource is returned even
+if cancellation has been requested. Once a worker's queue is empty, cancellation
+produces `ErrInterrupted`; an empty closed queue on the parent side produces
+`ErrNotFound`. Cancellation closes all four queues and broadcasts their waiters,
+but does not discard their queued entries.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+
+A positive `os::sleep` in a worker is also a cancellation point; zero is a no-op.
+The implementation is specified by `./mfb spec threading thread-runtime-helpers`.
+Normal `TRAP` and auto-propagation behavior applies to `ErrInterrupted`.
+
+`thread::poll(t, ms)` observes only the outbound data queue and never dequeues.
+It requires `ms >= 0`, returns `TRUE` when data is queued, and returns `FALSE`
+when an empty queue's worker is completed or the wait expires. Zero checks once.
+It does not inspect the cancellation flag or queue-closed flag: cancelling a
+still-running worker does not by itself end a positive poll's wait.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 
 Cancellation does not interrupt arbitrary user code, does not asynchronously
 terminate the OS thread, and does not unwind out of foreign/native code that has
@@ -139,27 +142,20 @@ not registered a cancellation point. A worker in non-blocking computation must
 still check `thread::isCancelled(t)` or call a cancellation-point operation to
 observe the request.
 
-There is intentionally no `thread::stop()` operation. Asynchronous termination
-can kill a worker while it owns a resource handle, holds a queue lock, is moving
-a non-copyable value, is writing its result, or is inside package/native code.
-That would make ownership and cleanup ambiguous and can leak resources, poison
-queues, or deadlock other threads. Stopping work must happen at cooperative
-cancellation points where the worker can return normally and the runtime can
-close or transfer every owned value exactly once.
+There is no source `thread::stop` or `thread::detach` operation. Dropping a
+running parent view requests cancellation and detaches its OS worker.
 
-There is also no separate `thread::detach()` source API. Dropping a running
-`Thread` already requests cancellation and detaches the OS worker for eventual
-runtime cleanup. A public detach operation would need the same ownership and
-cleanup guarantees as dropping the handle, while making it easier for user code
-to abandon a worker that still owns resources or queued values.
+## Cleanup
 
 A parent `Thread` view is a resource, so the compiler drops it through the
 ordinary resource cleanup: scope exit, `RETURN`, `FAIL`, `PROPAGATE`,
 auto-propagated errors, and trap routing run its close op, the drop helper
 (`thread.drop`, `_mfb_rt_thread_thread_drop`), in reverse declaration order, and
 then free the 96-byte view record. The drop helper closes the view first, then
-marks the control block `CLOSED` (state 2), sets the cancellation flag, closes and
-clears both data queues (broadcasting their waiters) and wakes the resource plane.
+marks the control block `CLOSED` (state 2), sets the cancellation flag,
+closes all four queues and broadcasts their waiters. It also resets the outbound
+data queue's count, head, and tail, discarding its unread data; those blocks
+remain in the block arena until destruction. Other queued entries remain recorded.
 A worker still running is then `pthread_detach`ed; a worker that had already
 completed is `pthread_join`ed, unless a `thread::waitFor` already joined it. Last
 it gives up the handle side's reference on the control block, which is freed by
@@ -172,20 +168,13 @@ wrote) or on a closed view does nothing.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_cleanup_call]]
 
-The same scope-drop cleanup mechanism also frees ordinary owned **values** with
-one `arena_free` each, in the same reverse order on the same exit paths — the
-general lexical value-cleanup rule owned by `./mfb spec language memory-semantics`.
-Two thread-specific exclusions apply, because those values are not plain blocks
-this scope owns:
-
-- **Thread-boundary results are the call site's copy.** A value produced by
-  `thread::receive`, `thread::waitFor` or `thread::accept` is copied at the call
-  site out of the block arena into the calling thread's arena, and that copy is
-  owned and freed like any fresh value; the block-arena original stays the
-  queue's (or the control block's) and is never freed by the caller.
-  [[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
-- **Resources** stay move-only handles closed by their own close op, never
-  `arena_free`d, exactly as before.
+A value produced by `thread::receive`, `thread::waitFor`, or `thread::accept`
+is copied at the call site out of the block arena into the calling thread's
+arena. That copy follows ordinary value/resource cleanup; the caller never frees
+the block-arena original. Resource cleanup closes the handle and frees its owned
+record and state, except for the runtime-owned embedded worker view.
+[[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
 
 When the worker completes:
 
@@ -197,20 +186,20 @@ When the worker completes:
   called; it closes nothing.
 - Remaining outbound messages stay readable until drained.
 
-If a queued value is never received, it is dropped exactly once when the control
-block is freed: the release runs each queue's recorded drop function on every
-message still in its ring and on its last read's, before the block arena is
-destroyed. A resource's drop closes a record that is still open, so a transfer
-nobody accepted does not leak its OS handle. Until then — including after the handle
-side drops a running thread — the messages stay owned by their queues.
+On final release, entries still recorded in the queues are dropped: the release
+runs each queue's recorded drop function on every message still in its ring and
+its retained last-read value, before the block arena is destroyed. A resource's
+drop closes a record that is still open, so a transfer nobody accepted does not
+leak its OS handle. Discarded outbound data needs no resource close and is
+reclaimed with the block arena. Resource queues retain their entries until receipt or final release.
 [[src/codegen/runtime/thread/control_block.rs:lower_thread_block_release]]
 
 A worker's own arena is unmapped by the worker itself as the last step of its run
 (`_mfb_rt_thread_finish`, after it has published its result): nothing another
 thread can read points into it, because the result and every message are
 block-arena copies, and the worker's own scope drops have already run. Its buffered
-standard output is drained just before, so a worker that returns without
-`io::flush` loses nothing. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+standard output is drained on exit even without an explicit `io::flush`; this
+is best-effort, and a write failure cannot be reported after the worker returns. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 ## See Also
 

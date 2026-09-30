@@ -6,9 +6,9 @@ The authoritative source-level API reference is the built-in `thread` package
 it. See the See Also section for the related specs.
 
 
-## Goals
+## Execution contract
 
-MFBASIC threads provide isolated package workers with typed input, output, and
+MFBASIC threads provide isolated workers with typed input, output, and
 two communication channels: a **data plane** (`thread::send`/`thread::receive`/
 `thread::poll`) carrying copyable values, and a **resource plane**
 (`thread::transfer`/`thread::accept`) carrying move-only resource handles. The
@@ -26,7 +26,7 @@ The model has these requirements:
   direction (inbound parent→worker, outbound worker→parent) on each plane.
 - All values that cross a thread boundary have thread-sendable types.
 - The data plane is resource-free; sendable resource handles move on the
-  dedicated resource plane without being copied.
+  dedicated resource plane without duplicating ownership of the handle.
 - The worker outcome is stored internally and read by `thread::waitFor(t)`, as many times as it is called; the parent `Thread` handle closes when it is dropped.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
@@ -48,10 +48,10 @@ and `queue-semantics` specify the runtime contract: the full helper-symbol set,
 the native control-block and queue-record layouts, the direction-split internal
 lowering of the data and resource planes, and the bounded-queue, cancellation,
 and cleanup behavior. `os-integration` and `linking-requirements` give the
-concrete macOS/Linux thread creation and the native linking obligations;
+concrete macOS, Linux, and Windows thread creation and the native linking obligations;
 `error-propagation` covers how worker results (and their source locations) flow
-back through `thread::waitFor`; and `validation` lists the runtime test coverage
-a complete implementation must include.
+back through `thread::waitFor`; and `validation` identifies the runtime tests
+that exercise these contracts.
 
 ## See Also
 

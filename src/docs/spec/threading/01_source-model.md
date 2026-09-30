@@ -17,23 +17,19 @@ The compiler rejects:
 - Functions whose first parameter is not `ThreadWorker OF Msg TO Out`.
 - Functions whose return type does not match `Out`.
 
-The first three are enforced together by the thread-builtin call checker, which
-requires the entry argument to resolve to a visible signature that is
-simultaneously a `FUNC` and isolated; failure reports
+The entry-name and isolation checks require an identifier resolving to an
+isolated function in the current project or an imported signature; failure reports
 `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must name an ISOLATED FUNC.`. The parameter-shape and
 return-type checks are the ordinary function-reference signature match.
-[[src/ir/shape.rs:check_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
+[[src/ir/shape.rs:thread_start_entry_valid]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 **Provenance is not a criterion.** `ISOLATED` is the sole marker: an entry may be
 a function this project declares, named by its bare identifier at any visibility
 (`PRIVATE`, `PUBLIC` or `EXPORT`) and in a project of any `kind`, or an imported
-package's `EXPORT ISOLATED FUNC` named through its import binding. Both spellings
-lower to one `FunctionRef`, so the checker sees a single shape and needs no
-per-spelling branch. There is no reserved import specifier: an earlier design
-required an entry to be reached through an import and added `IMPORT self` so that
-a package could reach its own; both the requirement and the specifier were
-removed, and `self` is an ordinary identifier.
+package's `EXPORT ISOLATED FUNC` named through its import binding. Both spellings lower to a `FunctionRef`; entry validation resolves the bare
+name through local functions or the qualified name through imported signatures. `self` is an ordinary identifier, not a reserved import
+specifier.
 [[src/ir/shape.rs:thread_start_entry_valid]]
 
 ## Thread type grammar (parsing)
@@ -54,14 +50,18 @@ union, and resource types may cross a boundary) are owned by
 
 - Thread sendability is a type property decided by the thread-sendability
   predicate; it is not stored as a per-value flag in every value's memory
-  block. Opaque resource handles opt in through resource metadata. [[src/ir/verify/resources.rs:is_thread_sendable]]
-- Statically known non-sendable `In`, `Msg`, `Out`, or `Res` types are rejected
-  before lowering, error code
-  `TYPE_THREAD_NOT_SENDABLE`. The data plane is additionally resource-free: a
-  `Msg` that is itself a resource type is rejected at `thread::send` with guidance
-  to use `thread::transfer`. [[src/ir/verify/resources.rs:check_thread_boundary_sendability]]
-- Runtime helpers and the verifier still consult type metadata so queued values
-  can be moved, dropped, or closed correctly.
+  block. Opaque resource handles opt in through resource metadata. [[src/ir/verify/resources.rs:thread_unsendable_cause]]
+- Boundary checks run during IR verification. Non-sendable types report
+  `TYPE_THREAD_NOT_SENDABLE`; resource/data-plane violations report
+  `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`; transferring a worker view reports
+  `TYPE_THREAD_WORKER_NOT_TRANSFERABLE`. The declared handle planes and the
+  boundary call arguments are checked separately.
+  [[src/ir/verify/resources.rs:require_thread_sendable]]
+  [[src/ir/verify/resources.rs:check_thread_sendability]]
+  [[src/ir/verify/resources.rs:check_thread_boundary_sendability]]
+- Runtime queue helpers are type-agnostic. Codegen passes per-type copy/drop
+  function pointers so values are materialized and resources closed correctly.
+  [[src/codegen/runtime/thread/value_functions.rs:emit_thread_value_fn_address]]
 
 ## See Also
 

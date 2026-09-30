@@ -1,17 +1,16 @@
 # Validation
 
-Thread support is not validated by compiler output alone. A complete
-implementation must include runtime tests that execute generated native
-programs. Runtime tests live under a category root (`tests/{acceptance,syntax,rt-error,rt-behavior}/…/<name>/`) with a `golden/<name>.run`
+The threading fixtures execute generated native programs and compare observable
+behavior with checked-in goldens. Runtime tests live under a category root (`tests/{acceptance,syntax,rt-error,rt-behavior}/…/<name>/`) with a `golden/<name>.run`
 golden capturing observable behavior; compile-only tests (type-checking,
 diagnostics) omit the `.run` file. Worker packages used by the tests are built
 from sources under `tools/thread-package-sources/`. The runner is
 `scripts/test-accept.sh`.
 
-Required coverage includes:
+The test corpus covers:
 
-- Starting a thread and printing from the worker
-  (`thread-print-count`).
+- Starting a thread and printing from the worker (`thread-print-count`), including
+  an entry declared in the executable (`thread-executable-local-entry-rt`).
 - Sending parent-to-worker messages and emitting worker-to-parent messages, with
   `thread::poll`/`thread::receive` on the parent
   (`thread-receive-print`, `thread-main-poll`).
@@ -33,11 +32,9 @@ Required coverage includes:
   (`thread-transfer-state-rt`).
 - Calling an imported package from inside a worker
   (`thread-import-pkg-receive-rt`).
-- Reading package-level globals inside a worker: every global must hold the same
-  declared value it holds on the main thread, and a worker's write to a `MUT`
-  global must stay in that worker's arena (`thread-package-globals-rt`). This is
-  the bug-369 regression — the globals region is per-arena, so a worker that does
-  not reserve and initialize its own reads past the end of its arena-state block.
+- Evaluating package-level global initializers inside a worker: constant
+  initializers yield their declared values, and a worker's write to a `MUT`
+  global must stay in that worker's arena (`thread-package-globals-rt`).
 - Calling a native `LINK` binding from inside a worker
   (`thread-link-worker-rt`): the dlsym-resolved pointer slots live in that same
   per-arena region, so they must be resolved on the worker too.
@@ -50,9 +47,14 @@ Required coverage includes:
   result (`func_thread_result_valid`, `thread-waitfor-repeatable`), including
   through a function the handle was lent to (`thread-borrow-on-pass`).
 - Per-builtin signature and diagnostic coverage via the `func_thread_*_valid` /
-  `func_thread_*_invalid` test pairs (start, send, receive, emit, poll, read,
-  waitFor, cancel, isRunning, isCancelled, transfer).
-- Verifying the same runtime behavior on supported OS targets.
+  `func_thread_*_invalid` test pairs (start, send, receive, poll, waitFor, cancel, isRunning,
+  isCancelled, transfer). Fixtures named `emit` and `read` exercise the
+  worker-send and parent-receive forms of the source API.
+- Worker sleep and cancellation (`os-sleep-worker-rt`,
+  `os-sleep-worker-cancel-rt`).
+
+Runtime validation is target-specific: a passing host run does not establish
+execution behavior on another OS or architecture.
 
 Acceptance tests should include `.run` goldens when behavior is observable
 through stdout/stderr or exit code.

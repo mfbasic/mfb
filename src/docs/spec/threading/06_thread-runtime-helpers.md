@@ -3,9 +3,10 @@
 Source calls to the `thread` package lower to runtime helper calls. The native
 backend provides stable helper symbols. Each `thread.<op>` lowering target maps
 to a symbol named `_mfb_rt_thread_thread_<op>` (the doubled `thread` is the
-runtime-module prefix plus the call name); the trampoline is the one exception.
+runtime-module prefix plus the call name). Internal lifecycle and stdin-log
+helpers have their own symbols, listed separately below.
 
-The complete helper set:
+The thread-operation helpers and worker entry routine:
 
 ```text
 _mfb_rt_thread_thread_start            ; thread::start
@@ -23,17 +24,29 @@ _mfb_rt_thread_thread_transferResource ; resource plane, parent -> worker (inbou
 _mfb_rt_thread_thread_emitResource     ; resource plane, worker -> parent (outbound)
 _mfb_rt_thread_thread_acceptResource   ; resource plane, worker reads inbound
 _mfb_rt_thread_thread_readResource     ; resource plane, parent reads outbound
-_mfb_rt_thread_trampoline              ; pthread start routine
+_mfb_rt_thread_thread_openStdIn        ; subscribe the caller or a worker
+_mfb_rt_thread_thread_closeStdIn       ; unsubscribe the caller or a worker
+_mfb_rt_thread_trampoline              ; OS thread start routine
 ```
 
-They share six internal helpers, emitted with the trampoline:
+Internal lifecycle helpers are:
 `_mfb_rt_thread_table_acquire`/`_release` (the thread table's slots),
 `_mfb_rt_thread_block_arena_create`/`_destroy`, `_mfb_rt_thread_block_release` (free
 a control block whose release count reached zero) and `_mfb_rt_thread_finish` (the
 worker's exit). The per-type copy and drop functions the helpers call are
-`_mfb_rt_thread_copy_value_<type>` / `_mfb_rt_thread_drop_value_<type>` (see
-`control-block` § The block arena).
+`_mfb_rt_thread_copy_value_<type>_<hash>` /
+`_mfb_rt_thread_drop_value_<type>_<hash>`: the type name is sanitized to ASCII
+alphanumerics/underscores and suffixed with a 16-digit hexadecimal hash of the
+original spelling (see `control-block` § The block arena).
+[[src/codegen/runtime/thread/value_functions.rs:thread_value_fn_symbol]]
+The subscription operations call `_mfb_rt_stdin_subscribe` /
+`_mfb_rt_stdin_unsubscribe`, shared with program startup and worker teardown.
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_stdin_subscription_helper]]
 [[src/codegen/runtime/thread/control_block.rs:THREAD_FINISH_SYMBOL]]
+The trampoline and finish helper are emitted when a worker start is used; the
+table and block-arena helpers are emitted when start or a reference to block
+release requires them.
+[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 Sleeping is not in this set: it is `_mfb_rt_os_os_sleep`, the body behind
 `os::sleep(ms)`, which serves the main thread and a worker alike (see
@@ -87,17 +100,20 @@ value). It allocates the control block from the heap, zeroes it, and builds it
   outbound queues take the `outboundLimit`.
 - A freshly allocated worker arena state from the heap (zero-initialized, the
   parent's Money rounding mode, an RNG seed drawn from the parent stream, a
-  distinct entropy-fill seed). It is sized `ENTRY_GLOBALS_OFFSET + (globals + LINK
-  + term:: state slots) * 8` — the same slot count the entry frame reserves —
-  because the writable globals region is addressed off the arena-state register
-  and is therefore **per-arena**.
+  distinct entropy-fill seed). Its size is
+  `ENTRY_GLOBALS_OFFSET + arena_global_slots * 8`, using the same slot count as
+  the program entry: globals and the enabled LINK, terminal, presentation, mouse,
+  and input state regions. These regions are **per-arena**.
+  [[src/codegen/runtime/thread/runtime_helpers_thread.rs:worker_arena_state_size]]
+  [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
-block pointer as the pthread argument (see `os-integration`). Any failure after
+block pointer as the OS start-routine argument (see `os-integration`). Any failure
+after
 the table slot is taken frees everything built so far through
 `_mfb_rt_thread_block_release`; an allocation failure is `ErrOutOfMemory`, a
-`pthread_*_init` or `pthread_create` failure `ErrInterrupted`, a limit below 1
-`ErrInvalidArgument`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+synchronization initialization or OS thread-creation failure `ErrInterrupted`,
+and a queue limit outside `1..=u64::MAX / 8` `ErrInvalidArgument`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## Sleeping inside a worker
 
@@ -128,8 +144,8 @@ deadline rather than polling, so the cancellation contract holds there too.
 
 ## Trampoline
 
-The trampoline is a normal pthread start routine entered with the control-block
-pointer in `x0`. It:
+The trampoline is an OS thread start routine entered with the control-block
+pointer in the target ABI's first C argument register (`x0` on AArch64). It:
 
 - Restores the runtime register state generated code expects: the arena-state
   register is loaded from the worker arena state, and the closure environment
@@ -143,7 +159,8 @@ pointer in `x0`. It:
   a failure of the body itself. The static closure descriptors are deliberately
   NOT re-run: they live in process-global BSS rather than the arena, so the
   entry's one-time pass covers every thread.
-- Calls the worker export with:
+- Calls the worker function with the first two argument registers (`x0`/`x1`
+  on AArch64):
 
 ```text
 x0 = the worker's view (the ThreadWorker record embedded in the control block)
@@ -152,7 +169,7 @@ x1 = input value
 
 - Captures the returned `Result OF Out` — tag, value, error message, and error
   source `ErrorLoc` pointer — and hands it to `_mfb_rt_thread_finish`, then
-  returns `NULL` to pthread. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+  returns zero to the OS start-routine caller. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 `_mfb_rt_thread_finish` first drains the worker's buffered standard output, then
 does, under the block lock: unless the parent already

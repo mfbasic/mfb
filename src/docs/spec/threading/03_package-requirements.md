@@ -1,7 +1,9 @@
 # Package Requirements
 
-Thread entry functions live in `.mfp` packages. The executable imports the worker
+Thread entry functions may be declared in the executable itself or imported
+from `.mfp` packages. For an imported entry, the executable imports the worker
 package, and the worker package may import additional packages.
+[[src/ir/shape.rs:thread_start_entry_valid]]
 
 For example:
 

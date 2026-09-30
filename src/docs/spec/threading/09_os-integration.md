@@ -2,7 +2,7 @@
 
 Threads are real native OS threads.
 
-## macOS aarch64
+## macOS AArch64
 
 The macOS backend starts MFBASIC workers through libSystem pthreads:
 
@@ -11,22 +11,18 @@ pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlB
   ; attr = a pthread_attr_t initialized with an 8 MiB stack (pthread_attr_setstacksize)
 ```
 
-The trampoline is a normal pthread start routine. The runtime must not start
-workers with raw Mach `thread_create_running`, because package imports used by a
-worker may call libSystem facilities that require pthread registration,
-including pthread TLS, `pthread_self`, errno storage, locale and stdio locks,
-malloc internals, and other libc state. Mach thread APIs such as
-`mach_thread_self` are reserved for introspection helpers only and are not the
-thread creation ABI.
+The trampoline is a pthread start routine, with libSystem managing the OS
+thread's pthread registration and TLS. Generated thread helpers call the
+pthread interface, not raw Mach thread creation.
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
-The linker must support both branch-call imports and any data or GOT-style
-relocations required by libSystem integration. Missing linker support is not an
-acceptable substitute for thread functionality.
+See `./mfb spec linker macos-aarch64` for libSystem imports and relocations.
 
-## Linux aarch64
+## Linux AArch64, x86-64, and riscv64
 
-The Linux backend is cross-compiled and does not invoke an external system
-linker. The compiler emits dynamic ELF executables directly.
+The compiler emits dynamic ELF executables directly, including for cross-target
+builds, without invoking an external system linker.
 
 It emits both a glibc (`build/<project>-glibc.out`) and a musl
 (`build/<project>-musl.out`) flavor into the project's output directory. Each carries the ELF interpreter path and `DT_NEEDED` list its libc
@@ -44,14 +40,35 @@ pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlB
 
 The Linux trampoline is a normal pthread start routine. It preserves the
 callee-saved runtime registers required by generated code, restores the worker
-arena state, calls the worker export, stores the returned result in the control
-block, keeps the worker arena live as needed for that result, marks the worker
-complete, and returns `NULL` to pthread.
+arena state, calls the worker function, stores the returned result in the control
+block through `_mfb_rt_thread_finish`, and returns `NULL` to pthread. The result
+is copied into the block arena; the worker destroys its own arena before returning.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
 the Linux backend. They may be used by libc internally, but generated
 thread helpers must call the libc/pthread interface. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+
+## Windows x86-64
+
+The Windows backend starts a worker with
+`CreateThread(NULL, 8 * 1024 * 1024, trampoline, controlBlock, 0, NULL)`.
+The returned `HANDLE` is stored in the control block; zero reports
+`ErrInterrupted`. The trampoline uses the Windows calling convention and returns
+zero after the same worker initialization, result publication, and arena teardown
+as the POSIX targets.
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+
+The common thread helpers express synchronization as pthread operations; the
+Windows emitter translates them to SRW locks and condition variables:
+`AcquireSRWLockExclusive` / `ReleaseSRWLockExclusive`,
+`SleepConditionVariableSRW`, and `WakeConditionVariable` /
+`WakeAllConditionVariable`. Joining uses `WaitForSingleObject` followed by
+`CloseHandle`; detaching closes the OS handle without waiting for the worker.
+Timed waits convert the absolute deadline to a remaining millisecond timeout.
+[[src/codegen/runtime/thread/runtime_helpers.rs:emit_thread_external_call]]
 
 ## Arena Teardown at Process Exit
 
@@ -61,15 +78,9 @@ function returns — dropping a handle whose worker is still running only cancel
 broadcasts and detaches it — and process exit reclaims every arena anyway, so the
 runtime leaves the main arena to the OS rather than unmap memory a running worker
 might still reach. The deferral is gated on the program embedding any `thread.`
-runtime call, so a program that starts no worker still frees the arena at exit
-exactly as before. [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
-
-The rule was made platform-independent when it was still load-bearing for the
-control block: that block and the worker's arena-state block used to be carved from
-the spawning thread's arena, so a running worker's pinned registers pointed into the
-main arena, and the one backend that still destroyed it at exit (Windows) faulted
-inside the trampoline. Both blocks now come from the process heap
-(`./mfb spec threading control-block`).
+runtime call. A program with no such call takes the ordinary arena-destruction
+path; merely avoiding `thread::start` at runtime does not remove this compile-time
+deferral. [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 ## Standard Input Broadcast
 
@@ -97,16 +108,26 @@ is byte-identical to a direct per-byte reader with no source change. Any other
 thread that reads stdin without a subscription raises `ErrInvalidContext`
 (`77050019`).
 
-The log is bounded by a fixed high-water mark: the reader refuses to advance past
+The log is bounded by the manifest's `config.stdinLogCap`, baked into the executable
+(see `./mfb spec tooling project-manifest`): the reader refuses to advance past
 `base + cap` and blocks on the condvar until a slow subscriber advances the
 minimum cursor (`base`) or unsubscribes, so a stalled subscriber applies
 backpressure rather than growing memory without limit. Worker teardown
 auto-unsubscribes (the trampoline calls `_mfb_rt_stdin_unsubscribe` for the worker
-arena when the module uses stdin), so an exited or crashed worker never permanently
-pins `base`. On process shutdown a worker parked in a blocking stdin read is
+arena when the module uses stdin), so a worker returning normally or with a
+language error releases its subscription. On process shutdown a worker parked in a blocking stdin read is
 terminated by process exit, exactly as for any other worker (§ arena teardown
 above), so shutdown never hangs on a parked reader.
-[[src/codegen/io/stdin/stdin_broadcast.rs]] [[src/codegen/builtins/thread/mod.rs:openStdIn]]
+[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_next_byte]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+
+Subscription and unsubscription are idempotent. The subscriber registry holds
+128 entries, including the main thread. If it is full, subscription leaves the
+thread unregistered without reporting an error; a later read reports
+`ErrInvalidContext`. Unsubscription releases a registry slot and wakes readers
+waiting for log capacity.
+[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_subscribe]]
+[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_unsubscribe]]
 
 ### The per-subscriber input buffer
 
