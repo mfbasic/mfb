@@ -224,3 +224,43 @@ END FUNC
     let (text, _) = run("vecnat_user_float3", source, false);
     assert_eq!(text, "96\n");
 }
+
+/// A vector literal handed over to a callee that returns it (`RETURN v`) belongs
+/// to the callee: the caller must not also free it. The literal is claimed off the
+/// pending-temp list only once it is a block, so the claim runs after the
+/// register-native value is materialized (found by the acceptance suite's
+/// `vector::clamp_length` within-max case, which read `0.00` from a freed block).
+#[test]
+fn a_handed_over_vector_literal_is_freed_once() {
+    let source = "IMPORT io
+IMPORT vector
+
+FUNC pick(v AS vector::Float2, big AS Boolean) AS vector::Float2
+  IF big THEN
+    RETURN vector::Float2[0.0, 0.0]
+  END IF
+  RETURN v
+END FUNC
+
+FUNC main() AS Integer
+  LET w AS vector::Float2 = vector::clamp_length(vector::Float2[1.0, 1.0], 10.0)
+  LET p AS vector::Float2 = pick(vector::Float2[3.0, 4.0], FALSE)
+  LET q AS vector::Float2 = pick(vector::Float2[3.0, 4.0], TRUE)
+  io::print(toString(w.x) & \" \" & toString(w.y) & \" \" & toString(p.x) & \" \" & toString(p.y) & \" \" & toString(q.x))
+  RETURN 0
+END FUNC
+";
+    let (text, report) = run("vecnat_handover", source, true);
+    assert_eq!(text, "1.00 1.00 3.00 4.00 0.00\n");
+    let count = |key: &str| -> u64 {
+        report
+            .lines()
+            .filter_map(|line| line.strip_prefix("arena."))
+            .filter_map(|rest| rest.split_once(key))
+            .filter(|(arena, _)| !arena.contains('.'))
+            .map(|(_, n)| n.trim().parse::<u64>().expect("a count"))
+            .sum()
+    };
+    assert_eq!(count(".double_free_skips "), 0, "{report}");
+    assert_eq!(count(".alloc_calls "), count(".free_calls "), "{report}");
+}

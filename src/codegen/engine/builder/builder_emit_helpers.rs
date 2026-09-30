@@ -169,7 +169,7 @@ impl CodeBuilder<'_> {
         // those slots rather than claiming a temporary that does not exist.
         let mut updated_in_place = Vec::new();
         for (index, arg) in args.iter().enumerate() {
-            let (value, in_place) = self.lower_call_argument(arg, index, site)?;
+            let (mut value, in_place) = self.lower_call_argument(arg, index, site)?;
             if in_place {
                 updated_in_place.push(index);
             } else if site.is_some_and(|site| site.temp_indices.contains(&index)) {
@@ -191,6 +191,16 @@ impl CodeBuilder<'_> {
                 // — off the list before any later argument can branch out through
                 // `emit_call_error_exit` — and strengthens it, since it now holds for
                 // every handed-over position rather than only the last.
+                //
+                // bug-783: a register-native vector has no block, and so no temp,
+                // until it is materialized. Materialize it first so the claim
+                // finds the block's temp. Otherwise the claim matches nothing, the
+                // materialization below registers the block as a fresh temp, and
+                // the statement frees the block the callee now owns (and returns,
+                // for `RETURN v`).
+                if Self::is_vector_native(&value) {
+                    value = self.vector_value_as_block(value)?;
+                }
                 self.claim_pending_temp(&value);
             }
             // Observation boundary: a `Float` argument is read by the callee
