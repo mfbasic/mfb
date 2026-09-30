@@ -5,8 +5,8 @@ Effort: small–medium (guess until traced)
 Severity: MEDIUM — a leak per failing call (unbounded under retry); output correct
 Class: Memory-safety (leak)
 
-Status: Open
-Regression Test: to be added (Phase 1)
+Status: Fixed
+Regression Test: `tests/runtime/rt_failing_list_update_frees.rs`
 
 `LET t AS List OF Float = collections::set(p.trail, slot, 1.0)` — where `p` is a
 record bound from `collections::get` and `slot` is out of range — raises
@@ -18,6 +18,38 @@ compiler shows the same).
 **The single correct behavior a fix produces:** a program that makes that failing
 `set` N times under a `TRAP` ends with `alloc_calls = free_calls` (apart from a
 module-level global's own block) and no growth in `live_bytes` with N.
+
+## STATUS: FIXED (`9e18ce852`, goldens + spec `833ef638b`; gate: suite 276 ok, artifact-gate 0 diffs, acceptance 1582 at -O1 and -O3)
+
+**Mechanism (traced; neither hypothesis).** Not a pending-temporary or a handover
+issue: a plain local list leaks the same way. Two builtins allocated before their
+range check, and `raise_error`'s exit cannot free a block it never saw:
+
+- `func_set.rs:lower_set`, fixed-width element — bug-365's tight copy
+  (`copy_collection_tight`) runs, then `lower_list_set_in_place` range-checks the
+  copy. 64 B per failing call for a 2-`Float` list.
+- `func_insert.rs:lower_insert` — `collection_argument_as_list_slot` builds the
+  singleton list, then `lower_list_insert_collection` range-checks. 48 B per call.
+
+`set` on a variable-width element (bug-147.5 already checked first via `removeAt`)
+and `removeAt` did not leak. A `Map` `set` cannot fail its range, so it is out of
+scope.
+
+**Fix.** `gen_mutate.rs:emit_list_index_range_check` runs the same check
+(`0 <= index < count`, `<= count` for `insert`) first and raises the same
+`ErrIndexOutOfRange`. The later check stays (it is shared with the in-place
+callers). The only cost is about 27 instructions per call site, measured on
+`#regex_setCap` and the collections cover.
+
+**Test.** `rt_failing_list_update_frees` covers 13 spellings under both a
+function-level and an inline `TRAP`:
+
+- `set`/`insert` on a field copy, a local, a parameter field, a freshly built
+  list and a built `String` item, plus a negative index;
+- `set` on a `String` list and `removeAt` as controls.
+
+Before the fix, 7 of the original 9 cases leaked 1 block per failing call. The
+repro now ends with only the global `gps`'s 48 B at -O1 and -O3.
 
 ## Failing Reproduction
 
@@ -70,6 +102,6 @@ that raises. Phase 1 reads the `.ncode` of `bumpCopy` for the raise path.
 
 ## Phases
 
-- [ ] Phase 1 — RED runtime test (N vs 2N failing calls, `--debug` counters), trace.
-- [ ] Phase 2 — free the copy on the raise path.
-- [ ] Phase 3 — goldens, full suite.
+- [x] Phase 1 — RED runtime test (N vs 2N failing calls, `--debug` counters), trace.
+- [x] Phase 2 — free the copy on the raise path.
+- [x] Phase 3 — goldens, full suite.
