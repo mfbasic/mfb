@@ -560,6 +560,10 @@ name = "rt_vector_register_native"
 path = "tests/runtime/rt_vector_register_native.rs"
 
 [[test]]
+name = "rt_hof_transient_bytes"
+path = "tests/runtime/rt_hof_transient_bytes.rs"
+
+[[test]]
 name = "rt_fail_frees_enclosing_temps"
 path = "tests/runtime/rt_fail_frees_enclosing_temps.rs"
 
