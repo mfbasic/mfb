@@ -8,7 +8,7 @@ EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
 END FUNC
 ```
 
-Produces conceptually:
+Produces conceptually (MFBR version from `BINARY_REPR_VERSION`): [[src/ir/binary.rs:BINARY_REPR_VERSION]]
 
 ```text
 MFPHeader
@@ -57,7 +57,7 @@ packageBinaryRepr
   FUNCTION_TABLE
     function 0: add(Integer, Integer) AS Integer  (zero-length code region)
   IR
-    "MFBR" + version 4 + IrProject { name, entry?, bindings, types, functions:[ add: Return(Binary{ Add, Ident a, Ident b }) ] }
+    "MFBR" + version 6 + IrProject { name, entry?, bindings, types, functions:[ add: Return(Binary{ Add, Ident a, Ident b }) ] }
 ```
 
 The `IR` payload is self-contained (inline strings); the `TYPE_TABLE`/`EXPORT_TABLE`/`ABI_INDEX`/etc. above are the parallel derived metadata. This package has no `LINK` blocks, so the `MFBR` payload ends after `functions` with no native trailer, there is no `NATIVE_LIBRARY_TABLE` (id 10) or `RESOURCE_TABLE` section, and container flag bit 0 stays clear.

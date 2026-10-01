@@ -13,7 +13,7 @@ Native binding metadata is carried in **two separate places**, and the split is 
 
 ## `NATIVE_LIBRARY_TABLE` (section id 10)
 
-Emitted **only** for a binding package that declares a `LINK` block; the container's optional flag **bit 0** ("contains native LINK metadata") is set alongside it (see `container-format`). A package with no `LINK` block emits no section 10, leaves bit 0 clear, and is byte-identical to a pre-feature build.
+Emitted **only** for a binding package that declares a `LINK` block; the container's optional flag **bit 0** ("contains native LINK metadata") is set alongside it (see `container-format`). A package with no `LINK` block emits no section 10, leaves bit 0 clear.
 
 The table is built from the project.json `libraries` section (see `./mfb spec tooling project-manifest`) crossed with the distinct `LINK "<name>"` logical names in the project's IR. It carries **only** linked names: a `libraries` entry with no matching `LINK` warns (`NATIVE_LIBRARY_UNUSED`) and is not encoded, so the section never carries a locator nothing can reach.
 
@@ -24,7 +24,7 @@ NATIVE_LIBRARY_TABLE (section id 10):
     stringId logicalName            // "sqlite3"
     u32      locatorCount
     repeat locatorCount (manifest order):
-      stringId os                   // "macos" | "linux"
+      stringId os                   // "macos" | "linux" | "windows"
       stringId arch                 // "" = any arch, else "aarch64"|"x86_64"|"riscv64"
       u8       libc                 // 0 = unspecified (any), 1 = glibc, 2 = musl
       u8       type                 // 0 = system, 1 = vendor
@@ -56,13 +56,17 @@ The coverage check tests each library's locators against every `(os, arch, libc)
 
 ## The interface trailer
 
-Native `LINK` interface metadata rides as an **optional append-only trailer inside the `IR` (`MFBR`) payload**, after the `functions` vector (see `binary-representation` §IR payload structure). The trailer is present only when the project has `LINK` functions or re-export aliases, so `LINK`-free packages stay byte-identical to the pre-feature encoding.
+The native interface trailer follows the `functions` vector when the project has any LINK functions, aliases, or CSTRUCT declarations. It contains `linkFunctions`, `linkAliases`, then `linkCstructs`, each as a counted vector. A CSTRUCT row is `(alias str, name str, mapsTo str, fields vec<(name str, ctype str)>)`; offsets and sizes are recomputed by the consumer. Decoding caps the table at `256` CSTRUCTs with at most `64` fields each. [[src/ir/binary.rs:encode_project]] [[src/ir/binary.rs:decode_cstructs]]
 
-The trailer is two vectors:
+If any LINK function has a return STATE type or `BIND STATE`, a further counted vector follows: `(alias str, name str, returnStateType optional str, bindState optional str)`. The reader patches the first matching LINK function, ignores unmatched rows, and applies repeated matching rows in order. End-of-buffer after the CSTRUCT table means no STATE rows. [[src/ir/binary.rs:encode_link_state_trailer]] [[src/ir/binary.rs:decode_link_state_trailer]]
+
+The trailer layout is:
 
 ```text
 linkFunctions   vec<IrLinkFunction>
 linkAliases     vec<(alias str, target str)>
+linkCstructs    vec<CStruct>
+linkState       optional trailing vec<StateRow>
 ```
 
 `vec<T>` is a `u32` count followed by that many elements; `str` is a `u32` byte length followed by UTF-8 bytes; `bool` is a single `0`/`1` byte. The consumer decodes these into the merged project so it can rebuild the marshaling thunks and the re-export routing.
@@ -84,7 +88,7 @@ abiReturnName    str          name of the C-facing return slot
 abiReturnCtype   str          C type of the return slot
 buffers          vec<(slot str, size IrLinkExpr)>   BUFFER <slot> SIZE <expr> clauses
 resultLength     optional IrLinkExpr           RETURN … LENGTH <expr>
-bindIn           vec<(slot str, fields vec<…>)>     BIND IN field bindings
+bindIn           vec<(slot str, fields vec<(name str, param optional str, literal optional str)>)>
 consts           vec<(slot str, value str)>    fixed constant arguments
 successOn        optional IrLinkExpr           SUCCESS_ON predicate
 result           optional IrLinkExpr           result/ERROR_ON mapping expression
@@ -93,9 +97,9 @@ free             optional (slot str, symbol str)  paired free/close for a return
 
 `optional X` is a `u8` present-flag (`0`/`1`) followed by the encoding of `X` when present. Constant argument `value`s are serialized as their string form. C types (`ctype`, `abiReturnCtype`) are stored as **strings** (e.g. the source-level C type spelling), not as a numeric ABI-type enum — there is no `CInt8`/`CInt16`/… code table in the format.
 
-`direction` is a `u8`: `0` = in, `1` = out, `2` = inout. A value outside `0..=2` is a decode **error**, never a silent default — it decides whether the callee writes through the slot. (This field was a bool before `INOUT` existed; a bool could not express three states and two bools would have admitted an illegal fourth.)
+`direction` is a `u8`: `0` = in, `1` = out, `2` = inout. A value outside `0..=2` is a decode **error**, never a silent default — it decides whether the callee writes through the slot.
 
-`buffers` records the `BUFFER <slot> SIZE <expr>` clauses that size an `OUT CBuffer` slot, and `resultLength` the `RETURN … LENGTH <expr>` that says how many of its bytes the callee wrote. Both are bounded on decode: at most **16** buffers per function, which is already unreachable for real code since a wrapper cannot have more buffer slots than the target has external integer argument registers (6 on x86-64 SysV, 8 elsewhere). The cap exists to bound allocation on a crafted file.
+`buffers` records the `BUFFER <slot> SIZE <expr>` clauses sizing an `OUT CBuffer` slot, and `resultLength` the returned byte count. The decoder caps buffers at **16** per function. [[src/ir/binary.rs:MAX_LINK_BUFFERS]] [[src/ir/binary.rs:decode_link_function]]
 
 The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record. It is the consuming project's `maxBuffer` (./mfb spec tooling project-manifest), because `LINK` thunks are emitted when an executable links — so a package cannot raise an application's memory ceiling on its behalf.
 
@@ -117,7 +121,7 @@ The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record.
 8 = Sub(lhs, rhs)
 ```
 
-`Var` carries the name it reads. It was a *nameless* variant meaning "the native return" until plan-50-I, and lowering mapped every identifier onto it — so `SUCCESS_ON typo = 0` silently meant `status = 0`.
+`Var` carries the name of the ABI slot or return value it reads. [[src/ir/binary.rs:encode_link_expr]]
 
 An unknown tag is a decode **error**, never a defaulted node, which is what lets tags be appended without a compatibility window.
 
