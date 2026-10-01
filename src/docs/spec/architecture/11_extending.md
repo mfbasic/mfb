@@ -7,7 +7,7 @@ every layer that observes or emits that behavior:
 
 1. Lexer/parser support, if syntax changes.
 2. AST model and AST serialization.
-3. Resolver rules for names, imports, constructors, and members.
+3. HIR elaboration and resolver rules for names, imports, constructors, and members.
 4. Monomorphization rules for generic forms.
 5. Type-checking rules and overload behavior.
 6. IR lowering.
@@ -15,7 +15,7 @@ every layer that observes or emits that behavior:
 8. NIR lowering for native builds.
 9. Runtime helper detection and native backend capabilities.
 10. Native plan and native code-plan lowering.
-11. AArch64 encoding, if new instruction forms are needed.
+11. MIR selection and AArch64, x86-64, and RISC-V encoding, if new instruction forms are needed.
 12. OS linker/container support, if relocations/imports/layout change.
 13. Package dependency merge/import behavior, if packages are affected.
 14. Valid and invalid function tests for every changed public function.

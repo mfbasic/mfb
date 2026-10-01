@@ -1,7 +1,6 @@
 # RISC-V Instruction Set
 
-The `linux-riscv64` backend is the third ISA after AArch64 and x86-64, and the
-one that most exercises the neutrality of the target-neutral MIR: RISC-V has **no
+The `linux-riscv64` backend selects target-neutral MIR for an ISA with **no
 condition flags** (so a flagless compare-and-branch is the only way one lowers at
 all) and **no 128-bit vector file** on the base target — so `v128` ops scalarize
 to `2× f64`, and, where the optional Vector (`V`) extension is present, a runtime
@@ -33,9 +32,10 @@ kernels (`./mfb spec architecture math-kernels`) hold natively.
 
 Like the other backends, this one does not emit textual assembly. It selects the
 neutral MIR into a list of `CodeInstruction` values — an abstract op tag plus a
-bag of named string operands — and encodes each into one or more 32-bit words.
-Every operand (register name, immediate, label, symbol) is a string, looked up by
-field name at encode time. The op repertoire is the shared closed `CodeOp` enum
+bag of named typed operands — and encodes each into one or more 32-bit words.
+Operands use the shared `Operand` enum; encoder helpers look up fields and
+read their rendered spelling or typed value.
+[[src/codegen/engine/operand/operand.rs:Operand]] The op repertoire is the shared closed `CodeOp` enum
 plus a handful of RISC-V-specific ops (below); the encoder rejects any op it does
 not encode with an explicit error rather than miscompiling.
 [[src/arch/riscv64/encode/emitter.rs:emit_instruction]]
@@ -327,7 +327,7 @@ loads its operands' two `f64`/`i64` lanes into the reserved scratch, computes th
 two scalar results, and stores them back. The region is bounded to 128 slots so
 the largest lane offset stays within the 12-bit load/store immediate. The slots
 are **per-thread** (addressed off the pinned `s11`), so concurrent threads running
-vector kernels no longer corrupt each other; they are non-reentrant within a
+vector kernels have separate scratch regions; they are non-reentrant within a
 thread, which holds because the kernels are inlined straight-line leaf code.
 Correctness is preserved and the native `D`-extension FMA keeps the ≤1-ULP kernel
 contract. [[src/arch/riscv64/v128.rs:scalarize_v128]]

@@ -3,7 +3,7 @@
 Every `Float` and `Fixed` math result MFBASIC produces is computed by a
 hand-written **in-tree kernel** — no platform math library is ever linked or
 called. The `Float` transcendentals (`exp`, `log`, `log10`, `sin`, `cos`, `tan`,
-`atan`, `asin`, `acos`, `atan2`, `pow`) are NEON `f64` kernels; the `Float MOD
+`atan`, `asin`, `acos`, `atan2`, `pow`) use shared vector `f64` kernels selected to each ISA; the `Float MOD
 Float` operator (`fmod`) is a GPR integer kernel; the `Fixed` transcendentals are
 deterministic Q32.32 routines. This topic specifies the accuracy and determinism
 contract those kernels meet, how they are validated, and the one place the
@@ -38,12 +38,13 @@ deterministic operation — so every FMA-capable IEEE target fuses the same
 expression to the same bits. Note the distinction in strength: `Fixed`
 cross-target bit-identity is a **contractual guarantee** (Q32.32 integer math);
 `Float` cross-target bit-identity holds **in practice** under this uniform-fusion
-policy but is not contractually guaranteed — the headroom is reserved for a future
-target that lacks hardware FMA (`./mfb spec language builtin-functions`).
+policy but is not contractually guaranteed (`./mfb spec language builtin-functions`).
 
-(`math::rand`/`math::seed` import `getentropy` from libc for their startup seed;
-that is the RNG, not math, and it is the only `math::` member that imports
-anything.)
+The RNG obtains its startup entropy through the platform entropy seam
+(`getentropy` on macOS/Linux, `BCryptGenRandom` on Windows); this is separate
+from the deterministic numerical kernels.
+[[src/target/win_x86_64/code.rs:emit_random_bytes]]
+[[src/target/macos_aarch64/code.rs:emit_random_bytes]]
 
 ## Accuracy
 
@@ -56,8 +57,8 @@ vectors in `tools/math-kernels/ref/<fn>.ref`. The kernels meet it as follows:
 | `pow` | **≤1 ULP** of macOS libm | fdlibm `__ieee754_pow` in log2 space; negative base with an integer exponent matches libm (`(-2)^3 = -8`) |
 | `tan` | **faithfully rounded — ≤1 ULP of the TRUE value**, at any finite angle | more accurate than macOS libm; see below |
 | `fmod` | **0 ULP — bit-identical** to libm | the IEEE remainder is exactly representable |
-| `Fixed` `sin`/`cos`/`tan` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, at every representable argument | exact 160-bit `pi/2` reduction + Q1.63 Taylor series; `tan` raises `ErrOverflow` when the true tangent leaves the `Fixed` range (bug-615) |
-| `Fixed` `asin`/`acos`/`atan`/`atan2` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, over the whole domain | one `atan(num/den)` kernel on an exact integer ratio + Q1.63 Taylor series, rounded once (bug-615); measured maximum 0.4990 units over an 855-argument corpus |
+| `Fixed` `sin`/`cos`/`tan` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, at every representable argument | exact 160-bit `pi/2` reduction + Q1.63 Taylor series; `tan` raises `ErrOverflow` when the true tangent leaves the `Fixed` range |
+| `Fixed` `asin`/`acos`/`atan`/`atan2` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, over the whole domain | one `atan(num/den)` kernel on an exact integer ratio + Q1.63 Taylor series, rounded once; measured maximum 0.4990 units over an 855-argument corpus |
 | other `Fixed` transcendentals, `Fixed MOD` | deterministic Q32.32 | platform-independent by construction; not an `f64` bound |
 
 Both trig bounds hold at **every finite angle**. The regression test
@@ -75,10 +76,7 @@ on every one, with scalar and `List` bit-identical.
 `sin`/`cos`/`tan` kernels are integer-only (no host `f64` anywhere, including the
 baked constants, so every target agrees bit for bit) and reduce the angle against a
 **160-bit `pi/2`**, which keeps the reduction error below `2^-127` for every `k`
-below `2^31`. Before bug-615 the reduction used a `pi/2` rounded to Q32.32 and lost
-`k * 0.26` units — `sin(toFixed(2000000000.0))` was 0.9432 against a true 0.9147 —
-and a 31-step Q32.32 CORDIC left several units of residue even at tiny angles
-(`cos(0)` read 1.00000000163). The reduced angle now feeds a Q1.63 Taylor series,
+below `2^31`. The reduced angle feeds a Q1.63 Taylor series,
 rounded once to Q32.32.
 [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_trig_reduce]]
 [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_sin_cos_magnitudes]]
@@ -129,10 +127,6 @@ answers `pi/2` with no divide. Unlike the `Float` kernel, the `Fixed`
 so the cancellation that forces the `Float` half-angle identity never reaches a
 rounded operand. [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_asin]]
 
-Before bug-615-C all four ran a 31-step Q32.32 CORDIC **vectoring** loop and kept
-its residue: `atan(2.0F)` was 4.27 units out, `atan2(3.0F, -4.0F)` 2.69,
-`asin(0.8F)` 1.61. The loop has no callers left and is deleted.
-
 ### `Fixed` `exp` and fractional `pow`
 
 `exp` on a `Fixed` is `2^n · exp(r)` with `n = round(x / ln2)` and `r = x − n·ln2`,
@@ -143,11 +137,8 @@ from a doubling/halving loop that raises `ErrOverflow` on the way up.
 
 That recombination **dispatches on the sign of `n`** — non-negative doubles with the
 overflow check, negative halves without one — so the reduction's sign is load-bearing
-in a way its magnitude is not. `x / ln2` is an unchecked Q32.32 multiply, and past
-`|x| = 2^31·ln2 ≈ 1.4885e9` it left `Fixed` range and wrapped, handing the loop a
-sign-flipped `n`: that selected the opposite arm and skipped the overflow check
-entirely, so overflow and underflow silently swapped (bug-659). The kernel therefore
-gates the argument **before** reducing it. `Fixed` spans just under `[−2^31, 2^31)`,
+in a way its magnitude is not. The kernel gates the argument **before**
+reducing it so the unchecked Q32.32 multiplication by `1/ln2` stays in range. `Fixed` spans just under `[−2^31, 2^31)`,
 so the result overflows above `ln(2^31) = 21.4876` and rounds to zero below
 `−33·ln2 = −22.8742`; the gate sits at `|x| = 64`, outside both thresholds (no
 in-range result moves) and far inside the wrap point (the reduction can no longer
@@ -181,9 +172,7 @@ plus a quadrant [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_si
 It has two paths, chosen **per lane**, and it yields `r` as a double-double: the
 high half drives the compensated Horner polynomials, and the low half enters them
 as the first-order corrections `r_lo*(1 - r^2/2)` on `sin(r_hi)` and `-r_hi*r_lo`
-on `cos(r_hi)` — without which the last ULP is lost even in the ordinary range
-(bug-618 measured 1.29 ULP at `sin(16.223429914714487)` and 1.52 at
-`tan(417085.1813766881)` before the low half was carried).
+on `cos(r_hi)`.
 
 * **Medium** — fdlibm's three-part Cody-Waite step (`PIO2_1`/`PIO2_2`/`PIO2_2T`),
   one multiply-subtract per part. `q*PIO2_1` and `q*PIO2_2` are exact only while
@@ -242,11 +231,11 @@ Two consequences a maintainer should expect:
 For every other function the kernel and macOS libm agree to ≤1 ULP, so the
 distinction only matters for `tan`.
 
-`pow` is a separate cautionary tale: the natural-log identity `exp(y·log x)` is
+For `pow`, the natural-log identity `exp(y·log x)` is
 **not** faithfully roundable across `pow`'s dynamic range — the `n·ln2` reduction
 loses bits and reaches ~10⁹ ULP at `pow(10, 300)`. The kernel instead works in
 log2 space with the integer part of `y·log₂x` split off exactly (fdlibm), which is
-why the implementation looks nothing like "exp of y times log".
+how it preserves precision across the result range.
 
 ## Validation
 
@@ -262,14 +251,13 @@ Three layers, all offline/in-tree (no network, no Mac required after capture):
 3. **Emitted-code proof** — `tools/math-kernels/runtime_ulp.py` drives the
    **actually emitted machine code** over the vectors (recovering each result
    bit-exactly via `toString(x, N)`'s exact decimal expansion) and reports ULP
-   against both macOS and the mpmath truth. This is the gate that catches a
-   codegen transcription bug a reconstruction would miss, and the one that
-   measures the `tan` truth-vs-macOS gap.
+   against both macOS and the mpmath truth. This checks the emitted instructions independently of the
+   reconstruction and measures the `tan` truth-vs-macOS gap.
 
-Both tools predate the exact large-argument reduction and still bucket trig
+The tooling buckets trig
 vectors above `2^20*pi/2` as "extended … out of scope"
 (`tools/math-kernels/README.md` §verify scope, `runtime_ulp.py:_is_primary`); the
-codegen no longer is, and the standing gate for that range is the runtime test
+generated kernels cover that range, and the standing gate for that range is the runtime test
 named under *Accuracy* above.
 
 See `tools/math-kernels/README.md` for the full tooling, and

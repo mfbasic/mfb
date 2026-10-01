@@ -1,10 +1,10 @@
 # Monomorphization
 
-The monomorphizer takes the parsed, initially-resolved AST[[src/monomorph/]]
-and produces a fully **concrete** AST: every template type and template function
+The monomorphizer takes the augmented generic HIR after initial resolution[[src/monomorph/]]
+and produces a fully **concrete** HIR: every template type and template function
 is expanded into a concrete declaration per instantiation, every overloaded call
-is rewritten to a single mangled callee symbol, and every `collections::` call is
-internalized. The rest of the pipeline consumes this concrete AST, never the
+is rewritten to a single mangled callee symbol, and registry-designated source-generic `collections::` calls are
+internalized. The rest of the pipeline consumes this concrete HIR, never the
 original. Because the pass *introduces* new declarations and rewrites names, the
 build runs the resolver again immediately afterward (see
 `./mfb spec architecture frontend`).
@@ -17,7 +17,7 @@ checker; the callees are already mangled before either runs the second time.
 ## Pipeline position
 
 ```text
-parsed AST -> resolve -> MONOMORPHIZE -> resolve again -> entry validation -> shape pass -> IR -> IR verifier
+AST -> augment/elaborate/resolve -> generic HIR -> MONOMORPHIZE -> concrete HIR -> resolve again -> entry validation -> shape pass -> IR -> IR verifier
 ```
 
 `monomorphize_project` builds a `Monomorphizer`, calls `run` to lower the
@@ -66,7 +66,7 @@ beside `PUBLIC f(Integer, Integer)` is emitted as `f` (the PUBLIC one as
 byte-for-byte unchanged. A non-exported member is mangled whenever any sibling exists,
 so its symbol cannot equal an export's. Intra-package calls are unaffected: they
 resolve through `overload_names`, which maps each declaration to the symbol it was
-given (bug-653). [[src/monomorph/lower.rs:Monomorphizer::new]]
+given. [[src/monomorph/lower.rs:Monomorphizer::new]]
 
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
@@ -75,7 +75,7 @@ first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
 `sanitize_type_name` flattens a RENDERED type into a symbol-safe token; the
 grammar it renders from is canonical in
 `./mfb spec architecture type-name-encoding`. `unify_type` does not parse — it
-matches `ParameterType` variants (plan-111), so a new type shape reaches it as a
+matches `ParameterType` variants, so a new type shape reaches it as a
 new variant rather than a new prefix test.
 
 ## Template instantiation
@@ -159,15 +159,15 @@ every later occurrence between two concretes (so `box<T>` called with mismatched
 against any concrete pattern. An `Unknown` bound to a param is **provisional** — a
 later concrete actual refines it (`Unknown → Integer`) and an `Unknown` actual
 never overwrites a concrete binding. That makes inference independent of
-field/argument order: a no-information field (an empty collection) no longer
-blocks a later field that supplies the concrete type (bug-442). Recording the
+field/argument order: a no-information field (an empty collection) does not
+block a later field that supplies the concrete type. Recording the
 provisional `Unknown` rather than dropping it preserves the degenerate
 `T := Unknown` instantiation that width-agnostic native ops (e.g.
 `collections::flatten` over lists whose first inner is empty) rely on when no
 argument supplies a concrete element type. "Equal" ignores a top-level `RES`
 ownership marker, which is not part of a type: a `List OF RES fs.File` argument
 binds `T := RES fs.File`, a callback over its elements declares `FUNC(fs.File)`,
-and the two agree, keeping the marked binding whichever came first (bug-752; the
+and the two agree, keeping the marked binding whichever came first (the
 verifier's `compatible` likewise compares a callable's parameters modulo the
 marker). [[src/ir/verify/compat.rs:compatible]] The resource slot of a `Thread` type is optional — both-present unify
 recursively, both-absent succeed, mismatched presence fails. See
@@ -327,8 +327,10 @@ known qualifier prefix so an importer's `sqlite.Db` matches the package's bare
 
 A call whose callee is `binding.member` where `binding` is bound to the built-in
 `collections` package (or an alias) and `member` is a collections function is
-rewritten to the internal generic implementation `__collections_<member>` before
-instantiation, so it expands like any other generic function.
+looked up by member and arity in `registry::rewrite_target_for_arity`. A matching
+source-generic member is rewritten to its sigil-internalized implementation
+(such as `#collections_sort`) before instantiation. Native-direct members keep
+their qualified builtin target.
 [[src/monomorph/lower.rs:collections_internal_callee]] The set of collections binding
 names is computed once from the imports (`collections::collections_bindings`).
 Non-collections calls return the callee unchanged.
@@ -357,13 +359,12 @@ at the call's line, with the detail prefixed by "In the body of `collections::so
 instantiated by this call:". [[src/ir/verify/mod.rs:TypeEnv]]
 [[src/ir/lower_link.rs:LinkSpans]] The same public spelling replaces the internal
 `__collections_sort` in the call-level arity and inference messages
-`instantiate_function` reports. Before bug-642 each of these cited the body's line
-against the user's file and named no call.
+`instantiate_function` reports.
 
 ## See Also
 
 * ./mfb spec architecture frontend — pass ordering and the double resolve
-* ./mfb spec architecture ir — what consumes the concrete AST
+* ./mfb spec architecture ir — what consumes the concrete HIR
 * ./mfb spec architecture type-name-encoding — the type-string grammar these algorithms parse
 * ./mfb spec language templates — source template semantics
 * ./mfb spec language functions — overload source rules

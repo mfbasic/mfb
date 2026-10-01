@@ -1,7 +1,7 @@
 # AArch64 Instruction Set
 
 Native codegen does not emit textual assembly. It builds a list of
-`CodeInstruction` values — one abstract op plus named string fields — and the
+`CodeInstruction` values — one abstract op plus named typed operand fields — and the
 AArch64 backend turns each into one or more fixed 32-bit little-endian words.
 The op repertoire is the closed `CodeOp` enum; the backend rejects any op it
 cannot encode. [[src/arch/ops.rs:CodeOp]] This topic specifies that
@@ -19,21 +19,24 @@ an explicit access width in the mnemonic, and the floating-point ops are
 
 ## Instruction model
 
-A `CodeInstruction` is `{ op: CodeOp, fields: Vec<(&'static str, String)> }` —
-an op tag and an order-independent set of named string operands.
-[[src/codegen/engine/types/types.rs:CodeInstruction]] There is no typed operand
-union: every operand (register name, immediate, label, symbol) is a string,
-looked up by name at encode time via `field(instruction, "name")`. Construction
-is fluent (`CodeInstruction::new(mnemonic).field("dst","x0")…`), and `validate`
-checks that each op carries its required field names before encoding.
+A `CodeInstruction` carries a `CodeOp`, named `Operand` fields, and optional
+emission-site metadata (`source`) that is not serialized. `Operand` represents
+virtual/physical registers, explicit ABI roles, immediates, and raw text such as
+labels and symbols. JSON renders these operands as strings; the internal model
+is typed. Register emission uses `abi::Reg`; `CodeInstruction::field` rejects raw
+text in register fields, and backend `physical_field` handles physical names.
+Validation checks required fields before encoding.
+[[src/codegen/engine/types/types.rs:CodeInstruction]]
+[[src/codegen/engine/operand/operand.rs:Operand]]
+[[src/codegen/engine/builder/code_impl.rs:field]]
 [[src/codegen/engine/builder/code_impl.rs:validate]]
 
 Operands are decoded by small helpers:
 
-- `reg` maps a register name to a 0–31 number. `x0..x28`, `x30`/`lr`, and the
-  `w*` aliases map to the same numbers; `sp`/`raw_sp`/`x31`/`xzr` all map to
-  `31`; `d0..d31` map to `0..31`. There is **no `x18`** (platform-reserved) and
-  **no `x29`** in the table. [[src/arch/aarch64/encode/operand.rs:reg]]
+- `reg` maps a register name to a 0–31 number. `x0..x30`, the `w0..w29` aliases, `fp` (29), and `lr` (30) map to their
+  register numbers; `sp`/`raw_sp`/`x31`/`xzr` all map to
+  `31`; `d0..d31` map to `0..31`. The encoder accepts `x18` and `x29`; platform reservation is an ABI/allocation
+  policy, not an encoding restriction. [[src/arch/aarch64/encode/operand.rs:reg]]
 - `immediate` parses a `u64`, also accepting `"true"`→1 / `"false"`→0.
   [[src/arch/aarch64/encode/operand.rs:immediate]]
 - `shift` parses a 0–63 shift amount. [[src/arch/aarch64/encode/operand.rs:shift]]
@@ -71,7 +74,7 @@ encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 | `Rorv` | `rorv` | `dst`,`lhs`,`rhs` | `0x9AC02C00` | variable rotate-right |
 | `SDiv` | `sdiv` | `dst`,`lhs`,`rhs` | `0x9AC00C00` | signed divide |
 | `UDiv` | `udiv` | `dst`,`lhs`,`rhs` | `0x9AC00800` | unsigned divide |
-| `MSub` | `msub` | `dst`,`lhs`,`rhs`,`minuend` | `0x9B008000` | `Rd=lhs*rhs - minuend`; `minuend=Ra=bits[14:10]` |
+| `MSub` | `msub` | `dst`,`lhs`,`rhs`,`minuend` | `0x9B008000` | `Rd=minuend - lhs*rhs`; `minuend=Ra=bits[14:10]` |
 | `LslImm` | `lsl_imm` | `dst`,`src`,`shift` | `0xD3400000` | `ubfm`; `immr=(64-s)&63`, `imms=63-s` |
 | `LsrImm` | `lsr_imm` | `dst`,`src`,`shift` | `0xD3400000` | `ubfm`; `immr=s`, `imms=63` |
 | `AsrImm` | `asr_imm` | `dst`,`src`,`shift` | `0x93400000` | `sbfm`; `immr=s`, `imms=63` |
@@ -104,6 +107,7 @@ encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 | `LdrU8` | `ldr_u8` | `dst`,`base`,`offset` | `0x39400000` | scale 1 |
 | `StrU64` | `str_u64` | `src`,`base`,`offset` | `0xF9000000` | scale 8; `src=Rt` |
 | `StrU32` | `str_u32` | `src`,`base`,`offset` | `0xB9000000` | scale 4 |
+| `StrU16` | `str_u16` | `src`,`base`,`offset` | `0x79000000` | scale 2; `src=Rt` |
 | `StrU8` | `str_u8` | `src`,`base`,`offset` | `0x39000000` | scale 1 |
 | `Adrp` | `adrp` | `dst`,`symbol` | `0x90000000` | emits a `page21` relocation |
 | `AddPageOff` | `add_pageoff` | `dst`,`symbol` | `0x91000000`+`(Rd<<5)|Rd` | emits a `pageoff12` relocation |

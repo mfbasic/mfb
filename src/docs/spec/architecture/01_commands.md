@@ -6,38 +6,30 @@ full command list, every flag, its arity rules, and its exit statuses are owned 
 `./mfb spec tooling cli-reference`, which is the single place to change when the
 CLI changes.
 
-(This topic used to restate that surface in full. Being a second copy, it drifted:
-it never gained `mfb test`, `--version`, `-q`/`-v`, `--app-debug`, `--unsigned`,
-or the `machine`/`key`/`org`/`token` commands, and it listed `repo register|auth`
-long after `trust`, `link`, and `rotate` shipped. The duplication is the defect
-that produced the drift, so it is removed rather than refreshed — bug-338-F1.)
-
 ## Build modes
 
-`mfb build --app` selects GUI app mode: the executable and native intermediate
+`mfb build --app` or manifest `"mode": "app"` selects GUI app mode: the executable and native intermediate
 outputs target a windowing app runtime instead of the console runtime — AppKit on
-macOS, GTK4 on Linux. Shared lowering treats both uniformly
+macOS, GTK4 on Linux, and Win32 on Windows. Shared lowering treats these modes uniformly
 (`NativeBuildMode::is_app`); the target OS selects the toolkit. `--app` is valid
 only for executable projects and only when `--target` resolves to a native target
-that supports app mode (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); it
+that supports app mode (`macos-aarch64`, `linux-aarch64`, `linux-x86_64`, or `windows-x86_64`); it
 is rejected otherwise.
 
 App mode is recorded as the `buildMode` field in `--nir`, `--nplan`, and
-`--ncode` output — `"console"`, `"macos-app"`, or `"linux-app"`. That field is
-the mode's whole observable footprint in the intermediates, which is what makes
-it checkable from a dump. [[src/target.rs:is_app]]
+`--ncode` output — `"console"`, `"macos-app"`, `"linux-app"`, or `"windows-app"`. The selected mode also controls runtime lowering and platform imports. [[src/target.rs:is_app]]
 
 ## Artifact selection
 
-Every build flag also accepts an undocumented single-dash alias (`-ast`,
-`-target`, `-app`, …) for backwards compatibility; the `--` spelling is
-canonical. [[src/cli/build/mod.rs:from_flag]]
+Intermediate-output flags accept single-dash aliases (`-ast`, `-ir`,
+`-nir`, and so on); the `--` spelling is canonical. [[src/cli/build/mod.rs:from_flag]]
 
-The output flags are mutually exclusive. If no output flag is supplied,
+Distinct output flags may be combined; repeating a flag is an error.
+[[src/cli/build/options.rs:parse_build_options]] If no output flag is supplied,
 `mfb build` emits:
 
-- `build/<name>.out` for `kind = "executable"` — every executable build emits
-  into the project's `build/` directory.
+- Platform-specific executable artifacts under `build/` for `kind = "executable"`;
+  see `./mfb spec architecture artifacts`.
 - `<name>.mfp` for `kind = "package"`.
 
 Native intermediate outputs are rejected for package projects. Package projects

@@ -5,14 +5,12 @@ Current implementation boundaries to know when extending the compiler.
 The following boundaries are important when extending the compiler:
 
 - Native executable support is target-limited to `macos-aarch64`,
-  `linux-aarch64`, `linux-x86_64`, and `linux-riscv64`.
-- Native runtime-call support covers the `crypto.*`, `datetime.*`, `fs.*`,
-  `io.*`, `net.*`, `os.*`, `term.*`, `thread.*`, and `tls.*` built-ins. `math`, `strings`, and `general`
-  operations are code-generated inline and do not go through the runtime-helper
-  capability gate. The exact supported set is each backend's `runtime_calls`
-  declaration.[[src/target/macos_aarch64/mod.rs:runtime_calls]] `json` built-ins
-  have no dedicated native runtime helper — `json` is supplied as an injected
-  MFBASIC source package.
+  `linux-aarch64`, `linux-x86_64`, `linux-riscv64`, and `windows-x86_64`.
+  [[src/target.rs:NATIVE_BACKENDS]]
+- Runtime-call support is checked against the selected backend's capability
+  table; native-direct builtins bypass this gate. See
+  `./mfb spec architecture native` for helper selection and validation.
+  [[src/target/shared/validate/capabilities.rs:validate_capabilities]]
 - Target project-level validation is a no-op, so those checks are distributed
   across the front-end, NIR, plan, code-plan, and OS/linker passes rather than
   centralized.
@@ -21,8 +19,10 @@ The following boundaries are important when extending the compiler:
   encoding is owned by `./mfb spec package container-format`.
 - `mfb pkg add` accepts an absolute `file://` package URL or an
   `<owner>#<package>[@version]` registry ident.
-- Linux builds emit two output files per build (`-glibc.out` and `-musl.out`),
-  one per libc flavor; macOS emits a single Mach-O. The per-flavor library and
+- Linux console builds emit two executable files per build (`-glibc.out` and `-musl.out`),
+  one per libc flavor; macOS console builds emit a single Mach-O and Windows
+  builds emit a PE32+ `.exe`. App artifacts are specified in
+  `./mfb spec architecture artifacts`. The per-flavor library and
   `DT_NEEDED` selection and the macOS import sets (console `libSystem`, TLS, and
   app-mode toolkit frameworks) are owned by
   `./mfb spec linker static-and-dynamic-output`.

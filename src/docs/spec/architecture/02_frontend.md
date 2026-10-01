@@ -2,7 +2,7 @@
 
 The shared front end: manifest loading, source discovery, name resolution, monomorphization, entry-point validation, and source-syntax checking.
 
-Every build — executable or package — runs the same front end, from reading
+Every build — executable or package — runs the shared front end, from reading
 `project.json` through source-syntax checking, before the pipeline splits at IR.
 (The bulk of semantic validation runs *after* lowering, on the typed IR —
 see "Semantic Checking" below.)
@@ -24,22 +24,11 @@ it is expected to be `"executable"` or `"package"`, and unknown kinds are
 diagnosed (the validator continues after that diagnostic). Optional `entry`,
 `author`, and `url` fields must be strings when present.
 
-Not every field of the project manifest format is enforced. The build
-primarily consumes:
-
-- `name`
-- `version`
-- `mfb`
-- `kind`
-- `sources[*].root`
-- `entry`
-- `author`
-- `url`
-- `packages`
-
-Fields such as `include`, `exclude`, `role`, `targets`, and richer repository
-metadata are documented for the project format but are not the active source of
-build behavior in the compiler code reviewed here.[[src/manifest/mod.rs:validate_project_manifest]]
+Source selection consumes `sources[*].root`, `include`, and `exclude`.
+Build orchestration also consumes dependency declarations, app mode and icon,
+resource entries, native-library locators, and runtime configuration. The field
+schema and validation rules are owned by `./mfb spec tooling project-manifest`.
+[[src/manifest/mod.rs:validate_project_manifest]] [[src/cli/build/mod.rs:build_project]]
 
 ## Source Discovery and Parsing
 
@@ -131,7 +120,7 @@ The chain has two stages:
    A late pass injects the package's companion plus the gated helpers its own view opens, and skips a file
    the project already has, so nothing is injected twice. [[src/codegen/registry/mod.rs:late_pass_files]]
 
-Each pass takes the previous one's output, so the AST that reaches the resolver is the cumulative result.
+Each pass takes the previous one's output, so the AST elaborated for resolution is the cumulative result.
 The `collections` package is injected earlier, during `parse_project`, because the monomorphizer needs its
 generic source.
 
@@ -145,18 +134,15 @@ The resolver has two jobs:
 2. Validate references inside imports, type declarations, function bodies, and
    expressions.
 
-The resolver knows the built-in type names:
-`Boolean`, `Byte`, `Error`, `ErrorLoc`, `Fixed`, `Float`, `Integer`, `Json`,
-`Nothing`, `Result`, `String`, plus the resource and record types contributed by
-built-in packages — `File` (fs), `TermSize` (term), `Socket`,
-`Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
-`tls::Socket`/`tls::Listener` (tls). The package-contributed names are referenced by a
-shared constant so the resolver list and the packages stay in
-sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
+The resolver seeds its type set with the primitive names and package-qualified
+record/resource identities in `BUILTIN_TYPES`, including `Money`, `Scalar`,
+`AttributedString`, and the `fs`, `color`, `term`, `net`, `tcp`, `udp`, `tls`,
+`audio`, `json`, and `process` types. Package type identities do not become bare
+names in unrelated files. [[src/resolver/mod.rs:BUILTIN_TYPES]]
 
 Before resolving, the resolver runs the built-in package augmentation chain
 described above (see "Built-in Package Augmentation"), so the rest of resolution
-sees the augmented AST.[[src/resolver/mod.rs:augment_project]]
+sees HIR elaborated from the augmented AST.[[src/resolver/mod.rs:augment_project]]
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate
@@ -168,13 +154,14 @@ Resolution runs twice:
 
 ```text
 parsed AST
-  -> name resolution
-  -> monomorphization
-  -> name resolution (again)
+  -> builtin augmentation and HIR elaboration for initial resolution
+  -> augmented generic HIR
+  -> monomorphization to concrete HIR
+  -> name resolution (again, without DOC revalidation)
 ```
 
 The second resolution pass is important because monomorphization rewrites
-generic/template code into concrete declarations that must also obey normal
+generic/template HIR into concrete declarations that must also obey normal
 symbol rules.[[src/monomorph/mod.rs:monomorphize_project]]
 
 ## Monomorphization
@@ -222,10 +209,10 @@ program accepts command-line arguments.
 
 The parser stores a type annotation as a flat spelling ([architecture
 type-name-encoding](./mfb spec architecture type-name-encoding)). `hir::elaborate`
-is where that spelling is parsed **once**, into a `ParameterType`; from there
+is the boundary where that spelling is parsed, into a `ParameterType`; from there
 forward — resolver, monomorphization, the shape pass, IR lowering, the IR
 semantic verifier, the `TypeModel` builder and every code emitter — the compiler
-carries the variant tree and matches on it. No stage after the AST re-derives
+carries the variant tree and matches on it. Post-elaboration type consumers do not re-derive
 structure by stripping `"List OF "` or splitting on `" TO "`.
 
 This is a checked property, not a convention: `tests/guards/no_type_strings.rs` scans
