@@ -14,7 +14,7 @@ handle into a soon-reclaimed worker arena) — see
 The arena allocator entry point `arena_alloc(size, align)` validates that
 alignment is a non-zero power of two, treats zero-size allocations as one byte,
 rounds addresses with checked arithmetic, grows chained blocks when needed, and
-uses a separate large-allocation block path for oversized requests. The "Arenas"
+searches large size-class bins and sizes new mappings to the request. The "Arenas"
 topic specifies the arena-state and block layouts, the full allocation
 algorithm, and how arenas are reclaimed.
 
@@ -31,12 +31,12 @@ StringObject
 ```
 
 The trailing NUL byte is a native helper convenience and is not part of the
-logical string length. A `String` object's total allocation size is therefore
+logical string length. A tight `String` block's logical size is therefore
 `byteLength + 9` (the 8-byte length word plus the bytes plus the NUL); this same
-`+9` formula sizes a `String` block inlined into a record or collection
+`+9` formula sizes a `String` block inlined into a record or `Result`
 (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 
-A `MUT` binding's own block is the one exception, and only while it is bound: an
+A `MUT` binding's own block can retain capacity, and only while it is bound: an
 in-place self-update (`mfb spec memory collections`, *Self-updates*) may leave the
 block larger than `byteLength + 9`, with the spare bytes recorded beside the
 binding so its drop frees the block at its real size. The spare capacity never
@@ -59,21 +59,20 @@ RecordObject (flat)
 Field `0` starts at offset `0`; field `n` starts at offset `8 * n`. A slot
 stores, by field type:
 
-- **scalar** (`Boolean`/`Byte`/`Integer`/`Float`/`Fixed`/enum): the value inline.
+- **scalar** (`Boolean`/`Byte`/`Integer`/`Float`/`Fixed`/`Money`/`Scalar`/enum): the value inline.
 - **`String`**: a `U64` **block-relative offset** into the record's own data
   region, where the `String`'s flat block (`{U64 len, bytes, U8 nul}`, 8-aligned)
   is embedded inline. The field read recovers the interior pointer as
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
-- **flat composite** — a nested record, a data `Union`, a `List`/`Map`, or a
+- **flat composite** — a nested record, a data `Union`, a `List`/`Map`/`Set`, or a
   `Result OF T` whose own payloads are all flat, plus the built-in
   flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
   offset into the data region, exactly like a `String`. The field read recovers
-  `recordBase + offset`, and because the inlined block's own offsets are relative
-  to that same base, a whole-block `memcpy` deep-copies the entire tree. A field is
-  inlined into the data region iff it is a `String` or a flat composite. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
-- **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
-  resource or recursive payload, a non-flat `Result`, or a nested record that is
+  `recordBase + offset`. Each nested block preserves its own internal relative
+  addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String` or a flat composite. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
+- **non-flat composite** — a **resource** `Union`, a non-flat `List`/`Map`/`Set`,
+  a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
   separate allocation. For a value whose type reaches a type cycle, that separate
   allocation is an **owned child**: copying the record deep-copies it (the graph
@@ -85,9 +84,9 @@ computed by walking the fixed slot region plus each inlined sub-block (a `String
 block, or recursively any inlined flat-composite block).
 Construction, `WITH`-update, copy/transfer, equality, and collection embedding
 all use that runtime size; copying a record whose fields are all scalar,
-`String`, or flat-composite (i.e. a flat record) is a single block `memcpy`
-(no per-field deep copy) — only a non-flat pointer field needs a deep copy of its
-separate allocation. Records a runtime helper constructs — `net::Address`,
+`String`, or flat-composite (i.e. a flat record) uses a block copy without per-field graph traversal. A recursive owned
+pointer field needs its own graph copy; resource and function pointers retain
+their separate ownership rules. Records a runtime helper constructs — `net::Address`,
 `udp::Datagram`, `net::PingResult`, `audio::AudioDevice` — follow the same layout
 exactly: the helper builds the flat image, and every read of their fields rebases. [[src/codegen/memory/marshal/record.rs:emit_build_inlined_record_sized]]
 
@@ -117,31 +116,36 @@ one `memcpy`.
 The generic **size** walk honors the same sentinel: it reads each inlined field's
 own offset word and skips the field when that word is 0, rather than assuming
 every inlined sub-block is present at the running offset. An origin-less `Error`
-is `{code, message}` with nothing written past the message, so the running-offset
-assumption sized a phantom `ErrorLoc` out of whatever followed the block — and
-freeing that error handed `arena_free` a garbage size (bug-371). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_record_block_size_to_slot]]
+has the fixed three-slot prefix, an inlined message, and a zero source offset;
+the size walk ends at the message rather than reading an absent `ErrorLoc`. [[src/codegen/collection/layout/builder_collection_layout.rs:emit_record_block_size_to_slot]]
 
 ## `Result`
 
-`Result OF T` is a flat `{tag, size, payload}` value — a two-variant data union
+`Result OF T` uses a `{tag, size, payload}` block — a two-variant data union
 `Ok(T)` / `Err(Error)`:
 
 ```text
 Result
   +0   U64   tag         ; 0 = Ok, otherwise Err
   +8   U64   size        ; total byte size of THIS object
-  +16  payload           ; a scalar value inline, or a flat block inlined whole
+  +16  payload           ; a scalar/pointer word, or a block inlined whole
 ```
 
 A scalar success payload occupies the 8-byte word at `+16`; a block payload
-(`String`, record, union, collection, the `Err` `Error`, or a nested `Result`) is
+(`String`, record, data union, collection, the `Err` `Error`, or a nested `Result`) is
 inlined whole at `+16` and `size` covers it. Reading the value yields an interior
 pointer into the block (`base + 16`) for a block payload, or the 8-byte value for
-a scalar. Copy/transfer is one generic `memcpy`.
+a scalar. A resource or function payload occupies the word at `+16` as a pointer;
+a resource union likewise occupies that word as a pointer to its union box.
+The result is memcpy-copyable only when its success type is: recursive
+payloads require graph copying, and resource/thread payloads follow their
+ownership and transfer rules.
+[[src/codegen/memory/value/builder_value_semantics.rs:result_payload_is_block]]
+[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
 
 ## Union
 
-A **data** union (all variants are data records) is a flat, self-describing
+A **data** union (all variants are data records) is a self-describing
 `{tag, size, data}` block sized to the **active** variant:
 
 ```text
@@ -153,7 +157,7 @@ DataUnionObject (flat)
 
 `data` is the active variant's record laid out exactly as a standalone record
 (scalar slots inline; `String`/flat-record fields inlined by block-relative
-offset — relative to the union base at `+16`). Constructing a variant wraps its
+offset — relative to the variant record base (`unionBase + 16`)). Constructing a variant wraps its
 built record block at `+16`; `MATCH` dispatches on `tag@0`; extracting a variant
 yields an interior pointer to the record at `+16`. The `size` word makes copy/free
 generic (read the size, `memcpy`, then deep-copy only the active variant's
@@ -174,32 +178,30 @@ uniform across resource kinds — `File`, `Socket`, `Listener`, `tls::Socket`,
 the closed-default record stay one implementation. A kind that needs fewer words
 carries the rest inertly.
 
-Offsets `0..32` are a **single canonical header** shared by every built-in and
-package resource (plan-80); the type-specific tail starts at `+32`. Before
-plan-80 the header diverged after offset 8 and `STATE` lived at 16, which the
-TLS/audio backends already used for `SSL*`/dispatch-queue/sample-rate fields — so
-a union `STATE` over a `tls::Socket` clobbered a live field. The unified header
-gives the generic `STATE` payload (plan-74) a free slot in *every* layout.
+Offsets `0..32` are the canonical header shared by built-in and package
+resources; the type-specific tail starts at `+32`. The `STATE` payload pointer
+occupies `+24` independently of the resource kind.
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]]
 
 ```text
 ResourceRecord (96 bytes, alignment 8)
   ; --- canonical header (every resource, offsets 0..32) ---
-  +0   U64  tag       ; resource type id, self-describing (plan-80); 0 = invalid
+  +0   U64  tag       ; resource type id, self-describing; 0 = invalid
   +8   U64  handle    ; polymorphic: fd / connection ptr / audio kind / native ptr
   +16  U64  closed    ; flag SET, not a boolean — see below
   +24  U64  state     ; pointer to the STATE payload, 0 until initialized
   ; --- type-specific tail (offsets 32+; File shown) ---
-  +32  U64  bufPtr    ; per-File output buffer (plan-14-B), 0 = unbuffered
+  +32  U64  bufPtr    ; per-File output buffer, 0 = unbuffered
   +40  U64  bufFilled ; bytes currently held in bufPtr
   +48  U64  bufEnabled; 0 on every freshly opened handle
-  +56  U64  readPtr   ; per-File read buffer (plan-14-C), 0 until first read
+  +56  U64  readPtr   ; per-File read buffer, 0 until first read
   +64  U64  readPos   ; next unconsumed byte offset within readPtr
   +72  U64  readFill  ; valid bytes in readPtr
   +80  U64  readAtEof ; set once the underlying read() returned 0
 ```
 
-The File tail is the widest, ending at offset 88; the record is rounded up to 96
-(a 16-byte multiple, with one slot of headroom). `tag` at `+0` makes a record
+The File tail ends at offset 88; the canonical record size is 96 bytes
+(a 16-byte multiple). `tag` at `+0` makes a record
 self-describing, though close dispatch itself stays compile-time-resolved by the
 static resource type. `0x00` is never a live record (uninitialized/invalid); a
 value `< 0xFE` keys a built-in resource; an imported/native `LINK` resource
@@ -218,6 +220,10 @@ carries `RESOURCE_TAG_NATIVE`:
 | 8   | `RESOURCE_TAG_TLS_LISTENER` | TLS listener                        |
 | 9   | `RESOURCE_TAG_AUDIO`        | audio input/output                  |
 | 10  | `RESOURCE_TAG_PROCESS`      | child `Process`                     |
+| 11  | `RESOURCE_TAG_IMAGE`        | canvas `Image`                      |
+| 12  | `RESOURCE_TAG_FONT`         | canvas `Font`                       |
+| 13  | `RESOURCE_TAG_THREAD`       | `Thread` view                       |
+| 14  | `RESOURCE_TAG_THREAD_WORKER` | `ThreadWorker` view                |
 | 255 | `RESOURCE_TAG_NATIVE`       | imported / native `LINK` resource   |
 
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_FILE]]
@@ -278,10 +284,9 @@ per-backend resource layout to the header offsets, so a future resource whose
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 Every pointer to a resource shares the one record, and therefore shares the `state`
-pointer. Scope-drop reclaims the two buffers and the `STATE` payload; for most
-kinds it leaves the 96-byte record itself as a tombstone carrying the flags, while the
-`tcp`, `udp` and `tls` handles have their record freed by the owning binding's drop — see
-`./mfb spec memory arenas`.
+pointer. Scope-drop reclaims File buffers and the `STATE` payload when it owns them.
+Whether it also frees the 96-byte record depends on resource kind and binding
+ownership; the exact rule is in `./mfb spec memory arenas`.
 
 ## See Also
 

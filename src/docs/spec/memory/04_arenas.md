@@ -1,7 +1,11 @@
 # Arenas
 
-Every heap-backed value — strings, records, unions, errors, and collections —
-is allocated from an *arena*. An arena owns a chain of OS-mapped blocks plus a
+Dynamically constructed strings, records, unions, errors and collections use
+an *arena*. Static strings and non-capturing function descriptors live in the
+program image; runtime-managed thread control blocks have separate storage.
+See `./mfb spec memory closures` and `./mfb spec threading control-block`.
+
+An arena owns a chain of OS-mapped blocks plus a
 small fixed *arena-state* control structure, and manages the mapped bytes with
 three cooperating structures (the classic deferred-coalescing
 design): **128 per-size-class quick bins** (exact chunk sizes 16…2048 — a freed
@@ -11,8 +15,10 @@ small bin misses, so misses never splinter parked inventory), and a per-arena
 **address-ordered coalescing free-list** holding block remainders, plus **64
 large-bin size classes** for freed chunks over 2048 bytes (a large request takes
 any parked chunk it fits, splitting it). A gated **flush** sorts and coalesces
-every parked chunk before the arena maps more. The common alloc/free cycle is
-O(1) amortized regardless of the size mix. The designated victim subsumes the
+every parked chunk before the arena maps more. Quick-bin and designated-victim
+hits and bin pushes are O(1); large-bin
+searches are bounded. Free-list walks and coalescing flushes have the costs
+specified below. The designated victim subsumes the
 bump pointer. Freeing is **internal reuse only**: a freed chunk goes
 back to the allocator for the next allocation but is never returned to the OS;
 mapped blocks are unmapped only by the bulk `arena_destroy` when the owning
@@ -64,7 +70,7 @@ ArenaState (at x19)
                               ; carved from the v128 region); addressed only by rv64 codegen
   +3728 U64  currentError     ; in-flight owned Error block base for trap adoption
                               ; (0 when none); addressed by a computed register on rv64
-  +3736 U64  stdinLocalBuf    ; plan-15 stdin broadcast: per-thread 4 KiB copy buffer
+  +3736 U64  stdinLocalBuf    ; stdin broadcast: per-thread 4 KiB copy buffer
                               ; (NULL until first stdin read)
   +3744 U64  stdinLocalFilled ; valid bytes in stdinLocalBuf
   +3752 U64  stdinLocalPos    ; next unread byte in stdinLocalBuf (lock-free fast path)
@@ -95,9 +101,9 @@ teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
 independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
 words at 16/24 hold a **separate** dedicated memory-fill PCG64 stream (see Entropy
 Fill below), seeded independently so it never perturbs the reproducible
-`math::rand` sequence. The `ENTRY_*` argv/argc fields
-the entry shim stores begin at offset `ARENA_STATE_SIZE`, immediately after this
-structure on the entry stack. Because the main arena-state lives on the entry
+`math::rand` sequence. The entry shim's RNG scratch begins at `ARENA_STATE_SIZE`; globals follow it,
+and an argument-list entry reserves argc/argv materialization slots above the
+globals (see `./mfb spec memory program-startup`). Because the main arena-state lives on the entry
 stack (not zero-filled), the entry shim zeroes the whole `ARENA_STATE_SIZE`
 range with a loop before the first allocation; the thread-spawn path zeroes a
 worker's freshly allocated arena state with the same size-derived loop, so the
@@ -144,8 +150,7 @@ ArenaBlock
 reachable only through each block's `prevBlock` link, which is the chain
 `arena_destroy` unmaps. The default block size is `ARENA_DEFAULT_BLOCK_SIZE` =
 **4096 bytes**. [[src/codegen/error/constants/error_constants.rs:ARENA_DEFAULT_BLOCK_SIZE]] Allocation does not read `bumpOffset` — it is written `0` at map
-time and kept only so the block-header layout is unchanged; the free-list drives
-all placement.
+time and kept as a reserved field; the bins, carve chunk and free-list drive placement.
 
 ## `arena_alloc(size, align)`
 
@@ -224,10 +229,8 @@ The algorithm:
    - A large request flushes and retries from step 2d once, but only while
      `largeFlushCredit` is positive: every large free adds its bytes to it, and
      every flush resets it to minus 256 bytes per chunk the flush sorted. A
-     flush is O(M log M) in the M chunks it sorts, so each one is paid for by
-     at least 256·M freshly freed large bytes before the next can run —
-     amortized, where an ungated big-request flush measured as a hot-path cost
-     (plan-64 A1). [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_BYTES_PER_CHUNK]]
+     flush is O(M log M) in the M chunks it sorts, and the credit must recover from `-256 * M` to a positive value before
+     another large-request flush can run. [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_BYTES_PER_CHUNK]]
      Without the flush, a program whose large sizes vary splits its free
      memory into pieces too small for its next request and maps without bound.
 
@@ -271,15 +274,7 @@ larger chunk (> 2048) instead **parks on its large-bin size class**, also an
 O(1) head push, and adds its bytes to `largeFlushCredit`. The 64 classes split
 each power of two from 2 KiB into four: for `2^k ≤ size < 2^(k+1)` the class is
 `(k - 11) * 4 + ((size >> (k - 2)) & 3)`, and every size from 112 MiB up shares
-the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] Routing large
-frees through the address-ordered `arena_insert_free` grew that list without
-bound under heavy large-list churn (a 1000-element `List` frees ~40 KB per op),
-so both the insert and every later first-fit walk went quadratic (plan-25-A);
-the size classes keep the general list short. They replaced 64 bins hashed by
-exact size, from which a large alloc took only an exact-size node: a freed
-block whose size never recurred stayed parked until `arena_destroy`, so a
-program whose large sizes varied mapped memory without bound (bug-690). Either
-way the chunk is then entropy-scrubbed (see *Entropy Fill*) over
+the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] In either bin path the chunk is then entropy-scrubbed (see *Entropy Fill*) over
 `[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
 just written, so the scrub can never destroy live free-list metadata. An
 **immediate repeated free of the same address is a no-op**: the push finds the
@@ -299,9 +294,9 @@ Adjacency is pure arithmetic on `start`/`size`, so no boundary tags are read.
 Chunks in different blocks are never contiguous (the 32-byte header always
 separates blocks), so a merge never spans a block. `arena_free` **never unmaps**
 — it only relinks; memory returns to the OS solely at `arena_destroy`. The `size`
-is always supplied by the compiler's drop glue from the static type, so there is
-no user-level free and no class of wrong-size/double-free bugs outside a codegen
-error.
+is supplied by the compiler's type-directed drop glue; there is no user-level
+free operation. This ABI requires the pointer and rounded extent to match the
+allocation and does not provide general double-free detection.
 
 ## Entropy Fill
 
@@ -319,7 +314,7 @@ arena address and start time (offset 40); each worker mixes a draw from the
 parent's fill stream with its own arena address. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_arena_fill_seed]] Its output is never observable —
 filled bytes are always overwritten by a constructor before any read — so the
 stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
-(no syscall per fill); `arena_free` calls it after the coalescing insert (over
+(no syscall per fill); `arena_free` calls it after parking the chunk on its bin (over
 the freed payload past the FreeNode words — see `arena_free` above), and
 `arena_alloc` calls it on a freshly mapped block's usable region before first use.
 It writes four words per loop iteration by PCG64 jump-ahead — word *j* is the
@@ -337,9 +332,10 @@ A `--debug` build counts both kinds of fill for each arena in the debug report:
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
 the block chain from `blockHead` through each `prevBlock`, [[src/codegen/memory/arena/arena.rs:lower_arena_destroy]] unmapping every block
 with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
-`blockHead` and `freeListHead` — plus every quick-bin head and the
-designated-victim words to `0`, leaving the arena fully inert (the heads would
-otherwise dangle into the unmapped blocks).
+`blockHead` and `freeListHead` — and every word from `ARENA_QUICK_BIN_BASE_OFFSET` through
+`ARENA_STATE_SIZE` to `0`. This includes quick/large bins, the designated
+victim, output/input buffer state, vector scratch, current error, and flush
+credit. No allocator head retains an address into an unmapped block.
 It frees no individual values; all memory returns to the OS at once. The helper
 is idempotent — a second call sees `blockHead == 0` and does nothing.
 
@@ -358,7 +354,7 @@ from there into the receiver's arena (`./mfb spec threading control-block`).
 ## Scope-Drop Frees
 
 Beyond the bulk `arena_destroy`, individual owned values are freed deterministically
-at **scope-drop**, the same model resources already use. A flat, pointer-free value is
+at **scope-drop**. A flat, pointer-free value is
 freed by a single `arena_free(ptr, size)` of its block, the size recomputed from the
 static type at the drop point (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 A value of a recursive type (one whose declaration reaches itself) is a graph of
@@ -375,7 +371,7 @@ every site that hands a value to a longer-lived owner (a `LET`/`MUT` bind, a glo
 store, an assignment, a closure capture, a `RETURN`) deep-copies (`copy_flat_block`)
 when the source is an *aliasing source* (a `Local`, `Global`, `Capture`,
 field/`MemberAccess` read, `UnionExtract`, or `Result` payload — all of which yield a
-an interior pointer into an existing block) or a *static* `String` constant (which lives in rodata,
+pointer into an existing block) or a *static* `String` constant (which lives in rodata,
 not the arena). Record/union/collection construction, collection inserts, and `WITH`
 already byte-copy their flat payloads inline, so a flat payload introduces no new alias. A
 payload of a recursive type (one whose declaration reaches itself) is a graph of separate
@@ -399,12 +395,13 @@ null-guarded, so an initializer that traps before storing frees nothing.
 
 A **resource** is scope-dropped, but on its own terms: drop and close do different
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
-memory — since plan-52-B the drop path `arena_free`s the resource's output buffer,
-read buffer, and `STATE` payload, nulling each pointer word as it goes. For most
-resource kinds the 96-byte record itself survives, deliberately, as the tombstone that
-carries the closed flag. The `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`
-and `tls.Listener` records are the exception (bug-623): the **owning binding's** drop
-frees the record last, after the close and the block reclaim, and zeroes the slot. The
+memory — the drop path `arena_free`s the resource's output buffer,
+read buffer, and `STATE` payload, nulling each pointer word as it goes.
+The **owning binding's** drop also frees the 96-byte record for `fs.File`,
+`tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
+`audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
+the record last, after close and block reclamation, and zeroes the slot. Other
+kinds retain the record as a closed tombstone until arena teardown. The
 owner, not `close`, frees it, because a `close` through a `RES` parameter leaves the
 owner still reading the closed flag, and every non-owning holder lives in the owner's
 scope. An explicit `close` on the owner therefore keeps the drop registered, and the
@@ -419,9 +416,9 @@ resource-management` §15.6) has no binding of its own left to drop, so its memo
 reclaimed by that collection's owned-list drain instead. The drain always frees the
 16-byte `{record, next}` node it allocated for the element, which nothing but the drain
 can name. Everything the node POINTS at — the element's `STATE` block, its per-`File`
-I/O buffers, its record for the five record-freeing kinds above, a union element's
+I/O buffers, its record for the record-freeing kinds above, a union element's
 `{tag, record-ptr}` box, and the collection block itself — is freed only for a
-collection proved to be their one owner (bug-645): every store into it is a collection
+collection proved to be their one owner: every store into it is a collection
 literal or a self-receiving `collections::` mutator, it is never named outside a call's
 argument position, no `collections::get`/`getOr` (nor a `*::poll`) reads an element back
 out of it, and every element that floats into it is a fresh producer record that does
@@ -430,11 +427,17 @@ those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
-Two classes of value are **excluded** from scope-drop frees because they are not
-plain arena blocks this scope owns: **runtime-managed thread
-results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
-and the worker arena, bulk-freed at teardown); and **pointer graphs whose type holds
-a resource**. A recursive or cycle-reaching value is not `type_is_memcpy_copyable`, so the
+Raw thread-helper results belong to the thread runtime's block arena and
+must not be freed through the caller's arena. However, `thread::waitFor`,
+`receive`/`read`, and `acceptResource`/`readResource` copy their returned values
+into the calling thread's arena at the call site: those copies are owned and
+dropped there. A runtime-managed value that has not been copied remains excluded
+from ordinary scope-drop frees.
+[[src/codegen/engine/value/builder_values.rs:value_is_runtime_managed]]
+[[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
+
+**Pointer graphs whose type holds a resource** are also excluded from ordinary
+owned-value frees. A recursive or cycle-reaching value is not `type_is_memcpy_copyable`, so the
 flat `arena_free` path never claims it. Instead its owner frees it through
 `_mfb_rt_graph_drop` when the type has a graph-drop kind, which every resource-free type in
 or reaching a cycle does. A resource-bearing type never gets a kind: it is move-only and

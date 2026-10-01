@@ -5,10 +5,32 @@ convention**. The contract in one line: every scalar argument — integer, point
 **and** floating/fixed — occupies a single 8-byte positional slot, the first
 eight are passed in general-purpose registers `x0..x7` and any beyond that in a
 stack tail, an infallible result comes back in `x0`, and a fallible result comes
-back in the four-register form. The deliberate divergences from AAPCS64 below
-exist so the whole code plan can treat every value as a single 8-byte slot in a
-general register; the floating-point register file is touched only at arithmetic
-sites.
+back in the four-register form. The argument and result boundary uses general-purpose registers even
+for floating-point values. Floating-point arithmetic may keep intermediate
+values in FP registers. Native C calls use the platform ABI through explicit
+marshalling; this internal convention does not define the C boundary.
+
+## Target Register Banks
+
+Shared lowering names `%argMFB0..7` and `%retMFB0..3`; each target realizes
+them as follows. An infallible value uses result role 0; the fallible tag,
+value, message and source use result roles 0, 1, 2 and 3.
+
+| Target | MFB argument bank (in order) | MFB result bank |
+|---|---|---|
+| AArch64 | `x0,x1,x2,x3,x4,x5,x6,x7` | `x0,x1,x2,x3` |
+| RISC-V 64 | `a0,a1,a2,a3,a4,a5,a6,a7` | `a0,a1,a2,a3` |
+| x86-64 SysV | `rdi,rsi,rdx,rcx,r8,r9,rax,rbp` | `rdi,rsi,rdx,rcx` |
+| x86-64 Windows | `rcx,rdx,r8,r9,rdi,rsi,rax,rbp` | `rcx,rdx,r8,r9` |
+
+The x86-64 MFB result bank differs from the C return bank (`rax,rdx`).
+`%argC`/`%retC` and `%argSys`/`%retSys` explicitly name those other conventions.
+The remainder of this topic uses AArch64 instruction/register spellings unless
+it gives a target-specific rule.
+[[src/target/shared/abi.rs:mfb_arg]] [[src/target/shared/abi.rs:mfb_return]]
+[[src/arch/x86_64/select.rs:realize_abi_operand]]
+[[src/arch/aarch64/select.rs:select_aarch64]]
+[[src/arch/riscv64/select.rs:select_riscv64]]
 
 ## Argument Passing
 
@@ -33,8 +55,8 @@ The stack tail is realized entirely at frame finalization: a call passing more
 than eight arguments reserves a 16-byte-aligned outgoing area at the very bottom
 of the caller frame (below the callee-saved registers), and the callee reads its
 incoming arguments from just above its own frame, past the entry return-address
-padding (8 bytes on x86-64, 0 on AArch64). The register-only path — every call of
-eight or fewer arguments — is byte-for-byte unchanged. [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
+padding (8 bytes on x86-64, 0 on AArch64). Windows additionally reserves its 32-byte shadow area, including for calls
+with no stack arguments. [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 
 ### Owned-parameter variants
 
@@ -76,11 +98,11 @@ block, and freeing that is not permitted. A `String` *field* of a record is
 unaffected, because it travels by value inside the record's own block.
 [[src/codegen/engine/analysis/handover.rs:collect_handover_args]]
 
-**The base symbol is unchanged.** It is lowered first, with every parameter lent,
-and keeps its name, its arity and its ABI. A variant is an additional internal
-symbol reached only from a direct call the analysis approved, so a function value,
-a `LINK` or exported symbol, a thread entry point and a `.mfp` package all see
-exactly what they saw before.
+**The base symbol retains the lent-parameter contract.** It is lowered first, with every parameter lent,
+and keeps its name, arity and lent-parameter ABI. A variant is an additional
+internal symbol reached only from a direct call the analysis approved.
+Function values, `LINK`/export boundaries, thread entries and `.mfp` packages
+use the base contract.
 
 ### Float and Fixed arguments go in `x` registers
 
@@ -96,12 +118,10 @@ FP-arithmetic sites. An operand's bits move out of its `x` register with `fmov d
 x` (`fmov_d_from_x`), the `fadd`/`fmul`/etc. runs, and the result moves back into
 an `x` register with `fmov x, d` (`fmov_x_from_d`) for the finiteness check and
 the value model. [[src/target/shared/abi.rs:float_move_d_from_x]] Under the linear-scan allocator, **chained float arithmetic
-stays resident in `d`-registers** across operations (the FP register class,
-the FP register class): a parent float op reads its operand straight from the
+stays resident in `d`-registers** across operations (the FP register class): a parent float op reads its operand straight from the
 `d`-register the child op produced, skipping the GPR round-trip. At every memory
 or ABI boundary (storing to a slot, passing an argument, returning) a `Float` is
-still its 8-byte little-endian form in an `x` register, so its value
-representation and the call ABI are unchanged.
+still its 8-byte little-endian form in an `x` register, as required by the argument/result boundary.
 
 ## Result Passing
 
@@ -125,11 +145,16 @@ StorageClass   source types                size  align
   Integer      Integer                        8    8
   Float        Float                          8    8
   Fixed        Fixed                          8    8
-  Reference    everything else                8    8
+  Money        Money                          8    8
+  Scalar       Scalar                         4    4
+  Reference    heap/composite/resource        8    8
 ```
 
-`Reference` is a single 8-byte **pointer**, and **all** heap, user, resource, and
-composite types collapse to it: `String`, `Error`, every `List OF …`, `Map OF …`,
+Declared enums use `Integer` storage (8 bytes, alignment 8).
+[[src/target/shared/plan/lower.rs:type_storage]]
+
+`Reference` is a single 8-byte **pointer** used by heap, resource, and
+composite types: `String`, `Error`, every `List OF …`, `Map OF …`, `Set OF …`,
 `MapEntry OF …`, `Result OF …`, `Thread OF …`/`ThreadWorker OF …`, `FUNC(…)` /
 `ISOLATED FUNC(…)` closure types, the file/dir resource handles, and any
 user-declared record or union name. [[src/target/shared/plan/lower.rs:is_reference_type]] [[src/target/shared/plan/lower.rs:is_user_type_name]] A resource value (optionally
@@ -137,9 +162,9 @@ user-declared record or union name. [[src/target/shared/plan/lower.rs:is_referen
 record — and an unknown type is a hard error. The byte layouts behind a
 `Reference` are owned by `./mfb spec memory heap-values`.
 
-`Float` and `Fixed` are distinct classes from `Integer` only so FP-arithmetic
-sites know to round-trip through `d` registers; for argument and result passing
-all three behave identically (8-byte slot in an `x` register).
+Storage classes distinguish the scalar representations for lowering. Every
+scalar still occupies one 8-byte positional argument slot; `Fixed` and `Money`
+are scaled-integer representations, while `Float` arithmetic uses FP registers.
 
 ## Call Kinds
 
@@ -163,8 +188,8 @@ Lowerings do not name physical temporary registers. `allocate_register` mints a
 **virtual register** carried in the instruction stream; after a function is fully
 lowered, a coloring pass assigns each virtual register a physical register (or a
 spill slot). [[src/codegen/engine/regalloc/builder_registers.rs:allocate_register]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
-A register operand is a typed `abi::Reg` — a minted virtual register, an ABI role or an
-ABI role token — and has no conversion from text, so a lowering cannot name a register
+A register operand is a typed `abi::Reg` — a minted virtual register, a
+convention-explicit ABI role, or a neutral role token — and has no conversion from text, so a lowering cannot name a register
 by hand. [[src/target/shared/abi.rs:Reg]]
 
 The allocator, **linear scan**, computes liveness over the lowered
@@ -172,17 +197,20 @@ stream and colors the integer class by live interval, reusing a register as soon
 as its previous occupant dies and **spilling to a stack slot under pressure**.
 A value must avoid every register a call clobbers if it is live across that
 call: an ordinary MFB call preserves the callee-saved registers, so such a value
-can stay in one, while an internal `_mfb_*` runtime helper clobbers every integer
-register, so a value live across one is spilled. At `-O1` and above only the
+can stay in one, while the allocator conservatively treats internal `_mfb_*` helpers other
+than `_mfb_fn_*` and `_mfb_ifn_*` as clobbering every allocatable integer
+register, so an integer value live across one is spilled. FP clobbers use the
+target's caller-saved set. This is a compiler model, not a claim that each
+helper physically overwrites every register.
+[[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]] At `-O1` and above only the
 calls a value is **live across** (still needed after the call, by the dataflow)
 constrain it; a call inside its interval at which it is dead — the inline raise
 path of a checked operation, which calls the error builders and returns — does
 not. At `-O0` every call inside the interval counts. [[src/codegen/engine/regalloc/analysis.rs:Liveness]]
 Because pressure spills rather than failing, there is **no
 "break a deep expression into `LET` bindings" limit** — an arbitrarily nested
-expression compiles. (The legacy `bump` reference strategy and its
-`--regalloc` selection flag were removed; linear scan is the only
-allocator.) [[src/codegen/engine/regalloc/linear_scan.rs:run]]
+expression is not limited by a fixed temporary-register counter. Linear scan
+is the allocator. [[src/codegen/engine/regalloc/linear_scan.rs:run]]
 
 The lowering gives every local, parameter and operand temporary its own 8-byte
 frame object and stores and reloads the value through it. At `-O1` and above,
@@ -199,12 +227,12 @@ source's register, and the copy is deleted) also runs from `-O1`. Neither
 changes which instructions execute or in what order, only where values live.
 [[src/optimizer/opt2/promote.rs:promote]] [[src/codegen/engine/regalloc/builder_registers.rs:run_register_allocation]]
 
-When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
+When coloring uses an allocatable callee-saved register, it is recorded so
 the frame finalizer saves and restores it. [[src/codegen/engine/regalloc/builder_registers.rs:mark_register_used]]
 
 ## Reserved Registers
 
-Two registers carry pinned roles in the convention:
+Three registers carry pinned roles in the convention:
 
 * **`x19` — arena-state** (`ARENA_STATE_REGISTER`). Pins the current package
   instance's arena-state for the life of the call chain; never handed out by the
@@ -213,6 +241,17 @@ Two registers carry pinned roles in the convention:
 * **`x28` — closure environment** (`CLOSURE_ENV_REGISTER`). Holds the captured
   environment pointer for an `Indirect` (closure) call; owned by `./mfb spec
   memory closures`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
+
+* **`x20` — current worker thread** (`abi::CURRENT_THREAD`, `%thread`).
+  The worker trampoline pins its control-block pointer here. The register
+  allocator excludes it; the main-thread entry may use the corresponding
+  scratch role, so code that must distinguish main from worker reads
+  `ArenaState.workerThread`. The other targets realize `%thread` as `rbx`
+  (x86-64) or `s2` (RISC-V).
+  [[src/target/shared/regmodel.rs:current_thread]]
+  [[src/arch/aarch64/regmodel.rs:current_thread]]
+  [[src/arch/x86_64/regmodel.rs:current_thread]]
+  [[src/arch/riscv64/regmodel.rs:current_thread]]
 
 `x28` also realizes the `%closure_env` role token, and the allocator never
 hands it out as a temporary — the mirror of `x19`'s arena-base exclusion.
@@ -239,40 +278,42 @@ through the tokens. [[src/target/]]
 There is **no `x29` frame-pointer chain**. `finalize_frame` builds the frame once
 the body is lowered: [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 
-1. If the body contains **any** `bl`/`blr` and `x30` (the link register) is not
-   already in the callee-saved set, `x30` is added to it automatically. [[src/target/shared/abi.rs:link_register]]
-2. `save_size = callee_saved.len() * 8`; the frame reserves an **outgoing
-   stack-argument tail** of `outgoing_bytes` at its very bottom (the widest call
-   that passes more than eight arguments, 16-aligned; zero when no such call
-   exists), and the total frame is
-   `outgoing_bytes + align(save_size + local_stack_size, 16)`, rounded up to
-   **16 bytes** (plus an 8-byte return-address pad on x86-64). A zero-size frame
-   emits no prologue/epilogue.
-3. Layout places the **outgoing argument tail at the bottom** (`sp+0`, `sp+8`, …),
-   the **callee-saved registers above it**, and **local slots above those** —
-   every callee-save and local offset is shifted up by
-   `outgoing_bytes + save_size`.
+1. A body containing a direct or indirect call adds the link-register role
+   to its save set if it is absent.
+2. The save area uses 8-byte slots for integer registers and 64-bit FP
+   registers, but 16-byte, 16-aligned slots for SIMD128 callee saves. Its
+   total `save_size` is rounded up to 16.
+3. A calling Windows frame reserves 32 bytes of shadow space. With an outgoing
+   stack argument at maximum byte offset `k`, `outgoing_bytes` is
+   `align(shadow + k + 8, 16)`; without stack arguments it is `shadow`.
+   Other targets have zero shadow space.
+4. `total = outgoing_bytes + align(save_size + local_stack_size, 16)
+   + call_padding`. `call_padding` is 8 for a calling x86-64 function and 0
+   otherwise. A zero-size frame needs no allocation or restore.
+5. Outgoing arguments occupy the bottom region (after Windows shadow space),
+   followed by the aligned save area, then locals and spills. Existing local
+   offsets are shifted by `outgoing_bytes + save_size`. Incoming argument `k`
+   is addressed above the whole frame, the target's entry return-address
+   padding, and any shadow space.
 
 ```text
 frame layout (higher addresses up)
-  sp + total          <- caller's sp; incoming stack args live here and up
-  ...                     local slots (shifted up by outgoing_bytes + save_size)
-  sp + off + save_size <- first local slot   (off = outgoing_bytes)
-  sp + off + (n-1)*8      callee_saved[n-1]
-  ...
-  sp + off + 0           callee_saved[0]
-  sp + (m-1)*8           outgoing arg m-1  (this frame's calls write here)
-  ...
-  sp + 0                 outgoing arg 0    <- sp after prologue
+  incoming stack arguments
+  caller shadow space (Windows)
+  entry return address (x86-64)
+  call-alignment padding, if required
+  locals and spills
+  callee-save area (per-register width/alignment; total rounded to 16)
+  outgoing stack arguments
+  outgoing shadow space (Windows)       <- sp after prologue
 ```
 
-The prologue is `sub sp, sp, #total` followed by one `str` per callee-saved
-register at `sp + outgoing_bytes + index*8`. **Every `ret`** is rewritten to first
-reload all callee-saved registers (in reverse), then `add sp, sp, #total`, then
-return — so the save/restore is repeated at each return site rather than via a
-single shared epilogue. A callee reads incoming stack argument `k` from
-`sp + total + entry_padding + k*8`, where `entry_padding` is the entry
-return-address slot (8 on x86-64, 0 on AArch64). [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
+The prologue allocates the frame and saves each register at its computed
+save-area offset. Windows frames larger than a stack-probe page allocate and
+touch successive pages before allocating the remaining bytes. Every return
+restores the saved registers in reverse order, releases the frame, and returns.
+[[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
+[[src/codegen/engine/util/vreg_frame.rs:push_frame_allocation]]
 
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added
