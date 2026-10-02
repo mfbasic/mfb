@@ -38,7 +38,7 @@ END FUNC
 
 The `K` parameter above must be comparable because every concrete `Map` key type must be comparable. The requirement is checked when `getOrDefault` is instantiated, not through a separate bound or trait declaration.
 
-Exported templates in source packages are instantiated by the importing compilation before binary representation is produced. A compiled `.mfp` package contains only concrete template instantiations; it does not expose templates for later instantiation unless a future package format explicitly adds signed template metadata.
+Templates are instantiated within the compilation that owns their source. A source dependency is compiled to a `.mfp` before the importer is compiled; its open template declarations are not supplied to the importing compilation. Compiled packages expose concrete instantiations, not open templates for new importer-selected types. [[src/cli/build/source_packages.rs:build_source_dependencies]] [[src/monomorph/lower.rs:lower_type]]
 
 ## See Also
 

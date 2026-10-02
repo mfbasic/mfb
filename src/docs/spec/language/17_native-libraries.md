@@ -19,6 +19,7 @@ LINK "sqlite3" AS sqlite
     SYMBOL "sqlite3_open"
     ABI (path CString, db OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
+    RETURN db
   END FUNC
 
   FUNC close(RES db AS Db) AS Nothing
@@ -40,13 +41,13 @@ RES db AS Db = sqlite::open("app.db")
 ' db is closed by lexical drop when its scope ends, or by an explicit sqlite::close(db)
 ```
 
-**Declaring the native resource (`[visibility] RESOURCE Name CLOSE BY closeFn`).** A native resource is declared at **package scope, not inside the `LINK` block** — it is named and exported exactly like any other type, so package wrapper code resolves the bare name `Db` and `EXPORT` lets importers write `sqlite::Db`. Omitting `EXPORT` keeps it package-private. The declaration may forward-reference a `LINK` function defined later in the file. `Db` is an opaque unique native handle whose hidden representation is a `CPtr`; source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, do arithmetic on it, or name its `CPtr`. A resource may be passed only to functions whose signatures explicitly accept that resource type in a `RES` position. Resources are not thread-sendable unless the declaration opts in with a trailing `THREAD_SENDABLE`.
+**Declaring the native resource (`[visibility] RESOURCE Name CLOSE BY closeFn`).** A native resource is declared at **package scope, not inside the `LINK` block** — it is named and exported exactly like any other type, so package wrapper code resolves the bare name `Db` and `EXPORT` lets importers write `sqlite::Db`. Omitting `EXPORT` keeps it package-private. The declaration may forward-reference a `LINK` function defined later in the file. `Db` is an opaque unique native handle whose hidden representation is a `CPtr`; source code cannot inspect, cast, compare, serialize, print, duplicate the native handle, capture it in a lambda, do arithmetic on it, or name its `CPtr`. Its pointer may be stored in a `RES` collection slot or record field under §15.6. A resource may be passed only to functions whose signatures explicitly accept that resource type in a `RES` position. Resources are not thread-sendable unless the declaration opts in with a trailing `THREAD_SENDABLE`.
 
-The declared name may coincide with a **built-in resource type**'s bare name — `File`, `Socket`, `Listener`, `AudioInput`, `AudioOutput` — without shadowing it: built-in resources are package-qualified (`fs::File`, `tcp::Socket`, `udp::Socket`, `tls::Socket`, …), and several packages share a bare name without colliding, so a user `RESOURCE File` names a distinct, package-scoped type with its own registered close op, and the two never collide in resolution or in close-op dispatch. (The former `RESOURCE_SHADOWS_BUILTIN` rejection predates package-qualified built-ins and is retired.)
+The declared name may coincide with a **built-in resource type**'s bare name — `File`, `Socket`, `Listener`, `AudioInput`, `AudioOutput` — without shadowing it: built-in resources are package-qualified (`fs::File`, `tcp::Socket`, `udp::Socket`, `tls::Socket`, …), and several packages share a bare name without colliding, so a user `RESOURCE File` names a distinct, package-scoped type with its own registered close op, and the two never collide in resolution or in close-op dispatch.
 
 `CLOSE BY <closeFn>` names the resource's **registered close op** — a native `LINK` function whose single `RES` parameter is this resource type (resource invalidation event #1, §15). It runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release early or to observe a close failure. `closeFn` must be a native `LINK` function; naming an ordinary MFBASIC function is rejected (`RESOURCE_CLOSE_NOT_NATIVE`), and a close op that does not consume exactly one `RES` parameter of its resource is rejected (`RESOURCE_CLOSE_SIGNATURE`). Calling a native wrapper with a closed resource fails with `ErrResourceClosed`.
 
-**Re-exporting the close op (`[visibility] FUNC alias AS qualified::func`).** A binding publishes its close op under the package name with a transparent **function alias**, so importers can close explicitly through `sqlite::close(db)`. The alias is the *same* registered close op: calling it consumes its `RES` argument exactly as the native close op does. A hand-written wrapper `FUNC close(RES db AS Db) … sqlite::close(db)` cannot replace it, because its parameter is a non-owning pointer, and only the owning scope may invalidate a resource (§15) — there is no `MOVE` annotation. The alias form is required for any close op importers should be able to call.
+**Re-exporting the close op (`[visibility] FUNC alias AS qualified::func`).** A binding publishes its close op under the package name with a transparent **function alias**, so importers can close explicitly through `sqlite::close(db)`. The alias is the *same* registered close op: calling it consumes its `RES` argument exactly as the native close op does. A hand-written MFBASIC wrapper may also close through its `RES` parameter (§15). The alias additionally preserves registered-close identity at the caller for static move tracking; an ordinary wrapper relies on the shared runtime closed flag. [[src/ir/verify/resources.rs:check_resource_moves]]
 
 **LINK-alias namespace resolution.** `LINK "lib" AS alias` registers `alias` as a **package-local namespace** — distinct from a package import — whose members resolve directly against the block's declared native functions. The resolver collects every `LINK` block in a dedicated first pass (before all other top-level symbols), keying a per-alias table on the block's alias and mapping each `FUNC` name to its captured signature (parameter types, per-parameter `RES` flags, and return). This first pass runs ahead of ordinary symbol collection precisely so that resource `CLOSE BY` targets and `FUNC … AS` re-export aliases, both of which name `alias::func`, can be resolved.[[src/resolver/mod.rs:collect_top_level_symbols]]
 
@@ -79,7 +80,7 @@ Fields are `name ctype`, one per line, in **C declaration order** — the order 
 
 **The layout is computed, never declared.** There is no offset, size, or padding syntax: the compiler derives each field's offset from the field ctypes using standard C natural alignment (align the running offset up to the field's alignment, place it, advance by its size; the struct's alignment is its widest field's, and the total size is padded out to that). This is not merely convenient — it is what makes the package path safe. Offsets and sizes are **never transported in the `.mfp`**; only the field ctypes are, and the layout is recomputed at decode. A crafted package can therefore choose ctypes, each of which has a known size and alignment, but it has no offset to forge. [[src/ir/link.rs:compute_c_layout]]
 
-A `CSTRUCT`'s field ctype sizes and alignments: 1 byte for `CInt8`/`CUInt8`/`CBool`/`CByte`, 2 for `CInt16`/`CUInt16`, 4 for `CInt32`/`CUInt32`/`CFloat`, and 8 for `CInt64`/`CUInt64`/`CDouble`/`CPtr`/`CString`. A `CString` field is a `const char *` — the **pointer**, not its bytes. `CVoid` has no storage and cannot be a field. Every supported target is LP64 and agrees on this table. [[src/ir/link.rs:ctype_size_align]]
+A `CSTRUCT`'s field ctype sizes and alignments: 1 byte for `CInt8`/`CUInt8`/`CBool`/`CByte`, 2 for `CInt16`/`CUInt16`, 4 for `CInt32`/`CUInt32`/`CFloat`, and 8 for `CInt64`/`CUInt64`/`CDouble`/`CPtr`/`CString`. A `CString` field is a `const char *` — the **pointer**, not its bytes. `CVoid` has no storage and cannot be a field. These explicitly sized ctypes have the same sizes on every supported target; this does not imply that host C `long` has the same width on Windows and Unix. [[src/ir/link.rs:ctype_size_align]]
 
 `AS <MfbType>` is required, and names the record this struct presents as. The correspondence is by field name and must be **total**: every `CSTRUCT` field must appear in the record with a compatible type, and vice versa. A silently-unmapped field would be zeroed going in and dropped coming out — a wrong answer with no diagnostic — so partial coverage is rejected (`NATIVE_STRUCT_FIELD_MISMATCH`).
 
@@ -107,14 +108,14 @@ Native ABI types are separate from MFBASIC source types. The names below are the
 
 The fixed-width names are preferred over C spellings such as `int` or `long`, because those spellings vary by platform. Bindings should map the platform header's actual ABI to one of these types.
 
-> Implementation status: the spellings `CFloat32`/`CFloat64`, `CIntPtr`, `CUIntPtr`, and `CSize` do **not** exist — use `CFloat`/`CDouble` and an explicit fixed-width integer instead. Writing one is rejected with `NATIVE_ABI_UNKNOWN_CTYPE`. (Before plan-50-A the slot ctype was an unvalidated free identifier, so such a name compiled clean and silently marshaled as a raw 64-bit register value — usually wrong for floats and narrow integers.) `CFloat` is accepted but is currently marshaled through the raw 64-bit paths rather than as a 32-bit `float`; prefer `CDouble` until that gap is closed.
+> Implementation status: the spellings `CFloat32`/`CFloat64`, `CIntPtr`, `CUIntPtr`, and `CSize` do **not** exist — use `CFloat`/`CDouble` and an explicit fixed-width integer instead. Writing one is rejected with `NATIVE_ABI_UNKNOWN_CTYPE`. `CFloat` is accepted but follows raw 64-bit scalar paths rather than binary32 conversion and the C float ABI. It cannot faithfully bind a C `float` signature. `CDouble` is appropriate only for a C `double` signature. [[src/codegen/link/thunk/link_thunk.rs:lower_link_thunk]]
 
 The marshaling boundary aims to validate values rather than silently corrupting them. As implemented:
 
 * A `CInt32` **argument** is range-checked: a 64-bit MFBASIC `Integer` that does not fit signed 32-bit fails with `ErrOverflow` (`77050010`) instead of truncating. The argument loop special-cases only `CString` and `CInt32`; every other ABI argument type — the narrower integers (`CInt8`/`CInt16`, the `CUInt*` family), `CBool`, `CByte`, and `CPtr` — is passed through as a raw 64-bit value with no narrowing or validation. (`CDouble` arguments are loaded into a floating-point register but otherwise unmodified.)
-* A `CDouble` **return** that is NaN or infinite is rejected with `ErrFloatNaN` (`77050013`) / `ErrFloatInf` (`77050014`), since an MFBASIC `Float` is always finite (§3). `CBool`/`CByte`/`CInt32` **returns** are normalized (nonzero→`TRUE`, low-8-bits, sign-extend respectively); other return types load the raw 64-bit value.
+* A `CDouble` **return** that is NaN or infinite is rejected with `ErrFloatNaN` (`77050013`) / `ErrFloatInf` (`77050014`), at the native result boundary (§4.1). `CBool`/`CByte`/`CInt32` **returns** are normalized (nonzero→`TRUE`, low-8-bits, sign-extend respectively); other return types load the raw 64-bit value.
 * The bytes of a returned `CPtr`-to-`String` are validated as UTF-8, failing with `ErrEncoding` (`77020004`) when malformed; a NULL return yields an empty `String`. [[src/codegen/link/thunk/link_thunk.rs:emit_copy_cstring_to_string]]
-* Embedded NUL bytes in a `CString` **argument** are *intended* to be rejected with `ErrInvalidArgument` (`77050002`), but the current marshaling copies the string bytes verbatim without scanning for an interior NUL, so this check is not yet enforced. [[src/codegen/link/thunk/link_thunk.rs:emit_copy_string_to_cstring]]
+* A `CString` **argument** is copied verbatim and NUL-terminated without an interior-NUL check; a C string consumer sees only the prefix before an embedded NUL. [[src/codegen/link/thunk/link_thunk.rs:emit_copy_string_to_cstring]]
 
 **Passing a struct (`INOUT` / `BIND IN`).** An `ABI (...)` slot may name a `CSTRUCT` as its ctype. The thunk stages a sized, aligned buffer in its frame, **zeroes it entirely**, writes the bound input fields, and passes its *address* as the C argument — the same shape as an `OUT` scalar, only sized.
 
@@ -139,7 +140,7 @@ A struct slot takes a direction: `IN` (the default) for a struct the callee only
 
 A parameter consumed by `BIND IN` needs no ABI slot of its own — it feeds a struct *field*. Likewise an `IN` struct slot needs no parameter: its `BIND IN` block satisfies it.
 
-**Integer-slot limit (target-dependent).** A `LINK` thunk calls a real C function, so its arguments follow the target's **external** C ABI, not the compiler's internal calling convention. AArch64 (AAPCS64) and riscv64 pass eight integer arguments in registers; SysV x86-64 passes only **six**, taking the rest from the stack. Stack arguments are not yet staged for native calls, so a native function declaring more integer (non-`CDouble`) ABI slots than the target passes in registers is **rejected at build time** rather than called with arguments the callee never reads. In practice this means at most six integer slots for `linux-x86_64` and eight elsewhere; `CDouble` slots use a separate float register bank and do not count against it. [[src/target/shared/regmodel.rs:external_int_argument_registers]] (Before bug-296 the x86 backend silently passed the 7th and 8th integer arguments in `rax`/`rbp` — an internal-only extension of the SysV list — so an affected call received garbage with no diagnostic.)
+**Integer-slot limit (target-dependent).** A `LINK` thunk calls a real C function, so its arguments follow the target's **external** C ABI, not the compiler's internal calling convention. AArch64 (AAPCS64) and riscv64 pass eight integer arguments in registers; SysV x86-64 passes only **six**, taking the rest from the stack. Stack arguments are not yet staged for native calls, so a native function declaring more integer (non-`CDouble`) ABI slots than the target passes in registers is **rejected at build time** rather than called with arguments the callee never reads. The limit comes from the selected target's external register model; `CDouble` slots are counted separately. [[src/codegen/link/thunk/link_thunk.rs:lower_link_thunk]] [[src/target/shared/regmodel.rs:external_int_argument_registers]]
 
 `RETURN <struct-slot>` builds the `CSTRUCT`'s mapped record from the buffer the callee filled, so the wrapper must return that record type. `RETURN` on an `IN` struct slot is rejected: an input slot is zeroed and never read back. Field values marshal by width and signedness — a signed narrow field is sign-extended (so a `CInt32` of `-1` surfaces as `-1`, not `4294967295`), a `CBool` normalizes to `TRUE`/`FALSE`, and a `CDouble` that is NaN or infinite is rejected, since an MFBASIC `Float` is always finite. Writing a field range-checks the same way a `CInt32` argument does: a 64-bit `Integer` that does not fit the C field fails with `ErrOverflow` rather than truncating. [[src/codegen/link/thunk/link_thunk.rs:marshal_struct_out]]
 
@@ -175,7 +176,7 @@ ABI parameters may use a direction modifier:
 | `OUT T` | Pass a pointer to native storage and copy the produced value back after the call. The pointer lifetime ends when the native call returns. |
 | `CPtr` | Pass a resource handle or opaque pointer as-is inside the binding boundary. |
 
-> Implementation status: there is **no `REF` direction modifier** in the parser — `abiSlot` accepts only an optional `OUT`. An ordinary (input) slot is marshaled by value from its bound wrapper parameter or `CONST` pin.
+The parser accepts `IN`, `OUT`, and `INOUT`; no `REF` modifier exists. `IN` is the default, and `INOUT` is restricted to struct slots. [[src/ast/link_items.rs:parse_abi_spec]]
 
 **Bulk byte output (`CBuffer` and `BUFFER <slot> SIZE <expr>`).** Every other ABI ctype is fixed-width: its size is a constant the compiler knows, and both the C struct layout computer and the thunk's frame layout rest on that. A C bulk-read API — `sf_readf_short`, `read`, `recv` — instead takes a caller-allocated buffer and a capacity, and the capacity is computed from the *other* arguments. `CBuffer` is the ctype for that slot, and `BUFFER <slot> SIZE <expr>` is where its capacity is stated:
 
@@ -194,7 +195,7 @@ That is narrower than `SUCCESS_ON` / `RETURN`, and deliberately so. Those are ev
 
 Deriving the capacity from a sibling slot by naming convention (a `buflen CInt64` next to a `buf OUT CBuffer`) was rejected: it is implicit, unstated in the `ABI` line, and silently picks the wrong slot whenever a C function takes two lengths. The clause states the relationship the C API actually has.
 
-`SIZE` is a **memory-safety boundary the author owns**: it must be greater than or equal to the maximum number of bytes the callee can write into the buffer. The compiler cannot verify this — it cannot know which ABI slot (if any) the C function treats as `buf`'s write length, nor how a multi-argument API derives it — so the write's safety rests on the `SIZE` expression being large enough. To keep an understated `SIZE` from silently corrupting the arena, the thunk allocates `SIZE` plus a small guard region, stamps a canary past the `SIZE`-th byte before the call, and checks it after: a callee that wrote past `SIZE` clobbers the canary and the call traps with `ErrNativeBufferOverrun` (`7-703-0010`) instead of continuing on corrupted memory. The guard converts a silent, exploitable heap overrun into a deterministic abort; it does not make an understated `SIZE` correct — always size the buffer to the callee's maximum write.
+`SIZE` is a **memory-safety boundary the author owns**: it must be greater than or equal to the maximum number of bytes the callee can write into the buffer. The compiler cannot verify this — it cannot know which ABI slot (if any) the C function treats as `buf`'s write length, nor how a multi-argument API derives it — so the write's safety rests on the `SIZE` expression being large enough. To keep an understated `SIZE` from silently corrupting the arena, the thunk allocates `SIZE` plus a small guard region, stamps a canary past the `SIZE`-th byte before the call, and checks it after: a callee that wrote past `SIZE` clobbers the canary and the call traps with `ErrNativeBufferOverrun` (`7-703-0010`) instead of continuing on corrupted memory. The guard detects writes that alter the canary after the native call returns; it cannot contain arbitrary native memory corruption or guarantee recovery. `SIZE` must cover the callee's maximum write.
 
 A `CBuffer` is legal in exactly one position, and every other use is rejected with `NATIVE_BUFFER_INVALID` on both the source path and the `.mfp` package path:
 
@@ -234,7 +235,7 @@ Valid values are whole numbers from 1 to 4096 (MiB); anything else is `PROJECT_J
 
 `maxBuffer` is the **consuming** project's setting, not the binding's. `LINK` thunks are emitted when an executable links, so the application that imports a binding decides how much memory one native read may claim — a binding cannot raise an application's ceiling on its behalf, and a package does not carry one.
 
-> Implementation status (plan-58-B): `OUT CBuffer` marshals — the thunk allocates the byte list, hands the callee a pointer to its data region, and truncates to `LENGTH` on return. `BUFFER` and `LENGTH` clauses do **not** yet ride the `.mfp` wire format (plan-58-C owns it), so a `CBuffer` binding cannot currently be consumed from a compiled package: decoding one yields a slot with no `BUFFER` clause, which fails to lower with a diagnostic rather than marshalling a zero-capacity buffer.
+`BUFFER` capacities and `RETURN ... LENGTH` expressions are serialized with the native function and restored from compiled `.mfp` packages. Source and imported bindings use the same buffer marshaling. [[src/ir/binary.rs:encode_link_function]] [[src/ir/binary.rs:decode_link_function]]
 
 **Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`. A pinned integer is lowered as a 64-bit **bit pattern**, so the full unsigned range is available: `CONST flags = 0xFFFFFFFFFFFFFFFF` pins all sixty-four bits, exactly as the equivalent `-1` does. [[src/ir/lower_link.rs:link_const_bits]]
 
@@ -259,8 +260,6 @@ END FUNC
 
 An identifier in `<expr>` names an `ABI (...)` slot or the ABI return, and is resolved against them: a name that is neither is rejected with `NATIVE_ABI_UNBOUND_SLOT`. The ABI return resolves to the **sign-extended** status, so `ERROR_ON status = -1` compares against `-1` and not `4294967295`. An `OUT` slot resolves to its produced value, so a gate may read what the callee wrote. [[src/ir/lower_link.rs:lower_link_expr]] [[src/codegen/link/thunk/link_thunk.rs:emit_link_expr]]
 
-> Implementation status: until plan-50-I, `<expr>` did not actually range over slot names — lowering collapsed *every* identifier onto a single nameless variable meaning "the native return". So `SUCCESS_ON typo = 0` silently meant `SUCCESS_ON status = 0`, and `SUCCESS_ON count = 5` over an `OUT` slot could not mean what it said. It never bit any in-tree binding, because the only name any of them used *was* the return name.
-
 **Naming the result (`RETURN <expr>`).** A wrapper's result is whatever `RETURN <expr>` names. There is exactly one such clause, and `<expr>` is the same expression language `SUCCESS_ON` uses — so `RETURN db` is the degenerate case where the expression is a bare slot reference, and `RETURN status = 100` is the computed case.
 
 `RETURN <slot>` over an `OUT` slot surfaces the value the callee produced (a handle, a count); `RETURN <abi-return-name>` passes the C return through, marshaled by its ctype; and any other expression computes the result from the named slots. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
@@ -270,13 +269,11 @@ FUNC step(RES stmt AS Stmt) AS Boolean
   SYMBOL "sqlite3_step"
   ABI (stmt CPtr) AS status CInt32
   SUCCESS_ON status = 100 OR status = 101   ' both are non-errors
-  RESULT status = 100                       ' TRUE iff a row is ready
+  RETURN status = 100                       ' TRUE iff a row is ready
 END FUNC
 ```
 
 A plain value-returning call needs no gate: name the C return and hand it back, e.g. `ABI (stmt CPtr, name CString) AS value CInt32` + `RETURN value`. A value-producing wrapper with no `RETURN` is rejected (`NATIVE_ABI_NO_RESULT`); a `Nothing` wrapper with one is `NATIVE_ABI_RESULT_MARKER`.
-
-> Implementation status: before plan-50-H the result was identified by a **magic slot name**. A slot literally named `return` (or an `AS return <ctype>` native return) *was* the result, and a separate `RESULT <expr>` clause supplied a computed one. That worked only because the compiler forced every `OUT` slot to be named `return`, making "is OUT", "is named `return`", and "is the result" indistinguishable — a coincidence `INOUT` struct slots break, since `sf_open` fills an `INOUT` slot whose value is *not* the result. `RETURN <expr>` replaced both spellings and absorbed `RESULT`, so `return` is a keyword again and not a legal slot name.
 
 **Multiple outputs — not implemented.** A wrapper surfaces exactly one result, so an ABI signature whose C function produces two independent outputs cannot express both. A binding works around it by splitting the call, or by using a follow-up query that returns the second value on its own (libsndfile's `sf_open` fills an `SF_INFO` *and* returns a handle; a binding takes the handle from `sf_open` and reads the info back with `SFC_GET_CURRENT_SF_INFO`).
 
@@ -295,7 +292,7 @@ LINK "mylib" AS mylib
 END LINK
 ```
 
-> Implementation status: multiple `OUT` slots parse and marshal (each gets its own buffer), but only one can be named by `RETURN`, so the others are unreachable. An earlier design reserved a `RETURN_OUT DivModResult[quotient, remainder]` clause for this; it was **retired** by plan-50-H, whose `RETURN <expr>` covers the single-output case that `RETURN_OUT` was mostly there to spell. Reviving multi-output means extending `RETURN` to construct a record from several slots, not adding a second clause. [[src/ast/link_items.rs:parse_link_function]]
+Multiple `OUT` slots parse and marshal, but `RETURN` does not construct a record from several slots. A returned resource may separately receive a struct payload through `BIND STATE`. [[src/ast/link_items.rs:parse_link_function]]
 
 **Freeing a caller-owned return (`FREE`).** A `CPtr` result mapped to an owned MFBASIC value (such as `AS String`) is **copied** out of the native buffer and the source pointer is then left untouched — *copy-and-leave*. That is correct when the native library **owns** the buffer and keeps it valid (a transient or static pointer), as with `sqlite3_column_text`. When the call instead returns a buffer the **caller owns and must release** — `sqlite3_expanded_sql`, `sqlite3_mprintf`, `strdup` — copy-and-leave would leak it. A `FREE` block names the produced slot and the deallocator that releases it:
 
@@ -304,7 +301,8 @@ LINK "sqlite3" AS sqlite
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS text CPtr
-    FREE sql
+    RETURN text
+    FREE text
       SYMBOL "sqlite3_free"
       ABI (ptr CPtr) AS CVoid
     END FREE
@@ -312,19 +310,19 @@ LINK "sqlite3" AS sqlite
 END LINK
 ```
 
-`FREE sql` means: after the wrapper has copied the `return` slot into its owned MFBASIC result, pass the **original** native pointer to the named deallocator. The nested `SYMBOL`/`ABI` declare that deallocator — exactly one pointer parameter and a `CVoid` return. The freed slot is the produced pointer: the C `return`, or a named `OUT` slot. The deallocator runs **once, after the copy, on the success path only**; if the wrapper fails before the value is produced (a failed `SUCCESS_ON` gate, a marshaling error), nothing is freed. A NULL produced pointer is passed to the deallocator unchanged, because deallocators such as `sqlite3_free` define NULL as a no-op. The original pointer is never surfaced as an MFBASIC value, so `FREE` is the only sanctioned way to release a caller-owned native return — a raw `CPtr` cannot be handed back to source code to free by hand (`NATIVE_CPTR_ESCAPE`). A binding with more than one caller-owned pointer (for example several `OUT` buffers) states one `FREE` block per slot.
+`FREE text` means: after the wrapper has copied the `text` slot into its owned MFBASIC result, pass the **original** native pointer to the named deallocator. The nested `SYMBOL`/`ABI` declare that deallocator — exactly one pointer parameter and a `CVoid` return. The freed slot must be the named `CPtr` ABI return; a `FREE` naming an `OUT` slot is rejected. [[src/ir/shape.rs:check_link_function]] The deallocator runs **once, after the copy, on the success path only**; if the wrapper fails before the value is produced (a failed `SUCCESS_ON` gate, a marshaling error), nothing is freed. A NULL produced pointer is passed to the deallocator unchanged, because deallocators such as `sqlite3_free` define NULL as a no-op. The original pointer is never surfaced as an MFBASIC value, so `FREE` is the only sanctioned way to release a caller-owned native return — a raw `CPtr` cannot be handed back to source code to free by hand (`NATIVE_CPTR_ESCAPE`). A wrapper carries one deallocator descriptor; it does not provide independent deallocation rules for several outputs. [[src/ir/link.rs:IrLinkFunction]]
 
 Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded. The backend emits a load-time initializer `_mfb_linker_init` that `dlopen`s each distinct library with `RTLD_NOW` and `dlsym`s every declared symbol (and every `FREE` deallocator) into a per-function global pointer slot. [[src/codegen/link/thunk/link_thunk.rs:_mfb_linker_init]]
-- **The filename `dlopen` is given is the one the binding author declared** for the build's exact `(os, arch, libc)`, resolved from that binding's `libraries` section (`./mfb spec tooling project-manifest`). The compiler does not synthesize a soname: the old `lib<logical>.so.0`/`lib<logical>.dylib` guess is gone, because it missed every unversioned `.so`, `.so.3`, non-`lib`-prefixed, and per-arch/libc variant. See *Locator resolution* below. [[src/codegen/link/locator/link_locator.rs:resolve]]
+- **The filename `dlopen` is given is the one the binding author declared** for the build's exact `(os, arch, libc)`, resolved from that binding's `libraries` section (`./mfb spec tooling project-manifest`). The compiler does not synthesize a soname. See *Locator resolution* below. [[src/codegen/link/locator/link_locator.rs:resolve]]
 - If a required native library or symbol cannot be loaded before `main`, the initializer returns an error `Result` carrying `ErrNativeBindingUnavailable` (`77030007`, `ERR_NATIVE_LINK_LOAD_CODE`). The program entry handles this exactly like a failed global initializer and aborts before running `main`. (Note: this differs from the build-time linker diagnostic `5-500-0001`/`LINK_FAILED`, not the runtime load-failure code.)
 - Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
 - A value-returning native function must name its result with exactly one `RETURN <expr>`; otherwise it is rejected with `NATIVE_ABI_NO_RESULT`. A `Nothing` wrapper must not declare one (`NATIVE_ABI_RESULT_MARKER`). A slot named `return` does not parse — the name carries no meaning and is a keyword.
-- A `FREE` block must name a `CPtr`-typed produced slot — the `return` slot or a declared `OUT` slot — and its deallocator must declare exactly one pointer parameter and a `CVoid` return. The deallocator is called once on the success path, after the produced value is copied into the wrapper's owned MFBASIC result, with the original (possibly NULL) native pointer; it is not called on a failed call. Without a `FREE` block a `CPtr` result is copied and the source pointer is left untouched (copy-and-leave), which leaks a caller-owned buffer — `FREE` is the only way to release one.
+- A `FREE` block must name the `CPtr`-typed ABI return — and its deallocator must declare exactly one pointer parameter and a `CVoid` return. The deallocator is called once on the success path, after the produced value is copied into the wrapper's owned MFBASIC result, with the original (possibly NULL) native pointer; it is not called on a failed call. Without a `FREE` block a `CPtr` result is copied and the source pointer is left untouched (copy-and-leave), which leaks a caller-owned buffer — `FREE` is the only way to release one.
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `OUT` native pointer values are temporary call-frame values (there is no `REF` modifier). Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
@@ -332,7 +330,7 @@ Rules:
 - A `CSTRUCT`'s layout is computed from its field ctypes and is never declared or transported; offsets are recomputed when a package is decoded. A struct the compiler cannot lay out faithfully is rejected (`NATIVE_CSTRUCT_INVALID`), and one over 1024 bytes is `NATIVE_CSTRUCT_TOO_LARGE`.
 - A `CSTRUCT` name is nameable only in its declaration, an `ABI (...)` slot's ctype position, and `SIZEOF`; anywhere else is `NATIVE_CSTRUCT_ESCAPE`.
 - A struct slot's buffer is always fully zeroed before the call, so an unbound field is `0` and no stack contents reach the C library. `BIND IN` writes its inputs; `RETURN <slot>` reads the result back as the `CSTRUCT`'s mapped record. `INOUT` is valid only on a struct slot.
-- Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, passed as a pointer at ordinary calls (which do not move ownership), auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009`, `2-203-0089`…`0098`, and `2-203-0123` (see `./mfb man errors`).
+- Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, passed as a pointer at ordinary calls (which do not move ownership), auto-closed by lexical drop through the registered close op, stored only as resource pointers in `RES` slots or fields, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009`, `2-203-0089`…`0098`, and `2-203-0123` (see `./mfb man errors`).
 - Native libraries are platform-specific dependencies. A binding package declares which concrete shared object to load per platform in its project.json `libraries` section; the compiler encodes those locators into the `.mfp` (`./mfb spec package native-bindings`), together with a sha256 for any library the author vendors. The native library itself is never portable binary representation and is not carried inside the `.mfp` — only its name, or its hash.
 - Two **built-in** packages also load platform libraries at run time, through the same `dlopen`/`dlsym` mechanism but internal to their runtime helpers rather than via a `LINK` block: `tls` (Network.framework/Security.framework on macOS, `libssl`/`libcrypto` on Linux) and `crypto` (Security.framework SecKey on macOS, `libcrypto.so.3` falling back to `libcrypto.so.1.1` on Linux, for the NIST-EC public-key operations only — every other `crypto` primitive is a portable software core). These built-ins resolve their symbols lazily inside each helper call, not in `_mfb_linker_init`, and surface load failures as ordinary package errors (`ErrTlsFailed` / `ErrUnknown`), not `ErrNativeBindingUnavailable`. See `./mfb spec stdlib crypto` for the crypto backend split.
 
@@ -348,6 +346,7 @@ LINK "sqlite3" AS sqliteLink
     SYMBOL "sqlite3_open"
     ABI (path CString, db OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
+    RETURN db
   END FUNC
 
   FUNC openV2(path AS String, flags AS Integer) AS RES Db
@@ -355,6 +354,7 @@ LINK "sqlite3" AS sqliteLink
     ABI (path CString, db OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
     CONST zVfs = NOTHING         ' NULL: use the default VFS
     SUCCESS_ON status = 0
+    RETURN db
   END FUNC
 
   FUNC close(RES db AS Db) AS Nothing
@@ -380,10 +380,11 @@ LINK "sqlite3" AS sqliteLink
 
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
-    ABI (db CPtr, sql CString, nByte CInt32, db OUT CPtr, pzTail CPtr) AS status CInt32
+    ABI (db CPtr, sql CString, nByte CInt32, prepared OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1             ' read sql up to the terminating NUL
     CONST pzTail = NOTHING       ' NULL: discard the trailing-SQL pointer
     SUCCESS_ON status = 0
+    RETURN prepared
   END FUNC
 
   FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
@@ -397,38 +398,44 @@ LINK "sqlite3" AS sqliteLink
   FUNC bindParameterIndex(RES stmt AS Stmt, name AS String) AS Integer
     SYMBOL "sqlite3_bind_parameter_index"
     ABI (stmt CPtr, name CString) AS value CInt32
+    RETURN value
   END FUNC
 
   FUNC step(RES stmt AS Stmt) AS Boolean
     SYMBOL "sqlite3_step"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 100 OR status = 101
-    RESULT status = 100
+    RETURN status = 100
   END FUNC
 
   FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
     ABI (stmt CPtr, col CInt32) AS text CPtr
+    RETURN text
   END FUNC
 
   FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_type"
     ABI (stmt CPtr, col CInt32) AS value CInt32
+    RETURN value
   END FUNC
 
   FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int64"
     ABI (stmt CPtr, col CInt32) AS value CInt64
+    RETURN value
   END FUNC
 
   FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
     ABI (stmt CPtr, col CInt32) AS value CDouble
+    RETURN value
   END FUNC
 
   FUNC columnCount(RES stmt AS Stmt) AS Integer
     SYMBOL "sqlite3_column_count"
     ABI (stmt CPtr) AS value CInt32
+    RETURN value
   END FUNC
 
   FUNC finalize(RES stmt AS Stmt) AS Nothing
@@ -440,25 +447,29 @@ LINK "sqlite3" AS sqliteLink
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS text CPtr
-    FREE sql
+    RETURN text
+    FREE text
       SYMBOL "sqlite3_free"
-      ABI (return CPtr) AS CVoid
+      ABI (ptr CPtr) AS CVoid
     END FREE
   END FUNC
 
   FUNC errmsg(RES db AS Db) AS String
     SYMBOL "sqlite3_errmsg"
     ABI (db CPtr) AS text CPtr
+    RETURN text
   END FUNC
 
   FUNC extendedErrcode(RES db AS Db) AS Integer
     SYMBOL "sqlite3_extended_errcode"
     ABI (db CPtr) AS value CInt32
+    RETURN value
   END FUNC
 
   FUNC errstr(code AS Integer) AS String
     SYMBOL "sqlite3_errstr"
     ABI (code CInt32) AS text CPtr
+    RETURN text
   END FUNC
 END LINK
 ```
@@ -556,8 +567,7 @@ it cannot share the console build's `$ORIGIN/vendor`. Because the AppImage is a
 seal closes it (`finalize_app_bundle` runs after `copy_vendor_libraries`); nothing
 can be added afterwards.
 
-A build with no `vendor` locators emits **no** RPATH and no vendor directory, and
-its bytes are identical to a build predating the feature. `DT_RUNPATH` (tag 29) is
+A build with no `vendor` locators emits **no** vendor RPATH and no vendor directory. `DT_RUNPATH` (tag 29) is
 used rather than the deprecated `DT_RPATH`, so `LD_LIBRARY_PATH` can still
 override it. RPATH is what keeps `dlopen` a bare-filename call with no runtime
 code: the loader resolves it, and the executable's own `DT_RUNPATH`/`LC_RPATH` is
@@ -602,8 +612,8 @@ loadable code to carry at least an ad-hoc signature, so an unsigned vendored
 `.dylib` may be refused by `dyld` regardless of where it sits. Satisfying that is
 the vendoring author's responsibility; most distributed dylibs already are signed.
 
-Automated acquisition remains out of scope: nothing fetches a vendored library
-from a registry or embeds it in the `.mfp`.
+Package installation fetches declared vendored-library blobs from the registry;
+the `.mfp` stores their metadata and hashes, not library bytes.
 
 ## See Also
 

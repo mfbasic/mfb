@@ -1,8 +1,9 @@
 ' raster - the weather layers drawn as a small animated image over the map.
 '
 ' The GFS grid is much denser than the screen needs for a translucent colour
-' wash. A layer samples it into a fixed-size image, using the same
-' interpolation in space and forecast time as the wind. The image is regenerated
+' wash. A layer samples it into a fixed-size image: temperature uses bilinear
+' sampling, rain uses cubic smoothing, and both blend in forecast time.
+' The image is regenerated
 ' every frame the layer is visible, and canvas stretches it over the window.
 
 IMPORT collections
@@ -14,9 +15,9 @@ ENUM Layer
   Wind, Temperature, Precipitation
 END ENUM
 
-LET RASTER_WIDTH AS Integer = 160
+LET RASTER_WIDTH AS Integer = 320
 
-LET RASTER_HEIGHT AS Integer = 100
+LET RASTER_HEIGHT AS Integer = 200
 
 ' The four bytes of a pixel with nothing in it.
 LET CLEAR_PIXEL AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(0)]

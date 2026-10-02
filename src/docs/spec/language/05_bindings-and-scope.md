@@ -7,8 +7,9 @@ chooses **ownership**:
 - **`MUT`** — reassignable binding (copyable data).
 - **`RES`** — a uniquely-owned resource (a `File`, `Socket`, `Listener`, a
   `Thread`, …).
-  A resource has no aliases, so mutability is moot and `RES` needs no
-  immutable/mutable sub-distinction. See §15.
+  A `RES` binding cannot be reassigned. Parameters, record fields, and
+  collection slots may alias the same resource pointer; its owning scope
+  retains the close obligation. See §15.
 
 ```basic
 LET x = 10
@@ -86,7 +87,7 @@ What introduces a **local** into the map:
 - the `FOR` counter variable,
 - the `FOR EACH` element variable,
 - a `MATCH` case's union-pattern binding (`MATCH … Type(binding)`),
-- an inline-`TRAP` handler binding (`expr TRAP e ... END TRAP`),
+- an inline-`TRAP` handler binding (`expr TRAP(e) ... END TRAP`),
 - lambda parameters,
 - the function-level `TRAP` binding.
 
@@ -176,7 +177,7 @@ A function-level `TRAP` handler is resolved against a **clone of the locals map
 that existed after the function body was resolved**, with the trap's error
 binding inserted on top. The handler thus sees the function's parameters (and any
 function-level locals captured into that map) plus its own error binding, while
-the trap binding itself is confined to the handler. An inline `expr TRAP e …`
+the trap binding itself is confined to the handler. An inline `expr TRAP(e) …`
 handler works the same way at expression granularity: it clones the locals
 visible at that point and adds the handler binding `e`.
 [[src/resolver/resolution.rs:resolve_function]] [[src/resolver/resolution.rs:resolve_expression]]

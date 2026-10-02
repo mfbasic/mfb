@@ -10,8 +10,8 @@ The topics below follow the language from the small to the large. `design-princi
 and `lexical-structure` set the philosophy and surface syntax; `templates` covers
 monomorphized generics; `types` defines the primitive, record, union, enum,
 collection, and thread types plus inference, defaults, and comparability.
-`bindings-and-scope`, `functions`, and `subs` specify `LET`/`MUT`/`RES` binding,
-value-producing functions, and effect-only subs. `error-model`, `pattern-matching`,
+`bindings-and-scope` and `functions` specify `LET`/`MUT`/`RES` bindings
+and functions, including effect-only functions declared `AS Nothing`. `error-model`, `pattern-matching`,
 `control-flow`, and `operators` give the implicit-failure model, `MATCH`,
 structured control flow, and operator precedence. `collections`, `modules-and-packages`,
 `memory-semantics`, `resource-management`, and `threads` cover owned collections,
@@ -21,9 +21,8 @@ handles, and isolated thread workers. `native-libraries` specifies `LINK` bindin
 `worked-example` shows complete programs; and `documentation` and `test-framework`
 cover `DOC` blocks and the `TESTING` / `mfb test` framework.
 
-The compiler-internal contracts that used to live here — the canonical type-string
-grammar, the inference/coercion lattice, and the resource-float decision procedure —
-are now specified with the rest of the front end in the `architecture` package
+The canonical type-string grammar, inference/coercion lattice, and
+resource-float decision procedure are specified in the `architecture` package
 (`type-name-encoding`, `type-inference`, `escape-analysis`), and the auditability
 tooling in the `tooling` package. See the links below.
 

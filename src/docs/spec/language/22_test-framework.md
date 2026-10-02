@@ -32,8 +32,9 @@ Case   := TCASE  <string> NEWLINE Statement* END TCASE
 - A `TESTING` block appears anywhere a top-level declaration may appear, in any
   source file, any number of times. Blocks run in declaration order across files.
 - A `TGROUP` contains `TCASE` cases and/or nested `TGROUP` sub-groups, in
-  declaration order; nesting may be **arbitrarily deep** and cases and sub-groups
-  may interleave within one group. A `TCASE` body is an ordinary statement block.
+  declaration order; nesting shares the parser's statement-depth limit of 256; exceeding it is
+  `MFB_PARSE_BLOCK_TOO_DEEP`. Cases and sub-groups may interleave within one
+  group. [[src/ast/testing.rs:parse_test_group]] [[src/ast/stmt.rs:MAX_STMT_DEPTH]] A `TCASE` body is an ordinary statement block.
   Both `TGROUP` and `TCASE` take a **string-literal** description used verbatim in
   the report.
 - A `TGROUP` with no `TCASE` anywhere in its subtree emits nothing in the report;

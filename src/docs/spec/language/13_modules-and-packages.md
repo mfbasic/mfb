@@ -28,7 +28,7 @@ distinction matters only for what is written into the compiled `.mfp` package
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 `PUBLIC`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
+Top-level `LET`, `MUT`, `FUNC`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
 A package's exported surface may not name a type the package declares without `EXPORT`: an `EXPORT TYPE` field (at any field visibility), an `EXPORT UNION` variant's field, an `EXPORT FUNC` parameter or return type, or an `EXPORT LET`/`MUT` type that reaches one — through `List`, `Set`, `Map`, `Result`, `RES`, `FUNC` and `Thread` types — fails the package build with `EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, because the compiled package's type table carries only exported types and no importer could resolve the name. A union's variant record itself need not be exported, and a type imported from another package may be re-exported. [[src/ir/shape.rs:export_names_non_exported_type_diagnostics]]
 
@@ -83,7 +83,7 @@ Rules:
 - Record fields use `value.field`. Methods and object-style access do not exist.
 - Imports are not transitive. A package cannot export an imported package or create re-export chains.
 - `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
-- An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The built-in packages are: `app`, `astrings`, `audio`, `bits`, `collections`, `crypto`, `csv`, `datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`, `money`, `net`, `os`, `process`, `regex`, `strings`, `tcp`, `term`, `thread`, `tls`, and `vector`. [[src/codegen/builtins/mod.rs:is_builtin_import]]
+- An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The complete built-in package set is listed in `./mfb spec language builtin-functions`. [[src/codegen/builtins/mod.rs:is_builtin_import]]
 - `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. [[src/resolver/mod.rs:link_target_signature]] It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
 
 ```basic
@@ -104,10 +104,10 @@ io::print(toString(shapes::area(shapes::Circle[2.0])))
 The import graph is resolved at compile time. Imports are not transitive: when
 the compiler installs a dependency it reads only that package's exported type
 names [[src/resolver/packages.rs:install_package_type_names]] and never re-processes
-the dependency's own imports, so transitivity does not occur structurally. (Note
-to implementers: the compiler does **not** currently detect or diagnose an
-import *cycle* — there is no circular-dependency check on the import graph;
-recursive-record cycle detection is unrelated.)
+the dependency's own imports, so transitivity does not occur structurally. Source dependency builds detect a project already in the active build chain
+and reject cycles; the chain also has a depth limit of 32.
+[[src/cli/build/source_packages.rs:build_source_dependencies]]
+[[src/cli/build/source_packages.rs:MAX_SOURCE_DEPENDENCY_DEPTH]]
 
 `IMPORT packageName` resolves a package, not an arbitrary source file. The
 compiler resolves the first identifier in the import using this order: [[src/resolver/packages.rs:resolve_imported_package]]

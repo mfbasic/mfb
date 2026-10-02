@@ -21,7 +21,7 @@ cstructDecl    = "CSTRUCT" ident "AS" ident
    contextual identifiers, not keywords. *)
 (* The native FUNC name may be a keyword (e.g. `step`, colliding with `STEP`);
    the parser accepts a keyword token in this position. A `RES` native return may
-   carry a `STATE T` clause (plan-53): the native producer hands back a resource
+   carry a `STATE T` clause: the native producer hands back a resource
    RECORD carrying a `T` payload, populated by BIND STATE (below) or
    default-initialized. STATE is honored only after `RES`, as on ordinary funcs. *)
 nativeFuncDecl = "FUNC" name "(" [ params ] ")"
@@ -34,7 +34,8 @@ nativeFuncBody = { "SYMBOL" string
                  | "ABI" "(" [ abiSlotList ] ")" "AS" abiReturn
                  | constPin
                  | nativeReturnRule
-                 | "RETURN" expr
+                 | "RETURN" expr [ "LENGTH" expr ]
+                 | "BUFFER" ident "SIZE" expr
                  | bindIn
                  | bindState
                  | nativeFree } ;
@@ -44,7 +45,7 @@ constPin       = "CONST" ident "=" ( "SIZEOF" ident | expr ) ;
    contextual identifier. *)
 nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
 (* BIND IN writes named struct fields into an IN/INOUT slot before the call;
-   BIND STATE (plan-53) marshals a filled OUT struct slot into the returned
+   BIND STATE marshals a filled OUT struct slot into the returned
    resource's STATE payload after the call. `<res-slot>` is the native return
    naming the produced resource; `<struct-slot>` is an OUT ABI slot whose
    `CSTRUCT ... AS S` gives the resource's STATE type S. *)
@@ -61,18 +62,17 @@ abiSlot        = ident [ "IN" | "OUT" | "INOUT" ] nativeType ;
 (* The native-return slot (after `AS`) accepts no direction modifier — just a
    slot name and a C type. An `OUT` result is instead an `abiSlot` carrying the
    `OUT` direction inside the slot list, surfaced by naming it in `RETURN`.
-   bug-300 E4: these three productions used to admit a literal `return` as a slot
-   name. plan-50-H deleted that special case — `return` lexes as `Keyword::Return`
-   and `parse_abi_slot_name` accepts only an identifier, so it is rejected in all
-   three positions — and `abiSlot` omitted the `IN`/`INOUT` directions plan-50-E
-   added alongside `OUT`. *)
+   Slot names must be identifiers; the reserved keyword `RETURN` cannot name
+   an ABI slot. *)
 abiReturn      = ident nativeType ;
 (* The ABI slot type is lexed as a free identifier; only the names below are
    honored by the marshaling backend (§17). *)
 nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
                 | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64"
                 | "CBool" | "CByte" | "CFloat" | "CDouble"
-                | "CString" | "CPtr" | "CVoid" ;
+                | "CString" | "CPtr" | "CVoid" | "CBuffer" | ident ;
+(* An ident nativeType must name a CSTRUCT in this LINK block. CBuffer is
+   OUT-only, CVoid return-only, and the checker restricts the other positions. *)
 
 declaration    = topLetDecl | topMutDecl
                | funcDecl | typeDecl | unionDecl | enumDecl
@@ -134,13 +134,13 @@ templateType
                | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
                | (ident | qualifiedIdent) "OF" type { "," type } ;
-threadBody     = [ type ] [ "RES" type ] "TO" type [ "STATE" type ] ;
+threadBody     = [ type ] [ "RES" type [ "STATE" type ] ] "TO" type [ "STATE" type ] ;
                (* message defaults to Nothing; a trailing STATE is the view's own,
                   never the output's (§15) *)
 funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
 
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;
-field          = declVis ident "AS" type ;
+field          = declVis ident "AS" [ "RES" ] type [ "STATE" type ] ;
 unionDecl      = declVis "UNION" ident [ templateParams ] [ unionIncludes ] { unionMember } "END" "UNION" ;
 (* An included union and a member are read by the one `type` grammar, so either
    may be a template instantiation (`Opt OF T`, `Box OF Integer`). Whether the
@@ -256,5 +256,5 @@ mapEntry       = expr ":=" expr ;
 ## See Also
 
 * ./mfb spec language lexical-structure — the tokens the grammar's terminals refer to
-* ./mfb spec language operators — operator precedence not encoded in this abridged grammar
+* ./mfb spec language operators — operator precedence and associativity
 * ./mfb spec architecture frontend — the parser that implements this grammar

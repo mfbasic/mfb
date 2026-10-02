@@ -299,9 +299,14 @@ FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawIte
   IF captions THEN
     LET size1 AS Float = captionSize(v)
     LET margin AS Float = size1 * 1.2
-    items = collections::append(items, textItem(face, margin, margin + size1, size1, CAPTION_COLOR, zoomCaption(v, size)))
+    LET zoomText AS String = zoomCaption(v, size)
+    LET zoomWidth AS Float = canvas::measureText(face, size1, zoomText).width
+    items = collections::append(items, textItem(face, v.width - margin - zoomWidth, v.height - margin, size1, CAPTION_COLOR, zoomText))
     LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  space play/stop  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
-    items = collections::append(items, textItem(face, margin, v.height - margin, size1 * 0.85, HINT_COLOR, hint))
+    ' Fit the hint into the space left by the right-aligned zoom caption.
+    LET hintWidth AS Float = canvas::measureText(face, size1 * 0.85, hint).width
+    LET hintSize AS Float = size1 * 0.85 * math::min(1.0, math::max(1.0, v.width - margin * 3.0 - zoomWidth) / hintWidth)
+    items = collections::append(items, textItem(face, margin, v.height - margin, hintSize, HINT_COLOR, hint))
   END IF
 
   LET button AS ModeButton = modeButtonFor(v)
@@ -309,14 +314,17 @@ FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawIte
     items = collections::append(items, item)
   NEXT
 
-  ' The precipitation layer's key hangs under the button, and goes with the
-  ' captions.
-  IF captions AND layer = Layer.Precipitation THEN
-    LET keyRight AS Float = button.x + button.radius
-    LET keyTop AS Float = button.y + button.radius * 1.8
-    FOR EACH item IN precipitationKey(face, captionSize(v), keyRight, keyTop)
-      items = collections::append(items, item)
-    NEXT
+  ' Colour-wash keys share the top-left panel position and follow captions.
+  IF captions AND layer <> Layer.Wind THEN
+    LET keyLeft AS Float = 10.0
+    LET keyTop AS Float = 10.0
+    MUT keyItems AS List OF canvas::DrawItem = []
+    IF layer = Layer.Temperature THEN
+      keyItems = temperatureKey(face, captionSize(v), keyLeft, keyTop)
+    ELSE
+      keyItems = precipitationKey(face, captionSize(v), keyLeft, keyTop)
+    END IF
+    items = collections::append(items, keyItems)
   END IF
 
   RETURN items

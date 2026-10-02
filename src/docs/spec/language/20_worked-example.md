@@ -27,7 +27,7 @@ FUNC loadPoints(path AS String) AS List OF Vec3
   RES f = fs::openFile(path)                ' auto-propagates on failure
   WHILE NOT fs::eof(f)
     LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
-    pts = collections::append(pts, v)      ' optimized in place for MUT
+    pts = collections::append(pts, v)      ' updated in place for MUT
   END WHILE
   RETURN pts                               ' f closed by lexical drop here; pts freezes automatically
 
@@ -45,7 +45,7 @@ FUNC main() AS Nothing
   RETURN
 
   TRAP(err)
-    io::print("Fatal: " & err.message)   ' otherwise exits with err.code
+    io::print("Fatal: " & err.message)   ' an uncaught entry failure exits with code 255
     RETURN
   END TRAP
 END FUNC
@@ -119,13 +119,12 @@ not a subtype, there is no virtual dispatch, and the included union is named
 explicitly — there is no retroactive extension of a union from outside its
 definition.
 
-> **Cross-package type layering is limited.** A consumer that `IMPORT`s a package
-> can name that package's exported `TYPE`/`UNION` by qualified reference (a
-> `pkg::Type` annotation resolves), because the importer registers the exported
-> type *names*. Their field layout is not carried into the consumer, so
-> *constructing* an imported type by qualified name (`shape::Circle[radius := 10.0]`)
-> fails with `TYPE_UNKNOWN_VALUE`. The single-package form above is the working
-> subset.
+Imported exported records carry their field definitions and may be constructed
+by qualified name, for example `shape::Circle[radius := 10.0]`, when field
+visibility permits it. Source dependencies are compiled to `.mfp` before the
+consumer is built and use the same imported type interface.
+[[src/cli/build/source_packages.rs:build_source_dependencies]]
+[[src/ir/package.rs:qualify_package_types]]
 
 ## See Also
 

@@ -1,12 +1,37 @@
-' temperature - the blue-to-red wash of the temperature layer.
+' temperature - the purple-to-red temperature layer and its Fahrenheit key.
 
+IMPORT canvas
+IMPORT collections
+IMPORT color
 IMPORT math
 
-' Celsius endpoints of the blue-to-red scale. Values outside this useful
-' weather range hold at its ends rather than wrapping through another colour.
-LET HEAT_COLD AS Float = -40.0
+' Fahrenheit stops from the reference key. Both the map and legend interpolate
+' the same colours at the same temperatures; extremes hold at the end colours.
+LET HEAT_DEGREES AS List OF Float = [-40.0, 0.0, 30.0, 60.0, 90.0, 130.0]
 
-LET HEAT_HOT AS Float = 40.0
+LET HEAT_COLORS AS List OF color::Color = [color::rgb(95, 25, 145), color::rgb(35, 65, 235), color::rgb(20, 205, 205), color::rgb(100, 210, 70), color::rgb(255, 190, 20), color::rgb(205, 25, 5)]
+
+LET HEAT_LABELS AS List OF String = ["-40", "0", "30", "60", "90", "130"]
+
+' Position on the linear Fahrenheit scale, cold at the bottom, hot at the top.
+FUNC heatPosition(fahrenheit AS Float) AS Float
+  RETURN math::clamp((fahrenheit + 40.0) / 170.0, 0.0, 1.0)
+END FUNC
+
+FUNC temperatureColor(fahrenheit AS Float) AS color::Color
+  LET degrees AS Float = math::clamp(fahrenheit, -40.0, 130.0)
+  FOR k = 1 TO len(HEAT_DEGREES) - 1
+    LET high AS Float = collections::get(HEAT_DEGREES, k)
+    IF degrees <= high THEN
+      LET low AS Float = collections::get(HEAT_DEGREES, k - 1)
+      LET along AS Float = (degrees - low) / (high - low)
+      LET a AS color::Color = collections::get(HEAT_COLORS, k - 1)
+      LET b AS color::Color = collections::get(HEAT_COLORS, k)
+      RETURN color::rgb(blendChannel(a.red, b.red, along), blendChannel(a.green, b.green, along), blendChannel(a.blue, b.blue, along))
+    END IF
+  NEXT
+  RETURN collections::get(HEAT_COLORS, len(HEAT_COLORS) - 1)
+END FUNC
 
 ' Temperature at one place and forecast moment, converted from the kelvin GFS
 ' stores to Celsius.
@@ -17,12 +42,62 @@ FUNC temperatureBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo
   RETURN a + (b - a) * mix - 273.15
 END FUNC
 
-' The RGBA8 pixel for a temperature in Celsius. It is opaque: the picture as a
-' whole is drawn translucent, so the map shows through everywhere evenly.
+' The field stays in Celsius until colour lookup. The key explicitly labels
+' Fahrenheit, and the map uses exactly that scale. Opacity is set on the layer.
 FUNC temperaturePixel(celsius AS Float) AS List OF Byte
-  LET heat AS Float = math::clamp((celsius - HEAT_COLD) / (HEAT_HOT - HEAT_COLD), 0.0, 1.0)
-  LET red AS Byte = toByte(math::floor(25.0 + heat * 220.0))
-  LET green AS Byte = toByte(math::floor(85.0 - heat * 45.0))
-  LET blue AS Byte = toByte(math::floor(235.0 - heat * 215.0))
-  RETURN [red, green, blue, toByte(255)]
+  LET shade AS color::Color = temperatureColor(celsius * 1.8 + 32.0)
+  RETURN [shade.red, shade.green, shade.blue, toByte(255)]
+END FUNC
+
+FUNC temperatureGradient(bottom AS Float, top AS Float) AS canvas::Gradient
+  MUT stops AS List OF canvas::GradientStop = []
+  FOR k = 0 TO len(HEAT_DEGREES) - 1
+    LET stop AS canvas::GradientStop = canvas::GradientStop[offset := heatPosition(collections::get(HEAT_DEGREES, k)), color := collections::get(HEAT_COLORS, k)]
+    stops = collections::append(stops, stop)
+  NEXT
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops]
+END FUNC
+
+' The key, in a panel whose top left corner is at (left, top), drawn at a
+' text size of `size`: a title over a colour bar with the categories beside it.
+FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) AS List OF canvas::DrawItem
+  LET title AS String = "Temperature (\u{00B0}F)"
+  LET titleSize AS Float = size * 1.05
+  LET labelSize AS Float = size * 0.95
+  LET pad AS Float = size * 0.9
+  LET barWidth AS Float = size * 0.4
+  LET gap AS Float = size * 0.8
+  LET rowSpacing AS Float = size * 2.2
+
+  MUT widest AS Float = 0.0
+  FOR EACH label IN HEAT_LABELS
+    widest = math::max(widest, canvas::measureText(face, labelSize, label).width)
+  NEXT
+  LET titleWidth AS Float = canvas::measureText(face, titleSize, title).width
+  LET width AS Float = math::max(titleWidth, barWidth + gap + widest) + pad * 2.0
+
+  ' Leave half a label above and below the scale endpoints.
+  LET barHeight AS Float = rowSpacing * toFloat(len(HEAT_LABELS) - 1)
+
+  LET dividerY AS Float = top + pad + titleSize * 1.15
+  LET barTop AS Float = dividerY + pad + labelSize * 0.5
+  LET barBottom AS Float = barTop + barHeight
+  LET height AS Float = barBottom + labelSize * 0.5 + pad - top
+
+  MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
+  LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  items = collections::append(items, [heading, divider])
+
+  LET barLeft AS Float = left + pad
+  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(HEAT_COLORS, 0)) { fillGradient := temperatureGradient(barBottom, barTop) }]
+  items = collections::append(items, bar)
+
+  FOR k = 0 TO len(HEAT_LABELS) - 1
+    LET y AS Float = barBottom - heatPosition(collections::get(HEAT_DEGREES, k)) * barHeight
+    LET label AS canvas::DrawItem = canvas::Text[x := barLeft + barWidth + gap, y := y + labelSize * 0.35, text := collections::get(HEAT_LABELS, k), font := face, size := labelSize, paint := canvas::fill(KEY_LABEL_COLOR)]
+    items = collections::append(items, label)
+  NEXT
+
+  RETURN items
 END FUNC

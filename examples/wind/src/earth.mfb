@@ -252,9 +252,9 @@ END FUNC
 
 ' How far out you may pull back, as a multiple of the fitted scale, and how far
 ' in you may push.
-LET MIN_ZOOM AS Float = 0.9
+LET MIN_ZOOM AS Float = 1.0
 
-LET MAX_ZOOM AS Float = 60.0
+LET MAX_ZOOM AS Float = 250.0
 
 ' Keep the view over the map. The centre may not leave the projected world, so
 ' the map cannot be pushed off the edge of the window and lost; when the whole
