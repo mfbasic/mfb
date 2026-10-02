@@ -13,8 +13,7 @@ command '<cmd>'` followed by the usage block to stderr and exits
 
 Every flag longer than one character is spelled `--flag`. The single-dash
 spellings of the `build`/`test` flags (`-ast`, `-ir`, `-br`, `-nir`, `-nplan`,
-`-nobj`, `-ncode`, `-mir`, `-target`, `-optimize`, `-app`) predate this and
-remain accepted, undocumented aliases of the `--` forms; they parse identically
+`-nobj`, `-ncode`, `-mir`, `-target`, `-optimize`, `-app`) are accepted aliases of the `--` forms; they parse identically
 and are not listed below.[[src/cli/build/mod.rs:from_flag]] The single-character
 flags `-q`/`-v` keep their single dash (with `--quiet`/`--verbose` long forms).
 The diagnostics quoted in this topic name the legacy single-dash spelling
@@ -24,15 +23,19 @@ Help is **per command**, not two-tier. The top-level screen groups the commands
 and advertises only the common `pkg` (`add`/`update`/`install`/`verify`) and
 `repo` (`register`/`auth`) members, and twelve commands then carry a `--help`
 screen of their own: `init`, `init-pkg`, `pkg`, `repo`, `build`, `test`, `fmt`,
-`audit`, `info`, `doc`, `man`, and `spec`. A usage error in one of those prints that
-command's screen rather than the top-level one.
+`audit`, `info`, `doc`, `man`, and `spec`. Explicit `--help`/`-h` requests select these screens before argument parsing.
+Usage failures in dispatch/build/test/audit, and the fmt/doc parsers, print
+top-level usage; `pkg`/`repo` errors use the shared command-error renderer.
+`man` errors print their error text; `spec` embeds top-level usage for an
+unknown option, bare `--all`, or excess positionals, and otherwise prints a
+focused error. [[src/cli/spec.rs:show_spec]]
+[[src/cli/dispatch.rs:dispatch]] [[src/cli/mod.rs:dispatch_command_error]]
 [[src/cli/help.rs:PKG_HELP]] [[src/cli/help.rs:BUILD_HELP]] [[src/cli/help.rs:USAGE]]
 
 ## Commands and Exit Codes
 
 Every command dispatches from `main`.[[src/main.rs:main]] Exit codes follow one
-convention: **2** for argument/usage errors (always printed with the usage
-block), **1** for runtime failures, **0** for success. `audit` adds **3**.
+convention: **2** for argument/usage errors, **1** for runtime failures, **0** for success. `audit` adds **3**.
 
 | Command | Synopsis | Exit codes |
 | --- | --- | --- |
@@ -59,14 +62,17 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `repo publish` | `mfb repo publish <owner_name> [path]` | 0 ok; 2 usage; 1 failed |
 | `repo check-abi` | `mfb repo check-abi [location]` | 0 compatible; 2 usage; 1 breaking or failed |
 | `repo release-state` | `mfb repo release-state <available\|deprecated\|yanked> [version]` | 0 ok; 2 usage; 1 failed |
-| `repo transfer` / `repo transfer-accept` | `mfb repo transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
-| `org grant` / `org remove` | `mfb org grant <org> <member> <role> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
-| `token issue` / `token revoke` | `mfb token issue <owner> <scope> <ttl-seconds>` | 0 ok; 2 usage; 1 failed |
+| `repo transfer` | `mfb repo transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
+| `repo transfer-accept` | `mfb repo transfer-accept <owner>#<package>@<to-owner>` | 0 ok; 2 usage; 1 failed |
+| `org grant` | `mfb org grant <org> <member> <role> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
+| `org remove` | `mfb org remove <org> <member> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
+| `token revoke` | `mfb token revoke <owner> <token-fingerprint>` | 0 ok; 2 usage; 1 failed |
+| `token issue` | `mfb token issue <owner> <scope> <ttl-seconds>` | 0 ok; 2 usage; 1 failed |
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
 | `info` | `mfb info <binary>` | 0 every inspection outcome (incl. not an MFBasic binary, an unverified chain, an unreadable file); 2 missing/extra arg |
-| `man` | `mfb man [package] [function] [--all]` | 0 ok; 2 unknown package/function, `--all` with a function, or >2 positionals |
+| `man` | `mfb man [package] [function] [--all]` | 0 ok (also a closed output pipe); 1 other output failure; 2 invalid arguments |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
 
 The usage block printed by `help` is the `USAGE` constant.[[src/cli/help.rs:USAGE]]
@@ -113,9 +119,11 @@ spelling — yields `mfb build got duplicate output flag `<arg>``, echoing the
 argument as given). Each artifact is a `<name>.<ext>` file in
 the project directory — identical byte-for-byte to the file a single-flag
 invocation writes. With no output flag, `build` validates and emits the
-project's primary artifact (`build/<name>.out` for executable — every executable
-build emits into the project's `build/` directory — or `<name>.mfp` for
-package).
+project's primary artifact (under `build/` for an executable, or `<name>.mfp` for a package).
+Console outputs are `build/<name>.out` on macOS,
+`build/<name>-glibc.out` and `build/<name>-musl.out` on Linux, and
+`build/<name>.exe` on Windows. App outputs are described below.
+[[src/target.rs:write_executable]]
 
 | Flag | Output mode | Artifact / effect |
 | --- | --- | --- |
@@ -156,9 +164,7 @@ dependency whose source is local (`file:`/`local:`, or no source at all) is
 **always** permitted; without this flag an unsigned dependency pulled from a
 remote or registry source is refused — "package `<name>` is unsigned but its
 source is not local; pass --unsigned to allow it". The flag makes that case
-permitted too. It is the opt-out for the audit-1 PKG-01 supply-chain check, so it
-weakens a security control and nothing else: it does not disable signature
-*verification* of packages that do carry one.
+permitted too. It does not disable signature verification of packages that carry a signature.
 [[src/cli/build/packages.rs:verify_and_report_packages]]
 
 `--app` is **executable-only** and requires a native target that supports app mode
@@ -190,7 +196,7 @@ writes a versioned block of `<key> <value>` lines to stderr (`./mfb spec tooling
 debug-report`). It combines with every other flag, including `--app` and the output
 flags (a `--nir` dump of a `--debug` build carries `"debug": true`), changes no
 exit status or program output, and a duplicate yields `mfb build accepts at most one
---debug option`. A build without it is byte-identical to one that predates the flag.
+--debug option`. A build without it emits no debug-report helpers or data.
 [[src/cli/build/options.rs:parse_build_options]]
 
 The project `icon` (see `./mfb spec tooling project-manifest`) applies to Linux
@@ -202,7 +208,7 @@ Native intermediate outputs (`--nir`/`--nplan`/`--nobj`/`--ncode`/`--mir`) are *
 for package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a
 package emits only `.mfp`. A bare `-O` yields
 `mfb build -O requires an optimization level`, and a level the compiler does not
-implement yet yields ``unknown -O level `<n>` (available: 0, 1)``. An unknown
+implement yet yields ``unknown -O level `<n>` (available: 0, 1, 2, 3)``. An unknown
 `-flag` yields `unknown build option
 ` `` `<arg>` `` ``; a second positional yields `mfb build accepts at most one
 [location]`. The location defaults to `.`; the target defaults to the host.
@@ -253,8 +259,7 @@ The two NIR counters differ on purpose. `NIR statements` is flat — it sums eac
 function's top-level statement count, so a loop body or an `IF` tree counts as
 one — while `NIR ops (recursive)` counts every op at every nesting level. The
 recursive one is the honest denominator for an instructions-per-op expansion
-ratio; the flat one is kept because the historical numbers in
-`planning/speed.md` are stated against it. The `costliest expansion` total is
+ratio; the flat one counts only top-level statements. The `costliest expansion` total is
 smaller than the `machine instructions` counter: frame prologues, register-
 allocator spill code and slot zeroing are emitted outside any construct's frame,
 and the peepholes delete instructions after attribution. Like every other level it
@@ -307,19 +312,20 @@ verifies against.[[src/cli/pkg.rs:add_package]] A `file://` add of a package tha
 **vendors native libraries** is refused: there is no registry to fetch the
 library bytes from, so it would install in a silently unusable state.
 
-`add` **resolves before it mutates**: the proposed `project.json` is resolved
-first, and only a successful resolution writes `project.json`, `mfb.lock` and
-`packages/`. A resolution failure — an unpublished anchor version, a diamond
-conflict — leaves all three byte-identical.[[src/cli/resolve.rs:apply_manifest_change]]
-Because `add` writes the lock, `mfb pkg install` runs immediately afterwards
-with no intervening `mfb pkg update`.
+`apply_closed_manifest` resolves a proposed registry dependency set before
+writing that manifest and its lock, then installs the locked packages. The
+surrounding closure pass can copy local dependencies before this resolution,
+and subsequent closure/install rounds can fail after earlier writes. The whole
+command is therefore not an atomic transaction across `project.json`, `mfb.lock`
+and `packages/`. [[src/cli/resolve.rs:apply_closed_manifest]]
+[[src/cli/resolve.rs:close_dependency_set]]
 
 `add` writes the new entry with `direct: true, requiredBy: []` — the package is
 one the user named. If the closure already declared that package indirectly
 (some other declared package imports it), the new direct entry replaces the
 indirect one rather than sitting beside it.[[src/cli/pkg.rs:without_indirect_entry]]
 Before resolving, `apply_manifest_change` **closes** the proposed manifest
-(bug-628, `./mfb spec tooling project-manifest`'s dependency-closure rule): it
+(`./mfb spec tooling project-manifest`'s dependency-closure rule): it
 declares every package a declared package's import table names but
 `project.json` does not, drops orphaned indirect entries nothing requires any
 longer, and rewrites `direct`/`requiredBy` on every entry — a source-directory
@@ -329,8 +335,7 @@ registry ident is declared from the registry `/index` under the requirer's
 version and pin; a needed package that is none of these is an error naming it
 and telling the user to `mfb pkg add` it. After each install the closure is checked again — a registry
 package's import table is only readable once installed — bounded by
-`MAX_CLOSURE_ROUNDS`; only the first round keeps the resolve-first guarantee
-above.[[src/cli/resolve.rs:close_dependency_set]] Each declared/dropped entry
+`MAX_CLOSURE_ROUNDS`.[[src/cli/resolve.rs:close_dependency_set]] Each declared/dropped entry
 prints `Declared package <name> (required by <requirer>)` or `Removed package
 <name> (no declared package requires it)`.
 
@@ -402,7 +407,7 @@ mfb pkg update <owner>#<pkg>@<version>          set exactly
         [--pin | --no-pin] [--yes]
 ```
 
-The bare form always runs `apply_manifest_change` first (bug-628), which
+The bare form always runs `apply_manifest_change` first, which
 closes the dependency set exactly as `pkg add` does — declaring every package
 a declared package's import table names, dropping orphaned indirect entries,
 and rewriting `direct`/`requiredBy` — regardless of whether the project has
@@ -518,7 +523,7 @@ Proceeding would print a confident list, remove less than it should, and leave
 exactly the dangling-import state the cascade exists to prevent.
 
 `remove` writes its edit through the same `apply_manifest_change` as `add`/
-`update` (bug-628), so beyond dropping the cascaded packages themselves, the
+`update`, so beyond dropping the cascaded packages themselves, the
 closure pass also drops any *other* indirect entry the removal leaves with an
 empty `requiredBy`.[[src/cli/resolve.rs:apply_manifest_change]]
 
@@ -529,8 +534,8 @@ After resolution succeeds, each removed package's `packages/<name>.mfp` and its
 A missing file is not an error — the goal state is "absent". A deletion *failure*
 is a warning naming the path, not a command failure: `project.json` and
 `mfb.lock` are already consistent by then, so failing would misreport a completed
-removal. Cleanup never runs before resolution succeeds, so a failed removal
-leaves the working tree untouched.
+removal. Removal cleanup runs after `apply_manifest_change` succeeds; failures inside
+that operation have the partial-write behavior described above.
 
 ### Removing the last dependency
 
@@ -564,7 +569,7 @@ the dependency's pinned `identKey`; source-package dependencies get no state
 suffix.[[src/cli/pkg.rs:verify_packages]]
 
 After the per-dependency lines, `verify` additionally reports the whole
-declared dependency closure (bug-628): every way `packages[]` disagrees with
+declared dependency closure: every way `packages[]` disagrees with
 the declared packages' import tables as a `PACKAGE_DEPENDENCIES_INCONSISTENT`
 diagnostic (an undeclared needed package, a name declared under the wrong
 `ident`, a missing `direct`/`requiredBy`, a stale `requiredBy`, or an orphaned
@@ -689,7 +694,8 @@ kinds are mapped by `package_export_kind_name`: `FUNC`, `TYPE`, `UNION`,
 
 ## `info` Output
 
-`mfb info <binary>` inspects one executable file and reads nothing else. It
+`mfb info <binary>` inspects one executable file. Signed-file inspection also
+contacts the registry named in its metadata, as described below. It
 recognizes the file by magic — ELF (`\x7fELF`, 64-bit little-endian), Mach-O
 (`0xfeedfacf`), PE (`MZ` + `PE\0\0`) — and locates the provenance marker through
 that format: the `MFBasic\0` `PT_NOTE`, `LC_NOTE`, or `.mfbnote` section
@@ -813,26 +819,30 @@ Index and subtopic listings are emitted as a two-column GFM table
 column reflows to the terminal width instead of running off it; literal `|` in a
 cell is escaped (`escape_spec_cell`).[[src/cli/spec.rs:print_spec_listing]]
 
-`show_man` renders from the **clean-room registry** descriptors rather than an
-embedded Markdown tree (the legacy `src/docs/man/**` tree was retired to
-`planning/old_man`): a package's `intro`/`desc`, each function's `intro`/`desc`/
-`example`, and every implementation's parameters, return type, and declared
-errors.[[src/cli/man.rs:show_man]] Output goes through the same shared Markdown
-renderer as `spec` and is width- and color-aware — `print_markdown` builds a
-`Style { width: detect_terminal_width(), color: <stdout is a TTY> }`; unlike
-`spec` there is no `--width` flag to override the detected width.[[src/cli/man.rs:print_markdown]]
-`--all` renders the whole registry manual with no positionals (every importable
-package overview followed by all of its function pages, separated by a full-width
-`─` rule), or one package in full with a single positional; combining `--all` with
-a function name is the one rejected form. Otherwise one positional prints a package
-overview (its member listing plus the union of every declared error) and two a
-single function page. The reserved page `mfb man <package> types` renders the
-package's consolidated *types* page — exported records (with field tables), unions
-and enums (with their variants), and resources — but only for a package that
-actually declares a public record or union; otherwise `types` falls through to the
-normal function lookup.[[src/cli/man.rs:has_public_types]] An unknown package or
-function, an unknown `--flag`, `--all` combined with a function, zero positionals
-without `--all`, or more than two positionals exits `2`.
+`show_man` resolves a builtin package first, rendering its registry descriptor:
+package and function prose, overload signatures, parameters, return types,
+declared errors, constants and public types. If the name is not a builtin
+package, it resolves a narrative guide topic from `src/docs/man/**`; a second
+positional selects a guide page. [[src/cli/man.rs:show_man]]
+
+With no arguments, `man` prints an index of importable builtin packages and
+guide topics. `--all` with no positionals renders importable packages in registry
+order (overview, function pages and types), followed by guide topics sorted by
+name. Unqualified-global packages are omitted from this sweep. With one
+positional, `--all` expands that package or guide. It cannot accompany a second
+positional. [[src/cli/man.rs:render_all_markdown]]
+[[src/cli/man.rs:render_index_markdown]]
+
+The reserved `types` page renders public records, unions, enums and resources.
+If the package has no public types, an actual function named `types` takes
+precedence over the explanatory no-types page. A constant name has no separate
+page: the command errors and points to its package overview.
+[[src/cli/man.rs:has_public_types]] [[src/cli/man.rs:show_man]]
+
+Output uses the shared Markdown renderer with detected terminal width and TTY
+color. `man` has no width/color override flags. Unknown packages/pages/functions,
+unknown `--` options, incompatible `--all`, and more than two positionals exit
+`2`. [[src/cli/man.rs:print_markdown]] [[src/cli/man.rs:show_man]]
 
 ## See Also
 

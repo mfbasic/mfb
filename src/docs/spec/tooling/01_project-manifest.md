@@ -41,7 +41,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
-| `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** (bug-326-A14) |
+| `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** |
 | `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
 | `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
@@ -71,42 +71,37 @@ image that is not decodable or not exactly 1024×1024 fails the build. `icon` is
 rendered on **both** platforms: a Linux app build does not ignore it, but writes
 the PNG at every hicolor size into `usr/share/icons/hicolor/<N>x<N>/apps/` in the
 AppDir plus a root copy. What is macOS-only is the `.icns` pipeline, not the key —
-a malformed `icon` now fails a Linux build that previously ignored it.
+a malformed `icon` fails either app build.
 [[src/os/linux/appdir.rs:HICOLOR_SIZES]]
 [[src/manifest/mod.rs:icon_path]] [[src/os/macos/icon.rs:build_icns]]
 
-Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url`/`icon`
-(optional strings), `kind`, `mode`, `sources`, **`resources`**, and
-**`libraries`** are *validated* by the manifest validator — the last two through
-`validate_resources` and `validate_libraries`, which run on every load. The
-remaining fields (`ident`, `packages`, `config`) are read lazily by later stages —
-`package_metadata`, `package_dependencies`, and the codegen tunable readers — and
-are **not** schema-checked here; an absent or wrong-typed value simply defaults
-rather than erroring. `targets` and the per-source `role` are **not read at all**:
-`mfb init` writes both and no stage consults either, so they are reserved keys
-rather than lazily-read ones (bug-326-A14).
-[[src/manifest/mod.rs:validate_project_manifest]] [[src/manifest/package.rs:package_metadata]]
+The manifest validator checks required `name`/`version`/`mfb` strings,
+optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
+`sources`, `maxBuffer`, `resources`, `libraries`, and the array shape of
+`packages`. Dependency-entry fields are interpreted by later package stages;
+`ident` and `config` are read lazily. `targets` and per-source `role` are emitted
+by `mfb init` but are not consulted by selection or build stages.
+[[src/manifest/mod.rs:validate_project_manifest]]
+[[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
-⁴ `config` holds build-time runtime tunables baked into the compiled executable
-(plan-15 D3). Currently one key is read: `stdinLogCap`, the stdin broadcast-log
-backpressure high-water mark in bytes (plan-15 §4.1) — the runtime reader blocks a
+⁴ `config` holds build-time runtime tunables baked into the compiled executable.
+One key is read: `stdinLogCap`, the stdin broadcast-log
+backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
 on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
-absent, non-numeric, or below one read chunk (8 KiB, which could not hold a single
+absent, non-numeric, non-finite, or below one read chunk (8 KiB, which could not hold a single
 chunk); unknown keys under `config` are ignored. It is not a runtime env var or
-setter — the value is fixed into the binary at build time.
+setter — the value is fixed into the binary at build time. Accepted finite
+values are cast to `u64`: fractions truncate and values above its range saturate.
 [[src/manifest/mod.rs:stdin_log_cap]]
 
-⁵ `description` is **required when `kind` is `package`**, and optional and
-ignored for `executable`. A package that omits it fails to build with
-`2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING`. It is *shown on the registry*, so
-a package without one would be published with nothing to say what it does. The value travels inside the signed payload rather than in the publish
-request, which means the registry renders a string the publisher actually
-signed; see the `package-meta-section` topic for the section layout and its
-forward-compatibility limits. `kind: "executable"` neither requires nor rejects
-the field — executables are never published, so it is inert there, but
-forbidding it would make a `kind` flip needlessly lossy.
+⁵ `description` is required for `kind: "package"` and optional for
+`kind: "executable"`. When present on either kind, it must be a string of at
+most 4096 bytes; an empty string is accepted. A package that omits it emits
+`PROJECT_JSON_DESCRIPTION_MISSING`. Package builds carry it in the signed
+`PACKAGE_META` payload; see `./mfb spec package package-meta-section`.
 [[src/manifest/mod.rs:MAX_DESCRIPTION_BYTES]]
+[[src/manifest/mod.rs:validate_description]]
 
 ## Native buffer ceiling (`maxBuffer`)
 
@@ -130,10 +125,10 @@ Each element of `sources[]` is an object describing one source root:
 
 | field | type | required | meaning |
 | --- | --- | --- | --- |
-| `root` | string | yes | directory (relative to the project) to scan; non-empty after trim |
+| `root` | string | yes | directory or `.mfb` file (relative to the project) to select; non-empty after trim |
 | `include` | array of strings | no | glob patterns to include |
 | `exclude` | array of strings | no | glob patterns to exclude |
-| `role` | string | no | reserved role tag (`"main"`/`"package"`); neither validated nor read (bug-326-A14) |
+| `role` | string | no | reserved role tag (`"main"`/`"package"`); neither validated nor read |
 
 `root` is validated as a required, non-empty string. `include` and `exclude`,
 when present, must each be an **array of strings** — any non-array value, or an
@@ -142,8 +137,7 @@ A `sources[]` element that is not a JSON object is a `PROJECT_JSON_FIELD_TYPE`
 error reported as `Source entry #N must be an object.`. [[src/manifest/mod.rs:validate_sources]] [[src/manifest/mod.rs:validate_source_pattern_field]]
 
 The glob algorithm that turns these patterns into the `.mfb` input set is
-`./mfb spec tooling source-selection`. That model describes `role` semantics, but
-the selector does not currently read the key — every source root is treated the
+`./mfb spec tooling source-selection`. The selector does not read `role` — every source root is treated the
 same regardless of its `role` tag.
 
 ## Dependency Entries
@@ -171,7 +165,7 @@ The registry/add workflow that writes these entries is
 `./mfb spec package-manager`; the on-disk `.mfp` header they resolve
 against is `./mfb spec package container-format`.
 
-### The declared dependency closure (bug-628)
+### The declared dependency closure
 
 A native build merges exactly the packages `project.json` declares — nothing
 more is pulled in implicitly — so `packages[]` must list a project's **whole
@@ -180,9 +174,7 @@ table names must also be declared here, not only the packages the project's
 own source imports. This is a declaration/merging rule, not a visibility one:
 imports stay non-transitive for *names* — a project still cannot write
 `basepkg::` without its own `IMPORT basepkg` (`./mfb spec language
-modules-and-packages`) — but the merge set omitting a package that a declared
-dependency needs previously reached lowering as the unlocated internal `NIR
-call target … does not resolve`.
+modules-and-packages`).
 [[src/manifest/package.rs:installed_package_files]] [[src/target/shared/nir/lower.rs:merge_packages]]
 
 What a declared package "imports" is read the same way the build reads it,
@@ -300,9 +292,7 @@ is never spelled in the manifest; it is always `vendor/` + `source`.
 
 Because `vendor/` is flat, **one filename means one file**: two `vendor` locators
 sharing a `source` anywhere in the section — across *all* logical names — is
-`PROJECT_JSON_LIBRARY_SOURCE_CONFLICT`. It is almost always the real bug of an
-author copying an entry for a new platform and forgetting to rename the blob. The
-check is scoped to `vendor` locators only: `system` sonames legitimately repeat,
+`PROJECT_JSON_LIBRARY_SOURCE_CONFLICT`. The check is scoped to `vendor` locators only: `system` sonames legitimately repeat,
 and `linux/x86_64` and `linux/aarch64` both asking for `libsqlite3.so.0` is the
 normal case. [[src/manifest/mod.rs:validate_libraries]]
 
@@ -313,7 +303,7 @@ when the package is built; see `./mfb spec language native-libraries`.
 ## Resource Entries
 
 `resources` is an array of `{src, dst}` objects naming data files the build copies
-into the output tree beside the executable (plan-55-A). Both fields are required
+into the output tree beside the executable. Both fields are required
 strings and both are shape-validated at manifest load, not deferred.
 
 | field | type | required | meaning |
@@ -321,12 +311,10 @@ strings and both are shape-validated at manifest load, not deferred.
 | `src` | string | yes | project-relative glob of files to copy; non-empty |
 | `dst` | string | yes | destination path within the output tree; a trailing `/` names a directory |
 
-Both paths are checked to stay **inside** the project: `src` must not escape the
-project root and `dst` must not escape the output tree. `src` was once checked
-only for non-emptiness, which left the read side open to `../` escaping the
-project (bug-298); the containment check is the fix, and it is textual here —
-`copy_resources` additionally canonicalizes at copy time, so a symlink *inside*
-the project pointing outside it is caught there rather than passing both checks.
+The validator checks path components textually: `src` must not escape the
+project root and `dst` must not escape the output tree. `copy_resources`
+additionally canonicalizes source paths at copy time, rejecting a symlink
+inside the project that points outside it.
 [[src/manifest/mod.rs:validate_resources]] [[src/cli/build/resources.rs:copy_resources]]
 
 At runtime a program locates a copied resource with `os::appResourcePath` — see
@@ -390,11 +378,12 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | `kind` is a string other than `executable`/`package` (non-fatal) [[src/manifest/mod.rs:validate_kind]] |
 | `2-200-0010` | `PROJECT_JSON_VALID` | info | reserved; not emitted — a successful validation is silent |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | executable entry-point resolution failed [[src/manifest/entry.rs:validate_entry_point]] |
+| `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | string `mode` is neither `console` nor `app` [[src/manifest/mod.rs:validate_mode]] |
+| `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | app icon path does not resolve to a file [[src/manifest/mod.rs:icon_path]] |
 | `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/mod.rs:validate_libraries]] |
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
-
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
-| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project (bug-503) [[src/manifest/mod.rs:validate_name]] |
+| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/mod.rs:validate_name]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

@@ -36,10 +36,10 @@ in the input and the public/internal partition (below).
 
 `from_source` walks `ast.files`, skipping any file whose `internal` flag is set,
 and first indexes every `Function` (by name, collecting overloads) and every
-`Type`/`Union`/`Enum` (by name) before walking the `Doc` items so each DOC block
-can be matched to its declaration. A `Func`/`Sub` DOC block with explicit header
+`Type`/`Union`/`Enum` and `Resource` (by name) before walking the `Doc` items so each DOC block
+can be matched to its declaration. A function DOC block with explicit header
 parameter types selects the overload whose normalized param types match;
-otherwise the first overload of the right kind (sub vs. func) is used. A DOC
+otherwise the first overload is used. A DOC
 block whose declaration cannot be resolved is silently dropped.
 
 [[src/doc/mod.rs:source_decl_meta]]
@@ -66,8 +66,8 @@ A `DocDecl` carries everything needed to render one declaration card:
 ```text
 DocDecl
   anchor       : String           ; unique slug, used as section id and nav href
-  kind_label   : &str             ; badge text: Function|Subroutine|Type|Union|Enum
-  badge_class   : &str            ; badge CSS class: function|type|union|enum
+  kind_label   : &str             ; badge text: Function|Type|Union|Enum|Resource
+  badge_class   : &str            ; badge CSS class: function|type|union|enum|resource
   member_label  : Option<&str>    ; members-table heading: Fields|Variants|Members
   name          : String
   signature     : String
@@ -89,12 +89,12 @@ The declaration `kind` string drives four lookups:
 | `kind` | `kind_label` | `badge_class` | `member_label` | group |
 |---|---|---|---|---|
 | `func` (default) | Function | function | — | its `GROUP`, else `Functions` |
-| `sub` | Subroutine | function | — | its `GROUP`, else `Functions` |
 | `type` | Type | type | Fields | `Types` |
 | `union` | Union | union | Variants | `Types` |
 | `enum` | Enum | enum | Members | `Types` |
+| `resource` | Resource | resource | — | `Types` |
 
-Note `sub` shares the `function` badge class but a distinct label. Callables
+Unrecognized stored kinds use the Function label and function badge. Callables
 group by their first `GROUP` line (falling back to `Functions` when absent);
 all type-like kinds collapse into a single `Types` group **regardless** of any
 `GROUP` line.
@@ -144,7 +144,9 @@ the sidebar `href`:
 
 The dedup counter starts at `2`, so the first duplicate of slug `foo` becomes
 `foo-2`. The `used` set is shared across the whole page (one set per `DocPage`
-build), so a `Types` member and a function with the same slug still get distinct
+build), seeded with the renderer-owned `intro` id; a declaration named
+`intro` therefore starts at `intro-2`. [[wire/src/docpage.rs:reserved_anchors]]
+A `Types` member and a function with the same slug still get distinct
 anchors.
 
 [[wire/src/docpage.rs:anchor]]
@@ -241,7 +243,7 @@ The `STYLE` constant is a single minified CSS string inlined into the `<head>`;
 there are no external stylesheet or script references, so a rendered page is fully
 self-contained and viewable offline. It defines a light theme via `:root` custom
 properties, a sticky scrollable sidebar (`--sidebar-width: 260px`), `.section`
-cards, the four badge color variants (`function`/`type`/`union`/`enum`), the
+cards, the badge color variants (`function`/`type`/`union`/`enum`/`resource`), the
 three callout variants (`info`/`warning`/`danger`), the `.error-code` style, and
 a single responsive breakpoint at `max-width: 900px` that stacks the sidebar
 above the content. `html{scroll-behavior:smooth}` and `.section{scroll-margin-top}`
@@ -274,7 +276,7 @@ file, that file is parsed into a one-file project and its DOC blocks are validat
 | Exit | Condition |
 |---|---|
 | `0` | page written and all DOC blocks valid |
-| `1` | page written but DOC validation reported problems (diagnostics already on stderr), **or** parse/manifest/IO failure |
+| `1` | page written but project resolution or DOC validation reported problems (diagnostics already on stderr), **or** parse/manifest/IO failure |
 | `2` | bad flag usage (`--out` without a value, unknown `--flag`, more than one `<path>`) |
 
 Because validation failures still write the HTML (the page is built from whatever
