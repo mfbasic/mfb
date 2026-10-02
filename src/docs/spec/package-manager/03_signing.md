@@ -2,34 +2,36 @@
 
 How publisher identity, package signatures, and the local-vs-repository key match are established. All asymmetric crypto is Ed25519 over a SHA-256 fingerprint scheme; the wire and metadata encodings live in `mfb_repository::crypto`. [[repository/src/crypto.rs:sign]]
 
-## The four keys
+## Key roles
 
-The trust model holds exactly four Ed25519 keypairs, distinguished by where the
-private half lives. Whoever holds a private key can forge everything
-that key vouches for, so each key's storage *is* its authority boundary.
+Publisher signing uses these Ed25519 roles:
 
-| Key | How many | Private key lives | Job |
+| Key | Scope | Private key storage | Signed statements |
 | --- | --- | --- | --- |
-| **server key** | 1 per registry | on the server (the only private key it holds) | signs attestations |
-| **ident** | 1 per account | on every linked machine (copied at link time) | *is* the user's identity; signs proofs |
-| **auth** | 1 per machine | that machine | logs into the registry API; nothing more |
-| **signing** | 1 per package, one-off | for the duration of one build, then discarded | signs the `.mfp` |
+| server | registry | registry database | attestations, name bindings, log checkpoints |
+| ident | account | linked machines | build proofs, account mutations, rotation/revocation authority |
+| auth | machine/account credential | machine | registration and login challenges |
+| signing | build | build memory | package or executable content signature |
 
-What each key must **not** be able to do:
+The server verifies that auth and ident public keys remain distinct when
+registering, linking, or rotating. It stores publisher public keys, not their
+plaintext private keys; the machine-link relay holds encrypted ident material.
+[[repository/src/store.rs:register_owner]][[repository/src/store.rs:take_pairing_blob]][[repository/src/store.rs:rotate_ident]]
 
-* **auth** cannot sign proofs or packages — a stolen login can request
-  attestations (logged) but can never produce a package that verifies.
-* **server key** signs attestations only — it can never produce a proof, so it
-  can never impersonate a user to a consumer who has pinned that user.
-* **ident** never signs packages directly — only proofs; the per-package key
-  does the byte-signing so the ident signature surface stays tiny.
-* **signing (one-off)** has no standing power — it dies at the end of the build.
+The optional signed-metadata layer adds an offline root key plus online snapshot
+and timestamp keypairs. The operator receives the root private key during the
+ceremony; the database persists the online private keys and signed root
+metadata, not the root private key.
+[[repository/src/store.rs:init_registry_root]][[repository/src/store.rs:renew_registry_root]]
 
-Forging a package therefore requires **two independent credentials**: the ident
-private key (to sign the proof) *and* a live authenticated session (to obtain
-the attestation). Either alone is useless. The server holds no user private
-keys: a full server compromise yields zero user keys.
-[[repository/src/store.rs:register_owner]][[repository/src/store.rs:server_keypair]]
+A machine auth credential can obtain attestations but cannot make an ident
+proof. The ident key can make proofs but does not itself grant an authenticated
+registry session. Package verification requires the proof, attestation, and
+content signature to agree. Their reusable scope is the exact ident, version,
+and signing key: possession of that signing private key and valid statements
+can sign different bytes for that same identity/version. The statements do not
+contain a content hash; publication separately rejects an already-published
+version. [[repository/src/server.rs:attestation_json]][[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server.rs:validate_package_request]]
 
 ## Fingerprints and encodings
 
@@ -81,7 +83,7 @@ Challenge message — proves control of the private key when authenticating agai
 | challenge | separator | 1 NUL |
 | challenge | `nonce` | server-issued raw nonce bytes |
 
-The domain prefix plus the embedded role-specific separator prevent a signature minted for one purpose from being replayed as the other, and prevent either from being replayed as any other signature in the system. The full set of signing domains:
+The domain prefix plus the embedded role-specific separator prevent a signature minted for one purpose from being replayed as the other, and prevent either from being replayed as any other signature in the system. Signing domains include:
 
 | Domain (ASCII, `\0` = NUL) | Signer | Signs |
 | --- | --- | --- |
@@ -109,9 +111,8 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 ## The proof and the attestation
 
 Every signed build carries two JSON statements, both pinning the
-**exact** package (`ident` + `version`) and the exact one-off signing key, so a
-leaked one-off key plus its paperwork is worth exactly one already-published
-package — nothing. Neither carries an expiry: they are notarized statements of
+**exact** package identity (`ident` + `version`) and the exact one-off signing
+key. They do not independently bind the artifact bytes. Neither carries an expiry: they are notarized statements of
 fact at `issued`, true forever; freshness is enforced live at publish time,
 never by a clock inside a shipped file.
 
@@ -157,7 +158,8 @@ role's message before recording the owner. [[repository/src/server.rs:register]]
 
 `mfb build --sign <owner>` assembles the signing bundle through
 `load_build_signing_info`, which is only honored for package and executable
-builds (validate output); other outputs error. The server must be reachable —
+builds with no intermediate-output selectors; other outputs error.
+[[src/cli/build/mod.rs:build_project]] The server must be reachable —
 every signed build fetches a fresh attestation. [[src/cli/build/signing.rs:load_build_signing_info]]
 
 1. Fix the signed identity: the manifest `ident` when declared (it must be
