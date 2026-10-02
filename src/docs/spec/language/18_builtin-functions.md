@@ -89,7 +89,7 @@ Collections (`IMPORT collections`): the native accessors `collections::forEach`,
 Threads (`IMPORT thread`) [[src/codegen/builtins/thread/mod.rs:is_thread_call]]: `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::receive`, `thread::isCancelled`, and the resource/value transfer-plane members `thread::transfer` and `thread::accept`. Internal transfer dispatch names are not public members.
 Math (`IMPORT math`): the call members `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`, `math::rand`, `math::seed`, [[src/codegen/builtins/math/mod.rs:is_math_call]] and the compile-time constants `math::pi`, `math::piFixed`, `math::e`, `math::eFixed` (which fold to literals like the `errorCode::Err*` registry — not callables). [[src/codegen/builtins/math/mod.rs:is_math_constant]]
 
-**Array (SIMD) overloads.** Most `math::` members also accept a homogeneous numeric **list** and return a freshly allocated list, computing every element with AArch64 NEON vector instructions (two 64-bit lanes per instruction; `mfb spec architecture aarch64-instruction-set` "NEON vector ops"). Selection is by argument type (a `List OF …` argument picks the array overload):
+**Array (SIMD) overloads.** Most `math::` members also accept a homogeneous numeric **list** and return a freshly allocated list, using the target's vector lowering where available (`./mfb spec architecture math-kernels`). Selection is by argument type (a `List OF …` argument picks the array overload):
 
 | Member | Array overload(s) | Per-lane error |
 |---|---|---|
@@ -99,17 +99,21 @@ Math (`IMPORT math`): the call members `math::abs`, `math::min`, `math::max`, `m
 | `clamp` | `(T[],T,T)→T[]` for `T∈{Integer,Float,Fixed}` | `ErrInvalidArgument` (low > high) |
 | `sqrt` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | negative lane → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
 | `log`/`log10` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | lane ≤ 0 → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
-| `exp` | `Float[]→Float[]` | `ErrFloatInf` (overflow), `ErrFloatNan` (NaN input) |
-| `sin`/`cos`/`tan`/`atan` | `Float[]→Float[]` | `ErrFloatNan` (NaN result) |
+| `exp` | `Float[]→Float[]` | `ErrFloatInf` (overflow), `ErrFloatNaN` (NaN input) |
+| `sin`/`cos`/`tan`/`atan` | `Float[]→Float[]` | `ErrFloatNaN` (NaN result) |
 | `asin`/`acos` | `Float[]→Float[]` | lane outside `[-1,1]` → `ErrFloatDomain` |
-| `pow`/`atan2` | `(Float[],Float[])→Float[]` | `ErrInvalidArgument` (lengths differ), `ErrFloatNan` (NaN result) |
+| `pow`/`atan2` | `(Float[],Float[])→Float[]` | `ErrInvalidArgument` (lengths differ), `ErrFloatNaN` (NaN result) |
 
 The per-lane error codes deliberately match the scalar `math::` overloads (the
 `mfb man math` pages): the `Float` overloads use the float-specific
-`ErrFloatDomain`/`ErrFloatInf`/`ErrFloatNan`, and `Fixed` uses `ErrInvalidArgument`,
+`ErrFloatDomain`/`ErrFloatInf`/`ErrFloatNaN`, and `Fixed` uses `ErrInvalidArgument`,
 so `math::f(x)` and `math::f([x])[0]` fail identically.
 
-A per-lane error is reported as a single error **after** processing all lanes (the result list is discarded), so the error is deterministic regardless of which lane failed. `Fixed[]` results are platform-independent (deterministic Q32.32; `sqrt` is a real 2-lane NEON kernel, `log`/`log10` are per-lane Q32.32 — both bit-identical to the scalar `Fixed` result). **`Float` transcendentals are hand-written in-tree kernels** — there is **no external math library at all**: `exp`, `log`, `log10`, `sin`, `cos`, `tan`, `atan`, `asin`, `acos`, `atan2`, and `pow` are NEON/GPR `f64` kernels, and the `Float MOD Float` operator (`fmod`) is an exact GPR kernel, all identical on every target (macOS / Linux-glibc / Linux-musl). `exp`, `log`, `log10`, `sin`, `cos`, `atan`, `asin`, `acos`, `atan2`, and `pow` are within **≤1 ULP of macOS libm** (double-double-compensated polynomials / fdlibm 4-segment `atan` / `acos` via the `2·atan(√((1−x)/(1+x)))` half-angle identity / fdlibm `__ieee754_pow` in log2 space, including negative base with an integer exponent: `(-2)^3 = -8`). `tan` is **faithfully rounded — ≤1 ULP of the true value** (a double-double sin/cos with a compensated divide); it is in fact more accurate than macOS libm `tan`, which is itself off by >1 ULP at a few inputs. Those trig bounds hold at **every finite angle**, not just small ones: `sin`/`cos`/`tan` reduce by pi/2 with the fdlibm Cody-Waite step below `2^20·pi/2` and with an exact `2/pi`-table (Payne-Hanek) reduction above it — or wherever the Cody-Waite angle cancels — so `math::sin(1e22)` is a value in `[-1, 1]` and a finite angle never raises (`./mfb spec architecture math-kernels`). [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_rem_pio2_large_lane]] `fmod` is **bit-identical to libm** (the remainder is exact). Every scalar Float overload **shares the same kernel** as its array overload (re-pointed off libm), so `math::f(x)` and `math::f([x])[0]` are bit-identical. The algebraic overloads (`abs`/`min`/`max`/`clamp`/`floor`/`ceil`/`round`/`sqrt`) are exact, matching the scalar result element-wise.
+Scalar and list overloads share the in-tree math kernels. Their numerical
+accuracy, range reduction, target lowering, and failure contracts are specified
+in `./mfb spec architecture math-kernels`; a list result is discarded if a lane
+fails. [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_rem_pio2_large_lane]]
+
 JSON (`IMPORT json`): `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes (`IMPORT errorCode`): `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry. These are compile-time `Integer` constants, not callables. [[src/codegen/builtins/errorcode/mod.rs]]
 
