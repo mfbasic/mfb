@@ -15,9 +15,11 @@ r#"FUNC __regex_toScalars(s AS String) AS List OF String
   ' (each re-walks from the start), which ran on every regex call (plan-02 §6b).
   MUT out AS List OF String = []
   LET cps AS List OF Integer = encoding::utf32Encode(s)
+  ' bug-773: `toString(toScalar(cp))` builds the one-scalar String directly -- one
+  ' allocation, where `utf32Decode([cp])` also built and freed a one-element list.
+  ' `cp` came from utf32Encode, so it is a valid scalar and toScalar cannot fail.
   FOR EACH cp IN cps
-    LET one AS List OF Integer = [cp]
-    LET scalar AS String = encoding::utf32Decode(one)
+    LET scalar AS String = toString(toScalar(cp))
     out = collections::append(out, scalar)
   NEXT
   RETURN out
