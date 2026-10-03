@@ -71,6 +71,8 @@ tool             { name, version }
 project          { name, ident, version, kind, root, entry, languageVersion }
 summary          { errors, warnings, infos }
 lockfile         { path, present, locked, lockfileVersion, projectHashMatches }
+libraries        [ LibraryEntry, ... ]
+resourceFiles    [ ResourceFileEntry, ... ]
 dependencies     [ DependencyEntry, ... ]
 packages         [ PackageEntry, ... ]
 sourceFlow       [ FlowFunction, ... ]
@@ -158,8 +160,9 @@ disclosures (`audio`), which map per builtin:[[src/audit/collect/source.rs:built
 
 | Capability | Builtins |
 |---|---|
-| `environment` | `os::getEnv`, `os::getEnvOr`, `os::hasEnv`, `os::setEnv`, `os::unsetEnv`, `os::environ` |
-| `process` | `os::args`, `os::pid`, `os::name`, `os::arch`, `os::hostName`, `os::userName`, `os::cpuCount`, `os::executablePath` |
+| `environment` | `os::getEnv`, `os::getEnvOr`, `os::hasEnv`, `os::setEnv`, `os::unsetEnv`, `os::environ`, `os::appDataPath`, `os::appCachePath`, `os::userHomePath` |
+| `process` | `os::args`, `os::pid`, `os::name`, `os::arch`, `os::hostName`, `os::userName`, `os::cpuCount`, `os::executablePath`, `os::appResourcePath` |
+| `filesystem` | `os::userDocumentsPath` |
 | `randomness` | `math::rand`, `math::seed`, and the entropy-drawing crypto builtins `crypto::randomBytes`, `crypto::randomInt`, `crypto::uuid4`, `crypto::uuid7`, `crypto::ulid`, `crypto::generate` |
 | `clock` | `datetime::now`, `datetime::nowNanos`, `datetime::monotonic`, `datetime::monotonicNanos`, `datetime::localOffset`, `datetime::local`, `datetime::toLocal` |
 | `microphone` | `audio::openInput`, `audio::openInputDevice`, `audio::read`, `audio::readTimeout` |
@@ -269,11 +272,12 @@ segment before the first `.`):[[src/audit/collect/source.rs:builtin_capability]]
 | Package | Capability |
 |---|---|
 | `fs` | `filesystem` |
-| `io` | `terminal` |
+| `io` / `term` | `terminal` |
 | `thread` | `threads` |
 | `net` / `tcp` / `udp` / `tls` / `http` | `network` |
 | `crypto` (entropy builtins) | `randomness` |
-| `os` / `math` / `datetime` (per builtin) | `environment` / `process` / `randomness` / `clock` |
+| `os` / `math` / `datetime` (per builtin) | `environment` / `filesystem` / `process` / `randomness` / `clock` |
+| `audio` (per builtin) | `microphone` / `audio` |
 | any `LINK` alias | `native` |
 | (other) | none |
 
@@ -296,8 +300,15 @@ otherwise:                 callee ∈ fallible-user-function set
 The per-builtin sets exist because those packages mix total and raising
 operations, so a coarse package match would over-report — `audio::xruns` is a
 counter read, most of `crypto` is computation over caller-supplied bytes, and
-`datetime` arithmetic is total. The membership is derived from each builtin's
-documented `## Errors` contract.[[src/audit/collect/source.rs:is_fallible_builtin]]
+`datetime` arithmetic is total. The membership is a manually maintained table; it is not computed from
+registry error descriptors.[[src/audit/collect/source.rs:is_fallible_builtin]]
+
+`toInt` of a provably enum-valued argument is treated as total. The collector
+tracks declared enum types, enum parameters and enum-valued local bindings for
+this exception. `tcp` and `udp` are absent from the fallibility table, so their
+calls alone do not appear in `sourceFlow.calls` or make a function fallible;
+their network permissions and recognized resource acquisitions still appear.
+[[src/audit/collect/source.rs:is_fallible_call]]
 
 A call whose error is fully handled by an enclosing inline `TRAP … RECOVER` does
 not make its function fallible, and its `propagation` is reported as `trap`. A

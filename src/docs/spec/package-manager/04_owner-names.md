@@ -2,11 +2,9 @@
 
 An *owner name* is the namespace under which packages are published: it is the
 left-hand side of a package ident (`<owner>#<package>`). Owner names are
-registered once per repository, bound to an authentication keypair, and reused
+registered once per repository, bound to an ident key and machine auth keys, and reused
 on every subsequent publish. Because the name appears in idents, on-disk paths,
-and signed messages, its grammar is deliberately narrow and is validated
-identically on the client (before any network call) and on the server (before
-any database write). This topic owns that grammar, the case-folding rule, and
+and signed messages, its grammar is deliberately narrow and has a shared validator used by client entry points and store operations. This topic owns that grammar, the case-folding rule, and
 the exact rejection conditions. [[wire/src/validation.rs:validate_owner_name]]
 
 ## Grammar
@@ -90,14 +88,19 @@ a mismatch yields `session owner does not match package ident owner`.
 One endpoint is an exception: `/signing` compares the requested owner against
 the session subject (the registered *display* form) **without** folding, so
 `mfb build --sign` must be given the owner in exactly the case it was
-registered with (the ident's owner segment, by contrast, is folded).
+registered with (a new package's ident prefix, by contrast, is folded). For an existing package,
+`/signing` checks the stored package owner, including transfers.
+[[repository/src/server.rs:require_package_owner]]
 [[repository/src/server.rs:signing]]
 
 ## Where Validation Runs
 
-`validate_owner_name` is the single source of truth and is called on both sides
-of every owner-scoped operation, so a malformed name is rejected locally before
-a request is sent and again on the server before it touches the store.
+`validate_owner_name` defines the grammar. The following entry points call it;
+this is not a claim that every route independently invokes it. Local file-path
+helpers interpolate the supplied owner without validation or case folding, so
+callers must supply a validated name. On a case-sensitive filesystem, differently
+cased spellings select different local key/session files even though registry
+lookups fold the owner. [[repository/src/local.rs:auth_public_key_path]]
 
 | call site | operation |
 | --- | --- |

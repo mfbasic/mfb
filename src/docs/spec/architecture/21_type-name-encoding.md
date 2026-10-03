@@ -5,14 +5,13 @@ it.** The parser builds the string when it reads a type annotation, and
 `hir::elaborate` turns it into a `ParameterType` once. From there to the
 emitted byte the compiler carries the variant tree: the resolver, monomorphizer,
 `ir::shape`, `ir::verify`, the `TypeModel` builder and codegen all **match
-variants**, and none of them re-derives structure by prefix-stripping (plan-111,
-enforced by `tests/guards/no_type_strings.rs`).
+variants**, and none of them re-derives structure by prefix-stripping (enforced by `tests/guards/no_type_strings.rs`).
 
 The string still matters, because it is what the wire formats store and what
 diagnostics print. This document is the canonical contract for that encoding,
-and the round trip `parse(name).name() == name` is what makes rendering
-lossless. A mismatch in spacing, keyword casing, or separator width breaks every
-*decoder*, so the grammar below is exact down to single spaces.
+and `name()` supplies canonical spellings. Parsing accepts grouping and
+normalizes it; redundant parentheses need not survive rendering. The forms below
+describe emitted spelling, not every alternate spelling accepted by a decoder.
 
 Where the two worlds meet is a short, closed list — the parser, the `.mfp` type
 codec, the IR binary codec, the package manifest, and the AST→HIR seam. Those
@@ -20,7 +19,7 @@ are the "boundary files" the gate names, and they are the only places allowed to
 call `ParameterType::parse` or build a spelling by hand.
 
 The source-level type system these strings denote is [language types](./mfb spec
-language types); the stage that parses them while specializing generics is
+language types); the stage that specializes their typed forms is
 [architecture monomorphization](./mfb spec architecture monomorphization).
 
 ## Canonical grammar
@@ -58,14 +57,14 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 
 ### Fixed-width separators
 
-These are the load-bearing literals every stage splits on. They are **exact** —
-one leading and one trailing space each:
+These are the separators used by the boundary parser and renderer; spaces
+inside the quoted forms are significant:
 
 - `" OF "` — base name from its type arguments.
 - `" TO "` — map key from value, thread message/resource from output.
 - `") AS "` — function parameter list from return type.
 - `", "` — successive template / function-parameter arguments
-  (`args.join(", ")`). Splitting is on the literal two-character `", "`.
+  (`args.join(", ")`). The reader splits commas at parenthesis depth zero and trims whitespace.
   [[src/ast/expr.rs:parse_type_name]]
 - `"RES "` — the leading resource-transfer prefix on a collection element/value
   or thread plane (see below).
@@ -75,23 +74,18 @@ one leading and one trailing space each:
 That recovery happens in exactly one place: `ParameterType::parse`, which turns a
 name into the variant tree. Downstream stages do not re-derive it — the resolver,
 for example, is a plain `match` on `ListOf`/`MapOf`/`Func`/`ThreadHandle`, and a
-new shape reaches it as a new variant, not as a new prefix test (plan-111).
+new shape reaches it as a new variant, not as a new prefix test.
 [[src/types.rs:parse]] [[src/resolver/resolution.rs:resolve_type]]
 
-## Base names and bare-id normalization
+## Base names and package identity
 
-`parse_type_base_name` reads one identifier (or the `Nothing` keyword) as the
-base. A **package-qualified built-in type** is normalized here, at parse time, to
-its bare internal id: `net::Url` becomes `Url`, `http::Response` becomes
-`Response`, so no downstream stage ever sees a qualified built-in type. The
-rewrite is `qualified_builtin_type`, which only fires when the qualifier is a
-built-in import **and** the member is a built-in type id; otherwise the dotted
-name passes through unchanged. [[src/ast/expr.rs:parse_type_base_name]]
+`parse_type_base_name` reads an identifier or `Nothing`, finishes any package
+qualification, and normalizes the name through the package registry. Built-in
+types retain package-qualified identities: `net::Url` becomes `net.Url`, not
+bare `Url`. The package and type must match; an unrelated qualifier does not
+make the type available. User/dependency types also retain their qualifier.
+[[src/ast/expr.rs:parse_type_base_name]]
 [[src/codegen/builtins/mod.rs:qualified_builtin_type]]
-
-The same normalization is mirrored in the resolver so a qualified built-in type
-in a fully-qualified context resolves to its bare id rather than erroring.
-[[src/resolver/resolution.rs:resolve_package_qualified_name]]
 
 ## Dotted names: `pkg::Ident` and `EnumType.Member`
 
@@ -107,7 +101,7 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
   package-qualified resolution. [[src/resolver/resolution.rs:resolve_type]]
 
 A non-built-in user/dependency type therefore keeps its dotted qualifier in the
-flat string; only built-in package types are stripped to bare ids.
+flat string, as do package-qualified built-in identities.
 
 ## The `RES` resource-transfer prefix
 
@@ -118,14 +112,14 @@ scope-ownership transfers across a function boundary.
 
 | Position | Canonical form | Notes |
 |----------|----------------|-------|
-| List element | `List OF RES fs::File` | `RES` consumed only for `List`, not `Result` |
-| Map value | `Map OF K TO RES fs::File` | prefix sits after `" TO "` |
+| List element | `List OF RES fs.File` | `RES` consumed only for `List`, not `Result` |
+| Map value | `Map OF K TO RES fs.File` | prefix sits after `" TO "` |
 | Thread resource plane | `Thread OF Msg RES Res TO Out` | infix `RES` clause |
 
 `parse_type_name` accepts `RES` only after `List OF` and after `Map ... TO`. The
 `Result` base does *not* consume `RES`, so `Result OF RES fs::File` is a parse error
-(`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
-`strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
+(`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Post-elaboration consumers peel the `ParameterType::Res` wrapper before
+resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
 
 ### Trailing ` STATE T` on a `RES` collection element
@@ -159,15 +153,9 @@ thread's resource plane, stays on the *element*: `List OF RES fs::File STATE Cur
 
 Consumers recover the underlying resource **structurally**: `strip_res` peels
 the `Res` wrapper and `ParameterType::without_state` / `state` peel the clause,
-both plain matches on the variant. The old `&str` adapters over the same grammar
-(`base_resource_name` / `state_type_name`) are down to `base_resource_name`'s
-last few callers and a `cfg(test)` parity partner; they were composite-safe by
-construction because they shared `types::split_state_clause` with `parse`, and
-the variant form inherits that property from the parse itself. Element insertion (`append`/`insert`/`set`) compares the
-element and the item by their bare resource type, so an item passed with or
-without its STATE clause both resolve; that comparison is now the registry
-matcher's `resource_base_eq`, which every builtin overload goes through.
-[[src/codegen/resource/mod.rs:base_resource_name]]
+both plain matches on the variant. Element insertion compares the element and
+item by their underlying resource type via the registry matcher's
+`resource_base_eq`, including when only one side carries a STATE clause.
 [[src/codegen/registry/mod.rs:resource_base_eq]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
@@ -234,74 +222,41 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 (`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `Result OF`, `Thread OF`,
 `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(` prefixes); only a base that
 is none of these is treated as a user template. The remainder after `" OF "` is
-split on top-level `", "` into the argument list. Monomorph's private
-`user_template_parts` was retired into this arm by plan-105-B, so the exclusion
-list exists once. [[src/types.rs:parse]]
+split on top-level `", "` into the argument list. The exclusion list lives in this parser. [[src/types.rs:parse]]
 [[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
-The resolver no longer applies this precedence itself — it receives the decoded
+The resolver does not apply this precedence itself — it receives the decoded
 `UserOf` and resolves the base and each argument. [[src/resolver/resolution.rs:resolve_type]]
 The template machinery itself is [language templates](./mfb spec language
 templates).
 
 ## Round-trip: render out, parse back
 
-The encoding's defining property is that `ParameterType::parse(name).name()`
-returns `name` byte-for-byte, for every spelling this document describes. That
+Canonical emitted spellings round-trip through `ParameterType::parse` and
+`name`. Redundant grouping is normalized rather than preserved. The structural
 round trip is load-bearing at the wire seams — the `.mfp` type section, the IR
 binary, and the manifest all store the *rendered* spelling and read it back —
-and it is asserted directly. It is also the reason plan-111 could retype the
-whole pipeline without touching a single golden: rendering is lossless, so the
-bytes a stage emits do not depend on whether it held a string or a variant tree. [[src/types.rs:parse]] [[src/types.rs:name]]
+and is asserted directly for canonical spellings. [[src/types.rs:parse]] [[src/types.rs:name]]
 
-Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
-`split_once`) and function/template argument lists with `split_top_level_commas`
-(a `", "` split). Both live behind `parse`. [[src/types.rs:split_top_level_to]]
+Map/MapEntry bodies are split with `split_top_level_to`, which tracks
+parentheses and pending nested `OF` constructs to locate the outer ` TO `.
+Function/template argument lists use `split_top_level_commas`, which respects
+parenthesis depth. Both live behind `parse`. [[src/types.rs:split_top_level_to]]
 [[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
-**A new type shape is added in one place: a `ParameterType` variant, with its
-`parse` and `name` arms.** This is the inversion plan-111 performed. It used to
-be true that a shape had to be added in lockstep to `parse_type_name`,
-`resolve_type_name`, `concrete_type_name` and its sibling substitution passes,
-the source checker, and the IR semantic verifier, because each re-derived the
-grammar from the string; `concrete_type_name` and its siblings are deleted, and
-the rest match variants. The remaining obligation is the opposite one, and it is
-quieter: every consumer has a `_` arm, so an **unwired** variant is silently
-mis-handled rather than failing to compile. Adding a variant means auditing the
-matches that need it — the resolver, `ir::shape`, `ir::verify`, monomorph's
-`unify`/`normalize`, and the `TypeModel` builder — not just `types.rs`.
+## Type-consumer obligations
 
-`Stateful` is the worked example, and it cost a real bug. Before plan-111 a
-stateful resource was one opaque `Named("Stream STATE Cursor")` whose spelling
-`split_state` string-split on demand; afterwards it is a variant. Two guards
-elsewhere asked `matches!(t, Named(_))` meaning "is this a nominal?", and both
-silently changed answer — `ir::shape::checker_binds_pattern` stopped binding
-`CASE Variant(v)` over a stateful union, and `ir::verify`'s member check started
-rejecting `.state` on every stateful resource. Neither failed to compile; the
-signal was one acceptance fixture that no longer built. **Audit every
-`Named(_)` when the new variant is one a `Named` used to stand in for.**
+A new type shape needs a `ParameterType` variant and corresponding `parse` and
+`name` arms. Consumers with wildcard matches also need review: resolver,
+`ir::shape`, `ir::verify`, monomorphization, and `TypeModel` construction must
+handle the variant according to their own contracts.
 
-`C(CAbiType)` is the second worked example, and the audit caught three guards
-before they shipped. Every C ABI spelling — `CPtr`, `CInt32`, … — was a `Named`
-until plan-113 gave the vocabulary its own variant; `parse` is the constructor,
-so the two `is_c_abi_type` reject-lists (`resolver`, `ir::verify::link`) both
-destructured `Named` and stopped firing the instant the `parse` arm landed,
-silently dropping every `NATIVE_CPTR_ESCAPE`. A third was quieter still: a C
-spelling is a bare token, so `TYPE Box OF CPtr` may name a template *parameter*
-with one, and `ParameterType::with_vars` had to gain a `C` arm to keep
-reclassifying it as a `Var`. The other twenty-five `Named` sites answered
-identically, all for one of two structural reasons — a tail that re-wraps
-(`other => …named(other.name())`) or one that compares whole values
-(`_ => expected == actual`). Both patterns make a new variant safe by
-construction; a guard that has neither is the one to read closely.
-
-Note what did **not** move: a `CSTRUCT`-named `ABI` slot is still a `Named`. The
-C vocabulary is closed at sixteen, but the slot namespace is not — a slot may
-name any `CSTRUCT` declared in the same `LINK` alias — so the open nominal tail
-stays where `ParameterType` already models it. That is also why the vocabulary
-is a variant here rather than a standalone enum: a standalone one would need its
-own `Named` arm and become a second type grammar.
-[[src/types.rs:CAbiType]]
+`Stateful { base, state }` is structurally distinct from `Named`; a check for
+nominal resource behavior must account for the wrapper. `C(CAbiType)` represents
+the closed C ABI vocabulary, while user-declared `CSTRUCT` slot names remain
+`Named`. `with_vars` can reinterpret a C ABI spelling as a template variable
+when that spelling is declared as a template parameter.
+[[src/types.rs:ParameterType]] [[src/types.rs:CAbiType]] [[src/types.rs:with_vars]]
 
 ## See Also
 
@@ -309,5 +264,5 @@ own `Named` arm and become a second type grammar.
 * ./mfb spec language templates — the `Name OF A, B` template form
 * ./mfb spec language functions — `FUNC(...) AS R` and `ISOLATED` callables
 * ./mfb spec language resource-management — the `RES` transfer marker (§15.6)
-* ./mfb spec architecture monomorphization — the stage that parses and rebuilds these strings
+* ./mfb spec architecture monomorphization — the stage that substitutes and instantiates typed variants
 * ./mfb spec architecture type-inference — how inferred types are spelled in this encoding

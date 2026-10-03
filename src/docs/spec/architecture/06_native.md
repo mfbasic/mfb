@@ -1,16 +1,17 @@
 # Native Executable Generation
 
-The native executable back end: lowering IR through NIR, plans, AArch64 encoding, and OS linking.
+The native executable back end: lowering IR through NIR, MIR, instruction selection, encoding, and OS linking.
 
 Native executable generation is implemented across the target layer, the shared
 target support, the architecture backends, and the OS layer.[[src/target]][[src/target/shared]][[src/arch]][[src/os]]
 
-The active native backend registry lists:[[src/target.rs:NativeBackend]]
+The active native backend registry lists:[[src/target.rs:NATIVE_BACKENDS]]
 
 - `macos-aarch64`
 - `linux-aarch64`
 - `linux-x86_64`
 - `linux-riscv64`
+- `windows-x86_64`
 
 Each backend implements the `NativeBackend` trait. The trait exposes
 capabilities and methods for executable and intermediate artifact emission.
@@ -25,11 +26,14 @@ IR
   -> per-target native plan
   -> shared planner
   -> OS object/container plan
-  -> per-target native code plan
-  -> shared code generator
+  -> shared code generation
+  -> MIR optimization
+  -> instruction selection
+  -> register allocation and frame finalization
+  -> native code plan
   -> architecture encoding
   -> OS linking
-  -> build/<project>.out
+  -> platform-specific artifacts under build/
 ```
 
 ## Native IR
@@ -39,12 +43,15 @@ Native IR, or NIR, is defined by the native-IR layer.[[src/target/shared/nir/]]
 NIR is close to the shared IR but adds native build concerns:
 
 - Target name.
-- Imported package functions with platform symbols.
+- Final link symbols for merged functions and native `LINK` routing imports.
 - Runtime helper declarations.
 - Native call forms for built-ins that require runtime support.
 
-The NIR lowerer reads installed package exports and produces NIR imports. It
-also rewrites supported built-in calls into runtime-call forms where needed.
+Installed packages are decoded and merged into IR before NIR lowering; their
+functions become ordinary NIR functions. NIR imports route native `LINK` calls,
+and supported builtins are rewritten to runtime-call forms where needed.
+[[src/target/shared/nir/lower.rs:merge_packages]]
+[[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 `mfb build --nir` writes `<project>.nir`.
 
@@ -52,84 +59,28 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 
 Runtime-helper detection is handled by the runtime-helper layer.[[src/target/shared/runtime/]]
 
-The compiler scans IR values for calls into built-in packages. It records
-which helper families are needed (the `RuntimeHelper` enum):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
+The compiler walks IR values and resource cleanup requirements to select
+runtime-helper families. `RuntimeHelper` contains `Abi`, `App`, `Audio`,
+`Canvas`, `Datetime`, `Fs`, `General`, `Io`, `Math`, `Net`, `Os`, `Process`,
+`Perf`, `Tcp`, `Term`, `Thread`, `Tls`, and `Udp`. `Perf` is compiler-injected
+instrumentation rather than a source package.
+[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
-- `audio`
-- `crypto`
-- `datetime`
-- `fs`
-- `general`
-- `io`
-- `math`
-- `net`
-- `os`
-- `term`
-- `thread`
-- `tls`
-
-There is no `strings` family: every `strings::` op is lowered inline (native-direct),
-so no `_mfb_rt_strings_*` helper is ever emitted.
-
-`validate_capabilities` rejects native builds that require runtime calls not
-listed in the backend capability set.[[src/target/shared/validate/capabilities.rs:validate_capabilities]]
-All four backends declare the same set of supported native runtime calls:
-
-- `crypto.*` calls: `crypto.randomBytes` plus the P-256/384/521 key-generation,
-  signing, and verification calls
-- All `os.*` calls: `os.getEnv`, `os.getEnvOr`, `os.hasEnv`, `os.setEnv`,
-  `os.unsetEnv`, `os.environ`, `os.args`, `os.pid`, `os.executablePath`,
-  `os.appResourcePath`, `os.name`, `os.arch`, `os.hostName`, `os.userName`,
-  `os.cpuCount`
-- All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.isBuffered`,
-  `io.setBuffered`, `io.printError`, `io.writeError`, `io.input`, `io.readLine`,
-  `io.readRaw`, `io.readScalar`, `io.readGrapheme`, `io.readKey`, `io.isInputTerminal`,
-  `io.isOutputTerminal`, `io.isErrorTerminal`
-- Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,
-  `fs.createTempFile`, `fs.close`, `fs.readLine`, `fs.readAll`,
-  `fs.readAllBytes`, `fs.readBytesAt`, `fs.size`, `fs.writeAll`,
-  `fs.writeAllBytes`, `fs.setBuffered`,
-  `fs.isBuffered`, `fs.flush`, `fs.readText`,
-  `fs.readBytes`, `fs.writeText`, `fs.writeTextAtomic`, `fs.writeBytes`,
-  `fs.writeBytesAtomic`, `fs.appendText`, `fs.appendBytes`, `fs.eof`,
-  `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.canonicalPath`,
-  `fs.isWithin`, `fs.deleteFile`, `fs.createDirectory`,
-  `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`,
-  `fs.currentDirectory`, `fs.tempDirectory`, `fs.setCurrentDirectory`
-- All `thread.*` calls: `thread.start`, `thread.isRunning`, `thread.waitFor`,
-  `thread.cancel`, `thread.send`, `thread.poll`, `thread.receive`,
-  `thread.isCancelled`, `thread.transferResource`, `thread.acceptResource`
-- All `datetime.*` calls: `datetime.nowNanos`, `datetime.monotonicNanos`,
-  `datetime.localOffset`
-- All `term.*` calls: `term.on`, `term.off`, `term.isOn`, `term.clear`,
-  `term.moveTo`, `term.hideCursor`, `term.showCursor`, `term.setForeground`,
-  `term.getForeground`, `term.setBackground`, `term.getBackground`,
-  `term.setBold`, `term.getBold`, `term.setUnderline`, `term.getUnderline`,
-  `term.terminalSize`
-- All `net.*` calls: `net.lookup`, `net.ping`, `net.pingAddr`
-- All `tcp.*` calls: `tcp.connect`, `tcp.connectAddr`, `tcp.listen`,
-  `tcp.accept`, `tcp.read`, `tcp.write`, `tcp.writeText`, `tcp.poll`,
-  `tcp.pollList`, `tcp.close`, `tcp.localAddress`, `tcp.remoteAddress`,
-  `tcp.setReadTimeout`, `tcp.setWriteTimeout`
-- All `udp.*` calls: `udp.bind`, `udp.send`, `udp.sendText`, `udp.receive`,
-  `udp.poll`, `udp.pollList`, `udp.close`, `udp.localAddress`,
-  `udp.setReadTimeout`, `udp.setWriteTimeout`
-- All `tls.*` calls: `tls.connect`, `tls.read`, `tls.write`,
-  `tls.writeText`, `tls.close`, `tls.listen`, `tls.accept`, `tls.closeListener`
-
-`math`, `strings`, and `general` operations are not listed as runtime helper
-calls because they are code-generated inline rather than dispatched through
-external runtime helpers. The `RuntimeHelper::General` variant exists, but
-neither backend's `runtime_calls` contains any `general.*` call — `general.*`
-built-ins (like `math`/`strings`) are inline-codegen'd, not a gated runtime-call
-family.[[src/codegen/builtins/general/mod.rs:is_general_call]] The complete, authoritative
-capability set is the `runtime_calls` declaration in each backend; all four
-backends declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
+Native-direct calls stay inline and do not require a runtime-call capability.
+Other calls are mapped through `helper_for_call` and checked against the selected
+backend's `capabilities().runtime_calls`; these tables are target-specific,
+not a promise that every backend supports the same calls. `strings` has no
+runtime-helper family. Source-companion functions compile through ordinary
+function lowering.
+[[src/target/shared/runtime/usage.rs:is_native_direct_call]]
+[[src/target/shared/runtime/mod.rs:helper_for_call]]
+[[src/target/shared/validate/capabilities.rs:validate_capabilities]]
+[[src/target/win_x86_64/mod.rs:RUNTIME_CALLS]]
 
 ### Helper Requirement Analysis
 
 `required_helpers` computes the exact set of `RuntimeHelper` families an IR
-project needs, walking every function body and value recursively. Two cases are
+project needs, walking every function body and value recursively. Cleanup requirements are
 not visible from plain runtime-call dispatch and are handled specially:[[src/target/shared/runtime/usage.rs:required_helpers]]
 
 - **Resource-union binds.** A `Bind` of a resource type pulls in the helper for
@@ -158,8 +109,8 @@ runtime call reached from the function bodies, and for each non-native-direct
 call rejects the build if the call is outside the backend's
 `capabilities.runtime_calls` set (`"native backend does not support runtime
 call"`). It additionally rejects any declared helper that is actually used by an
-emitted call but lacks a complete `supported_helper_specs` ABI entry (non-empty
-params, returns, and clobbers) with `"native backend does not implement runtime
+emitted call but has no `supported_helper_specs` entry in its family with a
+non-empty return type, reporting `"native backend does not implement runtime
 helper"`.[[src/target/shared/validate/capabilities.rs:validate_capabilities]]
 
 The concrete ABI (registers, clobbers, fallibility) for each helper family is
@@ -187,7 +138,7 @@ validation.
 ## Native Plan
 
 Native planning is implemented by platform-specific wrappers, one per target,
-that both delegate to a shared planner.[[src/target/macos_aarch64/plan.rs]][[src/target/linux_aarch64/plan.rs]][[src/target/shared/plan/]]
+that delegate to a shared planner.[[src/target/macos_aarch64/plan.rs]][[src/target/linux_aarch64/plan.rs]][[src/target/shared/plan/]]
 
 The native plan records:
 
@@ -207,11 +158,11 @@ The native plan records:
 
 ## Native Object Plan
 
-OS object/container planning is implemented per OS.[[src/os/macos/object.rs]][[src/os/linux/object.rs]]
+OS object/container planning is implemented per OS.[[src/os/macos/object.rs]][[src/os/linux/object.rs]][[src/os/windows/]]
 
 The object plan is still a JSON planning artifact, not the final executable
 container. It describes how the already planned native code will be arranged in
-Mach-O or ELF terms:
+Mach-O, ELF, or PE terms:
 
 - image base
 - load commands or program headers
@@ -233,7 +184,7 @@ layout. The concrete segment/section regions are owned by
 ## Native Code Plan
 
 Native code planning is implemented by platform-specific wrappers, one per
-target, that both delegate to a shared code generator.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/]]
+target, that delegate to a shared code generator.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/]]
 
 The native code plan records:
 
@@ -245,7 +196,7 @@ The native code plan records:
 - Functions.
 - Stack frames.
 - Parameters and locations.
-- AArch64 instruction operations.
+- Selected instruction operations for the target ISA.
 - Relocations.
 - Stack slots.
 
@@ -282,9 +233,7 @@ link and stack-pointer registers, the pinned arena and current-thread registers,
 backend chose (`Reg::physical`). It has no conversion from a string, so emission code
 cannot name a register by hand; `CodeInstruction::field` rejects text in a register
 field, and `physical_field` is the backends' post-allocation
-entry.[[src/target/shared/abi.rs:Reg]] [[src/codegen/engine/builder/code_impl.rs:field]] A hand-picked
-name once aliased a minted one and double-freed a 64 KiB block on every Windows
-`tls::connect` (bug-721).
+entry.[[src/target/shared/abi.rs:Reg]] [[src/codegen/engine/builder/code_impl.rs:field]]
 
 The integer and FP/SIMD classes have separate physical files that never
 interfere, so each is colored by an independent linear-scan pass over its own
@@ -332,8 +281,10 @@ once instead of twice, so a fused result is `≤1` ULP and no worse than the dis
 form; the intermediate product is not a named `Float` and does not independently
 trap, so `a*b+c` can be finite even where `a*b` alone would overflow.
 
-A value live across a call stays in a callee-saved `d8`–`d15` rather than
-spilling. A loop-carried float accumulator — a non-escaping `Float` local
+On AArch64, an FP value live across a call may use callee-saved `d8`–`d15`.
+Call survival is determined by the selected target's register model; SysV x86-64
+has no callee-saved XMM bank.
+[[src/codegen/engine/regalloc/analysis.rs:caller_saved_mask]] A loop-carried float accumulator — a non-escaping `Float` local
 assigned in a loop body — is **promoted** to a `d`-register held across the whole
 loop: loaded from its slot once on entry, read and updated in the register each
 iteration, and stored back once on exit, so the per-iteration slot round-trip
@@ -359,8 +310,10 @@ core:
 Linear scan is the only allocation method: it computes liveness over the
 lowered stream and colors the integer class by live interval, spilling to a
 stack slot under pressure (so a deeply nested expression never fails — it
-spills); a value live across a call is spilled, since no register survives an
-internal runtime helper. Which value spills is a choice at `-O1` and above: when
+spills); an integer value live across an internal runtime-helper call is spilled
+because that call clobbers the entire integer bank in the allocator model. User
+functions and external C calls use the target's caller-saved mask instead.
+[[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]] Which value spills is a choice at `-O1` and above: when
 no register is free for the value being colored, it takes the register of an
 active value whose spill priority is lower than its own, and that value spills
 instead. Priority is a value's accesses, each weighted `8^loop depth` (depth =
@@ -386,16 +339,11 @@ retargeted to a fresh label that restores the victim and jumps to the original
 target. No flag-reading branch has a register operand, so no other target ever
 evicts around a terminator.[[src/codegen/engine/regalloc/linear_scan.rs:run]]
 [[src/codegen/engine/regalloc/linear_scan.rs:fresh_label]]
-(The legacy `BumpAndReset` replay — the
-`--regalloc bump` differential oracle — was removed: with no spilling it
-miscompiled under pressure and was never a correctness baseline; the
-`--regalloc` flag went with it.)
-
 ### The CodegenPlatform Seam
 
 The shared code generator is OS-independent.[[src/codegen/engine/builder/mod.rs]]
-Everything that differs between macOS and Linux is funnelled through the
-`CodegenPlatform` trait, implemented once per OS.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/engine/types/types.rs:CodegenPlatform]]
+Platform-specific emission is exposed through the `CodegenPlatform` trait,
+implemented by the target wrappers.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/engine/types/types.rs:CodegenPlatform]]
 
 The seam carries two kinds of platform knowledge: ABI struct layouts queried as
 scalar accessors, and `emit_*` methods that splice platform-specific
@@ -418,7 +366,9 @@ stack `termios` struct, so the generator must know that struct's per-OS shape:
 
 **`stat` mode offset.** `stat_mode_offset` gives the byte offset of `st_mode`
 within the platform `stat` struct, used by file-/directory-existence checks: 4 on
-macOS, 16 on Linux.
+macOS, 16 on Linux AArch64/RISC-V, and 24 on Linux x86-64.
+[[src/target/linux_x86_64/code.rs:stat_mode_offset]]
+[[src/target/linux_common/code.rs:stat_mode_offset_stays_per_arch]]
 
 **libc call decoration.** `emit_external_call` emits a `bl` to a libc function named
 by its platform-independent base (e.g. `socket`, `getaddrinfo`): macOS prepends a
@@ -456,13 +406,16 @@ vector is built once at entry and never freed.
 `scripts/test-winleak.sh` checks on a Windows host that no seam's live bytes grow
 with its call count.
 
-**`random_bytes`.** `emit_random_bytes` fills a buffer with OS entropy; both
-backends call `getentropy` (decorated `_getentropy` on macOS via libSystem,
-verbatim on Linux via libc).[[src/target/macos_aarch64/code.rs:emit_random_bytes]]
+**`random_bytes`.** `emit_random_bytes` fills a buffer with OS entropy; the macOS
+and Linux backends call `getentropy` (decorated `_getentropy` on macOS via libSystem,
+verbatim on Linux via libc). Windows uses `BCryptGenRandom`.
+[[src/target/macos_aarch64/code.rs:emit_random_bytes]]
+[[src/target/win_x86_64/code.rs:emit_random_bytes]]
 
-## AArch64 Encoding
+## Architecture Encoding
 
-Architecture-specific instruction encoding is handled by the AArch64 encoder.[[src/arch/aarch64]]
+Architecture-specific instruction encoding is handled by the selected AArch64,
+x86-64, or RISC-V encoder. [[src/arch/aarch64]] [[src/arch/x86_64]] [[src/arch/riscv64]]
 
 The encoder consumes the native code plan and produces an `EncodedImage` with:
 
@@ -473,18 +426,19 @@ The encoder consumes the native code plan and produces an `EncodedImage` with:
 - imports
 - entry symbol
 
-The encoder handles AArch64 instruction forms and ABI details used by the
+The encoder handles the selected ISA's instruction forms and ABI details used by the
 native code plan.
 
 ## Linking and Executable Writing
 
-The final OS-specific executable writers are per OS.[[src/os/macos/link/]][[src/os/linux/link/]]
-Both patch relocations in the encoded text, resolve the
+The final executable writers are per OS. [[src/os/macos/link/]]
+[[src/os/linux/link/]] [[src/os/windows/]] They patch relocations in the encoded text, resolve the
 entry symbol to a text offset, encode the OS executable container, and write the
 output. macOS emits a single Mach-O `build/<project>.out`; Linux emits one ELF
 per flavor (`build/<project>-glibc.out`, `build/<project>-musl.out`) into
 the one output directory, and chooses static vs. dynamic by whether external
-imports are present.
+imports are present. Windows emits `build/<project>.exe` as PE32+.
+App output shapes are specified in `./mfb spec architecture artifacts`.
 
 The container byte details — Mach-O segments and the ad hoc code signature,
 `libSystem` imports and import stubs; the ELF static/dynamic split, PLT/GOT,

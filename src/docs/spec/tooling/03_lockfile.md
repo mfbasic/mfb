@@ -37,7 +37,7 @@ and takes its exact version.[[src/cli/resolve.rs:select_node]]
 | Path | `<project>/mfb.lock` (sibling of `project.json`) |
 | Required | No — absence is not an error unless `--locked` is set |
 | Written by | `mfb pkg update` |
-| Read by | `mfb audit` (the `lockfile` section + `AUDIT-LOCK-*` findings) |
+| Read by | `mfb pkg install`, resolver/update operations, and `mfb audit` |
 
 The audit collector probes the path; a missing file yields a summary with
 `present = false` and no version/hash comparison, while a present file is parsed
@@ -45,28 +45,45 @@ as JSON. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## JSON shape
 
-`mfb.lock` is a JSON object. Only two fields are read:
+The writer emits the following keys in this order, with two-space indentation
+and a trailing newline. `packages` preserves the resolver's ident-sorted order.
+[[src/cli/resolve.rs:render_lock]] [[src/cli/resolve.rs:resolve]]
 
-```json
-{
-  "lockfileVersion": 1,
-  "projectHash": "5b1c…<64 lowercase hex chars>"
-}
-```
+| Field | JSON type | Meaning |
+| --- | --- | --- |
+| `lockfileVersion` | number | Writer format version, `1` |
+| `projectHash` | string | Hash of the manifest dependency requests |
+| `repoFingerprint` | string | Pinned registry-key fingerprint |
+| `checkpoint` | object | `size` (number) and `rootHash` (string) |
+| `packages` | array | Resolved registry packages |
 
-| Field | JSON type | Read as | Meaning |
-| --- | --- | --- | --- |
-| `lockfileVersion` | number | integer (`f64` truncated to `i64`) | Lock-file format version. Surfaced verbatim; not validated against a known set. |
-| `projectHash` | string | string | Canonical hash of the declared dependency request set (see below). A missing/non-string value reads as the empty string, which can never match a real hash. |
+Each package object writes string fields in this order: `name`, `ident`,
+`requested`, `selected`, `hash`, `identKey`, `identFingerprint`, `state`.
+`requested` is the declared version/ABI anchor; `selected` is the resolved
+version; `hash` identifies the blob installed by `pkg install`.
+[[src/cli/resolve.rs:LockedPackage]]
 
-Both fields are optional at the parse layer: a malformed object (or one missing a
-key) leaves the corresponding summary value unset rather than erroring. Parsing
-that fails entirely (unreadable file or invalid JSON) leaves `version` and the
-hash-match result unset while still reporting `present = true`. [[src/audit/collect/lockfile.rs:collect_lockfile]]
+The package reader requires readable JSON with an object root. It defaults
+missing or wrong-typed strings to empty, a missing/non-array `packages` to an
+empty list, and skips non-object package entries. Checkpoint size defaults to
+zero and otherwise uses an `f64`-to-`i64` cast. This reader does not inspect
+`lockfileVersion`; installation performs the project-hash, registry-pin, blob
+identity and signature checks separately. [[src/cli/resolve.rs:read_lock]]
+[[src/cli/resolve.rs:install]]
 
-Any other keys a writer chooses to record (resolved versions, content hashes,
-sources) are **ignored** by the current reader; only `lockfileVersion` and
-`projectHash` participate in policy.
+### Audit interpretation
+
+The audit collector reads only `lockfileVersion` and `projectHash`.
+`lockfileVersion` is reported as an integer only for finite, non-negative whole
+numbers at most `2^53`; otherwise it is unset. No supported-version comparison
+is performed. A missing or non-string `projectHash` becomes the empty string,
+which produces a definite hash mismatch. An unreadable file, invalid JSON, or a
+non-object root leaves both summary fields unset and raises the malformed-file
+finding. A readable object remains parsed even when these fields are invalid.
+[[src/audit/collect/lockfile.rs:collect_lockfile]]
+[[src/audit/collect/lockfile.rs:lockfile_version]]
+
+The remaining lock fields are ignored by audit, not by the package installer.
 
 ## `projectHash` algorithm
 
@@ -224,5 +241,5 @@ boolean match result is. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 * ./mfb spec tooling audit-format — the `AUDIT-LOCK-*` finding catalogue, severities, and the `mfb.audit.v1` JSON envelope
 * ./mfb spec tooling project-manifest — the `packages[]` request fields hashed into `projectHash`
 * ./mfb spec tooling cli-reference — `mfb audit` flags and the command's exit codes
-* ./mfb spec architecture packages — version constraints, pin/install policy, and where a writer of `mfb.lock` would fit
+* ./mfb spec architecture packages — version constraints, pin/install policy, and package resolution
 * ./mfb spec diagnostics rule-codes — the `6-603` `LOCKFILE_MISMATCH` diagnostic family for resolved-state mismatches

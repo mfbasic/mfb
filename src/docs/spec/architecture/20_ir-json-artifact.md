@@ -2,7 +2,7 @@
 
 The human-readable JSON dump of the typed IR, emitted by `mfb build --ir`.
 
-`mfb build --ir` lowers the concrete AST to an `IrProject`, then writes
+`mfb build --ir` lowers the concrete HIR to an `IrProject`, then writes
 `<name>.ir` next to the project (the file is named from the project name, not the
 flag).[[src/cli/build/mod.rs:BuildOutput]][[src/ir/lower.rs:write_ir]] The contents are
 `IrProject::to_json`, a hand-rolled pretty-printer.[[src/ir/json.rs:to_json]]
@@ -177,6 +177,7 @@ serialize inline (the `to_json` indent argument is ignored for values).
 | `resultError` | `ResultError` | `value` |
 | `with` | `WithUpdate` | `type`, `target`, `updates` (record-update array) |
 | `list` | `ListLiteral` | `type`, `values` |
+| `set` | `SetLiteral` | `type`, `values` |
 | `map` | `MapLiteral` | `type`, `entries` (each `{ "key": <value>, "value": <value> }`) |
 | `memberAccess` | `MemberAccess` | `target`, `member` |
 | `binary` | `Binary` | `op` (string), `left`, `right` |

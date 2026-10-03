@@ -33,7 +33,7 @@ END MATCH
 - **Exhaustiveness**: unions must cover all member types; enums must cover all members (each matched via the qualified `Type.Member` form). Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error (`TYPE_MATCH_NOT_EXHAUSTIVE`). Guarded `CASE` arms do not contribute to compile-time coverage because the guard can fail; use an unguarded arm or `CASE ELSE` to cover the remaining values. Coverage is computed only from unguarded arms: a union arm contributes its member type name, an enum arm contributes `Type::Member`, and an unguarded `CASE ELSE` makes the match exhaustive.
 - A call scrutinee auto-unwraps to its value; to handle its failure locally, use an inline `TRAP` (see §8.4). `CASE Ok`, `CASE Error`, and `CASE Err` are not valid match arms (`TYPE_RESULT_NOT_MATCHABLE`) — a failure is never matched, only trapped. (Internally, a `Result`-typed scrutinee suppresses the secondary `TYPE_MATCH_NOT_EXHAUSTIVE` cascade, since its arms already reported `TYPE_RESULT_NOT_MATCHABLE`.)
 
-> Implementer note: `MATCH` over a fallible resource transfer (`thread.send` / `thread.transfer`) is a special case. The compiler reuses the standard union `CASE Error(e)` arm but, on the failure path, rebinds the moved resource into the case local so it can be retried. This sits at the intersection with the threading/resource specs; the surface pattern syntax is unchanged.
+A failed `thread::transfer` is handled by `TRAP`, not `CASE Error`. Its inline handler may reuse the resource because a failed transfer retains sender ownership (§16).
 
 ## See Also
 

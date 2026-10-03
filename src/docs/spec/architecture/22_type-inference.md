@@ -6,7 +6,8 @@ the type of a HIR expression against the lowering context, and
 type into the lowered value.[[src/ir/lower.rs:expression_type]] The pre-lowering
 shape pass borrows exactly that oracle for the source rules it checks over the
 HIR, and the IR verifier re-derives types from the lowered `IrValue`s
-(`infer_type`), so the three agree by construction. Inference is **partially
+(`infer_type`). These are separate checks; sharing the HIR oracle does not
+make the HIR and IR compatibility predicates identical. Inference is **partially
 bidirectional**: the expected type reaches a few syntactic positions, while
 everything else synthesizes types **bottom-up**. There is no general unification,
 no type variables, and no least-upper-bound; the only "widening" steps are
@@ -31,15 +32,19 @@ where the declared or contextual type re-types an unsuffixed literal.
 | Typed `LET`/`MUT`/`DIM` binding init | declared `AS T` | local binding & statement binding |
 | `RETURN <expr>` | enclosing function return type | return statement |
 | `RECOVER <expr>` (inline `TRAP`) | the trap's success type | recover statement |
-| `SET STATE OF r TO <expr>` | resource's state type | state assignment |
+| `r.state = <expr>` | resource's state type | state assignment |
 | Constructor field value `Field := <expr>` | the field's declared type | constructor lowering |
 | `WITH` field update value | the field's declared type | `WITH` lowering |
 | Typed list-literal element | `expected_element` of `List OF E` | list-literal lowering |
+| Assignment to an existing local/global | binding type | assignment lowering |
+| Map-literal key/value | enclosing expected `Map OF K TO V`, when present | map lowering |
+| Set-literal element | enclosing expected `Set OF E`, otherwise literal annotation | set lowering |
 | Call argument | the parameter's type (see below) | builtin & user call lowering |
 | Inline `TRAP <call>` success value | propagated through to the inner call | `Trapped` arm |
 
-A binding **without** an annotation, an assignment to an existing variable, and a
-plain expression statement all infer with `expected = None`.
+An unannotated binding first infers its initializer type; ordinary expression
+statements have no enclosing expected type. Assignments use the target binding's
+type. [[src/ir/lower.rs:lower_statement]]
 
 These positions are **synthesized bottom-up only** (expected is never consulted):
 
@@ -47,11 +52,10 @@ These positions are **synthesized bottom-up only** (expected is never consulted)
   with no expected type, then combine. [[src/ir/lower.rs:expression_type]]
 - **Member-access targets.** The target of `a.field` / `a::member` is inferred
   with no expected type.
-- **Map-literal entries.** Map literals are inferred from their **explicit**
-  `Map OF K TO V` annotation; `K` and `V` are never inferred from the entries.
-  Each key/value expression is then *checked* against `K`/`V`. A bare map literal
-  with no `OF` clause is not a valid synthesis source.
-  [[src/ir/lower.rs:lower_expression_with_expected]]
+
+Map literals retain their explicit `Map OF K TO V` annotation as the resulting
+IR type. An enclosing expected map can separately supply expected types while
+lowering each entry. [[src/ir/lower.rs:lower_expression_with_expected]]
 
 ### Call arguments — the parameter type IS the expected type
 
@@ -84,7 +88,7 @@ lowering has no element type to check the item against.
 
 ### Overload resolution
 
-When a name resolves to more than one visible signature, the monomorphizer
+For an ordinary user `FUNC` name with more than one visible signature, the monomorphizer
 selects the overload — **before** the shape pass and lowering see the program,
 so every call they check names one concrete, mangled symbol. Resolution requires
 **exact** arity and positional type equality with no coercion, and the expected
@@ -93,20 +97,26 @@ so every call they check names one concrete, mangled symbol. Resolution requires
 still leave the call unresolved. See `./mfb spec architecture monomorphization`
 (`resolve_overload`/`params_match`). [[src/monomorph/lower.rs:resolve_overload]]
 
+Registry-defined built-ins use their own signature/layout selection and may fill
+trailing defaults; they are not subject to the user-overload default prohibition.
+See `./mfb spec language functions` for the call-category contracts.
+
 ## Literal Coercion — `expression_compatible`
 
 `expression_compatible(expected, actual, expr)` is the assignability check used at
 every typed slot (bindings, returns, fields, list/map elements, call arguments,
 match patterns). The IR verifier holds it over lowered values and the shape pass
-holds the same relation over HIR expressions (the literal shapes below are read
+holds a related predicate over HIR expressions (the literal shapes below are read
 from whichever form is in hand). It first tries the structural relation
 `compatible`; if that fails it permits a small set of **literal-only** coercions
-that widen the *actual literal* toward the *expected* type:
+that convert the *actual literal* toward the *expected* type. The following
+pseudocode describes the HIR shape predicate; IR verification has the scalar
+coercions but no recursive list-literal coercion arm:
 
 ```text
 expression_compatible(E, A, expr) =
     compatible(E, A)                                  ; structural, see below
-  | E=Byte  ∧ A=Integer ∧ expr = Number n ∧ n ≤ 255  ; small int literal → Byte
+  | E=Byte  ∧ A=Integer ∧ expr = Number n ∧ 0 ≤ n ≤ 255  ; small int literal → Byte
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = Number      ; numeric literal → Fixed
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = -Number     ; negated numeric literal → Fixed
   | E=Money ∧ A∈{Integer,Float} ∧ expr = Number      ; decimal literal → Money
@@ -141,66 +151,40 @@ Properties:
 
 [[src/ir/verify/compat.rs:expression_compatible]] [[src/ir/shape.rs:expression_compatible]]
 
-## Structural Assignability — `compatible`
+## Structural Assignability
 
-`compatible(expected, actual)` is the pure structural relation (no expression in
-hand, so no literal coercion). [[src/ir/verify/compat.rs:compatible]] [[src/ir/shape.rs:compatible]]
+The shape and IR predicates are distinct and must be read at their own seams.
+Both accept an `Unknown` operand to suppress cascading diagnostics and peel the
+`RES` wrapper before comparing value types.
+[[src/ir/shape.rs:compatible]] [[src/ir/verify/compat.rs:compatible]]
 
-```text
-compatible(E, A):
-  E = Unknown  ∨  A = Unknown            → true    ; cascade suppression
-  strip RES from both, then:
-    List(e),  List(a)                    → compatible(e, a)              ; invariant
-    Map(ek,ev), Map(ak,av)               → compatible(ek,ak) ∧ compatible(ev,av)
-    Result(e), Result(a)                 → compatible(e, a)
-    Thread(em,er,eo), Thread(am,ar,ao)   → compat(em,am) ∧ compat_opt(er,ar) ∧ compat(eo,ao)
-    ThreadWorker(...) — same as Thread
-    Function{ep,er,eiso}, Function{ap,ar,aiso}:
-        (!eiso ∨ aiso)                   ; isolated variance
-      ∧ ep.len == ap.len
-      ∧ ∀ i: compatible(ep[i], ap[i])    ; pairwise param compat
-      ∧ compatible(er, ar)               ; return compat
-    User(en), User(an)                   → en == an
-                                          ∨ (trailing-segment(en) == trailing-segment(an)
-                                             ∧ (either side is unregistered
-                                                ∨ both resolve to the same registered TypeInfo))
-                                          ∨ en (a UNION) has a variant named trailing(an)
-    otherwise                            → E == A
-```
+The **IR verifier** applies these rules in order:
 
-Key points:
+1. Accept exact equality after peeling `RES`.
+2. Compare `ListOf` and `ResultOf` elements recursively; compare `MapOf` keys
+   and values recursively.
+3. Accept function types with equal arity, isolation flag, and return type when
+   corresponding parameter types are equal after peeling their `RES` markers.
+4. Compare rendered identities, allowing removal of a **built-in** package
+   qualifier only. Distinct registered built-in resources remain distinct even
+   when they share a leaf name (`tcp.Socket` and `udp.Socket`). User-package
+   qualifiers are not erased.
+5. Accept an actual variant of the expected union, using its qualified identity
+   or built-in bare leaf. Otherwise reject.
 
-- **`Unknown` is universally compatible** on either side. `Unknown` is the
-  fallback for any expression whose type could not be determined; treating it as
-  compatible suppresses cascading errors. (It is also numeric and orderable —
-  see below.)
-- **`RES` is stripped before comparing.** The `RES` element marker is an
-  ownership-axis annotation, not a distinct value type, so a `File` fits a
-  `RES fs::File` slot and vice versa. `./mfb spec language resource-management`.
-  [[src/ir/verify/mod.rs:resource_base_type]]
-- **Containers are invariant.** `List`, `Map`, `Result`, `Thread`,
-  `ThreadWorker` compare element-/component-wise via `compatible` recursively;
-  there is no covariance. The optional resource plane of a thread type uses
-  `compatible_optional`: both absent, or both present and compatible (a
-  present/absent mismatch is incompatible). [[src/ir/verify/compat.rs:compatible]]
-- **Bare vs qualified user types.** An imported type is registered under its bare
-  name (`Db`) while an importer writes a qualified reference (`binding.Db`); a
-  trailing-segment match makes these equal so a returned package type fits a
-  `binding::Type` annotation. Two *registered* user types that merely share a
-  trailing segment are **not** compatible unless they resolve to the same
-  `TypeInfo`; the bare-name match only bridges a case where one side is
-  unregistered. See `./mfb spec architecture type-name-encoding`.
-- **Union subsumption is the only nominal widening.** If the *expected* user type
-  is a `UNION`, any *actual* type whose (bare) name is one of its variant names
-  is compatible — assigning a variant value into the union slot. No other
-  nominal widening exists.
-- **Function compatibility.** Equal parameter count, pairwise-compatible
-  parameters, compatible return, and isolated variance `!expected_isolated ||
-  actual_isolated` (an `ISOLATED` function value satisfies a non-isolated slot
-  and an isolated slot; a non-isolated value does **not** satisfy an isolated
-  slot). Note `compatible` does **not** distinguish parameter variance direction
-  — params are checked with the same `compatible` as everything else, not
-  contravariantly.
+Other composites, including `SetOf` and thread handles, therefore require exact
+structural equality at this seam unless a later identity rule matches them.
+The verifier does not implement general callable variance or isolation widening.
+[[src/ir/verify/compat.rs:compatible]]
+
+The **HIR shape predicate** additionally peels a top-level `STATE` clause,
+recurses through sets and thread-handle components, and compares callable
+parameters contravariantly and returns covariantly. It permits an isolated
+callable in a non-isolated expected slot. Its nominal branch uses built-in-only
+qualification normalization and checks declaration identity when both names
+resolve. Passing shape checking alone is therefore insufficient: the lowered
+program must also satisfy the IR predicate above.
+[[src/ir/shape.rs:compatible]]
 
 ## Numeric and Ordering Predicates
 
@@ -252,11 +236,12 @@ list_literal_type(values, expected):
 This is **order-sensitive** and one-directional: there is no least-upper-bound
 across elements. `[1, 2.0]` infers `List OF Integer` from element 0, then rejects
 `2.0` (a `Float` is not coercible *up* to an `Integer` literal slot); but
-`[2.0, 1]` infers `List OF Float` and accepts the `Integer` literal `1` via
-`expression_compatible`. To force an element type, annotate the binding
+`[2.0, 1]` infers `List OF Float` but its `Integer` element also fails IR
+verification. With no enclosing expected element type, neither literal is
+retyped to the other. To force an element type, annotate the binding
 (`LET xs AS List OF Float = [1, 2]`), which takes the expected-type path.
 
-In both paths, list elements may not contain a `Thread` type, and resource
+In both paths, list elements may not contain a `ThreadWorker` type, and resource
 elements are validated separately (`./mfb spec language collections`,
 `./mfb spec language resource-management`).
 

@@ -35,7 +35,7 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 
 | Artifact | Command | Contents |
 | --- | --- | --- |
-| `<name>.ast` | `mfb build --ast` | Parsed source tree, before monomorphization. |
+| `<name>.ast` | `mfb build --ast` | Parsed source tree after private-name scoping, before TESTING lowering and monomorphization. |
 | `<name>.ir` | `mfb build --ir` | Typed, architecture-independent compiler IR. |
 | `<name>.hex` | `mfb build --br` | Hex dump of the MFPC binary representation. |
 | `<name>.mir` | `mfb build --mir` | Target-neutral MIR dump. |
@@ -46,6 +46,7 @@ artifact, the flag that produces it, and the pipeline stage it captures.[[src/cl
 | `build/<name>.out` | `mfb build` executable (macOS) | Native executable (Mach-O). |
 | `build/<name>-glibc.out` | `mfb build` executable (Linux) | Native executable (ELF, glibc). |
 | `build/<name>-musl.out` | `mfb build` executable (Linux) | Native executable (ELF, musl). |
+| `build/<name>.exe` | `mfb build` or `mfb build --app` (Windows) | PE32+ executable; app mode selects the GUI subsystem and Win32 runtime. |
 | `build/<name>.app` | `mfb build --app` (macOS) | Application bundle. |
 | `build/<name>-glibc.AppImage` | `mfb build --app` (Linux) | Single-file application for the glibc world: the AppImage type-2 runtime with an uncompressed SquashFS image of the AppDir concatenated at the runtime's exact length. Mode 0755. |
 | `build/<name>-musl.AppImage` | `mfb build --app` (Linux) | The same, for the musl world. Requires a musl GTK4 host (Alpine's `gtk4.0`). |
@@ -91,11 +92,6 @@ failure rejects the package with a toolchain diagnostic; it is not recoverable b
 program `TRAP` code because no package code has started running. The complete
 invariant catalogue and which invariants are re-checked at import time are owned by
 `./mfb spec package verifier-rules`. [[src/manifest/package.rs:read_mfp_header]] [[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]] [[src/ir/binary.rs:verify_package]]
-
-A future VM is not foreclosed: it would either interpret the structured, typed
-Binary Representation directly or lower it through the same `IR -> NIR -> native`
-path. The artifact contract remains: packages are portable `.mfp` Binary
-Representation packages; executables are native platform binaries.
 
 ## See Also
 

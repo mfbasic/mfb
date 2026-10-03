@@ -21,7 +21,7 @@ The package entry written to `project.json` includes:
 
 - `name`
 - `version`, the installed package's version string
-- `pin`, the concrete pinned package version (compared for exact string match)
+- `pin`, a Boolean controlling version pinning
 - `source`, the original URL
 
 Other `pkg` subcommands round out package management:[[src/main.rs]]
@@ -110,7 +110,7 @@ A package whose own exported API names a type imported from a dependency
 re-exports that type by the owning package's identity rather than copying its
 definition; a consumer resolves such a reference to the owner's merged type —
 the owner must be declared in the consumer's own `packages[]` like any other
-dependency (bug-628; see below), it is not pulled in merely by declaring the
+dependency (see below), it is not pulled in merely by declaring the
 intermediary — and rejects the build if two intermediaries were built against
 ABI-incompatible versions of it. The encoding and the compatibility gate are
 documented under "Re-exporting a Dependency's Type" in

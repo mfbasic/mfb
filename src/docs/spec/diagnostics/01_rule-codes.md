@@ -1,11 +1,10 @@
 # Compiler Diagnostics
 
-Every diagnostic the compiler emits is backed by a static `Rule` drawn from a
-single registry. A rule binds four immutable fields — a numeric `code`, a
-SCREAMING_SNAKE_CASE symbolic `name`, a `Severity`, and a fixed `message`
-template — so that call sites name a rule by its symbolic name only, and the
-code, severity, and human message are looked up centrally and rendered
-uniformly. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
+Structured compiler diagnostics use a static `Rule` drawn from the `RULES` registry. A
+rule binds four immutable fields — a numeric `code`, a SCREAMING_SNAKE_CASE symbolic
+`name`, a `Severity`, and a fixed `message` template — so that call sites name a rule by
+its symbolic name only, and the code, severity, and human message are looked up
+centrally and rendered uniformly. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
 
 ## The Rule Record
 
@@ -25,8 +24,8 @@ returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
 when no name matches. In a release build a missing rule degrades to that generic
 error; a debug build asserts (panics) instead, so the emit-site/table drift is
 caught by tests rather than shipped. [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
-not the lookup key, which is why two rules may legitimately carry the same code
-as long as their names differ (see *Code Collisions*). Registration is likewise
+not the lookup key. Different names currently allow duplicate codes to escape
+lookup validation (see *Code Collisions*). Registration is likewise
 independent of emission: lookup is a pure name scan, nothing requires a
 registered rule to have a live call site, and the registry may carry rules
 ahead of (or after) the code that emits them. [[src/rules/mod.rs:rule_for]]
@@ -79,42 +78,38 @@ densely fill it.
 | --- | --- | --- |
 | `1-100` | MFBASIC source intake (read/root/overlap) | 5 |
 | `1-101` | lexer | 5 |
-| `1-102` | parser | 12 |
+| `1-102` | parser | 13 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
-| `2-200` | `project.json` validation + build orchestration | 13 |
-| `2-201` | imports & symbol resolution | 21 |
-| `2-203` | semantic checking (typing, ownership, native ABI) | 101 |
+| `2-200` | `project.json` validation + build orchestration | 19 |
+| `2-201` | imports & symbol resolution | 20 |
+| `2-203` | semantic checking (typing, ownership, native ABI) | 137 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `2-208` | test framework (assertion builtins) | 7 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
 | `6-603` | lockfile | 1 |
-| `6-605` | package container / signing | 9 |
+| `6-605` | package container / signing | 14 |
 | `0-000` | `UNKNOWN_RULE` fallback (synthetic) | 1 |
 
-`EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
-guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
-`0100`-`0102` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`,
-`TYPE_INSTANTIATION_TOO_DEEP`) after `0056`/`0058` (`0057` is unallocated), plus
-later `0103`/`0104`, and `2-200`
-mixes a low validation block (`0001`-`0011`) with a high orchestration block
-(`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
+`EEEE` is an opaque identifier within a subsystem, not a count or a traversal order.
+Allocations are sparse: `2-203-0047`, `2-203-0057`, and `2-203-0134` have no registry
+entries. The `2-200` subsystem contains `0001`–`0017` and `0100`–`0101`.
 [[src/rules/table.rs:RULES]]
 
 ### Code Collisions
 
-Because lookup keys on `name`, the registry tolerates duplicate `code`
-values. Three codes are currently shared:
+Diagnostic codes must uniquely identify rules. The current registry violates
+that requirement for three codes:
 
 - **`1-102-0010`** is both `MFB_PARSE_BLOCK_TOO_DEEP` (the parser's statement-block
   nesting cap) and `MFB_PARSE_TESTING_EXPECTED_TGROUP`.
 - **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and `DOC_UNRESOLVED`.
 - **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and `DOC_NAME_MISMATCH`.
 
-Diagnostics for these resolve correctly because each call site names the rule
-symbolically; the shared code is a display-label collision only. It is tolerated,
-not endorsed — do not add to it: a new rule takes the next free code in its range.
+Name-based lookup selects the intended rule, but a consumer using only the
+numeric code cannot distinguish the paired rules. These are registry defects,
+not permitted aliases. A new rule must use an unused code in its range.
 [[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
 
 ## Diagnostic Rendering
@@ -138,29 +133,33 @@ printed with a right-aligned 4-column line number and a ` | ` gutter:
 NNNN | source line text
 ```
 
-The source file is read and line-indexed **once** per process (`cached_source`,
-re-read only if its length or mtime changes) rather than once per diagnostic,
-so rendering costs O(diagnostics), not O(diagnostics × file size) (bug-505).
-The echoed text is untrusted source: every terminal-unsafe code point in it —
-C0/C1 controls such as ESC/CSI, BEL and `\r`, and the bidi/format overrides —
-is escaped as `\u{XXXX}` by `terminal_safe::safe`, so a hostile line cannot
-recolor, erase, or visually reorder the diagnostic that reports it (audit-3
-FE-04). A tab is kept verbatim. [[src/rules/mod.rs:safe_source_line]]
-[[src/rules/mod.rs:cached_source]]
+Source contents and line byte ranges are cached by path. Each lookup checks file length
+and modification time; a changed stamp reloads the file. Context selection uses the
+cached line ranges; rendering still processes the text of each displayed line.
+[[src/rules/mod.rs:cached_source]] [[src/rules/mod.rs:CachedSource]]
 
-**Rendering cap.** At most `MAX_RENDERED_DIAGNOSTICS` (100) located
-diagnostics are rendered per process; the rest are counted, and when the
-command's diagnostic stream is complete the CLI prints the withheld total once
-(bug-505): [[src/rules/mod.rs:MAX_RENDERED_DIAGNOSTICS]]
-[[src/rules/mod.rs:report_suppressed_diagnostics]] [[src/cli/dispatch.rs:close_diagnostics]]
+The source echo escapes terminal-unsafe code points through `terminal_safe::safe`, while
+retaining tabs verbatim. This transformation applies to the echoed source, not to the
+filename or detail line; caret padding uses the supplied columns without adjusting for
+tabs, Unicode display width, or escaped characters.
+[[src/rules/mod.rs:safe_source_line]] [[src/rules/mod.rs:show_diagnostic]]
+
+**Rendering cap.** At most `MAX_RENDERED_DIAGNOSTICS` (100) located diagnostics are
+rendered per process; the rest are counted, and when the command's diagnostic stream is
+complete the CLI prints the withheld total once:
+[[src/rules/mod.rs:MAX_RENDERED_DIAGNOSTICS]]
+[[src/rules/mod.rs:report_suppressed_diagnostics]]
+[[src/cli/dispatch.rs:close_diagnostics]]
 
 ```text
 ... and N more diagnostics not shown (only the first 100 are rendered)
 ```
 
-The cap bounds only what is *printed*; every diagnostic is still collected, and
-a build with any error-severity diagnostic still fails. Unlocated diagnostics
-are not counted against it.
+The cap affects rendering, not the build's error decision. The source semantic pipeline
+checks the collected stream for error severity before rendering it. Unlocated
+diagnostics do not increment the counter. The summary uses singular `diagnostic` when
+exactly one was withheld. [[src/cli/build/mod.rs:build_project]]
+[[src/rules/mod.rs:report_suppressed_diagnostics]]
 
 **Caret underline.** When the start column is positive and the clamped display
 line equals the requested line, an underline row is printed under the gutter:
@@ -194,6 +193,18 @@ main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wro
                foo expects 2 arguments but 3 were supplied
 ```
 
+The header uses the requested line floored at 1, even when the context window clamps an
+out-of-range request to the last source line. Located detail text rewrites whole known
+mangled generic tokens to source spellings using the thread-local table installed by
+monomorphization (`Box$Integer` → `Box OF Integer`). Unknown tokens remain unchanged.
+Unlocated detail text does not use this rewrite. [[src/rules/mod.rs:show_diagnostic]]
+[[src/rules/mod.rs:rewrite_mangled_tokens]] [[src/rules/mod.rs:set_template_spellings]]
+
+Pending source diagnostics retain stream order: shape checks, IR verification, export
+checks, then scope diagnostics. They are not sorted by source line. `render_pending`
+supplies columns `(1, 1)`, producing a single caret when source context is available.
+[[src/cli/build/mod.rs:build_project]] [[src/rules/mod.rs:render_pending]]
+
 ### Unlocated diagnostics
 
 An unlocated diagnostic (a rule name and a detail message only) is for
@@ -214,11 +225,12 @@ caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_dia
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 203 `RULES` entries are
-listed; none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES`
-member) is appended at the end. Each row is `code | NAME | severity | message`,
-transcribed verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted,
-severity is `error`.
+The complete registry follows, grouped by subsystem. All 252 `RULES` entries are listed;
+none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES` member) is
+appended at the end. Each row is `code | NAME | severity | message`, matching the table
+except that reserved entries describe their non-emission status instead of reproducing
+their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity is
+`error`.
 
 ### `1-100` — MFBASIC source intake
 
@@ -252,7 +264,7 @@ severity is `error`.
 | `1-102-0007` | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | error | pipeline expression is missing a placeholder |
 | `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | a native LINK function must declare its native SYMBOL |
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | a native LINK function must declare its ABI signature |
-| `1-102-0010` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep (shares this code — see *Code Collisions*) |
+| `1-102-0010` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep |
 | `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
 | `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases and nested TGROUP groups |
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
@@ -269,33 +281,28 @@ severity is `error`.
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0016`) validates `project.json`; the high block
-(`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly nine `warn` rules
-(with `2-200-0012 PROJECT_JSON_UNKNOWN_MODE`,
-`2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
-`2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`,
-`2-203-0108 TYPE_MONEY_LITERAL_PRECISION`,
-`2-203-0109 MONEY_INEXACT_FLOAT_LITERAL`,
-`2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED`,
-`2-203-0117 NATIVE_LIBRARY_UNUSED`, and
-`2-203-0136 CRYPTO_SHA1_INSECURE`); every other rule is `error`.
-`CRYPTO_SHA1_INSECURE` is the registry's enum-value advisory: a builtin enum
-variant may carry an `EnumVariant::advisory`, and a user-source occurrence of
-that value — an expression or a `MATCH` literal — reports it once, while the
-program still compiles and runs. Injected builtin source is exempt.
+The low block (`0001`-`0017`) validates `project.json`; the high block (`0100`/`0101`)
+reports orchestration failures. Note `2-200-0010` is the registry's only `info`, and
+`2-200-0009` one of exactly nine `warn` rules (with `2-200-0012
+PROJECT_JSON_UNKNOWN_MODE`, `2-201-0017 PRIVATE_SHADOWS_PUBLIC`, `2-203-0104
+TYPE_INLINE_TRAP_DEAD_HANDLER`, `2-203-0108 TYPE_MONEY_LITERAL_PRECISION`, `2-203-0109
+MONEY_INEXACT_FLOAT_LITERAL`, `2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED`, `2-203-0117
+NATIVE_LIBRARY_UNUSED`, and `2-203-0136 CRYPTO_SHA1_INSECURE`); every other rule is
+`error`. `CRYPTO_SHA1_INSECURE` is the registry's enum-value advisory: a builtin enum
+variant may carry an `EnumVariant::advisory`, and a user-source occurrence of that value
+— an expression or a `MATCH` literal — reports it once, while the program still compiles
+and runs. Injected builtin source and decoded package verification are exempt.
 
-The advisory is scoped to the **use**, not the value. `Hash.SHA1` written
-directly as the hash-selector argument of `crypto::hmac`, `crypto::hkdf` or
-`crypto::pbkdf2` reports nothing: those constructions do not rely on the digest
-being collision-resistant, which is what the advisory's text asserts. Every other
-occurrence reports — including `crypto::hash`, a `MATCH` literal, a bare
-expression, and a value bound to a local before being passed on. Suppression
-requires seeing the sound consumer at the occurrence itself; it is not a dataflow
-analysis, and the ambiguous cases warn.
+The advisory is scoped to the **use**, not the value. `Hash.SHA1` written directly as
+the hash-selector argument of `crypto::hmac`, `crypto::hkdf` or `crypto::pbkdf2` reports
+nothing: those constructions do not rely on the digest being collision-resistant, which
+is what the advisory's text asserts. Every other occurrence reports — including
+`crypto::hash`, a `MATCH` literal, a bare expression, and a value bound to a local
+before being passed on. Suppression requires seeing the sound consumer at the occurrence
+itself; it is not a dataflow analysis, and the ambiguous cases warn.
 [[src/codegen/registry/mod.rs:EnumAdvisory]]
 [[src/ir/verify/values.rs:check_enum_member_advisory]]
-[[src/rules/table.rs:RULES]]
+[[src/ir/verify/values.rs:hash_selector_use_is_sound]] [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -346,14 +353,10 @@ analysis, and the ambiguous cases warn.
 
 ### `2-203` — Type checking, ownership, and native ABI
 
-The largest subsystem. It covers operator/condition/literal typing
-(`0001`-`0018`), bindings and calls (`0007`-`0027`), declaration shape for
-records/unions/enums/funcs (`0023`-`0046`), control-flow and `EXIT`/`CONTINUE`
-(`0073`-`0081`), the ownership/move/resource model (`0055`, `0056`, `0082`-`0091`,
-plus high-block `0100`), the inline-TRAP / `Result` model (`0066`-`0072`, plus
-high-block `0104`), and native LINK ABI validation (`0092`-`0099`). `EEEE` skips
-`0054` and `0057`, and `0100`-`0102` sit out of sequence after `0099` (see *Code
-Scheme*).
+This subsystem covers typing, declaration validation, control flow, resource ownership,
+thread boundaries, generic instantiation, native ABI validation, and enum-value
+advisories. Reserved entries remain lookupable but have no production emitter.
+[[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -398,7 +401,7 @@ Scheme*).
 | `2-203-0039` | `TYPE_READ_ONLY_RECORD_CONSTRUCTOR` | error | read-only record cannot be constructed |
 | `2-203-0040` | `TYPE_RESULT_IS_IMPLICIT` | error | Result return wrapping is implicit |
 | `2-203-0041` | `TYPE_RETURN_MISMATCH` | error | return value type does not match function success type |
-| `2-203-0042` | `TYPE_SUB_CANNOT_RETURN_VALUE` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
+| `2-203-0042` | `TYPE_SUB_CANNOT_RETURN_VALUE` | error | reserved; not emitted; code is not reused |
 | `2-203-0043` | `TYPE_UNKNOWN_VALUE` | error | value type could not be determined |
 | `2-203-0044` | `TYPE_UNKNOWN_ENUM_MEMBER` | error | enum member does not exist |
 | `2-203-0045` | `TYPE_UNKNOWN_FIELD` | error | record field does not exist |
@@ -412,7 +415,7 @@ Scheme*).
 | `2-203-0054` | `TYPE_SET_ELEMENT_MISMATCH` | error | set element type does not match the expected element type |
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | binding is used after move |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
-| `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | **reserved — retired by resource-scoped ownership; never emitted, never recycled** |
+| `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | reserved; not emitted; code is not reused |
 | `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | return-type overload cannot be resolved without an expected type |
 | `2-203-0102` | `TYPE_INSTANTIATION_TOO_DEEP` | error | template instantiation is too deep |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | call argument is supplied more than once |
@@ -456,28 +459,27 @@ Scheme*).
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |
-| `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
-| `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
+| `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | reserved; not emitted; code is not reused |
+| `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | reserved; not emitted; code is not reused |
 | `2-203-0075` | `EXIT_NO_MATCHING_LOOP` | error | EXIT has no matching enclosing loop |
 | `2-203-0076` | `CONTINUE_NO_MATCHING_LOOP` | error | CONTINUE has no matching enclosing loop |
-| `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | **reserved — retired by plan-159-D with the value-less callable kind it removed; never emitted, never recycled** |
+| `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | reserved; not emitted; code is not reused |
 | `2-203-0078` | `EXIT_FUNC_FORBIDDEN` | error | EXIT FUNC is forbidden; functions must RETURN a value |
 | `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | EXIT PROGRAM requires an Integer exit code |
 | `2-203-0080` | `EXIT_PROGRAM_CODE_OUT_OF_RANGE` | error | EXIT PROGRAM constant exit code is outside the host range |
 | `2-203-0081` | `UNREACHABLE_AFTER_EXIT` | error | statement is unreachable after EXIT or CONTINUE |
 | `2-203-0082` | `TYPE_RESOURCE_REQUIRES_RES` | error | resource must be bound with RES |
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |
-| `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | **reserved, no longer emitted** — a record field may hold a resource; it is governed by `2-203-0082`/`2-203-0083` |
+| `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | reserved; not emitted; resource record fields use `2-203-0082`/`2-203-0083` |
 | `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
-| `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | **reserved — retired by resource-scoped ownership; never emitted, never recycled** |
+| `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | reserved; not emitted; code is not reused |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |
-| `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | **reserved — retired by plan-74 (a resource union may carry a uniform STATE); never emitted, never recycled** |
+| `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | reserved; not emitted; code is not reused |
 | `2-203-0129` | `TYPE_STATE_MISMATCH` | error | a resource's STATE type is fixed at its owning binding and every other declaration of it must agree |
 | `2-203-0130` | `NATIVE_BIND_STATE_INVALID` | error | a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type |
 | `2-203-0131` | `TYPE_RESOURCE_RETURN_ORDER` | error | a container that carries a returned resource must be declared before that resource |
 | `2-203-0132` | `NATIVE_BUFFER_INVALID` | error | a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte |
 | `2-203-0133` | `TYPE_STATE_OPAQUE_NARROWING` | error | an opaque resource STATE cannot be narrowed to a concrete STATE type |
-| `2-203-0134` | `RESOURCE_SHADOWS_BUILTIN` | error | **reserved — retired by package-qualified built-in resources (a bare user `RESOURCE File` no longer shadows `fs::File`); never emitted, never recycled** |
 | `2-203-0135` | `TYPE_INSTANTIATION_BUDGET_EXCEEDED` | error | generic instantiation fans out past the total-instantiation budget |
 | `2-203-0136` | `CRYPTO_SHA1_INSECURE` | warn | SHA-1 is not collision-resistant; use it only for legacy interoperability |
 | `2-203-0137` | `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` | error | inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand |
@@ -611,4 +613,4 @@ names a rule that is not in the registry. [[src/rules/mod.rs:rule_for]]
 * ./mfb spec language error-model — how runtime errors and fallible calls surface at the source level
 * ./mfb spec language types — the type, ownership, and resource rules the `2-203` checks enforce
 * ./mfb spec architecture commands — the build pipeline whose phases the group `G` axis mirrors
-* ./mfb spec memory fallible-call-abi — the success/error register contract underlying `2-200-0100` build failures
+* ./mfb spec memory fallible-call-abi — the runtime success/error register contract, separate from compiler diagnostics

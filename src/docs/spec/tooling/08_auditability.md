@@ -1,58 +1,44 @@
 # Auditability
 
-Because ordinary calls auto-unwrap and auto-propagate, fallible control flow is
-otherwise invisible in source — there is no `try`/`catch` keyword marking where a
-call may fail. Surfacing that hidden control flow is a first-class goal of the
-toolchain. This topic is the rationale and the catalogue of what must be surfaced;
-the concrete commands that implement it are owned by their own topics — `mfb audit`
-by `./mfb spec tooling audit-format`, `mfb fmt` by `./mfb spec tooling fmt`, and the
-full CLI surface by `./mfb spec tooling cli-reference`.
+`mfb audit` validates the project front end and collects a report without
+executing its code. The report combines source-level analysis with manifest
+and installed-package metadata. Its output schema, finding catalogue and
+fallibility tables are specified by `./mfb spec tooling audit-format`.
+[[src/audit/mod.rs:run]] [[src/audit/collect/mod.rs:collect]]
 
-## What must be surfaced
+## Source analysis
 
-The build-time audit (and a future language server) surface the following:
+Collection uses the original parsed AST, after the augmented and monomorphized
+project passes resolution, entry and shape validation. It reports recognized
+fallible calls, their propagation context, function-level `TRAP` classifications,
+recognized resource acquisitions, native declarations and host capabilities.
+This is a syntactic analysis with explicit builtin tables, not a complete
+control-flow or resource-liveness analysis. It does not enumerate lexical
+cleanup edges for every exit path. [[src/audit/mod.rs:run]]
+[[src/audit/collect/source.rs:collect_source]]
+[[src/audit/collect/source.rs:collect_resources]]
 
-- Every fallible call site, including calls hidden inside expressions and argument
-  lists.
-- Each auto-propagation edge from a fallible call to the enclosing `TRAP` or
-  function return.
-- Each `TRAP` recovery path, including whether it `RETURN`s, `PROPAGATE`s, or
-  replaces the error with `FAIL`.
-- Scopes that hold live resource bindings across fallible calls, and the lexical
-  drop-close edges that release those resources on each exit path, together with the
-  drop-close failure metadata rule (see `./mfb spec language resource-management`).
-- All native binding packages, linked native libraries, declared symbols, ABI
-  mappings, and native resource close functions used by a build.
-- Package permissions and host capabilities when a standard or native package
-  requires filesystem, network, terminal, threads, process, environment, clock,
-  randomness, or native-library access. (`./mfb spec tooling audit-format`
-  catalogues the finding for each.)
+## Package and manifest analysis
 
-**Not implemented**, and stated here as a design target rather than a shipped
-analysis: confusing identifier similarity in dense or security-sensitive code. In
-the current ASCII-only identifier set that would be case-only near-collisions; if
-non-ASCII identifiers are ever enabled it would also cover Unicode normalization,
-case-fold, script-mixing, and confusable-character collisions. `mfb audit` emits
-no such finding today.
+The collector reports dependency status, installed package header/info decoding,
+export/import/cleanup counts, exported mutable globals and secondary-close
+metadata. It does not reconstruct imported function bodies into the source-flow
+table. A package's `verifier: "ok"` means its header and representation info
+were readable; it is not a cryptographic trust-chain verdict. Use the package
+verification commands for that contract.
+[[src/audit/collect/dependencies.rs:collect_packages]]
+[[src/audit/collect/findings.rs:package_findings]]
 
-Fallible-call, propagation, `TRAP`, permission, native-link, and resource-cleanup
-metadata are carried in `.mfp` packages when exported APIs contain or expose those
-behaviors, so an importer's audit sees through the package boundary.
-
-## Language-server design target
-
-A language-server entry point (`mfb lsp`) is intended but **not yet implemented**:
-it is absent from the CLI. The editor-side diagnostics — marking every fallible call
-site, propagation edge, `TRAP` recovery, resource move/use-after-move, native-link,
-permission, version-conflict, lockfile, and identifier-similarity finding — are the
-design target for that server and editor tooling, not a feature the present
-toolchain ships. The build-time half of this vision is implemented today by
-`mfb audit`.
+Manifest library locators and resource-copy entries appear independently of
+source call analysis. Lockfile findings compare the declared dependency hash;
+the audit does not install dependencies or contact a registry.
+[[src/audit/collect/project.rs:collect_libraries]]
+[[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## See Also
 
-* ./mfb spec tooling audit-format — `mfb audit` output, flags, and exit codes
-* ./mfb spec tooling fmt — the `mfb fmt` formatter contract
-* ./mfb spec tooling cli-reference — the complete command-line surface
-* ./mfb spec language error-model — the implicit-failure model this surfaces
-* ./mfb spec language resource-management — resource cleanup and drop-close edges
+* ./mfb spec tooling audit-format — schema, analysis rules and findings
+* ./mfb spec tooling cli-reference — audit and package verification commands
+* ./mfb spec tooling lockfile — lockfile interpretation
+* ./mfb spec language error-model — language failure propagation
+* ./mfb spec language resource-management — resource cleanup semantics

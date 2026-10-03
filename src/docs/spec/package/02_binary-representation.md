@@ -4,7 +4,7 @@ The package binary representation is the architecture-independent payload stored
 
 The binary representation is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary Representation** — a faithful, versioned serialization of the compiled program — plus the metadata tables that describe the package.
 
-The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright). [[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]]
+The payload container is called **MFPC**. Its required major version is **2**; other major versions are rejected. [[wire/src/mfpc.rs:MFPC_MAJOR_VERSION]]
 
 The Binary Representation is *not* a flat opcode stream: control flow stays nested (regions with explicit ends) and expressions stay as trees, so a reader walks the tree rather than reconstructing it from jumps. That conceptual framing — and why it mirrors WebAssembly's structured control flow at MFBASIC's own semantic level — is owned by `./mfb spec architecture binary-representation`; this page specifies the on-disk byte layout. The concrete node encoding lives in `ir-section`.
 
@@ -19,15 +19,15 @@ packageBinaryRepr
 
 ```text
 bcMagic        4 bytes
-bcMajor        u16   = 2 (structured Binary Representation; major 1 was the old flat payload and is rejected)
-bcMinor        u16
+bcMajor        u16   = 2
+bcMinor        u16   = 0
 bcFlags        u32
 sectionCount   u32
 sectionTable   SectionHeader[sectionCount]
 sectionData    byte[]
 ```
 
-Recommended `bcMagic`:
+Required `bcMagic`:
 
 ```text
 4D 46 50 43
@@ -46,7 +46,7 @@ length         u64
 
 `offset` is relative to the start of `packageBinaryRepr`, not the start of the file. Each section-table entry is exactly 24 bytes (`sectionId` u16, `sectionFlags` u16, `reserved` u32, `offset` u64, `length` u64), so the table occupies `16 + sectionCount * 24` bytes and section payloads follow.
 
-Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. A duplicate `sectionId` **is** rejected (`duplicate MFPC section id <n>`, PKG-06). One gap remains between the format's intent and the current reader: it does **not** reject overlapping section ranges. Producers must still emit each section at most once. [[src/binary_repr/reader.rs:read_binary_repr_package]]
+Sections may appear in any order. The shared `read_section_table` requires the table and every section range to fit the payload, rejects duplicate section IDs, and caps the declared count at `256`. It does not check range overlap or require offsets to lie after the table. Unknown IDs are retained but ignored by consumers that do not request them. `bcMinor`, `bcFlags`, `sectionFlags`, and `reserved` are not validated; the writer emits them as zero. [[wire/src/mfpc.rs:read_section_table]] [[wire/src/mfpc.rs:encode_sections]]
 
 ## Section IDs
 
@@ -70,7 +70,7 @@ Sections may appear in any order. The current reader (`read_binary_repr_package`
 18 = PACKAGE_META       (optional; emitted only when the manifest declares a `description`)
 ```
 
-Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions (the `FUNCTION_TABLE` entry format, however, still carries the legacy register/cleanup fields — see `functions`).
+Section id `9` is unused. Function bodies are carried by `IR` (id `16`); `FUNCTION_TABLE` records zero-length code regions and retains reserved register/cleanup fields. [[src/binary_repr/writer.rs:encode]]
 
 Ids `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no debug/source-map/audit constant defined in the binary-representation section table. [[src/binary_repr/mod.rs]]
 
@@ -91,7 +91,8 @@ IR                (id 16, always)
 ABI_INDEX         (id 15, always)
 RESOURCE_TABLE    (id 11, only when the package has resource types)
 DOC               (id 17, only when the package has documentation)
-NATIVE_LIBRARY_TABLE (id 10, only when the package declares a LINK block)
+NATIVE_LIBRARY_TABLE (id 10, when the native-library table is non-empty)
+PACKAGE_META      (id 18, when the description is non-empty)
 ```
 
 Sections the current reader (`read_binary_repr_package`) **requires** — rejecting the package if absent:
@@ -114,6 +115,8 @@ Sections the reader treats as **optional** (defaulting to empty when absent):
 GLOBAL_TABLE      (always emitted by the producer, but tolerated if missing)
 RESOURCE_TABLE
 DOC
+NATIVE_LIBRARY_TABLE
+PACKAGE_META      (defaults to an empty description)
 ```
 
 A package that contains resource types — including native `LINK` resources — emits `RESOURCE_TABLE`. A package with at least one exported `DOC` block (or a `PACKAGE` doc block) emits the optional `DOC` section.

@@ -4,7 +4,7 @@ All access is via free functions — **no indexing brackets, no key brackets**. 
 
 List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
 
-**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec architecture type-inference`) for the directional compatibility rule. Element-type inference direction is computed during type inference, but the mismatch itself is rejected on the IR by the semantic verifier. [[src/ir/lower.rs:expression_type]] [[src/ir/verify/mod.rs]] [[src/ir/lower.rs:expression_type]] [[src/ir/verify/values.rs:check_value_depth]]
+**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec architecture type-inference`) for the directional compatibility rule. Element-type inference direction is computed during type inference, but the mismatch itself is rejected on the IR by the semantic verifier. [[src/ir/lower.rs:expression_type]] [[src/ir/verify/mod.rs]] [[src/ir/verify/values.rs:check_value_depth]]
 
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
@@ -31,7 +31,7 @@ pts = collections::append(pts, v)               ' in-place append on the mutable
 - Update helpers are semantically pure functions. `collections::append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Only the assignment back to the same `MUT` binding updates in place. The guarantee never breaks value semantics: a binding such as `LET keep = pts` taken before the update still holds the old value, and a `FOR EACH` over the binding walks the value it began with. The sites the guarantee covers and the per-operation cost are in `./mfb spec memory collections` (Self-updates).
 - Update functions on `MUT` collections preserve ownership semantics at boundaries: passing or returning the collection freezes it into an immutable owned value (§14).
 - Containers own their contents. Adding a value to a collection stores an owned value in the collection, never a non-owning reference to an external binding. The one exception is a resource handle: a `List` element or `Map` value may hold a **pointer** to a resource (a copy of the one handle pointer). The resource itself is owned by a *scope*, not by the collection; the collection closes nothing (§15.6).
-- Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
+- A `LET` collection does not allow replacement of its elements. Ordinary data elements have value semantics; a `RES` element points to the same resource and mutable `STATE` as other holders (§15.6).
 
 The global `len` is always available. Every other helper lives in the
 `collections` package and requires `IMPORT collections` (a built-in package, so
@@ -78,7 +78,7 @@ Comparability/orderability constraints (enforced on the IR by the semantic verif
   the semantic verifier ("Map key type"); a resource
   handle may never be a `Map` key. [[src/ir/verify/values.rs:check_map_key_comparable]]
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
-  `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
+  `Fixed`, `Float`, `Integer`, `Money`, `Scalar`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
   record whose fields are all comparable. `List`, `Set`, `Map`, function values,
   `Result`, resources, threads, and `UNION` types are not comparable. A
   `Set OF T` therefore requires a comparable element type `T`, exactly as a

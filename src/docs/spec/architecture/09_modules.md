@@ -7,12 +7,13 @@ A map of the compiler's source modules and their responsibilities.
 | CLI / orchestration[[src/main.rs]] | CLI, manifest validation, project orchestration, package commands. |
 | Lexer[[src/lexer.rs]] | Source tokenization. |
 | Parser & AST[[src/ast/]] | Parser, AST model, source discovery, AST JSON output. |
+| HIR[[src/hir/]] | Typed elaboration of AST annotations into `ParameterType` trees. |
 | Name resolver[[src/resolver/]] | Name resolution and import/package symbol checks. |
-| Monomorphizer[[src/monomorph/]] | Template/generic expansion into concrete AST. |
+| Monomorphizer[[src/monomorph/]] | Template/generic expansion into concrete HIR. |
 | Shape pass[[src/ir/shape.rs]] | The source rules whose evidence lowering erases (named-argument binding, EXIT/inline-TRAP boundaries, TESTING assertion arguments, literal spellings, native CONST/FREE facts, imported-package metadata), checked over the concrete HIR with lowering's typing oracle. Its stream renders first. |
 | IR semantic verifier[[src/ir/verify/]] | IR semantic verification — the single source of truth for every other rule, run on both source-lowered IR and decoded-package IR. |
 | Escape analysis[[src/ir/resource_escape.rs]] | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
-| IR & lowering[[src/ir/]] | Shared compiler IR and AST-to-IR lowering. |
+| IR & lowering[[src/ir/]] | Shared compiler IR and HIR-to-IR lowering. |
 | Internal sigil naming[[src/internal_name.rs]] | Compiler-internal sigil symbol naming for injected source packages. |
 | Binary representation[[src/binary_repr/]] | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
 | Source formatter[[src/fmt.rs]] | Lexical source formatter for `mfb fmt`. |
@@ -52,6 +53,8 @@ A map of the compiler's source modules and their responsibilities.
 | Linux x86-64 backend[[src/target/linux_x86_64/]] | Linux x86-64 backend wrappers and platform behavior. |
 | Linux RISC-V 64 backend[[src/target/linux_riscv64/]] | Linux RISC-V 64 backend wrappers and platform behavior. |
 | Linux GTK4 app-mode backend[[src/target/linux_gtk/]] | Shared GTK4 app-mode backend for the Linux targets. |
+| Windows x86-64 backend[[src/target/win_x86_64/]] | Win64 console and Win32 app runtime. |
+| Windows PE writer[[src/os/windows/]] | PE32+ executable layout, imports, and output. |
 | MFP package writer[[src/target/package_mfp]] | MFP package container writer. |
 | AArch64 backend[[src/arch/aarch64/]] | AArch64 ABI, operations, and binary instruction encoding. |
 | x86-64 backend[[src/arch/x86_64/]] | x86-64 ABI, operations, and binary instruction encoding. |

@@ -1,16 +1,16 @@
 # 14. Memory Semantics
 
-MFBASIC values have lexical ownership. Each live value is owned by exactly one binding, container slot, temporary, closure environment, thread message, or return slot. Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
+Ordinary MFBASIC data values have lexical ownership. Each live ordinary value is owned by one binding, container slot, temporary, closure environment, thread message, or return slot. Resource views are the explicit exception: several views can share one identity, with cleanup assigned to a scope (§15). Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
 
 The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
 ## 14.1 Copy, move, and freeze
 
-- **Copy** creates an independent value with no shared mutable state. Mutating the destination cannot affect the source.
-- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error, enforced during typed-IR verification. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
+- **Copy** creates independent ordinary data. Resource slots copy the pointer to the same handle and `STATE`; function slots copy the pointer to the same closure object. These explicit pointer cases are described in §15 and `./mfb spec memory closures`.
+- **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource pointers (§15.6). Copying ordinary collection contents copies values, while resource and function slots copy their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -42,7 +42,7 @@ A default argument is evaluated on each call that omits the argument, with its n
 
 Native backends use one allocator-agnostic IR contract for heap-backed values. The IR names value operations; native lowering chooses whether a value is inline, static, stack-resident, or arena-backed.
 
-This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category — including the arena allocator, its block headers, the per-package-instance arena model, and drop/reclamation at instance shutdown — are specified by the memory spec (`./mfb spec memory heap-values`, `./mfb spec memory arenas`). Source code only observes the value-model rules above: copies are independent, returns never point into a shorter-lived frame or arena, and a value that crosses an execution context (e.g. a thread boundary) must reach storage valid for the receiver before the receiver observes it.
+This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections — including the arena allocator, its block headers, the per-package-instance arena model, and drop/reclamation at instance shutdown — are specified by the memory spec (`./mfb spec memory heap-values`, `./mfb spec memory arenas`). Source code only observes the value-model rules above: copies are independent, returns never point into a shorter-lived frame or arena, and a value that crosses an execution context (e.g. a thread boundary) must reach storage valid for the receiver before the receiver observes it.
 
 A failed heap allocation surfaces as an ordinary language-level error — `ErrInvalidArgument` for an invalid request and `ErrOutOfMemory` on exhaustion — and auto-propagates like any other failure.
 
@@ -50,9 +50,9 @@ A failed heap allocation surfaces as an ordinary language-level error — `ErrIn
 
 Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity.
 
-Capturing `MUT` bindings is a compile-time error because closures do not capture live mutable cells. Capturing resource handles or any other non-copyable values is also a compile-time error in v1 unless a later non-escaping closure feature explicitly defines how a captured pointer's lifetime or move is constrained.
+An ordinary closure cannot capture `MUT` or resource bindings. A lambda supplied directly as the `collections::forEach` action may capture a `MUT` by reference for that synchronous call, but still cannot capture resources. [[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
 
-A closure environment is owned by the function value. Dropping the function value drops its captured values in reverse capture order.
+Function values copy a pointer to one closure object; dropping a binding does not reclaim the object or its environment. They normally survive until arena teardown. Direct temporary callbacks proven non-retaining may be reclaimed after the call, including on error exits. See `./mfb spec memory closures`. [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/engine/value/builder_values.rs:free_call_closure_temps]]
 
 ## 14.5 Recursive unions and allocation
 
@@ -91,7 +91,7 @@ The compiler must diagnose:
 - Use after move.
 - Copy attempts for non-copyable types.
 - Cyclic value construction.
-- Capturing `MUT` bindings in closures.
+- Capturing `MUT` bindings outside the direct `collections::forEach` callback exception.
 - Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
 - Storing a `ThreadWorker` in an ordinary collection, or using a resource handle as a `Map` key.
@@ -105,10 +105,12 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 Use-after-move (§14.1, §14.8) is detected on the **typed IR** by the IR semantic
 verifier's resource-move pass — the same checker that runs on decoded `.mfp`
 packages, so a crafted package cannot smuggle a double-free past it. The check is
-resource-linearity: a *move* is the transfer of a resource's close obligation —
-a call to the resource type's registered close op with the binding as its first
-argument, a `RETURN` of a resource binding, or `RES new = old` (which transfers
-ownership of `old`). Copying a copyable value is never a move. [[src/ir/verify/resources.rs:check_resource_moves]]
+a static binding-validity check: close, return, and direct-name resource rebinds
+can mark a source name moved. A move in this check is not necessarily a transfer
+of cleanup responsibility: close ends the resource's open state, while a direct
+`RES new = old` can copy its pointer and invalidate `old` without relocating its
+cleanup. The initializer table and cleanup model are specified in §15. Copying
+ordinary copyable data is never a resource move. [[src/ir/verify/resources.rs:check_resource_moves]]
 
 State is a single per-block set of moved binding names threaded through the op
 list (moved-or-not, not a three-value lattice). Reading a name already in the
@@ -128,8 +130,9 @@ bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
 subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/resources.rs:check_resource_moves]]
 
-A resource is owned by the **outermost scope that touches it**, and a `RES` is a
-pointer to that one resource. Any holder — a resource parameter, a `FOR EACH`
+A resource's cleanup scope follows the production, container-routing and
+escape rules in §15; merely reading or passing a pointer does not change it.
+Any holder — a resource parameter, a `FOR EACH`
 element binding, a `RES` binding whose ownership floated to a collection's scope —
 may close, `RETURN`, or transfer it, and doing so is **tracked as a move** like any
 other consume. The owning scope closes it once if nobody already did.

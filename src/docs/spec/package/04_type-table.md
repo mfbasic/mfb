@@ -22,7 +22,8 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 8          = Error
 9          = Money
 10         = Scalar
-11..19     = reserved (future primitives)
+11         = AttributedString
+12..19     = reserved (future primitives)
 0xFFFFFF00 = File      (handle/resource type)
 0xFFFFFEFF = Socket    (handle/resource type)
 0xFFFFFEFE = Listener  (handle/resource type)
@@ -30,13 +31,13 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 0xFFFFFEFC = TermSize  (builtin record)
 ```
 
-Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` — the freed old `TerminalSize` slot — is now `Money`, the exact base-10 fixed-point scalar (its constant payload is the 8-byte little-endian scaled i64 raw). Id `10` is `Scalar`, a 32-bit Unicode scalar value (its constant payload is a 4-byte little-endian codepoint). Ids `11..19` are **reserved for future primitives** — unmapped today (decoding one is an error); the next primitive claims one as a purely additive edit, with no further table renumber. The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`20`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
+Id `0` is unmapped. `Money` uses id `9`, `Scalar` id `10`, and `AttributedString` id `11`. IDs `12..19` are unmapped; table entries begin at `FIRST_TABLE_TYPE_ID` (`20`). Built-in handle names decode as `fs.File`, `tcp.Socket`, and `tcp.Listener` respectively. [[src/binary_repr/mod.rs:TYPE_ATTRIBUTED_STRING]] [[src/binary_repr/reader.rs:primitive_type_name]]
 
-`Error` is structural (fields `code`, `message`), and `TermSize` is a structural builtin record (`columns`/`rows`); referencing it interns those field-name strings but still resolves to the reserved id.
+`Error` has reserved primitive identity (the encoder interns field names `code`, `message`), and `TermSize` is a structural builtin record (`columns`/`rows`); referencing it interns those field-name strings but still resolves to the reserved id.
 
-`0xFFFFFEFD` is **retired**. `term::TermColor` no longer exists — the `term` colour members take and return a `color::Color`, which is an ordinary package record and encodes in the per-package band. No encoder emits `0xFFFFFEFD` any more, but the reader still decodes it, so a package published before the change reports a recognizable type instead of failing opaquely. The id must never be assigned to a new type: doing so would silently mis-decode those packages.
+`0xFFFFFEFD` is reserved and never emitted. The reader maps it to `TermColor`; it must not be reused for another type. The current `color::Color` record uses an ordinary table entry. [[src/binary_repr/reader.rs:primitive_type_name]] [[src/binary_repr/sections.rs:type_id]]
 
-All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `FIRST_TABLE_TYPE_ID` (`20`), immediately after the low reserved built-in ids (primitives `1..10` plus the reserved band `11..19`), so entry index `0` has type id `20`.
+All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `FIRST_TABLE_TYPE_ID` (`20`), immediately after the low reserved built-in ids (primitives `1..11` plus the reserved band `12..19`), so entry index `0` has type id `20`.
 
 ## Type entry
 
@@ -67,11 +68,13 @@ Type kinds:
 9  = MapEntry OF K TO V
 10 = ThreadWorker OF Msg TO Out
 11 = <Resource> STATE <T>
+12 = foreign type reference
+13 = Set OF T
 ```
 
-There is no distinct "native resource" or "standard resource" kind. A resource type (`File`, `Socket`, `Listener`, or a native `LINK` resource) is encoded as an ordinary **record** (kind `1`); its resource-ness — which blocks copying, construction, and field access — is recorded in `RESOURCE_TABLE`, not in the type kind.
+There is no distinct "native resource" or "standard resource" kind. `fs.File`, `tcp.Socket`, and `tcp.Listener` use the reserved IDs above. Other resource types, including native `LINK` resources, use **record** entries (kind `1`); its resource-ness — which blocks copying, construction, and field access — is recorded in `RESOURCE_TABLE`, not in the type kind.
 
-There are no open template declarations in package binary representation. `List`, `Map`, `MapEntry`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`. Each distinct instantiation is interned once (keyed by a canonical `Name#id...` string) and reused.
+There are no open template declarations in package binary representation. `List`, `Set`, `Map`, `MapEntry`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`. Each distinct instantiation is interned once (keyed by a canonical `Name#id...` string) and reused.
 
 ## Record payload
 
@@ -117,6 +120,19 @@ repeated memberCount times:
 elementType     typeId
 ```
 
+## `Set OF T` payload (kind 13)
+
+A single `elementType` (`u32` type ID), interned as `Set#<elementTypeId>` and decoded as `Set OF <element>`. [[src/binary_repr/sections.rs:set_type]] [[src/binary_repr/reader.rs:decode_type_name_body]]
+
+## Foreign type reference payload (kind 12)
+
+```text
+exportKind     u16       (3 = record, 4 = union, 5 = enum)
+ownerAbiHash   byte[32]
+```
+
+The entry name identifies the foreign type and `ownerPackage` its declaring dependency. It carries the owning type ABI hash instead of duplicating its fields. [[src/binary_repr/sections.rs:foreign_type]]
+
 ## `Map OF K TO V` payload
 
 ```text
@@ -160,7 +176,7 @@ outputType      typeId
 resourceType    typeId    (present only when the thread carries a resource plane)
 ```
 
-The trailing `resourceType` is appended only when the thread instantiation has a resource plane. A data-only thread emits just `messageType` and `outputType`, keeping such packages byte-compatible with the pre-resource-plane encoding. A reader distinguishes the two by payload length (8 vs 12 bytes).
+The trailing `resourceType` is appended only when the thread instantiation has a resource plane. A data-only thread emits just `messageType` and `outputType`, producing an 8-byte payload; a resource-carrying thread produces 12 bytes. The reader checks for the resource ID when payload length is at least 12 bytes. [[src/binary_repr/sections.rs:thread_type]] [[src/binary_repr/reader.rs:decode_type_name_body]]
 
 ## `ThreadWorker OF Msg TO Out` payload
 

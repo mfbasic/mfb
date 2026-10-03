@@ -385,6 +385,8 @@ mfb man <topic> --all              # a guide topic and every subtopic
 ./scripts/man-census.sh --topics [topic]   # guide-topic inventory
 ./scripts/man-census.sh --memory-scope [pkg]
 ./scripts/man-census.sh --scope [pkg]
+./scripts/man-run-examples.sh <pkg> --run           # compile + run every example
+./scripts/man-run-examples.sh <topic> --topic --run # same, for a guide topic
 ```
 
 Plus the release binary itself, for every probe program and every example.

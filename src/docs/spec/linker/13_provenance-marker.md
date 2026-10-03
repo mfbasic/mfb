@@ -7,15 +7,15 @@ or on the build mode, and it is emitted for all three formats — ELF, Mach-O, a
 PE — using that format's carrier (a vendor-note command where one exists, a
 dedicated read-only section on PE, which has none).
 
-The marker is inert metadata. It does not change the entry point, any code or
-data address, or any runtime semantics.
+The marker is inert metadata and contains no executable code. Its carrier
+participates in the format's header and file layout.
 
 ## Owner
 
 The vendor string is exactly the 8 bytes `MFBasic\0` (NUL included) — the ELF
 note *name*, the Mach-O `data_owner`, and the first bytes of the PE `.mfbnote`
-section. It is what identifies the note; a reader must match on it, not on the
-note type. Eight bytes keeps the ELF note name 4-aligned (so the note needs no
+section. A reader matches the owner; the in-tree ELF reader also requires note
+type 1. [[src/os/inspect.rs:inspect_elf]] Eight bytes keeps the ELF note name 4-aligned (so the note needs no
 name padding) and fits the Mach-O `data_owner[16]` field, which is zero-padded to
 its full width. [[src/os/note.rs:MFB_NOTE_OWNER]]
 
@@ -91,15 +91,14 @@ PE has no `PT_NOTE`/`LC_NOTE` equivalent, so the marker rides in a dedicated
 read-only section named `.mfbnote` (exactly 8 bytes, so the COFF section-name
 field holds it with no truncation). Its body is the `MFBasic\0` owner followed
 immediately by the same 16-byte descriptor — the identical owner+descriptor
-framing the ELF note uses, so a reader locates `MFBasic\0` and reads the
-descriptor the same way in all three formats. [[src/os/windows/link/mod.rs:write_executable]]
+framing the ELF note uses, while Mach-O stores the owner in the load command and the descriptor separately. [[src/os/windows/link/mod.rs:write_executable]]
 
 The section is **unconditional** (console and GUI, signed or not) and carries no
-data-directory entry. It is placed last — after `.rsrc` when a GUI build has one,
-otherwise after the final functional section — at the next section/file-alignment
-boundary, with characteristics `CNT_INITIALIZED_DATA | READ`. Because it follows
-every other section, its presence shifts only `NumberOfSections` and
-`SizeOfImage`; no earlier RVA, the entry point, or any code/data address moves.
+data-directory entry. It follows `.reloc`, at the next section/file-alignment boundary, with
+characteristics `CNT_INITIALIZED_DATA | READ`. Optional `.mfbsign` follows it.
+The section count contributes to `SizeOfHeaders`, so this ordering does not
+guarantee file-offset identity with an image that omits the marker.
+[[src/os/windows/link/pe.rs:size_of_headers]]
 
 ## Reading the marker
 
@@ -111,7 +110,7 @@ MFBasic binary` when no carrier holds an `MFB1` descriptor
 ## Relationship to executable signing
 
 The marker is additive and orthogonal to the optional MFBASIC executable signing
-metadata (the ELF `.mfbsign` section / the Mach-O `__MFB,.mfbsign` segment, which
+metadata (the ELF/PE `.mfbsign` section or the Mach-O `__MFB,.mfbsign` segment, which
 appear only when the build supplies `signing_metadata`). Both may be present at
 once, and the marker is emitted whether or not signing metadata is.
 

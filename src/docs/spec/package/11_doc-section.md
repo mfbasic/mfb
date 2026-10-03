@@ -34,10 +34,7 @@ DocEntry:
   u8 + (str if 1)          deprecated flag, then optional message
 ```
 
-`str` is a `u32` byte length followed by that many UTF-8 bytes. Kind `1` is reserved: it was the
-value-less callable kind plan-159-D removed, nothing writes it, and a reader treats it — like any
-unknown id — as `func`, so an older package's documentation still renders. [[wire/src/docs.rs:doc_kind_name]] A consumer that
-does not recognize section id `17` skips it; doc data never affects execution. [[wire/src/docs.rs:read_doc_table]]
+`str` is a `u32` byte length followed by that many UTF-8 bytes. Kind `1` is reserved and is not emitted. The reader renders it, like any unknown declaration kind, as `func`. Unknown prose kinds decode as ordinary paragraphs. [[wire/src/docs.rs:doc_kind_name]] [[wire/src/docs.rs:DocProseKind]] A consumer that does not recognize section id `17` skips it; doc data never affects execution. [[wire/src/docs.rs:read_doc_table]]
 
 ## See Also
 

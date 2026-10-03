@@ -1,6 +1,6 @@
 # x86-64 Instruction Set
 
-The `linux-x86_64` backend is a sibling of the AArch64 backend. It consumes the
+The `linux-x86_64` and `windows-x86_64` backends use the x86-64 ISA backend. It consumes the
 **same neutral MIR** the shared builders and helpers produce and plugs in through
 the `mir::Backend` trait, with no edits to the AArch64 path. Where the AArch64
 backend turns each abstract op into one or more fixed 32-bit words, the x86-64
@@ -42,19 +42,17 @@ into the produced machine instruction. [[src/arch/x86_64/select.rs:select_x86]] 
 - Non-fused MIR ops map 1:1 to a `CodeOp` via `op.to_code()`.
 - After conversion, `ARENA_BASE` is renamed to `r15` and every ABI token is
   realized to its x86 register by a **direct table lookup** on its explicit
-  convention (no control-flow inference — plan-85).
+  convention (no control-flow inference).
 
 [[src/arch/x86_64/select.rs:select_x86]]
 
-**ABI realization is a direct table lookup keyed on a convention-explicit token
-(plan-85, bug-387).** Shared lowering names each call-boundary register by a token
+**ABI realization is a direct table lookup keyed on a convention-explicit token.** Shared lowering names each call-boundary register by a token
 that states its calling CONVENTION and role — the six-token vocabulary
 `%argMFB`/`%retMFB` (MFB internal), `%argC`/`%retC` (platform C ABI), `%argSys`/
 `%retSys` (kernel syscall). Every convention token is a typed
-`Operand::Abi{convention, role, index}` — plan-85-D typed every emission site, every
-parameter/result `location`, and the fused compare-branch / `addr_of` expansion, so
-a convention token never flows as a `Raw` string and there is no string-form realizer
-(the earlier `map_convention_token` seam was deleted with the last erasure).
+`Operand::Abi{convention, role, index}` in emission, parameter/result
+locations, and fused compare-branch / `addr_of` expansion. Convention tokens
+do not flow as `Raw` strings.
 `select_x86` realizes each one directly:
 
 - A typed `Operand::Abi{convention, role, index}` → `realize_abi_operand` (a direct
@@ -73,20 +71,6 @@ a convention token never flows as a `Raw` string and there is no string-form rea
   `x31`/`xzr` → the zero token, the `dN`/`vN`/`qN` float bank → `xmmN`, and the link
   register `x30`/`lr` dropped (`call` pushes / `ret` pops). A residual `x0`–`x8` would
   mean an unrealized ABI token escaped stage 1 and trips a `debug_assert`.
-
-> **Why there is no CFG inference (and why there used to be).** Before plan-85 the
-> shared stream named call-boundary registers by an *overloaded* role token
-> (`%arg`/`%ret`) that collapsed to the same AArch64 `xN` for both roles, and the
-> entry/helper bodies staged call arguments through result-accessor registers. That
-> forced a 646-line `remap_x86_abi` forward-CFG fixpoint to re-infer, on x86, whether
-> each `xN` was an argument (`rdi`) or a result (`rax`) from its nearest call/
-> syscall/`ret` boundary. Making the tokens convention-EXPLICIT and aligning the MFB
-> convention removed the ambiguity, so the fixpoint was **deleted** — every register
-> is now a direct lookup. AArch64/RISC-V stay byte-identical (their banks are
-> positional — every convention/role collapses to `x{index}`); SysV-x86 moved to the
-> aligned layout. A C/kernel result (`rax`) that feeds an MFB consumer is staged into
-> the aligned bank once, at the `emit_linux_c_call` chokepoint, on `linux-x86_64`
-> only.
 
 [[src/arch/x86_64/select.rs:realize_abi_operand]] [[src/arch/x86_64/select.rs:realize_x86_residual]] [[src/arch/x86_64/select.rs:map_scratch_register]]
 
@@ -248,9 +232,8 @@ The encoder rejects ops it does not encode with an explicit `Err`
 - **`arena_base` is pinned on `r15`** (the analog of AArch64's pinned `x19`),
   narrowing the integer allocatable set accordingly.
 
-There is no `str_u16` op in the shared op vocabulary — a U16 store is never
-emitted — so the encoder's `str_u16` error arm is unreachable through normal
-dispatch. [[src/arch/ops.rs:CodeOp]]
+`str_u16` is a supported shared op; the encoder emits a 16-bit memory store.
+[[src/arch/ops.rs:StrU16]] [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
 
 ## See Also
 

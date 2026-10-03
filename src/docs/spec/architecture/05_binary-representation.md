@@ -22,9 +22,9 @@ point of the boundary:
 - The **IR** is an unstable in-memory data structure. Nothing outside the
   compiler process may depend on its layout.
 - The **Binary Representation** is the stable on-disk contract. It carries its own
-  format version (`MFBR` payload magic, `MFPC` container major `2`), so a future
-  compiler can change the IR freely as long as it can still encode/decode this
-  versioned format. Because the encoding is a faithful, structure-preserving
+  format versions (`MFBR` payload version 6 and `MFPC` container major 2).
+  The MFBR decoder requires the exact supported version.
+  [[src/ir/binary.rs:BINARY_REPR_VERSION]] [[src/ir/binary.rs:decode_binary_repr]] Because the encoding is a faithful, structure-preserving
   serialization, a consumer **decodes it straight back into IR** and lowers it
   through the single `IR → NIR → native` codegen used for the executable's own
   code — no second, package-only code path.[[src/binary_repr/reader.rs:read_binary_repr_package]]
@@ -80,8 +80,7 @@ package's own imports. Because a declared package's own dependencies must
 therefore also be declared by the importing project (`./mfb spec tooling
 project-manifest`'s dependency-closure rule), the build checks that closure
 against the packages' import tables and **refuses before any lowering** when
-it disagrees — an undeclared closure member used to reach lowering as the
-unlocated internal `NIR call target … does not resolve` (bug-628).
+it disagrees.
 [[src/manifest/closure.rs:check]] [[src/cli/build/packages.rs:refuse_inconsistent_closure]]
 
 ## Re-exporting a Dependency's Type
@@ -105,7 +104,7 @@ signature is not re-exported.
 Because the executable decode-and-merge above collapses types by their bare
 name, a consumer that installs the owning dependency resolves every foreign
 reference to that one merged definition. The owner must be declared in the
-consumer's own `packages[]` like any other dependency (bug-628; the merge set
+consumer's own `packages[]` like any other dependency (the merge set
 is exactly the declared closure — see below) — it is not pulled in merely by
 declaring the intermediary. Importing an intermediary therefore brings the
 re-exported type into scope under the owning package's original identity
@@ -168,7 +167,7 @@ originated. The location flows through every layer:
   `IrSourceLoc { line, column }`, and computed value nodes carry their result
   type; each `IrFunction` also carries its source `file` and `resource_owners`,
   `IrType`/`IrBinding` carry `file`, and `Bind`/`IrBinding` carry an
-  `explicit_type` flag (format v4 — `./mfb spec package ir-section` has the full
+  `explicit_type` flag (`./mfb spec package ir-section` has the full
   field list). The `error(code, message)` built-in lowers to nested record
   constructors — `Error[code, message, ErrorLoc[file, line, char]]` — so
   `Error`/`ErrorLoc` are ordinary records for the rest of the pipeline. The

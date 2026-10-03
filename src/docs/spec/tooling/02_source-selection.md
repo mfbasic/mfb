@@ -25,6 +25,10 @@ their string elements; non-string elements are dropped. When `include` is absent
 the default `["**/*.mfb"]` is substituted; when `exclude` is absent the empty
 list is substituted (nothing excluded). [[src/ast/manifest.rs:source_entries]]
 
+These permissive extraction rules apply to `source_entries` itself; CLI project
+loading first rejects malformed entries through `validate_project_manifest`.
+[[src/manifest/mod.rs:validate_sources]]
+
 Selection iterates the entries in manifest order, building one combined,
 de-duplicated set. The two public entry points share the same collector:
 `parse_project` (the build path) and `selected_source_paths` (raw-source tools
@@ -74,8 +78,10 @@ A directory root is walked depth-first via `read_dir`. [[src/ast/manifest.rs:col
 - A **visited-set** of canonical directory paths guards against symlink cycles:
   re-entering an already-visited canonical directory returns immediately, so a
   loop terminates instead of recursing forever. [[src/ast/manifest.rs:collect_mfb_files]]
-- Each entry is canonicalized and containment-checked before use.
-- Subdirectories recurse; non-`.mfb` files are skipped.
+- Subdirectories are canonicalized and containment-checked before recursion.
+- Non-directory entries are filtered by extension and include/exclude patterns
+  **before** canonicalization. Only selected `.mfb` entries are canonicalized
+  and containment-checked; excluded files and non-source symlinks are skipped.
 - A surviving `.mfb` file's path is made **relative to the logical root** (the
   directory `root`, not the project), backslashes normalized to `/`, and tested
   against the entry's patterns with `matches_source_patterns`. A file matches
@@ -115,8 +121,8 @@ position): [[src/ast/manifest.rs:glob_match_component]]
 
 | Within-segment token | Meaning                                              |
 | -------------------- | --------------------------------------------------- |
-| `*`                  | Matches zero or more characters **within** the segment (never crosses `/`). |
-| `?`                  | Matches exactly one character within the segment.   |
+| `*`                  | Matches zero or more bytes **within** the segment (never crosses `/`). |
+| `?`                  | Matches exactly one byte within the segment.   |
 | any other byte       | Matches itself literally (byte-exact, case-sensitive). |
 
 There are **no character classes** (`[...]`), no brace expansion `{a,b}`, and no
@@ -144,14 +150,15 @@ is a prefix-descendant of it (`Path::starts_with` on the canonical paths).
 [[src/ast/manifest.rs:path_within_project]] The check runs on **canonical** paths, so it
 sees through symlinks: a `src` symlink pointing at a sibling directory outside the
 project resolves outside and is rejected. The check is applied at three points —
-the entry root, every directory entered during the walk, and every directory
-entry encountered — so an escape anywhere in the tree is caught.
+the entry root, every directory entered during the walk, and every selected file. Directory containment is checked even when no file below
+that directory would match the patterns.
 
-Inside the walk, a containment failure is surfaced as `MFB_SOURCE_OUTSIDE_PROJECT`
-and then propagated as a `PermissionDenied` I/O error to abort the walk. The
-caller suppresses a duplicate `MFB_SOURCE_READ_FAILED` for `PermissionDenied`
-specifically (the real diagnostic was already shown); any other walk I/O error
-*does* surface as `MFB_SOURCE_READ_FAILED`. [[src/ast/manifest.rs:collect_selected_source_files]]
+Inside the walk, a containment failure emits `MFB_SOURCE_OUTSIDE_PROJECT`
+and returns `CollectError::Reported`; the caller emits no second diagnostic.
+An actual I/O failure returns `CollectError::Io` and emits
+`MFB_SOURCE_READ_FAILED`, including genuine permission-denied errors.
+[[src/ast/manifest.rs:CollectError]]
+[[src/ast/manifest.rs:collect_selected_source_files]]
 
 ## Duplicate / Overlap Detection
 
@@ -161,9 +168,8 @@ their display paths differ. The first entry to select a canonical path records
 which root claimed it; a later entry selecting the same canonical path triggers
 `MFB_SOURCE_OVERLAP`, whose message names the selected file (as a
 project-relative display path) and both the previous and current `root` strings.
-The selection then fails. [[src/ast/manifest.rs:collect_selected_source_files]] A single
-entry never overlaps itself (the recursive walk visits each file once and the
-visited-set prevents cycle re-entry).
+The selection then fails. [[src/ast/manifest.rs:collect_selected_source_files]] File symlink aliases within one entry can also select the same canonical file
+and trigger this check; the visited-set deduplicates directories, not files.
 
 ## Output
 
@@ -184,11 +190,11 @@ All five are errors that abort selection; codes are the `rules` table entries.
 
 | Name                         | Code        | Raised when                                                          |
 | ---------------------------- | ----------- | ------------------------------------------------------------------- |
-| `MFB_SOURCE_READ_FAILED`     | `1-100-0001`| Project dir, source root, or a walked path cannot be canonicalized/read (non-`PermissionDenied`). |
+| `MFB_SOURCE_READ_FAILED`     | `1-100-0001`| Project dir, source root, or a walked path cannot be canonicalized/read (including permission denied). |
 | `MFB_SOURCE_ROOT_MISSING`    | `1-100-0002`| A `root` joined onto the project directory does not exist.           |
 | `MFB_SOURCE_EMPTY`           | `1-100-0003`| A source entry selected zero `.mfb` files.                          |
 | `MFB_SOURCE_OUTSIDE_PROJECT` | `1-100-0004`| A root or walked path canonicalizes outside the project directory.   |
-| `MFB_SOURCE_OVERLAP`         | `1-100-0005`| The same canonical file is selected by more than one source entry.   |
+| `MFB_SOURCE_OVERLAP`         | `1-100-0005`| The same canonical file is selected more than once, including file aliases within one entry.   |
 
 The full rule-code scheme and the `rules` registry that owns these names are
 `./mfb spec diagnostics rule-codes`.

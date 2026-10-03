@@ -13,9 +13,8 @@ the `--mir` dump is its observable form. [[src/codegen/engine/mir/mir.rs:MirOp]]
 
 ## Design contract: identity round trip
 
-MIR is introduced *underneath* the existing backend without changing a single
-emitted byte. The raise/lower round trip `select ∘ lower_to_mir` is the
-**identity** on the instruction stream: every backend op maps to exactly one
+Before optimization, the raise/lower round trip `select ∘ lower_to_mir` is the
+**identity** on the instruction stream: unfused backend ops map to one
 `MirOp` and back, and the fused/expand ops re-expand to the exact instruction
 sequence the builders emit today. [[src/codegen/engine/mir/mir.rs:lower_to_mir]]
 [[src/arch/aarch64/select.rs:select_aarch64]]
@@ -27,8 +26,8 @@ exhaustive matches over the backend op set, so a missing variant fails the build
 
 ## Instruction model
 
-A `MirInstruction` is `{ op: MirOp, fields: Vec<(&'static str, String)> }` — an
-op tag plus an order-independent bag of named string operands. The register
+A `MirInstruction` is `{ op: MirOp, fields: Vec<(&'static str, Operand)> }` — an
+op tag plus named typed operands (field order matters for fused operations). The register
 allocator's field-based liveness works unchanged across the seam.
 [[src/codegen/engine/mir/mir.rs:MirInstruction]] Two neutral conventions replace
 ISA-specific spellings in the field values:
@@ -139,8 +138,9 @@ instruction, not just read one.
 
 ### Operand grammar
 
-Every operand is a string in the field bag, distinguished only by which field
-names it. [[src/codegen/engine/mir/mir.rs:MirInstruction]]
+Operands are typed `Operand` values; the following grammar describes their
+rendering in dumps. ABI roles retain their convention, role, and index until
+instruction selection. [[src/codegen/engine/operand/operand.rs:Operand]] [[src/codegen/engine/mir/mir.rs:MirInstruction]]
 
 - **Registers.** `%vN` is a virtual integer/GPR value, `%fN` a virtual float
   value (`N` a decimal index), as they appear in the pre-allocation `--mir` dump.
@@ -182,7 +182,7 @@ carry the same fields as the shape they rename.
 | `call` | `target` | direct call to a symbol |
 | `call_indirect` | `register` | call via a register |
 | `ldr_u64` `ldr_u32` `ldr_u16` `ldr_u8` `ldr_d` | `dst`, `base`, `offset` | load (width in the mnemonic) |
-| `str_u64` `str_u32` `str_u8` `str_d` | `src`, `base`, `offset` | store |
+| `str_u64` `str_u32` `str_u16` `str_u8` `str_d` | `src`, `base`, `offset` | store |
 | `fadd_d` `fsub_d` `fmul_d` `fdiv_d` `fminnm_d` `fmaxnm_d` | `dst`, `lhs`, `rhs` | binary f64 op (`fminnm_d`/`fmaxnm_d` = IEEE-number min/max: a finite operand wins over a NaN) |
 | `fmov_d_from_d` `fneg_d` `fabs_d` `fsqrt_d` `i2f` `f2i_trunc` `f2i_floor` `f2i_ceil` `f2i_nearest` `fmov_i2f` `fmov_f2i` | `dst`, `src` | unary f64 / convert / reinterpret |
 | `fmadd_d` `fmsub_d` `fnmsub_d` `fnmadd_d` | `dst`, `addend`, `lhs`, `rhs` | scalar fused multiply-add (one round): `fmadd_d = addend + lhs*rhs`, `fmsub_d = lhs*rhs - addend`, `fnmsub_d = addend - lhs*rhs`, `fnmadd_d = -(lhs*rhs) - addend` |
@@ -196,8 +196,8 @@ carry the same fields as the shape they rename.
 | `v128.dup_from_gpr` | `dst`, `src` | broadcast a GPR into all lanes |
 | `v128.umov_to_gpr` | `dst`, `src`, `index` | extract lane `index` to a GPR |
 
-The carry/borrow family (`addc`/`subc`) carries the carry as an explicit
-`carry_in`/`carry_out` operand **value** (0/1), never through a flags register;
+The carry/borrow family (`addc`/`subc`) carries carry or borrow as explicit
+`carry_in`/`carry_out` or `borrow_in`/`borrow_out` operand **values** (0/1), never through a flags register;
 `carry_in`/`carry_out` may be `xzr` (no carry-in / carry-out discarded). Each
 backend realizes it in its own flag-local form (AArch64 `cmp; adcs; cset`,
 x86 `adc`, rv64 `add`+`sltu`). [[src/arch/ops.rs:AddCarry]]
@@ -236,8 +236,8 @@ Signed orderings use `b.ge`/`b.lt`/`b.gt`/`b.le`; unsigned use
 `--mir` is the neutral counterpart to `--ncode`: it serializes the MIR stream
 captured **before** register allocation and instruction selection, as stable,
 versioned JSON. The whole-module form is deliberately ISA-independent — no
-`target` / `arch` field, so diffing a `--mir` dump across targets is identical
-where a per-target code dump is not. [[src/codegen/engine/mir/mir.rs:MirPlan]]
+`target` / `arch` field, but this does not guarantee identical dumps across targets: platform
+entry/helpers, imports, and physical-register helper streams can differ. [[src/codegen/engine/mir/mir.rs:MirPlan]]
 [[src/codegen/engine/builder/mod.rs:lower_module_mir_for_platform]]
 
 Builder-emitted functions appear with their pre-allocation MIR (virtual

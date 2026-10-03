@@ -26,8 +26,7 @@ registry/signing workflow behind `repo publish`/`repo`/`build --sign` is
 - `doc-html` — the `mfb doc` / `pkg doc` HTML rendering model.
 - `cli-reference` — every command, flag, and exit code, the `pkg info` output,
   and the embedded `spec`/`man` terminal rendering.
-- `auditability` — the rationale and catalogue for surfacing the language's
-  implicit fallible control flow, plus the language-server design target.
+- `auditability` — the scope and limits of source, manifest and package analysis.
 - `debug-report` — the `--debug` build's stderr measurement report: when it prints,
   its line format, and its sections.
 

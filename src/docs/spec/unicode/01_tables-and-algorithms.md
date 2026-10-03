@@ -1,17 +1,17 @@
 # Unicode Tables and Algorithms
 
-MFBASIC's `strings::` package performs Unicode-correct grapheme segmentation,
-normalization, and case mapping at runtime, in the compiled native binary, with
+MFBASIC's `strings::` package implements grapheme segmentation, normalization,
+and case mapping in the compiled native binary, with
 no external library dependency. To do this the compiler embeds a set of
 read-only Unicode property and mapping tables into a program whose generated code
-performs a Unicode-aware `strings::` or `regex::` operation at run time (a call
-whose argument is statically known is folded instead, and carries no table), and
-emits routines that walk those tables as
+performs a Unicode-aware `strings::` or `regex::` operation at run time. Calls
+handled by the static folding paths can instead embed their results. Runtime
+routines walk the tables as
 architecture-neutral `abi::` operations, which each native backend lowers. This
 topic specifies the embedded tables (layout, source, emission) and the runtime
 algorithms that consume them.
 
-There are two distinct table consumers, which must not be confused:
+The compile-time and runtime paths use the data as follows:
 
 - **Compile-time folding.** When a Unicode-aware call (`strings::upper`,
   `lower`, `caseFold`, `normalizeNfc`, `graphemes`) has a statically known
@@ -22,12 +22,16 @@ There are two distinct table consumers, which must not be confused:
   [[src/codegen/engine/types/type_utils.rs:strings_package_static_string_value]]
   [[src/unicode/backend.rs:graphemes]]
   [[src/codegen/builtins/strings/func_graphemes.rs:lower]]
+- **Display-width folding.** `strings::displayWidth` also folds a statically
+  known string. It segments through `unicode::backend::graphemes` and reads
+  `PackedProperty::charwidth` in the compiler; the result is an integer literal.
+  [[src/codegen/builtins/strings/func_display_width.rs:lower]]
 - **Runtime tables.** When the argument is dynamic, the compiler emits code that
-  performs a two-stage property lookup and the algorithms below against the
-  embedded tables. The property trie and the composition tables are derived from
-utf8proc; the NFD and case-mapping tables are generated through those Rust crates
-(see Provenance); general category and Script come from separate pinned tables
-(next section). [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
+  uses the algorithms below against the embedded tables: a two-stage lookup for
+  packed properties, binary search for mappings and category/Script ranges, and
+  per-starter scans for composition pairs. The property trie and composition
+  tables come from utf8proc; NFD and case mappings are generated through Rust
+  mappings; category and Script come from separate pinned tables. [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
 
 The string memory model these routines operate on (UTF-8 length-prefixed heap
 values) is `./mfb spec unicode strings-model`. `mfb man strings` owns how each
@@ -54,24 +58,30 @@ classes, `\p{Script}` tests, shorthand classes and word test (through the intern
 [[src/codegen/builtins/regex/helper_shorthand_match.rs:__regex_shorthandMatch]]
 [[src/codegen/builtins/regex/helper_is_word.rs:__regex_isWord]]
 
-**The split is a contract, and it means two Unicode versions coexist.** The
-vendored utf8proc carries a newer UCD than 16.0.0: its categories differ on
-**4,804 scalars** (4,803 unassigned in 16.0.0 but assigned in utf8proc, plus
-U+0295, `Ll` in 16.0.0 and `Lo` in utf8proc). Its property records are also
-deduplicated on utf8proc's own field set, so 19 of its 8,385 records are shared
-by scalars whose Unicode 16.0.0 categories differ — a category field packed into
-that record could not represent them even in principle. So three data sources
-coexist, each with its own Unicode version: grapheme segmentation and display
-width read utf8proc's properties; NFD/NFC normalization and upper/lower/case-fold
-mapping read tables generated through the Rust normalization and case crates and
-Rust's own `char` case mapping (see Provenance below); and category and Script
-follow Unicode 16.0.0. They can disagree about a scalar assigned after 16.0.0. A
-utf8proc or crate upgrade must not move category or Script answers.
-[[src/unicode/runtime_tables.rs:build_mapping_tables]] [[src/unicode/range_tables.rs:gencat]]
+These sources are versioned independently. Grapheme properties, combining classes,
+composition pairs and display widths come from vendored utf8proc. Decomposition
+and case mapping come from the Rust dependencies and Rust's `char` mappings.
+General category and Script remain pinned to Unicode 16.0.0 independently of
+those sources. Updating one source does not update the others; the compiler does
+not enforce a shared Unicode version.
+[[src/unicode/runtime_tables.rs:parse_tables]]
+[[src/unicode/range_tables.rs:GENCAT_RANGES]]
+[[src/unicode/range_tables.rs:SCRIPT_RANGES]]
+
+Each category/Script range record is `(u32 lastCodepoint, u32 nameIndex)`,
+little-endian, with an 8-byte stride. Binary search selects the first range whose
+inclusive end is at least the scalar. Names are fixed-stride String records:
+`u64 byteLength`, UTF-8 bytes, NUL, then padding to the table's stride, which is
+`round_up(8 + longest_name_bytes + 1, 8)`. The query returns a read-only pointer
+into the names table without allocating.
+[[src/unicode/range_tables.rs:runs_bytes]]
+[[src/unicode/range_tables.rs:names_bytes]]
+[[src/unicode/range_tables.rs:name_stride]]
+[[src/codegen/string/unicode_props.rs:emit_unicode_range_lookup]]
 
 ## Provenance: utf8proc
 
-All property and composition tables are parsed out of a single vendored C source
+The packed property trie and composition tables are parsed out of a vendored C source
 file, `third_party/utf8proc/utf8proc_data.c`, included into the compiler at
 build time with `include_str!`. utf8proc is the Julia-project Unicode library
 (MIT/expat license), vendored at version 2.11.3 (the
@@ -95,7 +105,7 @@ every codepoint `0..=0x10FFFF` through the Rust normalization/case crates
 
 ## Two-stage property lookup
 
-Every per-codepoint property comes from a classic two-level trie keyed by the
+The packed properties below come from a two-level trie keyed by the
 high and low byte of the codepoint: `stage1[cp >> 8]` yields a base index into
 `stage2`, and `stage2[base + (cp & 0xFF)]` yields the index of a shared
 `PackedProperty` record. Many codepoints share one property record, so the
@@ -139,14 +149,9 @@ On emission each record is serialized little-endian, in field order, producing a
 | 8   | `boundclass`           | 19                          | `UNICODE_PROPERTY_OFFSET_BOUNDCLASS` = 8        |
 | 10  | `indic_conjunct_break` | 20                          | `UNICODE_PROPERTY_OFFSET_INDIC_CONJUNCT_BREAK`=10|
 
-The record was repacked: the five never-read utf8proc columns —
-`decomp_type` and the `decomp`/`casefold`/`uppercase`/`lowercase` *seqindexes* —
-were dropped, since the runtime case and decomposition algorithms read the
-separate flattened u32 mapping tables (below), never these fields. Removing them
-shrank the record from 24 to 12 bytes (~82 KB off the 8385-record table in every
-unicode-using binary) and eliminated the trailing zero-pad `u16`. The
-compiler-side offset constants are a parallel definition of the same layout and
-must stay in sync with how `PackedProperty` is encoded.
+Decomposition and case mappings use the separate flattened u32 tables below;
+the packed record contains no mapping sequence indices. The compiler-side offset
+constants must agree with `PackedProperty::encode_le`.
 [[src/codegen/string/unicode_props.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans plus the display-width
@@ -174,7 +179,7 @@ width; `strings::displayWidth` and the `term::` backends treat ambiguous as widt
 
 `combining_class`, `comb_index`, `comb_length`, `flags`, `boundclass`, and
 `indic_conjunct_break` are the only fields actually consumed at runtime, by NFC
-canonical ordering / composition and by grapheme segmentation.
+canonical ordering / composition, grapheme segmentation and display-width measurement.
 
 ## Composition (combinations) tables
 
@@ -239,11 +244,12 @@ pulls just the two casefold tables (the case-mapping path never indexes the
 property trie); `strings::normalizeNfc` pulls the base trie plus the
 `combinations_*`/`nfd_*` tables. The relocation scan is the ground truth; a
 coarse NIR usage heuristic remains only as a fallback that emits the full set
-should unicode use be detected with no table relocation named (practically
-unreachable). Each table's bytes come from a hex serializer; sizes and
+when the NIR usage scan detects Unicode use but no table relocation is named.
+Each table's bytes come from a hex serializer; sizes and
 alignments are fixed per table (u16 tables and the 12-byte `properties` records
 align 2; u32 tables and the 16-byte mapping-entry records align 4). [[src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects]]
 [[src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables]]
+[[src/codegen/engine/builder/mod.rs:referenced_unicode_tables]]
 
 | Symbol (`_mfb_unicode_*`)        | Element / record       | Align |
 |----------------------------------|------------------------|-------|
@@ -257,6 +263,8 @@ align 2; u32 tables and the 16-byte mapping-entry records align 4). [[src/codege
 | `uppercase_entries` / `_sequences` | 16-byte record / u32 | 4     |
 | `lowercase_entries` / `_sequences` | 16-byte record / u32 | 4     |
 | `casefold_entries` / `_sequences`  | 16-byte record / u32 | 4     |
+| `gencat_ranges` / `script_ranges` | 8-byte range record | 4 |
+| `gencat_names` / `script_names` | fixed-stride String record | 8 |
 
 [[src/codegen/error/constants/error_constants.rs:UNICODE_STAGE1_SYMBOL]]
 
@@ -275,7 +283,9 @@ by construction, it validates each continuation byte (`0x80..=0xBF`) before
 reading the next and rejects surrogates, overlong encodings, and leads beyond
 U+10FFFF, decoding any malformed sequence as U+FFFD with width 1. The scalar it
 produces is therefore always `<= 0x10FFFF`, which keeps the two-stage property
-lookup in-bounds regardless of caller discipline; on a valid `String` the
+lookup in-bounds for decoded scalars. This helper takes a pointer, not a byte
+length: it requires readable string storage and relies on the trailing NUL to
+stop continuation-byte validation at a truncated tail. On a valid `String` the
 substitution never fires. `emit_utf8_encoded_width` computes a scalar's encoded
 width (thresholds 0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes
 1–4 bytes and advances the cursor.
@@ -284,8 +294,9 @@ width (thresholds 0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes
 
 ## Runtime algorithm: grapheme segmentation
 
-`strings::graphemes` (and `graphemesCount`, `graphemeAt`) implement Unicode
-extended grapheme cluster boundaries (UAX #29). The emitted code walks scalars,
+`strings::graphemes` (and `graphemesCount`, `graphemeAt`) use an emitted
+extended-grapheme boundary state machine based on UAX #29, with the Indic
+context limitation described below. The emitted code walks scalars,
 maintaining a two-field state machine — `state_bc` (boundclass) and `state_icb`
 (Indic conjunct break) — and for each new scalar looks up `boundclass` and
 `indic_conjunct_break` from the property record, then asks two helpers: whether
@@ -294,16 +305,26 @@ to break before this scalar, and how to fold it into the running state.
 
 `emit_grapheme_break_branch` is the boundary decision, encoding the UAX #29 rules
 in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hangul
-L/V/T jamo sequences), GB9/GB9a (Extend, ZWJ, SpacingMark, Prepend),
+L/V/T jamo sequences), GB9/GB9a/GB9b (Extend, ZWJ, SpacingMark, Prepend),
 GB11 (emoji ZWJ sequence: E_ZWG × Extended_Pictographic), GB12/GB13 (regional
 indicator pairing), and GB9c (Indic linker conjunct: a linker state followed by
 a consonant does not break). [[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch]]
 
-`emit_grapheme_state_update` advances the state machine after a no-break: it
-tracks the Indic conjunct chain (consonant → linker → consonant transitions) and
-promotes the boundclass for emoji ZWJ sequences (Extended_Pictographic + Extend
+`emit_grapheme_state_update` advances the state machine after each scalar: it
+updates the Indic property state and promotes the boundclass for emoji ZWJ sequences (Extended_Pictographic + Extend
 stays pictographic; + ZWJ becomes E_ZWG) and resets regional-indicator pairing.
 [[src/codegen/string/unicode_props.rs:emit_grapheme_state_update]]
+
+The Indic state does not retain a separate preceding-consonant flag. In
+particular, the first scalar seeds it directly from its property; an initial
+LINKER followed by CONSONANT suppresses the boundary. Thus `U+094D U+0915`
+yields one runtime cluster but two clusters on the folded Rust path. This is a
+current limitation of the emitted context tracking. The standalone helpers used
+by terminal placement encode the same LINKER/CONSONANT condition.
+[[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
+[[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch_free]]
+[[src/codegen/string/unicode_props.rs:emit_grapheme_state_update_free]]
+[[src/unicode/backend.rs:graphemes]]
 
 The compiled cluster boundary classes are integer constants matching utf8proc's
 `UTF8PROC_BOUNDCLASS_*` numbering (e.g. CR=2, LF=3, CONTROL=4, EXTEND=5, L=6 …
@@ -313,8 +334,9 @@ ZWJ=14, EXTENDED_PICTOGRAPHIC=19, E_ZWG=20) and conjunct-break values
 
 ## Runtime algorithm: NFD and NFC normalization
 
-`strings::normalizeNfc` performs full NFD-then-recompose in five passes over a
-scalar buffer. NFD on its own is the first three passes.
+`strings::normalizeNfc` copies all-ASCII input directly. Non-ASCII input uses
+decomposition, canonical ordering and recomposition in the stages below. NFD is an intermediate representation; there is no public
+`strings::normalizeNfd` member.
 [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
 
 1. **Count + allocate.** Decode each scalar, look it up in the NFD mapping table,
@@ -329,19 +351,36 @@ scalar buffer. NFD on its own is the first three passes.
    than the earlier one (the Unicode canonical reordering algorithm), decrementing
    the index after a swap to re-check the prior pair.
 4. **Recompose.** A starter-based scan with last-combining-class tracking
-   (`x28`). For each scalar after a starter it first tries Hangul composition
+   (a virtual register). For each eligible scalar after a starter it first tries
+   Hangul composition
    (`emit_hangul_composition_attempt`, the algorithmic LV/LVT formulas, no table),
    then falls back to the combinations tables — gated by the starter's
    `comb_index`/`comb_length` and the current scalar's `COMB_IS_SECOND` flag —
    and on success overwrites the starter in place and drops the combined scalar.
-   The combining-class blocking rule prevents composing across a same/greater
-   combining class. [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
+   For a nonzero current combining class, composition is attempted only when
+   it exceeds the remembered blocking class. A current class of zero bypasses
+   that comparison. [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
 5. **Encode.** Compute the composed byte length, arena-allocate the length-
    prefixed result string, and UTF-8-encode the composed scalars.
 
 NFC composition therefore reads `combining_class`, `comb_index`, `comb_length`,
 and the `COMB_IS_SECOND` flag from property records, plus the two combinations
 tables and the NFD mapping tables. [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
+
+The class-zero branch is a current implementation limitation: runtime
+normalization of `U+1100 U+0301 U+1161` produces `U+AC00 U+0301`, composing
+Hangul across an intervening mark. The folded `unicode_normalization` path
+preserves `U+1100 U+0301 U+1161`. Runtime and folded normalization therefore do
+not agree for this input.
+[[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
+[[src/unicode/backend.rs:normalize_nfc]]
+
+The ordinary call uses arena blocks. An eligible self-assignment uses the same
+`lower_out` algorithm with `StringOut::Scratch`, reserving a combined scalar and
+output workspace; the assignment publishes the result into the destination.
+The all-ASCII self-assignment needs no normalization rewrite.
+[[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_rewrite_assign]]
+[[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
 
 ## Runtime algorithm: case folding and upper/lower casing
 
@@ -355,15 +394,22 @@ the mapped sequence or the original scalar. A zero-length lookup result means
 "identity" (no mapping). [[src/codegen/builtins/strings/gen_case_map.rs:lower_strings_case_map]]
 [[src/codegen/builtins/strings/gen_strings_support.rs:UnicodeCaseMap]]
 
+The routine first checks for an all-ASCII input and uses a direct byte loop for
+that case. In the Unicode path, ASCII scalars also bypass mapping-table lookup.
+An eligible self-assignment can use the scratch-output variant of the same
+mapping routine.
+[[src/codegen/builtins/strings/gen_case_map.rs:lower_strings_case_map_out]]
+
 All three maps are full (sequence-valued), so multi-scalar expansions like
 `ß → SS` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
 sequences, exactly as the compile-time crate path would produce; the
 case-mapping behavior is not locale-tailored. [[src/unicode/runtime_tables.rs:parse_tables]]
 
-Every two-pass allocator (case mapping, NFC, `graphemes`) asserts at the end of
-its writing pass that the write cursor landed exactly on the byte length the
-counting pass allocated; a count/write divergence — which would otherwise be a
-silent heap overflow — faults deterministically instead.
+The Unicode case-mapping and NFC writing passes check the encoded byte length
+against the count pass. The grapheme writer checks both payload bytes and list
+entry count. A mismatch triggers a null load. This is an end-of-pass
+invariant check, not a bounds check before each write; it cannot undo an
+out-of-bounds write that already occurred.
 [[src/codegen/error/emission/builder_error_emission.rs:emit_write_cursor_assert]]
 
 ## See Also

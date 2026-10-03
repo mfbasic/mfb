@@ -1,10 +1,14 @@
 # String Indexing Model
 
 The three indexing units a `String` exposes and which `strings::` operations use
-each. A `String` is an immutable, UTF-8-encoded byte sequence; the runtime never
-mutates it in place (the value model and byte layout are owned by
-`./mfb spec memory heap-values`). The unit a builtin counts in is a deliberate, fixed property
-of that builtin — callers must know which.
+each. A `String` is a UTF-8-encoded value. Eligible self-assignments can reuse
+and mutate destination storage while preserving independent values; string
+immutability is not a storage invariant. The value model and byte layout are
+owned by `./mfb spec memory heap-values`.
+[[src/codegen/collection/assign/string_self_update.rs:resolve_string_self_update]]
+[[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+
+Each builtin has a fixed indexing unit.
 
 The per-function `strings::` API (arguments, return types, error codes) is owned
 by `./mfb man strings`; this topic specifies only the *indexing model and slice
@@ -12,19 +16,20 @@ semantics* a faithful reimplementation must reproduce.
 
 ## Three indexing units
 
-| Unit | Definition | Equivalent Rust semantics | Used by |
+| Unit | Definition | Reference model | Used by |
 | --- | --- | --- | --- |
 | Scalar | One Unicode scalar value (Rust `char`, a single code point) | `char_indices` / `chars().count()` | `mid` (start + length), `find` (start + return), `toScalars`, `len` |
 | Grapheme | One user-perceived character (extended grapheme cluster) | `unicode-segmentation` | `graphemes`, `graphemesCount`, `graphemeAt` |
 | Byte | One UTF-8 code unit | `&str` length | `byteLen`, raw slice bounds |
 
-The third column names the Rust operation whose result each unit must match —
-it is the reference a faithful reimplementation reproduces, **not** what a compiled
-program runs. At run time every unit is computed by emitted native code over the
-embedded tables (grapheme segmentation is the UAX #29 state machine in
-`./mfb spec unicode tables-and-algorithms`); `unicode-segmentation` runs only on
-the compile-time fold path, for a statically known argument.
+Scalar and byte counts require no Unicode property table. Runtime grapheme
+segmentation uses the emitted state machine and vendored properties described in
+`./mfb spec unicode tables-and-algorithms`; folded segmentation uses the Rust
+`unicode-segmentation` dependency. These are separately versioned data sources,
+not a single shared implementation.
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
+[[src/codegen/builtins/strings/func_byte_len.rs:lower]]
+[[src/codegen/string/unicode_props.rs:emit_scalar_count_loop]]
 
 Scalar and grapheme indices differ whenever a cluster spans multiple scalars: a
 combining sequence (`"a\u{301}"` = 2 scalars, 1 grapheme), a ZWJ emoji sequence
@@ -38,7 +43,7 @@ A fourth unit — the **display column** — is a *measure* of how many fixed-wi
 terminal cells a string occupies, not an addressable index (you cannot slice by
 column). Each scalar's column width comes from the embedded utf8proc property
 table's `charwidth` field (`(flags >> 4) & 0b11`, see
-`01_tables-and-algorithms.md`): East-Asian-Wide and Wide scalars are 2 columns,
+`./mfb spec unicode tables-and-algorithms`): Wide and Fullwidth scalars are 2 columns,
 most scalars are 1, and a zero-width scalar (a combining mark, ZWSP, ZWJ) is 0.
 `strings::displayWidth(s)` sums the per-grapheme width, and a grapheme's width is
 the width of its **first non-zero-width scalar**, so it is 0, 1 or 2 columns
@@ -46,25 +51,25 @@ regardless of its scalar count: a grapheme made only of zero-width scalars — a
 lone combining mark, ZWSP, or ZWJ — is `0`. `"café"` (NFD) is 4, `"日本語"` is 6,
 `"👨‍👩‍👧‍👦"` is 2. [[src/codegen/builtins/strings/func_display_width.rs:lower]] The `term::` backends lay one
 grapheme per cell at this width, with one exception: for terminal placement only,
-a grapheme made only of zero-width scalars occupies one cell, not zero. A wide
-grapheme reserves a trailing cell and wraps at the right edge.
+a grapheme made only of zero-width scalars occupies one cell, not zero. `term::drawText` reserves a trailing cell for a wide grapheme and clips the
+run if that grapheme would cross the right edge; it does not wrap.
 [[src/codegen/term/core/term.rs:emit_draw_text]]
 [[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
 
-**Padding has one member per unit, and they are not interchangeable.**
-`strings::padLeft`/`padRight` pad to a **scalar** count; `strings::padLeftToWidth`/
-`padRightToWidth` pad to a **display-column** count, the measure above. The two
-agree only on text whose scalars are all one column wide, so a table aligned with
-the scalar-counted pair is misaligned by exactly the wide/zero-width scalars it
-contains (`padLeft("日本", 4, "-")` is 4 scalars and 6 columns). The
-column-counted pair **undershoots**: it lays down whole copies of `padChar` and
-the result never exceeds the requested width, so a 2-column `padChar` filling an
-odd gap leaves the last column empty. A `padChar` of zero columns can never reach
-the target and is rejected with `ErrInvalidArgument` (`77050002`), which is the
-one input the scalar-counted pair accepts and the column-counted pair does not.
-Neither pair truncates.
+`strings::padLeft`/`padRight` target a scalar count. `padLeftToWidth` and
+`padRightToWidth` compute a number of padding copies from display widths:
+`max(0, (columns - displayWidth(value)) / displayWidth(padChar))`, with integer
+division. Both pairs reject a negative target or a `padChar` that is not exactly
+one scalar. The column-counted pair additionally rejects zero-width padding,
+even when the input already meets the target. Rejection raises
+`ErrInvalidArgument` (`77050002`). Neither pair truncates an input that already
+exceeds the target. For a positive gap, the column-counted pair adds whole copies;
+a two-column pad scalar leaves an odd remainder unfilled. The calculation uses
+the widths of the input and pad separately; it does not remeasure the concatenated
+result, whose grapheme boundaries can change at the joins.
 [[src/codegen/builtins/strings/helper_pad_to_width.rs:__strings_padToWidthCopies]]
+[[src/codegen/builtins/strings/gen_pad.rs:pad_measure]]
 
 ## Scalar / byte mapping
 
@@ -115,8 +120,10 @@ splits the cluster.
 `mid` (and `find`) are **never constant-folded**: they are not among the `String`
 calls the static-string fold evaluates, so a call with static, out-of-range
 arguments still compiles and raises the catchable runtime error, never a build
-error. [[src/codegen/memory/value/builder_value_semantics.rs:static_string_value]] There is a single evaluation path. If folding is ever added, the error
-condition must keep folding to the runtime raise.
+error. Eligible self-assignments can reuse the slice window after the same
+range checks.
+[[src/codegen/memory/value/builder_value_semantics.rs:static_string_value]]
+[[src/codegen/collection/search/builder_search.rs:lower_mid_string_window]]
 
 ## `find` semantics — scalar in, scalar out
 
@@ -128,14 +135,14 @@ after scalar index `start`, and returns the match position as a **scalar index**
   `ErrIndexOutOfRange` (the negative case is checked explicitly up front, before
   any scan). `start` may equal `scalar_count`.
 - An empty `needle` short-circuits and returns `start` unchanged (the empty
-  string is found at the search origin).
+  string is found at the search origin), after validating `start`.
 - Otherwise a byte-level substring search runs on the suffix starting at
   `start`'s byte offset; the byte hit is reported as the scalar index of the
   candidate position (the search advances candidate positions scalar by scalar).
 - No match raises `ErrNotFound` (`77050004`). This is the language-wide contract
   for an index-returning `find`: `regex::find` and the `collections` find-family
   (`find`, `findIndex`, `findLastIndex`) raise the same code on the same
-  condition, because an `Integer` index has no value left over to mean "absent".
+  condition.
   See ./mfb spec stdlib regex.
 
 Matching is byte-exact on raw UTF-8 with **no normalization and no case
@@ -156,13 +163,12 @@ allocation failure on the (unreachable) wrap.
 
 ## Unicode-whitespace trimming
 
-The three trims classify a code point with Rust `char::is_whitespace`, which is
-the Unicode `White_Space` property — broader than ASCII. This includes the ASCII
-set (`\t \n \x0b \x0c \r` space), plus NBSP `U+00A0`, the various Unicode spaces
-`U+2000`–`U+200A`, line/paragraph separators `U+2028`/`U+2029`, and ideographic
-space `U+3000`, among others. [[src/codegen/string/unicode_props.rs:emit_unicode_whitespace_branch]]
+The three trims use an emitted UTF-8 byte classifier for this whitespace set:
+`U+0009..U+000D`, `U+0020`, `U+0085`, `U+00A0`, `U+1680`,
+`U+2000..U+200A`, `U+2028`, `U+2029`, `U+202F`, `U+205F`, `U+3000`.
+No Rust function or property-table lookup runs in the generated program. [[src/codegen/string/unicode_props.rs:emit_unicode_whitespace_branch]]
 
-| Function | Strips from | Backing |
+| Function | Strips from | Equivalent Rust semantics |
 | --- | --- | --- |
 | `trim` | both ends | `str::trim_matches(is_whitespace)` |
 | `trimStart` | leading | `str::trim_start_matches(is_whitespace)` |
@@ -183,7 +189,7 @@ does with that presence is decided by what the member does, not by its name:
 | behaviour | members | empty needle |
 |-----------|---------|--------------|
 | answers a question about an occurrence | `contains`, `startsWith`, `endsWith`, `startsWithAny`, `endsWithAny` | `TRUE` [[src/codegen/builtins/strings/func_contains.rs:lower]] |
-| answers with the position of an occurrence | `find` | `start` (short-circuit, no scan) [[src/codegen/builtins/strings/func_find.rs:register]] |
+| answers with the position of an occurrence | `find` | validated `start` (no substring scan) [[src/codegen/builtins/strings/func_find.rs:register]] |
 | acts at a single named position | `stripPrefix`, `stripSuffix` | the zero-length match is removed, so `value` is reproduced [[src/codegen/builtins/strings/gen_strip.rs:lower_strings_strip]] |
 | counts or rewrites every occurrence | `count`, `split`, `replace` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] [[src/codegen/string/repr/builder_strings.rs:lower_replace]] |
 
@@ -224,7 +230,7 @@ normalization. There is no `limit` parameter. The inverse `join(parts, delimiter
 concatenates with the
 delimiter between parts. It accepts an empty delimiter; its only failure is
 `ErrOutOfMemory`, raised when the result's size overflows or cannot be allocated.
-[[src/codegen/builtins/strings/func_join.rs:lower]] [[src/codegen/builtins/strings/func_join.rs:lower]]
+[[src/codegen/builtins/strings/func_join.rs:lower]]
 
 `regex::split(value, pattern)` is the pattern form, and it obeys this same
 counting rule over the matches `regex::findAll` reports — N matches, N+1 parts,

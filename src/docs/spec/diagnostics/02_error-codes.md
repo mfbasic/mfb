@@ -1,20 +1,20 @@
 # Runtime Error Codes
 
 The `errorCode::` package is a flat set of `Integer` constants, one per row of the
-runtime error registry. A reference such as `errorCode::ErrNotFound` types as
-`Integer` and folds to an integer literal before lowering — there is no runtime
-helper, no codegen, and no binary-representation change, mirroring the `math::pi`
-constant mechanism. Constants are keyed package-qualified (`"errorCode.<Name>"`)
-and resolved by exact match against the generated table. [[src/codegen/registry/mod.rs:constant_value]]
+runtime error registry. A reference such as `errorCode::ErrNotFound` types as `Integer`
+and folds to an integer literal through the shared package-constant lowering path;
+reading a constant requires no runtime lookup or helper call. Constants are keyed
+package-qualified (`"errorCode.<Name>"`) and resolved by exact match against the
+registered constants. [[src/codegen/registry/mod.rs:constant_value]]
+[[src/ir/lower.rs:lower_expression_with_expected]]
 
-These integers are exactly the values runtime code stamps into `Error.code` when
-a fallible operation fails (see *See Also*) — both the native codegen/runtime
-helpers [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] and the
-embedded MFBASIC standard packages (`regex`, `datetime`, `csv`, `json`, `http`,
-`net`, …) fail with registry values, and user code may `FAIL` with them too. They
-are program-visible data, not host-tool diagnostics; the compiler-facing rule
-set (see `./mfb spec diagnostics rule-codes`) is a separate registry and is not
-surfaced here.
+These integers are exactly the values runtime code stamps into `Error.code` when a
+fallible operation fails (see *See Also*) — both the native codegen/runtime helpers
+[[src/codegen/builtins/errorcode/mod.rs:register]] and the embedded MFBASIC standard
+packages (`regex`, `datetime`, `csv`, `json`, `http`, `net`, …) fail with registry
+values, and user code may `FAIL` with them too. They are program-visible data, not
+host-tool diagnostics; the compiler-facing rule set (see `./mfb spec diagnostics
+rule-codes`) is a separate registry and is not surfaced here.
 
 ## Encoding Rule
 
@@ -24,10 +24,11 @@ The canonical code string has the hyphenated form `G-SSS-EEEE`:
 * `SSS` — subsystem
 * `EEEE` — concrete error within that subsystem
 
-The runtime `Error.code` integer is the canonical code with the hyphens removed.
-For example `7-705-0002` is stored as `77050002`. The mapping is exactly
-`code.replace('-', "")`; the build step asserts that hyphen-stripping the code
-column equals the integer column for every row, so the two cannot drift. [[src/codegen/builtins/errorcode/mod.rs:register]]
+The runtime `Error.code` integer is the canonical code with the hyphens removed. For
+example `7-705-0002` is stored as `77050002`. The mapping is exactly `code.replace('-',
+"")`; the `table_matches_registry` test asserts that hyphen-stripping the code column
+equals the integer column for every row, as well as comparing the registered constants.
+[[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## Subsystem Partitioning
 
@@ -42,56 +43,31 @@ registry are:
 | `7-705-*` | package helpers, builtins, and generic language errors           |
 | `7-706-*` | trap and failure propagation                                     |
 | `7-707-*` | platform ABI and networking                                      |
+| `7-708-*` | child processes                                                  |
 
 (`7-704-*` is unused by the current registry.)
 
 ## User-Defined Codes (generator `9`)
 
-Generator `9` — the integer range `90000000` through `99999999` — is reserved for
-codes a package or program defines for itself. **The runtime never raises a
-generator-`9` code, and no such code appears in the `errorCode::` registry.** It
-exists so a library with failure modes the standard registry does not model can
-report them without overlaying an unrelated standard meaning.
+Generator `9` — integer range `90000000` through `99999999` — is the convention for
+package- or program-defined errors. The standard `errorCode::` registry contains no
+generator-`9` constants. There is no central allocation of user subsystems; codes from
+different packages can overlap and do not identify a failure independently of its
+originating package. [[src/codegen/builtins/errorcode/mod.rs:register]]
 
-The problem it solves is concrete. A binding wrapping a C library has its own
-error enum, and mapping that enum onto the `7-705-*` range by arithmetic offset
-lands on unrelated standard names: a "format not recognised" reported as
-`77050001` is indistinguishable from `errorCode::ErrIndexOutOfRange`, so a
-`TRAP` matching that constant silently catches the wrong failure. Generator `9`
-gives that binding a range where it cannot collide with a standard name.
-
-Rules:
-
-* **Not in `errorCode::`.** There is no constant for a generator-`9` code, and
-  `errorCode::` will never gain one. A handler compares against the package's own
-  documented integer, or against a constant the package exports itself.
-* **Codes may overlap between packages.** `SSS` is chosen by whoever defines the
-  code, with no central registry and no allocation authority, so two unrelated
-  packages may both use `9-100-0001` for different failures. A code is meaningful
-  only together with the package that raised it — never treat a generator-`9`
-  integer as globally identifying.
-* **Because they overlap, match them narrowly.** A `TRAP` keying on a
-  generator-`9` code should already know which package it is handling — typically
-  by wrapping a single call. Matching one across a broad block risks catching a
-  same-numbered code from an unrelated package.
-* **Document every one.** A generator-`9` code carries no registry meaning, so
-  the raising package's `DOC` `ERROR` lines are the only specification of what it
-  means. An undocumented one is unusable by a caller.
-* **Prefer a standard code where one genuinely fits.** Generator `9` is for
-  failures the registry does not model, not a default. A missing file really is
-  `ErrPathNotFound`; a bad argument really is `ErrInvalidArgument`. Reach for
-  generator `9` only when no standard code carries the right meaning.
-
-The encoding rule is unchanged: `9-100-0001` is stored as `91000001`, and the
-value is built with the ordinary `error(code, message)` built-in. Nothing in the
-compiler or runtime treats the range specially — the reservation is a convention
-that keeps user codes from being mistaken for registry codes.
+The same encoding convention maps `9-100-0001` to `91000001`. The ordinary `error(code,
+message)` builtin accepts an `Integer`; it does not enforce this range or reserve it at
+runtime. User-defined values propagate through the same `Error` representation as
+standard codes. See `./mfb spec language error-model`.
+[[src/codegen/builtins/general/func_error.rs:register]]
 
 ## Constant Registry
 
-The complete `errorCode::` Name → Integer mapping. This table is the build input
-from which `ERRORCODE_CONSTANTS` is generated (see *Drift Guard*); row order is
-registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
+The complete `errorCode::` Name → Integer mapping. This table specifies the names and
+values registered by `errorcode::register` (see *Drift Guard*); row order is
+registration order. Meanings describe error categories, not an exhaustive list of
+emitting operations or a guarantee of identical message text at every emitter.
+[[src/codegen/builtins/errorcode/mod.rs:register]]
 
 | Code         | Integer    | Name                          | Meaning |
 |--------------|------------|-------------------------------|---------|
@@ -136,33 +112,37 @@ registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 | `7-705-0017` | `77050017` | `ErrAudioUnavailable`         | Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied). |
 | `7-705-0018` | `77050018` | `ErrAudioDevice`              | Audio device open, configuration, or stream operation failed. |
 | `7-705-0019` | `77050019` | `ErrInvalidContext`          | Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`). |
-| `7-705-0020` | `77050020` | `ErrWrongMode`               | Operation requires a presentation mode the program is not in. In an `--app` build, `term::*` requires `app::Mode.Console` — the character grid exists only there, so `None` and `Canvas` both trap (plan-62-E). The console-reading `io::` calls (`io::input`, `io::readLine` and the keystroke readers `io::readKey`/`readScalar`/`readGrapheme`/`readRaw`) require only a window to take key events from, so they trap in `Mode.None` alone and work in both `Console` and `Canvas` (plan-98-A). |
+| `7-705-0020` | `77050020` | `ErrWrongMode`               | Operation requires a presentation mode the program is not in. In an `--app` build, `term::*` requires `app::Mode.Console` — the character grid exists only there, so `None` and `Canvas` both trap. The console-reading `io::` calls (`io::input`, `io::readLine` and the keystroke readers `io::readKey`/`readScalar`/`readGrapheme`/`readRaw`) require only a window to take key events from, so they trap in `Mode.None` alone and work in both `Console` and `Canvas`. |
 | `7-703-0009` | `77030009` | `ErrResourceMoved`            | Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. |
 | `7-703-0010` | `77030010` | `ErrNativeBufferOverrun`      | Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected). |
 | `7-708-0001` | `77080001` | `ErrSpawnFailed`              | Child process could not be spawned (fork/exec failed, or the program was not found). |
 | `7-705-0021` | `77050021` | `ErrBadPixelCount`            | Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes (`canvas::createImage`, `canvas::setBytes`). |
-| `7-705-0022` | `77050022` | `ErrBadFontFile`             | File is not a font this build can read: `canvas::loadFont` takes TrueType outlines (sfnt version `0x00010000` or `true`, alone or as a face of a font collection) and refuses CFF/OpenType-PostScript and WOFF, a collection with no readable face, and a TrueType file whose `head.unitsPerEm` is outside 16..16384. Distinct from `ErrNotFound`, which is a path that does not exist. |
-| `7-705-0023` | `77050023` | `ErrBadImageFile`            | File is not an image this build can decode: `canvas::loadImage` reads PNG (all five colour types, bit depths 1–16, interlaced or not) and refuses anything else, including a PNG whose chunks, filters or compressed data are malformed, that is larger than 16384 pixels a side or 16,777,216 pixels, or whose compressed data does not fit the image it declares. Distinct from `ErrNotFound`, which is a path that does not exist. |
-| `7-705-0024` | `77050024` | `ErrDepthExceeded`           | Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256 nested arrays and objects; `canvas::present` stops at 64 nested `canvas::Group` references, which is also how a group that eventually references itself is reported — a cycle is unbounded depth). |
+| `7-705-0022` | `77050022` | `ErrBadFontFile`             | File is not a font this build can read: `canvas::loadFont` takes TrueType outlines (sfnt version `0x00010000` or `true`, alone or as a face of a font collection) and refuses CFF/OpenType-PostScript and WOFF, an empty collection or a selected face without TrueType outlines, and a TrueType file whose `head.unitsPerEm` is outside 16..16384. Distinct from `ErrPathNotFound` for a missing path and `ErrNotFound` for an unmatched font face name. [[src/codegen/builtins/canvas/func_load_font.rs:LOAD_FONT]] [[src/codegen/builtins/canvas/func_load_font.rs:LOAD_FONT_NAMED]] |
+| `7-705-0023` | `77050023` | `ErrBadImageFile`            | File is not an image this build can decode: `canvas::loadImage` reads PNG (all five colour types, bit depths 1–16, interlaced or not) and refuses anything else, including a PNG whose chunks, filters or compressed data are malformed, that is larger than 16384 pixels a side or 16,777,216 pixels, or whose compressed data does not fit the image it declares. Distinct from `ErrPathNotFound`, which reports a missing path. [[src/codegen/builtins/canvas/func_load_image.rs:LOAD_IMAGE]] [[src/codegen/builtins/fs/func_read_bytes.rs:register]] |
+| `7-705-0024` | `77050024` | `ErrDepthExceeded`           | Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: processing stops at the depth limit without validating the remaining structure (`json::parse` stops at 256 nested arrays and objects; `canvas::present` stops at 64 nested `canvas::Group` references, which is also how a group that eventually references itself is reported — a cycle is unbounded depth). |
 | `7-705-0025` | `77050025` | `ErrInvalidSurrogate`        | A `\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\u` low surrogate, and a lone low surrogate is never valid. Distinct from `ErrInvalidFormat`, which is a grammar mistake. |
 | `7-705-0026` | `77050026` | `ErrCanvasGroupLimit`        | The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot. Distinct from `ErrOutOfMemory`: the arena has room, the fixed table does not.  |
 | `7-705-0027` | `77050027` | `ErrTooLarge`                | The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input. |
 
 ## Resolution API
 
-Constant resolution answers three questions about a package-qualified name —
-whether it is a known constant, that its type is `Integer`, and the folded
-integer literal it becomes. Resolution strips the `errorCode.` prefix and
-rejects unqualified or unknown names. [[src/codegen/registry/mod.rs:constant_value]]
+Constant resolution answers three questions about a package-qualified name — whether it
+is a known constant, its declared type (`Integer` for every `errorCode` member), and the
+folded integer literal it becomes. Resolution splits the qualified name at the first
+dot, resolves the package, and matches the constant member exactly. Unqualified or
+unknown names have no constant value. [[src/codegen/registry/mod.rs:find_constant]]
+[[src/codegen/registry/mod.rs:constant_value]]
 
 ## Drift Guard
 
-The `errorCode` constants are a hand-maintained table in the package's
-`register`, which must reproduce the **Constant Registry** table above — this
-topic is the single source of truth for the runtime registry. [[src/codegen/builtins/errorcode/mod.rs:register]] A drift-guard
-test re-parses the same table and asserts the registered table reproduces every
-row with the integer equal to the hyphen-stripped code, so the registered
-constants cannot drift from this registry. [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
+The `errorCode` constants are a hand-maintained table in the package's `register`, which
+must reproduce the **Constant Registry** table above — this topic is the single source
+of truth for the runtime registry. [[src/codegen/builtins/errorcode/mod.rs:register]] A
+drift-guard test re-parses the same table and asserts the registered table reproduces
+every row with the integer equal to the hyphen-stripped code, including registration
+order. It does not compare the prose meanings or runtime message text. This is a
+test-time check; `build.rs` embeds the spec pages but does not generate these constants.
+[[build.rs:main]] [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## See Also
 

@@ -23,20 +23,22 @@ project.json
   -> lexing
   -> parsing
   -> AST
-  -> name resolution
-  -> monomorphization
+  -> private-name scoping and TESTING lowering
+  -> builtin augmentation / HIR elaboration / initial name resolution
+  -> augmented generic HIR
+  -> monomorphization to concrete HIR
   -> name resolution again
   -> entry-point validation
-  -> source-syntax checking
+  -> HIR shape checking
   -> IR
   -> IR semantic verification
 ```
 
-Semantic validation is split by where the rule can be seen: the source
-front end checks only source-*syntax* rules — constructs lowering
-erases — while the IR semantic verifier is the single source of truth for every *semantic*
-rule, running on the typed IR of both the program being built and every decoded
-`.mfp` package (see `frontend` and `package binary-representation`).
+Validation is split by which representation preserves the evidence. The HIR
+shape pass checks facts erased by lowering; the IR verifier checks the remaining
+semantic rules on both source-lowered IR and decoded package IR. The frontend
+and type-inference topics specify the inputs and predicates at each seam.
+[[src/ir/shape.rs:collect_diagnostics]] [[src/ir/verify/mod.rs:collect_diagnostics]]
 
 After IR, the pipeline splits:
 
@@ -45,17 +47,21 @@ Executable build:
   IR
     -> native IR
     -> native plan
+    -> shared code generation and MIR optimization
+    -> instruction selection and register allocation
     -> native code plan
     -> encoded native image
     -> OS executable container/link step
-    -> build/<project>.out
+    -> platform-specific artifacts under build/
 
 Package build:
   IR
     -> MFPC architecture-independent binary representation
-    -> unsigned MFP container
+    -> MFP container (signed when --sign is supplied)
     -> <package>.mfp
 ```
+
+[[src/cli/build/mod.rs:build_project]] [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 Diagnostic and validation output is emitted during the front-end passes. Build
 artifacts are written into the project directory.
@@ -73,13 +79,12 @@ symbol mangling, overload resolution, between `frontend` and `ir`), `native-ir`
 (the NIR representation and IR→NIR lowering), `aarch64-instruction-set`,
 `x86_64-instruction-set`, and `riscv64-instruction-set` (the three backends'
 instruction repertoires and encodings), `mir-instruction-set` (the
-target-neutral machine IR the backend lowers to and selects from, under active
-construction), `math-kernels` (the in-tree `Float`/
+target-neutral machine IR used for optimization and instruction selection), `math-kernels` (the in-tree `Float`/
 `Fixed` math kernels, their accuracy/determinism contract, and validation),
 `internal-naming` (the unforgeable sigil scheme for built-in package internals),
 and `ir-json-artifact` (the `<name>.ir` debug serialization). Three front-end
-contract topics complete the set: `type-name-encoding` (the canonical flat
-type-string grammar every front-end pass parses), `type-inference` (expected-type
+contract topics complete the set: `type-name-encoding` (the flat
+type spelling at AST and serialization boundaries), `type-inference` (expected-type
 propagation, literal coercion, and the assignability lattice), and `escape-analysis`
 (the resource-float decision procedure the `RES`/cleanup lowering reproduces).
 

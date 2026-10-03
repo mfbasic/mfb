@@ -3,37 +3,44 @@
 This topic specifies the **decision procedure** that assigns every `RES` binding
 in a function an owner: either it is closed at its own producing scope, or its
 close obligation **floats** up to a named collection binding. The source-level
-*contract* this implements — when ownership floats, what a floated binding may no
-longer do, and how a returned resource collection transfers ownership — is owned
+*contract* this implements — when ownership floats, what operations remain available through a floated
+binding, and how a returned resource collection transfers ownership — is owned
 by `./mfb spec language resource-management` (§15.6). This page specifies the
 **algorithm** a faithful reimplementer must reproduce, byte-for-byte.
 
 ## Result
 
-The analysis produces, per `RES` binding name, one of two owners
+The analysis produces, per `RES` binding name, one of three decisions
 [[src/ir/resource_escape.rs:ResOwner]]:
 
 | Owner | Meaning |
 | --- | --- |
 | `Local` | Closed at its own producing scope. The per-scope static cleanup is already correct; no float. |
+| `FloatBlocked(C)` | A returned owning container cannot accept the resource at its production point because of declaration order; IR verification reports `TYPE_RESOURCE_RETURN_ORDER`. |
 | `Float(C)` | Ownership floats to collection binding `C`'s scope. The obligation is drained from `C`'s scope's runtime owned-list, and transferred to the caller when `C` is `RETURN`ed. |
 
-A floated binding becomes non-owning: it may not close, `RETURN`, or
-`thread::transfer` (`floats()` reports this; absent bindings are `Local`).
+A floated binding does not carry its own scope-close obligation. The owner
+table describes cleanup placement, not a prohibition on using a resource alias
+to close, return, or transfer the handle. Absent bindings default to `Local`.
 [[src/ir/resource_escape.rs:FunctionEscape]]
 
-## Purely syntactic, run twice, must agree
+## HIR analysis and IR ownership metadata
 
-The analysis is **purely syntactic over the AST**. It depends only on which
-local names are `RES` bindings, their declaration depth/order, and the shape of
-collection-valued expressions — never on inferred types. [[src/ir/resource_escape.rs:analyze_function]]
+The analysis walks the **concrete HIR**. It tracks `RES` bindings, declaration
+depth/order, and container-valued expression shapes. The return-order gate also
+uses declared container types and the supplied set of records with `RES` fields;
+constructor initializers identify inferred record bindings. [[src/ir/resource_escape.rs:analyze_function]]
 
 It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
 so the resource-ownership rules run on the typed IR, on both the source and
 package paths. The escape decisions are what let the IR semantic verifier
-distinguish an owner from a non-owning pointer (`RES b = a` moves; a resource
-parameter or `FOR EACH` element is only a pointer) without re-deriving ownership.
+recognize `RES` destination bindings without re-deriving the escape decision.
+The direct-name move check invalidates the source of `RES b = a` even when `a`
+is a resource parameter or `FOR EACH` element. This static invalidation is
+separate from native cleanup placement; see the initializer table in
+`./mfb spec language resource-management`.
+[[src/ir/verify/resources.rs:check_resource_moves]]
 
 ```text
 resource_owners = <escape analysis of the function> -> owners
@@ -54,24 +61,22 @@ that hands back a pointer to a resource another binding already owns —
 `collections::get`/`getOr` of a `RES` element, or a `tcp`/`udp`/`tls::poll`
 borrow — is no producer and is never named: a named temporary would float the
 borrowed handle into the container, whose scope would then close the owner's
-handle (bug-643; `zip`'s body, which builds each `Pair` from two such reads, failed
-to build a drop for its result list). [[src/codegen/engine/value/builder_values.rs:target_returns_borrowed_resource]]
+handle. [[src/codegen/engine/value/builder_values.rs:target_returns_borrowed_resource]]
 
 The rewrite never reorders evaluation: a statement's element positions are
 visited in evaluation order, and hoisting stops at the first earlier expression
 that may have an effect and was not itself hoisted. A call it cannot type, or
-whose type is not known to be a resource, is left in place. Without the rewrite
-such a temporary had no close obligation anywhere.
+whose type is not known to be a resource, is left in place.
 
 There is a single implementation of the analyzer; it is invoked,
-not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
-logic. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
+not copy-pasted. Lowering stores the decisions in IR; verification and native cleanup
+lowering consume that metadata. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
 
-Soundness no longer rests on a rule forbidding escape. A resource is owned by the
-outermost scope that touches it, and any holder of the pointer may close, return,
-or transfer it (§15.6), so the syntactic scan is not a complete account of where a
-resource can go. It does not need to be. The guarantee — a resource is closed
-exactly once — is carried by three layers:
+This analysis routes cleanup through the container edges listed below; merely
+reading a handle or passing an ordinary argument does not float it. Any holder
+may close, return, or transfer it (§15), so the syntactic scan is not a complete
+account of where a resource can go. The single-close guarantee is carried by
+three layers:
 
 1. **Static hand-off where it is syntactically visible.** Returning a `RES`
    binding, a resource union, or a `List OF RES` deactivates that scope's cleanup,
@@ -120,6 +125,9 @@ scan_collection_expr(expr):
                              a move, not a collection); else it is a collection
                              copy: push name into src_collections
   ListLiteral(vs)         -> scan_element on each v
+  Constructor(args)       -> scan_element on each argument
+  WithUpdate(target, updates)
+                          -> scan_collection_expr(target), then scan_element on each update
   MapLiteral{entries}     -> scan_element on each value (keys ignored)
   Call(f, args) if is_insertion_builtin(f):
                              arg[0] is the collection being updated -> recurse
@@ -135,12 +143,7 @@ scan_collection_expr(expr):
 
 An inline `TRAP` is *unwrapped*, not ignored: both of its arms produce the same
 target, so the guarded expression and each handler `RECOVER` value flow into it
-alike. Before bug-290 `Expression::Trapped` fell through to `_ -> ignore`, so an
-insertion written with a trap routed no ownership at all and the inserted resource
-was closed at its own scope while the collection still held it -- a use-after-close
-with no diagnostic. Note that both arms must be scanned: covering only the guarded
-expression leaves a resource acquired outside the trap and inserted by its
-`RECOVER` value equally stranded.
+alike. Both arms contribute routing facts.
 
 `scan_element` treats a `RES`-identifier as a direct insertion (push to
 `res_elems`); anything else falls through to `scan_collection_expr` so a nested
@@ -182,7 +185,7 @@ repeat until no change:
 ```
 
 This closes membership over container copy/append/nesting edges (`List`/`Map`
-literals plus insertion builtins) and, since plan-114-C, over **record** edges:
+literals plus insertion builtins) and over **record** edges:
 a record `Constructor` argument and a `WITH` update are element positions, and a
 `WITH`'s target flows into the result exactly as insertion argument 0 does. A
 record is a container in the same sense a collection is — a value that holds
@@ -210,7 +213,7 @@ before** the resource (`decl_order(C) < res_order`); a container whose order
 `>= res_order` is skipped, because the container must be live before the
 resource so its owned-list exists when the resource is produced.
 
-A `RES` **parameter** is exempt from this ordering rule entirely: the caller owns
+A `RES` **parameter** is exempt from the blocked-order diagnostic: the caller owns
 it and this function never produces it, so there is no production point for the
 hazard to attach to. (A consequence for records: a resource the callee
 *produces* cannot be returned inside a record at all, because a record — unlike
@@ -227,19 +230,20 @@ declared at a **strictly outer** scope (`decl_depth(C) < res_depth`); same-or-
 inner scopes do not float. Pick the **outermost** — minimum `decl_depth`, then
 minimum `decl_order` as the deterministic tiebreak. [[src/ir/resource_escape.rs:solve]]
 
-If neither phase finds a target, the owner is `Local`.
+If neither phase finds a target, a non-parameter resource reaching a returned
+resource-owning container is `FloatBlocked(C)`; otherwise it is `Local`.
+`ir::verify` rejects `FloatBlocked` with `TYPE_RESOURCE_RETURN_ORDER`.
+[[src/ir/verify/mod.rs:collect_diagnostics_with]]
 
 A `RES` binding whose initializer is a borrowed pointer — the calls above, or a
 record's `RES` field read — skips both phases and is always `Local`: it holds no
 close obligation, so it has none to float, and codegen binds it as a non-owning
 alias. It stays in the owner table, so every ownership rule still treats it as a
-`RES` name. [[src/ir/resource_escape.rs:initializer_is_borrowed]] Before bug-643 a
-function that copied `collections::get(files, i)` into a local list floated each
-element into that list, and the list's scope closed the caller's handles when the
-function returned.
+`RES` name. [[src/ir/resource_escape.rs:initializer_is_borrowed]]
 
 ```text
 choose_owner(r):
+  if initializer_is_borrowed(r): return Local
   best = none
   # Phase 1: returned collection declared before r (same depth allowed)
   for C in returned_collections where r ∈ membership[C] and order(C) < order(r):
@@ -248,12 +252,20 @@ choose_owner(r):
   if best is none:
     for C where r ∈ membership[C] and depth(C) < depth(r):
       best = min by (depth(C), order(C))
-  owner(r) = best ? Float(best) : Local
+  if best exists: return Float(best)
+  if r is not a RES parameter:
+    for C in returned_collections where r ∈ membership[C]:
+      if C has a RES-marked collection type or a record type with RES fields:
+        return FloatBlocked(C)
+  return Local
 ```
 
 In both phases the running-best comparison keeps the current candidate when its
 `(depth, order)` is `<=` the new one, so equal keys never replace an earlier
 pick — declaration order is the final, deterministic tiebreak.
+
+A parameter declared at entry cannot
+float to a later same-depth container merely because that container is returned.
 
 ## Worked outcomes
 

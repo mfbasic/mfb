@@ -1,16 +1,14 @@
 # Diagnostics and Error Codes
 
-The two code registries the toolchain exposes as stable, externally-observable
-contracts: the **compiler diagnostics** raised during a build, and the **runtime
-error codes** carried in an `Error` value at run time. Both are partitioned,
-numbered namespaces a consumer (an IDE, a CI gate, a reimplementation) can depend
-on, so they belong in the specification rather than only in code.
+This package specifies the compiler diagnostic rule registry, diagnostic rendering, and
+the runtime error-code registry. Compiler rule names identify structured build
+diagnostics; runtime error codes are integers carried in `Error.code`. A diagnostic's
+numeric display code is not necessarily unique. [[src/rules/mod.rs:Rule]]
+[[src/rules/table.rs:RULES]] [[src/codegen/builtins/errorcode/mod.rs:register]]
 
-These are *contracts*, not source syntax — the language-level error *model*
-(`FAIL`/`TRAP`/`PROPAGATE`, auto-unwrap/auto-propagate) is specified by
-`./mfb spec language error-model`, and the runtime `Error` value's representation
-by `./mfb spec memory fallible-call-abi`. This package owns only the code
-registries and how diagnostics are rendered.
+The source-level `FAIL`/`TRAP`/`PROPAGATE` model is specified by `./mfb spec language
+error-model`; the runtime `Error` representation is specified by `./mfb spec memory
+fallible-call-abi`.
 
 ## Reading order
 
@@ -18,10 +16,9 @@ registries and how diagnostics are rendered.
   symbolic names, severities, the full rule table, and the source-context
   rendering format used by `mfb build`.
 - `error-codes` — the runtime `errorCode::` registry: the Name→Integer table, the
-  code→integer encoding rule, and the subsystem partitioning. This topic's Constant
-  Registry table is build input — the compiler's build step generates the
-  `errorCode` constants directly from it, with a drift-guard test enforcing the
-  match.
+  code→integer encoding rule, and the subsystem partitioning. The constants are registered in Rust; a drift-guard test compares their names,
+  integer values, and order with the topic's Constant Registry table.
+  [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## See Also
 

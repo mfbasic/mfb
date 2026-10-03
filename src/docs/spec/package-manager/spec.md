@@ -1,7 +1,9 @@
 # Package Manager and Registry
 
 The registry protocol and signing/trust workflow behind `mfb repo register`,
-`mfb repo auth`, `mfb repo publish`, and `mfb build --sign`. This is
+`mfb repo auth`, `mfb repo publish`, and `mfb build --sign`, together with
+registry reads, machine linking, key
+rotation, ownership operations, release states, and signed metadata. This is
 the contract a compatible registry server or a reimplemented client must honor:
 the HTTP endpoints and wire shapes, the local key/session store, the Ed25519
 signing model and its domain strings, and the owner-name grammar. (`mfb pkg add`

@@ -24,9 +24,13 @@ The object-plan builder is invoked in two situations:
   selection writes `<project>.nobj` (the builder result serialized to JSON).
   Normal executable builds do not write this file.
 
-Because the object plan is a parallel model and not an input to the linker, any
-change to symbol naming, section layout, or relocation kinds must be reflected in
-*both* the object-plan model and the linker to keep the gate meaningful.
+The object model describes structural relationships, not the final byte layout.
+For example, the Linux model uses a fixed `image_base` and one RX segment while
+the dynamic ELF writer emits a PIE with separate protection regions. Windows
+uses a synthetic `_start` entry in this model; the encoded image uses `_main`.
+Final offsets, protections, and container metadata are determined by the linker.
+[[src/os/linux/object.rs:lower_plan]] [[src/os/windows/object.rs:lower_plan]]
+[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 ## Shape
 
@@ -34,14 +38,15 @@ change to symbol naming, section layout, or relocation kinds must be reflected i
 [[src/os/macos/object.rs]] [[src/os/linux/object.rs]]
 
 ```text
-target            "macos-aarch64" | "linux-aarch64" | "linux-x86_64" | "linux-riscv64"
-container         "mach-o" | "elf"
+target            "macos-aarch64" | "linux-aarch64" | "linux-x86_64" | "linux-riscv64" | "windows-x86_64"
+container         "mach-o" | "elf" | "pe"
 status            "planOnly"
-entry             "_main"
+entry             "_main" (macOS/Linux), "_start" (Windows)
 image_base        VM base address
 dylibs            referenced libraries (macOS; empty on Linux)
+dlls              referenced DLLs (Windows, instead of dylibs)
 load_commands     planned Mach-O load commands (macOS)
-segments          planned segments with vm/file ranges
+segments          planned segments with vm/file ranges (macOS/Linux)
 sections          planned sections with offset/size/align
 code_units        one per function: symbol, size, operations, calls, data refs
 data_units        one per data object: symbol, size, value
@@ -52,7 +57,7 @@ symbol_table      name/kind/section/value/string-table-offset entries
 string_table      symbol string table
 relocations       from/to/kind/section records
 ```
-[[src/os/linux/object.rs:NativeObjectPlan]]
+[[src/os/linux/object.rs:NativeObjectPlan]] [[src/os/windows/object.rs:NativeObjectPlan]]
 
 The JSON form is tagged `"mfb-native-object-plan"`, version 2. A call's
 `CallKind` maps to an object-plan relocation kind: `Local` and `Runtime` become
@@ -73,7 +78,9 @@ error-message references are recorded as `dataReference` relocations.
   is an ELF container, and nothing at this layer varies by instruction set.
   [[src/os/linux/object.rs:validate]]
 - `container` is the expected format and `status` is `"planOnly"`.
-- The entry symbol `_main` is present in `defined_symbols`.
+- Windows accepts only `"windows-x86_64"` with container `"pe"`.
+- The model entry (`_main` on macOS/Linux, `_start` on Windows) is present in
+  `defined_symbols`. [[src/os/windows/object.rs:validate]]
 - `defined_symbols` has no duplicates (and, on macOS, `dylibs` has no
   duplicates).
 - Every relocation's source is a defined symbol, and its target is defined,

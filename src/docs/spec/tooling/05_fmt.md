@@ -12,8 +12,8 @@ re-indented, while a **continuation** line keeps its original leading whitespace
 and has only its trailing whitespace stripped — which is also why "no tabs in
 output" holds for computed indentation but not for a continuation line whose
 preserved leading whitespace already contained one. `END LINK` is emitted as
-hardcoded uppercase, unlike `END FUNC`, which passes through with its original
-casing. [[src/fmt.rs:format_link_block]]
+hardcoded uppercase, unlike `END FUNC` **inside a LINK block**, which keeps
+its original casing. Ordinary MFBASIC `END FUNC` is keyword-normalized. [[src/fmt.rs:format_link_block]]
 
 This topic owns the reimplementable normalization rules. The CLI surface that
 drives them — argument parsing, file selection, exit codes — is summarized below
@@ -31,7 +31,7 @@ AST and never parses expressions. As a consequence:
 - Identifiers, package members (`pkg::name`), and field accesses (`value.field`)
   are left untouched even when they spell a keyword.
 - A malformed or partially-written line is still re-emitted (its keywords cased,
-  its text otherwise intact); the formatter does not reject input. [[src/fmt.rs:scan_line]]
+  its text otherwise intact); the formatter rejects only nesting beyond its cap. [[src/fmt.rs:scan_line]]
 
 ## Top-level line model
 
@@ -55,20 +55,14 @@ may still contain one (see above). [[src/fmt.rs:indent_str]]
 The block stack (and the LINK DSL's own `depth`) may hold at most
 `MAX_NESTING_DEPTH` = 1024 open frames. The line whose opener pushes past that
 makes `format_source` return `FormatError::NestingTooDeep { line }` (1-based)
-instead of output. Without the cap every line cost `depth × indent_width` bytes,
-so a deeply nested or hostile source inflated quadratically (336 KB → 512 MB,
-1.3 MB → 8.2 GB) before being written back over the user's file (bug-502). The
-parser rejects any program past 256 statement blocks, and the formatter counts
-frames the parser does not (`MATCH` + `CASE`, `TESTING`/`TGROUP`/`TCASE`, the
-LINK DSL's nesting), so the cap is four times that and refuses no program that
-builds. Together with the `--indent` bound, a line carries at most
-`1024 × 256` bytes of indentation. [[src/fmt.rs:MAX_NESTING_DEPTH]]
+instead of output. Together with the `--indent` bound, a line carries at most
+`1024 × 256` bytes of generated indentation. [[src/fmt.rs:MAX_NESTING_DEPTH]]
 [[src/fmt.rs:FormatError]]
 
 ### Trailing newline
 
-The joined output always ends in exactly one `\n`: if the last emitted line does
-not already end in a newline, one is appended. An empty input string returns an
+The joined output ends in at least one `\n` for non-empty input: if the last emitted line does
+not already end in a newline, one is appended. Existing trailing blank lines are preserved. An empty input string returns an
 empty string (no newline added). [[src/fmt.rs:format_source]]
 
 ## Per-line scanning and keyword casing
@@ -175,9 +169,7 @@ The op set is: [[src/fmt.rs:Op]]
 opener. `TGROUP` and `TCASE` are **contextual identifiers** — they never scan as
 keywords — so they are recognized word-wise from the start of a line by
 `contextual_block_opener`; their `END TGROUP` / `END TCASE` closers reach the
-ordinary `END` handling. Before bug-348 none of the three was modelled, so nothing
-was pushed while the `END` lines still popped, and every line of every `TESTING`
-block printed at column 0.
+ordinary `END` handling.
 
 ### How a line's indent is chosen
 
@@ -230,7 +222,7 @@ Two `FUNC` shapes declare no body and open no block: [[src/fmt.rs:classify]]
 
 - **Re-export alias** `[vis] FUNC name AS pkg::member` — decided from the
   logical line's text by `is_func_alias`, which applies the parser's own test
-  (`check_top_level_func_alias`, bug-480). The shape is ambiguous with a
+  (`check_top_level_func_alias`). The shape is ambiguous with a
   parameterless function whose return type is qualified: it is an alias only
   when `pkg::member` names neither a built-in type
   (`qualified_builtin_type`) nor a built-in resource
@@ -297,9 +289,7 @@ text and casing preserved.
 [[src/fmt.rs:format_link_block]]
 
 The `BIND IN` opener is matched on **both** words, not on `BIND` alone: `BIND STATE`
-is a single line with no body and must not open a block. Before bug-356 neither
-`CSTRUCT` nor `BIND IN` was recognized, so both bodies printed at the enclosing
-depth — silently de-indenting them one level on any source containing them.
+is a single line with no body and does not open a block.
 
 ## CLI: flags, selection, exit codes
 
@@ -331,10 +321,10 @@ writes the formatted text in full to a sibling temporary
 (`.<name>.mfb-fmt-<pid>.tmp`), syncs it, copies the original's permission bits,
 and renames it over the original; any failure removes the temporary and leaves
 the original byte-for-byte intact, so an interrupted or out-of-memory run cannot
-truncate the source (bug-502). The path is canonicalized first, so a symlinked
+truncate the source. The path is canonicalized first, so a symlinked
 source keeps write-through semantics, and the original is opened for writing
 (without truncation) before anything is created, so a read-only file fails with
-the same permission error as before. [[src/cli/fmt.rs:replace_contents]]
+a permission error. [[src/cli/fmt.rs:replace_contents]]
 
 In `--check` mode, when one or more files would change, the formatter emits the
 general diagnostic **`FMT_CHECK_FAILED`** (code `2-200-0101`, severity Error,

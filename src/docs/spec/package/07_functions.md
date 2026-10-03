@@ -9,7 +9,7 @@ FunctionEntry[functionCount]
 
 ## Function entry
 
-The function entry retains the **legacy flat-machine layout** from before function bodies moved to the `IR` section. The body-carrying fields are now inert, but the fields themselves are still written and read, so an implementer must account for all of them:
+The function entry stores signature metadata and reserved body-location, register, source-map, and cleanup fields. All fields shown below are written and read: [[src/binary_repr/writer.rs:encode_functions]]
 
 ```text
 name            stringId
@@ -43,7 +43,7 @@ repeated cleanupCount times:      (cleanup table — currently empty)
   flags             u32
 ```
 
-Because function bodies are carried by the `IR` section as structured Binary Representation, the function table records **zero-length** code regions and the producer (`lower_function`) builds every function with an **empty register table and empty cleanup table** (`registers: Vec::new()`, `cleanups: Vec::new()`). The reader rejects any entry whose `codeLength` is non-zero (`flat function code stream is no longer supported`). So while the register/`sourceMap`/cleanup fields are present in the byte layout for compatibility, they are always `0`/`0xFFFFFFFF`/empty in current output: a function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are represented directly as nested Binary Representation nodes, not via these tables.
+Because function bodies are carried by the `IR` section as structured Binary Representation, the function table records **zero-length** code regions and the producer (`lower_function`) builds every function with an **empty register table and empty cleanup table** (`registers: Vec::new()`, `cleanups: Vec::new()`). The reader supplies an empty code slice and rejects any nonzero `codeOffset` or `codeLength` at the range check (`truncated function code`). [[src/binary_repr/reader.rs:read_function_table]] So while the register/`sourceMap`/cleanup fields are present in the byte layout for compatibility, they are always `0`/`0xFFFFFFFF`/empty in current output: a function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are represented directly as nested Binary Representation nodes, not via these tables.
 
 Function kinds:
 
@@ -58,11 +58,11 @@ Function flags (u16):
 ```text
 bit 1 = private
 bit 2 = isolated
-bit 3 = reserved (retired by plan-159-D; never written, rejected on read)
+bit 3 = reserved (never written, rejected on read)
 bit 5 = returnsNothingOnSuccess
 ```
 
-There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr/sections.rs:is_exported_function]] A function declared to return `Nothing` sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused. Bit 3 marked the value-less callable kind plan-159-D removed; the reader rejects a function record that sets it, with the same rebuild-the-package error as export kind `2`. [[src/binary_repr/reader.rs:retired_sub_error]]
+There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr/sections.rs:is_exported_function]] A function declared to return `Nothing` sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused. The reader rejects a function record that sets bit 3, with the same rebuild-the-package error as export kind `2`. [[src/binary_repr/reader.rs:retired_sub_error]]
 
 The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. Whether a function contains a trap is read directly from its Binary Representation body (a `Trap` region), not from a flag/PC pair.
 

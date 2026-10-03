@@ -31,7 +31,7 @@ are enumerated by `target::shared::abi::immediate_class`.
 ```text
 NirModule {
   target          : String                  // e.g. "macos-aarch64"
-  build_mode       : NativeBuildMode          // console | macos-app
+  build_mode       : NativeBuildMode          // console | macos-app | linux-app | windows-app
   project          : String
   entry            : Option<NirEntryPoint>
   globals          : Vec<NirGlobal>
@@ -40,6 +40,12 @@ NirModule {
   runtime_helpers  : Vec<RuntimeHelper>     // helper groups this module needs
   functions        : Vec<NirFunction>
   link_functions   : Vec<IrLinkFunction>    // carried verbatim from IR
+  link_cstructs    : Vec<IrCStruct>
+  native_resources : Vec<IrNativeResource>
+  native_libraries : NativeLibraryTable
+  stdin_log_cap   : u64
+  max_buffer_bytes : u64
+  debug           : DebugOptions
 }
 ```
 
@@ -106,7 +112,7 @@ name). [[src/target/shared/nir/lower.rs:lower_value]]
 | `Capture` | `capture` | `index`, `type`, `byRef` (emitted only when true) |
 | `Call` | `call` | `target`, `args[]` — user fn or native-direct builtin |
 | `CallResult` | `callResult` | `target`, `args[]` — fallible call returning a Result |
-| `Checked` | `checked` | `type`, `value` — evaluate `value` with its domain-error exits captured, yielding a `Result OF <type>`; the operator twin of `CallResult` (bug-471). `value` is call-free. |
+| `Checked` | `checked` | `type`, `value` — evaluate `value` with its domain-error exits captured, yielding a `Result OF <type>`; the operator twin of `CallResult`. `value` is call-free. |
 | `RuntimeCall` | `runtimeCall` | `helper`, `target`, `args[]` — **NIR-only**, builtin routed to a runtime helper |
 | `Constructor` | `constructor` | `type`, `args[]` |
 | `UnionWrap` | `unionWrap` | `union`, `member`, `value` |
@@ -116,6 +122,7 @@ name). [[src/target/shared/nir/lower.rs:lower_value]]
 | `ResultError` | `resultError` | `value` |
 | `WithUpdate` | `with` | `type`, `target`, `updates[]` (`field`/`value`) |
 | `ListLiteral` | `list` | `type`, `values[]` |
+| `SetLiteral` | `set` | `type`, `values[]` |
 | `MapLiteral` | `map` | `type`, `entries[]` (`key`/`value`) |
 | `MemberAccess` | `memberAccess` | `target`, `member` |
 | `Binary` | `binary` | `op`, `left`, `right` |
@@ -140,8 +147,7 @@ adding a `NirOp`/`NirValue` variant is a compile error in the one `walk_*`
 function rather than a silent gap across the many collectors. The `walk_op`
 recursion for `Match` visits the scrutinee, the pattern's values, the
 `WHEN … WHERE` **guard**, and the body — walking the guard is a load-bearing
-invariant (a runtime call or platform import used only in a guard still executes;
-see bug-118, bug-328). The IR value tree has the analogous depth-bounded
+invariant: a runtime call or platform import used only in a guard still executes. The IR value tree has the analogous depth-bounded
 `visit_value`/`visit_value_mut` seam beside `IrValue` in
 [[src/ir/value.rs]]. A rewriting pass over NIR uses the mutable twin,
 `walk_ops_values_mut` / `walk_value_mut` (children before parents, the same
@@ -163,25 +169,25 @@ The one semantically interesting rewrite happens in `lower_value` for
    [[src/target/shared/runtime/usage.rs:is_native_direct_call]]
 2. Otherwise `helper_for_call(target)` -> if it returns a `RuntimeHelper`,
    rewrite to `NirValue::RuntimeCall { helper, target, args, loc }`. The helper
-   is one of `Crypto`, `Datetime`, `Fs`, `General`, `Io`, `Math`, `Net`, `Os`,
-   `Strings`, `Term`, `Thread`, `Tls`; the symbol the backend calls is
+   families are listed in `./mfb spec architecture native`; the symbol the backend calls is
    `_mfb_rt_<helper>_<sanitized-target>` (`./mfb spec memory runtime-helper-abi`).
    [[src/target/shared/runtime/mod.rs:helper_for_call]]
    [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 3. Otherwise (a user function) -> stay `NirValue::Call`; the backend mangles
    `target` to `_mfb_fn_…` at code-gen time.
 
-`CallResult` is never re-routed here — it is copied straight through as a
-fallible call (`./mfb spec memory fallible-call-abi`).
+`CallResult` retains its fallible-call form while receiving the same
+default-argument fixups as `Call` (`./mfb spec memory fallible-call-abi`).
 
 ### Builtin default-argument rewrites
 
-Two builtins get a synthetic trailing argument synthesized during lowering, so
-the backend always sees a fixed arity: [[src/target/shared/nir/lower.rs:lower_value]]
+Filesystem calls receive omitted trailing arguments in both `Call` and
+`CallResult` lowering: [[src/target/shared/nir/lower.rs:apply_default_args]]
 
 ```text
 fs.openFile(path)          -> append Const String "read"         (mode default)
 fs.openFileNoFollow(path)  -> append Const String "read"
+fs.openWithin(root, path)  -> append Const String "read"
 fs.createTempFile()        -> append RuntimeCall fs.tempDirectory  (dir default)
 ```
 
@@ -191,7 +197,10 @@ The injected `fs.tempDirectory` is itself a `RuntimeCall` (helper `Fs`), so the
 ## Symbol mangling
 
 NIR is where final link symbols are assigned. All fragments are sanitized by
-`symbol_fragment`: every character outside `[A-Za-z0-9_]` becomes `_`.
+`symbol_fragment`: every byte outside `[A-Za-z0-9]`, including `_`, becomes
+`_XX` with uppercase hexadecimal digits. Runtime helpers instead use
+`symbol_for_call`, which replaces non-alphanumeric/non-underscore characters
+with `_`. [[src/target/shared/runtime/mod.rs:symbol_for_call]]
 [[src/target/shared/nir/symbols.rs:symbol_fragment]]
 
 | Entity | Helper | Form |
@@ -201,7 +210,7 @@ NIR is where final link symbols are assigned. All fragments are sanitized by
 | Global | `global_symbol` | `_mfb_global_<fragment(project)>_<fragment(name)>` |
 | Global initializer | `global_initializer_name` | `__mfb_init_globals_<fragment(project)>` |
 | Runtime helper call | (backend) | `_mfb_rt_<helper>_<sanitized(target)>` |
-| `LINK` thunk | `link_thunk_symbol` | `_mfb_linker_<sanitize(alias)>_<sanitize(name)>` |
+| `LINK` thunk | `link_thunk_symbol` | `_mfb_linker_<escaped(alias)>_<escaped(name)>` (the same byte-escape rule) |
 | `LINK` init | `LINK_INIT_SYMBOL` | `_mfb_linker_init` |
 
 `function_symbol` keys off `internal_name::strip_sigil`: a sigil-prefixed
@@ -224,7 +233,8 @@ the bare alias name. [[src/target/shared/nir/lower.rs:link_routing_imports]]
 [[src/target/shared/nir/mod.rs:link_thunk_symbol]]
 
 `LINK_INIT_SYMBOL` (`_mfb_linker_init`) names the per-program load-time
-initializer that runs `dlopen`/`dlsym` before `main`.
+initializer that resolves native libraries and symbols before `main`
+through the selected platform loader.
 [[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] See `./mfb spec linker
 package-linking` and `./mfb spec language native-libraries`.
 
@@ -246,19 +256,19 @@ are intentionally dropped; `Capture.byRef` is emitted only when true.
   "entry": { "name": "main", "returns": "Nothing", "accepts_args": false },
   "globals": [
     { "name": "counter", "symbol": "_mfb_global_demo_counter",
-      "visibility": "private", "mutable": true, "type": "Int", "value": null }
+      "visibility": "private", "mutable": true, "type": "Integer", "value": null }
   ],
   "types": [
     { "kind": "type", "visibility": "public", "name": "Point",
-      "fields": [ { "visibility": null, "name": "x", "type": "Int" } ] }
+      "fields": [ { "visibility": null, "name": "x", "type": "Integer" } ] }
   ],
   "imports": [
     { "package": "link", "name": "libm.cbrt", "symbol": "_mfb_linker_libm_cbrt",
       "kind": "func", "isolated": false, "params": [], "returns": "" }
   ],
-  "runtimeHelpers": ["io", "strings"],
+  "runtimeHelpers": ["io"],
   "functions": [
-    { "name": "main", "visibility": "public", "kind": "sub",
+    { "name": "main", "visibility": "public", "kind": "func",
       "isolated": false, "params": [], "returns": "Nothing",
       "body": [
         { "op": "eval", "value": {
@@ -270,7 +280,7 @@ are intentionally dropped; `Capture.byRef` is emitted only when true.
 }
 ```
 
-`"buildMode"` reflects `NativeBuildMode::as_str()` (`console` or `macos-app`).
+`"buildMode"` reflects `NativeBuildMode::as_str()` (`console`, `macos-app`, `linux-app`, or `windows-app`).
 `union` types serialize with `includes`/`variants` and `enum` types with
 `members` instead of `fields`. [[src/target/shared/nir/json.rs:to_json]]
 

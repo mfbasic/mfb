@@ -39,13 +39,51 @@ LET RAIN_LABELS AS List OF String = ["Light", "Moderate", "Heavy", "Extreme"]
 
 LET RAIN_LABEL_POSITIONS AS List OF Float = [0.05, 0.35, 0.65, 0.95]
 
-' The precipitation rate at one place and forecast moment, in millimetres an
-' hour. The blend of two hours can dip a hair below zero where one of them is
-' dry, so it is held at zero.
+' Cubic B-spline weights for four neighbouring grid samples. They stay
+' nonnegative and sum to one: smoothing cannot introduce negative rain or
+' overshoot the neighbouring rates. Isolated peaks are softened deliberately.
+FUNC rainWeights(fraction AS Float) AS List OF Float
+  LET t AS Float = fraction
+  LET t2 AS Float = t * t
+  LET t3 AS Float = t2 * t
+  LET back AS Float = 1.0 - t
+  RETURN [back * back * back / 6.0, (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0, (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0, t3 / 6.0]
+END FUNC
+
+' Smooth the rain field before applying its logarithmic colour and opacity
+' scales. Bilinear sampling leaves sharp ridges along grid rows and columns
+' around isolated wet cells; the cubic weights join with continuous slopes.
+' Longitude wraps at the seam; latitude repeats the edge row at either pole.
+FUNC sampleRain(f AS Field, g AS Geo) AS Float
+  LET columns AS Float = toFloat(f.ni)
+  MUT x AS Float = (g.lon - f.lon1) / f.dlon
+  x = x - columns * toFloat(math::floor(x / columns))
+  LET y AS Float = math::clamp((f.lat1 - g.lat) / f.dlat, 0.0, toFloat(f.nj - 1))
+  LET column AS Integer = math::floor(x)
+  LET row AS Integer = math::floor(y)
+  LET wx AS List OF Float = rainWeights(x - toFloat(column))
+  LET wy AS List OF Float = rainWeights(y - toFloat(row))
+
+  MUT total AS Float = 0.0
+  FOR dy = 0 TO 3
+    LET j AS Integer = math::clamp(row + dy - 1, 0, f.nj - 1)
+    MUT across AS Float = 0.0
+    FOR dx = 0 TO 3
+      LET i AS Integer = (column + dx - 1 + f.ni) MOD f.ni
+      LET rate AS Float = math::max(collections::get(f.values, j * f.ni + i), 0.0)
+      across = across + rate * collections::get(wx, dx)
+    NEXT
+    total = total + across * collections::get(wy, dy)
+  NEXT
+  RETURN total
+END FUNC
+
+' The smoothed precipitation rate at one place and forecast moment, in
+' millimetres an hour, blended between the neighbouring forecast hours.
 FUNC precipitationBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Float
-  LET a AS Float = sampleField(earlier.precipitation, g)
+  LET a AS Float = sampleRain(earlier.precipitation, g)
   IF mix <= 0.0 THEN RETURN math::max(a, 0.0) * 3600.0
-  LET b AS Float = sampleField(later.precipitation, g)
+  LET b AS Float = sampleRain(later.precipitation, g)
   RETURN math::max(a + (b - a) * mix, 0.0) * 3600.0
 END FUNC
 
@@ -117,9 +155,9 @@ FUNC rainGradient(bottom AS Float, top AS Float) AS canvas::Gradient
   RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops]
 END FUNC
 
-' The key, in a panel whose top right corner is at (right, top), drawn at a
+' The key, in a panel whose top left corner is at (left, top), drawn at a
 ' text size of `size`: a title over a colour bar with the categories beside it.
-FUNC precipitationKey(face AS canvas::Font, size AS Float, right AS Float, top AS Float) AS List OF canvas::DrawItem
+FUNC precipitationKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) AS List OF canvas::DrawItem
   LET title AS String = "Precipitation"
   LET titleSize AS Float = size * 1.05
   LET labelSize AS Float = size * 0.95
@@ -142,7 +180,6 @@ FUNC precipitationKey(face AS canvas::Font, size AS Float, right AS Float, top A
   LET lastAt AS Float = collections::get(RAIN_LABEL_POSITIONS, len(RAIN_LABEL_POSITIONS) - 1)
   LET barHeight AS Float = labelSpan / (lastAt - firstAt)
 
-  LET left AS Float = right - width
   LET dividerY AS Float = top + pad + titleSize * 1.15
   LET barTop AS Float = dividerY + pad
   LET barBottom AS Float = barTop + barHeight
@@ -150,7 +187,7 @@ FUNC precipitationKey(face AS canvas::Font, size AS Float, right AS Float, top A
 
   MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
   LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := right, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad

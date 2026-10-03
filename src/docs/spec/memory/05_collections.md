@@ -1,7 +1,9 @@
 # Collections
 
-One uniform contiguous layout represents `List`, `Map`, and `Set`: a header, a
-lookup table, and a packed data region.
+A collection owns a contiguous block with a header and data region.
+Variable-width lists, maps and sets also carry lookup entries; fixed-width
+lists omit them. Maps and sets reserve a hash-bucket region.
+[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
 ## Collection String Payloads
 
@@ -19,7 +21,7 @@ storage itself remains packed bytes.
 
 ## Collection Layout
 
-Collections use one uniform layout for `List` and `Map`.
+The collection kind determines which regions are present.
 
 ```text
 CollectionHeader
@@ -28,7 +30,7 @@ CollectionHeader
   U8 valueType
   U8 flagsVersion
   U8 bucketsReady    ; Map hash index built? 0 = no (rebuild lazily), 1 = yes
-  U24 deadEntries    ; Map/Set tombstones inside count (0 for List); see Map Hash Index
+  U24 deadEntries    ; Map/Set tombstones inside count; unused for List
   U64 count          ; lookup entries in use (live + deadEntries)
   U64 capacity       ; lookup entry capacity
   U64 dataLength     ; used bytes in data region
@@ -45,7 +47,7 @@ LookupEntry[capacity]   ; absent entirely when kind = 2
 Data[dataCapacity]
   packed key and value payload bytes
 
-Buckets[2 * capacity]   ; Map only (List reserves none); see Map Hash Index
+Buckets[2 * capacity]   ; Map and Set only; see Map Hash Index
   U64                   ; entryIndex + 1, or 0 = empty
 ```
 
@@ -76,15 +78,15 @@ carries a key offset that is not derivable from the index.
 
 The layouts differ only in the entry array:
 
-| | kind 0 | kind 2 |
-|---|---|---|
-| element address | `Data + entry[i].valueOffset` | `Data + i * payloadSize` |
-| data region base | `block + 40 + capacity*40` | `block + 40` |
-| block size | `40 + capacity*40 + dataCapacity` | `40 + dataCapacity` |
+|                  | kind 0                            | kind 2                   |
+|------------------|-----------------------------------|--------------------------|
+| element address  | `Data + entry[i].valueOffset`     | `Data + i * payloadSize` |
+| data region base | `block + 40 + capacity*40`        | `block + 40`             |
+| block size       | `40 + capacity*40 + dataCapacity` | `40 + dataCapacity`      |
 
-The saving is the whole entry array: a `List OF Byte` costs `40 + N` bytes
-rather than `40 + 41N`. Measured on a 16 MiB byte list, peak RSS falls from
-674 MB to 33 MB.
+A tight `List OF Byte` with `N` elements occupies `40 + N` bytes before
+arena granule rounding.
+[[src/codegen/collection/layout/builder_collection_layout.rs:list_element_is_fixed_width]]
 
 Two constraints on any implementation:
 
@@ -117,15 +119,15 @@ Because a set is map-shaped it carries buckets exactly as a map does — the
 bucket region is shared through `collection_has_buckets`, which is true for both
 kind 1 and kind 3 — so membership (`collections::contains` on a `Set`) is an
 O(1)-average hash probe of the element key for a probe-eligible element type
-(`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, `String`) and a linear scan over
+(`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, `Nothing`, `String`) and a linear scan over
 the live lookup entries otherwise, with the index built lazily on first use and
 `bucketsReady` set exactly as for a map.
 [[src/codegen/engine/types/type_utils.rs:collection_has_buckets]]
 The lookup table stays insertion-ordered, so `FOR EACH` over a set and
 `collections::toList` visit the elements in insertion order, and a set literal
 `Set OF T { … }` builds a tight block (`capacity == count`) with each distinct
-element inserted once. Copy and thread transfer are shrink-to-fit and leave
-`bucketsReady = 0` for a lazy rebuild, exactly as for a map.
+element inserted once. A direct shrink-to-fit copy leaves `bucketsReady = 0` for a lazy rebuild,
+exactly as for a map; nested whole-block copies follow the rules below.
 
 ### Header Fields
 
@@ -137,21 +139,21 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
 - `flagsVersion` identifies the layout version and collection-level flags.
 - `bucketsReady` is `1` when a `Map`'s hash index (the `Buckets` array) is built
   and `0` otherwise; it is `0` on every fresh, copied, or grown map and set to `1`
-  the first time the index is probed (see *Map Hash Index*). It is unused (`0`)
+  the first time the index is probed (see *Map Hash Index*). It is unused
   for a `List`.
 - `deadEntries` (bytes 5..7, read as the `U32` at offset 4 shifted right by 8)
   is the number of **tombstones** among a `Map`/`Set`'s first `count` entries —
   entries an in-place removal flagged `REMOVED` and left in place (see *Map Hash
-  Index*, "Tombstones"). Every header construction writes the whole `U32` at
-  offset 4 as `0`. It is `0` for a `List`.
+  Index*, "Tombstones"). Map/Set header construction initializes the `U32` at offset 4 to `0`.
+  Lists do not use this metadata word.
   [[src/codegen/error/constants/error_constants.rs:COLLECTION_OFFSET_MAP_STATE]]
 - `count` is the number of lookup entries in use. For a `List` every one is live;
   for a `Map`/`Set` the length is `count - deadEntries`.
 - `capacity` is the number of lookup entries allocated. It may exceed `count`:
   the spare slots are working-buffer headroom (see *Capacity Headroom*). For a
   kind-2 list no entries are allocated, and `capacity` is the number of element
-  slots the `Data` region has room for — it still governs the data base and the
-  block size, so it remains meaningful with an entry stride of zero.
+  slots the `Data` region has room for; the data base is always `block + 40` and the
+  block size is `40 + dataCapacity`, independent of the entry capacity.
 - `dataLength` is the end of the used bytes in `Data`: every payload lies below
   it. For a variable-width list or a `Map`/`Set` it can exceed the sum of the live
   payload lengths, by the dead bytes an in-place length-changing `set` or an
@@ -163,21 +165,27 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
 size and alignment** columns are what a decoder strides by; they are not implied
 by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]
 
-| Type | Identifier | Payload | Align |
-|------|------------|---------|-------|
-| none/list key | 0 | — | — |
-| `Nothing` | 1 | 1 byte, always `0` | 1 |
-| `Boolean` | 2 | 1 byte | 1 |
-| `Integer` | 3 | 8 bytes | 8 |
-| `Float` | 4 | 8 bytes | 8 |
-| `Fixed` | 5 | 8 bytes | 8 |
-| `String` | 6 | 8-byte offset/pointer | 1 |
-| `Byte` | 7 | 1 byte | 1 |
-| `Money` | 8 | 8 bytes | 8 |
-| `Scalar` | 9 | **4 bytes** | **4** |
-| `List` | 20 | inlined block | 8 |
-| `Map` | 21 | inlined block | 8 |
-| user-defined object | 22 | inlined block | 8 |
+| Type                | ID | Payload            | Align |
+|---------------------|----|--------------------|-------|
+| none/list key       | 0  | —                  | —     |
+| `Nothing`           | 1  | 1 byte, always `0` | 1     |
+| `Boolean`           | 2  | 1 byte             | 1     |
+| `Integer`           | 3  | 8 bytes            | 8     |
+| `Float`             | 4  | 8 bytes            | 8     |
+| `Fixed`             | 5  | 8 bytes            | 8     |
+| `String`            | 6  | `valueLength` (or `keyLength`) UTF-8 bytes | 1 |
+| `Byte`              | 7  | 1 byte             | 1     |
+| `Money`             | 8  | 8 bytes            | 8     |
+| `Scalar`            | 9  | **4 bytes**        | **4** |
+| `List`              | 20 | inlined block or pointer, by payload type | 8 |
+| `Map`               | 21 | inlined block or pointer, by payload types | 8 |
+| other types (including `Set`, records, enums, functions and resources) | 22 | type-directed | type-directed |
+
+The object identifier does not distinguish an inlined block from a scalar
+or pointer payload. The statically known element/key/value type supplies that
+classification and alignment.
+[[src/codegen/engine/types/type_utils.rs:collection_type_code]]
+[[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]
 
 > **A `Nothing` payload is the constant byte `0`.** The unit type has one value, so every
 > stored payload is identical. A store writes `0` whatever register the value arrived in,
@@ -194,16 +202,12 @@ by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLL
 > *different*, independently numbered id space for the same types — see
 > `./mfb spec package type-table`. The two must not be read into one another.
 
-User-defined, generic, nested, or future extended types may require an extended
-type table; that extension must preserve the fixed header size through
-`flagsVersion` or an explicitly versioned layout.
-
 ### Lookup Entry Fields
 
 - `flags` includes at least a used/deleted state. Every live entry is `used`
   (`1`). An in-place `Map`/`Set` removal marks the entries it takes out `2`
-  (`COLLECTION_ENTRY_FLAG_REMOVED`) and drops them before the statement ends, so
-  no value ever holds one.
+  (`COLLECTION_ENTRY_FLAG_REMOVED`). Tombstones can remain in a mutable
+  binding or field until a settling read or compaction; see *Map Hash Index*.
   [[src/codegen/error/constants/error_constants.rs:COLLECTION_ENTRY_FLAG_REMOVED]]
 - `keyOffset` and `keyLength` identify the map key payload in `Data`.
 - `valueOffset` and `valueLength` identify the list item or map value payload in
@@ -227,7 +231,7 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
 - **Size and addressing.** `Buckets` has `2 * capacity` `U64` slots (load factor
   ≤ 0.5), based at `header + capacity*entryStride + dataCapacity`. Each slot holds
   `entryIndex + 1`, or `0` for empty. A key's home slot is a pure function of its
-  stored key bytes, chosen by their **length** (bug-770), and linear probing
+  stored key bytes, chosen by their **length**, and linear probing
   walks on from it:
   - **8 bytes** (an `Integer`, `Float` or `Fixed` key, and a `String` key that
     happens to be 8 bytes long): the bytes read as one little-endian word `k`,
@@ -250,8 +254,9 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   [[src/codegen/collection/map/map_hash.rs:home_slot_of_key_bytes]]
   Equality is the byte-wise comparison over `keyLength` bytes — identical to the
   linear scan (the inline probe compares an 8-byte key as one word, which is the
-  same test), so `Float` keys still compare bitwise (`+0.0`≠`-0.0`, `NaN`=`NaN`)
-  and a `Fixed` compares by bit pattern.
+  same test), so `Float` keys compare bitwise (`+0.0` differs from `-0.0`; any NaN
+  bytes compare equal only to the identical bit pattern) and a `Fixed`
+  compares by bit pattern.
 - **The probe.** When the index is built, a lookup is inline at the call site:
   it computes the home slot and walks the linear-probe run itself, comparing each
   candidate's key, until a match or an empty slot. Only an unbuilt index
@@ -263,10 +268,11 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   the source of truth; the buckets are rebuildable from them. `bucketsReady` is
   `0` on every fresh allocation (and a fresh allocation's bucket bytes are
   uninitialized), so the index is built lazily on the first probe and `bucketsReady`
-  set to `1`. **Copy and thread transfer never copy the buckets verbatim**: a
-  shrink-to-fit copy/transfer reserves the (count-sized) bucket region and leaves
-  `bucketsReady = 0`, so the receiver recomputes against its own capacity — no
-  stale offsets, deterministic across the boundary.
+  set to `1`. **A shrink-to-fit collection copy does not copy buckets verbatim**: it
+  reserves the count-sized bucket region and leaves `bucketsReady = 0`, so
+  the destination recomputes against its own capacity. A collection embedded
+  in a larger flat block can instead travel with that block verbatim; its
+  preserved capacity keeps its bucket indices valid.
 - **Incremental maintenance.** In-place `set` inserts a new key into the buckets
   in O(1) when they are already built and invalidates (`bucketsReady = 0`) when a
   capacity grow moves/resizes the region, so building a map with repeated `set`
@@ -286,7 +292,7 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   bucket tombstone is needed and every surviving key stays reachable. What
   happens to the removed **entry** depends on where the map lives:
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_bucket_delete_helper]]
-- **Tombstones (bug-760 B1).** For a probe-eligible key type at a binding — a
+- **Tombstones.** For a probe-eligible key type at a binding — a
   local, a module-level global or a by-reference capture — the removed entry
   stays where it is, flagged `COLLECTION_ENTRY_FLAG_REMOVED`, and `deadEntries`
   counts it; nothing moves, so the removal costs the lookup plus O(1)
@@ -310,7 +316,7 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   parameter, a `RETURN`, a thread transfer or any other reader sees a map with no
   tombstones, and pays the pass only when removals left some — a reader that walks
   every entry anyway. A record or `STATE` field's map tombstones the same way
-  (bug-768): a read of the field settles it, and a read of the owner as a whole
+  — a read of the field settles it, and a read of the owner as a whole
   value — a copy, a callee's argument, a `RETURN`, a store, a thread transfer —
   settles every map the owner holds inline, in place, before the record's bytes
   are read; a scalar field read (`rec.before`) and the hash-lookup consumers above
@@ -328,7 +334,7 @@ payloads, `String` bytes, inlined record blocks, inlined data-union blocks, and 
 for **nested flat collections** (a `List`/`Map` whose own payloads
 are flat) as their full block (header + lookup table + data region) inlined by
 offset, `valueLength` = the block byte size. Because a collection's internal
-entry offsets are relative to its own base, an inlined nested collection
+entry offsets are relative to its own data-region base, an inlined nested collection
 relocates correctly under the enclosing block's `memcpy`. The **only** payloads
 that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
 collection (one whose own payloads include a resource or a recursive type) — see
@@ -341,7 +347,8 @@ same discipline as a scalar `Integer` word: the pointer is written verbatim on
 insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
 copied — the closure object it points at is **never deep-copied on insert and
 never freed when the collection is dropped**. A function value therefore
-matches the `List OF Integer` flatness class. `type_is_memcpy_copyable` is true for
+permits a memcpy-copyable container, although its list still uses kind 0
+with lookup entries, not the Integer list's kind 2. `type_is_memcpy_copyable` is true for
 a function type: the flatness walk sends `Func` to its model lookup, and a function
 type is not a record, a union or `Error`, so it takes the scalar answer. A
 `List`/`Map` of function values is therefore itself a flat block, which
@@ -365,12 +372,11 @@ lookup capacity, `dataCapacity = capacity × stride`, where the stride is the
 element width, or for a map entry the key and value each padded to their
 alignment. A variable-width payload's data bytes grow on their own step instead:
 start at 32, double until 64 KiB, then ×1.5. Either way data grows to at least
-what the operation needs. Stepping a fixed-width payload's data independently
-would let it drift to about 19 bytes per slot, whatever the width, because the
-grows the count triggers would step it too (bug-621).
+what the operation needs.
 [[src/codegen/collection/buffer/collection_buffer.rs:emit_fixed_width_data_capacity]]
 
-Headroom is a property of a **mutable working buffer, never of a value**:
+Headroom is retained by working buffers and bounded-output builders; ordinary
+value copies tighten the destination:
 
 - Because `LookupEntry[capacity]` precedes `Data`, the data region base is
   `header + capacity * entryStride` — **always derive it from `capacity`, never
@@ -383,11 +389,11 @@ Headroom is a property of a **mutable working buffer, never of a value**:
   native `toSet` (fixed-width elements) reserves `capacity = len(value)`, so a
   list with duplicates leaves `count < capacity` in the result.
   [[src/codegen/builtins/collections/func_to_set.rs:to_set_fast_path]]
-- Copying a collection value (pass-by-value, binding, embedding, thread
-  transfer) is **shrink-to-fit**: the copy is re-tightened to `capacity == count`
-  and `dataCapacity == dataLength`, so headroom never leaks into a snapshot or
-  across a thread boundary, and the "one contiguous `memcpy`" property holds over
-  the used prefix.
+- A collection copied through `copy_flat_block` is **shrink-to-fit**:
+  the destination has `capacity == count`
+  and `dataCapacity == dataLength`. Entries and data are copied separately
+  because their bases change when capacity changes. Maps and sets also reserve
+  destination buckets, which are rebuilt lazily.
 - One copy is a working buffer, not a value: a `List` that `get`/`getOr` binds
   to a `MUT` local whose very next statement is the in-place self-update
   `x = collections::append(x, item)` of a single element. That copy is made with
@@ -401,13 +407,21 @@ Headroom is a property of a **mutable working buffer, never of a value**:
   [[src/codegen/engine/analysis/append_headroom.rs:collect_append_headroom_binds]]
   [[src/codegen/collection/layout/builder_collection_layout.rs:copy_list_with_append_headroom]]
 
+Shrink-to-fit applies to the collection being copied, not recursively to every
+collection inside it. A whole-block copy of a record, union or `Result`, or
+verbatim copying of nested collection payload bytes, preserves those embedded
+headers and capacities. Likewise, embedding an existing block sizes it using
+its stored capacities. Such copies remain independent, but need not be tight.
+[[src/codegen/collection/layout/builder_collection_layout.rs:copy_flat_block]]
+[[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
+
 ### Payload Order
 
 Where there is a lookup table, it — not the data region — defines the sequence.
 Element `i`'s payload is located by `entry[i].valueOffset` and
 `entry[i].valueLength`, relative to the capacity-derived data base.
 
-For a **fixed-width element type** — `Boolean`, `Byte`, `Scalar`, `Integer`,
+For a **fixed-width element type** — `Nothing`, `Boolean`, `Byte`, `Scalar`, `Integer`,
 `Float`, `Fixed`, `Money` — payloads are additionally packed in **index order**:
 `entry[i].valueOffset == i * payloadSize` after every operation. This is the
 invariant that lets those types drop the table entirely (kind 2, above): an
@@ -422,12 +436,9 @@ correct. `prepend` and `insert` move payload bytes to maintain this, which for
 these types is *cheaper* than the alternative: the payload is 1–8 bytes where the
 lookup entry it would otherwise splice is 40.
 
-The distinction is now structural, not merely a property to be maintained. A
-fixed-width list is `kind = 2` and has no entry table to disagree with: index
-order is guaranteed **by construction**, and a linear reader cannot be wrong. A
-variable-width list is `kind = 0` and the hazard below applies in full. Half the
-element types are safe; the other half are exactly as dangerous as before, and a
-reader that handles "lists" uniformly is still wrong.
+A fixed-width list (`kind = 2`) stores elements in index order without an
+entry table. A variable-width list (`kind = 0`) requires lookup entries to
+recover element order.
 
 For a **variable-width element type** — `String`, records, unions, nested
 collections — payloads are **not necessarily in index order**, and a list
@@ -435,10 +446,8 @@ updated by an in-place `set` is **not necessarily dense** either: the data regio
 may hold unreferenced bytes between payloads. A reader **must not** assume
 element `i` begins at `dataBase + i * payloadSize`, must not assume a linear walk
 visits elements in index order, and must not take `dataLength` as the size of the
-live data. The permutation is a deliberate consequence of the offset-stable scheme
-(plan-01 §4.1): splicing the lookup table and appending the new payload to the
-data tail avoids recomputing every offset, which for a variable-width payload is
-the expensive part. The holes are the same trade made by `set` (bug-627).
+live data. Splicing the lookup table and appending new payloads to the data
+tail preserves existing payload offsets. Length-changing `set` can leave holes.
 `collections::sort` on a `List OF String` relies on the permutation directly — it
 swaps the fixed-size entry records and leaves the data region untouched.
 
@@ -456,17 +465,15 @@ running expected offset and take a normalizing fallback when they diverge, as
 index order, which normalizes as a side effect, as `transform`, `filter` and the
 range-index `slice` do.
 
-Note that `list_element_padding_alignment` returning 1 guarantees there are no
-*gaps* between payloads, not that they are in *order*. The two are independent,
-and conflating them is what made every linear reader wrong for permuted lists
-before this rule was written down (bug-365).
+An alignment of 1 requires no alignment padding; it guarantees neither
+index order nor the absence of dead bytes from prior mutations.
 [[src/codegen/collection/layout/builder_collection_layout.rs:list_element_is_fixed_width]]
 
 ## List Examples
 
 `List OF Integer = [10, 20]` — `Integer` is fixed-width, so this is a kind-2
-list with no lookup array. The whole block is 56 bytes; the kind-0 form below it
-would need 136.
+list with no lookup array. Its logical block size is 56 bytes; the arena
+rounds the allocation to 64 bytes.
 
 ```text
 Header:
@@ -481,37 +488,6 @@ Data:                     ; based at block + 40
   Integer(10)             ; element 0, at 0 * 8
   Integer(20)             ; element 1, at 1 * 8
 ```
-
-The same list under the kind-0 layout, which is what a *variable*-width element
-type gets and what every list looked like before kind 2 existed:
-
-```text
-Header:
-  kind = 0
-  ...
-  capacity = 2
-
-Lookup[0]:
-  flags = used
-  keyOffset = 0
-  keyLength = 0
-  valueOffset = 0
-  valueLength = 8
-
-Lookup[1]:
-  flags = used
-  keyOffset = 0
-  keyLength = 0
-  valueOffset = 8
-  valueLength = 8
-
-Data:                     ; based at block + 40 + 2*40
-  Integer(10)
-  Integer(20)
-```
-
-Both entries say only what the index already said — that is the redundancy
-kind 2 removes.
 
 `List OF String = ["hi", "bye"]`:
 
@@ -576,30 +552,34 @@ A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
 `copy_collection_tight`, which allocates exactly [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
 ```text
-CollectionHeader + LookupEntry[count] + Data[dataLength]
+List kind 0: CollectionHeader + LookupEntry[count] + Data[dataLength]
+List kind 2: CollectionHeader + Data[dataLength]
+Map or Set:  CollectionHeader + LookupEntry[count] + Data[dataLength]
+             + Buckets[2 * count]
 ```
 
-or, for a kind-2 list, `CollectionHeader + Data[dataLength]` — the same formula
-with an entry stride of zero, which is why the copy path needed no kind-specific
-case.
-
-(`capacity == count`, `dataCapacity == dataLength`) and copies the used prefix.
-Working-buffer headroom never leaks into a snapshot. The copy preserves snapshot
-ownership semantics, and over the tight used prefix it is a single contiguous
-memory copy.
+The new header sets `capacity == count` and `dataCapacity == dataLength`.
+The implementation copies used lookup entries and `dataLength` bytes in separate
+passes, deriving the source data base from source capacity and the destination
+base from count. Maps and sets start with `bucketsReady = 0`; bucket contents
+are not copied. Dead data bytes and payload permutations are preserved. For
+recursive element types, owning copies additionally copy their graph edges.
+[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+[[src/codegen/memory/arena/builder_arena_transfer.rs:own_collection_payload_edges]]
 
 ### `get`
 
 For a `List`, `collections::get(value, index)` validates `0 <= index < count`,
-reads `LookupEntry[index]`, then reads the payload at `Data + valueOffset` with
-`valueLength`. An out-of-range or negative index fails with `ErrIndexOutOfRange`.
+then reads `Data + index * payloadSize` for a kind-2 list. For a kind-0
+list it reads `LookupEntry[index]` and the payload at `Data + valueOffset`
+with `valueLength`. An out-of-range or negative index fails with `ErrIndexOutOfRange`.
 
 For a `Map`, `collections::get(value, key)` looks the key up through the *Map
 Hash Index* — an O(1)-average bucket probe that lazily builds the index on
 first use — then reads the matching entry's payload at `Data + valueOffset`;
-missing keys fail with `ErrNotFound`. The probe covers every scalar key type
-(`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, i.e. all valid map key
-types); any other key type falls back to a generic linear scan over the live
+missing keys fail with `ErrNotFound`. The probe covers
+`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, and `Nothing`;
+other admitted key types fall back to a generic linear scan over the live
 lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
 The result is an owned value (`mfb spec language memory-semantics` §14.6): an
@@ -705,9 +685,11 @@ threaded through a helper without copying:
   [[src/codegen/engine/control/builder_exits.rs:try_returned_field_store]]
   [[src/codegen/engine/analysis/handover.rs:returned_field_store_local]]
 
-A `String` is the exception at a `RETURN`: its block must be tight to leave the
-frame it was grown in, so a `String` returned from a helper is copied to its exact
-length. Every other property is unchanged. For the same reason there is nothing to
+A `String` carrying a capacity shadow is the exception at a `RETURN`: its
+block must be tight to leave the frame that tracks its capacity, so that return
+copies its exact length. A fresh tight String without a capacity shadow may
+move through the ordinary owned-return path.
+[[src/codegen/engine/control/builder_exits.rs:returned_move_admits]] For the same reason there is nothing to
 gain by handing a bare `String` argument over, and it is never handed over — see the
 calling convention, which also gives the soundness reason.
 
@@ -786,10 +768,10 @@ read `byteLength` bytes and hand on the tight form.
     also costs one graph copy of `item` per position, built before the first
     write. See [`repeat`](#repeat).
     [[src/codegen/collection/assign/builder_inplace_assign.rs:try_inplace_repeat_assign]]
-  - `removeAt` shifts the entries after the index down one slot and moves no
-    payload: it costs the entries after the index. On a variable-width list the
-    removed payload's bytes are retracted over when they are the data tail and
-    become dead bytes otherwise.
+  - `removeAt` shifts following payloads on a fixed-width list. On a
+    variable-width list it shifts following entries without moving surviving
+    payloads; the removed payload is retracted when it is the data tail and
+    otherwise becomes dead bytes. Its cost is linear in the following elements.
     [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at_in_place]]
   - `removeKey` and a `Set`'s `remove` on a local, global or by-reference
     binding, or on a record or `STATE` field, cost the lookup plus O(1)
@@ -935,8 +917,7 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
   same-size records/strings) the value bytes are overwritten at the entry's
   `valueOffset` in place: no allocation, no copy, offsets unchanged. A size
-  change on a variable-width element moves no other element's bytes or offset
-  (bug-627 — shifting them was O(N) per write):
+  change on a variable-width element moves no other element's bytes or offset:
   - a **shorter** payload is written at the entry's `valueOffset`; the bytes it
     no longer uses become a hole and `dataLength` is unchanged;
   - a **longer** payload whose old span ends at `dataLength` grows where it lies,
@@ -953,17 +934,18 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
   path.
 
   The value path checks the index against the argument before it allocates, so
-  a failing call leaves nothing behind (bug-782). A fixed-width element takes a
+  a failing call leaves no result allocation. A fixed-width element takes a
   tight copy (`copy_collection_tight`) and overwrites in place on the copy,
   after `emit_list_index_range_check`. Any other element runs `removeAt` then
   `insert`, and `removeAt` checks before it allocates.
   [[src/codegen/builtins/collections/func_set.rs:lower_set]]
   [[src/codegen/builtins/collections/gen_mutate.rs:emit_list_index_range_check]]
 - **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
-  `get` (linear-scan fallback for non-probe key types), which also lazily builds
-  the bucket index so a build-via-`set` loop stays O(n). A hit whose new
-  value fits overwrites in place; a hit whose value grew rebuilds
-  (`removeKey` + concat). A miss writes the key+value into a spare lookup slot and
+  `get` (linear-scan fallback for non-probe key types). A hit whose new
+  value fits overwrites in place. A larger value is appended to the data tail
+  and its entry repointed, leaving the old span dead; insufficient room first
+  triggers reclaim and, if still needed, geometric buffer growth. The key's
+  entry index and insertion position are retained. A miss writes the key+value into a spare lookup slot and
   the spare data tail — the entry packed exactly like a literal entry (key then
   value, each aligned to its payload alignment) — and bumps `count`/`dataLength`,
   growing the buffer geometrically (capacity stepped, `dataCapacity` sized from it
@@ -978,13 +960,13 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites run in place:
 the sort is a stable in-place O(n²)-comparison / O(1)-swap pass over a copy of the
-argument (the argument itself is never modified). That body is now only the
+argument (the argument itself is never modified). That body is the
 fallback: a copying `sort`/`sortBy` whose shape the 8-byte word merge declines
 (any record element, a `Float`/`Byte`/`Scalar` element, any key type the word merge
 does not take) copies the argument once — a tight copy, or the graph copy for a
 type-cycle element — and sorts that copy with the self-update arm's stable
 index-permutation merge, so it costs what `MUT s = xs` / `s = sortBy(s, keyFn)`
-costs (bug-767). The source body stays for a function that cannot take the
+costs. The source body stays for a function that cannot take the
 self-update scratch.
 [[src/codegen/collection/assign/builder_inplace_sort.rs:lower_copying_sort_by]]
 [[src/codegen/collection/assign/builder_inplace_sort.rs:lower_copying_sort]]
@@ -1000,14 +982,14 @@ dataLength`). When the source list's dead bytes outnumber its live ones, only it
 live payloads are copied, packed in entry order (see *Compaction*). No existing
 entry is shifted in place. The index is range-checked (`0 <= index <= count`,
 `ErrIndexOutOfRange`) before the inserted argument is normalized to a
-singleton list, so a failing call allocates nothing (bug-782).
+singleton list, so an invalid index allocates no result or singleton buffer.
 [[src/codegen/builtins/collections/func_insert.rs:lower_insert]] (A self-update `x = insert(x, …)` is the in-place form, under
 *Self-updates*.)
 
 ### `removeAt`
 
-`List` `removeAt` is **not** an in-place shift either, and leaves **no** dead
-space. `lower_list_remove_at` validates the index (`ErrIndexOutOfRange` on a bad
+The value form of `List` `removeAt` allocates a new block. It removes the
+selected payload's span but can retain dead bytes already present in the source. `lower_list_remove_at` validates the index (`ErrIndexOutOfRange` on a bad
 one) and allocates a fresh tight buffer sized for `count - 1` entries and
 `dataLength - removedValueLength` bytes. Removing one entry punches a **single
 contiguous hole** in the data region — the removed payload
@@ -1049,8 +1031,9 @@ count)`. `Map` and `Set` have no overload.
   tries the dead-byte reclaim (`emit_list_reclaim_before_grow`, see
   *Compaction*), then `newCapacity = max(step(capacity), target)` and the data
   capacity follows *Capacity Headroom and Growth* (tied to the capacity for a
-  fixed-width element), entries and data copied verbatim. The reservation is the
-  only allocation, so its `ErrOutOfMemory` is the only failure after validation.
+  fixed-width element), entries and data copied verbatim. For a non-recursive payload the reservation is the only allocation in
+  this core; recursive payload ownership can require additional graph copies
+  as described below.
   [[src/codegen/collection/list/list_repeat.rs:lower_list_repeat_in_place]]
 - **In-place path.** `x = collections::repeat(x, …)` runs the same core on `x`'s
   own block (see *Self-updates*): the operands are evaluated in source order
@@ -1122,11 +1105,9 @@ and their record-field forms) — the grow first totals the live bytes, an
 O(count) walk its own entry copy already pays for, and repacks when
 `dataLength > 2 * live`, or, while the entry table still has a free slot, when
 `dataLength > live` (any dead bytes at all). The second rule matters because a
-verbatim grow steps the entry `capacity` along with `dataCapacity` while a repack
-keeps `capacity` and sizes the data from the live bytes: without it, a list that
-holds a few elements but keeps overflowing its data alternated repack and
-verbatim grow and doubled its entry capacity every time. With it, a data-only
-overflow over dead bytes is always a repack; `capacity` grows only when the
+verbatim grow steps entry `capacity` along with `dataCapacity`, while a repack
+keeps entry capacity and sizes data capacity from live bytes. A data-only
+overflow over dead bytes therefore repacks; `capacity` grows only when the
 entries are full, and the data capacity stays within a constant factor of the
 live bytes. Both tests compare, never subtract (`live` counts entry-order
 alignment pads, which an out-of-order data region can undercut), and right after
@@ -1164,8 +1145,7 @@ index stays valid. The repack costs O(count + live), plus O(r log r) for `r`
 moved values, and runs only once as many bytes have died as are live. The test
 compares rather than subtracting `dataLength - live`: a packed map whose moved
 values sit last needs fewer alignment pads than the entry-order `live` counts, so
-after a repack `dataLength` can be below `live`, and the subtraction underflowed
-into a repack that repeated forever. The packed length is at most `2 * live`, so a
+after a repack `dataLength` can be below `live`, so subtracting would underflow. The packed length is at most `2 * live`, so a
 repack is never followed by another. Unlike a list repack the map reclaim does
 not shrink `dataCapacity`, so a map grow that follows it cannot cycle.
 [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_reclaim_helper]]
@@ -1176,17 +1156,10 @@ so it carries whatever dead bytes its source holds at that moment; it does not
 repack, and it does not grow.
 [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
-The only `dataCapacity`/`capacity` slack the layout ever carries is the
-**intentional** headroom of an in-place `MUT` append working buffer (see *Capacity
-Headroom and Growth*) — not garbage, and tightened away the moment the value is
-copied (shrink-to-fit). The spare-byte invariant — derive the data-region base
+`dataCapacity`/`capacity` slack comes from growing working buffers and
+builders that reserve an upper bound (see *Capacity Headroom and Growth*).
+An ordinary collection value copy tightens those capacities. The spare-byte invariant — derive the data-region base
 from `capacity`, never `count` — is what keeps that headroom unobservable.
-
-## Open Questions
-
-- Whether future layout versions should also inline the **non-flat** nested
-  collection payloads that still remain 8-byte pointer handles (flat nested
-  collections are already inlined).
 
 ## See Also
 

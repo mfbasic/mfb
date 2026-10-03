@@ -1,7 +1,7 @@
 # Internal Symbol Naming
 
-The built-in packages `json`, `regex`, and `collections` are injected into every
-build as MFBASIC **source**, so their private helpers live[[src/codegen/builtins/]]
+Built-in source companions such as `json`, `regex`, and `collections` are
+injected according to registry and parser gates, so their private helpers live[[src/codegen/builtins/]]
 in the same name space as user code. To keep those helpers from colliding with —
 or being impersonated by — symbols the user authors, the compiler rewrites them to
 an **unforgeable** sigil form during lexing and carries that form unchanged
@@ -93,12 +93,12 @@ treated as internal. [[src/internal_name.rs:strip_sigil]] [[src/target/shared/ni
 strip_sigil("#json_parse")  -> Some("json_parse")
 strip_sigil("__json_parse") -> None              (no sigil: user-typeable)
 
-function_symbol("#json_parse") -> "_mfb_ifn_json_parse"
+function_symbol("#json_parse") -> "_mfb_ifn_json_5Fparse"
 function_symbol("parse")       -> "_mfb_fn_parse"
 ```
 
-The `<fragment>` is produced by `symbol_fragment`, which maps every character
-outside `[A-Za-z0-9_]` to `_`. See `./mfb spec architecture native` for the native
+The `<fragment>` is produced by `symbol_fragment`, which escapes every byte
+outside `[A-Za-z0-9]`, including `_`, as `_XX` with uppercase hexadecimal digits. See `./mfb spec architecture native` for the native
 IR symbol model and `./mfb spec linker symbols-and-relocations` for the
 `_mfb_ifn_` / `_mfb_fn_` namespace catalog. [[src/target/shared/nir/symbols.rs:symbol_fragment]]
 
