@@ -1173,6 +1173,33 @@ mod tests {
         move |op| matches!(op, NirOp::Assign { name: target, value } if target == name && is_append_call(value))
     }
 
+    /// `name = append(name, <place>)`: an append of one particular place, for a
+    /// function that appends several different values to the same list.
+    fn appends_place_to(name: &'static str, place: Place) -> impl Fn(&NirOp) -> bool {
+        move |op| {
+            let NirOp::Assign {
+                name: target,
+                value,
+            } = op
+            else {
+                return false;
+            };
+            let NirValue::Call { args, .. } = value else {
+                return false;
+            };
+            if target != name || !is_append_call(value) {
+                return false;
+            }
+            match (&place, args.get(1)) {
+                (Place::Local(want), Some(NirValue::Local(got))) => want == got,
+                (Place::Field(base, field), Some(NirValue::MemberAccess { target, member })) => {
+                    member == field && matches!(target.as_ref(), NirValue::Local(b) if b == base)
+                }
+                _ => false,
+            }
+        }
+    }
+
     fn returns_value(op: &NirOp) -> bool {
         matches!(op, NirOp::Return { value: Some(_) })
     }
@@ -1646,11 +1673,32 @@ END FUNC
             member("nextc", "node"),
             1,
         );
-        expect(
-            "#regex_parseConcat",
-            &appends_to("parts"),
-            member("q", "node"),
-            2,
+        // bug-773 restructured the body: an atom reaches __regex_parseQuantSuffix
+        // only when a quantifier follows it, so `parts` receives the quantified node
+        // (`q.node`, three branches) or the atom itself (`pr.node` for a group,
+        // `atom.node` for `.`/`^`/`$`/a class/an escape, the local `lit` for a plain
+        // literal). Every one of the six must still be its value's last read.
+        for (place, count) in [
+            (member("q", "node"), 3),
+            (member("pr", "node"), 1),
+            (member("atom", "node"), 1),
+            (local("lit"), 1),
+        ] {
+            expect(
+                "#regex_parseConcat",
+                &appends_place_to("parts", place.clone()),
+                place,
+                count,
+            );
+        }
+        assert_eq!(
+            ops(
+                function(&module, "#regex_parseConcat"),
+                &appends_to("parts")
+            )
+            .len(),
+            6,
+            "`#regex_parseConcat`: every append to `parts` is one of the six above"
         );
     }
 
