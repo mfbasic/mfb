@@ -420,10 +420,31 @@ pub(super) fn dyld_info(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0);
 }
 
-pub(super) fn uuid_command(bytes: &mut Vec<u8>) {
+/// The `LC_UUID` every build without `--debug` carries.
+const CONSTANT_UUID: [u8; 16] = [0x4d, 0x46, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+pub(super) fn uuid_command(bytes: &mut Vec<u8>, uuid: Option<[u8; 16]>) {
     put_u32(bytes, 0x1b);
     put_u32(bytes, 24);
-    bytes.extend_from_slice(&[0x4d, 0x46, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    bytes.extend_from_slice(&uuid.unwrap_or(CONSTANT_UUID));
+}
+
+/// A `--debug` build's `LC_UUID` (plan-166): the first 16 bytes of SHA-256 over
+/// the code, the data and the symbol string table, with the RFC 4122 version-4
+/// and variant bits set. Symbolicators (`atos`, `sample`, lldb) key symbol
+/// caches by UUID, so two different programs must never share one; the same
+/// program built twice keeps the same UUID.
+pub(super) fn debug_uuid(code: &[u8], data: &[u8], strings: &[u8]) -> [u8; 16] {
+    let mut hasher = Sha256::new();
+    hasher.update(code);
+    hasher.update(data);
+    hasher.update(strings);
+    let digest = hasher.finalize();
+    let mut uuid = [0u8; 16];
+    uuid.copy_from_slice(&digest[..16]);
+    uuid[6] = (uuid[6] & 0x0f) | 0x40;
+    uuid[8] = (uuid[8] & 0x3f) | 0x80;
+    uuid
 }
 
 pub(super) fn build_version(bytes: &mut Vec<u8>) {

@@ -1876,3 +1876,48 @@ fn debug_symbols_image_with_imports_runs() {
     let status = std::process::Command::new(&path).status().expect("run");
     assert_eq!(status.code(), Some(0));
 }
+
+/// The 16 `LC_UUID` bytes of a Mach-O.
+fn mach_o_uuid(bytes: &[u8]) -> [u8; 16] {
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let mut command = 32;
+    for _ in 0..u32_at(16) {
+        if u32_at(command) == 0x1b {
+            return bytes[command + 8..command + 24].try_into().unwrap();
+        }
+        command += u32_at(command + 4) as usize;
+    }
+    panic!("LC_UUID must be present");
+}
+
+/// plan-166: a `--debug` build's UUID is derived from its contents, so two
+/// different programs never share one (symbolicators cache names by UUID), and
+/// rebuilding the same program keeps it. Without `--debug` it stays constant.
+#[test]
+fn debug_uuid_differs_between_images_and_is_stable() {
+    let first = mach_o_uuid(&encode_executable_bytes("dbg", &debug_image()).unwrap());
+    let again = mach_o_uuid(&encode_executable_bytes("dbg", &debug_image()).unwrap());
+    let other_image = EncodedImage {
+        debug_symbols: true,
+        ..exit_zero_image(Vec::new())
+    };
+    let other = mach_o_uuid(&encode_executable_bytes("dbg", &other_image).unwrap());
+    assert_eq!(first, again, "same program, same UUID");
+    assert_ne!(first, other, "different programs, different UUIDs");
+    assert_eq!(first[6] >> 4, 4, "RFC 4122 version 4");
+    assert_eq!(first[8] >> 6, 0b10, "RFC 4122 variant");
+
+    let constant = [0x4d, 0x46, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    for image in [
+        EncodedImage {
+            debug_symbols: false,
+            ..debug_image()
+        },
+        exit_zero_image(Vec::new()),
+    ] {
+        assert_eq!(
+            mach_o_uuid(&encode_executable_bytes("dbg", &image).unwrap()),
+            constant
+        );
+    }
+}

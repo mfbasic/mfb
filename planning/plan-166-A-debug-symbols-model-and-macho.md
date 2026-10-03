@@ -160,9 +160,10 @@ names `--ncode` shows and `mfb spec linker symbols-and-relocations` documents.
 - **Symbol names are unique** in brogue (measured above). Not proven for every
   program. The shared builder refuses a duplicate name rather than emitting two
   entries (Phase 1).
-- **UNVERIFIED: macOS symbolication keys caches by UUID.** If `sample`/Instruments
-  cache names per UUID, two different `--debug` programs that share the constant
-  UUID could show each other's names. Phase 3 measures this. See Open Decision 2.
+- **Measured (Phase 3): the shared constant UUID breaks `sample`.** A `--debug`
+  life binary with the constant UUID patched back in (and re-signed) samples as
+  all `???`; the same binary with its content-derived UUID samples with names.
+  See Corrections.
 
 ## 3. Design Overview
 
@@ -389,29 +390,43 @@ lists its functions.
   Result (2026-10-03, dev compiler): `Hello World`, `exit=0`,
   `000000010000070c t _mfb_fn_main`; `test result: ok. 44 passed; 0 failed`.
   Spot check: hello_world macOS without `--debug`, baseline vs new → `cmp` identical.
-Commit: —
+Commit: 305d45d06
 
 ### Phase 3: Tool proof and UUID
 
 Proves that the tools developers actually use read the table, and settles the UUID
 question with a measurement.
 
-- [ ] `codesign --verify --verbose build/hello.out` on a `--debug` build → valid.
-- [ ] `lldb build/hello.out -o 'b mfb_fn_main' -o run -o bt -o quit` → stops in
+- [x] `codesign --verify --verbose build/hello.out` on a `--debug` build → valid.
+      → `valid on disk` / `satisfies its Designated Requirement` (2026-10-03).
+- [x] `lldb build/hello.out -o 'b mfb_fn_main' -o run -o bt -o quit` → stops in
       `mfb_fn_main`. The backtrace shows names. Record the output in Corrections.
-- [ ] `atos -o build/hello.out -l 0x100000000 <address of _mfb_fn_main from nm>`
-      → `_mfb_fn_main`.
-- [ ] Build `examples/brogue` and `examples/life` with `--debug`, run
+      → `Breakpoint 1: where = hello.out\`mfb_fn_main, address = 0x000000010000070c`,
+      stopped there; a breakpoint on `mfb_rt_io_io_print` gives a named
+      three-frame `bt` (Corrections).
+- [x] `atos -o build/hello.out -l 0x100000000 <address of _mfb_fn_main from nm>`
+      → `_mfb_fn_main`. → `atos … 0x000000010000070c 0x0000000100000720` →
+      `mfb_fn_main (in hello.out) + 0`, `mfb_fn_main (in hello.out) + 20` (atos
+      drops the leading `_`, as for every C symbol).
+- [x] Build `examples/brogue` and `examples/life` with `--debug`, run
       `sample <pid> 2` on each in turn, and check that each profile names that
       program's own functions. If the second profile shows the first program's
       names, the UUID hypothesis is confirmed. Record the result in Corrections.
-- [ ] Per Open Decision 2: content-derived `LC_UUID` in `--debug` builds
+      → Each profile names only its own functions (life: `mfb_rt_term_term_sync`;
+      brogue `rng`: `mfb_fn_dumpRng` ×24, `mfb_fn_ranval`, …; 0 `???`, 0 life
+      names in the brogue profile). With the constant UUID patched back in,
+      life's profile is all `???`: the hypothesis holds, in a stronger form
+      (Corrections).
+- [x] Per Open Decision 2: content-derived `LC_UUID` in `--debug` builds
       (`commands.rs:uuid_command` takes the 16 bytes; §4.3), plus a test
-      `debug_uuid_differs_between_images_and_is_stable`.
+      `debug_uuid_differs_between_images_and_is_stable`. (`commands.rs:debug_uuid`;
+      `cargo test --bin mfb macos::link` → 45 passed.)
 
 Acceptance: lldb breaks by name on a `--debug` binary, and two different `--debug`
 programs have different UUIDs.
   Check: `dwarfdump --uuid build/hello.out; dwarfdump --uuid <brogue>/build/brogue.out` → two different UUIDs (est. 1 min).
+  Result (2026-10-03): hello `ED6105C4-45C5-4268-9541-DAD0F7BFDC13`, brogue
+  `A35E698B-85A4-4BC8-B2C4-B3FBF64143A4`, life `1C1FCF69-73C6-4655-9207-96168A30AA62`.
 Commit: —
 
 ### Phase 4: Docs and help
@@ -485,6 +500,27 @@ Commit: —
   commit. Strengthened to: the build came from a clean detached worktree at the
   baseline commit (`git -C /tmp/p166-base-wt rev-parse` + empty `status`), plus
   the binary's sha256.
+- **lldb transcript (Phase 3).** `lldb build/hello.out -b -o 'b mfb_fn_main' -o run -o bt`:
+  `Breakpoint 1: where = hello.out\`mfb_fn_main, address = 0x000000010000070c`,
+  `stop reason = breakpoint 1.1`, `frame #0: … hello.out\`mfb_fn_main`. At function
+  entry `bt` shows one frame (the return address is not yet stored and there is no
+  unwind info; names-only scope). One call deeper, `b mfb_rt_io_io_print` gives
+  `frame #0 mfb_rt_io_io_print`, `frame #1 mfb_fn_main + 24`, `frame #2 main + 248`.
+  lldb and atos show names without the leading `_`, as for any C symbol.
+- **UUID hypothesis confirmed, stronger than stated (Phase 3).** The plan guessed
+  two programs sharing a UUID might show *each other's* names. Measured: a `--debug`
+  life binary whose `LC_UUID` was patched back to the constant
+  `4D464200-…-000000000001` and re-signed (`codesign -f -s -`) samples as
+  `??? (in life-cu.out) load address … + 0x8dc00`, with **no** names, while the
+  unpatched binary (derived UUID `1C1FCF69-…`) samples as `mfb_rt_term_term_sync
+  (in life.out) + 3104`. The symbolicator caches by UUID, and the constant UUID
+  was already cached as symbol-less from earlier builds. So the derived UUID is
+  required, not just good practice. Probes: `/tmp/p166-constuuid.py`,
+  `/tmp/p166-ptyrun.py` (one-off).
+- **`sample` needs a live process on a sized pty.** life exits at once on a 0×0
+  pty, and brogue is a CLI (`brogue rng <seed> <count>`, `brogue dig …`), not
+  interactive. The probe gave the pty a 40×120 size and ran
+  `brogue rng 1 1000000000` as the long-running workload.
 
 ## Summary
 

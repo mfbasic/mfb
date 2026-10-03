@@ -176,7 +176,10 @@ fn encode_unsigned_mach_o(
     for path in &image.rpaths {
         load_rpath(&mut bytes, path);
     }
-    uuid_command(&mut bytes);
+    uuid_command(
+        &mut bytes,
+        debug.map(|debug| debug_uuid(code, data, &string_table(image, Some(debug)))),
+    );
     build_version(&mut bytes);
     source_version(&mut bytes);
     entry_point(&mut bytes, code_offset + entry_offset);
