@@ -225,28 +225,37 @@ the baseline.
   `IDENTICAL`, 16 files. Signed builds cannot be compared by `cmp`: each
   `--sign` build mints a one-off key, so two signed builds differ by design.
   The unedited signing tests are what cover the signed table (Corrections).
-Commit: —
+Commit: f720c47c1
 
 ### Phase 2: `.symtab` for `--debug`
 
 Fills in the section list from §4.1 and the symbol entries from §4.2 when
 `image.debug_symbols` is true.
 
-- [ ] `elf.rs`: each of the three writers builds its section list from its own
+- [x] `elf.rs`: each of the three writers builds its section list from its own
       layout values (§2) and calls `append_section_table` when `debug_symbols`
-      or signed. The dynamic writer passes `rodata_size`.
-- [ ] `elf.rs`: `symtab_bytes(image, text_vmaddr, data_vmaddr, shndx)` and
-      `strtab_bytes(…)` from `debug_symbols(image)`.
-- [ ] Tests in `src/os/linux/link/tests.rs` that parse the emitted bytes:
+      or signed. The dynamic writer passes `rodata_size`. (Shared tail
+      `append_elf_sections(bytes, &LoadedSections{…}, debug, signing)`; the static
+      writers gained a `debug: Option<&[DebugSymbol]>` parameter, the dynamic one
+      reads `image.debug_symbols`.)
+- [x] `elf.rs`: `symtab_bytes(image, text_vmaddr, data_vmaddr, shndx)` and
+      `strtab_bytes(…)` from `debug_symbols(image)`. (One `symtab_bytes` returns
+      both tables, so a name offset can never drift from its string.)
+- [x] Tests in `src/os/linux/link/tests.rs` that parse the emitted bytes:
       `debug_symbols_static_aarch64`, `debug_symbols_static_x86`,
       `debug_symbols_dynamic_with_rodata`. Each checks `e_shnum`, the
       `.symtab` `sh_link`/`sh_info`, every symbol's `st_shndx`, `st_value`
       (against `symbol_vmaddr`) and `st_size`. Also
       `debug_symbols_signed_keeps_mfbsign_findable` (`inspect` finds
       `.mfbsign`, and `seal` succeeds), and `debug_symbols_off_writes_no_table`.
+      → `cargo test --bin mfb linux::link` → 50 passed. The `cli::info` signed +
+      debug test gained static and dynamic ELF cases → passes.
 
 Acceptance: every `--debug` Linux target and flavor lists the program's functions.
   Check: `for t in linux-aarch64 linux-x86_64 linux-riscv64; do mfb build -q --debug --target $t /tmp/p166/hello; for f in /tmp/p166/hello/build/*.out; do nm $f | grep -c ' t _mfb_fn_main'; done; done` → `1` six times (est. 1 min).
+  Result (2026-10-03, dev compiler, `bash /tmp/p166-b2check.sh`): `1` for each of
+  aarch64/x86_64/riscv64 × glibc/musl (six). `objdump -h` on the aarch64 glibc build
+  lists `.text`, `.rodata`, `.data`, `.symtab`, `.strtab`, `.shstrtab`, no warning.
 Commit: —
 
 ### Phase 3: Tool proof on Linux
@@ -321,6 +330,11 @@ Commit: —
   existing signing tests, which run unedited
   (`encode_static_elf_x86_appends_signing_section` and the `cli::info` signed
   cases), and the unsigned outputs by the `cmp` loop.
+- **Static writer signature (Phase 2).** The static writers never received the
+  image, so `encode_static_elf` / `encode_static_elf_x86` gained a trailing
+  `debug: Option<&[DebugSymbol]>`. The 11 existing test call sites in
+  `src/os/linux/link/tests.rs` pass `None` there. That is a mechanical argument,
+  not a weakened assertion: every existing assertion is unchanged.
 
 ## Summary
 

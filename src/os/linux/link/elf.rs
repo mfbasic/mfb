@@ -1,4 +1,6 @@
 use super::*;
+use crate::os::debug_symbols::{DebugSymbol, DebugSymbolKind};
+use crate::os::link_encode::section_vmaddr;
 
 /// The `Elf64_Nhdr`-framed provenance note (plan-43 §5): `namesz`/`descsz`/`type`,
 /// then the `MFBasic\0` name and the descriptor. Both are already 4-aligned, so
@@ -59,6 +61,7 @@ pub(super) fn encode_static_elf(
     text: &[u8],
     data: &[u8],
     signing_metadata: Option<&[u8]>,
+    debug: Option<&[DebugSymbol<'_>]>,
 ) -> Vec<u8> {
     let text_offset = TEXT_FILE_OFFSET;
     let text_vmaddr = IMAGE_BASE + text_offset as u64;
@@ -120,9 +123,19 @@ pub(super) fn encode_static_elf(
     bytes.extend_from_slice(text);
     bytes.resize(data_offset, 0);
     bytes.extend_from_slice(data);
-    if let Some(metadata) = signing_metadata {
-        append_elf_signing_section(&mut bytes, metadata);
-    }
+    append_elf_sections(
+        &mut bytes,
+        &LoadedSections {
+            text_vmaddr,
+            text_len: text.len(),
+            data_offset,
+            data_vmaddr,
+            data_len: data.len(),
+            rodata_size: 0,
+        },
+        debug,
+        signing_metadata,
+    );
     bytes
 }
 
@@ -138,6 +151,7 @@ pub(super) fn encode_static_elf_x86(
     text: &[u8],
     data: &[u8],
     signing_metadata: Option<&[u8]>,
+    debug: Option<&[DebugSymbol<'_>]>,
 ) -> Vec<u8> {
     let text_offset = TEXT_FILE_OFFSET;
     let text_vmaddr = IMAGE_BASE + text_offset as u64;
@@ -200,9 +214,19 @@ pub(super) fn encode_static_elf_x86(
     bytes.extend_from_slice(text);
     bytes.resize(data_offset, 0);
     bytes.extend_from_slice(data);
-    if let Some(metadata) = signing_metadata {
-        append_elf_signing_section(&mut bytes, metadata);
-    }
+    append_elf_sections(
+        &mut bytes,
+        &LoadedSections {
+            text_vmaddr,
+            text_len: text.len(),
+            data_offset,
+            data_vmaddr,
+            data_len: data.len(),
+            rodata_size: 0,
+        },
+        debug,
+        signing_metadata,
+    );
     bytes
 }
 
@@ -384,13 +408,27 @@ pub(super) fn encode_dynamic_elf(
     bytes.extend_from_slice(data);
     bytes.extend_from_slice(&dynamic.bytes);
     bytes.resize(file_size, 0);
-    if let Some(metadata) = image
-        .signing_metadata
-        .as_ref()
-        .map(|signing| signing.metadata.as_slice())
-    {
-        append_elf_signing_section(&mut bytes, metadata);
-    }
+    let debug = if image.debug_symbols {
+        Some(crate::os::debug_symbols::debug_symbols(image)?)
+    } else {
+        None
+    };
+    append_elf_sections(
+        &mut bytes,
+        &LoadedSections {
+            text_vmaddr,
+            text_len: text.len(),
+            data_offset,
+            data_vmaddr,
+            data_len: data.len(),
+            rodata_size,
+        },
+        debug.as_deref(),
+        image
+            .signing_metadata
+            .as_ref()
+            .map(|signing| signing.metadata.as_slice()),
+    );
     Ok(bytes)
 }
 
@@ -516,8 +554,171 @@ fn mfbsign_section(metadata: &[u8]) -> ElfSection<'_> {
     }
 }
 
-fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
-    append_section_table(bytes, &[mfbsign_section(metadata)]);
+/// Where a writer placed its loaded bytes, for the `--debug` section headers.
+pub(super) struct LoadedSections {
+    pub(super) text_vmaddr: u64,
+    /// Including the PLT stubs appended after `image.text`.
+    pub(super) text_len: usize,
+    pub(super) data_offset: usize,
+    pub(super) data_vmaddr: u64,
+    pub(super) data_len: usize,
+    /// The read-only prefix of data the dynamic writer maps as its own `PT_LOAD`
+    /// (and so its own `.rodata` section); 0 for the static writers, which map
+    /// all data writable.
+    pub(super) rodata_size: usize,
+}
+
+const SHT_SYMTAB: u32 = 2;
+const SHF_WRITE: u64 = 1;
+const SHF_ALLOC: u64 = 2;
+const SHF_EXECINSTR: u64 = 4;
+const STB_LOCAL: u8 = 0;
+const STT_OBJECT: u8 = 1;
+const STT_FUNC: u8 = 2;
+const SYMTAB_ENTRY_SIZE: usize = 24;
+
+/// The section header table a writer ends with, if any:
+///
+/// - no `--debug`, unsigned: none (no table at all);
+/// - no `--debug`, signed: `[NULL, .mfbsign, .shstrtab]`;
+/// - `--debug`: `[NULL, .text, (.rodata), .data, .symtab, .strtab, (.mfbsign),
+///   .shstrtab]`, every symbol `STB_LOCAL`.
+pub(super) fn append_elf_sections(
+    bytes: &mut Vec<u8>,
+    loaded: &LoadedSections,
+    debug: Option<&[DebugSymbol<'_>]>,
+    signing_metadata: Option<&[u8]>,
+) {
+    let Some(debug) = debug else {
+        if let Some(metadata) = signing_metadata {
+            append_section_table(bytes, &[mfbsign_section(metadata)]);
+        }
+        return;
+    };
+    let rodata_size = loaded.rodata_size.min(loaded.data_len);
+    // Section indices (1-based; 0 is the NULL entry).
+    let text_index = 1u16;
+    let rodata_index = (rodata_size > 0).then_some(2u16);
+    let data_index = text_index + 1 + rodata_index.is_some() as u16;
+    let symtab_index = data_index + 1;
+    let strtab_index = symtab_index + 1;
+    let (symtab, strtab) = symtab_bytes(
+        debug,
+        loaded,
+        text_index,
+        rodata_index.map(|index| (index, rodata_size)),
+        data_index,
+    );
+    let loaded_section = |name, flags, addr, offset, size| ElfSection {
+        name,
+        type_: SHT_PROGBITS,
+        flags,
+        addr,
+        contents: ElfSectionContents::InFile { offset, size },
+        link: 0,
+        info: 0,
+        addralign: 16,
+        entsize: 0,
+    };
+    let mut sections = vec![loaded_section(
+        ".text",
+        SHF_ALLOC | SHF_EXECINSTR,
+        loaded.text_vmaddr,
+        TEXT_FILE_OFFSET,
+        loaded.text_len,
+    )];
+    if rodata_index.is_some() {
+        sections.push(loaded_section(
+            ".rodata",
+            SHF_ALLOC,
+            loaded.data_vmaddr,
+            loaded.data_offset,
+            rodata_size,
+        ));
+    }
+    sections.push(loaded_section(
+        ".data",
+        SHF_ALLOC | SHF_WRITE,
+        loaded.data_vmaddr + rodata_size as u64,
+        loaded.data_offset + rodata_size,
+        loaded.data_len - rodata_size,
+    ));
+    sections.push(ElfSection {
+        name: ".symtab",
+        type_: SHT_SYMTAB,
+        flags: 0,
+        addr: 0,
+        contents: ElfSectionContents::Appended {
+            bytes: &symtab,
+            file_align: 8,
+        },
+        link: strtab_index as u32,
+        // One past the last local: every entry (the NULL one included) is local.
+        info: (1 + debug.len()) as u32,
+        addralign: 8,
+        entsize: SYMTAB_ENTRY_SIZE as u64,
+    });
+    sections.push(ElfSection {
+        name: ".strtab",
+        type_: SHT_STRTAB,
+        flags: 0,
+        addr: 0,
+        contents: ElfSectionContents::Appended {
+            bytes: &strtab,
+            file_align: 1,
+        },
+        link: 0,
+        info: 0,
+        addralign: 1,
+        entsize: 0,
+    });
+    if let Some(metadata) = signing_metadata {
+        sections.push(mfbsign_section(metadata));
+    }
+    append_section_table(bytes, &sections);
+}
+
+/// The `.symtab` entries (a NULL entry, then one `STB_LOCAL` entry per debug
+/// symbol) and the `.strtab` they name. Addresses use the relocation rule with no
+/// read-only window, as `patch_relocations` does on Linux: a data symbol is
+/// `data_vmaddr + offset` whether or not the dynamic writer maps its prefix
+/// read-only.
+fn symtab_bytes(
+    symbols: &[DebugSymbol<'_>],
+    loaded: &LoadedSections,
+    text_index: u16,
+    rodata: Option<(u16, usize)>,
+    data_index: u16,
+) -> (Vec<u8>, Vec<u8>) {
+    let mut symtab = vec![0u8; SYMTAB_ENTRY_SIZE];
+    let mut strtab = vec![0u8];
+    for symbol in symbols {
+        let (kind, shndx) = match symbol.kind {
+            DebugSymbolKind::Function => (STT_FUNC, text_index),
+            DebugSymbolKind::Object => match rodata {
+                Some((index, size)) if symbol.offset < size => (STT_OBJECT, index),
+                _ => (STT_OBJECT, data_index),
+            },
+        };
+        put_u32(&mut symtab, strtab.len() as u32);
+        symtab.push((STB_LOCAL << 4) | kind);
+        symtab.push(0);
+        put_u16(&mut symtab, shndx);
+        put_u64(
+            &mut symtab,
+            section_vmaddr(
+                symbol.section,
+                symbol.offset,
+                loaded.text_vmaddr,
+                loaded.data_vmaddr,
+                None,
+            ),
+        );
+        put_u64(&mut symtab, symbol.size as u64);
+        strtab.extend_from_slice(symbol.name.as_bytes());
+        strtab.push(0);
+    }
+    (symtab, strtab)
 }
 
 #[allow(clippy::too_many_arguments)]

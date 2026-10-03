@@ -200,7 +200,7 @@ fn x86_static_image() -> EncodedImage {
 #[test]
 fn encode_static_elf_x86_emits_two_pt_load_segments() {
     let image = x86_static_image();
-    let bytes = encode_static_elf_x86(0, &image.text, &image.data, None);
+    let bytes = encode_static_elf_x86(0, &image.text, &image.data, None, None);
     // e_ident magic + class/data/version.
     assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
     assert_eq!(&bytes[4..8], &[2, 1, 1, 0]);
@@ -248,7 +248,7 @@ fn encode_static_elf_places_data_where_relocations_expect_it() {
     // page-aligned, which is exactly when the old layout diverged.
     let image = x86_static_image();
     for (arch, machine) in [("aarch64", 183u16), ("riscv64", 243)] {
-        let bytes = encode_static_elf(arch, 0, &image.text, &image.data, None);
+        let bytes = encode_static_elf(arch, 0, &image.text, &image.data, None, None);
         assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
         // e_machine follows the target ISA (this path serves both).
         assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), machine);
@@ -291,7 +291,7 @@ fn encode_static_elf_places_data_where_relocations_expect_it() {
 fn encode_static_elf_x86_appends_signing_section() {
     let image = x86_static_image();
     let meta = br#"{"owner":"bob"}"#;
-    let bytes = encode_static_elf_x86(0, &image.text, &image.data, Some(meta));
+    let bytes = encode_static_elf_x86(0, &image.text, &image.data, Some(meta), None);
     assert!(bytes
         .windows(b".mfbsign".len())
         .any(|window| window == b".mfbsign"));
@@ -925,7 +925,7 @@ fn writes_mfb_sign_section_to_static_elf() {
     assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 3);
     assert_eq!(u16::from_le_bytes([bytes[62], bytes[63]]), 2);
     image.signing_metadata = None;
-    let unsigned = encode_static_elf("aarch64", 0, &image.text, &image.data, None);
+    let unsigned = encode_static_elf("aarch64", 0, &image.text, &image.data, None, None);
     assert_eq!(u64::from_le_bytes(unsigned[40..48].try_into().unwrap()), 0);
 }
 
@@ -1236,9 +1236,9 @@ fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
 fn static_elf_carries_the_mfbasic_provenance_note() {
     let image = x86_static_image();
     let images = [
-        encode_static_elf_x86(0, &image.text, &image.data, None),
-        encode_static_elf("aarch64", 0, &image.text, &image.data, None),
-        encode_static_elf("riscv64", 0, &image.text, &image.data, None),
+        encode_static_elf_x86(0, &image.text, &image.data, None, None),
+        encode_static_elf("aarch64", 0, &image.text, &image.data, None, None),
+        encode_static_elf("riscv64", 0, &image.text, &image.data, None, None),
     ];
     for bytes in images {
         let (offset, descriptor) = mfb_note(&bytes).expect("PT_NOTE owned by MFBasic");
@@ -1308,6 +1308,7 @@ fn provenance_note_coexists_with_the_signing_section() {
         &static_image.text,
         &static_image.data,
         Some(br#"{"k":"v"}"#),
+        None,
     );
     for bytes in [dynamic, statics] {
         assert_eq!(
@@ -1785,4 +1786,279 @@ fn a_lo12_with_no_preceding_hi20_keeps_its_diagnostic() {
         error.contains("has no paired riscv_pcrel_hi20"),
         "bug-552: the diagnostic must survive the index rewrite, got: {error}"
     );
+}
+
+// ===== plan-166: `--debug` section header table and `.symtab` =====
+
+/// One ELF section header, read through `e_shoff` the way `readelf -S` does.
+#[derive(Debug)]
+struct ParsedSection {
+    name: String,
+    type_: u32,
+    flags: u64,
+    addr: u64,
+    offset: u64,
+    size: u64,
+    link: u32,
+    info: u32,
+    entsize: u64,
+}
+
+fn parse_sections(bytes: &[u8]) -> Vec<ParsedSection> {
+    let u16_at = |at: usize| u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap());
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let shoff = u64_at(40) as usize;
+    assert_eq!(u16_at(58), 64, "e_shentsize");
+    let shnum = u16_at(60) as usize;
+    let shstrndx = u16_at(62) as usize;
+    let header = |index: usize| shoff + index * 64;
+    let strtab = u64_at(header(shstrndx) + 24) as usize;
+    let name_at = |offset: usize| {
+        let start = strtab + offset;
+        let end = start + bytes[start..].iter().position(|b| *b == 0).unwrap();
+        String::from_utf8(bytes[start..end].to_vec()).unwrap()
+    };
+    (0..shnum)
+        .map(|index| {
+            let at = header(index);
+            ParsedSection {
+                name: name_at(u32_at(at) as usize),
+                type_: u32_at(at + 4),
+                flags: u64_at(at + 8),
+                addr: u64_at(at + 16),
+                offset: u64_at(at + 24),
+                size: u64_at(at + 32),
+                link: u32_at(at + 40),
+                info: u32_at(at + 44),
+                entsize: u64_at(at + 56),
+            }
+        })
+        .collect()
+}
+
+fn section_index(sections: &[ParsedSection], name: &str) -> usize {
+    sections
+        .iter()
+        .position(|section| section.name == name)
+        .unwrap_or_else(|| panic!("section {name} in {sections:?}"))
+}
+
+/// `(name, st_info, st_shndx, st_value, st_size)` for every `.symtab` entry past
+/// the NULL one, with the table's own shape checked on the way.
+fn parse_symtab(bytes: &[u8], sections: &[ParsedSection]) -> Vec<(String, u8, u16, u64, u64)> {
+    let symtab = &sections[section_index(sections, ".symtab")];
+    let strtab = &sections[symtab.link as usize];
+    assert_eq!(strtab.name, ".strtab", ".symtab sh_link names .strtab");
+    assert_eq!(symtab.type_, 2, "SHT_SYMTAB");
+    assert_eq!(strtab.type_, 3, "SHT_STRTAB");
+    assert_eq!(symtab.entsize, 24);
+    assert_eq!(symtab.offset % 8, 0, ".symtab is 8-aligned");
+    let count = symtab.size as usize / 24;
+    assert_eq!(symtab.info as usize, count, "sh_info: every entry is local");
+    let entry = |index: usize| symtab.offset as usize + index * 24;
+    assert!(bytes[entry(0)..entry(1)].iter().all(|b| *b == 0), "NULL entry");
+    (1..count)
+        .map(|index| {
+            let at = entry(index);
+            let name_at = strtab.offset as usize
+                + u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+            let end = name_at + bytes[name_at..].iter().position(|b| *b == 0).unwrap();
+            (
+                String::from_utf8(bytes[name_at..end].to_vec()).unwrap(),
+                bytes[at + 4],
+                u16::from_le_bytes(bytes[at + 6..at + 8].try_into().unwrap()),
+                u64::from_le_bytes(bytes[at + 8..at + 16].try_into().unwrap()),
+                u64::from_le_bytes(bytes[at + 16..at + 24].try_into().unwrap()),
+            )
+        })
+        .collect()
+}
+
+fn debug_symbol(name: &str, section: EncodedSection, offset: usize) -> EncodedSymbol {
+    EncodedSymbol {
+        name: name.to_string(),
+        section,
+        offset,
+    }
+}
+
+/// Checks every `.symtab` entry of a `--debug` ELF against the image: the
+/// section it names, its address under the relocation rule (`symbol_vmaddr`
+/// with the section headers' own text/data addresses), its size and its type.
+fn assert_symbols_match(bytes: &[u8], image: &EncodedImage, expected: &[(&str, &str, u64)]) {
+    let sections = parse_sections(bytes);
+    let symbols = parse_symtab(bytes, &sections);
+    let text = sections[section_index(&sections, ".text")].addr;
+    // Linux data symbols resolve from the start of data (no read-only window),
+    // which is `.rodata` when the writer split one off, else `.data`.
+    let data = sections
+        .iter()
+        .find(|section| section.name == ".rodata")
+        .unwrap_or(&sections[section_index(&sections, ".data")])
+        .addr;
+    assert_eq!(symbols.len(), expected.len(), "{symbols:?}");
+    for ((name, info, shndx, value, size), (want_name, want_section, want_size)) in
+        symbols.iter().zip(expected)
+    {
+        assert_eq!(name, want_name);
+        assert_eq!(
+            sections[*shndx as usize].name, *want_section,
+            "{name}: st_shndx"
+        );
+        let want_type = if *want_section == ".text" { 2 } else { 1 };
+        assert_eq!(*info, want_type, "{name}: STB_LOCAL + STT_FUNC/OBJECT");
+        let want_value =
+            crate::os::link_encode::symbol_vmaddr(image, name, text, data, None).unwrap();
+        assert_eq!(*value, want_value, "{name}: st_value");
+        assert_eq!(*size, *want_size, "{name}: st_size");
+    }
+}
+
+/// Two 4-byte functions and two data objects in 24 bytes of data, `--debug` on.
+fn static_debug_image(text: Vec<u8>) -> EncodedImage {
+    assert_eq!(text.len(), 8, "two 4-byte functions");
+    EncodedImage {
+        text,
+        data: vec![0; 24],
+        symbols: vec![
+            debug_symbol("_main", EncodedSection::Text, 0),
+            debug_symbol("_helper", EncodedSection::Text, 4),
+            debug_symbol("_d0", EncodedSection::Data, 0),
+            debug_symbol("_d1", EncodedSection::Data, 16),
+        ],
+        debug_symbols: true,
+        ..none()
+    }
+}
+
+#[test]
+fn debug_symbols_static_aarch64() {
+    // _main: ret ; _helper: ret
+    let image = static_debug_image(vec![0xc0, 0x03, 0x5f, 0xd6, 0xc0, 0x03, 0x5f, 0xd6]);
+    let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
+    let sections = parse_sections(&bytes);
+    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    assert_eq!(names, ["", ".text", ".data", ".symtab", ".strtab", ".shstrtab"]);
+    let text = &sections[1];
+    assert_eq!((text.offset, text.size, text.flags), (0x1000, 8, 6));
+    assert_eq!(text.addr, IMAGE_BASE + 0x1000);
+    let data = &sections[2];
+    assert_eq!((data.size, data.flags), (24, 3));
+    assert_eq!(data.addr, IMAGE_BASE + data.offset);
+    assert_symbols_match(
+        &bytes,
+        &image,
+        &[
+            ("_main", ".text", 4),
+            ("_helper", ".text", 4),
+            ("_d0", ".data", 16),
+            ("_d1", ".data", 8),
+        ],
+    );
+}
+
+#[test]
+fn debug_symbols_static_x86() {
+    let image = static_debug_image(vec![0xc3, 0x90, 0x90, 0x90, 0xc3, 0x90, 0x90, 0x90]);
+    let bytes = encode_executable_bytes("x86_64", LinuxFlavor::Musl, &image).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62, "EM_X86_64");
+    assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 6, "e_shnum");
+    assert_symbols_match(
+        &bytes,
+        &image,
+        &[
+            ("_main", ".text", 4),
+            ("_helper", ".text", 4),
+            ("_d0", ".data", 16),
+            ("_d1", ".data", 8),
+        ],
+    );
+}
+
+#[test]
+fn debug_symbols_dynamic_with_rodata() {
+    // A dynamic aarch64 image (it imports `_exit`) with a page of read-only
+    // constants ahead of a writable global, so the writer splits `.rodata`.
+    let mut image = versioned_exit_image();
+    image.data = vec![0; 0x1000 + 8];
+    image.rodata_size = 0x1000;
+    image.symbols.push(debug_symbol("_const", EncodedSection::Data, 0));
+    image.symbols.push(debug_symbol("_global", EncodedSection::Data, 0x1000));
+    image.debug_symbols = true;
+    let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3, "ET_DYN");
+    let sections = parse_sections(&bytes);
+    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["", ".text", ".rodata", ".data", ".symtab", ".strtab", ".shstrtab"]
+    );
+    let (rodata, data) = (&sections[2], &sections[3]);
+    assert_eq!((rodata.size, rodata.flags), (0x1000, 2));
+    assert_eq!((data.size, data.flags), (8, 3));
+    assert_eq!(data.addr, rodata.addr + 0x1000);
+    assert_eq!(data.offset, rodata.offset + 0x1000);
+    // `.text` covers the PLT stub appended after `image.text`.
+    assert!(sections[1].size as usize > image.text.len());
+    assert_symbols_match(
+        &bytes,
+        &image,
+        &[
+            ("_main", ".text", image.text.len() as u64),
+            ("_const", ".rodata", 0x1000),
+            ("_global", ".data", 8),
+        ],
+    );
+}
+
+#[test]
+fn debug_symbols_signed_keeps_mfbsign_findable() {
+    let mut image = static_debug_image(vec![0xc0, 0x03, 0x5f, 0xd6, 0xc0, 0x03, 0x5f, 0xd6]);
+    image.signing_metadata = Some(crate::arch::image::ExecutableSigning {
+        metadata: format!(
+            "{{\"contentSignature\":\"{}\"}}",
+            crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER
+        )
+        .into_bytes(),
+        signing_private: Some(mfb_repository::crypto::generate_keypair().1),
+    });
+    // `encode_executable_bytes` seals after the table is written: the seal
+    // succeeds, so it found the placeholder through the one section table.
+    let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
+    let sections = parse_sections(&bytes);
+    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["", ".text", ".data", ".symtab", ".strtab", ".mfbsign", ".shstrtab"]
+    );
+    let binary = crate::os::inspect::inspect(&bytes).expect("inspect reads it back");
+    let blob = binary.signing.expect(".mfbsign found by name");
+    let mfbsign = &sections[5];
+    assert_eq!(blob.start as u64, mfbsign.offset);
+    assert_eq!(blob.len() as u64, mfbsign.size);
+    assert!(!bytes
+        .windows(crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.len())
+        .any(|window| window
+            == crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.as_bytes()));
+}
+
+#[test]
+fn debug_symbols_off_writes_no_table() {
+    for arch in ["aarch64", "x86_64", "riscv64"] {
+        let image = EncodedImage {
+            debug_symbols: false,
+            ..static_debug_image(vec![0x13, 0, 0, 0, 0x13, 0, 0, 0])
+        };
+        let bytes = encode_executable_bytes(arch, LinuxFlavor::Glibc, &image).unwrap();
+        assert_eq!(u64::from_le_bytes(bytes[40..48].try_into().unwrap()), 0, "{arch}: e_shoff");
+        assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 0, "{arch}: e_shnum");
+        assert!(!bytes.windows(8).any(|window| window == b"_helper\0"), "{arch}");
+    }
+    let image = EncodedImage {
+        debug_symbols: false,
+        ..versioned_exit_image()
+    };
+    let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 0, "dynamic: e_shnum");
 }

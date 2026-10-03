@@ -991,15 +991,42 @@ fn a_signed_debug_image_reports_intact_contents() {
         ..image(text, entry, Some(chain.executable_signing()))
     };
     let arm_ret = vec![0xc0, 0x03, 0x5f, 0xd6];
-    let images = vec![(
-        "Mach-O",
-        crate::os::macos::write_linked_executable(
-            &dir.path().join("macho"),
-            "probe",
-            &debug_image(arm_ret, "_main"),
-        )
-        .expect("link Mach-O"),
-    )];
+    let images = vec![
+        (
+            "Mach-O",
+            crate::os::macos::write_linked_executable(
+                &dir.path().join("macho"),
+                "probe",
+                &debug_image(arm_ret.clone(), "_main"),
+            )
+            .expect("link Mach-O"),
+        ),
+        (
+            "ELF static",
+            crate::os::linux::write_linked_executable(
+                &dir.path().join("elf-static"),
+                "probe",
+                "aarch64",
+                LinuxFlavor::Glibc,
+                &debug_image(arm_ret.clone(), "_main"),
+            )
+            .expect("link static ELF"),
+        ),
+        (
+            "ELF dynamic",
+            crate::os::linux::write_linked_executable(
+                &dir.path().join("elf-dynamic"),
+                "probe",
+                "aarch64",
+                LinuxFlavor::Glibc,
+                &EncodedImage {
+                    imports: vec![import("libc.so.6", "_exit")],
+                    ..debug_image(arm_ret, "_main")
+                },
+            )
+            .expect("link dynamic ELF"),
+        ),
+    ];
     for (format, path) in images {
         let bytes = std::fs::read(&path).unwrap();
         assert!(
