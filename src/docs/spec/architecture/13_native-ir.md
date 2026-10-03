@@ -112,7 +112,7 @@ name). [[src/target/shared/nir/lower.rs:lower_value]]
 | `Capture` | `capture` | `index`, `type`, `byRef` (emitted only when true) |
 | `Call` | `call` | `target`, `args[]` — user fn or native-direct builtin |
 | `CallResult` | `callResult` | `target`, `args[]` — fallible call returning a Result |
-| `Checked` | `checked` | `type`, `value` — evaluate `value` with its domain-error exits captured, yielding a `Result OF <type>`; the operator twin of `CallResult`. `value` is call-free. |
+| `Checked` | `checked` | `type`, `value`, `observe` — evaluate `value` with its domain-error exits captured, yielding a `Result OF <type>`; the operator twin of `CallResult`. `value` is call-free. With `observe` a `Float` result is also checked for finiteness (an observation boundary); without it the capture covers domain errors only. |
 | `RuntimeCall` | `runtimeCall` | `helper`, `target`, `args[]` — **NIR-only**, builtin routed to a runtime helper |
 | `Constructor` | `constructor` | `type`, `args[]` |
 | `UnionWrap` | `unionWrap` | `union`, `member`, `value` |

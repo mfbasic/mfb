@@ -335,6 +335,35 @@ pub(super) fn is_total_literal_negation(op: UnaryOp, result_type: &ParameterType
     op == UnaryOp::Negate && !matches!(result_type, ParameterType::Byte)
 }
 
+/// Whether a `Float` operator's only failure is at the *observation boundary*
+/// (bug-798): `+`, `-`, `*`, `/` and `DIV` never raise when evaluated, and a
+/// transient non-finite result is allowed to recover before anything observes it
+/// (`mfb spec language types`). Float negation is the unary member. `MOD` and `^`
+/// are not in it: they raise `ErrFloatDomain` at the operator itself.
+pub(super) fn float_operator_raises_only_when_observed(
+    op: BinaryOp,
+    result_type: &ParameterType,
+) -> bool {
+    matches!(result_type, ParameterType::Float)
+        && matches!(
+            op,
+            BinaryOp::Add
+                | BinaryOp::Subtract
+                | BinaryOp::Multiply
+                | BinaryOp::Divide
+                | BinaryOp::IntDiv
+        )
+}
+
+/// [`float_operator_raises_only_when_observed`] for a unary node: `Float`
+/// negation flips the sign bit and has no check of its own.
+pub(super) fn float_unary_raises_only_when_observed(
+    op: UnaryOp,
+    result_type: &ParameterType,
+) -> bool {
+    op == UnaryOp::Negate && matches!(result_type, ParameterType::Float)
+}
+
 /// [`operator_can_raise`] for a unary node. Split from the binary form because
 /// the two arities are separate vocabularies: before the split both shared one
 /// `&str` list in which `"-"` stood for subtraction *and* negation at once.

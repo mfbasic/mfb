@@ -749,9 +749,16 @@ impl ToJson for IrValue {
                     args
                 )
             }
-            IrValue::Checked { type_, value } => format!(
-                "{{ \"kind\": \"checked\", \"type\": {}, \"value\": {} }}",
+            // `observe` is printed only when FALSE, so every observing capture
+            // dumps exactly as it did before bug-798 introduced the field.
+            IrValue::Checked {
+                type_,
+                value,
+                observe,
+            } => format!(
+                "{{ \"kind\": \"checked\", \"type\": {}, {}\"value\": {} }}",
                 json_string(&type_.name()),
+                if *observe { "" } else { "\"observe\": false, " },
                 value.to_json(0)
             ),
             IrValue::Constructor { type_, args } => {

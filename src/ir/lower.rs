@@ -1,6 +1,7 @@
 use super::*;
 
 use super::fallible::{
+    float_operator_raises_only_when_observed, float_unary_raises_only_when_observed,
     is_total_literal_negation, operator_can_raise, unary_operator_can_raise, Fallibility,
 };
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
@@ -1832,6 +1833,7 @@ fn lower_inline_trap(
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
         && trap_hoist_kind(
             &root,
+            false,
             context.fallible,
             locals,
             &context.binding_types,
@@ -1873,6 +1875,7 @@ fn lower_inline_trap(
             other if root_operator_raises => IrValue::Checked {
                 type_: success_type.clone(),
                 value: Box::new(other),
+                observe: true,
             },
             other => other,
         };
@@ -2345,6 +2348,7 @@ fn hoist_trap_calls(
     let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
         && trap_hoist_kind(
             root,
+            false,
             context.fallible,
             locals,
             &context.binding_types,
@@ -2395,14 +2399,14 @@ fn scan_trap_operands(
         // captured values are evaluated in this expression.
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                scan_trap_call(capture, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(capture, false, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Call { args, .. }
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                scan_trap_call(arg, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(arg, false, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -2411,35 +2415,46 @@ fn scan_trap_operands(
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Checked { value, .. }
-        | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
-            scan_trap_call(value, fallible, locals, globals, kinds, next, out)
+            scan_trap_call(value, false, fallible, locals, globals, kinds, next, out)
+        }
+        IrValue::Unary { operand, .. } => {
+            scan_trap_call(operand, true, fallible, locals, globals, kinds, next, out)
         }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            scan_trap_call(target, fallible, locals, globals, kinds, next, out);
+            scan_trap_call(target, false, fallible, locals, globals, kinds, next, out);
             for update in updates {
-                scan_trap_call(&update.value, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(
+                    &update.value,
+                    false,
+                    fallible,
+                    locals,
+                    globals,
+                    kinds,
+                    next,
+                    out,
+                );
             }
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(value, false, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                scan_trap_call(key, fallible, locals, globals, kinds, next, out);
-                scan_trap_call(value, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(key, false, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(value, false, fallible, locals, globals, kinds, next, out);
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
-            scan_trap_call(left, fallible, locals, globals, kinds, next, out);
+            scan_trap_call(left, true, fallible, locals, globals, kinds, next, out);
             if !is_short_circuit_operator(*op) {
-                scan_trap_call(right, fallible, locals, globals, kinds, next, out);
+                scan_trap_call(right, true, fallible, locals, globals, kinds, next, out);
             }
         }
     }
@@ -2455,6 +2470,11 @@ fn scan_trap_operands(
 /// only so a later lift cannot reorder it past this one; `None` = not indexed.
 fn trap_hoist_kind(
     value: &IrValue,
+    // bug-798: whether `value` is an operand of an arithmetic or comparison
+    // operator. An operator operand is not an observation boundary, so a `Float`
+    // operator whose only failure is observation is not lifted there: it stays in
+    // the tree it belongs to (which also keeps `a * b ± c` whole for contraction).
+    under_operator: bool,
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
@@ -2481,8 +2501,12 @@ fn trap_hoist_kind(
         // A raising operator is always checked: unlike a call there is no
         // declaration to prove it total, and `operator_can_raise` is already the
         // conservative side of that question.
-        IrValue::Binary { op, type_, .. } => operator_can_raise(*op, type_).then_some(true),
-        IrValue::Unary { op, type_, .. } => unary_operator_can_raise(*op, type_).then_some(true),
+        IrValue::Binary { op, type_, .. } => (operator_can_raise(*op, type_)
+            && !(under_operator && float_operator_raises_only_when_observed(*op, type_)))
+        .then_some(true),
+        IrValue::Unary { op, type_, .. } => (unary_operator_can_raise(*op, type_)
+            && !(under_operator && float_unary_raises_only_when_observed(*op, type_)))
+        .then_some(true),
         _ => None,
     }
 }
@@ -2491,6 +2515,7 @@ fn trap_hoist_kind(
 /// in evaluation order (operands first, then the node they feed).
 fn scan_trap_call(
     value: &IrValue,
+    under_operator: bool,
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
     globals: &HashMap<String, ParameterType>,
@@ -2504,7 +2529,8 @@ fn scan_trap_call(
         return;
     }
     scan_trap_operands(value, fallible, locals, globals, kinds, depth, out);
-    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals, kinds) {
+    if let Some(checked) = trap_hoist_kind(value, under_operator, fallible, locals, globals, kinds)
+    {
         out.push(checked);
     }
 }
@@ -2576,7 +2602,7 @@ fn rewrite_trap_operands(
         IrValue::Closure { captures, .. } => {
             for capture in captures {
                 rewrite_trap_call(
-                    capture, fallible, limit, index, next, hoists, locals, context,
+                    capture, false, fallible, limit, index, next, hoists, locals, context,
                 );
             }
         }
@@ -2584,7 +2610,9 @@ fn rewrite_trap_operands(
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                rewrite_trap_call(arg, fallible, limit, index, next, hoists, locals, context);
+                rewrite_trap_call(
+                    arg, false, fallible, limit, index, next, hoists, locals, context,
+                );
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -2593,19 +2621,22 @@ fn rewrite_trap_operands(
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Checked { value, .. }
-        | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => {
-            rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context)
-        }
+        | IrValue::MemberAccess { target: value, .. } => rewrite_trap_call(
+            value, false, fallible, limit, index, next, hoists, locals, context,
+        ),
+        IrValue::Unary { operand, .. } => rewrite_trap_call(
+            operand, true, fallible, limit, index, next, hoists, locals, context,
+        ),
         IrValue::WithUpdate {
             target, updates, ..
         } => {
             rewrite_trap_call(
-                target, fallible, limit, index, next, hoists, locals, context,
+                target, false, fallible, limit, index, next, hoists, locals, context,
             );
             for update in updates {
                 rewrite_trap_call(
                     &mut update.value,
+                    false,
                     fallible,
                     limit,
                     index,
@@ -2618,22 +2649,32 @@ fn rewrite_trap_operands(
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context);
+                rewrite_trap_call(
+                    value, false, fallible, limit, index, next, hoists, locals, context,
+                );
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                rewrite_trap_call(key, fallible, limit, index, next, hoists, locals, context);
-                rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context);
+                rewrite_trap_call(
+                    key, false, fallible, limit, index, next, hoists, locals, context,
+                );
+                rewrite_trap_call(
+                    value, false, fallible, limit, index, next, hoists, locals, context,
+                );
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
             let short_circuit = is_short_circuit_operator(*op);
-            rewrite_trap_call(left, fallible, limit, index, next, hoists, locals, context);
+            rewrite_trap_call(
+                left, true, fallible, limit, index, next, hoists, locals, context,
+            );
             if !short_circuit {
-                rewrite_trap_call(right, fallible, limit, index, next, hoists, locals, context);
+                rewrite_trap_call(
+                    right, true, fallible, limit, index, next, hoists, locals, context,
+                );
             }
         }
     }
@@ -2644,6 +2685,7 @@ fn rewrite_trap_operands(
 #[allow(clippy::too_many_arguments)]
 fn rewrite_trap_call(
     value: &mut IrValue,
+    under_operator: bool,
     fallible: &[bool],
     limit: usize,
     index: &mut usize,
@@ -2669,6 +2711,7 @@ fn rewrite_trap_call(
     // and must not consume a position.
     let Some(checked) = trap_hoist_kind(
         value,
+        under_operator,
         context.fallible,
         locals,
         &context.binding_types,
@@ -2724,12 +2767,18 @@ fn rewrite_trap_call(
                 IrValue::Binary { loc, .. } | IrValue::Unary { loc, .. } => *loc,
                 _ => unreachable!("only a Binary/Unary node reaches here"),
             };
+            // bug-798: an operator operand is not an observation boundary, so a
+            // `Float` capture there (the only ones lifted under an operator are
+            // `MOD`/`^`, for their domain errors) must not check finiteness —
+            // the enclosing tree's boundary does that, as it does untrapped.
+            let observe = !(under_operator && matches!(type_, ParameterType::Float));
             (
                 type_.clone(),
                 loc,
                 IrValue::Checked {
                     type_,
                     value: Box::new(operator),
+                    observe,
                 },
             )
         }

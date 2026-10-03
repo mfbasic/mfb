@@ -851,6 +851,10 @@ name = "rt_fs_set_buffered_drain_failure"
 path = "tests/runtime/rt_fs_set_buffered_drain_failure.rs"
 
 [[test]]
+name = "rt_inline_trap_float_observation"
+path = "tests/runtime/rt_inline_trap_float_observation.rs"
+
+[[test]]
 name = "rt_link_cfloat"
 path = "tests/runtime/rt_link_cfloat.rs"
 
