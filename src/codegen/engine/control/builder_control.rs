@@ -2772,7 +2772,15 @@ impl CodeBuilder<'_> {
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
-                                    || self.owns_graph(&result.type_))
+                                    || self.owns_graph(&result.type_)
+                                    // bug-753: a `RES` collection proved the sole holder
+                                    // of its block (`record_ownership::owning_collections`)
+                                    // frees the block a copying reassignment replaces —
+                                    // `out = collections::append(out, collections::get(xs, 0))`
+                                    // leaked every replaced block. Shallow: its elements
+                                    // are references with their own owners.
+                                    || (Self::is_res_marked_resource_collection(&result.type_)
+                                        && self.owned_list_owning_collections.contains(name)))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block

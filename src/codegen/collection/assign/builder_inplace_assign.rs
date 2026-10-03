@@ -45,8 +45,17 @@ impl CodeBuilder<'_> {
         // G11: commit only for a statically-known single element of the list's
         // element type. A bulk `append(list, otherList)` has item type ==
         // list_type and falls through to the general (concatenating) path.
+        //
+        // bug-753: compared without the `RES` marker. A `List OF RES fs::File`
+        // element is `RES fs.File`, but `collections::get(xs, 0)` is a bare
+        // `fs.File`; the mismatch sent `out = append(out, collections::get(xs, 0))`
+        // down the copying path, which leaked a block per append.
+        let unmarked = |type_: &ParameterType| match type_ {
+            ParameterType::Res(inner) => inner.as_ref().clone(),
+            other => other.clone(),
+        };
         match self.static_operand_type(&target.args[1]) {
-            Some(item_type) if item_type == element_type => {}
+            Some(item_type) if unmarked(&item_type) == unmarked(&element_type) => {}
             _ => return Ok(false),
         }
         // plan-145-B: a record or `STATE` field grows its owner's block.

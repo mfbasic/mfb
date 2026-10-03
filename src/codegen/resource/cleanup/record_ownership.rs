@@ -532,6 +532,13 @@ struct CollectionUses<'m, 'f> {
     element_readers: HashSet<String>,
     /// Per local: whether EVERY store into it is a fresh collection block.
     fresh_block: HashMap<String, bool>,
+    /// bug-753: the locals in `escaping` named somewhere other than a `RETURN`'s value.
+    escaping_outside_return: HashSet<String>,
+    /// bug-753: every `RETURN`'s value, for asking whether the function hands back
+    /// only blocks it built.
+    returns: Vec<NirValue>,
+    /// Set while the walk is inside a `RETURN`'s value.
+    in_return: bool,
 }
 
 /// Per callee, per parameter position: whether the callee keeps that argument's block
@@ -541,6 +548,9 @@ struct CollectionUses<'m, 'f> {
 struct CalleeParamUses {
     known: HashMap<String, Vec<bool>>,
     visiting: HashSet<String>,
+    /// bug-753: per function, whether every `RETURN` hands back a block it built.
+    fresh_returns: HashMap<String, bool>,
+    fresh_visiting: HashSet<String>,
 }
 
 impl<'m, 'f> CollectionUses<'m, 'f> {
@@ -556,6 +566,9 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
             kept: HashSet::new(),
             element_readers: HashSet::new(),
             fresh_block: HashMap::new(),
+            escaping_outside_return: HashSet::new(),
+            returns: Vec::new(),
+            in_return: false,
         };
         collector.visit_ops(&function.body);
         collector
@@ -596,15 +609,69 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
     }
 
     fn note_store(&mut self, name: &str, value: Option<&NirValue>) {
-        let fresh = collection_store_is_fresh(name, value);
+        let fresh = collection_store_is_fresh(name, value)
+            || value.is_some_and(|value| self.user_call_returns_fresh_block(value));
         let entry = self.fresh_block.entry(name.to_string()).or_insert(true);
         *entry &= fresh;
+    }
+}
+
+impl CollectionUses<'_, '_> {
+    /// bug-753: whether `value` calls a function whose every `RETURN` hands back a
+    /// block that function built — so the caller's binding is the block's one
+    /// holder. A `RETURN` qualifies when its value is a collection literal, a call
+    /// `collection_store_is_fresh` already trusts, a call to another such function,
+    /// or a local whose every store is fresh, that no call keeps, and that is named
+    /// nowhere but in `RETURN`s. A parameter never qualifies: it is the caller's own
+    /// block (`FUNC same(xs) … RETURN xs`). Recursion answers "not fresh" until it
+    /// resolves.
+    fn user_call_returns_fresh_block(&mut self, value: &NirValue) -> bool {
+        let (NirValue::Call { target, .. } | NirValue::CallResult { target, .. }) = value else {
+            return false;
+        };
+        if let Some(known) = self.callees.fresh_returns.get(target) {
+            return *known;
+        }
+        let Some(callee) = self.functions.get(target).copied() else {
+            return false;
+        };
+        if !self.callees.fresh_visiting.insert(target.clone()) {
+            return false;
+        }
+        let mut inner = CollectionUses::of(callee, self.functions, self.callees);
+        let returns = std::mem::take(&mut inner.returns);
+        let fresh = !returns.is_empty()
+            && returns.iter().all(|returned| match returned {
+                NirValue::ListLiteral { .. }
+                | NirValue::SetLiteral { .. }
+                | NirValue::MapLiteral { .. } => true,
+                NirValue::Local(name) => {
+                    inner.block_is_fresh(name)
+                        && !inner.kept.contains(name)
+                        && !inner.escaping_outside_return.contains(name)
+                }
+                call => {
+                    collection_store_is_fresh("", Some(call))
+                        || inner.user_call_returns_fresh_block(call)
+                }
+            });
+        self.callees.fresh_visiting.remove(target);
+        self.callees.fresh_returns.insert(target.clone(), fresh);
+        fresh
     }
 }
 
 impl NirVisitor for CollectionUses<'_, '_> {
     fn visit_op(&mut self, op: &NirOp) {
         match op {
+            NirOp::Return { value: Some(value) } => {
+                self.returns.push(value.clone());
+                let previous = self.in_return;
+                self.in_return = true;
+                self.visit_value(value);
+                self.in_return = previous;
+                return;
+            }
             NirOp::Bind { name, value, .. } => self.note_store(name, value.as_ref()),
             NirOp::Assign { name, value } => self.note_store(name, Some(value)),
             // `s.state.f = v` desugars to a whole-state `WITH` whose target is, BY
@@ -645,6 +712,9 @@ impl NirVisitor for CollectionUses<'_, '_> {
             // a NIR variant added tomorrow lands here and answers fail-safe.
             NirValue::Local(name) => {
                 self.escaping.insert(name.clone());
+                if !self.in_return {
+                    self.escaping_outside_return.insert(name.clone());
+                }
             }
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
