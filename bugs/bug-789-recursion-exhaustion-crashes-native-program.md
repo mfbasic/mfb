@@ -1,6 +1,6 @@
 # bug-789: Native recursion exhaustion crashes instead of raising a language error
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
@@ -81,6 +81,35 @@ Establish a per-thread safe stack budget or target stack-limit check, including
 worker threads and an error/cleanup reserve. The failure path must not itself
 require enough stack to fault. Verify platform-specific stack conventions and
 measure the overhead of the check.
+
+## Decisions (owner, 2026-10-03)
+
+- The failure is a **new** error, `ErrStackOverflow`, not `ErrOutOfMemory`: its
+  meaning (the call depth exceeded the thread's stack) is distinct.
+- The check runs in **every** function prologue unless measurement shows it costs
+  too much; then narrow it (for example to functions on a call-graph cycle) and
+  record the measurement here.
+
+## Design findings (2026-10-03, not yet implemented)
+
+- Every target pins the per-thread arena-state pointer in a register
+  (`x19` aarch64, `r15` x86_64, `s11` riscv64; `regmodel::arena_base`). A per-thread
+  **stack-limit word** in the arena state makes the check target-neutral: at body
+  entry, `load t, [arena, STACK_LIMIT]; mov s, sp; cmp s, t; b.lo overflow`, where
+  `overflow` raises `ErrStackOverflow` before any binding is live — an ordinary
+  error return that every caller's `TRAP` and cleanup already handle. About four
+  instructions per call.
+- The word must sit below offset 2048: rv64 loads beyond its 12-bit immediate need
+  a computed register (`memory/04_arenas.md`). `+0..+1680` is fully used, so it has
+  to come out of the `v128Slots` region (`+1680`), the way `flagRhs` was carved.
+- Worker threads are created with an explicit 8 MiB stack
+  (`runtime_helpers.rs`: `pthread_attr_setstacksize`; `CreateThread(NULL, 8 MiB, …)`
+  on Windows), so the trampoline can set `limit = sp_at_entry - 8 MiB + reserve`.
+- The main thread's size comes from the OS: `getrlimit(RLIMIT_STACK)` on Linux and
+  macOS (treat `RLIM_INFINITY` as a fixed cap); on Windows the PE
+  `SizeOfStackReserve` our own linker writes.
+- Every native golden changes (one check per function). Prove each diff is only the
+  check by normalizing it out of the dump before re-baselining.
 
 ## Phases
 
