@@ -317,7 +317,7 @@ Commit: 2d16da988
 
 Acceptance: every check in this phase passes as stated.
   Result (2026-10-03): all four pass (see each task line).
-Commit: this archive commit (its hash is in `git log --follow planning/completed/plan-166-C-debug-symbols-pe-coff.md`; a hash cannot name its own commit)
+Commit: f76a2b76a
 
 ## Validation Plan
 
