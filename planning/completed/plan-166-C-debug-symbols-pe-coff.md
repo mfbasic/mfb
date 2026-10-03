@@ -299,18 +299,25 @@ Commit: 2d16da988
       They are fixed in 1f0a75aa3 (Corrections), and clippy now exits 0. In
       touched files, the one warning is `windows/link/mod.rs:865`
       `manual_is_multiple_of`, from acaf39979 (2026-09-04), not new.
-- [ ] Full suite once:
+- [x] Full suite once:
       `cargo test --no-fail-fast > /tmp/plan166-run.log 2>&1; echo "EXIT=$?"`
       then `grep -c '^failures:' /tmp/plan166-run.log` → `EXIT=0` and `0`
       (est. UNMEASURED; the run length on this host has not been measured for
       this plan. Record the observed time in Corrections). This is the one place
       the whole suite runs: the linker change touches every executable a runtime
       test builds, and only the full suite covers them all.
-- [ ] Archive `plan-166-C` to `planning/completed/` (A and B are archived as they
-      complete).
+      → It ran three times, because each of the first two found pre-existing bugs
+      (Corrections). The final run on 35d720139: `EXIT=0`,
+      `grep -c '^failures:'` → `0`, 280 test binaries, 6552 passed / 0 failed,
+      `artifact-gate [all]: … 2200 golden(s) checked, 0 diff(s)`, 83.9 min
+      (run 2: 73.9 min). After the fixes, the identity loop reran on a fresh
+      release build (`/tmp/mfb-166-final`) → `IDENTICAL`, 16 files.
+- [x] Archive `plan-166-C` to `planning/completed/` (A and B are archived as they
+      complete). → moved in the commit that ticks this box.
 
 Acceptance: every check in this phase passes as stated.
-Commit: —
+  Result (2026-10-03): all four pass (see each task line).
+Commit: this archive commit (its hash is in `git log --follow planning/completed/plan-166-C-debug-symbols-pe-coff.md`; a hash cannot name its own commit)
 
 ## Validation Plan
 
@@ -343,6 +350,41 @@ Commit: —
   `src/codegen/engine/builder/builder_emit_helpers.rs` (each test module moved
   to the end of its file; the sorted line sets match HEAD). Fixed in its own
   commit, 1f0a75aa3. After the fix: clippy exit 0.
+- **Found by the first full-suite run: duplicate macOS TLS data symbols.** The
+  first `cargo test --no-fail-fast` run had 2 failures,
+  `rt_debug_soak::an_http_read_loop_keeps_live_bytes_constant` and
+  `an_http_read_loop_leaves_no_block_behind`, both reporting
+  `error: debug symbols: duplicate symbol '_mfb_tls_sym_CFArrayGetCount'`. The
+  `--debug` table's duplicate refusal (plan-166-A §4.2) worked as designed.
+  The duplicate was real and pre-existing: `--ncode` of a one-line `http::read`
+  program listed `_mfb_tls_sym_CFArrayGetCount`, `…CFArrayGetValueAtIndex` and
+  `…CFRelease` twice, with identical bytes, because
+  `gen_macos::data_objects(server=true)` emitted them for the verify-block table
+  and again from `SERVER_SYMBOLS`. Every server-capable macOS TLS build carried
+  three dead strings, and relocations resolved to the first copy. Fixed at the
+  source, and `NativeCodePlan::validate` now refuses any symbol defined twice,
+  so a recurrence fails every build at codegen (5463ca1ec; tests
+  `data_objects_define_each_symbol_once`, `a_symbol_defined_twice_is_refused`).
+  This shrinks the non-`--debug` output of macOS TLS server-capable programs by
+  the three strings; hello_world and brogue (the identity loop) use no TLS. That
+  run was then stopped, because its integration tests call the rebuilt `mfb`, and
+  the suite was rerun once on the fixed tree.
+- **Second full-suite run (73.9 min, `EXIT=101`, 8 failures): the new
+  one-definition validator exposed two more pre-existing duplicates.** (1) The
+  `LINK` support merge in `builder/mod.rs` extended the module's data objects
+  without the module-level dedupe, so a `LINK` program that also used
+  `fs`/`thread` defined `_mfb_str_error_resource_closed` (and `_moved`) twice:
+  4 unit tests plus the package-fixture test. (2) The macOS app mouse selector
+  list re-emitted `_mfb_macapp_sel_modifierFlags`, which the always-on
+  `keys::KEY_SELECTORS` already carries: 3 `codegen_mouse_arena_region` tests,
+  and `app_mouse_surface` failing to build in the gate. Both are fixed in
+  35d720139. The gate's other 2 diffs (`http`/`tls` `macos-aarch64.ncodesum`)
+  were the expected effect of the TLS fix. All three re-pinned sums are proven:
+  the baseline `.ncode` matches the old sum, and the new one equals the baseline
+  minus exactly the unreachable last copy of each duplicated symbol, with
+  everything else identical (`/tmp/p166-golddiff.py`). The 7 unit/integration
+  tests then passed, and `artifact-gate.sh … http` / `tls` → `0 diff(s)`. A
+  third, final full run follows on the finished tree.
 - **"Mapped image matches a build without `--debug`" (Goal 2).** That cannot be
   shown by comparing a `--debug` build to a plain one, because `--debug` also
   changes codegen (the debug report helpers and imports). It was strengthened to a
