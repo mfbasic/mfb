@@ -181,33 +181,42 @@ terminator, in record order.
 
 ### Phase 1: COFF symbol table
 
-- [ ] `src/os/windows/link/pe.rs`: `struct CoffSymbolTable { records: Vec<u8>,
+- [x] `src/os/windows/link/pe.rs`: `struct CoffSymbolTable { records: Vec<u8>,
       strings: Vec<u8>, count: u32 }`. `write_image` takes
       `Option<&CoffSymbolTable>`, sets the two header fields, and appends the
       records and strings after `total_file_size`.
-- [ ] `src/os/windows/link/mod.rs:write_executable`: build the table from
+- [x] `src/os/windows/link/mod.rs:write_executable`: build the table from
       `debug_symbols(image)` (§4.1–4.2) when `image.debug_symbols` is set, and
       pass `None` otherwise. The other 4 `write_image` callers are tests in
       `pe.rs` (`grep -n "write_image(" src/os/windows/link/*.rs` → `pe.rs:405,
-      423, 549, 575`), and they pass `None`.
-- [ ] Address check on real output: build `--debug` `examples/hello_world` for
+      423, 549, 575`), and they pass `None`. (`mod.rs:coff_symbol_table`.)
+- [x] Address check on real output: build `--debug` `examples/hello_world` for
       `windows-x86_64`, and confirm that `nm build/hello_world.exe | grep _mfb_fn_main`
       equals `IMAGE_BASE` (`0x0001_4000_0000`, `pe.rs:21`) plus
       `symbol_rva(image, "_mfb_fn_main", …)`. The section-relative convention was
       measured in §2. A mismatch here is a bug in the section-number or offset
-      mapping, not in the convention.
-- [ ] Tests in `src/os/windows/link/mod.rs` `mod tests`:
+      mapping, not in the convention. → `nm` → `1400017ba T _mfb_fn_main`,
+      `140001000 T _main`, `14000e000 R _mfb_str_0`. Cross-checked against the
+      relocation-resolved code (relocations use `symbol_rva`): `objdump -d` →
+      `140001148: callq 0x1400017ba <_mfb_fn_main>` and
+      `leaq 0xc838(%rip), %r10 # 0x14000e000 <_mfb_str_0>`;
+      `AddressOfEntryPoint 0x1000` = `_main`'s RVA.
+- [x] Tests in `src/os/windows/link/mod.rs` `mod tests`:
       `debug_symbols_fill_coff_header_and_table` (header fields, record count, a
       long name through the string table, `SectionNumber`/`Value` for a text, an
       `.rdata` and a `.data` symbol), `debug_symbols_off_leaves_header_zero`, and
       `signed_debug_build_keeps_mfbsign_and_seals` (`inspect` finds `.mfbsign`,
-      and `seal` succeeds).
-- [ ] Signed + debug in `src/cli/info/tests.rs`: a Windows case like the macOS and
-      Linux ones from A and B.
+      and `seal` succeeds). → `cargo test --bin mfb windows::link` → 43 passed.
+- [x] Signed + debug in `src/cli/info/tests.rs`: a Windows case like the macOS and
+      Linux ones from A and B. → `a_signed_debug_image_reports_intact_contents`
+      now covers Mach-O, static ELF, dynamic ELF and PE; `cargo test --bin mfb
+      cli::info` → 21 passed.
 
 Acceptance: `llvm-nm` resolves each function to its real address.
   Check: `nm build/hello_world.exe | grep -c ' T _mfb_fn_main'` → 1, at the address computed in the convention check (est. 2 min).
   Check: `cargo test --bin mfb windows::link` → all pass (est. 3 min).
+  Result (2026-10-03): `nm build/hello_world.exe | grep -c ' T _mfb_fn_main'` → 1, at
+  `1400017ba` (= the call target above); `windows::link` → 43 passed.
 Commit: —
 
 ### Phase 2: Spec

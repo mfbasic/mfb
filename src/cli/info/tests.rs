@@ -1026,6 +1026,18 @@ fn a_signed_debug_image_reports_intact_contents() {
             )
             .expect("link dynamic ELF"),
         ),
+        (
+            "PE",
+            crate::os::windows::write_linked_executable(
+                &dir.path().join("pe"),
+                "probe",
+                &debug_image(vec![0xc3], "_main"),
+                false,
+                None,
+                None,
+            )
+            .expect("link PE"),
+        ),
     ];
     for (format, path) in images {
         let bytes = std::fs::read(&path).unwrap();
