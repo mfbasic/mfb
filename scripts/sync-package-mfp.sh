@@ -85,7 +85,10 @@ while IFS= read -r proj; do
     continue
   fi
 
-  # Copy over every committed copy of this package, anywhere under tests/.
+  # Copy over every committed copy of this package: anywhere under tests/, and the
+  # artifact committed beside a tools/ source, which tests load directly (for
+  # example `rt_tls_listener_thread_transfer` reads
+  # tools/thread-package-sources/xfer_tls_listener_worker/xfer_tls_listener_worker.mfp).
   found_any=0
   while IFS= read -r committed; do
     [ -n "$committed" ] || continue
@@ -103,7 +106,7 @@ while IFS= read -r proj; do
       echo "updated: $committed"
       updated=$((updated + 1))
     fi
-  done < <(find tests -name "$name.mfp")
+  done < <(find tests tools/thread-package-sources tools/link-package-sources -name "$name.mfp")
   [ "$found_any" -eq 0 ] && no_copy=$((no_copy + 1))
 done < <(package_projects)
 
