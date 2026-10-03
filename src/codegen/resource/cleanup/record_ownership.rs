@@ -794,6 +794,7 @@ fn collection_store_is_fresh(dest: &str, value: Option<&NirValue>) -> bool {
         | NirValue::RuntimeCall { target, args, .. } => {
             (COLLECTION_SELF_MUTATORS.contains(&target.as_str())
                 && matches!(args.first(), Some(NirValue::Local(name)) if name == dest))
+                || FRESH_NATIVE_MEMBERS.contains(&target.as_str())
                 || FRESH_BUILTIN_BODIES
                     .iter()
                     .any(|prefix| target.starts_with(prefix))
@@ -811,20 +812,52 @@ fn collection_store_is_fresh(dest: &str, value: Option<&NirValue>) -> bool {
 /// * `#collections_take$` / `#collections_drop$` — `RETURN __collections_slice(…)`,
 ///   no fast path of their own.
 ///
-/// A body with a native fast path (`sort`, `flatten`, `chunks`, `window`, …) is
-/// NOT listed: the fast path replaces the body at the call, so the body's returns
-/// prove nothing about what the call hands back. List one only after auditing its
-/// fast path.
+/// A body with a native fast path is listed only after that fast path is audited:
+/// the fast path replaces the body at the call, so the body's returns alone prove
+/// nothing about what the call hands back.
 ///
-/// A user function's result is not counted either, even when every `RETURN` is
-/// fresh: a binding of a user call ADOPTS the returned resources (§15.6), and that
-/// adoption already mis-closes handles the callee was passed (bug-755). Freeing the
-/// block on top of it turned that cleanup failure into a crash. Revisit with
-/// bug-755's fix.
+/// A user function's result is judged by its body instead
+/// (`CollectionUses::user_call_returns_fresh_block`).
 const FRESH_BUILTIN_BODIES: &[&str] = &[
     "#collections_slice$",
     "#collections_take$",
     "#collections_drop$",
+    "#collections_chunks$",
+    "#collections_window$",
+];
+
+/// Natively lowered `collections` members audited to return a block nothing else
+/// holds, for every element type (bug-753). Each successful path ends by returning
+/// a block it allocated itself; every failure raises:
+///
+/// * `filter` — `func_filter.rs:lower_filter` reserves its output and appends into
+///   it; no early exit hands back the input, even when nothing is dropped.
+/// * `append` / `prepend` / `insert` — `lower_collection_end_insert` /
+///   `lower_insert` → `list_mutate.rs:lower_list_insert_collection`, which allocates
+///   `count_A + count_B` and returns that block.
+/// * `set` — a list: `lower_list_remove_at` then `lower_list_insert_collection`
+///   (both fresh, the intermediate freed), or for a fixed-width element an in-place
+///   write into a `copy_collection_tight` copy; a map: `lower_map_remove_key` and a
+///   singleton concatenated by `lower_map_concat`, both intermediates freed.
+/// * `removeAt` — `list_mutate.rs:lower_list_remove_at` allocates and copies.
+/// * `mid` — `builder_search.rs:lower_list_mid` allocates and copies on both paths;
+///   the no-copy form exists only as a self-update.
+///
+/// `chunks` and `window` (in [`FRESH_BUILTIN_BODIES`]) keep a native fast path only
+/// for numeric and `String` elements; a `RES` element runs the source body, which
+/// builds its result from `[]` and appends `__collections_slice` pieces.
+///
+/// A block-fresh result still holds references to the argument's resources; only
+/// the block is the binding's. Self-updates (`xs = append(xs, …)`) are
+/// [`COLLECTION_SELF_MUTATORS`], the only lowering that writes an existing block.
+const FRESH_NATIVE_MEMBERS: &[&str] = &[
+    "collections.filter",
+    "collections.append",
+    "collections.prepend",
+    "collections.insert",
+    "collections.set",
+    "collections.removeAt",
+    "collections.mid",
 ];
 
 #[cfg(test)]
