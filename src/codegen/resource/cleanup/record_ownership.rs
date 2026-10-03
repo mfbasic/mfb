@@ -42,7 +42,7 @@
 //! and the direction they fail in, are this module's.
 
 use crate::codegen::engine::builder::CodeBuilder;
-use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
+use crate::target::shared::nir::visit::{NirVisitor, walk_op, walk_value};
 use crate::target::shared::nir::{NirFunction, NirOp, NirValue};
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
@@ -446,7 +446,8 @@ fn owning_collections(
                 .push(name.clone());
         }
     }
-    let uses = CollectionUses::of(function);
+    let mut callees = CalleeParamUses::default();
+    let uses = CollectionUses::of(function, functions, &mut callees);
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
     // bug-651: a `RES`-marked collection that no element ever floats into still owns its
@@ -464,7 +465,7 @@ fn owning_collections(
         if !res_collection_type(type_) || floats.contains_key(name) {
             continue;
         }
-        if uses.escaping.contains(name) || uses.element_readers.contains(name) {
+        if uses.block_held_elsewhere(name) {
             continue;
         }
         if !uses.block_is_fresh(name) {
@@ -476,7 +477,7 @@ fn owning_collections(
         return owning;
     }
     for (collection, elements) in &floats {
-        if uses.escaping.contains(collection) || uses.element_readers.contains(collection) {
+        if uses.block_held_elsewhere(collection) {
             continue;
         }
         if !uses.block_is_fresh(collection) {
@@ -513,10 +514,18 @@ fn owning_collections(
 /// Where each local is NAMED, for [`owning_collections`]: the positions that can create
 /// a second holder of a block, and the calls that hand a resource pointer back out of a
 /// collection.
-#[derive(Default)]
-struct CollectionUses {
+struct CollectionUses<'m, 'f> {
+    /// Every function in the program, to ask what a callee does with an argument.
+    functions: &'f HashMap<String, &'f NirFunction>,
+    /// What each callee's parameters are known to do, shared across the walk.
+    callees: &'m mut CalleeParamUses,
     /// Locals named as a bare `Local` somewhere other than a call's argument list.
     escaping: HashSet<String>,
+    /// bug-801: locals whose BLOCK a call keeps — a `collections` member's non-receiver
+    /// argument (`collections::append(out, piece)` stores `piece`'s block pointer in
+    /// `out`), or an argument the callee's own body keeps. Asked of collections only:
+    /// a resource element passed this way is the float the owning list exists for.
+    kept: HashSet<String>,
     /// Collections named as an argument to a borrowed-element read
     /// (`CodeBuilder::value_aliases_live_resource`): `collections::get`/`getOr`, or a
     /// `*::poll` over a socket list.
@@ -525,11 +534,61 @@ struct CollectionUses {
     fresh_block: HashMap<String, bool>,
 }
 
-impl CollectionUses {
-    fn of(function: &NirFunction) -> Self {
-        let mut collector = CollectionUses::default();
+/// Per callee, per parameter position: whether the callee keeps that argument's block
+/// past the call (bug-801). Memoized; a function still being resolved answers
+/// fail-safe.
+#[derive(Default)]
+struct CalleeParamUses {
+    known: HashMap<String, Vec<bool>>,
+    visiting: HashSet<String>,
+}
+
+impl<'m, 'f> CollectionUses<'m, 'f> {
+    fn of(
+        function: &NirFunction,
+        functions: &'f HashMap<String, &'f NirFunction>,
+        callees: &'m mut CalleeParamUses,
+    ) -> Self {
+        let mut collector = CollectionUses {
+            functions,
+            callees,
+            escaping: HashSet::new(),
+            kept: HashSet::new(),
+            element_readers: HashSet::new(),
+            fresh_block: HashMap::new(),
+        };
         collector.visit_ops(&function.body);
         collector
+    }
+
+    /// Which of `target`'s arguments it keeps, when its body is in the program. `None`
+    /// for a natively lowered builtin, whose arguments are uses (see `visit_value`).
+    fn callee_keeps(&mut self, target: &str) -> Option<Vec<bool>> {
+        if let Some(known) = self.callees.known.get(target) {
+            return Some(known.clone());
+        }
+        let callee = self.functions.get(target).copied()?;
+        if !self.callees.visiting.insert(target.to_string()) {
+            // Recursion: answer "escapes" until the cycle resolves, never "owned".
+            return Some(vec![true; callee.params.len()]);
+        }
+        let inner = CollectionUses::of(callee, self.functions, self.callees);
+        let keeps: Vec<bool> = callee
+            .params
+            .iter()
+            .map(|p| inner.escaping.contains(&p.name) || inner.kept.contains(&p.name))
+            .collect();
+        self.callees.visiting.remove(target);
+        self.callees.known.insert(target.to_string(), keeps.clone());
+        Some(keeps)
+    }
+
+    /// Whether a holder other than `name` itself can still reach its block or read a
+    /// resource pointer out of it after `name`'s scope exits.
+    fn block_held_elsewhere(&self, name: &str) -> bool {
+        self.escaping.contains(name)
+            || self.kept.contains(name)
+            || self.element_readers.contains(name)
     }
 
     fn block_is_fresh(&self, name: &str) -> bool {
@@ -543,7 +602,7 @@ impl CollectionUses {
     }
 }
 
-impl NirVisitor for CollectionUses {
+impl NirVisitor for CollectionUses<'_, '_> {
     fn visit_op(&mut self, op: &NirOp) {
         match op {
             NirOp::Bind { name, value, .. } => self.note_store(name, value.as_ref()),
@@ -587,9 +646,9 @@ impl NirVisitor for CollectionUses {
             NirValue::Local(name) => {
                 self.escaping.insert(name.clone());
             }
-            NirValue::Call { args, .. }
-            | NirValue::CallResult { args, .. }
-            | NirValue::RuntimeCall { args, .. } => {
+            NirValue::Call { target, args, .. }
+            | NirValue::CallResult { target, args, .. }
+            | NirValue::RuntimeCall { target, args, .. } => {
                 if CodeBuilder::value_aliases_live_resource(value) {
                     for arg in args {
                         if let NirValue::Local(name) = arg {
@@ -597,13 +656,34 @@ impl NirVisitor for CollectionUses {
                         }
                     }
                 }
-                // An argument is a USE, not a second owner: `len(c)`,
-                // `collections::append(c, x)` and `udp::close(s)` all read through the
-                // pointer and none of them take over freeing the block. Nested values
-                // inside an argument still walk normally.
-                for arg in args {
-                    if !matches!(arg, NirValue::Local(_)) {
+                // An argument to a natively lowered builtin is a USE, not a second
+                // owner: `len(c)`, the receiver of `collections::append(c, x)` and
+                // `udp::close(s)` all read through the pointer and none of them keep it.
+                //
+                // bug-801: two argument positions DO keep a collection's block. A `collections` member's
+                // non-receiver argument can be stored as an element —
+                // `collections::append(out, piece)` puts `piece`'s block pointer inside
+                // `out` — so it escapes. And a callee with a body (a user FUNC, or a
+                // builtin's source body such as `chunks`'s `__collections_slice`) is
+                // asked what its own parameter does: `FUNC box(xs) … append(out, xs)
+                // … RETURN out` lets the caller's argument escape exactly as a direct
+                // append would.
+                let stores_elements = target.starts_with("collections.");
+                let callee = self.callee_keeps(target);
+                for (index, arg) in args.iter().enumerate() {
+                    let NirValue::Local(name) = arg else {
+                        // Nested values inside an argument still walk normally.
                         self.visit_value(arg);
+                        continue;
+                    };
+                    if stores_elements && index > 0 {
+                        self.kept.insert(name.clone());
+                    }
+                    if callee
+                        .as_ref()
+                        .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true))
+                    {
+                        self.kept.insert(name.clone());
                     }
                 }
                 return;
@@ -682,6 +762,28 @@ mod owned_list_ownership_tests {
     use super::*;
     use crate::target::shared::nir::{NirOp, NirSourceLoc};
 
+    /// A function with `params` and `body`, for walking a body or naming a callee.
+    fn function(params: &[&str], body: Vec<NirOp>) -> NirFunction {
+        NirFunction {
+            name: "f".to_string(),
+            visibility: String::new(),
+            kind: "function".to_string(),
+            isolated: false,
+            params: params
+                .iter()
+                .map(|name| crate::target::shared::nir::NirParam {
+                    name: name.to_string(),
+                    type_: ParameterType::parse("List OF RES fs.File"),
+                    default: None,
+                })
+                .collect(),
+            returns: ParameterType::parse("List OF List OF RES fs.File"),
+            body,
+            file: String::new(),
+            resource_owners: HashMap::new(),
+        }
+    }
+
     fn call(target: &str, args: Vec<NirValue>) -> NirValue {
         NirValue::Call {
             target: target.to_string(),
@@ -739,7 +841,9 @@ mod owned_list_ownership_tests {
     /// fire on the shape §15.6 is written for.
     #[test]
     fn an_argument_position_does_not_escape() {
-        let mut uses = CollectionUses::default();
+        let no_functions = HashMap::new();
+        let mut callees = CalleeParamUses::default();
+        let mut uses = CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
         uses.visit_op(&NirOp::Assign {
             name: "chans".to_string(),
             value: call("collections.append", vec![local("chans"), local("c")]),
@@ -774,7 +878,10 @@ mod owned_list_ownership_tests {
                 body: Vec::new(),
             },
         ] {
-            let mut uses = CollectionUses::default();
+            let no_functions = HashMap::new();
+            let mut callees = CalleeParamUses::default();
+            let mut uses =
+                CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
             uses.visit_op(&op);
             assert!(
                 uses.escaping.contains("chans"),
@@ -788,7 +895,9 @@ mod owned_list_ownership_tests {
     /// still be live in the reader's hands.
     #[test]
     fn a_borrowed_element_read_disqualifies_its_collection() {
-        let mut uses = CollectionUses::default();
+        let no_functions = HashMap::new();
+        let mut callees = CalleeParamUses::default();
+        let mut uses = CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
         uses.visit_op(&NirOp::Bind {
             mutable: false,
             name: "pick".to_string(),
@@ -801,12 +910,99 @@ mod owned_list_ownership_tests {
         assert!(uses.element_readers.contains("chans"));
     }
 
+    /// bug-801: a collection passed as a `collections` member's element argument is
+    /// KEPT — `append(out, piece)` stores `piece`'s block inside `out` — so `piece`
+    /// must not free its block at scope exit. The receiver and a resource element
+    /// stay plain uses (the float the owning list exists for).
+    #[test]
+    fn a_collection_appended_into_another_is_kept() {
+        let no_functions = HashMap::new();
+        let mut callees = CalleeParamUses::default();
+        let mut uses = CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
+        uses.visit_op(&NirOp::Assign {
+            name: "out".to_string(),
+            value: call("collections.append", vec![local("out"), local("piece")]),
+        });
+        assert!(uses.block_held_elsewhere("piece"));
+        assert!(!uses.block_held_elsewhere("out"));
+        assert!(
+            !uses.escaping.contains("piece"),
+            "a floated element still qualifies"
+        );
+    }
+
+    /// bug-801: a callee with a body is asked what its parameter does. `box` appends its
+    /// parameter into the list it returns, so the caller's argument is kept; `count`
+    /// only measures its parameter, so the caller's argument stays a use.
+    #[test]
+    fn a_callee_that_keeps_its_parameter_keeps_the_argument() {
+        let boxer = function(
+            &["xs"],
+            vec![
+                NirOp::Assign {
+                    name: "out".to_string(),
+                    value: call("collections.append", vec![local("out"), local("xs")]),
+                },
+                NirOp::Return {
+                    value: Some(local("out")),
+                },
+            ],
+        );
+        let counter = function(
+            &["xs"],
+            vec![NirOp::Return {
+                value: Some(call("len", vec![local("xs")])),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("box".to_string(), &boxer), ("count".to_string(), &counter)]);
+        let mut callees = CalleeParamUses::default();
+        let caller = function(
+            &[],
+            vec![
+                NirOp::Return {
+                    value: Some(call("box", vec![local("piece")])),
+                },
+                NirOp::Return {
+                    value: Some(call("count", vec![local("other")])),
+                },
+            ],
+        );
+        let uses = CollectionUses::of(&caller, &functions, &mut callees);
+        assert!(uses.block_held_elsewhere("piece"));
+        assert!(!uses.block_held_elsewhere("other"));
+    }
+
+    /// A recursive callee answers fail-safe while it is being resolved.
+    #[test]
+    fn a_recursive_callee_keeps_its_argument() {
+        let looping = function(
+            &["xs"],
+            vec![NirOp::Return {
+                value: Some(call("loop", vec![local("xs")])),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("loop".to_string(), &looping)]);
+        let mut callees = CalleeParamUses::default();
+        let caller = function(
+            &[],
+            vec![NirOp::Return {
+                value: Some(call("loop", vec![local("piece")])),
+            }],
+        );
+        let uses = CollectionUses::of(&caller, &functions, &mut callees);
+        assert!(uses.block_held_elsewhere("piece"));
+    }
+
     /// `s.state.f = v` writes THROUGH the handle: the `WITH` target names the resource
     /// but leaves no second holder of its record, so a floated `RES s AS U STATE S`
     /// element still qualifies. The update's own value keeps walking.
     #[test]
     fn a_state_assign_does_not_escape_its_resource() {
-        let mut uses = CollectionUses::default();
+        let no_functions = HashMap::new();
+        let mut callees = CalleeParamUses::default();
+        let mut uses = CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
         uses.visit_op(&NirOp::StateAssign {
             resource: "c".to_string(),
             value: NirValue::WithUpdate {
@@ -829,7 +1025,9 @@ mod owned_list_ownership_tests {
     /// `<resource>.state` falls through to the ordinary walk and escapes.
     #[test]
     fn a_state_assign_naming_another_resource_still_escapes() {
-        let mut uses = CollectionUses::default();
+        let no_functions = HashMap::new();
+        let mut callees = CalleeParamUses::default();
+        let mut uses = CollectionUses::of(&function(&[], Vec::new()), &no_functions, &mut callees);
         uses.visit_op(&NirOp::StateAssign {
             resource: "c".to_string(),
             value: NirValue::WithUpdate {

@@ -75,8 +75,10 @@ starts with one of `FRESH_BUILTIN_BODIES` as a fresh block:
 - `#collections_take$` / `#collections_drop$`: `RETURN __collections_slice(…)`, no
   fast path of their own.
 
-A `List OF RES` bound from them now has its block freed at drop, and so does
-the `piece` the `chunks`/`window` bodies bind from `__collections_slice`. Proof:
+A `List OF RES` bound from them now has its block freed at drop. The `piece`
+the `chunks`/`window` bodies bind from `__collections_slice` is appended into the
+result, so freeing it was a use after free (bug-801); with bug-801's fix it is
+counted as kept and the result list owns it. Proof:
 on main the repro's peak live bytes are 304 864 → 592 864 (N=1000 → 2000).
 With the fix they are flat and allocs = frees. The list and the handle still
 read afterwards.
